@@ -1,0 +1,16 @@
+---
+description: Team member invites must use Supabase Auth email only, never Instantly.
+globs:
+  - app/api/members/**
+  - lib/team-invite.ts
+  - app/(app)/settings/team/**
+---
+
+# Team invites: Supabase only
+
+- **Never** send team invite / signup emails through Instantly (`INSTANTLY_API_KEY`).
+- Use `lib/team-invite.ts` → `sendTeamInviteViaSupabase()`:
+  - New users: `admin.auth.admin.inviteUserByEmail` (Supabase sends the invite email).
+  - Pending users (never signed in): `resetPasswordForEmail` with `redirectTo` → `/signup?...`.
+  - Rate-limited: `generateLink` + show copyable signup link in the UI.
+- Instantly is OK for **customer** flows only (approvals, missing-info notifications).

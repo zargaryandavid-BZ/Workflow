@@ -1,0 +1,151 @@
+"use client";
+
+import { useDroppable } from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import Image from "next/image";
+import { ArrowDownToLine, ArrowUpFromLine, Plus } from "lucide-react";
+import { OrderCard } from "./order-card";
+import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import type { CardNotificationBadge } from "@/lib/card-badges";
+import type {
+  BoardColumn,
+  CustomField,
+  OrderWithRelations,
+  Role,
+} from "@/lib/types";
+
+interface ColumnProps {
+  column: BoardColumn;
+  canDragOut: boolean;
+  orders: OrderWithRelations[];
+  customFields: CustomField[];
+  fieldValuesByOrder: Record<string, Record<string, unknown>>;
+  thumbnailByOrder: Record<string, string>;
+  notificationBadgeByOrder: Record<string, CardNotificationBadge>;
+  ownerNameByOrder: Record<string, string>;
+  isFirst: boolean;
+  onOpenOrder: (order: OrderWithRelations) => void;
+  onAdd: (columnId: string) => void;
+}
+
+/** Short label of which roles a drop permission applies to. */
+function dropLabel(roles: Role[] | null): string {
+  if (roles == null) return "All";
+  if (roles.length === 0) return "Admins";
+  return BOARD_ROLES.filter((r) => roles.includes(r))
+    .map((r) => ROLE_ABBR[r])
+    .join(" ");
+}
+
+export function Column({
+  column,
+  canDragOut,
+  orders,
+  customFields,
+  fieldValuesByOrder,
+  thumbnailByOrder,
+  notificationBadgeByOrder,
+  ownerNameByOrder,
+  isFirst,
+  onOpenOrder,
+  onAdd,
+}: ColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+
+  return (
+    <div className="flex h-full w-72 shrink-0 flex-col">
+      <div
+        className={cn(
+          "mb-2 rounded-t-lg border-t-4 bg-slate-200/60 px-3 py-2",
+          !column.color ? COLUMN_ACCENT[column.kind] : undefined
+        )}
+        style={column.color ? { borderTopColor: column.color } : undefined}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            {column.color ? (
+              <span
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{ background: column.color }}
+              />
+            ) : null}
+            <span className="truncate text-sm font-semibold text-slate-700">
+              {column.name}
+            </span>
+            <span className="rounded-full bg-white px-1.5 text-xs font-medium text-slate-500">
+              {orders.length}
+            </span>
+          </div>
+          {isFirst ? (
+            <button
+              onClick={() => onAdd(column.id)}
+              className="rounded p-1 text-slate-500 hover:bg-white hover:text-slate-700"
+              aria-label="Add order"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+
+        {column.image_url ? (
+          <Image
+            src={column.image_url}
+            alt=""
+            width={320}
+            height={96}
+            className="mt-2 h-20 w-full rounded-md object-cover"
+            unoptimized
+          />
+        ) : null}
+
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] font-medium text-slate-500">
+          <span
+            className="inline-flex items-center gap-0.5"
+            title="Roles that can drop orders into this stage"
+          >
+            <ArrowDownToLine className="h-3 w-3" />
+            in: {dropLabel(column.drop_in_roles)}
+          </span>
+          <span
+            className="inline-flex items-center gap-0.5"
+            title="Roles that can take orders out of this stage"
+          >
+            <ArrowUpFromLine className="h-3 w-3" />
+            out: {dropLabel(column.drop_out_roles)}
+          </span>
+        </div>
+      </div>
+
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "board-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-b-lg p-1.5 transition-colors",
+          isOver ? "bg-blue-50" : "bg-slate-100/40"
+        )}
+      >
+        <SortableContext
+          items={orders.map((o) => o.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          {orders.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              canDrag={canDragOut}
+              customFields={customFields}
+              fieldValues={fieldValuesByOrder[order.id]}
+              thumbnail={thumbnailByOrder[order.id]}
+              notificationBadge={notificationBadgeByOrder[order.id]}
+              ownerName={ownerNameByOrder[order.id]}
+              onOpen={onOpenOrder}
+            />
+          ))}
+        </SortableContext>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,222 @@
+import type { CustomField } from "@/lib/types";
+import { isPastDateInputValue } from "@/lib/utils";
+import {
+  ARTWORK_FIELD_NAME,
+  CUSTOMER_CONTACT_FIELD_NAME,
+  CUSTOMER_NAME_FIELD_NAME,
+  DESIGNER_FIELD_NAME,
+  ORDER_QTY_FIELD_NAME,
+} from "@/lib/constants";
+
+/** Print fields after customer / designer, in display order on create + edit forms. */
+export const ORDER_FORM_PRINT_FIELD_NAMES = [
+  "Product",
+  "Product Type",
+  "Finished Size",
+  "Materials",
+  "Lamination",
+  "Special Finishing",
+  "Sides",
+  "Position",
+  "Color",
+] as const;
+
+/** Labels that differ from the stored custom-field name. */
+export const ORDER_FORM_FIELD_LABELS: Record<string, string> = {
+  Lamination: "Finishing",
+  "Artwork (GDrive link)": "Artwork GDrive link",
+};
+
+/** Always required on the order form regardless of the custom-field toggle. */
+export const ORDER_FORM_ALWAYS_REQUIRED = [
+  CUSTOMER_NAME_FIELD_NAME,
+  CUSTOMER_CONTACT_FIELD_NAME,
+  "Product",
+  "Product Type",
+  "Finished Size",
+  "Materials",
+] as const;
+
+export function orderFormFieldLabel(name: string): string {
+  return ORDER_FORM_FIELD_LABELS[name] ?? name;
+}
+
+export function isEmptyFieldValue(v: unknown): boolean {
+  return v === null || v === undefined || v === "" || v === false;
+}
+
+export function isValidCustomerContact(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (v.includes("@")) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  }
+  const digits = v.replace(/\D/g, "");
+  return digits.length >= 7;
+}
+
+export function validateCustomerFields(
+  name: string,
+  contact: string
+): string | null {
+  if (!name.trim()) return "Customer Name is required";
+  if (!contact.trim() || !isValidCustomerContact(contact)) {
+    return "Please add an email or phone number";
+  }
+  return null;
+}
+
+export function findOrderFormField(
+  fields: CustomField[],
+  name: string
+): CustomField | undefined {
+  const lower = name.toLowerCase();
+  return fields.find((f) => f.name.toLowerCase() === lower);
+}
+
+export function resolveOrderFormFields(customFields: CustomField[]) {
+  const artworkField = findOrderFormField(customFields, ARTWORK_FIELD_NAME);
+  const customerNameField = findOrderFormField(
+    customFields,
+    CUSTOMER_NAME_FIELD_NAME
+  );
+  const customerContactField = findOrderFormField(
+    customFields,
+    CUSTOMER_CONTACT_FIELD_NAME
+  );
+  const orderQtyField = findOrderFormField(customFields, ORDER_QTY_FIELD_NAME);
+
+  const reserved = new Set(
+    [
+      DESIGNER_FIELD_NAME,
+      ARTWORK_FIELD_NAME,
+      CUSTOMER_NAME_FIELD_NAME,
+      CUSTOMER_CONTACT_FIELD_NAME,
+      ORDER_QTY_FIELD_NAME,
+    ].map((n) => n.toLowerCase())
+  );
+
+  const byName = new Map(
+    customFields
+      .filter((f) => !reserved.has(f.name.toLowerCase()))
+      .map((f) => [f.name.toLowerCase(), f])
+  );
+
+  const printFields: CustomField[] = [];
+  for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
+    const field = byName.get(name.toLowerCase());
+    if (field) printFields.push(field);
+  }
+  for (const field of customFields) {
+    if (reserved.has(field.name.toLowerCase())) continue;
+    if (printFields.some((f) => f.id === field.id)) continue;
+    printFields.push(field);
+  }
+
+  return {
+    artworkField,
+    customerNameField,
+    customerContactField,
+    orderQtyField,
+    printFields,
+  };
+}
+
+export function validateOrderFormFields(
+  fields: {
+    artworkField?: CustomField;
+    customerNameField?: CustomField;
+    customerContactField?: CustomField;
+    printFields: CustomField[];
+  },
+  fieldValues: Record<string, unknown>,
+  customerName: string,
+  customerContact: string
+): string | null {
+  const customerErr = validateCustomerFields(customerName, customerContact);
+  if (customerErr) return customerErr;
+
+  const requiredNames = new Set<string>(
+    ORDER_FORM_ALWAYS_REQUIRED.map((n) => n.toLowerCase())
+  );
+
+  const toCheck: CustomField[] = [...fields.printFields];
+  if (fields.artworkField) toCheck.push(fields.artworkField);
+
+  const missing = toCheck.filter((f) => {
+    const must =
+      requiredNames.has(f.name.toLowerCase()) || f.required;
+    return must && isEmptyFieldValue(fieldValues[f.id]);
+  });
+
+  if (missing.length > 0) {
+    return `Please fill required field(s): ${missing.map((f) => orderFormFieldLabel(f.name)).join(", ")}`;
+  }
+
+  return null;
+}
+
+export function validateDueDate(
+  dueDate: string | null | undefined,
+  previousDueDate?: string | null
+): string | null {
+  const value = dueDate?.trim();
+  if (!value) return null;
+  const normalized = value.slice(0, 10);
+  const previous = previousDueDate?.trim().slice(0, 10);
+  if (previous && normalized === previous) return null;
+  if (isPastDateInputValue(normalized)) {
+    return "Due date cannot be in the past.";
+  }
+  return null;
+}
+
+export function buildCustomFieldPayload(
+  resolved: ReturnType<typeof resolveOrderFormFields>,
+  fieldValues: Record<string, unknown>,
+  skus: { qty?: number | null }[],
+  customerName: string,
+  customerContact: string
+): { customFieldId: string; value: unknown }[] {
+  const rows: { customFieldId: string; value: unknown }[] = [];
+
+  if (resolved.customerNameField) {
+    rows.push({
+      customFieldId: resolved.customerNameField.id,
+      value: customerName.trim(),
+    });
+  }
+  if (resolved.customerContactField) {
+    rows.push({
+      customFieldId: resolved.customerContactField.id,
+      value: customerContact.trim(),
+    });
+  }
+
+  for (const field of resolved.printFields) {
+    rows.push({
+      customFieldId: field.id,
+      value: fieldValues[field.id] ?? null,
+    });
+  }
+
+  if (resolved.artworkField) {
+    rows.push({
+      customFieldId: resolved.artworkField.id,
+      value: fieldValues[resolved.artworkField.id] ?? null,
+    });
+  }
+
+  if (resolved.orderQtyField) {
+    const skuSum = skus.reduce((sum, s) => sum + (s.qty ?? 0), 0);
+    rows.push({
+      customFieldId: resolved.orderQtyField.id,
+      value:
+        skus.length > 0
+          ? skuSum
+          : (fieldValues[resolved.orderQtyField.id] ?? null),
+    });
+  }
+
+  return rows;
+}
