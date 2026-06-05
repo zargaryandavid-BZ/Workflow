@@ -1,25 +1,10 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { loadTeamMembers } from "@/lib/team-members";
-import { sendTeamInviteViaSupabase } from "@/lib/team-invite";
+import { findAuthUserByEmail, loadTeamMembers } from "@/lib/team-members";
+import { sendTeamInvite } from "@/lib/team-invite";
 import { isAssignableRole } from "@/lib/constants";
 import type { Role } from "@/lib/types";
-import type { User } from "@supabase/supabase-js";
-
-async function findUserByEmail(
-  admin: ReturnType<typeof createAdminClient>,
-  email: string
-): Promise<User | null> {
-  const { data: list } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-  return (
-    list?.users.find((u) => u.email?.toLowerCase() === email.toLowerCase()) ??
-    null
-  );
-}
 
 /** List all members for the active tenant (memberships + profiles + auth email). */
 export async function GET() {
@@ -63,7 +48,7 @@ export async function POST(request: Request) {
   if (fullName) signupParams.set("invite_name", fullName);
   const redirectTo = `${appUrl}/signup?${signupParams.toString()}`;
 
-  const existing = await findUserByEmail(admin, email);
+  const existing = await findAuthUserByEmail(admin, email);
   const existed = Boolean(existing);
   const alreadyActive = Boolean(existing?.last_sign_in_at);
 
@@ -73,9 +58,10 @@ export async function POST(request: Request) {
   let emailError: string | null = null;
 
   if (!alreadyActive) {
-    const invite = await sendTeamInviteViaSupabase(admin, {
+    const invite = await sendTeamInvite(admin, {
       email,
       redirectTo,
+      tenantName: ctx.tenant.name,
       fullName,
       existing,
     });
@@ -119,7 +105,7 @@ export async function POST(request: Request) {
     alreadyActive,
     emailSent: alreadyActive ? false : emailSent,
     emailError: emailError ?? undefined,
-    // Always return a link when Supabase email did not send (rate limit, etc.)
+    // Always return a link when Instantly did not send the invite email.
     inviteUrl:
       !alreadyActive && !emailSent ? (inviteUrl ?? undefined) : undefined,
   });

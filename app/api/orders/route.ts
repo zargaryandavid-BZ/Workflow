@@ -32,17 +32,28 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
+  const tenantId = ctx.tenant.id;
 
   let columnId = body.columnId;
   if (!columnId) {
     const { data: firstCol } = await supabase
       .from("board_columns")
       .select("id")
-      .eq("tenant_id", ctx.tenant.id)
+      .eq("tenant_id", tenantId)
       .order("position", { ascending: true })
       .limit(1)
       .maybeSingle();
     columnId = (firstCol as { id: string } | null)?.id;
+  } else {
+    const { data: column } = await supabase
+      .from("board_columns")
+      .select("id")
+      .eq("id", columnId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (!column) {
+      return NextResponse.json({ error: "Invalid column" }, { status: 400 });
+    }
   }
   if (!columnId) {
     return NextResponse.json({ error: "No columns found" }, { status: 400 });
@@ -53,6 +64,7 @@ export async function POST(request: Request) {
     .from("orders")
     .select("position")
     .eq("column_id", columnId)
+    .eq("tenant_id", tenantId)
     .order("position", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -80,7 +92,7 @@ export async function POST(request: Request) {
   const { data: order, error } = await supabase
     .from("orders")
     .insert({
-      tenant_id: ctx.tenant.id,
+      tenant_id: tenantId,
       column_id: columnId,
       title: body.title.trim(),
       description: body.description ?? null,
@@ -115,10 +127,11 @@ export async function POST(request: Request) {
     .from("board_columns")
     .select("name")
     .eq("id", columnId)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
 
   await logActivity(supabase, {
-    tenantId: ctx.tenant.id,
+    tenantId,
     orderId: order.id,
     actor: ctx.userId,
     action: "created",

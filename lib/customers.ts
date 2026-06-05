@@ -66,7 +66,6 @@ export async function upsertCustomer(
       .from("customers")
       .update({
         name: trimmedName,
-        updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
     if (error) throw new Error(error.message);

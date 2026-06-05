@@ -24,11 +24,13 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
+  const tenantId = ctx.tenant.id;
 
   const { data: order } = await supabase
     .from("orders")
     .select("*")
     .eq("id", body.orderId)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
     .from("board_columns")
     .select("*")
     .eq("id", body.toColumnId)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
   if (!toColumn) {
     return NextResponse.json({ error: "Column not found" }, { status: 404 });
@@ -52,8 +55,13 @@ export async function POST(request: Request) {
     .from("board_columns")
     .select("*")
     .eq("id", fromColumnId)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
   const typedFromColumn = (fromColumn ?? typedColumn) as BoardColumn;
+
+  if (!fromColumn) {
+    return NextResponse.json({ error: "Column not found" }, { status: 404 });
+  }
 
   if (!canMove(ctx.role, typedFromColumn, typedColumn)) {
     return NextResponse.json(
@@ -68,6 +76,7 @@ export async function POST(request: Request) {
     .from("orders")
     .update({ column_id: body.toColumnId, position: newPosition })
     .eq("id", body.orderId)
+    .eq("tenant_id", tenantId)
     .select("*")
     .single();
 

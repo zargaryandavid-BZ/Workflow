@@ -186,6 +186,11 @@ create trigger orders_set_updated_at
   before update on public.orders
   for each row execute function public.set_updated_at();
 
+drop trigger if exists customers_set_updated_at on public.customers;
+create trigger customers_set_updated_at
+  before update on public.customers
+  for each row execute function public.set_updated_at();
+
 -- =============================================================================
 -- Helper functions, tenant provisioning, profile sync, and public approval RPCs
 -- =============================================================================

@@ -291,7 +291,7 @@ export function Board({
         const movedOrder = orders.find((o) => o.id === active.id);
         const notifyType =
           rule?.notify_type ??
-          (to?.name === "Missing Info"
+          (to?.kind === "exception"
             ? "missing_info"
             : to?.kind === "approval"
               ? "customer_approval"

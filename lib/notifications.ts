@@ -78,7 +78,6 @@ async function persistCustomerPhone(
     .from("customers")
     .update({
       phone: normalizeSmsPhone(phone),
-      updated_at: new Date().toISOString(),
     })
     .eq("id", order.customer_id);
 }
@@ -537,16 +536,8 @@ export async function respondToNotification(
     }
   }
 
-  await admin
-    .from("job_notifications")
-    .update({
-      status: "responded",
-      customer_response: params.response,
-      customer_note: params.note ?? null,
-      responded_at: new Date().toISOString(),
-    })
-    .eq("id", notification.id);
-
+  // Move the order / log activity before marking the notification responded so
+  // Realtime subscribers see the final column when the notification event fires.
   if (notification.type === "customer_approval") {
     if (params.response === "approved") {
       await onApprovalResult(admin, {
@@ -567,7 +558,6 @@ export async function respondToNotification(
       });
     }
   } else {
-    // missing_info: move to the configured target column when info is submitted.
     const { data: order } = await admin
       .from("orders")
       .select("*")
@@ -621,6 +611,16 @@ export async function respondToNotification(
       });
     }
   }
+
+  await admin
+    .from("job_notifications")
+    .update({
+      status: "responded",
+      customer_response: params.response,
+      customer_note: params.note ?? null,
+      responded_at: new Date().toISOString(),
+    })
+    .eq("id", notification.id);
 
   return { ok: true as const, type: notification.type as NotificationType };
 }

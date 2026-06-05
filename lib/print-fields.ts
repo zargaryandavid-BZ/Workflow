@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { DEFAULT_PRINT_FIELDS } from "@/lib/constants";
+import { DEFAULT_PRINT_FIELDS } from "@/lib/print-field-defaults";
 
 /**
  * Idempotently seeds the default print-production custom fields for a tenant.

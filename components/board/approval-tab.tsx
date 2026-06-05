@@ -239,13 +239,10 @@ export function ApprovalTab({
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
 
-  const productionColumn = findColumn(
+  const productionColumn = findColumn(columns, (c) => c.kind === "done");
+  const returningColumn = findColumn(
     columns,
-    (c) =>
-      c.kind === "done" || c.name.toLowerCase().includes("ready for prod")
-  );
-  const returningColumn = findColumn(columns, (c) =>
-    c.name.toLowerCase().includes("returning")
+    (c) => c.kind === "exception" && c.name.toLowerCase().includes("returning")
   );
 
   async function markManualApproved() {

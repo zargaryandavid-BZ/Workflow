@@ -14,6 +14,11 @@ import {
   missingInfoSubject,
   messageToEmailHtml,
 } from "@/lib/notification-messages";
+import {
+  buildTeamInviteEmailBody,
+  buildTeamInviteEmailHtml,
+  teamInviteSubject,
+} from "@/lib/team-invite-messages";
 
 const INSTANTLY_SEND_URL = "https://api.instantly.ai/api/v2/emails/test";
 
@@ -293,4 +298,38 @@ export async function sendNotificationEmail(
   }
 
   return { ...result, url: args.actionUrl };
+}
+
+/** Sends a team invite email via Instantly with the Supabase-generated signup link. */
+export async function sendTeamInviteEmail(args: {
+  to: string;
+  tenantName: string;
+  inviteUrl: string;
+  fullName?: string | null;
+}): Promise<EmailSendResult> {
+  const html = buildTeamInviteEmailHtml({
+    tenantName: args.tenantName,
+    inviteUrl: args.inviteUrl,
+    fullName: args.fullName,
+  });
+  const text = buildTeamInviteEmailBody({
+    tenantName: args.tenantName,
+    inviteUrl: args.inviteUrl,
+    fullName: args.fullName,
+  });
+
+  const result = await sendCustomerEmail({
+    to: args.to,
+    subject: teamInviteSubject(args.tenantName),
+    html,
+    text,
+  });
+
+  if (!result.sent) {
+    console.info(
+      `[team-invite] ${args.tenantName} -> ${args.to}: ${args.inviteUrl}`
+    );
+  }
+
+  return result;
 }

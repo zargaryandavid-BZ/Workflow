@@ -1,16 +1,18 @@
 ---
-description: Team member invites must use Supabase Auth email only, never Instantly.
+description: Team member invites use Instantly for email delivery and Supabase Auth for signup links.
 globs:
   - app/api/members/**
   - lib/team-invite.ts
+  - lib/team-invite-messages.ts
   - app/(app)/settings/team/**
 ---
 
-# Team invites: Supabase only
+# Team invites: Instantly + Supabase Auth
 
-- **Never** send team invite / signup emails through Instantly (`INSTANTLY_API_KEY`).
-- Use `lib/team-invite.ts` → `sendTeamInviteViaSupabase()`:
-  - New users: `admin.auth.admin.inviteUserByEmail` (Supabase sends the invite email).
-  - Pending users (never signed in): `resetPasswordForEmail` with `redirectTo` → `/signup?...`.
-  - Rate-limited: `generateLink` + show copyable signup link in the UI.
-- Instantly is OK for **customer** flows only (approvals, missing-info notifications).
+- Send team invite **emails** through Instantly (`INSTANTLY_API_KEY`, `INSTANTLY_FROM_EMAIL`) via `lib/email.ts` → `sendTeamInviteEmail()`.
+- Use `lib/team-invite.ts` → `sendTeamInvite()`:
+  - Create users and signup links with `admin.auth.admin.generateLink` only — **never** `inviteUserByEmail` or `resetPasswordForEmail` (those trigger Supabase's mailer).
+  - New users: `generateLink({ type: "invite" })` → Instantly email with link.
+  - Pending users (never signed in): `generateLink({ type: "recovery" })` → Instantly email with link.
+  - Instantly failed: return copyable `inviteUrl` fallback in the UI.
+- Supabase Auth still handles signup token exchange on `/signup` and password setup.

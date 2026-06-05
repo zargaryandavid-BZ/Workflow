@@ -1,4 +1,4 @@
-import type { ColumnKind, CustomFieldType, Role } from "./types";
+import type { ColumnKind, Role } from "./types";
 
 export const TENANT_COOKIE = "ppm_tenant";
 
@@ -42,24 +42,6 @@ export function isAssignableRole(value: unknown): value is Role {
   );
 }
 
-export interface DefaultColumn {
-  name: string;
-  kind: ColumnKind;
-}
-
-/**
- * Default pipeline seeded for every new tenant. Order matters: position is
- * assigned by index.
- */
-export const DEFAULT_COLUMNS: DefaultColumn[] = [
-  { name: "START (Order Created)", kind: "normal" },
-  { name: "In Progress", kind: "normal" },
-  { name: "Missing Info", kind: "exception" },
-  { name: "Returning Tickets", kind: "exception" },
-  { name: "Customer Approval", kind: "approval" },
-  { name: "Done (Ready for Prod)", kind: "done" },
-];
-
 export const PRIORITY_OPTIONS = [
   { value: "low", label: "Low" },
   { value: "normal", label: "Normal" },
@@ -81,17 +63,6 @@ export const COLUMN_ACCENT: Record<ColumnKind, string> = {
   done: "border-t-emerald-500",
 };
 
-export interface DefaultFieldDef {
-  name: string;
-  field_type: CustomFieldType;
-  options: string[];
-}
-
-/**
- * Default print-production intake fields. These are seeded as custom fields so
- * admins can edit, reorder, or remove them. Everything on the New Print Job
- * form (except Order Number + Description + Priority + SKUs) is driven by these.
- */
 /**
  * Name of the legacy "Designer Information" text field. The designer is now a
  * built-in dropdown (sourced from team members with the Designer role), so this
@@ -113,76 +84,6 @@ export const ARTWORK_FIELD_NAME = "Artwork (GDrive link)";
 
 export const CUSTOMER_NAME_FIELD_NAME = "Customer Name";
 export const CUSTOMER_CONTACT_FIELD_NAME = "Customer Contact";
-
-export const DEFAULT_PRINT_FIELDS: DefaultFieldDef[] = [
-  { name: CUSTOMER_NAME_FIELD_NAME, field_type: "text", options: [] },
-  { name: CUSTOMER_CONTACT_FIELD_NAME, field_type: "text", options: [] },
-  {
-    name: "Product",
-    field_type: "select",
-    options: [
-      "Labels (Roll)",
-      "Business Cards",
-      "Flyers",
-      "Banners",
-      "Posters",
-      "Brochures",
-      "Stickers",
-      "Other",
-    ],
-  },
-  {
-    name: "Product Type",
-    field_type: "select",
-    options: ["Sheet", "Roll", "Flat", "Folded"],
-  },
-  { name: "Finished Size", field_type: "text", options: [] },
-  { name: "Artwork (GDrive link)", field_type: "text", options: [] },
-  {
-    name: "Materials",
-    field_type: "select",
-    options: [
-      "14pt Gloss",
-      "16pt Matte",
-      "100lb Gloss Text",
-      "Vinyl",
-      "BOPP",
-      "Other",
-    ],
-  },
-  {
-    name: "Lamination",
-    field_type: "select",
-    options: ["None", "Gloss", "Matte", "Soft Touch", "Spot UV"],
-  },
-  {
-    name: "Special Finishing",
-    field_type: "select",
-    options: ["None", "Foil", "Emboss", "Die Cut", "Perforation", "Scoring"],
-  },
-  {
-    name: "Sides",
-    field_type: "select",
-    options: ["1 Side", "2 Sides"],
-  },
-  {
-    name: "Position",
-    field_type: "select",
-    options: ["Front", "Back", "Both", "Sleeve", "Other"],
-  },
-  {
-    name: "Color",
-    field_type: "select",
-    options: [
-      "Full Color (CMYK)",
-      "Black & White",
-      "1 Color",
-      "2 Color",
-      "PMS",
-    ],
-  },
-  { name: "Order QTY", field_type: "number", options: [] },
-];
 
 /** Max activity entries kept per order (display + storage). */
 export const ACTIVITY_LOG_LIMIT = 50;

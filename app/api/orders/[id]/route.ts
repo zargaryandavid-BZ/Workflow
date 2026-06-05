@@ -21,11 +21,13 @@ export async function GET(
   }
 
   const supabase = await createClient();
+  const tenantId = ctx.tenant.id;
 
   const { data: order } = await supabase
     .from("orders")
     .select("*, customer:customers(*)")
     .eq("id", id)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
   if (!order) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -154,16 +156,22 @@ export async function PATCH(
   };
 
   const supabase = await createClient();
+  const tenantId = ctx.tenant.id;
+
+  const { data: existingOrder } = await supabase
+    .from("orders")
+    .select("id, tenant_id, due_date")
+    .eq("id", id)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (!existingOrder) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   if (body.dueDate !== undefined) {
-    const { data: existing } = await supabase
-      .from("orders")
-      .select("due_date")
-      .eq("id", id)
-      .maybeSingle();
     const dueDateError = validateDueDate(
       body.dueDate,
-      (existing as { due_date?: string | null } | null)?.due_date
+      (existingOrder as { due_date?: string | null }).due_date
     );
     if (dueDateError) {
       return NextResponse.json({ error: dueDateError }, { status: 400 });
@@ -203,7 +211,11 @@ export async function PATCH(
   }
 
   if (Object.keys(updates).length > 0) {
-    const { error } = await supabase.from("orders").update(updates).eq("id", id);
+    const { error } = await supabase
+      .from("orders")
+      .update(updates)
+      .eq("id", id)
+      .eq("tenant_id", tenantId);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -243,6 +255,7 @@ export async function PATCH(
     .from("orders")
     .select("*, customer:customers(*)")
     .eq("id", id)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
 
   return NextResponse.json({ order });
@@ -258,7 +271,23 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const supabase = await createClient();
-  const { error } = await supabase.from("orders").delete().eq("id", id);
+  const tenantId = ctx.tenant.id;
+
+  const { data: existingOrder } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("id", id)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (!existingOrder) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const { error } = await supabase
+    .from("orders")
+    .delete()
+    .eq("id", id)
+    .eq("tenant_id", tenantId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

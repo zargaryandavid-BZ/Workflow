@@ -1,6 +1,58 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, Role } from "@/lib/types";
+import type { User } from "@supabase/supabase-js";
+
+type Admin = ReturnType<typeof createAdminClient>;
+
+async function fetchAuthUsersByIds(
+  admin: Admin,
+  userIds: string[]
+): Promise<
+  Map<string, { email: string | null; lastSignInAt: string | null }>
+> {
+  const authById = new Map<
+    string,
+    { email: string | null; lastSignInAt: string | null }
+  >();
+  if (userIds.length === 0) return authById;
+
+  await Promise.all(
+    userIds.map(async (userId) => {
+      const { data, error } = await admin.auth.admin.getUserById(userId);
+      if (error || !data.user) return;
+      authById.set(userId, {
+        email: data.user.email ?? null,
+        lastSignInAt: data.user.last_sign_in_at ?? null,
+      });
+    })
+  );
+
+  return authById;
+}
+
+/** Look up a single auth user by email without loading the full user directory. */
+export async function findAuthUserByEmail(
+  admin: Admin,
+  email: string
+): Promise<User | null> {
+  const normalized = email.toLowerCase();
+  let page = 1;
+  const perPage = 200;
+
+  while (page <= 10) {
+    const { data } = await admin.auth.admin.listUsers({ page, perPage });
+    const users = data?.users ?? [];
+    const match = users.find(
+      (u) => u.email?.toLowerCase() === normalized
+    );
+    if (match) return match;
+    if (users.length < perPage) break;
+    page++;
+  }
+
+  return null;
+}
 
 export interface TeamMemberRow {
   user_id: string;
@@ -49,7 +101,7 @@ export async function loadTeamMembers(tenantId: string): Promise<{
     }
   }
 
-  const authById = new Map<
+  let authById = new Map<
     string,
     { email: string | null; lastSignInAt: string | null }
   >();
@@ -58,16 +110,7 @@ export async function loadTeamMembers(tenantId: string): Promise<{
   try {
     const admin = createAdminClient();
     authConfigured = true;
-    const { data: list } = await admin.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000,
-    });
-    for (const u of list?.users ?? []) {
-      authById.set(u.id, {
-        email: u.email ?? null,
-        lastSignInAt: u.last_sign_in_at ?? null,
-      });
-    }
+    authById = await fetchAuthUsersByIds(admin, userIds);
   } catch {
     authConfigured = false;
   }

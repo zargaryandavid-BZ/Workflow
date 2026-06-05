@@ -33,7 +33,7 @@ export function TeamManager({
     const json = await res.json();
     setRefreshing(false);
     if (!res.ok) {
-      setLoadError(json.error ?? "Could not load team from Supabase.");
+      setLoadError(json.error ?? "Could not load team.");
       return;
     }
     setLoadError(null);
@@ -80,8 +80,8 @@ export function TeamManager({
     if (json.emailSent) {
       setMessage(
         resend
-          ? `Invite email sent via Supabase to ${who}.`
-          : `Invite email sent via Supabase to ${who}.`
+          ? `Invite email sent to ${who}.`
+          : `Invite email sent to ${who}.`
       );
       setInviteUrl(null);
       setError(null);
@@ -89,14 +89,14 @@ export function TeamManager({
     }
 
     setMessage(
-      `${who} was added to the team. Supabase could not email them right now — copy the signup link below.`
+      `${who} was added to the team. Email could not be sent — copy the signup link below.`
     );
     setInviteUrl(json.inviteUrl ?? null);
     setError(
       json.emailError ??
         (json.inviteUrl
           ? null
-          : "No signup link was generated. Check Supabase Auth settings and redirect URLs.")
+          : "No signup link was generated. Check Instantly configuration and redirect URLs.")
     );
   }
 
@@ -185,7 +185,7 @@ export function TeamManager({
     <div className="space-y-6">
       {loadError ? (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
-          Could not load team from Supabase: {loadError}
+          Could not load team: {loadError}
         </p>
       ) : null}
       <form
@@ -254,8 +254,8 @@ export function TeamManager({
               </Button>
             </div>
             <p className="text-xs text-slate-500">
-              Supabase could not email this link (rate limit or Auth email not
-              configured). Copy and send it to your teammate manually.
+              Email could not be sent. Copy this link and send it to your
+              teammate manually.
             </p>
           </div>
         ) : null}
@@ -276,7 +276,7 @@ export function TeamManager({
             disabled={refreshing}
             className="text-xs font-medium text-[var(--primary)] hover:underline disabled:opacity-50"
           >
-            {refreshing ? "Refreshing…" : "Refresh from Supabase"}
+            {refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white">
