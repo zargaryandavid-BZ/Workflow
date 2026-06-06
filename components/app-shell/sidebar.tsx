@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutGrid,
   ListChecks,
+  Plug,
   Workflow,
   UserCog,
   Columns3,
@@ -33,6 +34,12 @@ const nav = [
     href: "/settings/automations",
     label: "Automations",
     icon: Workflow,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/integrations",
+    label: "Integrations",
+    icon: Plug,
     adminOnly: true,
   },
   { href: "/settings/team", label: "Team", icon: UserCog, adminOnly: true },

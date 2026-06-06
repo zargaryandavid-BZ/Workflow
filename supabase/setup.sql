@@ -191,6 +191,37 @@ create trigger customers_set_updated_at
   before update on public.customers
   for each row execute function public.set_updated_at();
 
+-- E.164-style phone normalization for customer dedup (see migration 0015).
+create or replace function public.normalize_customer_phone(raw text)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  digits text;
+begin
+  if raw is null or trim(raw) = '' then
+    return null;
+  end if;
+
+  digits := regexp_replace(raw, '[^0-9]', '', 'g');
+
+  if length(digits) = 10 then
+    return '+1' || digits;
+  end if;
+
+  if length(digits) = 11 and left(digits, 1) = '1' then
+    return '+' || digits;
+  end if;
+
+  if left(trim(raw), 1) = '+' then
+    return '+' || digits;
+  end if;
+
+  return '+' || digits;
+end;
+$$;
+
 -- =============================================================================
 -- Helper functions, tenant provisioning, profile sync, and public approval RPCs
 -- =============================================================================

@@ -25,6 +25,15 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const externalUrl = (asset as { external_url?: string | null }).external_url;
+  if (externalUrl?.trim()) {
+    return NextResponse.redirect(externalUrl);
+  }
+
+  if (!asset.storage_path) {
+    return NextResponse.json({ error: "Asset has no file" }, { status: 400 });
+  }
+
   const { data: signed, error } = await supabase.storage
     .from(BUCKET)
     .createSignedUrl(asset.storage_path, 60, { download: asset.file_name });
@@ -59,7 +68,9 @@ export async function DELETE(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  await supabase.storage.from(BUCKET).remove([asset.storage_path]);
+  if (asset.storage_path) {
+    await supabase.storage.from(BUCKET).remove([asset.storage_path]);
+  }
   const { error } = await supabase.from("assets").delete().eq("id", id);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

@@ -50,7 +50,7 @@ export function isValidCustomerContact(value: string): boolean {
   const v = value.trim();
   if (!v) return false;
   if (v.includes("@")) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.toLowerCase());
   }
   const digits = v.replace(/\D/g, "");
   return digits.length >= 7;

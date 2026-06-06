@@ -47,7 +47,9 @@ export async function POST(request: Request) {
       .eq("order_id", orderId)
       .eq("sku_key", skuKeyTrimmed);
     for (const row of existing ?? []) {
-      await supabase.storage.from(BUCKET).remove([row.storage_path]);
+      if (row.storage_path) {
+        await supabase.storage.from(BUCKET).remove([row.storage_path]);
+      }
       await supabase.from("assets").delete().eq("id", row.id);
     }
   }

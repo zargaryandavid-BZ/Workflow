@@ -21,9 +21,12 @@ export async function pruneOrphanedSkuAssets(
   );
   if (toRemove.length === 0) return;
 
-  await client.storage
-    .from(BUCKET)
-    .remove(toRemove.map((r) => r.storage_path as string));
+  const paths = toRemove
+    .map((r) => r.storage_path as string | null)
+    .filter((p): p is string => Boolean(p));
+  if (paths.length > 0) {
+    await client.storage.from(BUCKET).remove(paths);
+  }
   await client
     .from("assets")
     .delete()

@@ -148,11 +148,23 @@ export interface Asset {
   sku_key: string | null;
   notification_id?: string | null;
   file_name: string;
-  storage_path: string;
+  storage_path: string | null;
+  /** Public URL for webhook-provided artwork (no Storage upload). */
+  external_url?: string | null;
   mime_type: string | null;
   size: number | null;
   uploaded_by: string | null;
   created_at: string;
+}
+
+export interface WebhookConfig {
+  id: string;
+  tenant_id: string;
+  secret_key: string;
+  enabled: boolean;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
 }
 
 export interface Approval {

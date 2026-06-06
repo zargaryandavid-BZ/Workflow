@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { CustomFieldInput } from "./custom-field-input";
 import { SkuEditor, type SkuItem } from "./sku-editor";
 import { OrderQtyField } from "./order-qty-field";
 import { PRIORITY_OPTIONS } from "@/lib/constants";
 import {
+  isValidCustomerContact,
   orderFormFieldLabel,
   resolveOrderFormFields,
   validateDueDate,
@@ -87,8 +88,59 @@ export function OrderFormBody({
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, orderQtyField, printFields } = resolved;
   const [dueDateError, setDueDateError] = useState<string | null>(null);
+  const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
+    null
+  );
+  const nameEditedRef = useRef(false);
+  const lookupSeqRef = useRef(0);
   const normalizedDueDate = dateInputValue(dueDate);
   const minDueDate = localDateInputValue();
+
+  useEffect(() => {
+    nameEditedRef.current = false;
+    setCustomerLookupHint(null);
+  }, [customerContact]);
+
+  useEffect(() => {
+    if (!isValidCustomerContact(customerContact)) {
+      setCustomerLookupHint(null);
+      return;
+    }
+
+    const seq = ++lookupSeqRef.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/customers/lookup?contact=${encodeURIComponent(customerContact)}`
+        );
+        if (seq !== lookupSeqRef.current) return;
+        if (res.status === 404) {
+          setCustomerLookupHint(null);
+          return;
+        }
+        if (!res.ok) {
+          setCustomerLookupHint(null);
+          return;
+        }
+        const json = (await res.json()) as { name?: string };
+        if (seq !== lookupSeqRef.current) return;
+        if (!nameEditedRef.current && json.name) {
+          onCustomerNameChange(json.name);
+        }
+        setCustomerLookupHint("Existing customer — name filled automatically");
+      } catch {
+        if (seq !== lookupSeqRef.current) return;
+        setCustomerLookupHint(null);
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [customerContact, onCustomerNameChange]);
+
+  function handleCustomerNameChange(value: string) {
+    nameEditedRef.current = true;
+    onCustomerNameChange(value);
+  }
 
   function handleDueDateChange(value: string) {
     if (!value) {
@@ -191,7 +243,7 @@ export function OrderFormBody({
             id={`${idPrefix}-customer-name`}
             required
             value={customerName}
-            onChange={(e) => onCustomerNameChange(e.target.value)}
+            onChange={(e) => handleCustomerNameChange(e.target.value)}
           />
         </div>
         <div>
@@ -205,6 +257,9 @@ export function OrderFormBody({
             onChange={(e) => onCustomerContactChange(e.target.value)}
             placeholder="Email or phone"
           />
+          {customerLookupHint ? (
+            <p className="mt-1 text-xs text-emerald-600">{customerLookupHint}</p>
+          ) : null}
         </div>
       </div>
 
