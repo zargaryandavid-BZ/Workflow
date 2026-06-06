@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { SystemConfigPanel } from "@/components/settings/SystemConfigPanel";
 import { AutomationsManager } from "./automations-manager";
 import type { AutomationRule, BoardColumn } from "@/lib/types";
 
@@ -34,6 +35,7 @@ export default async function AutomationsSettingsPage() {
         initialRules={(rulesRes.data ?? []) as AutomationRule[]}
         columns={(columnsRes.data ?? []) as BoardColumn[]}
       />
+      <SystemConfigPanel />
     </div>
   );
 }
