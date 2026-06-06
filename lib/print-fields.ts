@@ -31,6 +31,7 @@ export async function seedDefaultPrintFields(
     name: f.name,
     field_type: f.field_type,
     options: f.options,
+    required: f.required ?? false,
     position: position++,
   }));
 

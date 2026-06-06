@@ -15,8 +15,7 @@ export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Product Type",
   "Finished Size",
   "Materials",
-  "Lamination",
-  "Special Finishing",
+  "Finishing",
   "Sides",
   "Position",
   "Color",
@@ -24,7 +23,6 @@ export const ORDER_FORM_PRINT_FIELD_NAMES = [
 
 /** Labels that differ from the stored custom-field name. */
 export const ORDER_FORM_FIELD_LABELS: Record<string, string> = {
-  Lamination: "Finishing",
   "Artwork (GDrive link)": "Artwork GDrive link",
 };
 
