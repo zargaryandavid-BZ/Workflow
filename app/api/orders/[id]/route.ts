@@ -3,10 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { enrichActivityLog } from "@/lib/activity";
 import { logActivity } from "@/lib/automation";
-import { ACTIVITY_LOG_LIMIT } from "@/lib/constants";
+import { ACTIVITY_LOG_LIMIT, ORDER_QTY_FIELD_NAME } from "@/lib/constants";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
-import { validateDueDate } from "@/lib/order-form";
+import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { pruneOrphanedSkuAssets } from "@/lib/sku-assets";
 import type { ActivityLog, Order } from "@/lib/types";
 
@@ -160,7 +160,7 @@ export async function PATCH(
 
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, tenant_id, due_date")
+    .select("id, tenant_id, due_date, specs")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -197,6 +197,29 @@ export async function PATCH(
       };
     } else {
       updates.specs = body.specs;
+    }
+  }
+
+  if (body.customFieldValues) {
+    const { data: orderQtyField } = await supabase
+      .from("custom_fields")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .ilike("name", ORDER_QTY_FIELD_NAME)
+      .maybeSingle();
+    const skusForQty =
+      body.specs?.skus !== undefined
+        ? normalizeSkus(body.specs.skus)
+        : normalizeSkus(
+            (existingOrder as { specs?: { skus?: unknown } }).specs?.skus
+          );
+    const orderQtyError = validateOrderQtyFromPayload(
+      (orderQtyField as { id: string } | null)?.id,
+      body.customFieldValues,
+      skusForQty
+    );
+    if (orderQtyError) {
+      return NextResponse.json({ error: orderQtyError }, { status: 400 });
     }
   }
 

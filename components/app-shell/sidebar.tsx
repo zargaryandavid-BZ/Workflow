@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3,
   LayoutGrid,
   ListChecks,
   Plug,
@@ -17,6 +18,7 @@ import type { Role } from "@/lib/types";
 
 const nav = [
   { href: "/board", label: "Board", icon: LayoutGrid, adminOnly: false },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
   { href: "/customers", label: "Customers", icon: Users, adminOnly: false },
   {
     href: "/settings/columns",
@@ -50,14 +52,18 @@ export function Sidebar({ role }: { role: Role }) {
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
-      <div className="flex h-14 items-center gap-2 border-b border-slate-200 px-4">
+      <Link
+        href="/board"
+        className="flex h-14 items-center gap-2 border-b border-slate-200 px-4 transition-colors hover:bg-slate-50"
+        aria-label="Go to Board"
+      >
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
           <Printer className="h-4 w-4" />
         </span>
         <span className="text-sm font-semibold text-slate-800">
           Print Manager
         </span>
-      </div>
+      </Link>
       <nav className="flex-1 space-y-1 p-3">
         {nav
           .filter((item) => !item.adminOnly || role === "admin")

@@ -34,13 +34,17 @@ export function OrderQtyField({
 
   return (
     <div>
-      <Label htmlFor="order-qty">Order QTY</Label>
+      <Label htmlFor="order-qty">
+        Order QTY
+        {!isReadOnly ? <span className="ml-0.5 text-red-500">*</span> : null}
+      </Label>
       <Input
         id="order-qty"
         type="number"
-        min={0}
+        min={1}
         value={display}
         readOnly={isReadOnly}
+        required={!isReadOnly}
         onChange={(e) =>
           onChange(e.target.value === "" ? null : Number(e.target.value))
         }

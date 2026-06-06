@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { logActivity } from "@/lib/automation";
-import { validateDueDate } from "@/lib/order-form";
+import { ORDER_QTY_FIELD_NAME } from "@/lib/constants";
+import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 
 export async function POST(request: Request) {
@@ -39,6 +40,21 @@ export async function POST(request: Request) {
 
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
+
+  const { data: orderQtyField } = await supabase
+    .from("custom_fields")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .ilike("name", ORDER_QTY_FIELD_NAME)
+    .maybeSingle();
+  const orderQtyError = validateOrderQtyFromPayload(
+    (orderQtyField as { id: string } | null)?.id,
+    body.customFieldValues,
+    normalizedSkus
+  );
+  if (orderQtyError) {
+    return NextResponse.json({ error: orderQtyError }, { status: 400 });
+  }
 
   let columnId = body.columnId;
   if (!columnId) {

@@ -220,7 +220,8 @@ export function CardDetailModal({
       resolved,
       fieldValues,
       customerName,
-      customerContact
+      customerContact,
+      skus
     );
     if (validationError) {
       setSaveError(validationError);

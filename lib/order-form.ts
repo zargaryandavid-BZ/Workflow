@@ -121,16 +121,67 @@ export function resolveOrderFormFields(customFields: CustomField[]) {
   };
 }
 
+export function computeOrderQty(
+  skus: { qty?: number | null }[],
+  manualQty: unknown
+): number | null {
+  if (skus.length > 0) {
+    return skus.reduce(
+      (sum, s) =>
+        sum + (typeof s.qty === "number" && !Number.isNaN(s.qty) ? s.qty : 0),
+      0
+    );
+  }
+  if (typeof manualQty === "number" && !Number.isNaN(manualQty)) return manualQty;
+  if (manualQty !== null && manualQty !== undefined && manualQty !== "") {
+    const n = Number(manualQty);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+export function validateOrderQtyValue(qty: number | null): string | null {
+  if (qty == null || qty < 1) {
+    return "Order QTY must be at least 1.";
+  }
+  return null;
+}
+
+export function validateOrderQty(
+  orderQtyField: CustomField | undefined,
+  fieldValues: Record<string, unknown>,
+  skus: { qty?: number | null }[]
+): string | null {
+  if (!orderQtyField) return null;
+  return validateOrderQtyValue(
+    computeOrderQty(skus, fieldValues[orderQtyField.id])
+  );
+}
+
+export function validateOrderQtyFromPayload(
+  orderQtyFieldId: string | undefined,
+  customFieldValues: { customFieldId: string; value: unknown }[] | undefined,
+  skus: { qty?: number | null }[]
+): string | null {
+  if (!orderQtyFieldId) return null;
+  const manualQty = (customFieldValues ?? []).find(
+    (v) => v.customFieldId === orderQtyFieldId
+  )?.value;
+  return validateOrderQtyValue(computeOrderQty(skus, manualQty));
+}
+
 export function validateOrderFormFields(
   fields: {
     artworkField?: CustomField;
     customerNameField?: CustomField;
     customerContactField?: CustomField;
+    orderQtyField?: CustomField;
     printFields: CustomField[];
   },
   fieldValues: Record<string, unknown>,
   customerName: string,
-  customerContact: string
+  customerContact: string,
+  skus: { qty?: number | null }[] = []
 ): string | null {
   const customerErr = validateCustomerFields(customerName, customerContact);
   if (customerErr) return customerErr;
@@ -152,7 +203,7 @@ export function validateOrderFormFields(
     return `Please fill required field(s): ${missing.map((f) => orderFormFieldLabel(f.name)).join(", ")}`;
   }
 
-  return null;
+  return validateOrderQty(fields.orderQtyField, fieldValues, skus);
 }
 
 export function validateDueDate(
