@@ -194,7 +194,10 @@ export function buildMissingInfoEmailHtml(params: {
     `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Hi ${name},</p>`,
     `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">We need some additional information for your order <strong>#${orderNumber}</strong> before we can proceed.</p>`,
     missingInfoMessage,
-    `<p style="margin:0 0 20px;"><a href="${link}" style="color:#2563EB; font-size:13px; word-break:break-all;">${link}</a></p>`,
+    `<p style="margin:0 0 20px;"><a href="${link}" style="display:inline-block; background:#2563EB; color:#ffffff; text-decoration:none; padding:10px 22px; border-radius:6px; font-size:14px; font-weight:500;">Provide Information</a></p>`,
+    `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
+    `<p style="margin:0 0 6px; font-size:13px; color:#9ca3af;">Or copy this link:</p>`,
+    `<p style="margin:0 0 16px;"><a href="${link}" style="color:#2563EB; font-size:13px; word-break:break-all;">${link}</a></p>`,
     `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
     `<p style="margin:0; font-size:13px; color:#9ca3af;">BazaarPrinting Team</p>`,
   ]
@@ -287,8 +290,11 @@ export function buildApprovalEmailHtml(params: {
 
   const bodyHtml = [
     `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Hi ${name},</p>`,
-    `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Your <strong>${product}</strong> proof is ready for review. Please approve or request changes using the link below:</p>`,
-    `<p style="margin:0 0 20px;"><a href="${link}" style="color:#2563EB; font-size:13px; word-break:break-all;">${link}</a></p>`,
+    `<p style="margin:0 0 20px; font-size:14px; color:#374151; line-height:1.7;">Your <strong>${product}</strong> proof is ready for review. Please approve or request changes:</p>`,
+    `<p style="margin:0 0 20px;"><a href="${link}" style="display:inline-block; background:#2563EB; color:#ffffff; text-decoration:none; padding:10px 22px; border-radius:6px; font-size:14px; font-weight:500;">Review &amp; Approve</a></p>`,
+    `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
+    `<p style="margin:0 0 6px; font-size:13px; color:#9ca3af;">Or copy this link:</p>`,
+    `<p style="margin:0 0 16px;"><a href="${link}" style="color:#2563EB; font-size:13px; word-break:break-all;">${link}</a></p>`,
     `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
     `<p style="margin:0; font-size:13px; color:#9ca3af;">This link expires in 7 days. — BazaarPrinting Team</p>`,
   ].join("");
