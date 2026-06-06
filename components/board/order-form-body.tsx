@@ -6,6 +6,7 @@ import { CustomFieldInput } from "./custom-field-input";
 import { SkuEditor, type SkuItem } from "./sku-editor";
 import { OrderQtyField } from "./order-qty-field";
 import { PRIORITY_OPTIONS } from "@/lib/constants";
+import { normalizeCustomerContact } from "@/lib/customers";
 import {
   isValidCustomerContact,
   orderFormFieldLabel,
@@ -93,12 +94,20 @@ export function OrderFormBody({
   );
   const nameEditedRef = useRef(false);
   const lookupSeqRef = useRef(0);
+  const lastLookupKeyRef = useRef<string | null>(null);
   const normalizedDueDate = dateInputValue(dueDate);
   const minDueDate = localDateInputValue();
 
   useEffect(() => {
-    nameEditedRef.current = false;
-    setCustomerLookupHint(null);
+    const normalized = normalizeCustomerContact(customerContact);
+    const lookupKey = normalized
+      ? `${normalized.kind}:${normalized.value}`
+      : null;
+    if (lookupKey !== lastLookupKeyRef.current) {
+      nameEditedRef.current = false;
+      lastLookupKeyRef.current = lookupKey;
+      if (!lookupKey) setCustomerLookupHint(null);
+    }
   }, [customerContact]);
 
   useEffect(() => {
