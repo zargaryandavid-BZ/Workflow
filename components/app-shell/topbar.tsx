@@ -23,7 +23,13 @@ function avatarLetter(fullName: string | null, email: string | null) {
   return "?";
 }
 
-export function Topbar({ tenants, activeTenantId, email, fullName }: TopbarProps) {
+export function Topbar({
+  tenants,
+  activeTenantId,
+  email,
+  fullName,
+  role,
+}: TopbarProps) {
   const router = useRouter();
   const [openTenant, setOpenTenant] = useState(false);
   const [openUser, setOpenUser] = useState(false);
@@ -86,16 +92,20 @@ export function Topbar({ tenants, activeTenantId, email, fullName }: TopbarProps
                   ) : null}
                 </button>
               ))}
-              <div className="my-1 border-t border-slate-100" />
-              <button
-                onClick={() => {
-                  setOpenTenant(false);
-                  router.push("/onboarding");
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <Plus className="h-4 w-4" /> New workspace
-              </button>
+              {role === "admin" ? (
+                <>
+                  <div className="my-1 border-t border-slate-100" />
+                  <button
+                    onClick={() => {
+                      setOpenTenant(false);
+                      router.push("/onboarding?new=1");
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Plus className="h-4 w-4" /> New workspace
+                  </button>
+                </>
+              ) : null}
             </div>
           </>
         ) : null}

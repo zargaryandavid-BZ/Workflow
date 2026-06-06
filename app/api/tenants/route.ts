@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { TENANT_COOKIE } from "@/lib/constants";
 import { seedDefaultPrintFields } from "@/lib/print-fields";
@@ -22,6 +23,14 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const ctx = await getTenantContext();
+  if (ctx && ctx.role !== "admin") {
+    return NextResponse.json(
+      { error: "Only workspace admins can create new workspaces." },
+      { status: 403 }
+    );
   }
 
   const body = (await request.json().catch(() => ({}))) as { name?: string };

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
-export function OnboardingForm() {
+export function OnboardingForm({ additional = false }: { additional?: boolean }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +47,26 @@ export function OnboardingForm() {
           {error}
         </p>
       ) : null}
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? "Creating…" : "Create workspace"}
-      </Button>
+      <div className={additional ? "flex gap-2" : undefined}>
+        {additional ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1"
+            disabled={loading}
+            onClick={() => router.push("/board")}
+          >
+            Cancel
+          </Button>
+        ) : null}
+        <Button
+          type="submit"
+          className={additional ? "flex-1" : "w-full"}
+          disabled={loading}
+        >
+          {loading ? "Creating…" : "Create workspace"}
+        </Button>
+      </div>
     </form>
   );
 }
