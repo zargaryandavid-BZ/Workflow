@@ -103,38 +103,41 @@ function compactPlainEmail(blocks: string[]): string {
   return blocks.filter(Boolean).join("\n\n");
 }
 
-/** Shared HTML shell — compact spacing, branded header (matches respond page). */
-function customerEmailLayout(params: {
-  tenantLabel: string;
-  orderNumber: string;
+/** Shared HTML shell for customer and team emails. */
+export function buildBrandedEmailLayout(params: {
+  contextLabel: string;
   bodyHtml: string;
+  emailTitle?: string;
 }): string {
-  const tenant = escapeHtml(params.tenantLabel.replace(/ Team$/, ""));
-  const order = escapeHtml(params.orderNumber);
+  const contextLabel = escapeHtml(params.contextLabel);
+  const title = escapeHtml(params.emailTitle ?? "BazaarPrinting");
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title}</title>
 </head>
-<body style="margin:0;padding:0;background:#eef2f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;line-height:1.45;color:#1e293b;-webkit-text-size-adjust:100%;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f7;">
+<body style="margin:0; padding:0; background-color:#eaecf7; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#eaecf7; padding:40px 24px;">
     <tr>
-      <td align="center" style="padding:16px 12px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:500px; background:#ffffff; border-radius:8px; overflow:hidden;">
           <tr>
-            <td style="background:#1d4ed8;padding:12px 18px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <td style="background:#2563EB; padding:18px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="font-size:14px;font-weight:600;color:#ffffff;">${tenant}</td>
-                  <td align="right" style="font-size:12px;color:#dbeafe;">Order ${order}</td>
+                  <td style="color:#ffffff; font-size:15px; font-weight:700;">BazaarPrinting</td>
+                  <td align="right" style="color:rgba(255,255,255,0.8); font-size:13px;">${contextLabel}</td>
                 </tr>
               </table>
             </td>
           </tr>
           <tr>
-            <td style="padding:18px 20px;">${params.bodyHtml}</td>
+            <td style="padding:28px 28px 24px;">
+              ${params.bodyHtml}
+            </td>
           </tr>
         </table>
       </td>
@@ -145,27 +148,7 @@ function customerEmailLayout(params: {
 }
 
 function emailParagraph(html: string) {
-  return `<p style="margin:0 0 10px;font-size:15px;line-height:1.45;color:#334155;">${html}</p>`;
-}
-
-function emailCta(href: string, label: string) {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px;"><tr><td style="border-radius:6px;background:#1d4ed8;"><a href="${href}" style="display:inline-block;padding:10px 18px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">${label}</a></td></tr></table>`;
-}
-
-function emailLinkFallback(href: string) {
-  return `<p style="margin:0 0 10px;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;line-height:1.35;color:#64748b;">Or copy this link:<br><a href="${href}" style="color:#1d4ed8;word-break:break-all;text-decoration:underline;">${href}</a></p>`;
-}
-
-function emailFinePrint(text: string) {
-  return `<p style="margin:0 0 10px;font-size:12px;line-height:1.35;color:#94a3b8;">${text}</p>`;
-}
-
-function emailSignoff(team: string) {
-  return `<p style="margin:0;font-size:14px;line-height:1.4;color:#475569;">Thank you,<br><strong style="color:#1e293b;">${team}</strong></p>`;
-}
-
-function emailNoteBox(note: string) {
-  return `<div style="margin:0 0 10px;padding:10px 12px;background:#eff6ff;border-left:3px solid #1d4ed8;border-radius:0 6px 6px 0;font-size:14px;line-height:1.45;color:#334155;">${escapeHtml(note)}</div>`;
+  return `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">${html}</p>`;
 }
 
 /** Plain-text customer missing-info email body. */
@@ -200,32 +183,28 @@ export function buildMissingInfoEmailHtml(params: {
   staffNote?: string | null;
   teamName?: string;
 }) {
-  const team = escapeHtml(params.teamName ?? "BazaarPrinting Team");
   const name = escapeHtml(params.customerName);
-  const ref = escapeHtml(
-    formatOrderReference(params.productType, params.orderNumber)
-  );
+  const orderNumber = escapeHtml(params.orderNumber);
   const link = escapeHtml(params.replyLink);
-  const noteHtml = params.staffNote?.trim()
-    ? emailNoteBox(params.staffNote.trim())
+  const missingInfoMessage = params.staffNote?.trim()
+    ? `<p style="margin:0 0 20px; font-size:14px; color:#374151; line-height:1.7;">${escapeHtml(params.staffNote.trim())}</p>`
     : "";
 
   const bodyHtml = [
-    emailParagraph(`Hi ${name},`),
-    emailParagraph(
-      `We need more information to complete your ${ref}. Please attach your file or leave a note using the button below.`
-    ),
-    noteHtml,
-    emailCta(link, "Attach files &amp; respond"),
-    emailLinkFallback(link),
-    emailFinePrint("This link expires in 7 days."),
-    emailSignoff(team),
-  ].join("");
+    `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Hi ${name},</p>`,
+    `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">We need some additional information for your order <strong>#${orderNumber}</strong> before we can proceed.</p>`,
+    missingInfoMessage,
+    `<p style="margin:0 0 20px;"><a href="${link}" style="color:#2563EB; font-size:13px; word-break:break-all;">${link}</a></p>`,
+    `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
+    `<p style="margin:0; font-size:13px; color:#9ca3af;">BazaarPrinting Team</p>`,
+  ]
+    .filter(Boolean)
+    .join("");
 
-  return customerEmailLayout({
-    tenantLabel: params.teamName ?? "BazaarPrinting Team",
-    orderNumber: params.orderNumber,
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${params.orderNumber}`,
     bodyHtml,
+    emailTitle: missingInfoSubject(params.orderNumber),
   });
 }
 
@@ -302,33 +281,22 @@ export function buildApprovalEmailHtml(params: {
   internalNote?: string | null;
   teamName?: string;
 }) {
-  const team = escapeHtml(params.teamName ?? "BazaarPrinting Team");
   const name = escapeHtml(params.customerName);
-  const ref = escapeHtml(
-    formatOrderReference(params.productType, params.orderNumber)
-  );
+  const product = escapeHtml(params.productType.trim() || "order");
   const link = escapeHtml(params.approvalLink);
-  const noteHtml = params.internalNote?.trim()
-    ? emailNoteBox(params.internalNote.trim())
-    : "";
 
   const bodyHtml = [
-    emailParagraph(`Hi ${name},`),
-    emailParagraph(`Your ${ref} proof is ready for review.`),
-    noteHtml,
-    emailParagraph(
-      "Please review your order details and artwork on the page, then approve or request changes."
-    ),
-    emailCta(link, "Review &amp; approve"),
-    emailLinkFallback(link),
-    emailFinePrint("This link expires in 7 days."),
-    emailSignoff(team),
+    `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Hi ${name},</p>`,
+    `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Your <strong>${product}</strong> proof is ready for review. Please approve or request changes using the link below:</p>`,
+    `<p style="margin:0 0 20px;"><a href="${link}" style="color:#2563EB; font-size:13px; word-break:break-all;">${link}</a></p>`,
+    `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
+    `<p style="margin:0; font-size:13px; color:#9ca3af;">This link expires in 7 days. — BazaarPrinting Team</p>`,
   ].join("");
 
-  return customerEmailLayout({
-    tenantLabel: params.teamName ?? "BazaarPrinting Team",
-    orderNumber: params.orderNumber,
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${params.orderNumber}`,
     bodyHtml,
+    emailTitle: approvalSubject(params.orderNumber),
   });
 }
 
@@ -386,16 +354,13 @@ export function messageToEmailHtml(text: string) {
     .filter(Boolean)
     .map((block) => emailParagraph(block.replace(
       /(https?:\/\/[^\s<]+)/g,
-      '<a href="$1" style="color:#1d4ed8;word-break:break-all;">$1</a>'
+      '<a href="$1" style="color:#2563EB;word-break:break-all;">$1</a>'
     )))
     .join("");
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:16px;background:#eef2f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
-  <div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:18px 20px;font-size:15px;line-height:1.45;color:#334155;">
-    ${paragraphs}
-  </div>
-</body></html>`;
+  return buildBrandedEmailLayout({
+    contextLabel: "Notification",
+    bodyHtml: paragraphs,
+  });
 }
 
 export function formatFileSize(bytes: number | null | undefined) {
