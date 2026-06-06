@@ -44,6 +44,18 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   order_qty: "Order QTY",
 };
 
+/** DB field names that map to a webhook key (handles renames like Finishing ↔ Lamination). */
+const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
+  product: ["Product"],
+  product_type: ["Product Type"],
+  finished_size: ["Finished Size"],
+  materials: ["Materials"],
+  finishing: ["Lamination", "Finishing"],
+  sides: ["Sides"],
+  color: ["Color"],
+  order_qty: ["Order QTY"],
+};
+
 export interface WebhookOrderPayload {
   customer_name?: string;
   customer_contact?: string;
@@ -159,66 +171,108 @@ function validatePayload(body: WebhookOrderPayload): {
 
 function parseFieldOptions(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
-  return raw.filter((v): v is string => typeof v === "string");
+  const options: string[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && item.trim()) {
+      options.push(item.trim());
+    } else if (
+      item &&
+      typeof item === "object" &&
+      "value" in item &&
+      typeof (item as { value: unknown }).value === "string"
+    ) {
+      const v = (item as { value: string }).value.trim();
+      if (v) options.push(v);
+    }
+  }
+  return options;
 }
 
-/** Match incoming webhook text to a tenant select option (exact, then partial). */
+function normalizeOptionText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** Match incoming webhook text to a tenant select option (case/whitespace insensitive). */
 export function matchSelectOption(
   incoming: string,
   options: string[]
 ): string {
-  const trimmed = incoming.trim();
+  const trimmed = incoming.trim().replace(/\s+/g, " ");
   if (!trimmed || options.length === 0) return trimmed;
 
-  const lower = trimmed.toLowerCase();
+  const lower = normalizeOptionText(trimmed);
 
-  const exact = options.find((o) => o.toLowerCase() === lower);
+  const exact = options.find(
+    (o) => normalizeOptionText(o) === lower
+  );
   if (exact) return exact;
 
   const incomingContains = options
-    .filter((o) => o.trim() && lower.includes(o.toLowerCase()))
+    .filter((o) => o.trim() && lower.includes(normalizeOptionText(o)))
     .sort((a, b) => b.length - a.length);
   if (incomingContains[0]) return incomingContains[0];
 
   const optionContains = options
-    .filter((o) => o.trim() && o.toLowerCase().includes(lower))
+    .filter((o) => o.trim() && normalizeOptionText(o).includes(lower))
     .sort((a, b) => a.length - b.length);
   if (optionContains[0]) return optionContains[0];
 
   return trimmed;
 }
 
+function fieldNameMatches(fieldName: string, candidates: string[]): boolean {
+  const lower = fieldName.toLowerCase();
+  return candidates.some((c) => c.toLowerCase() === lower);
+}
+
 async function resolveCustomFields(
   client: Client,
   tenantId: string
 ): Promise<Map<string, CustomFieldDef>> {
-  const names = new Set([
-    CUSTOMER_NAME_FIELD_NAME,
-    CUSTOMER_CONTACT_FIELD_NAME,
-    ...Object.values(WEBHOOK_CUSTOM_FIELD_MAP),
-  ]);
-
   const { data } = await client
     .from("custom_fields")
     .select("id, name, field_type, options")
     .eq("tenant_id", tenantId);
 
-  const byName = new Map<string, CustomFieldDef>();
-  for (const row of (data ?? []) as {
+  const rows = (data ?? []) as {
     id: string;
     name: string;
     field_type: string;
     options: unknown;
-  }[]) {
-    if (!names.has(row.name)) continue;
-    byName.set(row.name, {
-      id: row.id,
-      name: row.name,
-      field_type: row.field_type,
-      options: parseFieldOptions(row.options),
-    });
+  }[];
+
+  const byWebhookKey = new Map<string, CustomFieldDef>();
+
+  for (const [webhookKey, candidates] of Object.entries(WEBHOOK_FIELD_ALIASES)) {
+    const row = rows.find((r) => fieldNameMatches(r.name, candidates));
+    if (row) {
+      byWebhookKey.set(webhookKey, {
+        id: row.id,
+        name: row.name,
+        field_type: row.field_type,
+        options: parseFieldOptions(row.options),
+      });
+    }
   }
-  return byName;
+
+  for (const reserved of [
+    CUSTOMER_NAME_FIELD_NAME,
+    CUSTOMER_CONTACT_FIELD_NAME,
+  ] as const) {
+    const row = rows.find(
+      (r) => r.name.toLowerCase() === reserved.toLowerCase()
+    );
+    if (row) {
+      byWebhookKey.set(reserved, {
+        id: row.id,
+        name: row.name,
+        field_type: row.field_type,
+        options: parseFieldOptions(row.options),
+      });
+    }
+  }
+
+  return byWebhookKey;
 }
 
 function resolveWebhookFieldValue(
@@ -254,39 +308,39 @@ function buildCustomFieldValues(
   customerContact: string,
   skus: SkuItem[]
 ): { customFieldId: string; value: unknown }[] {
-  const rows: { customFieldId: string; value: unknown }[] = [];
+  const byFieldId = new Map<string, unknown>();
 
   const nameField = fields.get(CUSTOMER_NAME_FIELD_NAME);
   const contactField = fields.get(CUSTOMER_CONTACT_FIELD_NAME);
-  if (nameField) {
-    rows.push({ customFieldId: nameField.id, value: customerName });
-  }
-  if (contactField) {
-    rows.push({ customFieldId: contactField.id, value: customerContact });
-  }
+  if (nameField) byFieldId.set(nameField.id, customerName);
+  if (contactField) byFieldId.set(contactField.id, customerContact);
 
-  for (const [webhookKey, fieldName] of Object.entries(
-    WEBHOOK_CUSTOM_FIELD_MAP
-  )) {
-    const field = fields.get(fieldName);
+  const skuQtySum =
+    skus.length > 0
+      ? skus.reduce((sum, s) => sum + (s.qty ?? 0), 0)
+      : 0;
+
+  for (const [webhookKey] of Object.entries(WEBHOOK_CUSTOM_FIELD_MAP)) {
+    if (webhookKey === "order_qty" && skus.length > 0 && skuQtySum > 0) {
+      continue;
+    }
+    const field = fields.get(webhookKey);
     if (!field) continue;
     const raw = body[webhookKey as keyof WebhookOrderPayload];
     const value = resolveWebhookFieldValue(webhookKey, raw, field);
     if (value === null) continue;
-    rows.push({ customFieldId: field.id, value });
+    byFieldId.set(field.id, value);
   }
 
-  const orderQtyField = fields.get("Order QTY");
-  if (orderQtyField && skus.length > 0) {
-    const skuSum = skus.reduce((sum, s) => sum + (s.qty ?? 0), 0);
-    if (skuSum > 0) {
-      rows.push({ customFieldId: orderQtyField.id, value: skuSum });
-    }
+  const orderQtyField = fields.get("order_qty");
+  if (orderQtyField && skus.length > 0 && skuQtySum > 0) {
+    byFieldId.set(orderQtyField.id, skuQtySum);
   }
 
-  return rows.filter(
-    (v) => v.value !== null && v.value !== undefined && v.value !== ""
-  );
+  return [...byFieldId.entries()].map(([customFieldId, value]) => ({
+    customFieldId,
+    value,
+  }));
 }
 
 async function insertExternalAsset(
@@ -298,7 +352,7 @@ async function insertExternalAsset(
     skuKey?: string | null;
   }
 ): Promise<string | null> {
-  const { error } = await client.from("assets").insert({
+  const row = {
     tenant_id: params.tenantId,
     order_id: params.orderId,
     sku_key: params.skuKey ?? null,
@@ -308,11 +362,52 @@ async function insertExternalAsset(
     mime_type: null,
     size: null,
     uploaded_by: null,
-  });
+  };
+
+  const { error } = await client.from("assets").insert(row);
   if (error) {
-    console.error("[webhook/orders] asset insert error:", error.message);
+    console.error("[webhook/orders] SKU/asset insert error:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      sku_key: params.skuKey ?? null,
+      order_id: params.orderId,
+      row,
+    });
     return error.message;
   }
+  return null;
+}
+
+async function insertCustomFieldValues(
+  client: Client,
+  orderId: string,
+  values: { customFieldId: string; value: unknown }[]
+): Promise<string | null> {
+  if (values.length === 0) return null;
+
+  const { error } = await client.from("custom_field_values").insert(
+    values.map((v) => ({
+      order_id: orderId,
+      custom_field_id: v.customFieldId,
+      value: v.value,
+    }))
+  );
+
+  if (error) {
+    console.error("[webhook/orders] custom_field_values insert error:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      order_id: orderId,
+      field_count: values.length,
+      values,
+    });
+    return error.message;
+  }
+
   return null;
 }
 
@@ -416,21 +511,25 @@ export async function createOrderFromWebhook(
     .single();
 
   if (orderError || !order) {
+    console.error("[webhook/orders] order insert error:", {
+      message: orderError?.message,
+      code: orderError?.code,
+      details: orderError?.details,
+      sku_count: skus.length,
+    });
     throw new Error(orderError?.message ?? "Failed to create order");
   }
 
   const orderId = order.id as string;
   const warnings: string[] = [];
 
-  if (customFieldValues.length > 0) {
-    const { error: cfvError } = await client.from("custom_field_values").insert(
-      customFieldValues.map((v) => ({
-        order_id: orderId,
-        custom_field_id: v.customFieldId,
-        value: v.value,
-      }))
-    );
-    if (cfvError) throw new Error(cfvError.message);
+  const cfvError = await insertCustomFieldValues(
+    client,
+    orderId,
+    customFieldValues
+  );
+  if (cfvError) {
+    warnings.push(`Custom fields could not be saved: ${cfvError}`);
   }
 
   if (typeof body.artwork_url === "string" && body.artwork_url.trim()) {
@@ -452,21 +551,29 @@ export async function createOrderFromWebhook(
       skuKey: skuId,
     });
     if (assetError) {
-      warnings.push(`SKU artwork could not be saved: ${assetError}`);
+      warnings.push(
+        `SKU artwork could not be saved (sku ${skuId}): ${assetError}`
+      );
     }
   }
 
-  await logActivity(client, {
-    tenantId,
-    orderId,
-    actor: null,
-    action: "created",
-    metadata: {
-      source: "webhook",
-      title: order.title,
-      column: (firstCol as { name: string } | null)?.name ?? null,
-    },
-  });
+  try {
+    await logActivity(client, {
+      tenantId,
+      orderId,
+      actor: null,
+      action: "created",
+      metadata: {
+        source: "webhook",
+        title: order.title,
+        column: (firstCol as { name: string } | null)?.name ?? null,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Activity log failed";
+    console.error("[webhook/orders] activity log error:", message);
+    warnings.push(message);
+  }
 
   return {
     orderId,

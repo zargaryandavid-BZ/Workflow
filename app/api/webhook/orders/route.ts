@@ -63,7 +63,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
     const message = err instanceof Error ? err.message : "Server error";
-    console.error("[webhook/orders]", message);
+    console.error("[webhook/orders] unhandled error:", {
+      message,
+      stack: err instanceof Error ? err.stack : undefined,
+      has_skus: Array.isArray(body.skus) && body.skus.length > 0,
+      sku_count: Array.isArray(body.skus) ? body.skus.length : 0,
+    });
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
