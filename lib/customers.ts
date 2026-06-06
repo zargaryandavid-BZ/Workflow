@@ -9,6 +9,23 @@ import type { Customer } from "@/lib/types";
 type Client = SupabaseClient;
 
 export type CustomerContactKind = "email" | "phone";
+export type UpsertCustomerAction = "created" | "updated" | "merged";
+
+export interface UpsertCustomerInput {
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  existingCustomerId?: string | null;
+}
+
+export interface UpsertCustomerResult {
+  customerId: string;
+  action: UpsertCustomerAction;
+}
+
+const CUSTOMER_SELECT =
+  "id, tenant_id, name, email, phone, company, created_at, updated_at";
 
 export function normalizeCustomerContact(
   contact: string
@@ -21,6 +38,26 @@ export function normalizeCustomerContact(
   }
 
   return { kind: "phone", value: normalizeSmsPhone(trimmed) };
+}
+
+function normalizeEmail(email: string | null | undefined): string | null {
+  const trimmed = email?.trim().toLowerCase();
+  return trimmed || null;
+}
+
+function normalizePhone(phone: string | null | undefined): string | null {
+  const trimmed = phone?.trim();
+  if (!trimmed) return null;
+  return normalizeSmsPhone(trimmed);
+}
+
+function customerDataScore(customer: Customer): number {
+  let score = 0;
+  if (customer.name?.trim()) score += 1;
+  if (customer.email) score += 1;
+  if (customer.phone) score += 1;
+  if (customer.company) score += 1;
+  return score;
 }
 
 export async function resolveCustomerFieldIds(
@@ -49,7 +86,7 @@ export async function resolveCustomerFieldIds(
 export function customerFromFieldValues(
   fieldIds: { nameId: string | null; contactId: string | null },
   values: { customFieldId: string; value: unknown }[]
-): { name: string; contact: string } | null {
+): { name: string; email: string | null; phone: string | null } | null {
   if (!fieldIds.nameId || !fieldIds.contactId) return null;
 
   const byId = new Map(values.map((v) => [v.customFieldId, v.value]));
@@ -57,10 +94,17 @@ export function customerFromFieldValues(
   const contact = String(byId.get(fieldIds.contactId) ?? "").trim();
   if (!name || !contact) return null;
 
-  return { name, contact };
+  const normalized = normalizeCustomerContact(contact);
+  if (!normalized) return null;
+
+  return {
+    name,
+    email: normalized.kind === "email" ? normalized.value : null,
+    phone: normalized.kind === "phone" ? normalized.value : null,
+  };
 }
 
-type CustomerCandidate = { id: string; created_at: string };
+type CustomerCandidate = Customer & { created_at: string };
 
 function isUniqueViolation(error: { code?: string } | null): boolean {
   return error?.code === "23505";
@@ -87,38 +131,184 @@ async function orderCountByCustomer(
   return counts;
 }
 
-function pickCanonicalCustomer<T extends CustomerCandidate>(
-  rows: T[],
+function pickCanonicalCustomer(
+  rows: Customer[],
   orderCounts: Map<string, number>
-): T {
+): Customer {
   return rows.slice().sort((a, b) => {
     const ca = orderCounts.get(a.id) ?? 0;
     const cb = orderCounts.get(b.id) ?? 0;
     if (cb !== ca) return cb - ca;
+    const sa = customerDataScore(a);
+    const sb = customerDataScore(b);
+    if (sb !== sa) return sb - sa;
     return a.created_at.localeCompare(b.created_at);
   })[0];
 }
 
-async function mergeDuplicateCustomers(
+async function loadCustomerById(
+  client: Client,
+  customerId: string
+): Promise<Customer | null> {
+  const { data, error } = await client
+    .from("customers")
+    .select(CUSTOMER_SELECT)
+    .eq("id", customerId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as Customer | null) ?? null;
+}
+
+async function findCustomerByEmail(
   client: Client,
   tenantId: string,
-  canonicalId: string,
-  duplicateIds: string[]
-): Promise<void> {
-  if (duplicateIds.length === 0) return;
+  email: string
+): Promise<Customer | null> {
+  const { data, error } = await client
+    .from("customers")
+    .select(CUSTOMER_SELECT)
+    .eq("tenant_id", tenantId)
+    .eq("email", email)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as Customer | null) ?? null;
+}
+
+async function findCustomerByPhone(
+  client: Client,
+  tenantId: string,
+  phone: string
+): Promise<Customer | null> {
+  const { data, error } = await client
+    .from("customers")
+    .select(CUSTOMER_SELECT)
+    .eq("tenant_id", tenantId)
+    .eq("phone", phone)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as Customer | null) ?? null;
+}
+
+async function mergeCustomers(
+  client: Client,
+  tenantId: string,
+  winner: Customer,
+  loser: Customer,
+  incoming: {
+    name?: string;
+    email?: string | null;
+    phone?: string | null;
+    company?: string | null;
+  },
+  orderId?: string | null
+): Promise<Customer> {
+  const updates: Record<string, string | null> = {};
+
+  const email = incoming.email ?? loser.email ?? winner.email;
+  const phone = incoming.phone ?? loser.phone ?? winner.phone;
+  const name =
+    incoming.name?.trim() ||
+    (winner.name?.trim() ? winner.name : null) ||
+    loser.name?.trim() ||
+    winner.name;
+  const company = incoming.company ?? loser.company ?? winner.company;
+
+  if (email && winner.email !== email) updates.email = email;
+  if (phone && winner.phone !== phone) updates.phone = phone;
+  if (name && !winner.name?.trim()) updates.name = name;
+  if (company && !winner.company) updates.company = company;
+
+  if (Object.keys(updates).length > 0) {
+    const { error } = await client
+      .from("customers")
+      .update(updates)
+      .eq("id", winner.id);
+    if (error) throw new Error(error.message);
+  }
 
   const { error: orderError } = await client
     .from("orders")
-    .update({ customer_id: canonicalId })
+    .update({ customer_id: winner.id })
     .eq("tenant_id", tenantId)
-    .in("customer_id", duplicateIds);
+    .eq("customer_id", loser.id);
   if (orderError) throw new Error(orderError.message);
 
   const { error: deleteError } = await client
     .from("customers")
     .delete()
-    .in("id", duplicateIds);
+    .eq("id", loser.id);
   if (deleteError) throw new Error(deleteError.message);
+
+  await client.from("activity_log").insert({
+    tenant_id: tenantId,
+    order_id: orderId ?? null,
+    actor: null,
+    action: "customer_merged",
+    metadata: {
+      winner_id: winner.id,
+      loser_id: loser.id,
+      winner_name: winner.name,
+      loser_name: loser.name,
+    },
+  });
+
+  const refreshed = await loadCustomerById(client, winner.id);
+  return refreshed ?? { ...winner, ...updates };
+}
+
+function buildCustomerUpdates(
+  existing: Customer,
+  input: {
+    name?: string;
+    email?: string | null;
+    phone?: string | null;
+    company?: string | null;
+  }
+): Record<string, string | null> {
+  const updates: Record<string, string | null> = {};
+  const name = input.name?.trim();
+
+  if (input.email && existing.email !== input.email) {
+    updates.email = input.email;
+  }
+  if (input.phone && existing.phone !== input.phone) {
+    updates.phone = input.phone;
+  }
+  if (name && !existing.name?.trim()) {
+    updates.name = name;
+  }
+  if (input.company && !existing.company) {
+    updates.company = input.company;
+  }
+
+  return updates;
+}
+
+export async function findCustomerByContacts(
+  client: Client,
+  tenantId: string,
+  contacts: { email?: string | null; phone?: string | null }
+): Promise<Customer | null> {
+  const email = normalizeEmail(contacts.email);
+  const phone = normalizePhone(contacts.phone);
+  if (!email && !phone) return null;
+
+  const [emailMatch, phoneMatch] = await Promise.all([
+    email ? findCustomerByEmail(client, tenantId, email) : null,
+    phone ? findCustomerByPhone(client, tenantId, phone) : null,
+  ]);
+
+  if (emailMatch && phoneMatch && emailMatch.id !== phoneMatch.id) {
+    const orderCounts = await orderCountByCustomer(client, tenantId, [
+      emailMatch.id,
+      phoneMatch.id,
+    ]);
+    const winner = pickCanonicalCustomer([emailMatch, phoneMatch], orderCounts);
+    const loser = winner.id === emailMatch.id ? phoneMatch : emailMatch;
+    return mergeCustomers(client, tenantId, winner, loser, { email, phone });
+  }
+
+  return emailMatch ?? phoneMatch;
 }
 
 export async function findCustomerByContact(
@@ -129,122 +319,142 @@ export async function findCustomerByContact(
   const normalized = normalizeCustomerContact(contact);
   if (!normalized) return null;
 
-  const field = normalized.kind === "email" ? "email" : "phone";
-  const { data, error } = await client
-    .from("customers")
-    .select("id, tenant_id, name, email, phone, company, created_at, updated_at")
-    .eq("tenant_id", tenantId)
-    .eq(field, normalized.value);
-
-  if (error) throw new Error(error.message);
-
-  const rows = (data ?? []) as Customer[];
-  if (rows.length === 0) return null;
-  if (rows.length === 1) return rows[0];
-
-  const orderCounts = await orderCountByCustomer(
+  return findCustomerByContacts(
     client,
     tenantId,
-    rows.map((r) => r.id)
+    normalized.kind === "email"
+      ? { email: normalized.value }
+      : { phone: normalized.value }
   );
-  const canonical = pickCanonicalCustomer(rows, orderCounts);
-  const duplicateIds = rows
-    .filter((r) => r.id !== canonical.id)
-    .map((r) => r.id);
-  await mergeDuplicateCustomers(client, tenantId, canonical.id, duplicateIds);
-
-  const { data: refreshed, error: refreshError } = await client
-    .from("customers")
-    .select("id, tenant_id, name, email, phone, company, created_at, updated_at")
-    .eq("id", canonical.id)
-    .maybeSingle();
-  if (refreshError) throw new Error(refreshError.message);
-  return (refreshed as Customer | null) ?? canonical;
 }
 
 export async function upsertCustomer(
   client: Client,
   tenantId: string,
-  name: string,
-  contact: string
-): Promise<string> {
-  const trimmedName = name.trim();
-  const normalized = normalizeCustomerContact(contact);
-  if (!normalized) {
-    throw new Error("Customer contact is required");
+  input: UpsertCustomerInput,
+  orderId?: string | null
+): Promise<UpsertCustomerResult> {
+  const email = normalizeEmail(input.email);
+  const phone = normalizePhone(input.phone);
+  const name = input.name?.trim();
+
+  if (!email && !phone) {
+    throw new Error(
+      "At least one of email or phone is required to upsert customer"
+    );
   }
 
-  const field = normalized.kind === "email" ? "email" : "phone";
-  const contactValue = normalized.value;
+  const [emailMatch, phoneMatch, linkedCustomer] = await Promise.all([
+    email ? findCustomerByEmail(client, tenantId, email) : null,
+    phone ? findCustomerByPhone(client, tenantId, phone) : null,
+    input.existingCustomerId
+      ? loadCustomerById(client, input.existingCustomerId)
+      : null,
+  ]);
 
-  const { data: matches, error: findError } = await client
-    .from("customers")
-    .select("id, created_at")
-    .eq("tenant_id", tenantId)
-    .eq(field, contactValue);
+  const distinctMatches = new Map<string, Customer>();
+  for (const row of [emailMatch, phoneMatch, linkedCustomer]) {
+    if (row) distinctMatches.set(row.id, row);
+  }
+  const matches = Array.from(distinctMatches.values());
 
-  if (findError) throw new Error(findError.message);
-
-  const existing = (matches ?? []) as { id: string; created_at: string }[];
-
-  if (existing.length > 0) {
+  if (matches.length > 1) {
     const orderCounts = await orderCountByCustomer(
       client,
       tenantId,
-      existing.map((r) => r.id)
+      matches.map((m) => m.id)
     );
-    const canonical = pickCanonicalCustomer(existing, orderCounts);
-    const duplicateIds = existing
-      .filter((r) => r.id !== canonical.id)
-      .map((r) => r.id);
+    let winner = pickCanonicalCustomer(matches, orderCounts);
 
-    if (duplicateIds.length > 0) {
-      await mergeDuplicateCustomers(
+    for (const loser of matches.filter((m) => m.id !== winner.id)) {
+      winner = await mergeCustomers(
         client,
         tenantId,
-        canonical.id,
-        duplicateIds
+        winner,
+        loser,
+        { name, email, phone, company: input.company },
+        orderId
       );
     }
 
-    const { error: updateError } = await client
-      .from("customers")
-      .update({ name: trimmedName })
-      .eq("id", canonical.id);
-    if (updateError) throw new Error(updateError.message);
-    return canonical.id;
+    const updates = buildCustomerUpdates(winner, {
+      name,
+      email,
+      phone,
+      company: input.company,
+    });
+    if (Object.keys(updates).length > 0) {
+      const { error } = await client
+        .from("customers")
+        .update(updates)
+        .eq("id", winner.id);
+      if (error) throw new Error(error.message);
+    }
+
+    return { customerId: winner.id, action: "merged" };
+  }
+
+  const existing = matches[0] ?? null;
+
+  if (existing) {
+    const updates = buildCustomerUpdates(existing, {
+      name,
+      email,
+      phone,
+      company: input.company,
+    });
+
+    if (Object.keys(updates).length > 0) {
+      const { error } = await client
+        .from("customers")
+        .update(updates)
+        .eq("id", existing.id);
+      if (error) throw new Error(error.message);
+    }
+
+    return { customerId: existing.id, action: "updated" };
   }
 
   const { data: created, error: insertError } = await client
     .from("customers")
     .insert({
       tenant_id: tenantId,
-      name: trimmedName,
-      [field]: contactValue,
+      name: name ?? "",
+      email,
+      phone,
+      company: input.company ?? null,
     })
     .select("id")
     .single();
 
   if (!insertError && created) {
-    return created.id as string;
+    return { customerId: created.id as string, action: "created" };
   }
 
   if (isUniqueViolation(insertError)) {
-    const existingAfterConflict = await findCustomerByContact(
-      client,
-      tenantId,
-      contact
-    );
-    if (!existingAfterConflict) {
+    const afterConflict = await findCustomerByContacts(client, tenantId, {
+      email,
+      phone,
+    });
+    if (!afterConflict) {
       throw new Error(insertError?.message ?? "Failed to save customer");
     }
 
-    const { error: updateError } = await client
-      .from("customers")
-      .update({ name: trimmedName })
-      .eq("id", existingAfterConflict.id);
-    if (updateError) throw new Error(updateError.message);
-    return existingAfterConflict.id;
+    const updates = buildCustomerUpdates(afterConflict, {
+      name,
+      email,
+      phone,
+      company: input.company,
+    });
+    if (Object.keys(updates).length > 0) {
+      const { error } = await client
+        .from("customers")
+        .update(updates)
+        .eq("id", afterConflict.id);
+      if (error) throw new Error(error.message);
+    }
+
+    return { customerId: afterConflict.id, action: "updated" };
   }
 
   throw new Error(insertError?.message ?? "Failed to save customer");
@@ -253,10 +463,77 @@ export async function upsertCustomer(
 export async function linkCustomerFromOrderFields(
   client: Client,
   tenantId: string,
-  customFieldValues: { customFieldId: string; value: unknown }[]
+  customFieldValues: { customFieldId: string; value: unknown }[],
+  existingCustomerId?: string | null,
+  orderId?: string | null
 ): Promise<string | null> {
   const fieldIds = await resolveCustomerFieldIds(client, tenantId);
   const parsed = customerFromFieldValues(fieldIds, customFieldValues);
   if (!parsed) return null;
-  return upsertCustomer(client, tenantId, parsed.name, parsed.contact);
+
+  const { customerId } = await upsertCustomer(
+    client,
+    tenantId,
+    {
+      name: parsed.name,
+      email: parsed.email,
+      phone: parsed.phone,
+      existingCustomerId,
+    },
+    orderId
+  );
+  return customerId;
+}
+
+/** Sync customer contact from notification overrides onto the order's customer. */
+export async function syncCustomerFromNotification(
+  client: Client,
+  params: {
+    tenantId: string;
+    orderId: string;
+    customerId: string | null;
+    customerName?: string | null;
+    customerEmail?: string | null;
+    customerPhone?: string | null;
+    toEmail?: string | null;
+    toPhone?: string | null;
+  }
+): Promise<string | null> {
+  let name = params.customerName?.trim() || undefined;
+  let email = normalizeEmail(params.toEmail ?? params.customerEmail);
+  let phone = normalizePhone(params.toPhone ?? params.customerPhone);
+
+  if (params.customerId) {
+    const existing = await loadCustomerById(client, params.customerId);
+    if (existing) {
+      name = name || existing.name?.trim() || undefined;
+      email = email ?? normalizeEmail(existing.email);
+      phone = phone ?? normalizePhone(existing.phone);
+    }
+  }
+
+  if (!email && !phone) return params.customerId;
+
+  const { customerId } = await upsertCustomer(
+    client,
+    params.tenantId,
+    {
+      name,
+      email,
+      phone,
+      existingCustomerId: params.customerId,
+    },
+    params.orderId
+  );
+
+  if (customerId !== params.customerId) {
+    const { error } = await client
+      .from("orders")
+      .update({ customer_id: customerId })
+      .eq("id", params.orderId)
+      .eq("tenant_id", params.tenantId);
+    if (error) throw new Error(error.message);
+  }
+
+  return customerId;
 }

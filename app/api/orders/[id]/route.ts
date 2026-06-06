@@ -160,7 +160,7 @@ export async function PATCH(
 
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, tenant_id, due_date, specs")
+    .select("id, tenant_id, due_date, specs, customer_id")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -228,7 +228,9 @@ export async function PATCH(
       const customerId = await linkCustomerFromOrderFields(
         supabase,
         ctx.tenant.id,
-        body.customFieldValues
+        body.customFieldValues,
+        (existingOrder as { customer_id?: string | null }).customer_id ?? null,
+        id
       );
       if (customerId) updates.customer_id = customerId;
     } catch (err) {

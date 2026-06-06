@@ -14,6 +14,7 @@ import {
   messageToEmailHtml,
   missingInfoSubject,
 } from "@/lib/notification-messages";
+import { syncCustomerFromNotification } from "@/lib/customers";
 import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
 import type {
@@ -68,20 +69,6 @@ function productFromOrder(order: Order): string {
   return product?.trim() || "order";
 }
 
-async function persistCustomerPhone(
-  client: Client,
-  order: Order,
-  phone: string
-) {
-  if (!order.customer_id) return;
-  await client
-    .from("customers")
-    .update({
-      phone: normalizeSmsPhone(phone),
-    })
-    .eq("id", order.customer_id);
-}
-
 async function deliverNotification(
   client: Client,
   params: {
@@ -104,6 +91,20 @@ async function deliverNotification(
       params.toEmail,
       params.toPhone
     );
+
+  const syncedCustomerId = await syncCustomerFromNotification(client, {
+    tenantId: params.order.tenant_id,
+    orderId: params.order.id,
+    customerId: params.order.customer_id,
+    customerName,
+    customerEmail,
+    customerPhone,
+    toEmail: params.toEmail,
+    toPhone: params.toPhone,
+  });
+  if (syncedCustomerId && syncedCustomerId !== params.order.customer_id) {
+    params.order = { ...params.order, customer_id: syncedCustomerId };
+  }
 
   if (params.channel === "email" && customerEmail) {
     const staffNote = params.staffNote ?? params.notification.staff_note;
@@ -192,7 +193,6 @@ async function deliverNotification(
         error: smsResult.error ?? deliveryErrorMessage("sms"),
       };
     }
-    await persistCustomerPhone(client, params.order, customerPhone);
   } else {
     console.info(
       `[notification-link:${params.notification.type}] ${actionUrl}`
@@ -257,6 +257,25 @@ export async function saveNotificationRequest(
 ) {
   const note = params.staffNote.trim();
   if (!note) throw new Error("Note is required");
+
+  if (params.toEmail) {
+    const { customerEmail, customerPhone, customerName } =
+      await resolveCustomerContact(
+        client,
+        params.order,
+        params.toEmail,
+        null
+      );
+    await syncCustomerFromNotification(client, {
+      tenantId: params.order.tenant_id,
+      orderId: params.order.id,
+      customerId: params.order.customer_id,
+      customerName,
+      customerEmail,
+      customerPhone,
+      toEmail: params.toEmail,
+    });
+  }
 
   const rule = await getEnabledNotifyRule(
     client,

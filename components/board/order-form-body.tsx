@@ -125,24 +125,45 @@ export function OrderFormBody({
     const seq = ++lookupSeqRef.current;
     const timer = window.setTimeout(async () => {
       try {
-        const res = await fetch(
-          `/api/customers/lookup?contact=${encodeURIComponent(customerContact)}`
-        );
-        if (seq !== lookupSeqRef.current) return;
-        if (res.status === 404) {
-          setCustomerLookupHint(null);
-          return;
+        const normalized = normalizeCustomerContact(customerContact);
+        const params = new URLSearchParams();
+        if (normalized?.kind === "email") {
+          params.set("email", normalized.value);
+        } else if (normalized?.kind === "phone") {
+          params.set("phone", normalized.value);
+        } else {
+          params.set("contact", customerContact);
         }
+        const res = await fetch(`/api/customers/lookup?${params}`);
+        if (seq !== lookupSeqRef.current) return;
         if (!res.ok) {
           setCustomerLookupHint(null);
           return;
         }
-        const json = (await res.json()) as { name?: string };
+        const json = (await res.json()) as {
+          name?: string;
+          email?: string | null;
+          phone?: string | null;
+        } | null;
         if (seq !== lookupSeqRef.current) return;
+        if (!json) {
+          setCustomerLookupHint(null);
+          return;
+        }
         if (!nameEditedRef.current && json.name) {
           onCustomerNameChange(json.name);
         }
-        setCustomerLookupHint("Existing customer — name filled automatically");
+        const extraContact =
+          normalized?.kind === "phone" && json.email
+            ? json.email
+            : normalized?.kind === "email" && json.phone
+              ? json.phone
+              : null;
+        setCustomerLookupHint(
+          extraContact
+            ? `Existing customer found — fields auto-filled (also on file: ${extraContact})`
+            : "Existing customer found — fields auto-filled"
+        );
       } catch {
         if (seq !== lookupSeqRef.current) return;
         setCustomerLookupHint(null);

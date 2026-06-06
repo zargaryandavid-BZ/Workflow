@@ -99,11 +99,12 @@ export async function POST(request: Request) {
   let customerId: string | null = null;
   if (fieldValues.length > 0) {
     try {
-      customerId = await linkCustomerFromOrderFields(
+      const linked = await linkCustomerFromOrderFields(
         supabase,
         ctx.tenant.id,
         fieldValues
       );
+      customerId = linked;
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to save customer";

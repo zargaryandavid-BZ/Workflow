@@ -50,6 +50,8 @@ export function describeActivity(log: ActivityLog): string {
       return "Missing info note removed";
     case "approval_manual":
       return "Manual approval follow-up saved";
+    case "customer_merged":
+      return "Customer records merged";
     default:
       return log.action.replace(/_/g, " ");
   }
