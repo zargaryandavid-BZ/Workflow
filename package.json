@@ -10,7 +10,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "resequence-positions": "npx tsx scripts/resequence-positions.ts",
-    "merge-duplicate-customers": "npx tsx scripts/merge-duplicate-customers.ts"
+    "merge-duplicate-customers": "npx tsx scripts/merge-duplicate-customers.ts",
+    "clean-orders-customers": "npx tsx scripts/clean-orders-customers.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
