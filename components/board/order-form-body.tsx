@@ -50,6 +50,7 @@ export interface OrderFormBodyProps {
   removedSkuArtworkIds?: ReadonlySet<string>;
   onMarkSkuArtworkForRemoval?: (assetId: string) => void;
   onUnmarkSkuArtworkForRemoval?: (assetId: string) => void;
+  readOnly?: boolean;
 }
 
 export function OrderFormBody({
@@ -85,6 +86,7 @@ export function OrderFormBody({
   removedSkuArtworkIds,
   onMarkSkuArtworkForRemoval,
   onUnmarkSkuArtworkForRemoval,
+  readOnly = false,
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, orderQtyField, printFields } = resolved;
@@ -99,6 +101,8 @@ export function OrderFormBody({
   const minDueDate = localDateInputValue();
 
   useEffect(() => {
+    if (readOnly) return;
+
     const normalized = normalizeCustomerContact(customerContact);
     const lookupKey = normalized
       ? `${normalized.kind}:${normalized.value}`
@@ -108,9 +112,11 @@ export function OrderFormBody({
       lastLookupKeyRef.current = lookupKey;
       if (!lookupKey) setCustomerLookupHint(null);
     }
-  }, [customerContact]);
+  }, [customerContact, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
+
     if (!isValidCustomerContact(customerContact)) {
       setCustomerLookupHint(null);
       return;
@@ -144,7 +150,7 @@ export function OrderFormBody({
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [customerContact, onCustomerNameChange]);
+  }, [customerContact, onCustomerNameChange, readOnly]);
 
   function handleCustomerNameChange(value: string) {
     nameEditedRef.current = true;
@@ -177,9 +183,11 @@ export function OrderFormBody({
           <Input
             id={`${idPrefix}-title`}
             required
+            readOnly={readOnly}
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
             placeholder="e.g. PO-10245"
+            className={readOnly ? "bg-slate-50" : undefined}
           />
         </div>
         <div>
@@ -187,6 +195,7 @@ export function OrderFormBody({
           <Select
             id={`${idPrefix}-priority`}
             value={priority}
+            disabled={readOnly}
             onChange={(e) => onPriorityChange(e.target.value)}
           >
             {PRIORITY_OPTIONS.map((p) => (
@@ -201,14 +210,17 @@ export function OrderFormBody({
           <Input
             id={`${idPrefix}-due`}
             type="date"
-            min={minDueDate}
+            min={readOnly ? undefined : minDueDate}
+            readOnly={readOnly}
             value={normalizedDueDate}
             onChange={(e) => handleDueDateChange(e.target.value)}
             aria-invalid={dueDateError ? true : undefined}
             className={
               dueDateError
                 ? "border-red-400 focus:border-red-500 focus:ring-red-500/30"
-                : undefined
+                : readOnly
+                  ? "bg-slate-50"
+                  : undefined
             }
           />
           {dueDateError ? (
@@ -221,9 +233,11 @@ export function OrderFormBody({
         <Label htmlFor={`${idPrefix}-desc`}>Order Description</Label>
         <Textarea
           id={`${idPrefix}-desc`}
+          readOnly={readOnly}
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
           placeholder="Notes, references, special instructions…"
+          className={readOnly ? "bg-slate-50" : undefined}
         />
       </div>
 
@@ -234,11 +248,13 @@ export function OrderFormBody({
           </Label>
           <Input
             id={`${idPrefix}-artwork`}
+            readOnly={readOnly}
             value={(fieldValues[artworkField.id] as string) ?? ""}
             onChange={(e) =>
               onFieldValueChange(artworkField.id, e.target.value)
             }
             placeholder="https://drive.google.com/…"
+            className={readOnly ? "bg-slate-50" : undefined}
           />
         </div>
       ) : null}
@@ -251,8 +267,10 @@ export function OrderFormBody({
           <Input
             id={`${idPrefix}-customer-name`}
             required
+            readOnly={readOnly}
             value={customerName}
             onChange={(e) => handleCustomerNameChange(e.target.value)}
+            className={readOnly ? "bg-slate-50" : undefined}
           />
         </div>
         <div>
@@ -262,9 +280,11 @@ export function OrderFormBody({
           <Input
             id={`${idPrefix}-customer-contact`}
             required
+            readOnly={readOnly}
             value={customerContact}
             onChange={(e) => onCustomerContactChange(e.target.value)}
             placeholder="Email or phone"
+            className={readOnly ? "bg-slate-50" : undefined}
           />
           {customerLookupHint ? (
             <p className="mt-1 text-xs text-emerald-600">{customerLookupHint}</p>
@@ -278,6 +298,7 @@ export function OrderFormBody({
           <Select
             id={`${idPrefix}-designer`}
             value={designerId}
+            disabled={readOnly}
             onChange={(e) => onDesignerIdChange(e.target.value)}
           >
             <option value="">
@@ -294,9 +315,11 @@ export function OrderFormBody({
           <Label htmlFor={`${idPrefix}-design-task`}>Design task</Label>
           <Input
             id={`${idPrefix}-design-task`}
+            readOnly={readOnly}
             value={designTask}
             onChange={(e) => onDesignTaskChange(e.target.value)}
             placeholder="e.g. Prepare proof / prepress"
+            className={readOnly ? "bg-slate-50" : undefined}
           />
         </div>
       </div>
@@ -312,6 +335,7 @@ export function OrderFormBody({
               }}
               value={fieldValues[field.id]}
               onChange={(v) => onFieldValueChange(field.id, v)}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -328,6 +352,7 @@ export function OrderFormBody({
         removedArtworkIds={removedSkuArtworkIds}
         onMarkArtworkForRemoval={onMarkSkuArtworkForRemoval}
         onUnmarkArtworkForRemoval={onUnmarkSkuArtworkForRemoval}
+        disabled={readOnly}
       />
 
       {orderQtyField ? (
@@ -335,6 +360,7 @@ export function OrderFormBody({
           skus={skus}
           value={(fieldValues[orderQtyField.id] as number | null) ?? null}
           onChange={(v) => onFieldValueChange(orderQtyField.id, v)}
+          readOnly={readOnly}
         />
       ) : null}
     </div>

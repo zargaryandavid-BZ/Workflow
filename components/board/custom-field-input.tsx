@@ -7,10 +7,12 @@ export function CustomFieldInput({
   field,
   value,
   onChange,
+  readOnly = false,
 }: {
   field: CustomField;
   value: unknown;
   onChange: (value: unknown) => void;
+  readOnly?: boolean;
 }) {
   if (field.field_type === "checkbox") {
     return (
@@ -18,6 +20,7 @@ export function CustomFieldInput({
         <input
           type="checkbox"
           checked={Boolean(value)}
+          disabled={readOnly}
           onChange={(e) => onChange(e.target.checked)}
           className="h-4 w-4 rounded border-slate-300"
         />
@@ -36,6 +39,7 @@ export function CustomFieldInput({
       {field.field_type === "select" ? (
         <Select
           value={(value as string) ?? ""}
+          disabled={readOnly}
           onChange={(e) => onChange(e.target.value)}
         >
           <option value="">—</option>
@@ -54,6 +58,8 @@ export function CustomFieldInput({
                 ? "date"
                 : "text"
           }
+          readOnly={readOnly}
+          className={readOnly ? "bg-slate-50" : undefined}
           value={(value as string) ?? ""}
           onChange={(e) =>
             onChange(

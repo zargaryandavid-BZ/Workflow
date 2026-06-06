@@ -21,13 +21,16 @@ export function OrderQtyField({
   skus,
   value,
   onChange,
+  readOnly = false,
 }: {
   skus: SkuItem[];
   value: number | null;
   onChange: (value: number | null) => void;
+  readOnly?: boolean;
 }) {
   const hasSkus = skus.length > 0;
   const display = hasSkus ? sumSkuQty(skus) : value ?? "";
+  const isReadOnly = readOnly || hasSkus;
 
   return (
     <div>
@@ -37,12 +40,12 @@ export function OrderQtyField({
         type="number"
         min={0}
         value={display}
-        readOnly={hasSkus}
+        readOnly={isReadOnly}
         onChange={(e) =>
           onChange(e.target.value === "" ? null : Number(e.target.value))
         }
         placeholder="Total units"
-        className={hasSkus ? "bg-slate-50 text-slate-500" : undefined}
+        className={isReadOnly ? "bg-slate-50 text-slate-500" : undefined}
       />
       {hasSkus ? (
         <p className="mt-1 text-xs text-slate-400">

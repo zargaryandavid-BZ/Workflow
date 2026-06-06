@@ -76,13 +76,19 @@ Error responses:
 }
 
 interface Props {
-  initialConfig: WebhookConfig;
+  initialConfig: WebhookConfig | null;
+  loadError: string | null;
   webhookUrl: string;
 }
 
-export function IntegrationsManager({ initialConfig, webhookUrl }: Props) {
+export function IntegrationsManager({
+  initialConfig,
+  loadError: initialLoadError,
+  webhookUrl,
+}: Props) {
   const router = useRouter();
   const [config, setConfig] = useState(initialConfig);
+  const [loadError, setLoadError] = useState(initialLoadError);
   const [toggling, setToggling] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +106,7 @@ export function IntegrationsManager({ initialConfig, webhookUrl }: Props) {
   }
 
   async function toggleEnabled() {
+    if (!config) return;
     setError(null);
     setMessage(null);
     setToggling(true);
@@ -119,6 +126,7 @@ export function IntegrationsManager({ initialConfig, webhookUrl }: Props) {
   }
 
   async function regenerate() {
+    if (!config) return;
     if (
       !window.confirm(
         "Generate a new secret key? The current key will stop working immediately."
@@ -143,10 +151,37 @@ export function IntegrationsManager({ initialConfig, webhookUrl }: Props) {
     router.refresh();
   }
 
+  if (!config) {
+    return (
+      <div className="space-y-4">
+        {loadError ? (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            {loadError}
+          </p>
+        ) : (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Could not load webhook settings.
+          </p>
+        )}
+        <p className="text-sm text-slate-500">
+          Webhook URL (after setup):{" "}
+          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">
+            {webhookUrl}
+          </code>
+        </p>
+      </div>
+    );
+  }
+
   const payloadDocs = buildPayloadDocs(webhookUrl, config.secret_key);
 
   return (
     <div className="space-y-6">
+      {loadError ? (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {loadError}
+        </p>
+      ) : null}
       {error ? (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}

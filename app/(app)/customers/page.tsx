@@ -6,6 +6,7 @@ import type {
   Customer,
   CustomerOrderSummary,
   CustomerWithStats,
+  CustomField,
   Order,
 } from "@/lib/types";
 
@@ -14,24 +15,42 @@ export default async function CustomersPage() {
   if (!ctx) return null;
 
   const supabase = await createClient();
-  const [{ data: customers }, { data: orders }, { data: columns }] =
-    await Promise.all([
-      supabase
-        .from("customers")
-        .select("*")
-        .eq("tenant_id", ctx.tenant.id)
-        .order("name", { ascending: true }),
-      supabase
-        .from("orders")
-        .select("id, title, customer_id, created_at, column_id")
-        .eq("tenant_id", ctx.tenant.id)
-        .not("customer_id", "is", null)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("board_columns")
-        .select("id, name")
-        .eq("tenant_id", ctx.tenant.id),
-    ]);
+  const tenantId = ctx.tenant.id;
+
+  const [
+    { data: customers },
+    { data: orders },
+    { data: columns },
+    { data: customFields },
+    { data: designerMembers },
+  ] = await Promise.all([
+    supabase
+      .from("customers")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("name", { ascending: true }),
+    supabase
+      .from("orders")
+      .select("id, title, customer_id, created_at, column_id")
+      .eq("tenant_id", tenantId)
+      .not("customer_id", "is", null)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("board_columns")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("custom_fields")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("role", "designer"),
+  ]);
 
   const columnNameById = new Map(
     ((columns ?? []) as Pick<BoardColumn, "id" | "name">[]).map((c) => [
@@ -39,6 +58,26 @@ export default async function CustomersPage() {
       c.name,
     ])
   );
+
+  const designerIds = ((designerMembers ?? []) as { user_id: string }[]).map(
+    (m) => m.user_id
+  );
+  let designers: { id: string; name: string }[] = [];
+  if (designerIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", designerIds);
+    const nameById = new Map(
+      ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
+        (p) => [p.id, p.full_name]
+      )
+    );
+    designers = designerIds.map((id) => ({
+      id,
+      name: nameById.get(id) ?? "Unnamed designer",
+    }));
+  }
 
   const statsByCustomer = new Map<
     string,
@@ -97,6 +136,10 @@ export default async function CustomersPage() {
         <CustomersManager
           customers={customersWithStats}
           ordersByCustomer={ordersByCustomer}
+          customFields={(customFields ?? []) as CustomField[]}
+          columns={(columns ?? []) as BoardColumn[]}
+          designers={designers}
+          role={ctx.role}
         />
       </div>
     </div>

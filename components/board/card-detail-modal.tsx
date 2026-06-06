@@ -56,6 +56,8 @@ interface CardDetailModalProps {
   designers: Designer[];
   role: Role;
   onChanged: () => void;
+  /** When "view", all fields are read-only and save/upload actions are hidden. */
+  mode?: "edit" | "view";
 }
 
 interface PendingOrderAsset {
@@ -94,7 +96,9 @@ export function CardDetailModal({
   designers,
   role,
   onChanged,
+  mode = "edit",
 }: CardDetailModalProps) {
+  const isViewOnly = mode === "view";
   const resolved = useMemo(
     () => resolveOrderFormFields(customFields),
     [customFields]
@@ -340,7 +344,7 @@ export function CardDetailModal({
   const pendingApproval = data?.approvals.find((a) => a.status === "pending");
   const hasMissingInfo = (data?.missingInfo.length ?? 0) > 0;
   const hasApproval = (data?.approvalNotes.length ?? 0) > 0;
-  const hasExtraTabs = hasMissingInfo || hasApproval;
+  const hasExtraTabs = !isViewOnly && (hasMissingInfo || hasApproval);
   const orderContact = data
     ? customerContactFromOrder(data.order, fieldValues, customFields)
     : { email: null, phone: null };
@@ -361,10 +365,14 @@ export function CardDetailModal({
     <Modal
       open={open}
       onClose={handleClose}
-      title="Order Details"
+      title={isViewOnly ? "View order" : "Order Details"}
       className="max-w-3xl"
       footer={
-        tab === "details" ? (
+        isViewOnly ? (
+          <Button variant="ghost" onClick={handleClose} type="button">
+            Close
+          </Button>
+        ) : tab === "details" ? (
           <>
             {hasPendingFileChanges ? (
               <span className="mr-auto text-xs text-amber-600">
@@ -503,6 +511,7 @@ export function CardDetailModal({
               removedSkuArtworkIds={removedSkuArtworkIds}
               onMarkSkuArtworkForRemoval={markSkuArtworkForRemoval}
               onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
+              readOnly={isViewOnly}
             />
 
             {saveError ? (
@@ -516,21 +525,25 @@ export function CardDetailModal({
                 <p className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                   <Paperclip className="h-4 w-4" /> Assets
                 </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  type="button"
-                  onClick={() => fileInput.current?.click()}
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload
-                </Button>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  className="hidden"
-                  onChange={onUpload}
-                />
+                {!isViewOnly ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => fileInput.current?.click()}
+                    >
+                      <Upload className="h-4 w-4" />
+                      Upload
+                    </Button>
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      className="hidden"
+                      onChange={onUpload}
+                    />
+                  </>
+                ) : null}
               </div>
               {savedOrderAssets.length === 0 &&
               pendingOrderAssets.length === 0 ? (
@@ -554,14 +567,16 @@ export function CardDetailModal({
                         >
                           <Download className="h-4 w-4" />
                         </a>
-                        <button
-                          type="button"
-                          onClick={() => markAssetForDeletion(asset.id)}
-                          className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {!isViewOnly ? (
+                          <button
+                            type="button"
+                            onClick={() => markAssetForDeletion(asset.id)}
+                            className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : null}
                       </span>
                     </li>
                   ))}

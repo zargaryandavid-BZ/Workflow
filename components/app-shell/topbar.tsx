@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, ChevronDown, LogOut, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn, initials } from "@/lib/utils";
+import { ROLE_LABELS } from "@/lib/constants";
 import type { Role } from "@/lib/types";
 
 interface TopbarProps {
@@ -129,15 +130,17 @@ export function Topbar({
             <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
               <div className="px-3 py-2 text-sm text-slate-700">
                 {fullName?.trim() ? (
-                  <>
+                  <p>
                     <span className="font-medium">{fullName.trim()}</span>
-                    {email ? (
-                      <span className="text-slate-500">: {email}</span>
-                    ) : null}
-                  </>
+                    <span className="text-slate-500">
+                      {": "}
+                      {ROLE_LABELS[role]}
+                    </span>
+                  </p>
                 ) : (
-                  <span className="text-slate-500">{email}</span>
+                  <p className="font-medium">{ROLE_LABELS[role]}</p>
                 )}
+                {email ? <p className="text-slate-500">{email}</p> : null}
               </div>
               <div className="my-1 border-t border-slate-100" />
               <button

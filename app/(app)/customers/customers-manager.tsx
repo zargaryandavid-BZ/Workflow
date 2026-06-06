@@ -2,21 +2,35 @@
 
 import { useState } from "react";
 import { ChevronRight, Mail, Phone } from "lucide-react";
+import { CardDetailModal } from "@/components/board/card-detail-modal";
 import { Modal } from "@/components/ui/modal";
 import { formatDate } from "@/lib/utils";
 import type {
+  BoardColumn,
+  CustomField,
   CustomerOrderSummary,
   CustomerWithStats,
+  Designer,
+  Role,
 } from "@/lib/types";
 
 export function CustomersManager({
   customers,
   ordersByCustomer,
+  customFields,
+  columns,
+  designers,
+  role,
 }: {
   customers: CustomerWithStats[];
   ordersByCustomer: Record<string, CustomerOrderSummary[]>;
+  customFields: CustomField[];
+  columns: BoardColumn[];
+  designers: Designer[];
+  role: Role;
 }) {
   const [selected, setSelected] = useState<CustomerWithStats | null>(null);
+  const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   const selectedOrders = selected ? (ordersByCustomer[selected.id] ?? []) : [];
 
@@ -100,26 +114,59 @@ export function CustomersManager({
               {selectedOrders.length === 0 ? (
                 <p className="text-sm text-slate-400">No orders linked yet.</p>
               ) : (
-                <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-                  {selectedOrders.map((order) => (
-                    <li key={order.id} className="px-3 py-2.5">
-                      <p className="text-sm font-medium text-slate-800">
-                        {order.title}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {formatDate(order.created_at)}
-                        {order.column_name
-                          ? ` · ${order.column_name}`
-                          : ""}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        <th className="px-3 py-2">Order</th>
+                        <th className="px-3 py-2">Date</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="w-8 px-2 py-2" aria-hidden />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {selectedOrders.map((order) => (
+                        <tr key={order.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2.5">
+                            <button
+                              type="button"
+                              onClick={() => setViewOrderId(order.id)}
+                              className="text-left font-medium text-[var(--primary)] hover:underline"
+                            >
+                              {order.title}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-600">
+                            {formatDate(order.created_at)}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-600">
+                            {order.column_name ?? "—"}
+                          </td>
+                          <td className="px-2 py-2.5 text-slate-300">
+                            <ChevronRight className="h-4 w-4" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>
         ) : null}
       </Modal>
+
+      <CardDetailModal
+        orderId={viewOrderId}
+        open={viewOrderId !== null}
+        onClose={() => setViewOrderId(null)}
+        customFields={customFields}
+        columns={columns}
+        designers={designers}
+        role={role}
+        mode="view"
+        onChanged={() => {}}
+      />
     </div>
   );
 }
