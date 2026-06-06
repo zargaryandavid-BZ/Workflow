@@ -8,7 +8,7 @@ import type { SkuItem } from "@/lib/skus";
 import type { Asset } from "@/lib/types";
 
 export type { SkuItem } from "@/lib/skus";
-export { normalizeSkus, prepareSkusForSave } from "@/lib/skus";
+export { normalizeSkus, prepareSkusForSave, validateSkus, mergeSkusWithAssets } from "@/lib/skus";
 
 interface SkuEditorProps {
   value: SkuItem[];
@@ -105,8 +105,12 @@ export function SkuEditor({
       ) : (
         <div className="space-y-2">
           <div className="grid grid-cols-[1fr_5.5rem_minmax(7rem,1fr)_auto] gap-2">
-            <Label className="mb-0">SKU name</Label>
-            <Label className="mb-0">Quantity</Label>
+            <Label className="mb-0">
+              SKU name <span className="text-red-500">*</span>
+            </Label>
+            <Label className="mb-0">
+              Quantity <span className="text-red-500">*</span>
+            </Label>
             <Label className="mb-0">Artwork</Label>
             <span />
           </div>
@@ -120,10 +124,11 @@ export function SkuEditor({
                 onChange={(e) => update(index, { name: e.target.value })}
                 placeholder={`SKU ${index + 1} name`}
                 disabled={disabled}
+                required
               />
               <Input
                 type="number"
-                min={0}
+                min={1}
                 value={sku.qty ?? ""}
                 onChange={(e) =>
                   update(index, {
@@ -132,6 +137,7 @@ export function SkuEditor({
                 }
                 placeholder="Qty"
                 disabled={disabled}
+                required
               />
               <SkuArtworkCell
                 skuKey={sku.id}

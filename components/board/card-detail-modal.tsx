@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { MissingInfoTab } from "./missing-info-tab";
 import { OrderFormBody } from "./order-form-body";
-import { normalizeSkus, prepareSkusForSave, type SkuItem } from "./sku-editor";
+import { mergeSkusWithAssets, normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import {
   deleteAssetsById,
   uploadPendingOrderAssets,
@@ -152,7 +152,7 @@ export function CardDetailModal({
       setDescription(json.order.description ?? "");
       setPriority(json.order.priority);
       setDueDate(dateInputValue(json.order.due_date));
-      setSkus(normalizeSkus(json.order.specs?.skus));
+      setSkus(mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets));
       setDesignerId((json.order.specs?.designer_id as string) ?? "");
       setDesignTask((json.order.specs?.design_task as string) ?? "");
       const map: Record<string, unknown> = {};
@@ -229,6 +229,12 @@ export function CardDetailModal({
       return;
     }
 
+    const skuError = validateSkus(skus, Object.keys(pendingSkuArtwork));
+    if (skuError) {
+      setSaveError(skuError);
+      return;
+    }
+
     setSaveError(null);
     setSaving(true);
     const res = await fetch(`/api/orders/${orderId}`, {
@@ -241,7 +247,9 @@ export function CardDetailModal({
         dueDate: dateInputValue(dueDate) || null,
         specs: {
           ...(data?.order.specs ?? {}),
-          skus: prepareSkusForSave(skus),
+          skus: prepareSkusForSave(skus, {
+            pendingArtworkIds: Object.keys(pendingSkuArtwork),
+          }),
           designer_id: designerId || null,
           designer_name:
             designers.find((d) => d.id === designerId)?.name ?? null,

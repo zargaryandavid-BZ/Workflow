@@ -3,6 +3,10 @@ import { getTenantContext } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { findAuthUserByEmail, loadTeamMembers } from "@/lib/team-members";
 import { sendTeamInvite } from "@/lib/team-invite";
+import {
+  invitePendingMetadata,
+  isFullyActiveTeamMember,
+} from "@/lib/team-invite-metadata";
 import { isAssignableRole } from "@/lib/constants";
 import type { Role } from "@/lib/types";
 
@@ -42,7 +46,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
   }
 
-  const admin = createAdminClient();
+  const admin = (() => {
+    try {
+      return createAdminClient();
+    } catch {
+      return null;
+    }
+  })();
+  if (!admin) {
+    return NextResponse.json(
+      {
+        error:
+          "SUPABASE_SERVICE_ROLE_KEY is not configured. Add it to .env.local to invite teammates.",
+      },
+      { status: 503 }
+    );
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const signupParams = new URLSearchParams({ invite_email: email });
   if (fullName) signupParams.set("invite_name", fullName);
@@ -50,7 +70,7 @@ export async function POST(request: Request) {
 
   const existing = await findAuthUserByEmail(admin, email);
   const existed = Boolean(existing);
-  const alreadyActive = Boolean(existing?.last_sign_in_at);
+  const alreadyActive = isFullyActiveTeamMember(existing);
 
   let userId = existing?.id ?? null;
   let inviteUrl: string | null = null;
@@ -90,10 +110,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: membershipError.message }, { status: 400 });
   }
 
-  if (fullName) {
+  if (!alreadyActive) {
     await admin.auth.admin.updateUserById(userId, {
-      user_metadata: { full_name: fullName },
+      user_metadata: invitePendingMetadata(
+        fullName,
+        existing?.user_metadata as Record<string, unknown> | undefined
+      ),
     });
+  } else if (fullName) {
+    await admin.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...(existing?.user_metadata as Record<string, unknown> | undefined),
+        full_name: fullName,
+      },
+    });
+  }
+
+  if (fullName) {
     await admin
       .from("profiles")
       .upsert({ id: userId, full_name: fullName }, { onConflict: "id" });

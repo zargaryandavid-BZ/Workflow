@@ -108,14 +108,14 @@ export function Column({
             title="Roles that can drop orders into this stage"
           >
             <ArrowDownToLine className="h-3 w-3" />
-            in: {dropLabel(column.drop_in_roles)}
+            {dropLabel(column.drop_in_roles)}
           </span>
           <span
             className="inline-flex items-center gap-0.5"
             title="Roles that can take orders out of this stage"
           >
             <ArrowUpFromLine className="h-3 w-3" />
-            out: {dropLabel(column.drop_out_roles)}
+            {dropLabel(column.drop_out_roles)}
           </span>
         </div>
       </div>

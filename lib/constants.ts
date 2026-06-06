@@ -14,9 +14,9 @@ export const ROLE_LABELS: Record<Role, string> = {
 /** Short role tags used in compact UI (e.g. column header indicators). */
 export const ROLE_ABBR: Record<Role, string> = {
   admin: "Adm",
-  preprod_owner: "PP",
-  designer: "Dsg",
-  account_manager: "AM",
+  preprod_owner: "P",
+  designer: "D",
+  account_manager: "A",
   member: "Mbr",
 };
 

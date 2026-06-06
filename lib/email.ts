@@ -1,3 +1,5 @@
+import "server-only";
+
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   instantlyAccountError,

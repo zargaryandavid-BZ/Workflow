@@ -1,4 +1,10 @@
+import "server-only";
+
 import { sendTeamInviteEmail } from "@/lib/email";
+import {
+  invitePendingMetadata,
+  isInvitePendingUser,
+} from "@/lib/team-invite-metadata";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { User } from "@supabase/supabase-js";
 
@@ -23,16 +29,23 @@ async function ensureUserAndSignupLink(
   fullName: string | null,
   existing: User | null
 ) {
-  const metadata = fullName ? { full_name: fullName } : undefined;
+  const metadata = invitePendingMetadata(
+    fullName,
+    existing?.user_metadata as Record<string, unknown> | undefined
+  );
   let userId = existing?.id ?? null;
 
-  if (existing && !existing.last_sign_in_at) {
+  if (existing && isInvitePendingUser(existing)) {
     const recoveryAttempt = await admin.auth.admin.generateLink({
       type: "recovery",
       email,
       options: { redirectTo },
     });
     if (!recoveryAttempt.error && recoveryAttempt.data?.properties?.action_link) {
+      await admin.auth.admin.updateUserById(
+        recoveryAttempt.data.user?.id ?? userId!,
+        { user_metadata: metadata }
+      );
       return {
         userId: recoveryAttempt.data.user?.id ?? userId,
         inviteUrl: normalizeInviteLink(
@@ -50,8 +63,14 @@ async function ensureUserAndSignupLink(
   });
 
   if (!inviteAttempt.error && inviteAttempt.data?.properties?.action_link) {
+    const linkedId = inviteAttempt.data.user?.id ?? userId;
+    if (linkedId) {
+      await admin.auth.admin.updateUserById(linkedId, {
+        user_metadata: metadata,
+      });
+    }
     return {
-      userId: inviteAttempt.data.user?.id ?? userId,
+      userId: linkedId,
       inviteUrl: normalizeInviteLink(
         inviteAttempt.data.properties.action_link,
         redirectTo

@@ -40,6 +40,17 @@ export interface Profile {
   id: string;
   full_name: string | null;
   avatar_url: string | null;
+  created_at?: string;
+}
+
+/** Team member row for settings UI (memberships + profile + auth email). */
+export interface TeamMemberRow {
+  user_id: string;
+  role: Role;
+  created_at: string;
+  profile: Profile | null;
+  email: string | null;
+  pending: boolean;
 }
 
 export interface Membership {

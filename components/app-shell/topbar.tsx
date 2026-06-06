@@ -11,10 +11,19 @@ interface TopbarProps {
   tenants: { id: string; name: string }[];
   activeTenantId: string;
   email: string | null;
+  fullName: string | null;
   role: Role;
 }
 
-export function Topbar({ tenants, activeTenantId, email }: TopbarProps) {
+function avatarLetter(fullName: string | null, email: string | null) {
+  const fromName = fullName?.trim()[0];
+  if (fromName) return fromName.toUpperCase();
+  const fromEmail = email?.trim()[0];
+  if (fromEmail) return fromEmail.toUpperCase();
+  return "?";
+}
+
+export function Topbar({ tenants, activeTenantId, email, fullName }: TopbarProps) {
   const router = useRouter();
   const [openTenant, setOpenTenant] = useState(false);
   const [openUser, setOpenUser] = useState(false);
@@ -99,7 +108,7 @@ export function Topbar({ tenants, activeTenantId, email }: TopbarProps) {
             "flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white"
           )}
         >
-          {initials(email ?? "?")}
+          {avatarLetter(fullName, email)}
         </button>
         {openUser ? (
           <>
@@ -108,7 +117,18 @@ export function Topbar({ tenants, activeTenantId, email }: TopbarProps) {
               onClick={() => setOpenUser(false)}
             />
             <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-              <div className="px-3 py-2 text-sm text-slate-500">{email}</div>
+              <div className="px-3 py-2 text-sm text-slate-700">
+                {fullName?.trim() ? (
+                  <>
+                    <span className="font-medium">{fullName.trim()}</span>
+                    {email ? (
+                      <span className="text-slate-500">: {email}</span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-slate-500">{email}</span>
+                )}
+              </div>
               <div className="my-1 border-t border-slate-100" />
               <button
                 onClick={signOut}

@@ -15,6 +15,32 @@ interface OrderReviewProps {
   assets: RespondOrderAsset[];
 }
 
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}
+
+function OrderRowValue({ value }: { value: string }) {
+  const trimmed = value.trim();
+  if (isHttpUrl(trimmed)) {
+    return (
+      <a
+        href={trimmed}
+        target="_blank"
+        rel="noreferrer"
+        title={trimmed}
+        className="block min-w-0 truncate text-sm font-medium text-blue-600 underline decoration-blue-600/30 underline-offset-2 hover:decoration-blue-600"
+      >
+        {trimmed}
+      </a>
+    );
+  }
+  return (
+    <span className="block min-w-0 break-words whitespace-pre-wrap text-sm font-medium text-slate-800">
+      {value}
+    </span>
+  );
+}
+
 function AssetPreview({
   token,
   asset,
@@ -81,13 +107,13 @@ export function OrderReview({ token, rows, skus, assets }: OrderReviewProps) {
           {rows.map((row) => (
             <div
               key={row.label}
-              className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+              className="min-w-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
             >
               <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 {row.label}
               </dt>
-              <dd className="mt-0.5 whitespace-pre-wrap text-sm font-medium text-slate-800">
-                {row.value}
+              <dd className="mt-0.5 min-w-0">
+                <OrderRowValue value={row.value} />
               </dd>
             </div>
           ))}

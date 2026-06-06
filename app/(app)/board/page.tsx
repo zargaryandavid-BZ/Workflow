@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { Board } from "@/components/board/board";
@@ -21,7 +22,7 @@ import type {
 
 export default async function BoardPage() {
   const ctx = await getTenantContext();
-  if (!ctx) return null;
+  if (!ctx) redirect("/onboarding");
 
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;

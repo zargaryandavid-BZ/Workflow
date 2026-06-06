@@ -5,6 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatAuthEmailError } from "@/lib/auth-email-errors";
+import {
+  INVITE_COMPLETED_META,
+  INVITE_PENDING_META,
+} from "@/lib/team-invite-metadata";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
@@ -153,10 +157,53 @@ export default function SignupPage() {
     }
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session) {
+      const { error } = await supabase.auth.updateUser({
+        password,
+        data: {
+          [INVITE_PENDING_META]: false,
+          [INVITE_COMPLETED_META]: true,
+        },
+      });
+      setLoading(false);
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      router.push("/board");
+      router.refresh();
+      return;
+    }
+
+    const res = await fetch("/api/auth/complete-invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: inviteEmail,
+        password,
+        fullName: inviteName || undefined,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setLoading(false);
+      setError(json.error ?? "Could not complete signup.");
+      return;
+    }
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: inviteEmail,
+      password,
+    });
     setLoading(false);
-    if (error) {
-      setError(error.message);
+    if (signInError) {
+      setError(
+        `${signInError.message} Your password was saved — try signing in.`
+      );
       return;
     }
     router.push("/board");

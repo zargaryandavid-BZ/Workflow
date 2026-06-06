@@ -304,7 +304,7 @@ export function RespondForm({
       ) : null}
 
       <div>
-        <Label className="mb-2 block text-sm font-medium text-slate-700">
+        <Label className="mb-1.5 block text-sm font-medium text-slate-700">
           Attach a file
         </Label>
         <input
@@ -314,6 +314,34 @@ export function RespondForm({
           className="hidden"
           onChange={(e) => addFiles(e.target.files)}
         />
+
+        {pendingFiles.length > 0 ? (
+          <ul className="mb-2 space-y-1.5">
+            {pendingFiles.map((file, index) => (
+              <li
+                key={`${file.name}-${index}`}
+                className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-700"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="truncate">{file.name}</span>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {formatFileSize(file.size)}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeFile(index)}
+                  className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                  aria-label={`Remove ${file.name}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -328,46 +356,25 @@ export function RespondForm({
             addFiles(e.dataTransfer.files);
           }}
           disabled={loading}
-          className={`flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-8 text-sm transition-colors disabled:opacity-60 ${
+          className={`flex w-full items-center gap-2.5 rounded-lg border border-dashed px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-60 ${
             dragOver
               ? "border-[#1d4ed8] bg-[#f0f9ff] text-[#1d4ed8]"
               : "border-slate-300 bg-slate-50 text-slate-500 hover:border-[#1d4ed8] hover:bg-[#f0f9ff]"
           }`}
         >
-          <CloudUpload className="h-6 w-6" />
-          <span>Drag & drop or click to upload</span>
-          <span className="text-xs text-slate-400">
-            PDF, AI, EPS, PNG, JPG · Max 50MB
+          <CloudUpload className="h-4 w-4 shrink-0" />
+          <span className="min-w-0">
+            <span className="block text-slate-600">
+              {pendingFiles.length > 0
+                ? "Add another file"
+                : "Drag & drop or click to upload"}
+            </span>
+            <span className="text-xs text-slate-400">
+              PDF, AI, EPS, PNG, JPG · Max 50MB
+            </span>
           </span>
         </button>
       </div>
-
-      {pendingFiles.length > 0 ? (
-        <ul className="space-y-2">
-          {pendingFiles.map((file, index) => (
-            <li
-              key={`${file.name}-${index}`}
-              className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700"
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <Paperclip className="h-4 w-4 shrink-0 text-slate-400" />
-                <span className="truncate">{file.name}</span>
-                <span className="shrink-0 text-xs text-slate-400">
-                  {formatFileSize(file.size)}
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => removeFile(index)}
-                className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                aria-label={`Remove ${file.name}`}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
 
       <div className="flex items-center gap-3">
         <div className="h-px flex-1 bg-slate-200" />

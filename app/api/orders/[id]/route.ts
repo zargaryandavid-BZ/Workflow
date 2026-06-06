@@ -5,7 +5,7 @@ import { enrichActivityLog } from "@/lib/activity";
 import { logActivity } from "@/lib/automation";
 import { ACTIVITY_LOG_LIMIT } from "@/lib/constants";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
-import { normalizeSkus, prepareSkusForSave } from "@/lib/skus";
+import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { validateDueDate } from "@/lib/order-form";
 import { pruneOrphanedSkuAssets } from "@/lib/sku-assets";
 import type { ActivityLog, Order } from "@/lib/types";
@@ -186,9 +186,14 @@ export async function PATCH(
   if (body.specs !== undefined) {
     const rawSkus = body.specs.skus;
     if (rawSkus !== undefined) {
+      const normalizedSkus = normalizeSkus(rawSkus);
+      const skuError = validateSkus(normalizedSkus);
+      if (skuError) {
+        return NextResponse.json({ error: skuError }, { status: 400 });
+      }
       updates.specs = {
         ...body.specs,
-        skus: prepareSkusForSave(normalizeSkus(rawSkus)),
+        skus: prepareSkusForSave(normalizedSkus),
       };
     } else {
       updates.specs = body.specs;

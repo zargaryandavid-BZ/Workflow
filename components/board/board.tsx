@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -114,33 +114,134 @@ export function Board({
   );
   const draggingRef = useRef(false);
   const dragSourceColumnRef = useRef<string | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Debounced full reload — board page is heavy (signed URLs, notifications). */
+  const scheduleRefresh = useCallback(() => {
+    if (draggingRef.current) return;
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => router.refresh(), 800);
+  }, [router]);
+
   useEffect(() => {
     if (!draggingRef.current) setOrders(initialOrders);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
-  // Realtime: refresh the route when orders change for this tenant.
+  // Realtime: move cards immediately, then refresh server data (badges, etc.).
   useEffect(() => {
     const supabase = createClient();
-    const channel = supabase
-      .channel(`orders-${tenantId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "orders",
-          filter: `tenant_id=eq.${tenantId}`,
-        },
-        () => {
-          if (!draggingRef.current) router.refresh();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    function onOrderChange(payload: {
+      eventType: string;
+      new: Record<string, unknown>;
+      old: Record<string, unknown>;
+    }) {
+      const eventType = payload.eventType;
+      if (eventType === "DELETE") {
+        const old = payload.old as { id?: string; tenant_id?: string };
+        if (old.tenant_id && old.tenant_id !== tenantId) return;
+        if (old.id) {
+          setOrders((prev) => prev.filter((o) => o.id !== old.id));
         }
-      )
-      .subscribe();
+        scheduleRefresh();
+        return;
+      }
+
+      const row = payload.new as {
+        id?: string;
+        tenant_id?: string;
+        column_id?: string;
+        position?: number;
+        updated_at?: string;
+      };
+      if (!row.id || row.tenant_id !== tenantId) return;
+
+      if (eventType === "INSERT") {
+        scheduleRefresh();
+        return;
+      }
+
+      if (eventType === "UPDATE" && row.column_id) {
+        let columnMoved = false;
+        setOrders((prev) => {
+          const idx = prev.findIndex((o) => o.id === row.id);
+          if (idx === -1) return prev;
+          columnMoved = prev[idx].column_id !== row.column_id;
+          const next = [...prev];
+          next[idx] = {
+            ...next[idx],
+            column_id: row.column_id as string,
+            position:
+              typeof row.position === "number"
+                ? row.position
+                : next[idx].position,
+            updated_at:
+              typeof row.updated_at === "string"
+                ? row.updated_at
+                : next[idx].updated_at,
+          };
+          return next;
+        });
+        // Refresh badges and sync from server when a customer response moves the card.
+        if (columnMoved) scheduleRefresh();
+      }
+    }
+
+    async function bindRealtime() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      const token = sessionData.session?.access_token;
+      if (token) {
+        await supabase.realtime.setAuth(token);
+      }
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`board-${tenantId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "orders",
+            filter: `tenant_id=eq.${tenantId}`,
+          },
+          onOrderChange
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "job_notifications",
+            filter: `tenant_id=eq.${tenantId}`,
+          },
+          () => scheduleRefresh()
+        )
+        .subscribe();
+    }
+
+    void bindRealtime();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token);
+      }
+    });
+
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      subscription.unsubscribe();
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      if (channel) supabase.removeChannel(channel);
     };
-  }, [tenantId, router]);
+  }, [tenantId, scheduleRefresh]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -284,6 +385,7 @@ export function Board({
         const json = await res.json().catch(() => ({}));
         flashPermissionError(json.error ?? "Move was rejected.");
         setOrders(initialOrders);
+        scheduleRefresh();
       } else if (crossing) {
         // Offer the customer-notification popup when the target column has an
         // enabled notify rule configured for it.
@@ -307,7 +409,6 @@ export function Board({
     } finally {
       draggingRef.current = false;
       dragSourceColumnRef.current = null;
-      router.refresh();
     }
   }
 

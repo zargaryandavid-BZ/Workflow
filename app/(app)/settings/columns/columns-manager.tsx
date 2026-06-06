@@ -16,7 +16,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { BOARD_ROLES, ROLE_LABELS } from "@/lib/constants";
+import { BOARD_ROLES, ROLE_ABBR, ROLE_LABELS } from "@/lib/constants";
 import type { BoardColumn, ColumnKind, Role } from "@/lib/types";
 
 const KINDS: { value: ColumnKind; label: string; hint: string }[] = [
@@ -29,6 +29,29 @@ const KINDS: { value: ColumnKind; label: string; hint: string }[] = [
   },
   { value: "done", label: "Done", hint: "Ready for production" },
 ];
+
+const KIND_BADGE: Record<ColumnKind, string> = {
+  normal: "bg-slate-100 text-slate-600",
+  exception: "bg-amber-100 text-amber-700",
+  approval: "bg-violet-100 text-violet-700",
+  done: "bg-emerald-100 text-emerald-700",
+};
+
+function kindMeta(kind: ColumnKind) {
+  return KINDS.find((k) => k.value === kind) ?? KINDS[0];
+}
+
+function dropRolesShort(roles: Role[] | null): string {
+  if (roles == null) return "All";
+  if (roles.length === 0) return "Admins only";
+  return roles.map((r) => ROLE_ABBR[r]).join(", ");
+}
+
+function columnConfigSummary(col: BoardColumn, index: number): string {
+  const color = col.color ?? DEFAULT_COLOR;
+  const picture = col.image_url ? "Picture" : "No picture";
+  return `#${index + 1} · ↓ ${dropRolesShort(col.drop_in_roles)} · ↑ ${dropRolesShort(col.drop_out_roles)} · ${color} · ${picture}`;
+}
 
 interface Props {
   initialColumns: BoardColumn[];
@@ -84,11 +107,11 @@ export function ColumnsManager({ initialColumns, orderCounts }: Props) {
         </Button>
       </div>
 
-      <ul className="space-y-2">
+      <ul className="space-y-1.5">
         {columns.map((col, index) => (
           <li
             key={col.id}
-            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3"
+            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
           >
             <div className="flex flex-col">
               <button
@@ -130,20 +153,30 @@ export function ColumnsManager({ initialColumns, orderCounts }: Props) {
             )}
 
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-slate-800">
-                {col.name}
-              </p>
-              <div className="mt-0.5 flex items-center gap-2">
-                <Badge className="bg-slate-100 text-slate-600">
-                  {col.kind}
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 truncate text-sm font-medium text-slate-800">
+                  {col.name}
+                </p>
+                <Badge
+                  className={`${KIND_BADGE[col.kind]} shrink-0`}
+                  title={kindMeta(col.kind).hint}
+                >
+                  {kindMeta(col.kind).label}
                 </Badge>
-                <span className="text-xs text-slate-400">
+                <span className="shrink-0 text-xs text-slate-400">
                   {orderCounts[col.id] ?? 0} job
                   {(orderCounts[col.id] ?? 0) === 1 ? "" : "s"}
                 </span>
               </div>
+              <p
+                className="truncate text-[11px] text-slate-500"
+                title={columnConfigSummary(col, index)}
+              >
+                {columnConfigSummary(col, index)}
+              </p>
             </div>
 
+            <div className="flex shrink-0 items-center gap-0.5">
             <button
               onClick={() => setEditing(col)}
               className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -158,6 +191,7 @@ export function ColumnsManager({ initialColumns, orderCounts }: Props) {
             >
               <Trash2 className="h-4 w-4" />
             </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -365,12 +399,12 @@ function ColumnEditor({
             </p>
           </div>
           <RolePicker
-            label="Can drop orders IN (move into this stage)"
+            label="↓ Drop into this stage"
             selected={dropIn}
             onChange={setDropIn}
           />
           <RolePicker
-            label="Can take orders OUT (move out of this stage)"
+            label="↑ Take out of this stage"
             selected={dropOut}
             onChange={setDropOut}
           />

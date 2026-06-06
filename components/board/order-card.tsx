@@ -12,6 +12,11 @@ import {
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import { PRIORITY_STYLES } from "@/lib/constants";
+import { cardOrderQty, cardSkuCount, cardSpecFieldsForDisplay } from "@/lib/order-form";
+import {
+  customerContactFromOrder,
+  customerNameFromOrder,
+} from "@/lib/notification-messages";
 import { cn, formatDate } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
@@ -26,12 +31,6 @@ interface OrderCardProps {
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
   onOpen: (order: OrderWithRelations) => void;
-}
-
-function formatValue(value: unknown): string | null {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
 }
 
 export function OrderCard({
@@ -59,26 +58,70 @@ export function OrderCard({
     opacity: isDragging ? 0.4 : 1,
   };
 
-  const visibleFields = customFields
-    .map((f) => ({ field: f, display: formatValue(fieldValues[f.id]) }))
-    .filter((x) => x.display !== null);
+  const specFields = cardSpecFieldsForDisplay(customFields, fieldValues);
+  const orderQty = cardOrderQty(customFields, fieldValues, order.specs);
+  const skuCount = cardSkuCount(order.specs);
+  const customerName = customerNameFromOrder(
+    order,
+    fieldValues,
+    customFields
+  );
+  const displayCustomerName =
+    customerName === "there" ? null : customerName;
+  const { email, phone } = customerContactFromOrder(
+    order,
+    fieldValues,
+    customFields
+  );
 
   const designerName =
     typeof order.specs?.designer_name === "string"
       ? order.specs.designer_name
       : null;
 
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
-  async function copyOrderNumber(e: React.MouseEvent) {
+  async function copyText(e: React.MouseEvent, text: string, key: string) {
     e.stopPropagation();
     try {
-      await navigator.clipboard.writeText(order.title);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
     } catch {
       // ignore clipboard failures
     }
+  }
+
+  function CopyableText({
+    text,
+    copyKey,
+    title,
+    className,
+  }: {
+    text: string;
+    copyKey: string;
+    title: string;
+    className?: string;
+  }) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => copyText(e, text, copyKey)}
+        onPointerDown={(e) => e.stopPropagation()}
+        title={title}
+        className={cn(
+          "group/copy flex max-w-full items-center gap-1 text-left text-xs font-medium text-slate-800 hover:text-[var(--primary)]",
+          className
+        )}
+      >
+        <span className="min-w-0 break-all">{copied === copyKey ? "Copied" : text}</span>
+        <span className="inline-flex shrink-0 items-center text-[10px] font-normal text-slate-400 group-hover/copy:text-[var(--primary)]">
+          {copied === copyKey ? null : (
+            <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+          )}
+        </span>
+      </button>
+    );
   }
 
   return (
@@ -93,36 +136,31 @@ export function OrderCard({
         canDrag ? "cursor-pointer" : "cursor-default"
       )}
     >
-      <div className="mb-2 grid grid-cols-3 items-start gap-2 border-b border-slate-100 pb-2">
+      <div className="mb-2 grid grid-cols-[1fr_auto] items-start gap-2 border-b border-slate-100 pb-2">
         <button
           type="button"
-          onClick={copyOrderNumber}
+          onClick={(e) => copyText(e, order.title, "order")}
           onPointerDown={(e) => e.stopPropagation()}
           title="Copy order number"
-          className="group/copy flex min-w-0 items-center gap-1 text-left text-sm font-medium leading-snug text-slate-800 hover:text-[var(--primary)]"
+          className="group/copy flex min-w-0 items-start gap-1 text-left text-sm font-medium leading-snug text-slate-800 hover:text-[var(--primary)]"
         >
-          <span className="truncate">{order.title}</span>
+          <span className="break-all">{order.title}</span>
           <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-normal text-slate-400 group-hover/copy:text-[var(--primary)]">
-            {copied ? (
+            {copied === "order" ? (
               "Copied"
             ) : (
               <Copy className="h-3 w-3 opacity-0 transition-opacity group-hover/copy:opacity-100" />
             )}
           </span>
         </button>
-        <div className="flex justify-center">
-          <Badge className={cn(PRIORITY_STYLES[order.priority], "shrink-0")}>
-            {order.priority}
-          </Badge>
-        </div>
-        <div className="min-w-0 text-right text-[11px] leading-snug">
+        <div className="shrink-0 text-right text-[11px] leading-snug">
           {order.due_date ? (
             <span
-              className="inline-flex max-w-full items-center justify-end gap-1 font-medium text-slate-700"
+              className="inline-flex items-center justify-end gap-1 font-medium text-slate-700"
               title="Due date"
             >
               <CalendarClock className="h-3 w-3 shrink-0 text-slate-400" />
-              <span className="truncate">{formatDate(order.due_date)}</span>
+              <span>{formatDate(order.due_date)}</span>
             </span>
           ) : (
             <span className="text-slate-300">—</span>
@@ -130,16 +168,16 @@ export function OrderCard({
         </div>
       </div>
 
-      <div className="mb-2 space-y-1 text-[11px] leading-snug">
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-          <span className="text-slate-400">Assigned:</span>
+      <div className="mb-2 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] leading-snug">
+        <div className="min-w-0">
+          <span className="text-slate-400">Assigned: </span>
           <span className="inline-flex items-center gap-1 font-medium text-slate-700">
-            <User className="h-3 w-3 text-[var(--primary)]" />
-            {designerName ?? "Unassigned"}
+            <User className="h-3 w-3 shrink-0 text-[var(--primary)]" />
+            <span className="truncate">{designerName ?? "Unassigned"}</span>
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-          <span className="text-slate-400">Owner:</span>
+        <div className="min-w-0">
+          <span className="text-slate-400">Owner: </span>
           <span className="font-medium text-slate-700">
             {ownerName ?? "—"}
           </span>
@@ -157,39 +195,76 @@ export function OrderCard({
         />
       ) : null}
 
-      {order.customer ? (
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500">
-          <User className="h-3.5 w-3.5" />
-          {order.customer.name}
+      {displayCustomerName || email || phone ? (
+        <div className="mb-2 space-y-0.5">
+          {displayCustomerName ? (
+            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+              <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <span className="truncate">{displayCustomerName}</span>
+            </div>
+          ) : null}
+          {email ? (
+            <CopyableText
+              text={email}
+              copyKey="contact-email"
+              title="Copy email"
+              className={displayCustomerName ? "ml-5" : undefined}
+            />
+          ) : null}
+          {phone ? (
+            <CopyableText
+              text={phone}
+              copyKey="contact-phone"
+              title="Copy phone"
+              className={displayCustomerName ? "ml-5" : undefined}
+            />
+          ) : null}
         </div>
       ) : null}
 
-      {visibleFields.length > 0 ? (
+      {specFields.length > 0 || orderQty != null || skuCount > 0 ? (
         <div className="mb-2 flex flex-wrap gap-1">
-          {visibleFields.map(({ field, display }) => (
+          {specFields.map(({ field, label, display }) => (
             <span
               key={field.id}
-              className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
+              className="inline-flex max-w-full items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
             >
-              <span className="font-medium text-slate-500">{field.name}:</span>
-              {display}
+              <span className="shrink-0 font-medium text-slate-500">
+                {label}:
+              </span>
+              <span className="truncate">{display}</span>
             </span>
           ))}
+          {orderQty != null ? (
+            <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
+              qty {orderQty}
+            </span>
+          ) : null}
+          {skuCount > 0 ? (
+            <span className="inline-flex items-center rounded border border-blue-200/80 bg-[#dbeafe] px-[7px] py-[2px] text-[11px] text-[#1e40af]">
+              SKU: {skuCount}
+            </span>
+          ) : null}
         </div>
       ) : null}
 
-      {notificationBadge ? (
-        <div className="mt-2 border-t border-slate-100 pt-2">
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-              CARD_BADGE_STYLES[notificationBadge]
-            )}
-          >
-            {CARD_BADGE_LABELS[notificationBadge]}
-          </span>
+      <div className="mt-2 flex items-end justify-between gap-2 border-t border-slate-100 pt-2">
+        <div className="min-w-0">
+          {notificationBadge ? (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                CARD_BADGE_STYLES[notificationBadge]
+              )}
+            >
+              {CARD_BADGE_LABELS[notificationBadge]}
+            </span>
+          ) : null}
         </div>
-      ) : null}
+        <Badge className={cn(PRIORITY_STYLES[order.priority], "shrink-0")}>
+          {order.priority}
+        </Badge>
+      </div>
     </div>
   );
 }

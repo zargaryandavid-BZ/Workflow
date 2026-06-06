@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
+import { removeTeamMemberFromTenant } from "@/lib/team-members";
 import { isAssignableRole } from "@/lib/constants";
 import type { Role } from "@/lib/types";
 
@@ -66,12 +68,26 @@ export async function DELETE(
     );
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("memberships")
-    .delete()
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("user_id", userId);
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          "SUPABASE_SERVICE_ROLE_KEY is not configured. Add it to .env.local to manage team members.",
+      },
+      { status: 503 }
+    );
+  }
+
+  const result = await removeTeamMemberFromTenant(
+    admin,
+    ctx.tenant.id,
+    userId
+  );
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+  return NextResponse.json({ ok: true, authUserDeleted: result.authUserDeleted });
 }

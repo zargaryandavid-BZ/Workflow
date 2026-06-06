@@ -24,6 +24,7 @@ export default async function AppLayout({
           tenants={tenants}
           activeTenantId={ctx.tenant.id}
           email={ctx.email}
+          fullName={ctx.fullName}
           role={ctx.role}
         />
         <main className="min-h-0 flex-1 overflow-hidden">{children}</main>

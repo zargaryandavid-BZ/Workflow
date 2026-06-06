@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { OrderFormBody } from "./order-form-body";
-import { prepareSkusForSave, type SkuItem } from "./sku-editor";
+import { prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { uploadPendingSkuArtwork } from "@/lib/sku-assets";
 import {
   buildCustomFieldPayload,
@@ -99,6 +99,12 @@ export function CreateOrderModal({
       return;
     }
 
+    const skuError = validateSkus(skus, Object.keys(pendingSkuArtwork));
+    if (skuError) {
+      setError(skuError);
+      return;
+    }
+
     setLoading(true);
     const res = await fetch("/api/orders", {
       method: "POST",
@@ -110,7 +116,9 @@ export function CreateOrderModal({
         priority,
         dueDate: dueDate ? dueDate.slice(0, 10) : null,
         specs: {
-          skus: prepareSkusForSave(skus),
+          skus: prepareSkusForSave(skus, {
+            pendingArtworkIds: Object.keys(pendingSkuArtwork),
+          }),
           designer_id: designerId || null,
           designer_name:
             designers.find((d) => d.id === designerId)?.name ?? null,

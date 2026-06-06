@@ -360,6 +360,29 @@ alter table public.approvals          enable row level security;
 alter table public.automation_rules   enable row level security;
 alter table public.activity_log       enable row level security;
 
+-- Realtime + RLS: FULL replica identity so UPDATE payloads reach subscribers.
+alter table public.orders replica identity full;
+alter table public.job_notifications replica identity full;
+
+-- Board subscribes to orders + job_notifications via postgres_changes.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'orders'
+  ) then
+    alter publication supabase_realtime add table public.orders;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'job_notifications'
+  ) then
+    alter publication supabase_realtime add table public.job_notifications;
+  end if;
+end $$;
+
 -- Tenants --------------------------------------------------------------------
 create policy "tenants_select_member" on public.tenants
   for select using (public.is_tenant_member(id));

@@ -6,6 +6,7 @@ import type { Membership, Role, Tenant } from "@/lib/types";
 export interface TenantContext {
   userId: string;
   email: string | null;
+  fullName: string | null;
   tenant: Tenant;
   role: Role;
   memberships: (Membership & { tenant: Tenant })[];
@@ -36,6 +37,12 @@ export async function getTenantContext(): Promise<TenantContext | null> {
 
   if (typed.length === 0) return null;
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+
   const cookieStore = await cookies();
   const preferred = cookieStore.get(TENANT_COOKIE)?.value;
   const active =
@@ -44,6 +51,7 @@ export async function getTenantContext(): Promise<TenantContext | null> {
   return {
     userId: user.id,
     email: user.email ?? null,
+    fullName: (profile as { full_name: string | null } | null)?.full_name ?? null,
     tenant: active.tenant,
     role: active.role,
     memberships: typed,

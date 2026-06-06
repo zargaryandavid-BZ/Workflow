@@ -8,8 +8,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { initials, formatDate } from "@/lib/utils";
 import { ASSIGNABLE_ROLES, ROLE_LABELS } from "@/lib/constants";
-import type { TeamMemberRow } from "@/lib/team-members";
-import type { Role } from "@/lib/types";
+import type { Role, TeamMemberRow } from "@/lib/types";
 
 export type MemberRow = TeamMemberRow;
 
@@ -172,6 +171,7 @@ export function TeamManager({
   }
 
   async function remove(userId: string) {
+    setError(null);
     const res = await fetch(`/api/members/${userId}`, { method: "DELETE" });
     if (!res.ok) {
       const json = await res.json();

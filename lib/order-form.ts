@@ -1,5 +1,6 @@
 import type { CustomField } from "@/lib/types";
 import { isPastDateInputValue } from "@/lib/utils";
+import { skuCountFromSpecs, skuQtySumFromSpecs } from "@/lib/skus";
 import {
   ARTWORK_FIELD_NAME,
   CUSTOMER_CONTACT_FIELD_NAME,
@@ -215,6 +216,60 @@ export function buildCustomFieldPayload(
         skus.length > 0
           ? skuSum
           : (fieldValues[resolved.orderQtyField.id] ?? null),
+    });
+  }
+
+  return rows;
+}
+
+/** Print spec fields shown as chips on board order cards (excludes customer/contact/artwork/qty). */
+export const CARD_SPEC_FIELD_NAMES = [
+  ...ORDER_FORM_PRINT_FIELD_NAMES,
+] as const;
+
+export function cardOrderQty(
+  customFields: CustomField[],
+  fieldValues: Record<string, unknown>,
+  specs: unknown
+): number | null {
+  const skuCount = skuCountFromSpecs(specs);
+  if (skuCount > 0) return skuQtySumFromSpecs(specs);
+
+  const field = findOrderFormField(customFields, ORDER_QTY_FIELD_NAME);
+  if (!field) return null;
+  const raw = fieldValues[field.id];
+  if (typeof raw === "number" && !Number.isNaN(raw)) return raw;
+  if (raw !== null && raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+}
+
+export function cardSkuCount(specs: unknown): number {
+  return skuCountFromSpecs(specs);
+}
+
+export function cardSpecFieldsForDisplay(
+  customFields: CustomField[],
+  fieldValues: Record<string, unknown>
+): { field: CustomField; label: string; display: string }[] {
+  const byName = new Map(
+    customFields.map((f) => [f.name.toLowerCase(), f])
+  );
+  const rows: { field: CustomField; label: string; display: string }[] = [];
+
+  for (const name of CARD_SPEC_FIELD_NAMES) {
+    const field = byName.get(name.toLowerCase());
+    if (!field) continue;
+    const raw = fieldValues[field.id];
+    if (isEmptyFieldValue(raw)) continue;
+    const display =
+      typeof raw === "boolean" ? (raw ? "Yes" : "No") : String(raw);
+    rows.push({
+      field,
+      label: orderFormFieldLabel(field.name),
+      display,
     });
   }
 

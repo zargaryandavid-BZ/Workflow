@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { BOARD_ROLES, ROLE_ABBR, ROLE_LABELS } from "@/lib/constants";
 import { ColumnsManager } from "./columns-manager";
 import type { BoardColumn } from "@/lib/types";
 
@@ -29,9 +30,18 @@ export default async function ColumnsSettingsPage() {
       <h1 className="text-lg font-semibold text-slate-800">
         Production Columns
       </h1>
-      <p className="mb-5 text-sm text-slate-500">
+      <p className="text-sm text-slate-500">
         Define your pipeline stages. Reorder them, set a color and picture, edit
         names, and remove stages you no longer need.
+      </p>
+      <p className="mb-5 text-xs text-slate-400">
+        * ↓ = drop into stage · ↑ = drop out of stage · Role abbreviations:{" "}
+        {BOARD_ROLES.map((role, i) => (
+          <span key={role}>
+            {i > 0 ? " · " : null}
+            {ROLE_ABBR[role]} = {ROLE_LABELS[role]}
+          </span>
+        ))}
       </p>
       <ColumnsManager
         initialColumns={(columnsRes.data ?? []) as BoardColumn[]}

@@ -4,7 +4,7 @@ import { getTenantContext } from "@/lib/auth";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { logActivity } from "@/lib/automation";
 import { validateDueDate } from "@/lib/order-form";
-import { normalizeSkus, prepareSkusForSave } from "@/lib/skus";
+import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
@@ -29,6 +29,12 @@ export async function POST(request: Request) {
   const dueDateError = validateDueDate(body.dueDate);
   if (dueDateError) {
     return NextResponse.json({ error: dueDateError }, { status: 400 });
+  }
+
+  const normalizedSkus = normalizeSkus(body.specs?.skus);
+  const skuError = validateSkus(normalizedSkus);
+  if (skuError) {
+    return NextResponse.json({ error: skuError }, { status: 400 });
   }
 
   const supabase = await createClient();
@@ -101,7 +107,7 @@ export async function POST(request: Request) {
       due_date: body.dueDate || null,
       specs: {
         ...(body.specs ?? {}),
-        skus: prepareSkusForSave(normalizeSkus(body.specs?.skus)),
+        skus: prepareSkusForSave(normalizedSkus),
       },
       position,
       created_by: ctx.userId,
