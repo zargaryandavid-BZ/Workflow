@@ -3,10 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadTeamMembers } from "@/lib/team-members";
 import { generateWebhookSecret } from "@/lib/webhook-config";
-import {
-  sanitizeConfigObject,
-  stripRedactedValues,
-} from "@/lib/system-config-sanitize";
+import { exportIntegrationConfig } from "@/lib/system-config-sanitize";
 import type {
   AutomationConfig,
   ColumnConfig,
@@ -128,10 +125,7 @@ export async function exportSystemConfigForTenant(
           name: webhook.label,
           provider: "webhook",
           enabled: webhook.enabled,
-          config: sanitizeConfigObject({
-            label: webhook.label,
-            secret_key: webhook.secret_key,
-          }),
+          config: exportIntegrationConfig({ secret_key: webhook.secret_key }),
         },
       ]
     : [];
@@ -157,8 +151,11 @@ export async function exportSystemConfigForTenant(
     version: "1.0",
     exported_at: new Date().toISOString(),
     tenant_name: tenantName,
-    columns: columns.map(toColumnConfig),
-    custom_fields: customFields.map(toCustomFieldConfig),
+    columns: columns.map((row, i) => ({ ...toColumnConfig(row), position: i })),
+    custom_fields: customFields.map((row, i) => ({
+      ...toCustomFieldConfig(row),
+      position: i,
+    })),
     automations: automationConfigs,
     integrations,
     team,
@@ -325,11 +322,7 @@ export async function importSystemConfigForTenant(
   for (const integration of config.integrations) {
     if (integration.provider !== "webhook") continue;
 
-    const safeConfig = stripRedactedValues(integration.config);
-    const label =
-      typeof safeConfig.label === "string"
-        ? safeConfig.label
-        : integration.name;
+    const label = integration.name || "Default webhook";
 
     const { data: existing } = await supabase
       .from("webhook_configs")

@@ -33,6 +33,8 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     enabled?: boolean;
+    label?: unknown;
+    config?: unknown;
   };
 
   if (typeof body.enabled !== "boolean") {
@@ -41,6 +43,8 @@ export async function PATCH(request: Request) {
       { status: 400 }
     );
   }
+
+  // Label lives on webhook_configs.label only — never duplicate in config JSON.
 
   const supabase = await createClient();
   await ensureWebhookConfig(supabase, ctx.tenant.id);

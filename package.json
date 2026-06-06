@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "resequence-positions": "npx tsx scripts/resequence-positions.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

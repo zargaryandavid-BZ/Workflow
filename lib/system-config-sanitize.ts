@@ -23,3 +23,11 @@ export function stripRedactedValues(
     Object.entries(config ?? {}).filter(([, v]) => !isRedactedValue(v))
   );
 }
+
+/** Label is stored on integration.name / webhook_configs.label — never in config. */
+export function exportIntegrationConfig(
+  config: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const { label: _label, ...rest } = sanitizeConfigObject(config);
+  return rest;
+}
