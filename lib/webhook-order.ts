@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "crypto";
+import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity } from "@/lib/automation";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
@@ -16,6 +16,22 @@ import type { WebhookConfig } from "@/lib/types";
 type Client = SupabaseClient;
 
 const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
+
+const SELECT_WEBHOOK_KEYS = new Set([
+  "product",
+  "product_type",
+  "materials",
+  "finishing",
+  "sides",
+  "color",
+]);
+
+interface CustomFieldDef {
+  id: string;
+  name: string;
+  field_type: string;
+  options: string[];
+}
 
 const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   product: "Product",
@@ -98,7 +114,7 @@ function normalizeWebhookSkus(
         : qtyRaw !== undefined && qtyRaw !== null && qtyRaw !== ""
           ? Number(qtyRaw)
           : null;
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     if (name || (qty != null && !Number.isNaN(qty))) {
       skus.push({
         id,
@@ -141,10 +157,41 @@ function validatePayload(body: WebhookOrderPayload): {
   return { customerName, customerContact };
 }
 
-async function resolveCustomFieldIds(
+function parseFieldOptions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === "string");
+}
+
+/** Match incoming webhook text to a tenant select option (exact, then partial). */
+export function matchSelectOption(
+  incoming: string,
+  options: string[]
+): string {
+  const trimmed = incoming.trim();
+  if (!trimmed || options.length === 0) return trimmed;
+
+  const lower = trimmed.toLowerCase();
+
+  const exact = options.find((o) => o.toLowerCase() === lower);
+  if (exact) return exact;
+
+  const incomingContains = options
+    .filter((o) => o.trim() && lower.includes(o.toLowerCase()))
+    .sort((a, b) => b.length - a.length);
+  if (incomingContains[0]) return incomingContains[0];
+
+  const optionContains = options
+    .filter((o) => o.trim() && o.toLowerCase().includes(lower))
+    .sort((a, b) => a.length - b.length);
+  if (optionContains[0]) return optionContains[0];
+
+  return trimmed;
+}
+
+async function resolveCustomFields(
   client: Client,
   tenantId: string
-): Promise<Map<string, string>> {
+): Promise<Map<string, CustomFieldDef>> {
   const names = new Set([
     CUSTOMER_NAME_FIELD_NAME,
     CUSTOMER_CONTACT_FIELD_NAME,
@@ -153,20 +200,55 @@ async function resolveCustomFieldIds(
 
   const { data } = await client
     .from("custom_fields")
-    .select("id, name")
+    .select("id, name, field_type, options")
     .eq("tenant_id", tenantId);
 
-  const byName = new Map<string, string>();
-  for (const row of (data ?? []) as { id: string; name: string }[]) {
-    if (names.has(row.name)) {
-      byName.set(row.name, row.id);
-    }
+  const byName = new Map<string, CustomFieldDef>();
+  for (const row of (data ?? []) as {
+    id: string;
+    name: string;
+    field_type: string;
+    options: unknown;
+  }[]) {
+    if (!names.has(row.name)) continue;
+    byName.set(row.name, {
+      id: row.id,
+      name: row.name,
+      field_type: row.field_type,
+      options: parseFieldOptions(row.options),
+    });
   }
   return byName;
 }
 
+function resolveWebhookFieldValue(
+  webhookKey: string,
+  raw: unknown,
+  field: CustomFieldDef | undefined
+): unknown {
+  if (raw === null || raw === undefined || raw === "") return null;
+
+  if (webhookKey === "order_qty") {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isNaN(n) ? null : n;
+  }
+
+  const text = String(raw).trim();
+  if (!text) return null;
+
+  if (
+    field?.field_type === "select" &&
+    SELECT_WEBHOOK_KEYS.has(webhookKey) &&
+    field.options.length > 0
+  ) {
+    return matchSelectOption(text, field.options);
+  }
+
+  return text;
+}
+
 function buildCustomFieldValues(
-  fieldIds: Map<string, string>,
+  fields: Map<string, CustomFieldDef>,
   body: WebhookOrderPayload,
   customerName: string,
   customerContact: string,
@@ -174,37 +256,31 @@ function buildCustomFieldValues(
 ): { customFieldId: string; value: unknown }[] {
   const rows: { customFieldId: string; value: unknown }[] = [];
 
-  const nameId = fieldIds.get(CUSTOMER_NAME_FIELD_NAME);
-  const contactId = fieldIds.get(CUSTOMER_CONTACT_FIELD_NAME);
-  if (nameId) {
-    rows.push({ customFieldId: nameId, value: customerName });
+  const nameField = fields.get(CUSTOMER_NAME_FIELD_NAME);
+  const contactField = fields.get(CUSTOMER_CONTACT_FIELD_NAME);
+  if (nameField) {
+    rows.push({ customFieldId: nameField.id, value: customerName });
   }
-  if (contactId) {
-    rows.push({ customFieldId: contactId, value: customerContact });
+  if (contactField) {
+    rows.push({ customFieldId: contactField.id, value: customerContact });
   }
 
   for (const [webhookKey, fieldName] of Object.entries(
     WEBHOOK_CUSTOM_FIELD_MAP
   )) {
-    const fieldId = fieldIds.get(fieldName);
-    if (!fieldId) continue;
+    const field = fields.get(fieldName);
+    if (!field) continue;
     const raw = body[webhookKey as keyof WebhookOrderPayload];
-    if (raw === null || raw === undefined || raw === "") continue;
-    if (webhookKey === "order_qty") {
-      const n = typeof raw === "number" ? raw : Number(raw);
-      if (!Number.isNaN(n)) {
-        rows.push({ customFieldId: fieldId, value: n });
-      }
-    } else {
-      rows.push({ customFieldId: fieldId, value: String(raw) });
-    }
+    const value = resolveWebhookFieldValue(webhookKey, raw, field);
+    if (value === null) continue;
+    rows.push({ customFieldId: field.id, value });
   }
 
-  const orderQtyId = fieldIds.get("Order QTY");
-  if (orderQtyId && skus.length > 0) {
+  const orderQtyField = fields.get("Order QTY");
+  if (orderQtyField && skus.length > 0) {
     const skuSum = skus.reduce((sum, s) => sum + (s.qty ?? 0), 0);
     if (skuSum > 0) {
-      rows.push({ customFieldId: orderQtyId, value: skuSum });
+      rows.push({ customFieldId: orderQtyField.id, value: skuSum });
     }
   }
 
@@ -221,7 +297,7 @@ async function insertExternalAsset(
     externalUrl: string;
     skuKey?: string | null;
   }
-) {
+): Promise<string | null> {
   const { error } = await client.from("assets").insert({
     tenant_id: params.tenantId,
     order_id: params.orderId,
@@ -233,14 +309,24 @@ async function insertExternalAsset(
     size: null,
     uploaded_by: null,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("[webhook/orders] asset insert error:", error.message);
+    return error.message;
+  }
+  return null;
+}
+
+export interface WebhookOrderResult {
+  orderId: string;
+  orderNumber: string;
+  warning?: string;
 }
 
 export async function createOrderFromWebhook(
   client: Client,
   config: WebhookConfig,
   body: WebhookOrderPayload
-): Promise<{ orderId: string; orderNumber: string }> {
+): Promise<WebhookOrderResult> {
   const { customerName, customerContact } = validatePayload(body);
 
   const priority =
@@ -294,9 +380,9 @@ export async function createOrderFromWebhook(
   const position =
     ((last as { position: number } | null)?.position ?? 0) + 1000;
 
-  const fieldIds = await resolveCustomFieldIds(client, tenantId);
+  const fields = await resolveCustomFields(client, tenantId);
   const customFieldValues = buildCustomFieldValues(
-    fieldIds,
+    fields,
     body,
     customerName,
     customerContact,
@@ -334,6 +420,7 @@ export async function createOrderFromWebhook(
   }
 
   const orderId = order.id as string;
+  const warnings: string[] = [];
 
   if (customFieldValues.length > 0) {
     const { error: cfvError } = await client.from("custom_field_values").insert(
@@ -347,20 +434,26 @@ export async function createOrderFromWebhook(
   }
 
   if (typeof body.artwork_url === "string" && body.artwork_url.trim()) {
-    await insertExternalAsset(client, {
+    const assetError = await insertExternalAsset(client, {
       tenantId,
       orderId,
       externalUrl: body.artwork_url.trim(),
     });
+    if (assetError) {
+      warnings.push(`Order artwork could not be saved: ${assetError}`);
+    }
   }
 
   for (const [skuId, url] of artworkBySkuId) {
-    await insertExternalAsset(client, {
+    const assetError = await insertExternalAsset(client, {
       tenantId,
       orderId,
       externalUrl: url,
       skuKey: skuId,
     });
+    if (assetError) {
+      warnings.push(`SKU artwork could not be saved: ${assetError}`);
+    }
   }
 
   await logActivity(client, {
@@ -375,5 +468,12 @@ export async function createOrderFromWebhook(
     },
   });
 
-  return { orderId, orderNumber: order.title as string };
+  return {
+    orderId,
+    orderNumber: order.title as string,
+    warning:
+      warnings.length > 0
+        ? warnings.join("; ")
+        : undefined,
+  };
 }

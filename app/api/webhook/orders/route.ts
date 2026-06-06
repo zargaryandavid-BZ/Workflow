@@ -50,16 +50,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { orderId, orderNumber } = await createOrderFromWebhook(
-      admin,
-      config,
-      body
-    );
+    const result = await createOrderFromWebhook(admin, config, body);
     await touchWebhookLastUsed(admin, config.id);
     return NextResponse.json({
       success: true,
-      order_id: orderId,
-      order_number: orderNumber,
+      order_id: result.orderId,
+      order_number: result.orderNumber,
+      ...(result.warning ? { warning: result.warning } : {}),
     });
   } catch (err) {
     if (err instanceof WebhookValidationError) {
