@@ -387,6 +387,15 @@ export function CardDetailModal({
       return field ? String(fieldValues[field.id] ?? "") : "";
     };
 
+    // Require GDrive artwork link before allowing copy
+    const artworkUrl = getField("Artwork (GDrive link)");
+    if (!artworkUrl.trim()) {
+      window.alert(
+        "⚠️ Please add an Artwork GDrive link to this order before copying the job ticket link.\n\nEdit the order → fill in \"Artwork GDrive link\" → then copy."
+      );
+      return;
+    }
+
     const finishedSize = getField("Finished Size");
     const sizeMatch = finishedSize.match(/([\d.]+)\s*[xX×]\s*([\d.]+)/);
     const width = sizeMatch ? sizeMatch[1] : "";
@@ -399,10 +408,11 @@ export function CardDetailModal({
         ? "1-sided"
         : "";
 
+    // Format: "Name|Qty||Name|Qty"  (|| = row separator, | = field separator)
     const skusStr = skus
       .filter((s) => s.name)
-      .map((s) => `${s.name}:${s.qty ?? ""}`)
-      .join("|");
+      .map((s) => `${s.name.trim()}|${s.qty ?? ""}`)
+      .join("||");
 
     const orderQtyField = resolved.orderQtyField;
     const qty = orderQtyField
@@ -428,7 +438,7 @@ export function CardDetailModal({
       color: getField("Color"),
       qty,
       notes: description,
-      artwork: getField("Artwork (GDrive link)"),
+      artwork: artworkUrl,
       skus: skusStr,
     });
 
@@ -438,7 +448,7 @@ export function CardDetailModal({
       .writeText(link)
       .then(() => {
         onLinkCopied?.(
-          "Order link copied — paste it in Pulse to create a job ticket"
+          "✅ Order link copied — paste it in Pulse to create a job ticket"
         );
       })
       .catch(() => {});
