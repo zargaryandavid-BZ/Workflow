@@ -106,9 +106,9 @@ export function AutomationsManager({ initialRules, columns }: Props) {
             Customer notifications
           </h2>
           <p className="text-sm text-slate-500">
-            When a job is dropped into one of these columns, a popup lets you
-            notify the customer by email or SMS. Choose where the card moves
-            after they respond.
+            When a job is dropped into one of these columns, notifications run
+            automatically — email/SMS when enabled, or manual follow-up when
+            disabled. Choose where the card moves after they respond.
           </p>
         </div>
 

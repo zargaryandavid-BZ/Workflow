@@ -58,21 +58,28 @@ export default async function BoardPage() {
       .from("automation_rules")
       .select("*")
       .eq("tenant_id", tenantId)
-      .eq("trigger", "on_enter_column")
-      .eq("enabled", true),
+      .eq("trigger", "on_enter_column"),
   ]);
 
-  // Notification triggers: enabled "notify" rules mapped to their column.
-  const notifyRules = ((rulesRes.data ?? []) as AutomationRule[])
-    .filter(
-      (r) => (r.config as Partial<NotifyRuleConfig>)?.action === "notify"
-    )
-    .map((r) => ({
-      from_column: r.from_column as string,
-      notify_type: (r.config as Partial<NotifyRuleConfig>)
-        .notify_type as NotificationType,
-    }))
-    .filter((r) => r.from_column);
+  const boardColumns = (columnsRes.data ?? []) as BoardColumn[];
+  const automationRules = (rulesRes.data ?? []) as AutomationRule[];
+
+  const notifyColumns = boardColumns
+    .filter((c) => c.kind === "approval" || c.kind === "exception")
+    .map((col) => {
+      const rule = automationRules.find(
+        (r) =>
+          r.from_column === col.id &&
+          (r.config as Partial<NotifyRuleConfig>)?.action === "notify"
+      );
+      return {
+        column_id: col.id,
+        notify_type: (col.kind === "approval"
+          ? "customer_approval"
+          : "missing_info") as NotificationType,
+        automation_enabled: rule?.enabled ?? false,
+      };
+    });
 
   // Resolve designer names (no FK between memberships and profiles, so fetch
   // the profiles separately).
@@ -212,13 +219,13 @@ export default async function BoardPage() {
       tenantId={tenantId}
       tenantName={ctx.tenant.name}
       role={ctx.role}
-      columns={(columnsRes.data ?? []) as BoardColumn[]}
+      columns={boardColumns}
       initialOrders={orders}
       customFields={(fieldsRes.data ?? []) as CustomField[]}
       fieldValuesByOrder={fieldValuesByOrder}
       thumbnailByOrder={thumbnailByOrder}
       designers={designers}
-      notifyRules={notifyRules}
+      notifyColumns={notifyColumns}
       notificationBadgeByOrder={notificationBadgeByOrder}
       ownerNameByOrder={ownerNameByOrder}
       smsConfigured={isSmsConfigured()}

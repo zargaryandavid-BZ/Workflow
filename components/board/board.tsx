@@ -19,23 +19,20 @@ import { Column } from "./column";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
-import { NotificationPopup } from "@/components/automation/notification-popup";
 import { Input, Select } from "@/components/ui/input";
+import {
+  runColumnNotify,
+  type NotifyColumnConfig,
+} from "@/lib/board-notify";
 import { createClient } from "@/lib/supabase/client";
 import { canDropIn, canDropOut } from "@/lib/permissions";
 import type {
   BoardColumn,
   CustomField,
   Designer,
-  NotificationType,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
-
-interface NotifyRuleRef {
-  from_column: string;
-  notify_type: NotificationType;
-}
 
 import type { CardNotificationBadge } from "@/lib/card-badges";
 
@@ -49,7 +46,7 @@ interface BoardProps {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string>;
   designers: Designer[];
-  notifyRules: NotifyRuleRef[];
+  notifyColumns: NotifyColumnConfig[];
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   smsConfigured: boolean;
@@ -66,7 +63,7 @@ export function Board({
   fieldValuesByOrder,
   thumbnailByOrder,
   designers,
-  notifyRules,
+  notifyColumns,
   notificationBadgeByOrder,
   ownerNameByOrder,
   smsConfigured,
@@ -79,11 +76,6 @@ export function Board({
   const [detailId, setDetailId] = useState<string | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [notificationJob, setNotificationJob] = useState<{
-    order: OrderWithRelations;
-    columnName: string;
-    type: NotificationType;
-  } | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
 
@@ -387,16 +379,25 @@ export function Board({
         setOrders(initialOrders);
         scheduleRefresh();
       } else if (crossing) {
-        // Only offer the notification popup when an enabled notify automation
-        // rule exists for the target column (Settings → Automations).
-        const rule = notifyRules.find((r) => r.from_column === overColumn);
+        const notifyColumn = notifyColumns.find(
+          (c) => c.column_id === overColumn
+        );
         const movedOrder = orders.find((o) => o.id === active.id);
-        if (rule && movedOrder) {
-          setNotificationJob({
+        if (notifyColumn && movedOrder) {
+          const result = await runColumnNotify({
             order: { ...movedOrder, column_id: overColumn },
-            columnName: to?.name ?? "",
-            type: rule.notify_type,
+            notifyColumn,
+            tenantName,
+            customFields,
+            fieldValues: fieldValuesByOrder[movedOrder.id] ?? {},
+            smsConfigured,
           });
+          if (result.ok) {
+            flashToast(result.message);
+            scheduleRefresh();
+          } else {
+            flashToast(result.error);
+          }
         }
       }
     } finally {
@@ -531,24 +532,6 @@ export function Board({
         onChanged={() => router.refresh()}
       />
 
-      {notificationJob ? (
-        <NotificationPopup
-          order={notificationJob.order}
-          columnName={notificationJob.columnName}
-          type={notificationJob.type}
-          tenantName={tenantName}
-          customFields={customFields}
-          fieldValues={fieldValuesByOrder[notificationJob.order.id] ?? {}}
-          smsConfigured={smsConfigured}
-          publicAppUrl={publicAppUrl}
-          onClose={() => setNotificationJob(null)}
-          onSaved={(message) => {
-            setNotificationJob(null);
-            flashToast(message);
-            router.refresh();
-          }}
-        />
-      ) : null}
     </div>
   );
 }
