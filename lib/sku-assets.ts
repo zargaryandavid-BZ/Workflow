@@ -45,7 +45,11 @@ export async function uploadPendingSkuArtwork(
     form.append("file", file);
     form.append("orderId", orderId);
     form.append("skuKey", skuKey);
-    await fetch("/api/assets/upload", { method: "POST", body: form });
+    await fetch("/api/assets/upload", {
+      method: "POST",
+      body: form,
+      credentials: "same-origin",
+    });
   }
 }
 
@@ -54,7 +58,11 @@ export async function uploadPendingOrderAssets(orderId: string, files: File[]) {
     const form = new FormData();
     form.append("file", file);
     form.append("orderId", orderId);
-    await fetch("/api/assets/upload", { method: "POST", body: form });
+    await fetch("/api/assets/upload", {
+      method: "POST",
+      body: form,
+      credentials: "same-origin",
+    });
   }
 }
 

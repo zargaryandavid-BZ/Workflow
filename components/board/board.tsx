@@ -387,22 +387,15 @@ export function Board({
         setOrders(initialOrders);
         scheduleRefresh();
       } else if (crossing) {
-        // Offer the customer-notification popup when the target column has an
-        // enabled notify rule configured for it.
+        // Only offer the notification popup when an enabled notify automation
+        // rule exists for the target column (Settings → Automations).
         const rule = notifyRules.find((r) => r.from_column === overColumn);
         const movedOrder = orders.find((o) => o.id === active.id);
-        const notifyType =
-          rule?.notify_type ??
-          (to?.kind === "exception"
-            ? "missing_info"
-            : to?.kind === "approval"
-              ? "customer_approval"
-              : null);
-        if (notifyType && movedOrder) {
+        if (rule && movedOrder) {
           setNotificationJob({
             order: { ...movedOrder, column_id: overColumn },
             columnName: to?.name ?? "",
-            type: notifyType,
+            type: rule.notify_type,
           });
         }
       }

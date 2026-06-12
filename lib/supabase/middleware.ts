@@ -3,6 +3,22 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/approve", "/respond", "/auth"];
 
+/** Token/webhook API routes — no session required; must not redirect to /login. */
+const PUBLIC_API_PREFIXES = [
+  "/api/webhook/",
+  "/api/notifications/respond",
+  "/api/notifications/upload",
+  "/api/notifications/asset",
+  "/api/approvals/decide",
+  "/api/auth/",
+];
+
+function isPublicApi(path: string) {
+  return PUBLIC_API_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(prefix)
+  );
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -32,11 +48,17 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some(
+  const isPublicPage = PUBLIC_PATHS.some(
     (p) => path === p || path.startsWith(`${p}/`)
   );
+  const isApi = path.startsWith("/api/");
 
-  if (!user && !isPublic) {
+  // API routes handle their own 401 JSON — never redirect them to /login.
+  if (isApi || isPublicApi(path)) {
+    return supabaseResponse;
+  }
+
+  if (!user && !isPublicPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

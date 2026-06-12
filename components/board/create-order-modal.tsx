@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { OrderFormBody } from "./order-form-body";
 import { prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
+import { createOrderAction } from "@/lib/actions/create-order";
 import { uploadPendingSkuArtwork } from "@/lib/sku-assets";
 import {
   buildCustomFieldPayload,
@@ -107,37 +108,32 @@ export function CreateOrderModal({
     }
 
     setLoading(true);
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        description,
-        columnId,
-        priority,
-        dueDate: dueDate ? dueDate.slice(0, 10) : null,
-        specs: {
-          skus: prepareSkusForSave(skus, {
-            pendingArtworkIds: Object.keys(pendingSkuArtwork),
-          }),
-          designer_id: designerId || null,
-          designer_name:
-            designers.find((d) => d.id === designerId)?.name ?? null,
-          design_task: designTask || null,
-        },
-        customFieldValues: buildCustomFieldPayload(
-          resolved,
-          fieldValues,
-          skus,
-          customerName,
-          customerContact
-        ),
-      }),
+    const json = await createOrderAction({
+      title,
+      description,
+      columnId,
+      priority,
+      dueDate: dueDate ? dueDate.slice(0, 10) : null,
+      specs: {
+        skus: prepareSkusForSave(skus, {
+          pendingArtworkIds: Object.keys(pendingSkuArtwork),
+        }),
+        designer_id: designerId || null,
+        designer_name:
+          designers.find((d) => d.id === designerId)?.name ?? null,
+        design_task: designTask || null,
+      },
+      customFieldValues: buildCustomFieldPayload(
+        resolved,
+        fieldValues,
+        skus,
+        customerName,
+        customerContact
+      ),
     });
-    const json = await res.json();
     setLoading(false);
-    if (!res.ok) {
-      setError(json.error ?? "Failed to create order");
+    if (json.error) {
+      setError(json.error);
       return;
     }
     const orderId = json.order?.id as string | undefined;
