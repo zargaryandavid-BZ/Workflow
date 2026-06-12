@@ -10,7 +10,7 @@
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 function loadEnvLocal() {
   try {
@@ -36,7 +36,8 @@ function loadEnvLocal() {
 }
 
 async function countRows(
-  supabase: ReturnType<typeof createClient>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
   table: "orders" | "customers",
   tenantId: string | null
 ): Promise<number> {
