@@ -41,3 +41,45 @@ export async function seedDefaultPrintFields(
   if (error) throw new Error(error.message);
   return toInsert.length;
 }
+
+/**
+ * For each default field that has options, overwrites the `options` column on
+ * the matching existing field (matched by name, case-insensitive).
+ * Fields not in the defaults are left untouched. Returns the number updated.
+ */
+export async function syncFieldOptions(
+  client: SupabaseClient,
+  tenantId: string
+): Promise<number> {
+  const { data: existing } = await client
+    .from("custom_fields")
+    .select("id, name")
+    .eq("tenant_id", tenantId);
+
+  if (!existing || existing.length === 0) return 0;
+
+  const byName = new Map(
+    (existing as { id: string; name: string }[]).map((f) => [
+      f.name.toLowerCase(),
+      f.id,
+    ])
+  );
+
+  const toSync = DEFAULT_PRINT_FIELDS.filter(
+    (f) => f.options.length > 0 && byName.has(f.name.toLowerCase())
+  );
+
+  let updated = 0;
+  for (const f of toSync) {
+    const id = byName.get(f.name.toLowerCase())!;
+    const { error } = await client
+      .from("custom_fields")
+      .update({ options: f.options })
+      .eq("id", id)
+      .eq("tenant_id", tenantId);
+    if (error) throw new Error(error.message);
+    updated++;
+  }
+
+  return updated;
+}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Sparkles, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -29,6 +29,7 @@ export function FieldsManager({
   const [required, setRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<CustomField | null>(null);
@@ -51,6 +52,23 @@ export function FieldsManager({
         ? `Added ${json.added} default print field${json.added === 1 ? "" : "s"}.`
         : "All default print fields are already present."
     );
+    router.refresh();
+  }
+
+  async function syncOptions() {
+    setError(null);
+    setMessage(null);
+    setSyncing(true);
+    const res = await fetch("/api/custom-fields/sync-options", {
+      method: "POST",
+    });
+    const json = await res.json();
+    setSyncing(false);
+    if (!res.ok) {
+      setError(json.error ?? "Failed to sync options");
+      return;
+    }
+    setMessage(`Updated options on ${json.updated} field${json.updated === 1 ? "" : "s"}.`);
     router.refresh();
   }
 
@@ -122,6 +140,17 @@ export function FieldsManager({
         >
           <Sparkles className="h-4 w-4 shrink-0" />
           {seeding ? "Adding…" : "Add defaults"}
+        </Button>
+        <Button
+          variant="outline"
+          type="button"
+          onClick={syncOptions}
+          disabled={syncing}
+          className="shrink-0 whitespace-nowrap"
+          title="Update dropdown options on existing fields to match the latest defaults"
+        >
+          <RefreshCw className={`h-4 w-4 shrink-0 ${syncing ? "animate-spin" : ""}`} />
+          {syncing ? "Syncing…" : "Sync options"}
         </Button>
       </div>
 
