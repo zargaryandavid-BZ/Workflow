@@ -450,6 +450,17 @@ export function CardDetailModal({
       onClose={handleClose}
       title={isViewOnly ? "View order" : "Order Details"}
       className="max-w-3xl"
+      headerAction={
+        <button
+          type="button"
+          onClick={copyOrderLink}
+          disabled={loading || !data || !customerName}
+          className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          title="Copy pre-filled job ticket link"
+        >
+          📋 Copy Order Link
+        </button>
+      }
       footer={
         isViewOnly ? (
           <Button variant="ghost" onClick={handleClose} type="button">
@@ -476,18 +487,6 @@ export function CardDetailModal({
         )
       }
     >
-      <div className="mb-3 flex justify-end">
-        <button
-          type="button"
-          onClick={copyOrderLink}
-          disabled={loading || !data || !customerName}
-          className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-          title="Copy pre-filled job ticket link"
-        >
-          📋 Copy Order Link
-        </button>
-      </div>
-
       {loading || !data ? (
         <div className="flex h-40 items-center justify-center text-slate-400">
           <Loader2 className="h-5 w-5 animate-spin" />
