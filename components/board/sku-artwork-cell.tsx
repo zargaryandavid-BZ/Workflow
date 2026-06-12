@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileText, Upload, X } from "lucide-react";
+import { FileText, Pencil, Upload, X } from "lucide-react";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 import type { Asset } from "@/lib/types";
 
 interface SkuArtworkCellProps {
@@ -54,6 +55,7 @@ export function SkuArtworkCell({
   const [stagedName, setStagedName] = useState<string | null>(null);
   const [stagedMime, setStagedMime] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const stageOnly = deferUpload || !orderId;
   const savedAsset = asset && !markedForRemoval ? asset : null;
@@ -134,6 +136,17 @@ export function SkuArtworkCell({
   const hasPendingChange = stageOnly && (pendingFile != null || markedForRemoval);
 
   if (fileName) {
+    const canPreview = showImage && thumbnailSrc;
+    const canDownload = !canPreview && savedAsset;
+
+    function handleThumbnailClick() {
+      if (canPreview) {
+        setLightboxOpen(true);
+      } else if (canDownload) {
+        window.open(`/api/assets/${savedAsset!.id}`, "_blank");
+      }
+    }
+
     return (
       <div>
         <input
@@ -149,12 +162,12 @@ export function SkuArtworkCell({
           }}
         />
         <div className="relative inline-block" title={fileName}>
+          {/* Thumbnail — click to preview */}
           <button
             type="button"
-            disabled={disabled}
-            onClick={() => inputRef.current?.click()}
-            className="relative block h-10 w-10 overflow-hidden rounded-md border border-slate-200 bg-slate-50 disabled:opacity-50"
-            aria-label={`Replace artwork: ${fileName}`}
+            onClick={handleThumbnailClick}
+            className="relative block h-10 w-10 overflow-hidden rounded-md border border-slate-200 bg-slate-50 hover:opacity-80"
+            aria-label={`View artwork: ${fileName}`}
           >
             {showImage && thumbnailSrc ? (
               <img
@@ -171,15 +184,31 @@ export function SkuArtworkCell({
               </div>
             )}
           </button>
-          <button
-            type="button"
-            onClick={remove}
-            disabled={disabled}
-            className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-white shadow hover:bg-red-600 disabled:opacity-50"
-            aria-label="Remove artwork"
-          >
-            <X className="h-2.5 w-2.5" />
-          </button>
+          {/* Remove button (top-right) */}
+          {!disabled ? (
+            <button
+              type="button"
+              onClick={remove}
+              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-white shadow hover:bg-red-600"
+              aria-label="Remove artwork"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          ) : null}
+          {/* Replace button (bottom-right) — only in edit mode */}
+          {!disabled ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                inputRef.current?.click();
+              }}
+              className="absolute -bottom-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-white shadow hover:bg-blue-700"
+              aria-label="Replace artwork"
+            >
+              <Pencil className="h-2 w-2" />
+            </button>
+          ) : null}
         </div>
         {hasPendingChange ? (
           <p className="mt-1 text-[10px] text-amber-600">
@@ -187,6 +216,14 @@ export function SkuArtworkCell({
           </p>
         ) : null}
         {error ? <p className="mt-0.5 text-[10px] text-red-600">{error}</p> : null}
+
+        {lightboxOpen && canPreview ? (
+          <ImageLightbox
+            src={thumbnailSrc!}
+            label={fileName}
+            onClose={() => setLightboxOpen(false)}
+          />
+        ) : null}
       </div>
     );
   }

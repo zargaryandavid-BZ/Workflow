@@ -6,12 +6,14 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Eye,
   FileText,
   Loader2,
   Paperclip,
   Trash2,
   Upload,
 } from "lucide-react";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +137,7 @@ export function CardDetailModal({
   const [pendingAssetDeletions, setPendingAssetDeletions] = useState<
     Set<string>
   >(new Set());
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
 
   function resetPendingFiles() {
     setPendingSkuArtwork({});
@@ -350,6 +353,19 @@ export function CardDetailModal({
     ? customerContactFromOrder(data.order, fieldValues, customFields)
     : { email: null, phone: null };
 
+  function isImageAsset(asset: Asset): boolean {
+    const ext = asset.file_name.split(".").pop()?.toLowerCase() ?? "";
+    if (["png", "jpg", "jpeg", "svg", "gif", "webp"].includes(ext)) return true;
+    const m = asset.mime_type?.toLowerCase();
+    return (
+      m === "image/png" ||
+      m === "image/jpeg" ||
+      m === "image/gif" ||
+      m === "image/webp" ||
+      m === "image/svg+xml"
+    );
+  }
+
   function handleClose() {
     if (
       hasPendingFileChanges &&
@@ -561,6 +577,16 @@ export function CardDetailModal({
                         <span className="truncate">{asset.file_name}</span>
                       </span>
                       <span className="flex items-center gap-1">
+                        {isImageAsset(asset) ? (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewAsset(asset)}
+                            className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                            aria-label="Preview"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        ) : null}
                         <a
                           href={`/api/assets/${asset.id}`}
                           className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
@@ -696,6 +722,13 @@ export function CardDetailModal({
           )}
         </>
       )}
+      {previewAsset ? (
+        <ImageLightbox
+          src={`/api/assets/${previewAsset.id}`}
+          label={previewAsset.file_name}
+          onClose={() => setPreviewAsset(null)}
+        />
+      ) : null}
     </Modal>
   );
 }
