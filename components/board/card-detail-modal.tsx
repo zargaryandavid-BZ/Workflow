@@ -452,20 +452,9 @@ export function CardDetailModal({
       className="max-w-3xl"
       footer={
         isViewOnly ? (
-          <>
-            <button
-              type="button"
-              onClick={copyOrderLink}
-              disabled={loading || !data || !customerName}
-              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Copy pre-filled job ticket link"
-            >
-              📋 Copy Order Link
-            </button>
-            <Button variant="ghost" onClick={handleClose} type="button">
-              Close
-            </Button>
-          </>
+          <Button variant="ghost" onClick={handleClose} type="button">
+            Close
+          </Button>
         ) : tab === "details" ? (
           <>
             {hasPendingFileChanges ? (
@@ -473,15 +462,6 @@ export function CardDetailModal({
                 Unsaved file changes
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={copyOrderLink}
-              disabled={loading || !data || !customerName}
-              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Copy pre-filled job ticket link"
-            >
-              📋 Copy Order Link
-            </button>
             <Button variant="ghost" onClick={handleClose} type="button">
               Close
             </Button>
@@ -490,23 +470,24 @@ export function CardDetailModal({
             </Button>
           </>
         ) : (
-          <>
-            <button
-              type="button"
-              onClick={copyOrderLink}
-              disabled={loading || !data || !customerName}
-              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Copy pre-filled job ticket link"
-            >
-              📋 Copy Order Link
-            </button>
-            <Button variant="ghost" onClick={handleClose} type="button">
-              Close
-            </Button>
-          </>
+          <Button variant="ghost" onClick={handleClose} type="button">
+            Close
+          </Button>
         )
       }
     >
+      <div className="mb-3 flex justify-end">
+        <button
+          type="button"
+          onClick={copyOrderLink}
+          disabled={loading || !data || !customerName}
+          className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          title="Copy pre-filled job ticket link"
+        >
+          📋 Copy Order Link
+        </button>
+      </div>
+
       {loading || !data ? (
         <div className="flex h-40 items-center justify-center text-slate-400">
           <Loader2 className="h-5 w-5 animate-spin" />
