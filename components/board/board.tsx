@@ -20,10 +20,8 @@ import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
 import { Input, Select } from "@/components/ui/input";
-import {
-  runColumnNotify,
-  type NotifyColumnConfig,
-} from "@/lib/board-notify";
+import { type NotifyColumnConfig } from "@/lib/board-notify";
+import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { canDropIn, canDropOut } from "@/lib/permissions";
 import type {
@@ -76,6 +74,11 @@ export function Board({
   const [detailId, setDetailId] = useState<string | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [notifyPopup, setNotifyPopup] = useState<{
+    order: OrderWithRelations;
+    notifyColumn: NotifyColumnConfig;
+    columnName: string;
+  } | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
 
@@ -383,22 +386,14 @@ export function Board({
           (c) => c.column_id === overColumn
         );
         const movedOrder = orders.find((o) => o.id === active.id);
-        if (notifyColumn && movedOrder) {
-          const result = await runColumnNotify({
+        if (notifyColumn && movedOrder && notifyColumn.automation_enabled) {
+          setNotifyPopup({
             order: { ...movedOrder, column_id: overColumn },
             notifyColumn,
-            tenantName,
-            customFields,
-            fieldValues: fieldValuesByOrder[movedOrder.id] ?? {},
-            smsConfigured,
+            columnName: columnsById.get(overColumn)?.name ?? "",
           });
-          if (result.ok) {
-            flashToast(result.message);
-            scheduleRefresh();
-          } else {
-            flashToast(result.error);
-          }
         }
+        // When automation is disabled, do nothing — card stays in the column silently.
       }
     } finally {
       draggingRef.current = false;
@@ -531,6 +526,28 @@ export function Board({
         role={role}
         onChanged={() => router.refresh()}
       />
+
+      {notifyPopup ? (
+        <NotificationPopup
+          order={notifyPopup.order}
+          columnName={notifyPopup.columnName}
+          type={notifyPopup.notifyColumn.notify_type}
+          tenantName={tenantName}
+          customFields={customFields}
+          fieldValues={fieldValuesByOrder[notifyPopup.order.id] ?? {}}
+          smsConfigured={smsConfigured}
+          publicAppUrl={publicAppUrl}
+          onClose={() => {
+            setNotifyPopup(null);
+            scheduleRefresh();
+          }}
+          onSaved={(message) => {
+            setNotifyPopup(null);
+            flashToast(message);
+            scheduleRefresh();
+          }}
+        />
+      ) : null}
 
     </div>
   );
