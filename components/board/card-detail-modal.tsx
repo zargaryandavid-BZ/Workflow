@@ -31,6 +31,7 @@ import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder } from "@/lib/notification-messages";
 import {
   buildCustomFieldPayload,
+  findOrderFormField,
   resolveOrderFormFields,
   validateDueDate,
   validateOrderFormFields,
@@ -60,6 +61,7 @@ interface CardDetailModalProps {
   onChanged: () => void;
   /** When "view", all fields are read-only and save/upload actions are hidden. */
   mode?: "edit" | "view";
+  onLinkCopied?: (message: string) => void;
 }
 
 interface PendingOrderAsset {
@@ -99,6 +101,7 @@ export function CardDetailModal({
   role,
   onChanged,
   mode = "edit",
+  onLinkCopied,
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
   const resolved = useMemo(
@@ -378,6 +381,69 @@ export function CardDetailModal({
     onClose();
   }
 
+  function copyOrderLink() {
+    const getField = (name: string) => {
+      const field = findOrderFormField(customFields, name);
+      return field ? String(fieldValues[field.id] ?? "") : "";
+    };
+
+    const finishedSize = getField("Finished Size");
+    const sizeMatch = finishedSize.match(/([\d.]+)\s*[xX×]\s*([\d.]+)/);
+    const width = sizeMatch ? sizeMatch[1] : "";
+    const height = sizeMatch ? sizeMatch[2] : "";
+
+    const sidesRaw = getField("Sides").toLowerCase();
+    const sides = sidesRaw.includes("2")
+      ? "2-sided"
+      : sidesRaw.includes("1")
+        ? "1-sided"
+        : "";
+
+    const skusStr = skus
+      .filter((s) => s.name)
+      .map((s) => `${s.name}:${s.qty ?? ""}`)
+      .join("|");
+
+    const orderQtyField = resolved.orderQtyField;
+    const qty = orderQtyField
+      ? String(fieldValues[orderQtyField.id] ?? "")
+      : skus.length > 0
+        ? String(skus.reduce((sum, s) => sum + (s.qty ?? 0), 0))
+        : "";
+
+    const params = new URLSearchParams({
+      from: "workflow",
+      order_ref: title,
+      customer: customerName,
+      contact: customerContact,
+      priority: priority.toLowerCase(),
+      due: dueDate,
+      product: getField("Product"),
+      product_type: getField("Product Type"),
+      width,
+      height,
+      material: getField("Materials"),
+      finishing: getField("Finishing"),
+      sides,
+      color: getField("Color"),
+      qty,
+      notes: description,
+      artwork: getField("Artwork (GDrive link)"),
+      skus: skusStr,
+    });
+
+    const link = `https://pulse-jade-five.vercel.app/pages/job-ticket.html?${params.toString()}`;
+
+    navigator.clipboard
+      .writeText(link)
+      .then(() => {
+        onLinkCopied?.(
+          "Order link copied — paste it in Pulse to create a job ticket"
+        );
+      })
+      .catch(() => {});
+  }
+
   return (
     <Modal
       open={open}
@@ -386,9 +452,20 @@ export function CardDetailModal({
       className="max-w-3xl"
       footer={
         isViewOnly ? (
-          <Button variant="ghost" onClick={handleClose} type="button">
-            Close
-          </Button>
+          <>
+            <button
+              type="button"
+              onClick={copyOrderLink}
+              disabled={loading || !data || !customerName}
+              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Copy pre-filled job ticket link"
+            >
+              📋 Copy Order Link
+            </button>
+            <Button variant="ghost" onClick={handleClose} type="button">
+              Close
+            </Button>
+          </>
         ) : tab === "details" ? (
           <>
             {hasPendingFileChanges ? (
@@ -396,6 +473,15 @@ export function CardDetailModal({
                 Unsaved file changes
               </span>
             ) : null}
+            <button
+              type="button"
+              onClick={copyOrderLink}
+              disabled={loading || !data || !customerName}
+              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Copy pre-filled job ticket link"
+            >
+              📋 Copy Order Link
+            </button>
             <Button variant="ghost" onClick={handleClose} type="button">
               Close
             </Button>
@@ -404,9 +490,20 @@ export function CardDetailModal({
             </Button>
           </>
         ) : (
-          <Button variant="ghost" onClick={handleClose} type="button">
-            Close
-          </Button>
+          <>
+            <button
+              type="button"
+              onClick={copyOrderLink}
+              disabled={loading || !data || !customerName}
+              className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Copy pre-filled job ticket link"
+            >
+              📋 Copy Order Link
+            </button>
+            <Button variant="ghost" onClick={handleClose} type="button">
+              Close
+            </Button>
+          </>
         )
       }
     >

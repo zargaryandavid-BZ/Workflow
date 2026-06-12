@@ -525,6 +525,7 @@ export function Board({
         designers={designers}
         role={role}
         onChanged={() => router.refresh()}
+        onLinkCopied={flashToast}
       />
 
       {notifyPopup ? (
