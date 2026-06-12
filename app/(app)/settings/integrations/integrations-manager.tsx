@@ -8,6 +8,12 @@ import { formatDateTime } from "@/lib/utils";
 import type { WebhookConfig } from "@/lib/types";
 
 function buildPayloadDocs(webhookUrl: string, secretKey: string): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const exampleDueDate = new Date(now);
+  exampleDueDate.setDate(exampleDueDate.getDate() + 30);
+  const dueDateStr = exampleDueDate.toISOString().slice(0, 10);
+
   return `POST ${webhookUrl}
 
 Headers:
@@ -21,10 +27,10 @@ Body (JSON):
   "customer_contact": "hello@acme.com",
 
   // RECOMMENDED
-  "order_number": "ORD-2024-001",
+  "order_number": "ORD-${year}-001",
   "title": "500 Business Cards — Acme Corp",
   "priority": "normal",
-  "due_date": "2024-07-01",
+  "due_date": "${dueDateStr}",
 
   // ORDER DETAILS
   "product": "Business Cards",
@@ -66,7 +72,7 @@ Body (JSON):
 // - Missing Info notes
 
 Success response:
-{ "success": true, "order_id": "uuid", "order_number": "ORD-2024-001" }
+{ "success": true, "order_id": "uuid", "order_number": "ORD-${year}-001" }
 
 Error responses:
 401 — Invalid or missing secret key
