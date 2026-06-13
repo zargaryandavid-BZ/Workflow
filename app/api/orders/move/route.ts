@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity, onEnterColumn } from "@/lib/automation";
+import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { canMove } from "@/lib/permissions";
-import type { BoardColumn, Order } from "@/lib/types";
+import type { BoardColumn, CustomField, Customer, Order, OrderWithRelations } from "@/lib/types";
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
@@ -68,6 +69,60 @@ export async function POST(request: Request) {
       { error: "You don't have permission to move this order here." },
       { status: 403 }
     );
+  }
+
+  // Incomplete cards may still enter Missing Info (exception) columns.
+  if (fromColumnId !== body.toColumnId && typedColumn.kind !== "exception") {
+    let customer: Customer | null = null;
+    if (typedOrder.customer_id) {
+      const { data: customerRow } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("id", typedOrder.customer_id)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      customer = (customerRow as Customer | null) ?? null;
+    }
+
+    const { data: customFieldsRows } = await supabase
+      .from("custom_fields")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: true });
+
+    const { data: customFieldValues } = await supabase
+      .from("custom_field_values")
+      .select("custom_field_id, value")
+      .eq("order_id", body.orderId);
+
+    const fieldValues: Record<string, unknown> = {};
+    for (const row of (customFieldValues ?? []) as {
+      custom_field_id: string;
+      value: unknown;
+    }[]) {
+      fieldValues[row.custom_field_id] = row.value;
+    }
+
+    const orderWithRelations: OrderWithRelations = {
+      ...typedOrder,
+      customer,
+    };
+
+    const missing = getMissingFields(
+      orderWithRelations,
+      fieldValues,
+      (customFieldsRows ?? []) as CustomField[]
+    );
+
+    if (missing.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Card cannot be moved — missing required fields",
+          missing_fields: missing.map((f) => f.label),
+        },
+        { status: 422 }
+      );
+    }
   }
 
   const newPosition = body.position ?? typedOrder.position;

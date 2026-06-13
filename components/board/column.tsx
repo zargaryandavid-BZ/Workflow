@@ -123,7 +123,7 @@ export function Column({
       <div
         ref={setNodeRef}
         className={cn(
-          "board-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-b-lg p-1.5 transition-colors",
+          "board-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto rounded-b-lg p-1 transition-colors",
           isOver ? "bg-blue-50" : "bg-slate-100/40"
         )}
       >

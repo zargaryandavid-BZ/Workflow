@@ -19,11 +19,17 @@ import { Column } from "./column";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
+import { MoveBlockedModal } from "./move-blocked-modal";
 import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { canDropIn, canDropOut } from "@/lib/permissions";
+import {
+  getMissingFields,
+  missingFieldsFromLabels,
+  type MissingField,
+} from "@/lib/orders/validate-ready-to-move";
 import type {
   BoardColumn,
   CustomField,
@@ -81,6 +87,10 @@ export function Board({
   } | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
+  const [moveBlockedState, setMoveBlockedState] = useState<{
+    orderId: string;
+    missingFields: MissingField[];
+  } | null>(null);
 
   function flashToast(message: string) {
     setToast(message);
@@ -339,6 +349,22 @@ export function Board({
       return;
     }
 
+    if (crossing && to?.kind !== "exception") {
+      const order = orders.find((o) => o.id === active.id);
+      if (order) {
+        const missingFields = getMissingFields(
+          order,
+          fieldValuesByOrder[order.id] ?? {},
+          customFields
+        );
+        if (missingFields.length > 0) {
+          abortDrag();
+          setMoveBlockedState({ orderId: order.id, missingFields });
+          return;
+        }
+      }
+    }
+
     // Reorder within the destination column.
     const columnOrders = orders
       .filter((o) => o.column_id === overColumn)
@@ -377,7 +403,18 @@ export function Board({
         }),
       });
       if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          missing_fields?: string[];
+        };
+        if (res.status === 422 && json.missing_fields?.length) {
+          abortDrag();
+          setMoveBlockedState({
+            orderId: String(active.id),
+            missingFields: missingFieldsFromLabels(json.missing_fields),
+          });
+          return;
+        }
         flashPermissionError(json.error ?? "Move was rejected.");
         setOrders(initialOrders);
         scheduleRefresh();
@@ -547,6 +584,17 @@ export function Board({
             flashToast(message);
             scheduleRefresh();
           }}
+        />
+      ) : null}
+
+      {moveBlockedState ? (
+        <MoveBlockedModal
+          missingFields={moveBlockedState.missingFields}
+          onOpenCard={() => {
+            setDetailId(moveBlockedState.orderId);
+            setMoveBlockedState(null);
+          }}
+          onClose={() => setMoveBlockedState(null)}
         />
       ) : null}
 
