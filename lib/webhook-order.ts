@@ -56,6 +56,27 @@ const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   order_qty: ["Order QTY"],
 };
 
+export interface WebhookSkuPayload {
+  sku_name?: string;
+  quantity?: number | string;
+  artwork_url?: string;
+}
+
+export interface WebhookItem {
+  title?: string;
+  product?: string;
+  product_type?: string;
+  finished_size?: string;
+  materials?: string;
+  finishing?: string;
+  sides?: string;
+  color?: string;
+  order_qty?: number | string;
+  artwork_url?: string;
+  description?: string;
+  skus?: WebhookSkuPayload[];
+}
+
 export interface WebhookOrderPayload {
   customer_name?: string;
   customer_contact?: string;
@@ -74,11 +95,8 @@ export interface WebhookOrderPayload {
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
-  skus?: {
-    sku_name?: string;
-    quantity?: number | string;
-    artwork_url?: string;
-  }[];
+  skus?: WebhookSkuPayload[];
+  items?: WebhookItem[];
 }
 
 export class WebhookValidationError extends Error {
@@ -107,7 +125,7 @@ function fileNameFromUrl(url: string): string {
 }
 
 function normalizeWebhookSkus(
-  raw: WebhookOrderPayload["skus"]
+  raw: WebhookSkuPayload[] | undefined
 ): { skus: SkuItem[]; artworkBySkuId: Map<string, string> } {
   const artworkBySkuId = new Map<string, string>();
   if (!Array.isArray(raw)) {
@@ -168,6 +186,82 @@ function validatePayload(body: WebhookOrderPayload): {
 
   return { customerName, customerContact };
 }
+
+function validateItemsArray(items: unknown): void {
+  if (!Array.isArray(items)) return;
+  if (items.length === 0) {
+    throw new WebhookValidationError("items array must not be empty");
+  }
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (!item || typeof item !== "object") {
+      throw new WebhookValidationError(`items[${i}] is invalid`);
+    }
+  }
+}
+
+/** Support both flat fields and an items array. */
+export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
+  if (Array.isArray(body.items) && body.items.length > 0) {
+    return body.items;
+  }
+
+  return [
+    {
+      title: body.title,
+      product: body.product,
+      product_type: body.product_type,
+      finished_size: body.finished_size,
+      materials: body.materials,
+      finishing: body.finishing,
+      sides: body.sides,
+      color: body.color,
+      order_qty: body.order_qty,
+      artwork_url: body.artwork_url,
+      description: body.description,
+      skus: body.skus,
+    },
+  ];
+}
+
+export function resolveItemTitle(
+  item: WebhookItem,
+  orderTitle: string,
+  itemIndex: number,
+  totalItems: number
+): string {
+  if (item.title?.trim()) return item.title.trim();
+  if (totalItems === 1) return orderTitle;
+  const productLabel = item.product?.trim() || `Item ${itemIndex + 1}`;
+  return `${orderTitle} — ${productLabel}`;
+}
+
+function resolveBaseOrderNumber(body: WebhookOrderPayload): string {
+  return (
+    (typeof body.order_number === "string" ? body.order_number.trim() : "") ||
+    (typeof body.title === "string" ? body.title.trim() : "") ||
+    "Webhook Order"
+  );
+}
+
+function resolveOrderLevelTitle(body: WebhookOrderPayload): string {
+  return (
+    (typeof body.title === "string" ? body.title.trim() : "") ||
+    resolveBaseOrderNumber(body)
+  );
+}
+
+type WebhookSpecFields = Pick<
+  WebhookItem,
+  | "product"
+  | "product_type"
+  | "finished_size"
+  | "materials"
+  | "finishing"
+  | "sides"
+  | "color"
+  | "order_qty"
+>;
 
 function parseFieldOptions(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -303,7 +397,7 @@ function resolveWebhookFieldValue(
 
 function buildCustomFieldValues(
   fields: Map<string, CustomFieldDef>,
-  body: WebhookOrderPayload,
+  specFields: WebhookSpecFields,
   customerName: string,
   customerContact: string,
   skus: SkuItem[]
@@ -326,7 +420,7 @@ function buildCustomFieldValues(
     }
     const field = fields.get(webhookKey);
     if (!field) continue;
-    const raw = body[webhookKey as keyof WebhookOrderPayload];
+    const raw = specFields[webhookKey as keyof WebhookSpecFields];
     const value = resolveWebhookFieldValue(webhookKey, raw, field);
     if (value === null) continue;
     byFieldId.set(field.id, value);
@@ -411,86 +505,93 @@ async function insertCustomFieldValues(
   return null;
 }
 
+export interface WebhookCreatedJob {
+  order_id: string;
+  item_index: number;
+  title: string;
+}
+
 export interface WebhookOrderResult {
+  isMultiItem: false;
   orderId: string;
   orderNumber: string;
   warning?: string;
 }
 
-export async function createOrderFromWebhook(
-  client: Client,
-  config: WebhookConfig,
-  body: WebhookOrderPayload
-): Promise<WebhookOrderResult> {
-  const { customerName, customerContact } = validatePayload(body);
+export interface WebhookMultiOrderResult {
+  isMultiItem: true;
+  orderNumber: string;
+  jobs: WebhookCreatedJob[];
+  warning?: string;
+}
 
-  const priority =
-    typeof body.priority === "string" && PRIORITIES.has(body.priority)
-      ? body.priority
-      : "normal";
+export type WebhookCreateResult = WebhookOrderResult | WebhookMultiOrderResult;
 
-  const dueDate =
-    typeof body.due_date === "string" && body.due_date.trim()
-      ? body.due_date.trim().slice(0, 10)
-      : null;
-  const dueDateError = validateDueDate(dueDate);
-  if (dueDateError) {
-    throw new WebhookValidationError(dueDateError);
-  }
+interface CreateSingleJobParams {
+  client: Client;
+  tenantId: string;
+  columnId: string;
+  columnName: string | null;
+  position: number;
+  fields: Map<string, CustomFieldDef>;
+  customerId: string | null;
+  customerName: string;
+  customerContact: string;
+  item: WebhookItem;
+  priority: string;
+  dueDate: string | null;
+  orderDescription: string | null;
+  cardTitle: string;
+  jobTitle: string;
+  webhookOrderNumber: string;
+  itemIndex: number;
+  totalItems: number;
+}
 
-  const orderNumber =
-    (typeof body.order_number === "string" ? body.order_number.trim() : "") ||
-    (typeof body.title === "string" ? body.title.trim() : "") ||
-    "Webhook Order";
+async function createSingleWebhookJob(
+  params: CreateSingleJobParams
+): Promise<{ orderId: string; title: string; warnings: string[] }> {
+  const {
+    client,
+    tenantId,
+    columnId,
+    columnName,
+    position,
+    fields,
+    customerId,
+    customerName,
+    customerContact,
+    item,
+    priority,
+    dueDate,
+    orderDescription,
+    cardTitle,
+    jobTitle,
+    webhookOrderNumber,
+    itemIndex,
+    totalItems,
+  } = params;
 
-  const description =
-    typeof body.description === "string" ? body.description.trim() : null;
-
-  const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(body.skus);
+  const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(item.skus);
   const skus = prepareSkusForSave(rawSkus);
 
-  const tenantId = config.tenant_id;
-
-  const { data: firstCol } = await client
-    .from("board_columns")
-    .select("id, name")
-    .eq("tenant_id", tenantId)
-    .order("position", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  const columnId = (firstCol as { id: string; name: string } | null)?.id;
-  if (!columnId) {
-    throw new Error("No columns found for tenant");
-  }
-
-  const { data: last } = await client
-    .from("orders")
-    .select("position")
-    .eq("column_id", columnId)
-    .eq("tenant_id", tenantId)
-    .order("position", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const position =
-    ((last as { position: number } | null)?.position ?? 0) + 1000;
-
-  const fields = await resolveCustomFields(client, tenantId);
   const customFieldValues = buildCustomFieldValues(
     fields,
-    body,
+    item,
     customerName,
     customerContact,
     skus
   );
 
-  let customerId: string | null = null;
-  if (customFieldValues.length > 0) {
-    customerId = await linkCustomerFromOrderFields(
-      client,
-      tenantId,
-      customFieldValues
-    );
+  const itemDescription =
+    typeof item.description === "string" ? item.description.trim() : null;
+  const description = itemDescription || orderDescription;
+
+  const specs: Record<string, unknown> = { skus };
+  if (totalItems > 1) {
+    specs.webhook_order_number = webhookOrderNumber;
+    specs.webhook_item_index = itemIndex;
+    specs.webhook_item_title = jobTitle;
   }
 
   const { data: order, error: orderError } = await client
@@ -498,12 +599,12 @@ export async function createOrderFromWebhook(
     .insert({
       tenant_id: tenantId,
       column_id: columnId,
-      title: orderNumber,
+      title: cardTitle,
       description: description || null,
       customer_id: customerId,
       priority,
       due_date: dueDate,
-      specs: { skus },
+      specs,
       position,
       created_by: null,
     })
@@ -515,9 +616,12 @@ export async function createOrderFromWebhook(
       message: orderError?.message,
       code: orderError?.code,
       details: orderError?.details,
+      item_index: itemIndex,
       sku_count: skus.length,
     });
-    throw new Error(orderError?.message ?? "Failed to create order");
+    throw new Error(
+      orderError?.message ?? `Failed to create job for item ${itemIndex}`
+    );
   }
 
   const orderId = order.id as string;
@@ -532,11 +636,11 @@ export async function createOrderFromWebhook(
     warnings.push(`Custom fields could not be saved: ${cfvError}`);
   }
 
-  if (typeof body.artwork_url === "string" && body.artwork_url.trim()) {
+  if (typeof item.artwork_url === "string" && item.artwork_url.trim()) {
     const assetError = await insertExternalAsset(client, {
       tenantId,
       orderId,
-      externalUrl: body.artwork_url.trim(),
+      externalUrl: item.artwork_url.trim(),
     });
     if (assetError) {
       warnings.push(`Order artwork could not be saved: ${assetError}`);
@@ -566,7 +670,13 @@ export async function createOrderFromWebhook(
       metadata: {
         source: "webhook",
         title: order.title,
-        column: (firstCol as { name: string } | null)?.name ?? null,
+        column: columnName,
+        ...(totalItems > 1
+          ? {
+              webhook_order_number: webhookOrderNumber,
+              item_index: itemIndex,
+            }
+          : {}),
       },
     });
   } catch (err) {
@@ -577,10 +687,141 @@ export async function createOrderFromWebhook(
 
   return {
     orderId,
-    orderNumber: order.title as string,
-    warning:
-      warnings.length > 0
-        ? warnings.join("; ")
-        : undefined,
+    title: cardTitle,
+    warnings,
+  };
+}
+
+export async function createOrderFromWebhook(
+  client: Client,
+  config: WebhookConfig,
+  body: WebhookOrderPayload
+): Promise<WebhookCreateResult> {
+  const { customerName, customerContact } = validatePayload(body);
+  validateItemsArray(body.items);
+
+  const priority =
+    typeof body.priority === "string" && PRIORITIES.has(body.priority)
+      ? body.priority
+      : "normal";
+
+  const dueDate =
+    typeof body.due_date === "string" && body.due_date.trim()
+      ? body.due_date.trim().slice(0, 10)
+      : null;
+  const dueDateError = validateDueDate(dueDate);
+  if (dueDateError) {
+    throw new WebhookValidationError(dueDateError);
+  }
+
+  const isMultiItem = Array.isArray(body.items) && body.items.length > 0;
+  const items = normalizeItems(body);
+  const baseOrderNumber = resolveBaseOrderNumber(body);
+  const orderLevelTitle = resolveOrderLevelTitle(body);
+  const orderDescription =
+    typeof body.description === "string" ? body.description.trim() : null;
+
+  const tenantId = config.tenant_id;
+
+  const { data: firstCol } = await client
+    .from("board_columns")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const columnId = (firstCol as { id: string; name: string } | null)?.id;
+  const columnName = (firstCol as { id: string; name: string } | null)?.name ?? null;
+  if (!columnId) {
+    throw new Error("No columns found for tenant");
+  }
+
+  const { data: last } = await client
+    .from("orders")
+    .select("position")
+    .eq("column_id", columnId)
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let nextPosition =
+    ((last as { position: number } | null)?.position ?? 0) + 1000;
+
+  const fields = await resolveCustomFields(client, tenantId);
+  const customerFieldValues = buildCustomFieldValues(
+    fields,
+    {},
+    customerName,
+    customerContact,
+    []
+  );
+
+  let customerId: string | null = null;
+  if (customerFieldValues.length > 0) {
+    customerId = await linkCustomerFromOrderFields(
+      client,
+      tenantId,
+      customerFieldValues
+    );
+  }
+
+  const createdJobs: WebhookCreatedJob[] = [];
+  const allWarnings: string[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const jobTitle = resolveItemTitle(item, orderLevelTitle, i, items.length);
+    const cardTitle = isMultiItem
+      ? `${baseOrderNumber}-${i + 1}`
+      : baseOrderNumber;
+
+    const result = await createSingleWebhookJob({
+      client,
+      tenantId,
+      columnId,
+      columnName,
+      position: nextPosition,
+      fields,
+      customerId,
+      customerName,
+      customerContact,
+      item,
+      priority,
+      dueDate,
+      orderDescription,
+      cardTitle,
+      jobTitle,
+      webhookOrderNumber: baseOrderNumber,
+      itemIndex: i,
+      totalItems: items.length,
+    });
+
+    nextPosition += 1000;
+    allWarnings.push(...result.warnings);
+    createdJobs.push({
+      order_id: result.orderId,
+      item_index: i,
+      title: jobTitle,
+    });
+  }
+
+  const warning =
+    allWarnings.length > 0 ? allWarnings.join("; ") : undefined;
+
+  if (isMultiItem) {
+    return {
+      isMultiItem: true,
+      orderNumber: baseOrderNumber,
+      jobs: createdJobs,
+      warning,
+    };
+  }
+
+  return {
+    isMultiItem: false,
+    orderId: createdJobs[0].order_id,
+    orderNumber: baseOrderNumber,
+    warning,
   };
 }

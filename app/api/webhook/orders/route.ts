@@ -52,6 +52,16 @@ export async function POST(request: Request) {
   try {
     const result = await createOrderFromWebhook(admin, config, body);
     await touchWebhookLastUsed(admin, config.id);
+
+    if (result.isMultiItem) {
+      return NextResponse.json({
+        success: true,
+        order_number: result.orderNumber,
+        jobs: result.jobs,
+        ...(result.warning ? { warning: result.warning } : {}),
+      });
+    }
+
     return NextResponse.json({
       success: true,
       order_id: result.orderId,
