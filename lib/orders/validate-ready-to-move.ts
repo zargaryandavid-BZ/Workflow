@@ -1,24 +1,19 @@
 import {
-  findOrderFormField,
   isEmptyFieldValue,
   orderFormFieldLabel,
 } from "@/lib/order-form";
+import {
+  CUSTOMER_CONTACT_FIELD_NAME,
+  CUSTOMER_NAME_FIELD_NAME,
+  DESIGNER_FIELD_NAME,
+  ORDER_QTY_FIELD_NAME,
+} from "@/lib/constants";
 import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
 import { skuCountFromSpecs } from "@/lib/skus";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
-
-const MOVE_REQUIRED_PRINT_FIELDS = [
-  "Product",
-  "Product Type",
-  "Finished Size",
-  "Materials",
-  "Finishing",
-  "Sides",
-  "Color",
-] as const;
 
 export interface MissingField {
   label: string;
@@ -36,40 +31,79 @@ export function getMissingFields(
 ): MissingField[] {
   const missing: MissingField[] = [];
 
-  const customerName = customerNameFromOrder(order, fieldValues, customFields);
-  if (!customerName || customerName === "there") {
-    missing.push({ label: "Customer Name", field: "customer_name" });
-  }
-
-  const { email, phone } = customerContactFromOrder(
-    order,
-    fieldValues,
-    customFields
-  );
-  if (!email && !phone) {
-    missing.push({
-      label: "Customer Contact (email or phone)",
-      field: "customer_contact",
-    });
-  }
-
-  for (const name of MOVE_REQUIRED_PRINT_FIELDS) {
-    const field = findOrderFormField(customFields, name);
-    if (!field) continue;
-    if (isEmptyFieldValue(fieldValues[field.id])) {
-      missing.push({
-        label: orderFormFieldLabel(name),
-        field: fieldKey(name),
-      });
-    }
-  }
-
+  // Core order fields not stored in custom_fields settings.
   if (!order.due_date) {
     missing.push({ label: "Due Date", field: "due_date" });
   }
 
   if (skuCountFromSpecs(order.specs) === 0) {
     missing.push({ label: "At least one SKU", field: "skus" });
+  }
+
+  // Respect each custom field's required toggle from Settings → Fields.
+  for (const field of customFields) {
+    if (!field.required) continue;
+
+    const nameLower = field.name.toLowerCase();
+
+    if (nameLower === CUSTOMER_NAME_FIELD_NAME.toLowerCase()) {
+      const customerName = customerNameFromOrder(
+        order,
+        fieldValues,
+        customFields
+      );
+      if (!customerName || customerName === "there") {
+        missing.push({
+          label: orderFormFieldLabel(field.name),
+          field: "customer_name",
+        });
+      }
+      continue;
+    }
+
+    if (nameLower === CUSTOMER_CONTACT_FIELD_NAME.toLowerCase()) {
+      const { email, phone } = customerContactFromOrder(
+        order,
+        fieldValues,
+        customFields
+      );
+      if (!email && !phone) {
+        missing.push({
+          label: orderFormFieldLabel(field.name),
+          field: "customer_contact",
+        });
+      }
+      continue;
+    }
+
+    if (nameLower === DESIGNER_FIELD_NAME.toLowerCase()) {
+      const designerId = order.specs?.designer_id;
+      if (typeof designerId !== "string" || !designerId.trim()) {
+        missing.push({
+          label: orderFormFieldLabel(field.name),
+          field: "designer",
+        });
+      }
+      continue;
+    }
+
+    if (nameLower === ORDER_QTY_FIELD_NAME.toLowerCase()) {
+      if (skuCountFromSpecs(order.specs) > 0) continue;
+      if (isEmptyFieldValue(fieldValues[field.id])) {
+        missing.push({
+          label: orderFormFieldLabel(field.name),
+          field: fieldKey(field.name),
+        });
+      }
+      continue;
+    }
+
+    if (isEmptyFieldValue(fieldValues[field.id])) {
+      missing.push({
+        label: orderFormFieldLabel(field.name),
+        field: fieldKey(field.name),
+      });
+    }
   }
 
   return missing;

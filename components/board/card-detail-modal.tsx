@@ -227,7 +227,8 @@ export function CardDetailModal({
       fieldValues,
       customerName,
       customerContact,
-      skus
+      skus,
+      designerId
     );
     if (validationError) {
       setSaveError(validationError);

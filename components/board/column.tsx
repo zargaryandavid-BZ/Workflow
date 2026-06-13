@@ -25,6 +25,7 @@ interface ColumnProps {
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string>;
+  designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   isFirst: boolean;
@@ -48,6 +49,7 @@ export function Column({
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
+  designerNameByOrder,
   notificationBadgeByOrder,
   ownerNameByOrder,
   isFirst,
@@ -139,6 +141,7 @@ export function Column({
               customFields={customFields}
               fieldValues={fieldValuesByOrder[order.id]}
               thumbnail={thumbnailByOrder[order.id]}
+              designerName={designerNameByOrder[order.id]}
               notificationBadge={notificationBadgeByOrder[order.id]}
               ownerName={ownerNameByOrder[order.id]}
               onOpen={onOpenOrder}

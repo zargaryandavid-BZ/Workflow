@@ -89,7 +89,7 @@ export function OrderFormBody({
   readOnly = false,
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
-  const { artworkField, orderQtyField, printFields } = resolved;
+  const { artworkField, designerField, orderQtyField, printFields } = resolved;
   const [dueDateError, setDueDateError] = useState<string | null>(null);
   const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
     null
@@ -266,6 +266,9 @@ export function OrderFormBody({
         <div>
           <Label htmlFor={`${idPrefix}-artwork`}>
             {orderFormFieldLabel(artworkField.name)}
+            {artworkField.required ? (
+              <span className="ml-0.5 text-red-500">*</span>
+            ) : null}
           </Label>
           <Input
             id={`${idPrefix}-artwork`}
@@ -315,7 +318,12 @@ export function OrderFormBody({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <Label htmlFor={`${idPrefix}-designer`}>Designer</Label>
+          <Label htmlFor={`${idPrefix}-designer`}>
+            Designer
+            {designerField?.required ? (
+              <span className="ml-0.5 text-red-500">*</span>
+            ) : null}
+          </Label>
           <Select
             id={`${idPrefix}-designer`}
             value={designerId}

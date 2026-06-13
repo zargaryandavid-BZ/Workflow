@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, formatDateTime } from "@/lib/utils";
 import { CustomerLinkRow } from "./customer-link-row";
+import { MoveBlockedModal } from "./move-blocked-modal";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { requestOrderMove } from "@/lib/orders/move-order-client";
+import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { validateSmsRecipient } from "@/lib/sms";
 import type { ApprovalNote, BoardColumn, Customer } from "@/lib/types";
 
@@ -189,29 +192,41 @@ function MoveButton({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [moveBlockedFields, setMoveBlockedFields] = useState<
+    MissingField[] | null
+  >(null);
 
   async function move() {
     setLoading(true);
-    const res = await fetch("/api/orders/move", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId,
-        toColumnId: columnId,
-        position: Date.now(),
-      }),
+    const result = await requestOrderMove({
+      orderId,
+      toColumnId: columnId,
+      position: Date.now(),
     });
     setLoading(false);
-    if (res.ok) {
+    if (result.ok) {
       onMoved();
       router.refresh();
+      return;
+    }
+    if (result.missingFields?.length) {
+      setMoveBlockedFields(result.missingFields);
     }
   }
 
   return (
-    <Button type="button" size="sm" disabled={loading} onClick={move}>
-      {loading ? "Moving…" : label}
-    </Button>
+    <>
+      <Button type="button" size="sm" disabled={loading} onClick={move}>
+        {loading ? "Moving…" : label}
+      </Button>
+      {moveBlockedFields ? (
+        <MoveBlockedModal
+          missingFields={moveBlockedFields}
+          onOpenCard={() => setMoveBlockedFields(null)}
+          onClose={() => setMoveBlockedFields(null)}
+        />
+      ) : null}
+    </>
   );
 }
 

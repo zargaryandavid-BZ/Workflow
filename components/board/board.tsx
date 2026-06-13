@@ -27,9 +27,9 @@ import { createClient } from "@/lib/supabase/client";
 import { canDropIn, canDropOut } from "@/lib/permissions";
 import {
   getMissingFields,
-  missingFieldsFromLabels,
   type MissingField,
 } from "@/lib/orders/validate-ready-to-move";
+import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type {
   BoardColumn,
   CustomField,
@@ -49,6 +49,7 @@ interface BoardProps {
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string>;
+  designerNameByOrder: Record<string, string>;
   designers: Designer[];
   notifyColumns: NotifyColumnConfig[];
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
@@ -66,6 +67,7 @@ export function Board({
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
+  designerNameByOrder,
   designers,
   notifyColumns,
   notificationBadgeByOrder,
@@ -393,29 +395,21 @@ export function Board({
     );
 
     try {
-      const res = await fetch("/api/orders/move", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: active.id,
-          toColumnId: overColumn,
-          position: newPosition,
-        }),
+      const result = await requestOrderMove({
+        orderId: String(active.id),
+        toColumnId: overColumn,
+        position: newPosition,
       });
-      if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          missing_fields?: string[];
-        };
-        if (res.status === 422 && json.missing_fields?.length) {
+      if (!result.ok) {
+        if (result.missingFields?.length) {
           abortDrag();
           setMoveBlockedState({
             orderId: String(active.id),
-            missingFields: missingFieldsFromLabels(json.missing_fields),
+            missingFields: result.missingFields,
           });
           return;
         }
-        flashPermissionError(json.error ?? "Move was rejected.");
+        flashPermissionError(result.error ?? "Move was rejected.");
         setOrders(initialOrders);
         scheduleRefresh();
       } else if (crossing) {
@@ -516,6 +510,7 @@ export function Board({
               customFields={customFields}
               fieldValuesByOrder={fieldValuesByOrder}
               thumbnailByOrder={thumbnailByOrder}
+              designerNameByOrder={designerNameByOrder}
               notificationBadgeByOrder={notificationBadgeByOrder}
               ownerNameByOrder={ownerNameByOrder}
               isFirst={index === 0}
@@ -532,6 +527,7 @@ export function Board({
               customFields={customFields}
               fieldValues={fieldValuesByOrder[activeOrder.id]}
               thumbnail={thumbnailByOrder[activeOrder.id]}
+              designerName={designerNameByOrder[activeOrder.id]}
               notificationBadge={notificationBadgeByOrder[activeOrder.id]}
               ownerName={ownerNameByOrder[activeOrder.id]}
               onOpen={() => {}}

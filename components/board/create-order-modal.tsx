@@ -88,7 +88,8 @@ export function CreateOrderModal({
       fieldValues,
       customerName,
       customerContact,
-      skus
+      skus,
+      designerId
     );
     if (validationError) {
       setError(validationError);

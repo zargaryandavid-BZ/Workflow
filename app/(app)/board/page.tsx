@@ -8,6 +8,11 @@ import {
   notificationToCardBadge,
   type CardNotificationBadge,
 } from "@/lib/card-badges";
+import {
+  designerNamesByOrder,
+  thumbnailUrlsByOrder,
+  type OrderAssetPreviewRow,
+} from "@/lib/board-card-previews";
 import type {
   AutomationRule,
   BoardColumn,
@@ -133,6 +138,9 @@ export default async function BoardPage() {
     );
   }
 
+  const designerNameById = new Map(designers.map((d) => [d.id, d.name]));
+  const designerNameByOrder = designerNamesByOrder(orders, designerNameById);
+
   // Custom field values for all orders on the board, grouped by order.
   const orderIds = orders.map((o) => o.id);
   const fieldValuesByOrder: Record<string, Record<string, unknown>> = {};
@@ -150,41 +158,29 @@ export default async function BoardPage() {
     }
   }
 
-  // First image asset per order -> short-lived signed URL for the card preview.
-  const thumbnailByOrder: Record<string, string> = {};
+  let thumbnailByOrder: Record<string, string> = {};
   if (orderIds.length > 0) {
-    const { data: imageAssets } = await supabase
+    const { data: assetRows } = await supabase
       .from("assets")
-      .select("order_id, storage_path, mime_type, created_at")
+      .select(
+        "order_id, storage_path, external_url, file_name, mime_type, created_at"
+      )
       .in("order_id", orderIds)
-      .like("mime_type", "image/%")
       .order("created_at", { ascending: true });
 
-    const firstPathByOrder = new Map<string, string>();
-    for (const a of (imageAssets ?? []) as {
-      order_id: string;
-      storage_path: string;
-    }[]) {
-      if (!firstPathByOrder.has(a.order_id)) {
-        firstPathByOrder.set(a.order_id, a.storage_path);
+    thumbnailByOrder = await thumbnailUrlsByOrder(
+      (assetRows ?? []) as OrderAssetPreviewRow[],
+      async (paths) => {
+        const { data: signed } = await supabase.storage
+          .from("order-assets")
+          .createSignedUrls(paths, 3600);
+        return new Map(
+          ((signed ?? []) as { path: string | null; signedUrl: string }[])
+            .filter((s) => s.path)
+            .map((s) => [s.path as string, s.signedUrl])
+        );
       }
-    }
-
-    const paths = [...firstPathByOrder.values()];
-    if (paths.length > 0) {
-      const { data: signed } = await supabase.storage
-        .from("order-assets")
-        .createSignedUrls(paths, 3600);
-      const urlByPath = new Map(
-        ((signed ?? []) as { path: string | null; signedUrl: string }[])
-          .filter((s) => s.path)
-          .map((s) => [s.path as string, s.signedUrl])
-      );
-      for (const [orderId, path] of firstPathByOrder) {
-        const url = urlByPath.get(path);
-        if (url) thumbnailByOrder[orderId] = url;
-      }
-    }
+    );
   }
 
   // Latest customer notification per order (missing info + approval).
@@ -224,6 +220,7 @@ export default async function BoardPage() {
       customFields={(fieldsRes.data ?? []) as CustomField[]}
       fieldValuesByOrder={fieldValuesByOrder}
       thumbnailByOrder={thumbnailByOrder}
+      designerNameByOrder={designerNameByOrder}
       designers={designers}
       notifyColumns={notifyColumns}
       notificationBadgeByOrder={notificationBadgeByOrder}

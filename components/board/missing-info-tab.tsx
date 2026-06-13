@@ -8,7 +8,10 @@ import { Input } from "@/components/ui/input";
 import { cn, formatDateTime } from "@/lib/utils";
 import { formatFileSize as formatBytes } from "@/lib/notification-messages";
 import { CustomerLinkRow } from "./customer-link-row";
+import { MoveBlockedModal } from "./move-blocked-modal";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { requestOrderMove } from "@/lib/orders/move-order-client";
+import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { validateSmsRecipient } from "@/lib/sms";
 import type { Asset, BoardColumn, Customer, MissingInfoNote } from "@/lib/types";
 
@@ -252,6 +255,9 @@ function MoveToInProgressButton({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [moveBlockedFields, setMoveBlockedFields] = useState<
+    MissingField[] | null
+  >(null);
   const inProgress = columns.find((c) =>
     c.name.toLowerCase().includes("in progress")
   );
@@ -259,28 +265,37 @@ function MoveToInProgressButton({
   async function move() {
     if (!inProgress) return;
     setLoading(true);
-    const res = await fetch("/api/orders/move", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orderId,
-        toColumnId: inProgress.id,
-        position: Date.now(),
-      }),
+    const result = await requestOrderMove({
+      orderId,
+      toColumnId: inProgress.id,
+      position: Date.now(),
     });
     setLoading(false);
-    if (res.ok) {
+    if (result.ok) {
       onMoved();
       router.refresh();
+      return;
+    }
+    if (result.missingFields?.length) {
+      setMoveBlockedFields(result.missingFields);
     }
   }
 
   if (!inProgress) return null;
 
   return (
-    <Button type="button" size="sm" disabled={loading} onClick={move}>
-      {loading ? "Moving…" : "Move to In Progress"}
-    </Button>
+    <>
+      <Button type="button" size="sm" disabled={loading} onClick={move}>
+        {loading ? "Moving…" : "Move to In Progress"}
+      </Button>
+      {moveBlockedFields ? (
+        <MoveBlockedModal
+          missingFields={moveBlockedFields}
+          onOpenCard={() => setMoveBlockedFields(null)}
+          onClose={() => setMoveBlockedFields(null)}
+        />
+      ) : null}
+    </>
   );
 }
 

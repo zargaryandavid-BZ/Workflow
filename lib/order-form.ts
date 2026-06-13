@@ -116,6 +116,7 @@ export function resolveOrderFormFields(customFields: CustomField[]) {
     artworkField,
     customerNameField,
     customerContactField,
+    designerField: findOrderFormField(customFields, DESIGNER_FIELD_NAME),
     orderQtyField,
     printFields,
   };
@@ -175,13 +176,15 @@ export function validateOrderFormFields(
     artworkField?: CustomField;
     customerNameField?: CustomField;
     customerContactField?: CustomField;
+    designerField?: CustomField;
     orderQtyField?: CustomField;
     printFields: CustomField[];
   },
   fieldValues: Record<string, unknown>,
   customerName: string,
   customerContact: string,
-  skus: { qty?: number | null }[] = []
+  skus: { qty?: number | null }[] = [],
+  designerId?: string
 ): string | null {
   const customerErr = validateCustomerFields(customerName, customerContact);
   if (customerErr) return customerErr;
@@ -198,6 +201,13 @@ export function validateOrderFormFields(
       requiredNames.has(f.name.toLowerCase()) || f.required;
     return must && isEmptyFieldValue(fieldValues[f.id]);
   });
+
+  if (
+    fields.designerField?.required &&
+    !(designerId && designerId.trim())
+  ) {
+    missing.push(fields.designerField);
+  }
 
   if (missing.length > 0) {
     return `Please fill required field(s): ${missing.map((f) => orderFormFieldLabel(f.name)).join(", ")}`;
