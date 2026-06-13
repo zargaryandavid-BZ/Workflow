@@ -30,6 +30,13 @@ import { PRIORITY_STYLES } from "@/lib/constants";
 import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder } from "@/lib/notification-messages";
 import {
+  BUCKET as ORDER_ASSETS_BUCKET,
+  serializeSkusForJobTicketLink,
+  signedUrlsForAssets,
+  SKU_LINK_SIGNED_URL_TTL_SEC,
+} from "@/lib/sku-artwork-url";
+import { createClient } from "@/lib/supabase/client";
+import {
   buildCustomFieldPayload,
   findOrderFormField,
   resolveOrderFormFields,
@@ -62,6 +69,8 @@ interface CardDetailModalProps {
   /** When "view", all fields are read-only and save/upload actions are hidden. */
   mode?: "edit" | "view";
   onLinkCopied?: (message: string) => void;
+  /** When false, hides the Copy Order Link header button. Defaults to true. */
+  showCopyOrderLink?: boolean;
 }
 
 interface PendingOrderAsset {
@@ -102,6 +111,7 @@ export function CardDetailModal({
   onChanged,
   mode = "edit",
   onLinkCopied,
+  showCopyOrderLink = true,
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
   const resolved = useMemo(
@@ -382,7 +392,7 @@ export function CardDetailModal({
     onClose();
   }
 
-  function copyOrderLink() {
+  async function copyOrderLink() {
     const getField = (name: string) => {
       const field = findOrderFormField(customFields, name);
       return field ? String(fieldValues[field.id] ?? "") : "";
@@ -416,15 +426,27 @@ export function CardDetailModal({
       }
     }
 
-    // Format: "Name|Qty|ImageUrl|Name|Qty|ImageUrl"  (| separates all fields, 3 per SKU)
-    const skusStr = skus
-      .filter((s) => s.name.trim())
-      .map((s) => {
-        const asset = assetsBySkuKey.get(s.id);
-        const img = asset?.external_url?.trim() ?? "";
-        return `${s.name.trim()}|${s.qty ?? ""}|${img}`;
-      })
-      .join("|");
+    const supabase = createClient();
+    const signedUrlByPath = await signedUrlsForAssets(
+      [...assetsBySkuKey.values()],
+      async (paths) => {
+        const { data, error } = await supabase.storage
+          .from(ORDER_ASSETS_BUCKET)
+          .createSignedUrls(paths, SKU_LINK_SIGNED_URL_TTL_SEC);
+        if (error || !data) return new Map();
+        return new Map(
+          data
+            .filter((row) => row.path && row.signedUrl)
+            .map((row) => [row.path as string, row.signedUrl as string])
+        );
+      }
+    );
+
+    const skusStr = serializeSkusForJobTicketLink(
+      skus,
+      assetsBySkuKey,
+      signedUrlByPath
+    );
 
     const orderQtyField = resolved.orderQtyField;
     const qty = orderQtyField
@@ -473,15 +495,17 @@ export function CardDetailModal({
       title={isViewOnly ? "View order" : "Order Details"}
       className="max-w-3xl"
       headerAction={
-        <button
-          type="button"
-          onClick={copyOrderLink}
-          disabled={loading || !data || !customerName}
-          className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-          title="Copy pre-filled job ticket link"
-        >
-          📋 Copy Order Link
-        </button>
+        showCopyOrderLink ? (
+          <button
+            type="button"
+            onClick={copyOrderLink}
+            disabled={loading || !data || !customerName}
+            className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Copy pre-filled job ticket link"
+          >
+            📋 Copy Order Link
+          </button>
+        ) : undefined
       }
       footer={
         isViewOnly ? (

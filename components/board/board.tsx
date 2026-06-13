@@ -281,6 +281,12 @@ export function Board({
   }, [filteredOrders, columns]);
 
   const activeOrder = orders.find((o) => o.id === activeId) ?? null;
+  const firstColumnId = columns[0]?.id ?? null;
+  const detailOrder = detailId ? orders.find((o) => o.id === detailId) : null;
+  const showCopyOrderLinkForDetail =
+    detailOrder != null &&
+    firstColumnId != null &&
+    detailOrder.column_id !== firstColumnId;
 
   function findColumnId(id: string): string | null {
     if (columns.some((c) => c.id === id)) return id;
@@ -565,6 +571,7 @@ export function Board({
         role={role}
         onChanged={() => router.refresh()}
         onLinkCopied={flashToast}
+        showCopyOrderLink={showCopyOrderLinkForDetail}
       />
 
       {notifyPopup ? (
