@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
-import { Sidebar } from "@/components/app-shell/sidebar";
-import { Topbar } from "@/components/app-shell/topbar";
+import { AppShell } from "@/components/app-shell/app-shell";
 
 export default async function AppLayout({
   children,
@@ -17,18 +16,14 @@ export default async function AppLayout({
   }));
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar role={ctx.role} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar
-          tenants={tenants}
-          activeTenantId={ctx.tenant.id}
-          email={ctx.email}
-          fullName={ctx.fullName}
-          role={ctx.role}
-        />
-        <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
-      </div>
-    </div>
+    <AppShell
+      role={ctx.role}
+      tenants={tenants}
+      activeTenantId={ctx.tenant.id}
+      email={ctx.email}
+      fullName={ctx.fullName}
+    >
+      {children}
+    </AppShell>
   );
 }

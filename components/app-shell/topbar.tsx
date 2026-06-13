@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, LogOut, Plus } from "lucide-react";
+import { Check, ChevronDown, LogOut, Menu, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn, initials } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/constants";
@@ -14,6 +14,8 @@ interface TopbarProps {
   email: string | null;
   fullName: string | null;
   role: Role;
+  sidebarOpen: boolean;
+  onMenuToggle: () => void;
 }
 
 function avatarLetter(fullName: string | null, email: string | null) {
@@ -30,6 +32,8 @@ export function Topbar({
   email,
   fullName,
   role,
+  sidebarOpen,
+  onMenuToggle,
 }: TopbarProps) {
   const router = useRouter();
   const [openTenant, setOpenTenant] = useState(false);
@@ -60,16 +64,27 @@ export function Topbar({
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
-      <div className="relative">
+      <div className="flex min-w-0 items-center gap-2">
+        {!sidebarOpen ? (
+          <button
+            type="button"
+            onClick={onMenuToggle}
+            className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        ) : null}
+        <div className="relative min-w-0">
         <button
           onClick={() => setOpenTenant((o) => !o)}
-          className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          className="flex max-w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
         >
           <span className="flex h-6 w-6 items-center justify-center rounded bg-slate-200 text-xs font-semibold text-slate-600">
             {initials(active?.name)}
           </span>
-          {active?.name ?? "Workspace"}
-          <ChevronDown className="h-4 w-4 text-slate-400" />
+          <span className="truncate">{active?.name ?? "Workspace"}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
         </button>
         {openTenant ? (
           <>
@@ -110,9 +125,10 @@ export function Topbar({
             </div>
           </>
         ) : null}
+        </div>
       </div>
 
-      <div className="relative">
+      <div className="relative shrink-0">
         <button
           onClick={() => setOpenUser((o) => !o)}
           className={cn(
