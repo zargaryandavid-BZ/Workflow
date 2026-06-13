@@ -408,11 +408,22 @@ export function CardDetailModal({
         ? "1-sided"
         : "";
 
-    // Format: "Name|Qty||Name|Qty"  (|| = row separator, | = field separator)
+    const assetsBySkuKey = new Map<string, Asset>();
+    for (const asset of data?.assets ?? []) {
+      if (asset.sku_key && !removedSkuArtworkIds.has(asset.id)) {
+        assetsBySkuKey.set(asset.sku_key, asset);
+      }
+    }
+
+    // Format: "Name|Qty|ImageUrl|Name|Qty|ImageUrl"  (| separates all fields, 3 per SKU)
     const skusStr = skus
-      .filter((s) => s.name)
-      .map((s) => `${s.name.trim()}|${s.qty ?? ""}`)
-      .join("||");
+      .filter((s) => s.name.trim())
+      .map((s) => {
+        const asset = assetsBySkuKey.get(s.id);
+        const img = asset?.external_url?.trim() ?? "";
+        return `${s.name.trim()}|${s.qty ?? ""}|${img}`;
+      })
+      .join("|");
 
     const orderQtyField = resolved.orderQtyField;
     const qty = orderQtyField
