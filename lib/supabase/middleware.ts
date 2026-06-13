@@ -6,6 +6,7 @@ const PUBLIC_PATHS = ["/login", "/signup", "/approve", "/respond", "/auth"];
 /** Token/webhook API routes — no session required; must not redirect to /login. */
 const PUBLIC_API_PREFIXES = [
   "/api/webhook/",
+  "/api/public/",
   "/api/notifications/respond",
   "/api/notifications/upload",
   "/api/notifications/asset",
