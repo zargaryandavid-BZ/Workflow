@@ -395,11 +395,17 @@ export function Board({
     );
 
     try {
-      const result = await requestOrderMove({
-        orderId: String(active.id),
-        toColumnId: overColumn,
-        position: newPosition,
-      });
+      const result = await requestOrderMove(
+        {
+          orderId: String(active.id),
+          toColumnId: overColumn,
+          position: newPosition,
+        },
+        {
+          fromColumnId: sourceColumn,
+          columns,
+        }
+      );
       if (!result.ok) {
         if (result.missingFields?.length) {
           abortDrag();

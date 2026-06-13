@@ -2,6 +2,8 @@ import {
   missingFieldsFromLabels,
   type MissingField,
 } from "@/lib/orders/validate-ready-to-move";
+import { maybeSaveArtworkOnLeaveStart } from "@/lib/orders/save-order-artwork-client";
+import type { BoardColumn } from "@/lib/types";
 
 export type MoveOrderResult =
   | { ok: true }
@@ -12,18 +14,33 @@ export type MoveOrderResult =
       missingFields?: MissingField[];
     };
 
-export async function requestOrderMove(body: {
-  orderId: string;
-  toColumnId: string;
-  position?: number;
-}): Promise<MoveOrderResult> {
+export async function requestOrderMove(
+  body: {
+    orderId: string;
+    toColumnId: string;
+    position?: number;
+  },
+  options?: {
+    fromColumnId?: string | null;
+    columns?: BoardColumn[];
+  }
+): Promise<MoveOrderResult> {
   const res = await fetch("/api/orders/move", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
-  if (res.ok) return { ok: true };
+  if (res.ok) {
+    if (options?.columns?.length && options.fromColumnId) {
+      maybeSaveArtworkOnLeaveStart({
+        orderId: body.orderId,
+        fromColumnId: options.fromColumnId,
+        columns: options.columns,
+      });
+    }
+    return { ok: true };
+  }
 
   const json = (await res.json().catch(() => ({}))) as {
     error?: string;

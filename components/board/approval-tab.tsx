@@ -18,6 +18,7 @@ interface ApprovalTabProps {
   notes: ApprovalNote[];
   customer: Customer | null;
   orderId: string;
+  sourceColumnId: string;
   columns: BoardColumn[];
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -182,11 +183,15 @@ function NotifyRow({
 function MoveButton({
   orderId,
   columnId,
+  sourceColumnId,
+  columns,
   label,
   onMoved,
 }: {
   orderId: string;
   columnId: string;
+  sourceColumnId: string;
+  columns: BoardColumn[];
   label: string;
   onMoved: () => void;
 }) {
@@ -198,11 +203,14 @@ function MoveButton({
 
   async function move() {
     setLoading(true);
-    const result = await requestOrderMove({
-      orderId,
-      toColumnId: columnId,
-      position: Date.now(),
-    });
+    const result = await requestOrderMove(
+      {
+        orderId,
+        toColumnId: columnId,
+        position: Date.now(),
+      },
+      { fromColumnId: sourceColumnId, columns }
+    );
     setLoading(false);
     if (result.ok) {
       onMoved();
@@ -234,6 +242,7 @@ export function ApprovalTab({
   notes,
   customer,
   orderId,
+  sourceColumnId,
   columns,
   contactEmail,
   contactPhone,
@@ -285,6 +294,8 @@ export function ApprovalTab({
         <MoveButton
           orderId={orderId}
           columnId={productionColumn.id}
+          sourceColumnId={sourceColumnId}
+          columns={columns}
           label="Move to production →"
           onMoved={onChanged}
         />
@@ -299,6 +310,8 @@ export function ApprovalTab({
         <MoveButton
           orderId={orderId}
           columnId={returningColumn.id}
+          sourceColumnId={sourceColumnId}
+          columns={columns}
           label="Move to Returning Tickets"
           onMoved={onChanged}
         />

@@ -19,6 +19,7 @@ interface MissingInfoTabProps {
   notes: MissingInfoNote[];
   customer: Customer | null;
   orderId: string;
+  sourceColumnId: string;
   columns: BoardColumn[];
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -246,10 +247,12 @@ function NotifyRow({
 
 function MoveToInProgressButton({
   orderId,
+  sourceColumnId,
   columns,
   onMoved,
 }: {
   orderId: string;
+  sourceColumnId: string;
   columns: BoardColumn[];
   onMoved: () => void;
 }) {
@@ -265,11 +268,14 @@ function MoveToInProgressButton({
   async function move() {
     if (!inProgress) return;
     setLoading(true);
-    const result = await requestOrderMove({
-      orderId,
-      toColumnId: inProgress.id,
-      position: Date.now(),
-    });
+    const result = await requestOrderMove(
+      {
+        orderId,
+        toColumnId: inProgress.id,
+        position: Date.now(),
+      },
+      { fromColumnId: sourceColumnId, columns }
+    );
     setLoading(false);
     if (result.ok) {
       onMoved();
@@ -394,6 +400,7 @@ export function MissingInfoTab({
   notes,
   customer,
   orderId,
+  sourceColumnId,
   columns,
   contactEmail,
   contactPhone,
@@ -447,6 +454,7 @@ export function MissingInfoTab({
       {latest.status === "responded" ? (
         <MoveToInProgressButton
           orderId={orderId}
+          sourceColumnId={sourceColumnId}
           columns={columns}
           onMoved={onSent}
         />

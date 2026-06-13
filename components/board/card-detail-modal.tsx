@@ -567,6 +567,7 @@ export function CardDetailModal({
               notes={data.missingInfo}
               customer={data.order.customer}
               orderId={data.order.id}
+              sourceColumnId={data.order.column_id}
               columns={columns}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
@@ -580,6 +581,7 @@ export function CardDetailModal({
               notes={data.approvalNotes}
               customer={data.order.customer}
               orderId={data.order.id}
+              sourceColumnId={data.order.column_id}
               columns={columns}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}

@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSkus } from "@/lib/skus";
 
 const BUCKET = "order-assets";
-const SIGNED_URL_TTL_SEC = 60 * 60 * 24;
+const SIGNED_URL_TTL_SEC = 60 * 60 * 24 * 7;
 const PULSE_ORIGIN = "https://pulse-jade-five.vercel.app";
 
 const CORS_HEADERS = {
