@@ -53,19 +53,6 @@ export async function uploadPendingSkuArtwork(
   }
 }
 
-export async function uploadPendingOrderAssets(orderId: string, files: File[]) {
-  for (const file of files) {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("orderId", orderId);
-    await fetch("/api/assets/upload", {
-      method: "POST",
-      body: form,
-      credentials: "same-origin",
-    });
-  }
-}
-
 export async function deleteAssetsById(assetIds: string[]) {
   for (const id of assetIds) {
     await fetch(`/api/assets/${id}`, { method: "DELETE" });

@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity } from "@/lib/automation";
-
-const BUCKET = "order-assets";
+import {
+  ORDER_ASSETS_BUCKET,
+  orderAssetStoragePath,
+  skuAssetStoragePath,
+} from "@/lib/order-assets";
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
@@ -48,17 +51,18 @@ export async function POST(request: Request) {
       .eq("sku_key", skuKeyTrimmed);
     for (const row of existing ?? []) {
       if (row.storage_path) {
-        await supabase.storage.from(BUCKET).remove([row.storage_path]);
+        await supabase.storage.from(ORDER_ASSETS_BUCKET).remove([row.storage_path]);
       }
       await supabase.from("assets").delete().eq("id", row.id);
     }
   }
 
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${ctx.tenant.id}/${orderId}/${skuKeyTrimmed ? `sku-${skuKeyTrimmed}/` : ""}${Date.now()}-${safeName}`;
+  const path = skuKeyTrimmed
+    ? skuAssetStoragePath(ctx.tenant.id, orderId, skuKeyTrimmed, file.name)
+    : orderAssetStoragePath(ctx.tenant.id, orderId, file.name);
 
   const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
+    .from(ORDER_ASSETS_BUCKET)
     .upload(path, file, { contentType: file.type, upsert: false });
 
   if (uploadError) {
@@ -81,7 +85,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    await supabase.storage.from(BUCKET).remove([path]);
+    await supabase.storage.from(ORDER_ASSETS_BUCKET).remove([path]);
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 

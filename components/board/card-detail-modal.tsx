@@ -1,29 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ChevronDown,
   ChevronRight,
-  Download,
-  Eye,
-  FileText,
   Loader2,
-  Paperclip,
-  Trash2,
-  Upload,
 } from "lucide-react";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
+import { AssetsSection } from "./assets-section";
 import { MissingInfoTab } from "./missing-info-tab";
 import { OrderFormBody } from "./order-form-body";
 import { mergeSkusWithAssets, normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import {
   deleteAssetsById,
-  uploadPendingOrderAssets,
   uploadPendingSkuArtwork,
 } from "@/lib/sku-assets";
 import { PRIORITY_STYLES } from "@/lib/constants";
@@ -73,11 +67,6 @@ interface CardDetailModalProps {
   showCopyOrderLink?: boolean;
 }
 
-interface PendingOrderAsset {
-  id: string;
-  file: File;
-}
-
 function addToSet(prev: ReadonlySet<string>, id: string): Set<string> {
   const next = new Set(prev);
   next.add(id);
@@ -122,7 +111,6 @@ export function CardDetailModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -144,26 +132,16 @@ export function CardDetailModal({
   const [removedSkuArtworkIds, setRemovedSkuArtworkIds] = useState<
     Set<string>
   >(new Set());
-  const [pendingOrderAssets, setPendingOrderAssets] = useState<
-    PendingOrderAsset[]
-  >([]);
-  const [pendingAssetDeletions, setPendingAssetDeletions] = useState<
-    Set<string>
-  >(new Set());
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
 
   function resetPendingFiles() {
     setPendingSkuArtwork({});
     setRemovedSkuArtworkIds(new Set());
-    setPendingOrderAssets([]);
-    setPendingAssetDeletions(new Set());
   }
 
   const hasPendingFileChanges =
     Object.keys(pendingSkuArtwork).length > 0 ||
-    removedSkuArtworkIds.size > 0 ||
-    pendingOrderAssets.length > 0 ||
-    pendingAssetDeletions.size > 0;
+    removedSkuArtworkIds.size > 0;
 
   const applyDetail = useCallback(
     (json: DetailResponse) => {
@@ -300,19 +278,11 @@ export function CardDetailModal({
         asset?.sku_key && skuKeysWithPendingUpload.has(asset.sku_key)
       );
     });
-    const orderAssetIdsToDelete = [...pendingAssetDeletions];
-
-    if (skuAssetIdsToDelete.length > 0 || orderAssetIdsToDelete.length > 0) {
-      await deleteAssetsById([...skuAssetIdsToDelete, ...orderAssetIdsToDelete]);
+    if (skuAssetIdsToDelete.length > 0) {
+      await deleteAssetsById(skuAssetIdsToDelete);
     }
     if (Object.keys(pendingSkuArtwork).length > 0) {
       await uploadPendingSkuArtwork(orderId, pendingSkuArtwork);
-    }
-    if (pendingOrderAssets.length > 0) {
-      await uploadPendingOrderAssets(
-        orderId,
-        pendingOrderAssets.map((p) => p.file)
-      );
     }
 
     setSaving(false);
@@ -325,24 +295,6 @@ export function CardDetailModal({
     setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
   }
 
-  function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPendingOrderAssets((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), file },
-    ]);
-    if (fileInput.current) fileInput.current.value = "";
-  }
-
-  function markAssetForDeletion(assetId: string) {
-    setPendingAssetDeletions((prev) => addToSet(prev, assetId));
-  }
-
-  function removePendingOrderAsset(id: string) {
-    setPendingOrderAssets((prev) => prev.filter((p) => p.id !== id));
-  }
-
   function markSkuArtworkForRemoval(assetId: string) {
     setRemovedSkuArtworkIds((prev) => addToSet(prev, assetId));
   }
@@ -351,13 +303,13 @@ export function CardDetailModal({
     setRemovedSkuArtworkIds((prev) => removeFromSet(prev, assetId));
   }
 
-  const savedOrderAssets =
-    data?.assets.filter(
-      (a) =>
-        !a.sku_key &&
-        !a.notification_id &&
-        !pendingAssetDeletions.has(a.id)
-    ) ?? [];
+  const orderLevelAssets = useMemo(
+    () =>
+      data?.assets.filter(
+        (a) => !a.sku_key && !a.notification_id
+      ) ?? [],
+    [data?.assets]
+  );
 
   const pendingApproval = data?.approvals.find((a) => a.status === "pending");
   const hasMissingInfo = (data?.missingInfo.length ?? 0) > 0;
@@ -366,19 +318,6 @@ export function CardDetailModal({
   const orderContact = data
     ? customerContactFromOrder(data.order, fieldValues, customFields)
     : { email: null, phone: null };
-
-  function isImageAsset(asset: Asset): boolean {
-    const ext = asset.file_name.split(".").pop()?.toLowerCase() ?? "";
-    if (["png", "jpg", "jpeg", "svg", "gif", "webp"].includes(ext)) return true;
-    const m = asset.mime_type?.toLowerCase();
-    return (
-      m === "image/png" ||
-      m === "image/jpeg" ||
-      m === "image/gif" ||
-      m === "image/webp" ||
-      m === "image/svg+xml"
-    );
-  }
 
   function handleClose() {
     if (
@@ -662,101 +601,18 @@ export function CardDetailModal({
               </p>
             ) : null}
 
-            <div className="rounded-lg border border-slate-200 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                  <Paperclip className="h-4 w-4" /> Assets
-                </p>
-                {!isViewOnly ? (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      type="button"
-                      onClick={() => fileInput.current?.click()}
-                    >
-                      <Upload className="h-4 w-4" />
-                      Upload
-                    </Button>
-                    <input
-                      ref={fileInput}
-                      type="file"
-                      className="hidden"
-                      onChange={onUpload}
-                    />
-                  </>
-                ) : null}
-              </div>
-              {savedOrderAssets.length === 0 &&
-              pendingOrderAssets.length === 0 ? (
-                <p className="text-sm text-slate-400">No files yet.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {savedOrderAssets.map((asset) => (
-                    <li
-                      key={asset.id}
-                      className="flex items-center justify-between rounded-md bg-slate-50 px-2.5 py-1.5 text-sm"
-                    >
-                      <span className="flex items-center gap-2 truncate text-slate-700">
-                        <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-                        <span className="truncate">{asset.file_name}</span>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        {isImageAsset(asset) ? (
-                          <button
-                            type="button"
-                            onClick={() => setPreviewAsset(asset)}
-                            className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                            aria-label="Preview"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                        ) : null}
-                        <a
-                          href={`/api/assets/${asset.id}`}
-                          className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                          aria-label="Download"
-                        >
-                          <Download className="h-4 w-4" />
-                        </a>
-                        {!isViewOnly ? (
-                          <button
-                            type="button"
-                            onClick={() => markAssetForDeletion(asset.id)}
-                            className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600"
-                            aria-label="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        ) : null}
-                      </span>
-                    </li>
-                  ))}
-                  {pendingOrderAssets.map((pending) => (
-                    <li
-                      key={pending.id}
-                      className="flex items-center justify-between rounded-md border border-dashed border-amber-300 bg-amber-50/50 px-2.5 py-1.5 text-sm"
-                    >
-                      <span className="flex min-w-0 items-center gap-2 truncate text-slate-700">
-                        <FileText className="h-4 w-4 shrink-0 text-amber-500" />
-                        <span className="truncate">{pending.file.name}</span>
-                        <span className="shrink-0 text-[10px] text-amber-600">
-                          unsaved
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removePendingOrderAsset(pending.id)}
-                        className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600"
-                        aria-label="Remove"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            {orderId ? (
+              <AssetsSection
+                orderId={orderId}
+                initialAssets={orderLevelAssets}
+                readOnly={isViewOnly}
+                onPreviewImage={setPreviewAsset}
+                onChanged={() => {
+                  onChanged();
+                  void load();
+                }}
+              />
+            ) : null}
           </div>
 
           <div className="space-y-4">

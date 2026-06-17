@@ -176,15 +176,39 @@ function validatePayload(body: WebhookOrderPayload): {
     (typeof body.customer_phone === "string" ? body.customer_phone.trim() : "");
 
   if (!customerName) {
-    throw new WebhookValidationError("customer_name is required");
+    throw new WebhookValidationError("Missing required field: customer_name");
   }
   if (!customerContact || !isValidCustomerContact(customerContact)) {
     throw new WebhookValidationError(
-      "customer_contact is required (valid email or phone)"
+      "Missing required field: customer_contact or customer_phone"
     );
   }
 
   return { customerName, customerContact };
+}
+
+function validateOrderNumber(body: WebhookOrderPayload): string {
+  const orderNumber =
+    typeof body.order_number === "string" ? body.order_number.trim() : "";
+  if (!orderNumber) {
+    throw new WebhookValidationError("Missing required field: order_number");
+  }
+  return orderNumber;
+}
+
+function validateDueDateRequired(body: WebhookOrderPayload): string {
+  const dueDate =
+    typeof body.due_date === "string" && body.due_date.trim()
+      ? body.due_date.trim().slice(0, 10)
+      : null;
+  if (!dueDate) {
+    throw new WebhookValidationError("Missing required field: due_date");
+  }
+  const dueDateError = validateDueDate(dueDate);
+  if (dueDateError) {
+    throw new WebhookValidationError(dueDateError);
+  }
+  return dueDate;
 }
 
 function validateItemsArray(items: unknown): void {
@@ -236,18 +260,10 @@ export function resolveItemTitle(
   return `${orderTitle} — ${productLabel}`;
 }
 
-function resolveBaseOrderNumber(body: WebhookOrderPayload): string {
-  return (
-    (typeof body.order_number === "string" ? body.order_number.trim() : "") ||
-    (typeof body.title === "string" ? body.title.trim() : "") ||
-    "Webhook Order"
-  );
-}
-
 function resolveOrderLevelTitle(body: WebhookOrderPayload): string {
   return (
     (typeof body.title === "string" ? body.title.trim() : "") ||
-    resolveBaseOrderNumber(body)
+    (typeof body.order_number === "string" ? body.order_number.trim() : "")
   );
 }
 
@@ -699,24 +715,16 @@ export async function createOrderFromWebhook(
 ): Promise<WebhookCreateResult> {
   const { customerName, customerContact } = validatePayload(body);
   validateItemsArray(body.items);
+  const baseOrderNumber = validateOrderNumber(body);
+  const dueDate = validateDueDateRequired(body);
 
   const priority =
     typeof body.priority === "string" && PRIORITIES.has(body.priority)
       ? body.priority
       : "normal";
 
-  const dueDate =
-    typeof body.due_date === "string" && body.due_date.trim()
-      ? body.due_date.trim().slice(0, 10)
-      : null;
-  const dueDateError = validateDueDate(dueDate);
-  if (dueDateError) {
-    throw new WebhookValidationError(dueDateError);
-  }
-
   const isMultiItem = Array.isArray(body.items) && body.items.length > 0;
   const items = normalizeItems(body);
-  const baseOrderNumber = resolveBaseOrderNumber(body);
   const orderLevelTitle = resolveOrderLevelTitle(body);
   const orderDescription =
     typeof body.description === "string" ? body.description.trim() : null;

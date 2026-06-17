@@ -5,81 +5,8 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
+import { buildWebhookPayloadDocs } from "@/lib/webhook-payload-docs";
 import type { WebhookConfig } from "@/lib/types";
-
-function buildPayloadDocs(webhookUrl: string, secretKey: string): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const exampleDueDate = new Date(now);
-  exampleDueDate.setDate(exampleDueDate.getDate() + 30);
-  const dueDateStr = exampleDueDate.toISOString().slice(0, 10);
-
-  return `POST ${webhookUrl}
-
-Headers:
-  x-webhook-secret: ${secretKey}
-  Content-Type: application/json
-
-Body (JSON):
-{
-  // REQUIRED
-  "customer_name": "Acme Corp",
-  "customer_contact": "hello@acme.com",
-
-  // RECOMMENDED
-  "order_number": "ORD-${year}-001",
-  "title": "500 Business Cards — Acme Corp",
-  "priority": "normal",
-  "due_date": "${dueDateStr}",
-
-  // ORDER DETAILS
-  "product": "Business Cards",
-  "product_type": "Flat",
-  "finished_size": "3.5 x 2 in",
-  "materials": "16pt.",
-  "finishing": "Spot UV",
-  "sides": "2 Sides",
-  "color": "CMYK",
-  "order_qty": 500,
-
-  // CUSTOMER INFO
-  "customer_phone": "+1 310 555 0100",
-
-  // ARTWORK (public URL only — no file upload)
-  "artwork_url": "https://cdn.example.com/art.pdf",
-
-  // ORDER DESCRIPTION / NOTES
-  "description": "Rush order, please handle ASAP",
-
-  // SKUs (optional array)
-  "skus": [
-    {
-      "sku_name": "Standard Pack",
-      "quantity": 250,
-      "artwork_url": "https://cdn.example.com/sku1.pdf"
-    },
-    {
-      "sku_name": "Premium Pack",
-      "quantity": 250,
-      "artwork_url": "https://cdn.example.com/sku2.pdf"
-    }
-  ]
-}
-
-// NOT SUPPORTED via webhook (set manually in app):
-// - Designer assignment
-// - GDrive artwork link
-// - Missing Info notes
-
-Success response:
-{ "success": true, "order_id": "uuid", "order_number": "ORD-${year}-001" }
-
-Error responses:
-401 — Invalid or missing secret key
-403 — Webhook is disabled
-422 — Missing required fields
-500 — Server error`;
-}
 
 interface Props {
   initialConfig: WebhookConfig | null;
@@ -179,7 +106,7 @@ export function IntegrationsManager({
     );
   }
 
-  const payloadDocs = buildPayloadDocs(webhookUrl, config.secret_key);
+  const payloadDocs = buildWebhookPayloadDocs(webhookUrl, config.secret_key);
 
   return (
     <div className="space-y-6">
@@ -320,7 +247,7 @@ export function IntegrationsManager({
             Copy
           </Button>
         </div>
-        <pre className="max-h-[32rem] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
+        <pre className="max-h-[48rem] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
           {payloadDocs}
         </pre>
       </section>
