@@ -8,7 +8,6 @@ import {
 import {
   buildButtonAutomationEmailHtml,
   buildButtonAutomationEmailSubject,
-  buildButtonAutomationEmailText,
   resolveEmailRecipients,
 } from "@/lib/button-automation-messages";
 import { parseEmailConfig } from "@/lib/button-automations";
@@ -75,11 +74,10 @@ export async function POST(
 
   const subject = buildButtonAutomationEmailSubject(exportData, config);
   const html = buildButtonAutomationEmailHtml(exportData);
-  const text = buildButtonAutomationEmailText(exportData);
 
   const results = await Promise.all(
     recipients.map((to) =>
-      sendTransactionalEmail({ to, subject, html, text })
+      sendTransactionalEmail({ to, subject, html })
     )
   );
 

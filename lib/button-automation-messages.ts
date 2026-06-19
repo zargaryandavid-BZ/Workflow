@@ -26,33 +26,23 @@ function templateContext(data: OrderExportData): ButtonAutomationTemplateContext
   };
 }
 
-function detailRow(label: string, value: string, bold = false): string {
+function detailRow(label: string, value: string): string {
   const trimmed = value.trim();
   if (!trimmed || trimmed === "—") return "";
-  return `<tr>
-    <td style="padding:2px 10px 2px 0;color:#6b778c;font-size:13px;white-space:nowrap;vertical-align:top;width:1%;">${escapeHtml(label)}</td>
-    <td style="padding:2px 0;color:#172b4d;font-size:13px;line-height:1.45;${bold ? "font-weight:600;" : ""}">${value}</td>
-  </tr>`;
+  return `<tr><td width="140" style="padding:2px 12px 2px 14px;color:#6b778c;font-size:12px;white-space:nowrap;vertical-align:top;font-family:Arial,Helvetica,sans-serif;line-height:16px;">${escapeHtml(label)}</td><td style="padding:2px 14px 2px 0;color:#172b4d;font-size:12px;vertical-align:top;font-family:Arial,Helvetica,sans-serif;line-height:16px;">${value}</td></tr>`;
 }
 
-function sectionHeading(title: string): string {
-  return `<p style="margin:14px 0 6px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#6b778c;">${escapeHtml(title)}</p>`;
+function sectionHeaderRow(title: string): string {
+  return `<tr><td colspan="2" style="padding:10px 14px 4px;color:#6b778c;font-size:10px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;font-family:Arial,Helvetica,sans-serif;line-height:14px;border-top:1px solid #eef0f4;">${escapeHtml(title)}</td></tr>`;
 }
 
-function summaryTable(rows: string): string {
-  const content = rows.trim();
-  if (!content) return "";
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${content}</table>`;
+function fullWidthRow(html: string): string {
+  return `<tr><td colspan="2" style="padding:2px 14px;color:#172b4d;font-size:12px;vertical-align:top;font-family:Arial,Helvetica,sans-serif;line-height:16px;">${html}</td></tr>`;
 }
 
-function twoColumnSummary(left: string, right: string): string {
-  if (!left.trim() && !right.trim()) return "";
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
-    <tr>
-      <td style="width:50%;padding:0 8px 0 0;vertical-align:top;">${left || "&nbsp;"}</td>
-      <td style="width:50%;padding:0 0 0 8px;vertical-align:top;border-left:1px solid #e8eaef;">${right || "&nbsp;"}</td>
-    </tr>
-  </table>`;
+/** Collapse whitespace between tags — Yahoo renders those gaps as blank lines. */
+function compactEmailHtml(html: string): string {
+  return html.replace(/>\s+</g, "><").replace(/\n/g, "").trim();
 }
 
 function personValue(
@@ -62,7 +52,7 @@ function personValue(
   const n = name?.trim();
   const e = email?.trim();
   if (n && e) {
-    return `${escapeHtml(n)}<br/><a href="mailto:${escapeHtml(e)}" style="color:#0c66e4;text-decoration:none;">${escapeHtml(e)}</a>`;
+    return `${escapeHtml(n)} (<a href="mailto:${escapeHtml(e)}" style="color:#0c66e4;text-decoration:none;">${escapeHtml(e)}</a>)`;
   }
   if (n) return escapeHtml(n);
   if (e) {
@@ -81,17 +71,14 @@ function contactValue(data: OrderExportData): string {
   if (data.customerPhone) {
     parts.push(escapeHtml(data.customerPhone));
   }
-  if (parts.length > 0) return parts.join("<br/>");
+  if (parts.length > 0) return parts.join(" · ");
   const fallback = data.customerContact.trim();
   return fallback ? escapeHtml(fallback) : "";
 }
 
-function specSectionHtml(data: OrderExportData): string {
-  const lines = data.specRows
-    .map(
-      (row) =>
-        detailRow(row.label, escapeHtml(row.value))
-    )
+function specSectionRows(data: OrderExportData): string {
+  const rows = data.specRows
+    .map((row) => detailRow(row.label, escapeHtml(row.value)))
     .filter(Boolean)
     .join("");
 
@@ -108,16 +95,18 @@ function specSectionHtml(data: OrderExportData): string {
     extras.push(detailRow("Design task", escapeHtml(data.designTask)));
   }
 
-  const body = `${lines}${extras.join("")}`;
+  const body = `${rows}${extras.join("")}`;
   if (!body.trim()) {
-    return `<p style="margin:0;font-size:13px;color:#6b778c;">No specifications listed.</p>`;
+    return fullWidthRow(
+      `<span style="color:#6b778c;">No specifications listed.</span>`
+    );
   }
-  return summaryTable(body);
+  return body;
 }
 
-function skuSectionHtml(data: OrderExportData): string {
+function skuSectionRows(data: OrderExportData): string {
   if (data.skuRows.length === 0) {
-    return `<p style="margin:0;font-size:13px;color:#6b778c;">No SKUs listed.</p>`;
+    return fullWidthRow(`<span style="color:#6b778c;">No SKUs listed.</span>`);
   }
 
   const rows = data.skuRows
@@ -129,62 +118,44 @@ function skuSectionHtml(data: OrderExportData): string {
           ? sku.imageLinks
               .map(
                 (url, i) =>
-                  `<a href="${escapeHtml(url)}" style="color:#0c66e4;text-decoration:none;margin-right:6px;">Img ${i + 1}</a>`
+                  `<a href="${escapeHtml(url)}" style="color:#0c66e4;text-decoration:none;">Img ${i + 1}</a>`
               )
-              .join("")
+              .join(" · ")
           : `<span style="color:#6b778c;">No artwork</span>`;
-      return `<tr style="border-top:1px solid #eef0f4;">
-        <td style="padding:6px 8px 6px 0;color:#6b778c;font-size:12px;white-space:nowrap;vertical-align:top;width:1%;">${sku.index}.</td>
-        <td style="padding:6px 0;font-size:13px;color:#172b4d;line-height:1.45;">
-          <strong>${escapeHtml(sku.name)}</strong>
-          <span style="color:#6b778c;"> · Qty ${qty}</span><br/>
-          <span style="font-size:12px;color:#6b778c;">${links}</span>
-        </td>
-      </tr>`;
+      return fullWidthRow(
+        `<strong>${sku.index}. ${escapeHtml(sku.name)}</strong><span style="color:#6b778c;"> · Qty ${qty} · ${links}</span>`
+      );
     })
     .join("");
 
   const total =
     data.totalQty != null
-      ? `<tr><td colspan="2" style="padding:8px 0 0;font-size:13px;font-weight:600;color:#172b4d;border-top:1px solid #eef0f4;">Total qty: ${data.totalQty.toLocaleString("en-US")}</td></tr>`
+      ? fullWidthRow(
+          `<strong>Total qty: ${data.totalQty.toLocaleString("en-US")}</strong>`
+        )
       : "";
 
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${rows}${total}</table>`;
+  return `${rows}${total}`;
 }
 
-function orderSummaryHtml(data: OrderExportData): string {
-  const leftCol = summaryTable(
-    [
-      detailRow("Customer", escapeHtml(data.customerName)),
-      detailRow("Contact", contactValue(data)),
-    ].join("")
-  );
+function orderSummaryRows(data: OrderExportData): string {
+  const assigned = personValue(data.designerName, data.designerEmail);
+  const owner = personValue(data.ownerName, data.ownerEmail);
+  const priority = `<span style="text-transform:capitalize;">${escapeHtml(data.priority)}</span>`;
 
-  const rightCol = summaryTable(
-    [
-      detailRow("Due date", escapeHtml(data.dueDateFormatted)),
-      detailRow(
-        "Priority",
-        `<span style="text-transform:capitalize;">${escapeHtml(data.priority)}</span>`
-      ),
-      detailRow("Stage", escapeHtml(data.columnName)),
-      data.categoryName
-        ? detailRow("Category", escapeHtml(data.categoryName))
-        : "",
-      detailRow(
-        "Assigned to",
-        personValue(data.designerName, data.designerEmail)
-      ),
-      personValue(data.ownerName, data.ownerEmail)
-        ? detailRow(
-            "Owner",
-            personValue(data.ownerName, data.ownerEmail)
-          )
-        : "",
-    ].join("")
-  );
-
-  return twoColumnSummary(leftCol, rightCol);
+  return [
+    `<tr><td colspan="2" style="height:16px;padding:0;font-size:0;line-height:16px;mso-line-height-rule:exactly;">&nbsp;</td></tr>`,
+    detailRow("Customer", escapeHtml(data.customerName)),
+    detailRow("Contact", contactValue(data)),
+    detailRow("Due date", escapeHtml(data.dueDateFormatted)),
+    detailRow("Priority", priority),
+    detailRow("Stage", escapeHtml(data.columnName)),
+    data.categoryName
+      ? detailRow("Category", escapeHtml(data.categoryName))
+      : "",
+    assigned ? detailRow("Assigned to", assigned) : "",
+    owner ? detailRow("Owner", owner) : "",
+  ].join("");
 }
 
 export function buildButtonAutomationEmailSubject(
@@ -201,27 +172,25 @@ export function buildButtonAutomationEmailSubject(
 export function buildButtonAutomationEmailHtml(data: OrderExportData): string {
   const hasSpecs =
     data.specRows.length > 0 || Boolean(data.artworkLink) || Boolean(data.designTask);
-  const specsBlock = hasSpecs ? specSectionHtml(data) : "";
-  const skuBlock = skuSectionHtml(data);
+  const subtitle = `${escapeHtml(data.customerName)}${data.dueDateFormatted !== "—" ? ` · Due ${escapeHtml(data.dueDateFormatted)}` : ""}`;
+  const headerCell =
+    "padding:12px 14px;background-color:#172b4d;color:#ffffff;font-family:Arial,Helvetica,sans-serif;";
 
-  return `<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:12px;background:#f4f5f7;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e2e4e9;border-radius:8px;overflow:hidden;">
-    <div style="padding:14px 16px 12px;background:#172b4d;">
-      <p style="margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#9fadbc;">Order details</p>
-      <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;line-height:1.3;">${escapeHtml(data.orderNumber)}</p>
-      <p style="margin:4px 0 0;font-size:13px;color:#c7d2df;">${escapeHtml(data.customerName)}${data.dueDateFormatted !== "—" ? ` · Due ${escapeHtml(data.dueDateFormatted)}` : ""}</p>
-    </div>
-    <div style="padding:12px 16px 14px;">
-      ${orderSummaryHtml(data)}
-      ${specsBlock ? `${sectionHeading("Specifications")}${specsBlock}` : ""}
-      ${sectionHeading("SKUs")}${skuBlock}
-      <p style="margin:12px 0 0;padding-top:10px;border-top:1px solid #eef0f4;font-size:11px;color:#9fadbc;">${escapeHtml(data.tenantName)} Workflow</p>
-    </div>
-  </div>
-</body>
-</html>`;
+  const rows = [
+    `<tr><td colspan="2" style="${headerCell}font-size:10px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#9fadbc;line-height:14px;">Order details</td></tr>`,
+    `<tr><td colspan="2" style="${headerCell}font-size:18px;font-weight:bold;line-height:22px;">${escapeHtml(data.orderNumber)}</td></tr>`,
+    `<tr><td colspan="2" style="${headerCell}font-size:12px;color:#c7d2df;line-height:16px;">${subtitle}</td></tr>`,
+    orderSummaryRows(data),
+    hasSpecs ? sectionHeaderRow("Specifications") : "",
+    hasSpecs ? specSectionRows(data) : "",
+    sectionHeaderRow("SKUs"),
+    skuSectionRows(data),
+    `<tr><td colspan="2" style="padding:10px 14px 12px;color:#9fadbc;font-size:10px;font-family:Arial,Helvetica,sans-serif;line-height:14px;border-top:1px solid #eef0f4;">${escapeHtml(data.tenantName)} Workflow</td></tr>`,
+  ].join("");
+
+  return compactEmailHtml(
+    `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>${escapeHtml(data.orderNumber)}</title></head><body style="margin:0;padding:0;background-color:#f4f5f7;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" align="center" style="width:560px;max-width:100%;background-color:#ffffff;border:1px solid #e2e4e9;border-collapse:collapse;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;">${rows}</table></body></html>`
+  );
 }
 
 export function buildButtonAutomationEmailText(data: OrderExportData): string {
@@ -257,7 +226,7 @@ export function buildButtonAutomationEmailText(data: OrderExportData): string {
     );
   }
 
-  lines.push("", "SPECIFICATIONS", "─".repeat(36));
+  lines.push("", "SPECIFICATIONS");
   if (data.specRows.length === 0 && !data.artworkLink && !data.designTask) {
     lines.push("No specifications listed.");
   } else {
@@ -267,7 +236,7 @@ export function buildButtonAutomationEmailText(data: OrderExportData): string {
   if (data.artworkLink) lines.push(`Artwork GDrive: ${data.artworkLink}`);
   if (data.designTask) lines.push(`Design task: ${data.designTask}`);
 
-  lines.push("", "SKUS", "─".repeat(36));
+  lines.push("", "SKUS");
   if (data.skuRows.length === 0) {
     lines.push("No SKUs listed.");
   } else {
@@ -285,8 +254,7 @@ export function buildButtonAutomationEmailText(data: OrderExportData): string {
     }
   }
 
-  lines.push("", "─".repeat(36));
-  lines.push(`${data.tenantName} Workflow`);
+  lines.push("", `${data.tenantName} Workflow`);
   return lines.join("\n");
 }
 
