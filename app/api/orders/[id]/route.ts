@@ -4,6 +4,7 @@ import { getTenantContext } from "@/lib/auth";
 import { enrichActivityLog } from "@/lib/activity";
 import { logActivity } from "@/lib/automation";
 import { ACTIVITY_LOG_LIMIT, ORDER_QTY_FIELD_NAME } from "@/lib/constants";
+import { isAccountManagerOwner } from "@/lib/order-owners";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
@@ -195,14 +196,16 @@ export async function PATCH(
   if (body.priority !== undefined) updates.priority = body.priority;
   if (body.ownerId !== undefined) {
     if (body.ownerId) {
-      const { data: member } = await supabase
-        .from("memberships")
-        .select("user_id")
-        .eq("tenant_id", tenantId)
-        .eq("user_id", body.ownerId)
-        .maybeSingle();
-      if (!member) {
-        return NextResponse.json({ error: "Invalid owner" }, { status: 400 });
+      const valid = await isAccountManagerOwner(
+        supabase,
+        tenantId,
+        body.ownerId
+      );
+      if (!valid) {
+        return NextResponse.json(
+          { error: "Owner must be an account manager" },
+          { status: 400 }
+        );
       }
       updates.created_by = body.ownerId;
     } else {

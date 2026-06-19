@@ -10,6 +10,7 @@ import {
   Tag,
   Trash2,
   Workflow,
+  MousePointerClick,
   UserCog,
   Columns3,
   Printer,
@@ -45,6 +46,12 @@ const nav = [
     href: "/settings/automations",
     label: "Automations",
     icon: Workflow,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/button-automation",
+    label: "Button Automation",
+    icon: MousePointerClick,
     adminOnly: true,
   },
   {

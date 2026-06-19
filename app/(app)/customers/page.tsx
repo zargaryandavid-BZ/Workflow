@@ -1,6 +1,7 @@
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { CustomersManager } from "./customers-manager";
+import { loadAccountManagerOwners } from "@/lib/order-owners";
 import type {
   BoardColumn,
   Customer,
@@ -60,31 +61,28 @@ export default async function CustomersPage() {
   );
 
   const members = (memberRows ?? []) as { user_id: string; role: string }[];
-  const memberIds = [...new Set(members.map((m) => m.user_id))];
   const designerIds = members
     .filter((m) => m.role === "designer")
     .map((m) => m.user_id);
 
   let designers: { id: string; name: string }[] = [];
-  let owners: { id: string; name: string }[] = [];
-  if (memberIds.length > 0) {
+  if (designerIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, full_name")
-      .in("id", memberIds);
+      .in("id", designerIds);
     const nameById = new Map(
       ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
-        (p) => [p.id, p.full_name?.trim() || "Staff member"]
+        (p) => [p.id, p.full_name]
       )
     );
-    owners = memberIds
-      .map((id) => ({ id, name: nameById.get(id) ?? "Staff member" }))
-      .sort((a, b) => a.name.localeCompare(b.name));
     designers = designerIds.map((id) => ({
       id,
       name: nameById.get(id) ?? "Unnamed designer",
     }));
   }
+
+  const owners = await loadAccountManagerOwners(supabase, tenantId);
 
   const statsByCustomer = new Map<
     string,

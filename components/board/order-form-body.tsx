@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Copy } from "lucide-react";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { CustomFieldInput } from "./custom-field-input";
 import { SkuEditor, type SkuItem } from "./sku-editor";
@@ -13,7 +14,7 @@ import {
   resolveOrderFormFields,
   validateDueDate,
 } from "@/lib/order-form";
-import { dateInputValue, localDateInputValue } from "@/lib/utils";
+import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
 import type { Asset, CustomField, Designer, OrderSkuImageWithUrl } from "@/lib/types";
 
 export interface OrderOwner {
@@ -60,6 +61,10 @@ export interface OrderFormBodyProps {
   onMarkSkuArtworkForRemoval?: (assetId: string) => void;
   onUnmarkSkuArtworkForRemoval?: (assetId: string) => void;
   readOnly?: boolean;
+  /** Hide order number field (shown in modal title when editing existing orders). */
+  hideOrderNumberField?: boolean;
+  onCopyOrderLink?: () => void;
+  copyOrderLinkDisabled?: boolean;
 }
 
 export function OrderFormBody({
@@ -100,6 +105,9 @@ export function OrderFormBody({
   onMarkSkuArtworkForRemoval,
   onUnmarkSkuArtworkForRemoval,
   readOnly = false,
+  hideOrderNumberField = false,
+  onCopyOrderLink,
+  copyOrderLinkDisabled = false,
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, designerField, orderQtyField, printFields } = resolved;
@@ -209,21 +217,29 @@ export function OrderFormBody({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <Label htmlFor={`${idPrefix}-title`}>
-            Order Number<span className="ml-0.5 text-red-500">*</span>
-          </Label>
-          <Input
-            id={`${idPrefix}-title`}
-            required
-            readOnly={readOnly}
-            value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            placeholder="e.g. PO-10245"
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
-        </div>
+      <div
+        className={
+          hideOrderNumberField
+            ? "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            : "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        }
+      >
+        {!hideOrderNumberField ? (
+          <div>
+            <Label htmlFor={`${idPrefix}-title`}>
+              Order Number<span className="ml-0.5 text-red-500">*</span>
+            </Label>
+            <Input
+              id={`${idPrefix}-title`}
+              required
+              readOnly={readOnly}
+              value={title}
+              onChange={(e) => onTitleChange(e.target.value)}
+              placeholder="e.g. PO-10245"
+              className={readOnly ? "bg-slate-50" : undefined}
+            />
+          </div>
+        ) : null}
         <div>
           <Label htmlFor={`${idPrefix}-priority`}>Priority</Label>
           <Select
@@ -248,6 +264,11 @@ export function OrderFormBody({
             onChange={(e) => onOwnerIdChange(e.target.value)}
           >
             <option value="">— Unassigned —</option>
+            {owners.length === 0 ? (
+              <option value="" disabled>
+                No account managers
+              </option>
+            ) : null}
             {owners.map((owner) => (
               <option key={owner.id} value={owner.id}>
                 {owner.name}
@@ -299,16 +320,33 @@ export function OrderFormBody({
               <span className="ml-0.5 text-red-500">*</span>
             ) : null}
           </Label>
-          <Input
-            id={`${idPrefix}-artwork`}
-            readOnly={readOnly}
-            value={(fieldValues[artworkField.id] as string) ?? ""}
-            onChange={(e) =>
-              onFieldValueChange(artworkField.id, e.target.value)
-            }
-            placeholder="https://drive.google.com/…"
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
+          <div className="flex items-center gap-2">
+            {onCopyOrderLink ? (
+              <button
+                type="button"
+                onClick={onCopyOrderLink}
+                disabled={copyOrderLinkDisabled}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Copy pre-filled job ticket link"
+              >
+                <Copy className="h-4 w-4" />
+                Copy Link
+              </button>
+            ) : null}
+            <Input
+              id={`${idPrefix}-artwork`}
+              readOnly={readOnly}
+              value={(fieldValues[artworkField.id] as string) ?? ""}
+              onChange={(e) =>
+                onFieldValueChange(artworkField.id, e.target.value)
+              }
+              placeholder="https://drive.google.com/…"
+              className={cn(
+                "min-w-0 flex-1",
+                readOnly ? "bg-slate-50" : undefined
+              )}
+            />
+          </div>
         </div>
       ) : null}
 

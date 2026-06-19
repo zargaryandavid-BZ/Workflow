@@ -221,6 +221,37 @@ export interface AutomationRule {
   created_at: string;
 }
 
+export type ButtonAutomationActionType =
+  | "copy_link"
+  | "send_email"
+  | "generate_pdf";
+
+export type ButtonAutomationEmailRecipient =
+  | "customer"
+  | "staff"
+  | "custom"
+  | "both";
+
+export interface ButtonAutomationEmailConfig {
+  recipient?: ButtonAutomationEmailRecipient;
+  custom_email?: string;
+  subject_template?: string;
+}
+
+export interface ButtonAutomation {
+  id: string;
+  tenant_id: string;
+  name: string;
+  icon: string | null;
+  action_type: ButtonAutomationActionType;
+  column_ids: string[];
+  config: ButtonAutomationEmailConfig | Record<string, never>;
+  position: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface JobNotification {
   id: string;
   tenant_id: string;

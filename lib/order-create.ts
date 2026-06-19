@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantContext } from "@/lib/auth";
+import { isAccountManagerOwner } from "@/lib/order-owners";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { logActivity } from "@/lib/automation";
 import { ORDER_QTY_FIELD_NAME } from "@/lib/constants";
@@ -84,15 +85,21 @@ export async function createOrder(
   }
 
   if (body.ownerId) {
-    const { data: member } = await supabase
-      .from("memberships")
-      .select("user_id")
-      .eq("tenant_id", tenantId)
-      .eq("user_id", body.ownerId)
-      .maybeSingle();
-    if (!member) {
-      return { error: "Invalid owner", status: 400 };
+    const valid = await isAccountManagerOwner(
+      supabase,
+      tenantId,
+      body.ownerId
+    );
+    if (!valid) {
+      return { error: "Owner must be an account manager", status: 400 };
     }
+  }
+
+  let createdBy: string | null = null;
+  if (body.ownerId) {
+    createdBy = body.ownerId;
+  } else if (await isAccountManagerOwner(supabase, tenantId, ctx.userId)) {
+    createdBy = ctx.userId;
   }
 
   const { data: last } = await supabase
@@ -139,7 +146,7 @@ export async function createOrder(
         skus: prepareSkusForSave(normalizedSkus),
       },
       position,
-      created_by: body.ownerId ?? ctx.userId,
+      created_by: createdBy,
     })
     .select("*")
     .single();

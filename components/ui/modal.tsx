@@ -48,7 +48,9 @@ export function Modal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div className="text-base font-semibold text-slate-800">{title}</div>
+          <div className="min-w-0 flex-1 text-base font-semibold text-slate-800">
+            {title}
+          </div>
           <div className="flex items-center gap-2">
             {headerAction}
             <button

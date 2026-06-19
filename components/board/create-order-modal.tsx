@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
@@ -41,7 +41,11 @@ export function CreateOrderModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
-  const [ownerId, setOwnerId] = useState(currentUserId);
+  const defaultOwnerId = useMemo(
+    () => (owners.some((o) => o.id === currentUserId) ? currentUserId : ""),
+    [owners, currentUserId]
+  );
+  const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
@@ -60,11 +64,15 @@ export function CreateOrderModal({
     [customFields]
   );
 
+  useEffect(() => {
+    if (open) setOwnerId(defaultOwnerId);
+  }, [open, defaultOwnerId]);
+
   function reset() {
     setTitle("");
     setDescription("");
     setPriority("normal");
-    setOwnerId(currentUserId);
+    setOwnerId(defaultOwnerId);
     setDueDate("");
     setCustomerName("");
     setCustomerContact("");

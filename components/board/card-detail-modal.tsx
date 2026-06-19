@@ -5,6 +5,7 @@ import {
   Activity,
   ChevronDown,
   ChevronRight,
+  Copy,
   Loader2,
   Trash2,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { MissingInfoTab } from "./missing-info-tab";
+import { ButtonAutomationBar } from "./button-automation-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { mergeSkusWithAssets, normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import {
@@ -49,6 +51,7 @@ import type {
   MissingInfoNote,
   OrderSkuImageWithUrl,
   OrderWithRelations,
+  ButtonAutomation,
   Role,
 } from "@/lib/types";
 
@@ -67,6 +70,8 @@ interface CardDetailModalProps {
   onLinkCopied?: (message: string) => void;
   /** When false, hides the Copy Order Link header button. Defaults to true. */
   showCopyOrderLink?: boolean;
+  buttonAutomations?: ButtonAutomation[];
+  appUrl?: string;
 }
 
 function addToSet(prev: ReadonlySet<string>, id: string): Set<string> {
@@ -105,6 +110,8 @@ export function CardDetailModal({
   mode = "edit",
   onLinkCopied,
   showCopyOrderLink = true,
+  buttonAutomations = [],
+  appUrl = "",
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
   const resolved = useMemo(
@@ -140,6 +147,7 @@ export function CardDetailModal({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [orderNumberCopied, setOrderNumberCopied] = useState(false);
   const isAdmin = role === "admin";
 
   function resetPendingFiles() {
@@ -235,6 +243,11 @@ export function CardDetailModal({
     const dueDateError = validateDueDate(dueDate, data?.order.due_date);
     if (dueDateError) {
       setSaveError(dueDateError);
+      return;
+    }
+
+    if (ownerId && !owners.some((o) => o.id === ownerId)) {
+      setSaveError("Owner must be an account manager");
       return;
     }
 
@@ -336,6 +349,14 @@ export function CardDetailModal({
     () => groupSkuImagesBySkuId(data?.skuImages ?? []),
     [data?.skuImages]
   );
+
+  const ownersForForm = useMemo(() => {
+    if (!ownerId || owners.some((o) => o.id === ownerId)) return owners;
+    return [
+      ...owners,
+      { id: ownerId, name: "Previous owner (not account manager)" },
+    ];
+  }, [owners, ownerId]);
 
   const pendingApproval = data?.approvals.find((a) => a.status === "pending");
   const hasMissingInfo = (data?.missingInfo.length ?? 0) > 0;
@@ -453,23 +474,69 @@ export function CardDetailModal({
       .catch(() => {});
   }
 
+  const displayOrderNumber = (data?.order.title ?? title).trim();
+
+  async function copyOrderNumber() {
+    if (!displayOrderNumber) return;
+    try {
+      await navigator.clipboard.writeText(displayOrderNumber);
+      setOrderNumberCopied(true);
+      setTimeout(() => setOrderNumberCopied(false), 1500);
+    } catch {
+      // ignore clipboard failures
+    }
+  }
+
+  const modalTitle = (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate">
+        {isViewOnly ? "View order" : "Order Details"}
+        {displayOrderNumber ? `: ${displayOrderNumber}` : loading ? ": …" : ""}
+      </span>
+      {displayOrderNumber ? (
+        <button
+          type="button"
+          onClick={copyOrderNumber}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-normal transition-colors",
+            orderNumberCopied
+              ? "text-emerald-600"
+              : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          )}
+          title="Copy order number"
+          aria-label="Copy order number"
+        >
+          {orderNumberCopied ? (
+            "Copied"
+          ) : (
+            <Copy className="h-3.5 w-3.5" aria-hidden />
+          )}
+        </button>
+      ) : null}
+    </span>
+  );
+
   return (
     <>
     <Modal
       open={open}
       onClose={handleClose}
-      title={isViewOnly ? "View order" : "Order Details"}
+      title={modalTitle}
       className="max-w-3xl"
       headerAction={
-        showCopyOrderLink ? (
+        !isViewOnly && isAdmin ? (
           <button
             type="button"
-            onClick={copyOrderLink}
-            disabled={loading || !data || !customerName}
-            className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Copy pre-filled job ticket link"
+            onClick={() => {
+              setRemoveError(null);
+              setConfirmRemove(true);
+            }}
+            disabled={loading || saving || removing}
+            className="flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Remove order"
           >
-            📋 Copy Order Link
+            <Trash2 className="h-4 w-4" />
+            Remove order
           </button>
         ) : undefined
       }
@@ -484,21 +551,6 @@ export function CardDetailModal({
               <span className="mr-auto text-xs text-amber-600">
                 Unsaved file changes
               </span>
-            ) : isAdmin ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                className="mr-auto text-red-600 hover:bg-red-50 hover:text-red-700"
-                onClick={() => {
-                  setRemoveError(null);
-                  setConfirmRemove(true);
-                }}
-                disabled={loading || saving || removing}
-              >
-                <Trash2 className="h-4 w-4" />
-                Remove order
-              </Button>
             ) : null}
             <Button variant="ghost" onClick={handleClose} type="button">
               Close
@@ -567,6 +619,21 @@ export function CardDetailModal({
             </div>
           ) : null}
 
+          {tab === "details" && data ? (
+            <ButtonAutomationBar
+              buttons={buttonAutomations}
+              columnId={data.order.column_id}
+              orderId={data.order.id}
+              orderNumber={data.order.title}
+              appUrl={appUrl}
+              onComplete={(msg) => {
+                setSaveError(null);
+                onLinkCopied?.(msg);
+              }}
+              onError={(msg) => setSaveError(msg)}
+            />
+          ) : null}
+
           {tab === "missing-info" && hasMissingInfo ? (
             <MissingInfoTab
               notes={data.missingInfo}
@@ -601,10 +668,11 @@ export function CardDetailModal({
             <OrderFormBody
               idPrefix="edit"
               customFields={customFields}
-              owners={owners}
+              owners={ownersForForm}
               designers={designers}
               title={title}
               onTitleChange={setTitle}
+              hideOrderNumberField
               priority={priority}
               onPriorityChange={setPriority}
               ownerId={ownerId}
@@ -639,6 +707,8 @@ export function CardDetailModal({
               onMarkSkuArtworkForRemoval={markSkuArtworkForRemoval}
               onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
               readOnly={isViewOnly}
+              onCopyOrderLink={showCopyOrderLink ? copyOrderLink : undefined}
+              copyOrderLinkDisabled={loading || !data || !customerName}
             />
 
             {saveError ? (

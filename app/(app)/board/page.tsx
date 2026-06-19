@@ -14,9 +14,11 @@ import {
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
 import { loadOrdersWithRelations } from "@/lib/orders/load-with-relations";
+import { loadAccountManagerOwners } from "@/lib/order-owners";
 import type {
   AutomationRule,
   BoardColumn,
+  ButtonAutomation,
   Category,
   CustomField,
   CustomerResponse,
@@ -27,9 +29,15 @@ import type {
   OrderWithRelations,
 } from "@/lib/types";
 
-export default async function BoardPage() {
+export default async function BoardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ order?: string }>;
+}) {
   const ctx = await getTenantContext();
   if (!ctx) redirect("/onboarding");
+
+  const { order: initialOrderId } = await searchParams;
 
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
@@ -40,6 +48,7 @@ export default async function BoardPage() {
     categoriesRes,
     memberRes,
     rulesRes,
+    buttonsRes,
   ] = await Promise.all([
     supabase
       .from("board_columns")
@@ -65,6 +74,11 @@ export default async function BoardPage() {
       .select("*")
       .eq("tenant_id", tenantId)
       .eq("trigger", "on_enter_column"),
+    supabase
+      .from("button_automations")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: true }),
   ]);
 
   const orders = await loadOrdersWithRelations(supabase, tenantId);
@@ -93,31 +107,28 @@ export default async function BoardPage() {
     user_id: string;
     role: string;
   }[];
-  const memberIds = [...new Set(memberRows.map((m) => m.user_id))];
   const designerIds = memberRows
     .filter((m) => m.role === "designer")
     .map((m) => m.user_id);
 
   let designers: { id: string; name: string }[] = [];
-  let owners: { id: string; name: string }[] = [];
-  if (memberIds.length > 0) {
+  if (designerIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, full_name")
-      .in("id", memberIds);
+      .in("id", designerIds);
     const nameById = new Map(
       ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
-        (p) => [p.id, p.full_name?.trim() || "Staff member"]
+        (p) => [p.id, p.full_name]
       )
     );
-    owners = memberIds
-      .map((id) => ({ id, name: nameById.get(id) ?? "Staff member" }))
-      .sort((a, b) => a.name.localeCompare(b.name));
     designers = designerIds.map((id) => ({
       id,
       name: nameById.get(id) ?? "Unnamed designer",
     }));
   }
+
+  const owners = await loadAccountManagerOwners(supabase, tenantId);
 
   const creatorIds = [
     ...new Set(
@@ -239,6 +250,9 @@ export default async function BoardPage() {
       ownerNameByOrder={ownerNameByOrder}
       smsConfigured={isSmsConfigured()}
       publicAppUrl={isPublicAppUrl()}
+      buttonAutomations={(buttonsRes.data ?? []) as ButtonAutomation[]}
+      initialOrderId={initialOrderId ?? null}
+      appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
     />
   );
 }

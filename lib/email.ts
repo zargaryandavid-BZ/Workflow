@@ -335,3 +335,13 @@ export async function sendTeamInviteEmail(args: {
 
   return result;
 }
+
+/** Generic transactional email via Instantly (staff / automation use). */
+export async function sendTransactionalEmail(params: {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+}): Promise<EmailSendResult> {
+  return sendCustomerEmail(params);
+}

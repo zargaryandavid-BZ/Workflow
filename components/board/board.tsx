@@ -35,6 +35,7 @@ import type {
   Category,
   CustomField,
   Designer,
+  ButtonAutomation,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
@@ -61,6 +62,9 @@ interface BoardProps {
   ownerNameByOrder: Record<string, string>;
   smsConfigured: boolean;
   publicAppUrl: boolean;
+  buttonAutomations: ButtonAutomation[];
+  initialOrderId?: string | null;
+  appUrl: string;
 }
 
 export function Board({
@@ -82,6 +86,9 @@ export function Board({
   ownerNameByOrder,
   smsConfigured,
   publicAppUrl,
+  buttonAutomations,
+  initialOrderId = null,
+  appUrl,
 }: BoardProps) {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderWithRelations[]>(initialOrders);
@@ -102,6 +109,16 @@ export function Board({
     orderId: string;
     missingFields: MissingField[];
   } | null>(null);
+
+  useEffect(() => {
+    if (
+      initialOrderId &&
+      orders.some((o) => o.id === initialOrderId) &&
+      detailId !== initialOrderId
+    ) {
+      setDetailId(initialOrderId);
+    }
+  }, [initialOrderId, orders, detailId]);
 
   function flashToast(message: string) {
     setToast(message);
@@ -263,19 +280,7 @@ export function Board({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const ownerFilterOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const order of orders) {
-      if (!order.created_by || byId.has(order.created_by)) continue;
-      byId.set(
-        order.created_by,
-        ownerNameByOrder[order.id] ?? "Staff member"
-      );
-    }
-    return [...byId.entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [orders, ownerNameByOrder]);
+  const ownerFilterOptions = owners;
 
   const filtersActive =
     orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
@@ -470,7 +475,7 @@ export function Board({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <h1 className="text-lg font-semibold text-slate-800">Production Board</h1>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -551,7 +556,8 @@ export function Board({
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="board-scroll flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4">
+        <div className="board-scroll min-h-0 min-w-0 flex-1 overflow-x-scroll overflow-y-hidden">
+          <div className="flex h-full min-w-max gap-3 px-4 pb-4">
           {columns.map((column, index) => (
             <Column
               key={column.id}
@@ -569,6 +575,7 @@ export function Board({
               onAdd={(colId) => setCreateColumn(colId)}
             />
           ))}
+          </div>
         </div>
 
         <DragOverlay>
@@ -614,6 +621,8 @@ export function Board({
         onChanged={() => router.refresh()}
         onLinkCopied={flashToast}
         showCopyOrderLink={showCopyOrderLinkForDetail}
+        buttonAutomations={buttonAutomations}
+        appUrl={appUrl}
       />
 
       {notifyPopup ? (

@@ -34,15 +34,23 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Thin scrollbars for the board */
+/* Scrollbars for the board (horizontal column strip + vertical columns) */
 .board-scroll {
   scrollbar-width: thin;
+  scrollbar-color: #97a0af #dfe1e6;
 }
 .board-scroll::-webkit-scrollbar {
-  height: 10px;
+  height: 12px;
   width: 10px;
 }
-.board-scroll::-webkit-scrollbar-thumb {
-  background: #c1c7d0;
+.board-scroll::-webkit-scrollbar-track {
+  background: #dfe1e6;
   border-radius: 9999px;
+}
+.board-scroll::-webkit-scrollbar-thumb {
+  background: #97a0af;
+  border-radius: 9999px;
+}
+.board-scroll::-webkit-scrollbar-thumb:hover {
+  background: #6b778c;
 }
