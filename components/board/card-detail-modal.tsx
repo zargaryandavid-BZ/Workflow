@@ -6,13 +6,12 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  Trash2,
 } from "lucide-react";
-import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
-import { AssetsSection } from "./assets-section";
 import { MissingInfoTab } from "./missing-info-tab";
 import { OrderFormBody } from "./order-form-body";
 import { mergeSkusWithAssets, normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
@@ -29,6 +28,7 @@ import {
   signedUrlsForAssets,
   SKU_LINK_SIGNED_URL_TTL_SEC,
 } from "@/lib/sku-artwork-url";
+import { groupSkuImagesBySkuId } from "@/lib/sku-images";
 import { createClient } from "@/lib/supabase/client";
 import {
   buildCustomFieldPayload,
@@ -48,6 +48,7 @@ import type {
   CustomFieldValue,
   Designer,
   MissingInfoNote,
+  OrderSkuImageWithUrl,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
@@ -84,6 +85,7 @@ function removeFromSet(prev: ReadonlySet<string>, id: string): Set<string> {
 interface DetailResponse {
   order: OrderWithRelations;
   assets: Asset[];
+  skuImages: OrderSkuImageWithUrl[];
   values: CustomFieldValue[];
   activity: ActivityLogEntry[];
   approvals: Approval[];
@@ -136,7 +138,10 @@ export function CardDetailModal({
   const [removedSkuArtworkIds, setRemovedSkuArtworkIds] = useState<
     Set<string>
   >(new Set());
-  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const isAdmin = role === "admin";
 
   function resetPendingFiles() {
     setPendingSkuArtwork({});
@@ -297,6 +302,25 @@ export function CardDetailModal({
     onClose();
   }
 
+  async function removeOrder() {
+    if (!orderId) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, { method: "DELETE" });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setRemoveError(json.error ?? "Failed to remove order");
+        return;
+      }
+      setConfirmRemove(false);
+      onChanged();
+      onClose();
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   function setFieldValue(fieldId: string, value: unknown) {
     setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
   }
@@ -309,12 +333,9 @@ export function CardDetailModal({
     setRemovedSkuArtworkIds((prev) => removeFromSet(prev, assetId));
   }
 
-  const orderLevelAssets = useMemo(
-    () =>
-      data?.assets.filter(
-        (a) => !a.sku_key && !a.notification_id
-      ) ?? [],
-    [data?.assets]
+  const skuImagesBySkuId = useMemo(
+    () => groupSkuImagesBySkuId(data?.skuImages ?? []),
+    [data?.skuImages]
   );
 
   const pendingApproval = data?.approvals.find((a) => a.status === "pending");
@@ -434,6 +455,7 @@ export function CardDetailModal({
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={handleClose}
@@ -463,11 +485,26 @@ export function CardDetailModal({
               <span className="mr-auto text-xs text-amber-600">
                 Unsaved file changes
               </span>
+            ) : isAdmin ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                className="mr-auto text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={() => {
+                  setRemoveError(null);
+                  setConfirmRemove(true);
+                }}
+                disabled={loading || saving || removing}
+              >
+                <Trash2 className="h-4 w-4" />
+                Remove order
+              </Button>
             ) : null}
             <Button variant="ghost" onClick={handleClose} type="button">
               Close
             </Button>
-            <Button onClick={save} disabled={saving || loading}>
+            <Button onClick={save} disabled={saving || loading || removing}>
               {saving ? "Saving…" : "Save changes"}
             </Button>
           </>
@@ -595,6 +632,7 @@ export function CardDetailModal({
               previousDueDate={data.order.due_date}
               orderId={orderId ?? undefined}
               skuAssets={data.assets}
+              skuImagesBySkuId={skuImagesBySkuId}
               deferSkuArtworkUpload
               pendingSkuArtwork={pendingSkuArtwork}
               onPendingSkuArtworkChange={setPendingSkuArtwork}
@@ -608,19 +646,6 @@ export function CardDetailModal({
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
                 {saveError}
               </p>
-            ) : null}
-
-            {orderId ? (
-              <AssetsSection
-                orderId={orderId}
-                initialAssets={orderLevelAssets}
-                readOnly={isViewOnly}
-                onPreviewImage={setPreviewAsset}
-                onChanged={() => {
-                  onChanged();
-                  void load();
-                }}
-              />
             ) : null}
           </div>
 
@@ -712,13 +737,48 @@ export function CardDetailModal({
           )}
         </>
       )}
-      {previewAsset ? (
-        <ImageLightbox
-          src={`/api/assets/${previewAsset.id}`}
-          label={previewAsset.file_name}
-          onClose={() => setPreviewAsset(null)}
-        />
-      ) : null}
     </Modal>
+
+    {confirmRemove ? (
+      <Modal
+        open
+        onClose={() => {
+          if (!removing) setConfirmRemove(false);
+        }}
+        title="Remove order"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setConfirmRemove(false)}
+              disabled={removing}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={removeOrder}
+              disabled={removing}
+            >
+              {removing ? "Removing…" : "Remove order"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Remove <strong>{title || data?.order.title}</strong> from the board?
+          Other employees will no longer see this order. You can restore it from
+          Settings → Removed Orders.
+        </p>
+        {removeError ? (
+          <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+            {removeError}
+          </p>
+        ) : null}
+      </Modal>
+    ) : null}
+  </>
   );
 }

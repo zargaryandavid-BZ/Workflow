@@ -37,6 +37,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
   const typedOrder = order as Order;
+  if (typedOrder.removed_at) {
+    return NextResponse.json(
+      { error: "Removed orders cannot be moved" },
+      { status: 400 }
+    );
+  }
 
   const { data: toColumn } = await supabase
     .from("board_columns")

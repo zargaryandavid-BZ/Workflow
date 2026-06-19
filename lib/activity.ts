@@ -48,6 +48,10 @@ export function describeActivity(log: ActivityLog): string {
     }
     case "missing_info_deleted":
       return "Missing info note removed";
+    case "removed":
+      return "Order removed";
+    case "restored":
+      return "Order restored";
     case "approval_manual":
       return "Manual approval follow-up saved";
     case "customer_merged":

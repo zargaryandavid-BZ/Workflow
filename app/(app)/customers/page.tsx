@@ -35,6 +35,7 @@ export default async function CustomersPage() {
       .from("orders")
       .select("id, title, customer_id, created_at, column_id")
       .eq("tenant_id", tenantId)
+      .is("removed_at", null)
       .not("customer_id", "is", null)
       .order("created_at", { ascending: false }),
     supabase

@@ -92,7 +92,7 @@ export function Board({
   } | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
     missingFields: MissingField[];
@@ -258,8 +258,22 @@ export function Board({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
+  const owners = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const order of orders) {
+      if (!order.created_by || byId.has(order.created_by)) continue;
+      byId.set(
+        order.created_by,
+        ownerNameByOrder[order.id] ?? "Staff member"
+      );
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [orders, ownerNameByOrder]);
+
   const filtersActive =
-    orderQuery.trim() !== "" || personFilter !== "" || categoryFilter !== "";
+    orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
 
   const filteredOrders = useMemo(() => {
     const q = orderQuery.trim().toLowerCase();
@@ -269,10 +283,10 @@ export function Board({
         const designerId = (o.specs?.designer_id as string | undefined) ?? "";
         if (designerId !== personFilter) return false;
       }
-      if (categoryFilter && o.category_id !== categoryFilter) return false;
+      if (ownerFilter && o.created_by !== ownerFilter) return false;
       return true;
     });
-  }, [orders, orderQuery, personFilter, categoryFilter]);
+  }, [orders, orderQuery, personFilter, ownerFilter]);
 
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
@@ -479,15 +493,15 @@ export function Board({
             ))}
           </Select>
           <Select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            value={ownerFilter}
+            onChange={(e) => setOwnerFilter(e.target.value)}
             className="h-9 min-w-[8rem] max-w-[12rem] flex-1 truncate sm:w-44 sm:flex-none text-sm"
-            aria-label="Filter by category"
+            aria-label="Filter by owner"
           >
-            <option value="">All categories</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
+            <option value="">All owners</option>
+            {owners.map((owner) => (
+              <option key={owner.id} value={owner.id}>
+                {owner.name}
               </option>
             ))}
           </Select>
@@ -497,7 +511,7 @@ export function Board({
               onClick={() => {
                 setOrderQuery("");
                 setPersonFilter("");
-                setCategoryFilter("");
+                setOwnerFilter("");
               }}
               className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-sm text-slate-600 hover:bg-slate-50"
             >

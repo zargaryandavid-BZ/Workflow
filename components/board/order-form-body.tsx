@@ -14,7 +14,7 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { dateInputValue, localDateInputValue } from "@/lib/utils";
-import type { Asset, Category, CustomField, Designer } from "@/lib/types";
+import type { Asset, Category, CustomField, Designer, OrderSkuImageWithUrl } from "@/lib/types";
 
 export interface OrderFormBodyProps {
   idPrefix: string;
@@ -47,6 +47,7 @@ export interface OrderFormBodyProps {
   previousDueDate?: string | null;
   orderId?: string;
   skuAssets?: Asset[];
+  skuImagesBySkuId?: Record<string, OrderSkuImageWithUrl[]>;
   pendingSkuArtwork?: Record<string, File>;
   onPendingSkuArtworkChange?: (files: Record<string, File>) => void;
   deferSkuArtworkUpload?: boolean;
@@ -86,6 +87,7 @@ export function OrderFormBody({
   previousDueDate,
   orderId,
   skuAssets,
+  skuImagesBySkuId,
   pendingSkuArtwork,
   onPendingSkuArtworkChange,
   deferSkuArtworkUpload,
@@ -397,6 +399,7 @@ export function OrderFormBody({
         onChange={onSkusChange}
         orderId={orderId}
         assets={skuAssets}
+        skuImagesBySkuId={skuImagesBySkuId}
         pendingArtwork={pendingSkuArtwork}
         onPendingArtworkChange={onPendingSkuArtworkChange}
         deferArtworkUpload={deferSkuArtworkUpload}

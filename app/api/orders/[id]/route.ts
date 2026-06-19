@@ -8,6 +8,11 @@ import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { pruneOrphanedSkuAssets } from "@/lib/sku-assets";
+import {
+  attachSignedUrlsToSkuImages,
+  listSkuImagesForOrder,
+  pruneOrphanedSkuImages,
+} from "@/lib/sku-images";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import type { ActivityLog, Order } from "@/lib/types";
 
@@ -121,9 +126,18 @@ export async function GET(
     order as Order
   );
 
+  let skuImages: Awaited<ReturnType<typeof attachSignedUrlsToSkuImages>> = [];
+  try {
+    const raw = await listSkuImagesForOrder(supabase, id);
+    skuImages = await attachSignedUrlsToSkuImages(supabase, raw);
+  } catch {
+    skuImages = [];
+  }
+
   return NextResponse.json({
     order,
     assets: assets ?? [],
+    skuImages,
     values: values ?? [],
     activity: enrichedActivity,
     approvals: approvals ?? [],
@@ -250,11 +264,14 @@ export async function PATCH(
   }
 
   if (updates.specs && Array.isArray((updates.specs as { skus?: unknown }).skus)) {
-    await pruneOrphanedSkuAssets(
-      supabase,
-      id,
-      (updates.specs as { skus: ReturnType<typeof prepareSkusForSave> }).skus
-    );
+    const savedSkus = (updates.specs as { skus: ReturnType<typeof prepareSkusForSave> })
+      .skus;
+    await pruneOrphanedSkuAssets(supabase, id, savedSkus);
+    try {
+      await pruneOrphanedSkuImages(supabase, id, savedSkus);
+    } catch {
+      // order_sku_images table may not exist yet
+    }
   }
 
   if (body.customFieldValues && body.customFieldValues.length > 0) {
@@ -293,26 +310,45 @@ export async function DELETE(
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (ctx.role !== "admin") {
+    return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  }
+
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id")
+    .select("id, removed_at")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
   if (!existingOrder) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  if (existingOrder.removed_at) {
+    return NextResponse.json({ error: "Order is already removed" }, { status: 400 });
+  }
 
+  const removedAt = new Date().toISOString();
   const { error } = await supabase
     .from("orders")
-    .delete()
+    .update({
+      removed_at: removedAt,
+      removed_by: ctx.userId,
+    })
     .eq("id", id)
     .eq("tenant_id", tenantId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
-  return NextResponse.json({ ok: true });
+
+  await logActivity(supabase, {
+    tenantId: ctx.tenant.id,
+    orderId: id,
+    actor: ctx.userId,
+    action: "removed",
+  });
+
+  return NextResponse.json({ ok: true, removedAt });
 }

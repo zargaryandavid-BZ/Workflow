@@ -131,6 +131,8 @@ export interface Order {
   due_date: string | null;
   position: number;
   created_by: string | null;
+  removed_at: string | null;
+  removed_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -167,6 +169,23 @@ export interface Asset {
   size: number | null;
   uploaded_by: string | null;
   created_at: string;
+}
+
+export interface OrderSkuImage {
+  id: string;
+  tenant_id: string;
+  order_id: string;
+  sku_id: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+  storage_path: string;
+  position: number;
+  created_at: string;
+}
+
+export interface OrderSkuImageWithUrl extends OrderSkuImage {
+  signed_url: string | null;
 }
 
 export interface WebhookConfig {
