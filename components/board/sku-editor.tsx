@@ -28,6 +28,8 @@ interface SkuEditorProps {
   onMarkArtworkForRemoval?: (assetId: string) => void;
   onUnmarkArtworkForRemoval?: (assetId: string) => void;
   skuImagesBySkuId?: Record<string, OrderSkuImageWithUrl[]>;
+  /** Saves a newly added SKU row before gallery uploads can attach to it. */
+  ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   disabled?: boolean;
 }
 
@@ -43,6 +45,7 @@ export function SkuEditor({
   onMarkArtworkForRemoval,
   onUnmarkArtworkForRemoval,
   skuImagesBySkuId = {},
+  ensureSkuPersisted,
   disabled = false,
 }: SkuEditorProps) {
   const assetBySkuKey = useMemo(() => {
@@ -172,6 +175,7 @@ export function SkuEditor({
                   orderId={orderId}
                   skuId={sku.id}
                   initialImages={skuImagesBySkuId[sku.id] ?? []}
+                  ensureSkuPersisted={ensureSkuPersisted}
                   disabled={disabled}
                 />
               ) : null}

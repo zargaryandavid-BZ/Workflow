@@ -10,6 +10,7 @@ import {
 } from "@/lib/card-badges";
 import {
   designerNamesByOrder,
+  ownerNamesByOrder,
   thumbnailUrlsByOrder,
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
@@ -132,26 +133,19 @@ export default async function BoardPage({
         .filter((id): id is string => Boolean(id))
     ),
   ];
-  let ownerNameByOrder: Record<string, string> = {};
+  let ownerNameById = new Map<string, string>();
   if (creatorIds.length > 0) {
     const { data: ownerProfiles } = await supabase
       .from("profiles")
       .select("id, full_name")
       .in("id", creatorIds);
-    const ownerNameById = new Map(
+    ownerNameById = new Map(
       ((ownerProfiles ?? []) as { id: string; full_name: string | null }[]).map(
         (p) => [p.id, p.full_name?.trim() || "Staff member"]
       )
     );
-    ownerNameByOrder = Object.fromEntries(
-      orders
-        .filter((o) => o.created_by)
-        .map((o) => [
-          o.id,
-          ownerNameById.get(o.created_by as string) ?? "Staff member",
-        ])
-    );
   }
+  const ownerNameByOrder = ownerNamesByOrder(orders, ownerNameById);
 
   const designerNameById = new Map(designers.map((d) => [d.id, d.name]));
   const designerNameByOrder = designerNamesByOrder(orders, designerNameById);

@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderSpecs } from "@/lib/types";
 
 export const ORDER_TAG_STYLES: Record<string, string> = {
-  Emailed: "bg-blue-100 text-blue-700 border border-blue-200",
+  Emailed: "bg-green-100 text-green-700 border border-green-200",
 };
 
 export function orderTagsFromSpecs(

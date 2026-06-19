@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
-import { buildWebhookPayloadDocs } from "@/lib/webhook-payload-docs";
+import { buildWebhookPayloadDocs, buildWebhookPayloadDocsHtml } from "@/lib/webhook-payload-docs";
 import type { WebhookConfig } from "@/lib/types";
 
 interface Props {
@@ -107,6 +107,7 @@ export function IntegrationsManager({
   }
 
   const payloadDocs = buildWebhookPayloadDocs(webhookUrl, config.secret_key);
+  const payloadDocsHtml = buildWebhookPayloadDocsHtml(webhookUrl, config.secret_key);
 
   return (
     <div className="space-y-6">
@@ -233,23 +234,41 @@ export function IntegrationsManager({
               Share this with the developer integrating your webhook.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => copyText(payloadDocs, "docs")}
-          >
-            {copiedField === "docs" ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
-            Copy
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => copyText(payloadDocsHtml, "html")}
+            >
+              {copiedField === "html" ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              Copy HTML
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => copyText(payloadDocs, "docs")}
+            >
+              {copiedField === "docs" ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              Copy Markdown
+            </Button>
+          </div>
         </div>
-        <pre className="max-h-[48rem] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
-          {payloadDocs}
-        </pre>
+        <iframe
+          title="Webhook payload reference"
+          srcDoc={payloadDocsHtml}
+          className="h-[48rem] w-full rounded-md border border-slate-200 bg-white"
+          sandbox="allow-same-origin"
+        />
       </section>
     </div>
   );

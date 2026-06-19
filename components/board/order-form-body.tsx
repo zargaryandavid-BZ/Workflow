@@ -60,6 +60,8 @@ export interface OrderFormBodyProps {
   removedSkuArtworkIds?: ReadonlySet<string>;
   onMarkSkuArtworkForRemoval?: (assetId: string) => void;
   onUnmarkSkuArtworkForRemoval?: (assetId: string) => void;
+  /** Saves a newly added SKU row before gallery uploads can attach to it. */
+  ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   readOnly?: boolean;
   /** Hide order number field (shown in modal title when editing existing orders). */
   hideOrderNumberField?: boolean;
@@ -104,6 +106,7 @@ export function OrderFormBody({
   removedSkuArtworkIds,
   onMarkSkuArtworkForRemoval,
   onUnmarkSkuArtworkForRemoval,
+  ensureSkuPersisted,
   readOnly = false,
   hideOrderNumberField = false,
   onCopyOrderLink,
@@ -449,6 +452,7 @@ export function OrderFormBody({
         removedArtworkIds={removedSkuArtworkIds}
         onMarkArtworkForRemoval={onMarkSkuArtworkForRemoval}
         onUnmarkArtworkForRemoval={onUnmarkSkuArtworkForRemoval}
+        ensureSkuPersisted={ensureSkuPersisted}
         disabled={readOnly}
       />
 

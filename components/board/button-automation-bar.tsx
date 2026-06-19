@@ -1,6 +1,7 @@
 "use client";
 
 import { filterButtonsForColumn } from "@/lib/button-automations";
+import type { ActionButtonResult } from "./action-button";
 import { ActionButton } from "./action-button";
 import type { ButtonAutomation } from "@/lib/types";
 
@@ -10,7 +11,7 @@ interface ButtonAutomationBarProps {
   orderId: string;
   orderNumber: string;
   appUrl: string;
-  onComplete: (message: string) => void;
+  onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
 

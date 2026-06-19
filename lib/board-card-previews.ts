@@ -93,3 +93,36 @@ export function designerNamesByOrder(
   }
   return out;
 }
+
+/** Card Owner: account manager (`created_by`) or webhook `request_owner_name`. */
+export function ownerNamesByOrder(
+  orders: {
+    id: string;
+    created_by?: string | null;
+    specs?: Record<string, unknown> | null;
+  }[],
+  ownerNameById: Map<string, string>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const order of orders) {
+    const createdBy =
+      typeof order.created_by === "string" ? order.created_by.trim() : "";
+    if (createdBy) {
+      const resolved = ownerNameById.get(createdBy);
+      if (resolved) {
+        out[order.id] = resolved;
+        continue;
+      }
+    }
+
+    const specs = order.specs ?? {};
+    const requestOwnerName =
+      typeof specs.request_owner_name === "string"
+        ? specs.request_owner_name.trim()
+        : "";
+    if (requestOwnerName) {
+      out[order.id] = requestOwnerName;
+    }
+  }
+  return out;
+}

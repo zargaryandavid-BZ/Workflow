@@ -5,12 +5,18 @@ import { Loader2 } from "lucide-react";
 import { orderCardShareUrl } from "@/lib/button-automations";
 import type { ButtonAutomation } from "@/lib/types";
 
+export interface ActionButtonResult {
+  message: string;
+  /** Refetch order detail + board when the action changed order data (e.g. Emailed tag). */
+  refreshOrder?: boolean;
+}
+
 interface ActionButtonProps {
   button: ButtonAutomation;
   orderId: string;
   orderNumber: string;
   appUrl: string;
-  onComplete: (message: string) => void;
+  onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
 
@@ -30,7 +36,7 @@ export function ActionButton({
       if (button.action_type === "copy_link") {
         const url = orderCardShareUrl(orderId, appUrl || window.location.origin);
         await navigator.clipboard.writeText(url);
-        onComplete("Link copied!");
+        onComplete({ message: "Link copied!" });
         return;
       }
 
@@ -44,7 +50,7 @@ export function ActionButton({
         if (!res.ok) {
           throw new Error(json.error ?? "Failed to send email");
         }
-        onComplete("Email sent!");
+        onComplete({ message: "Email sent!", refreshOrder: true });
         return;
       }
 
@@ -64,7 +70,7 @@ export function ActionButton({
         link.download = `job-ticket-${orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
         link.click();
         URL.revokeObjectURL(link.href);
-        onComplete("PDF downloaded!");
+        onComplete({ message: "PDF downloaded!" });
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : "Action failed");

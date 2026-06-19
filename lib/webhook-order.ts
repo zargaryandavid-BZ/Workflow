@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity } from "@/lib/automation";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
+import { isAccountManagerOwner } from "@/lib/order-owners";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
@@ -25,6 +26,7 @@ const SELECT_WEBHOOK_KEYS = new Set([
   "finishing",
   "sides",
   "color",
+  "position",
 ]);
 
 interface CustomFieldDef {
@@ -42,7 +44,9 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   finishing: "Finishing",
   sides: "Sides",
   color: "Color",
+  position: "Position",
   order_qty: "Order QTY",
+  designer_information: "Designer Information",
 };
 
 /** DB field names that map to a webhook key (handles renames like Finishing ↔ Lamination). */
@@ -54,8 +58,40 @@ const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   finishing: ["Finishing", "Lamination"],
   sides: ["Sides"],
   color: ["Color"],
+  position: ["Position"],
   order_qty: ["Order QTY"],
+  designer_information: ["Designer Information"],
 };
+
+interface WebhookDesignerInput {
+  designer_email?: string;
+  designer_id?: string;
+  designer?: string;
+  designer_information?: string;
+  designer_notes?: string;
+  design_task?: string;
+}
+
+export interface WebhookOwnerInput {
+  /** Account manager email — sets card Owner (`created_by`). */
+  owner_email?: string;
+  /** Account manager UUID — sets card Owner (`created_by`). */
+  owner_id?: string;
+  /** Account manager email, UUID, or display name. */
+  owner?: string;
+  /** Alias for `owner_email` — request submitter / account manager. */
+  request_owner_email?: string;
+  /** Alias for `owner_id`. */
+  request_owner_id?: string;
+  /** Alias for `owner`. */
+  request_owner?: string;
+  /** Free-text request owner name (stored on card when provided). */
+  request_owner_name?: string;
+  /** Free-text request owner email or contact (stored on card when provided). */
+  request_owner_contact?: string;
+  /** Free-text request owner phone (stored on card when provided). */
+  request_owner_phone?: string;
+}
 
 export interface WebhookSkuPayload {
   sku_name?: string;
@@ -63,7 +99,7 @@ export interface WebhookSkuPayload {
   artwork_url?: string;
 }
 
-export interface WebhookItem {
+export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   title?: string;
   product?: string;
   product_type?: string;
@@ -72,6 +108,8 @@ export interface WebhookItem {
   finishing?: string;
   sides?: string;
   color?: string;
+  position?: string;
+  roll_direction?: string;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -80,7 +118,7 @@ export interface WebhookItem {
   skus?: WebhookSkuPayload[];
 }
 
-export interface WebhookOrderPayload {
+export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerInput {
   customer_name?: string;
   customer_contact?: string;
   customer_phone?: string;
@@ -88,12 +126,6 @@ export interface WebhookOrderPayload {
   title?: string;
   priority?: string;
   due_date?: string | null;
-  /** Team member email — sets card Owner (`created_by`). */
-  owner_email?: string;
-  /** Team member user UUID — sets card Owner (`created_by`). */
-  owner_id?: string;
-  /** Email, UUID, or display name — sets card Owner when matched. */
-  owner?: string;
   category?: string;
   category_name?: string;
   product?: string;
@@ -103,6 +135,8 @@ export interface WebhookOrderPayload {
   finishing?: string;
   sides?: string;
   color?: string;
+  position?: string;
+  roll_direction?: string;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -251,10 +285,27 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       finishing: body.finishing,
       sides: body.sides,
       color: body.color,
+      position: body.position ?? body.roll_direction,
+      roll_direction: body.roll_direction,
       order_qty: body.order_qty,
       artwork_url: body.artwork_url,
       description: body.description,
       skus: body.skus,
+      designer_email: body.designer_email,
+      designer_id: body.designer_id,
+      designer: body.designer,
+      designer_information: body.designer_information,
+      designer_notes: body.designer_notes,
+      design_task: body.design_task,
+      owner_email: body.owner_email,
+      owner_id: body.owner_id,
+      owner: body.owner,
+      request_owner_email: body.request_owner_email,
+      request_owner_id: body.request_owner_id,
+      request_owner: body.request_owner,
+      request_owner_name: body.request_owner_name,
+      request_owner_contact: body.request_owner_contact,
+      request_owner_phone: body.request_owner_phone,
     },
   ];
 }
@@ -287,8 +338,165 @@ type WebhookSpecFields = Pick<
   | "finishing"
   | "sides"
   | "color"
+  | "position"
   | "order_qty"
+  | "designer_information"
 >;
+
+function resolveDesignNotes(input: WebhookDesignerInput): string | null {
+  for (const key of [
+    "designer_information",
+    "designer_notes",
+    "design_task",
+  ] as const) {
+    const raw = input[key];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
+function mergeItemWithOrder(
+  order: WebhookOrderPayload,
+  item: WebhookItem
+): WebhookItem {
+  return {
+    ...item,
+    product: item.product ?? order.product,
+    product_type: item.product_type ?? order.product_type,
+    finished_size: item.finished_size ?? order.finished_size,
+    materials: item.materials ?? order.materials,
+    finishing: item.finishing ?? order.finishing,
+    sides: item.sides ?? order.sides,
+    color: item.color ?? order.color,
+    position: item.position ?? item.roll_direction ?? order.position ?? order.roll_direction,
+    roll_direction: item.roll_direction ?? order.roll_direction,
+    order_qty: item.order_qty ?? order.order_qty,
+    artwork_url: item.artwork_url ?? order.artwork_url,
+    description: item.description ?? order.description,
+    category: item.category ?? order.category,
+    category_name: item.category_name ?? order.category_name,
+    designer_email: item.designer_email ?? order.designer_email,
+    designer_id: item.designer_id ?? order.designer_id,
+    designer: item.designer ?? order.designer,
+    designer_information: item.designer_information ?? order.designer_information,
+    designer_notes: item.designer_notes ?? order.designer_notes,
+    design_task: item.design_task ?? order.design_task,
+    owner_email: item.owner_email ?? order.owner_email,
+    owner_id: item.owner_id ?? order.owner_id,
+    owner: item.owner ?? order.owner,
+    request_owner_email: item.request_owner_email ?? order.request_owner_email,
+    request_owner_id: item.request_owner_id ?? order.request_owner_id,
+    request_owner: item.request_owner ?? order.request_owner,
+    request_owner_name: item.request_owner_name ?? order.request_owner_name,
+    request_owner_contact:
+      item.request_owner_contact ?? order.request_owner_contact,
+    request_owner_phone: item.request_owner_phone ?? order.request_owner_phone,
+  };
+}
+
+function mergeOwnerInput(
+  order: WebhookOrderPayload,
+  item: WebhookItem
+): WebhookOwnerInput {
+  const merged = mergeItemWithOrder(order, item);
+  return {
+    owner_email: merged.owner_email ?? merged.request_owner_email,
+    owner_id: merged.owner_id ?? merged.request_owner_id,
+    owner: merged.owner ?? merged.request_owner,
+    request_owner_email: merged.request_owner_email,
+    request_owner_id: merged.request_owner_id,
+    request_owner: merged.request_owner,
+    request_owner_name: merged.request_owner_name,
+    request_owner_contact: merged.request_owner_contact,
+    request_owner_phone: merged.request_owner_phone,
+  };
+}
+
+function normalizedOwnerLookup(input: WebhookOwnerInput): {
+  owner_id: string;
+  owner_email: string;
+  owner: string;
+} {
+  return {
+    owner_id:
+      (typeof input.owner_id === "string" ? input.owner_id.trim() : "") ||
+      (typeof input.request_owner_id === "string"
+        ? input.request_owner_id.trim()
+        : ""),
+    owner_email:
+      (typeof input.owner_email === "string" ? input.owner_email.trim() : "") ||
+      (typeof input.request_owner_email === "string"
+        ? input.request_owner_email.trim()
+        : ""),
+    owner:
+      (typeof input.owner === "string" ? input.owner.trim() : "") ||
+      (typeof input.request_owner === "string"
+        ? input.request_owner.trim()
+        : ""),
+  };
+}
+
+function buildRequestOwnerSpecs(
+  input: WebhookOwnerInput,
+  resolved: {
+    ownerName: string | null;
+    ownerEmail: string | null;
+  }
+): Record<string, string> {
+  const specs: Record<string, string> = {};
+  const name =
+    (typeof input.request_owner_name === "string"
+      ? input.request_owner_name.trim()
+      : "") || resolved.ownerName?.trim() || "";
+  const email =
+    (typeof input.request_owner_contact === "string"
+      ? input.request_owner_contact.trim()
+      : "") ||
+    (typeof input.request_owner_email === "string"
+      ? input.request_owner_email.trim()
+      : "") ||
+    resolved.ownerEmail?.trim() ||
+    "";
+  const phone =
+    typeof input.request_owner_phone === "string"
+      ? input.request_owner_phone.trim()
+      : "";
+
+  if (name) specs.request_owner_name = name;
+  if (email) specs.request_owner_email = email;
+  if (phone) specs.request_owner_phone = phone;
+  return specs;
+}
+
+function mergeDesignerInput(
+  order: WebhookOrderPayload,
+  item: WebhookItem
+): WebhookDesignerInput {
+  return {
+    designer_email: item.designer_email ?? order.designer_email,
+    designer_id: item.designer_id ?? order.designer_id,
+    designer: item.designer ?? order.designer,
+    designer_information:
+      item.designer_information ?? order.designer_information,
+    designer_notes: item.designer_notes ?? order.designer_notes,
+    design_task: item.design_task ?? order.design_task,
+  };
+}
+
+function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
+  return {
+    product: item.product,
+    product_type: item.product_type,
+    finished_size: item.finished_size,
+    materials: item.materials,
+    finishing: item.finishing,
+    sides: item.sides,
+    color: item.color,
+    position: item.position ?? item.roll_direction,
+    order_qty: item.order_qty,
+    designer_information: resolveDesignNotes(item) ?? undefined,
+  };
+}
 
 function parseFieldOptions(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -317,9 +525,9 @@ function normalizeOptionText(value: string): string {
 export function matchSelectOption(
   incoming: string,
   options: string[]
-): string {
+): string | null {
   const trimmed = incoming.trim().replace(/\s+/g, " ");
-  if (!trimmed || options.length === 0) return trimmed;
+  if (!trimmed || options.length === 0) return null;
 
   const lower = normalizeOptionText(trimmed);
 
@@ -338,7 +546,7 @@ export function matchSelectOption(
     .sort((a, b) => a.length - b.length);
   if (optionContains[0]) return optionContains[0];
 
-  return trimmed;
+  return null;
 }
 
 function fieldNameMatches(fieldName: string, candidates: string[]): boolean {
@@ -614,37 +822,125 @@ async function resolveOwnerByDisplayName(
   return null;
 }
 
-export async function resolveWebhookOwner(
+async function memberHasDesignerRole(
   client: Client,
   tenantId: string,
-  body: WebhookOrderPayload
+  userId: string
+): Promise<boolean> {
+  const { data } = await client
+    .from("memberships")
+    .select("role")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as { role: string } | null)?.role === "designer";
+}
+
+async function profileEmail(
+  client: Client,
+  userId: string
+): Promise<string | null> {
+  try {
+    const { data, error } = await client.auth.admin.getUserById(userId);
+    if (error || !data.user) return null;
+    return data.user.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureAccountManagerOwner(
+  client: Client,
+  tenantId: string,
+  userId: string,
+  displayName: string | null,
+  email: string | null
 ): Promise<{
   ownerId: string | null;
   ownerName: string | null;
+  ownerEmail: string | null;
   warning?: string;
 }> {
-  const ownerIdRaw =
-    typeof body.owner_id === "string" ? body.owner_id.trim() : "";
-  const ownerEmailRaw =
-    typeof body.owner_email === "string" ? body.owner_email.trim() : "";
-  const ownerRaw = typeof body.owner === "string" ? body.owner.trim() : "";
+  if (!(await isAccountManagerOwner(client, tenantId, userId))) {
+    return {
+      ownerId: null,
+      ownerName: displayName,
+      ownerEmail: email,
+      warning:
+        "Request owner is not an account manager — Owner field left unassigned",
+    };
+  }
+  return {
+    ownerId: userId,
+    ownerName: displayName,
+    ownerEmail: email,
+  };
+}
+
+export async function resolveWebhookOwner(
+  client: Client,
+  tenantId: string,
+  input: WebhookOwnerInput
+): Promise<{
+  ownerId: string | null;
+  ownerName: string | null;
+  ownerEmail: string | null;
+  requestOwnerSpecs: Record<string, string>;
+  warning?: string;
+}> {
+  const { owner_id: ownerIdRaw, owner_email: ownerEmailRaw, owner: ownerRaw } =
+    normalizedOwnerLookup(input);
+
+  const requestOwnerSpecs = buildRequestOwnerSpecs(input, {
+    ownerName: null,
+    ownerEmail: null,
+  });
 
   if (!ownerIdRaw && !ownerEmailRaw && !ownerRaw) {
-    return { ownerId: null, ownerName: null };
+    return {
+      ownerId: null,
+      ownerName: null,
+      ownerEmail: null,
+      requestOwnerSpecs,
+    };
   }
 
   if (ownerIdRaw) {
     if (!UUID_RE.test(ownerIdRaw)) {
-      throw new WebhookValidationError("Invalid owner_id: must be a UUID");
+      return {
+        ownerId: null,
+        ownerName: null,
+        ownerEmail: null,
+        requestOwnerSpecs,
+        warning: "Invalid request owner id — Owner field left unassigned",
+      };
     }
     if (!(await isTenantMember(client, tenantId, ownerIdRaw))) {
-      throw new WebhookValidationError(
-        "Unknown owner_id: not a member of this workspace"
-      );
+      return {
+        ownerId: null,
+        ownerName: null,
+        ownerEmail: null,
+        requestOwnerSpecs,
+        warning: "Unknown request owner id — Owner field left unassigned",
+      };
     }
+    const [name, email] = await Promise.all([
+      profileName(client, ownerIdRaw),
+      profileEmail(client, ownerIdRaw),
+    ]);
+    const resolved = await ensureAccountManagerOwner(
+      client,
+      tenantId,
+      ownerIdRaw,
+      name,
+      email
+    );
     return {
-      ownerId: ownerIdRaw,
-      ownerName: (await profileName(client, ownerIdRaw)) ?? null,
+      ...resolved,
+      requestOwnerSpecs: buildRequestOwnerSpecs(input, {
+        ownerName: resolved.ownerName,
+        ownerEmail: resolved.ownerEmail,
+      }),
     };
   }
 
@@ -657,43 +953,222 @@ export async function resolveWebhookOwner(
       email
     );
     if (!user) {
-      throw new WebhookValidationError(
-        `Unknown owner_email: no user with email ${email}`
-      );
+      return {
+        ownerId: null,
+        ownerName: null,
+        ownerEmail: email,
+        requestOwnerSpecs: buildRequestOwnerSpecs(input, {
+          ownerName: null,
+          ownerEmail: email,
+        }),
+      };
     }
     if (!(await isTenantMember(client, tenantId, user.id))) {
-      throw new WebhookValidationError(
-        "owner_email is not a member of this workspace"
-      );
+      return {
+        ownerId: null,
+        ownerName: null,
+        ownerEmail: email,
+        requestOwnerSpecs: buildRequestOwnerSpecs(input, {
+          ownerName: null,
+          ownerEmail: email,
+        }),
+        warning:
+          "request_owner_email is not a workspace member — Owner field left unassigned",
+      };
     }
+    const resolved = await ensureAccountManagerOwner(
+      client,
+      tenantId,
+      user.id,
+      (await profileName(client, user.id)) ?? user.email ?? null,
+      user.email ?? email
+    );
     return {
-      ownerId: user.id,
-      ownerName: (await profileName(client, user.id)) ?? user.email ?? null,
+      ...resolved,
+      requestOwnerSpecs: buildRequestOwnerSpecs(input, {
+        ownerName: resolved.ownerName,
+        ownerEmail: resolved.ownerEmail ?? email,
+      }),
+      warning: resolved.warning,
     };
   }
 
   const generic = ownerRaw;
   if (UUID_RE.test(generic)) {
     if (!(await isTenantMember(client, tenantId, generic))) {
-      throw new WebhookValidationError(
-        "Unknown owner: not a member of this workspace"
-      );
+      return {
+        ownerId: null,
+        ownerName: null,
+        ownerEmail: null,
+        requestOwnerSpecs,
+        warning: "Unknown request owner — Owner field left unassigned",
+      };
     }
+    const [name, resolvedEmail] = await Promise.all([
+      profileName(client, generic),
+      profileEmail(client, generic),
+    ]);
+    const resolved = await ensureAccountManagerOwner(
+      client,
+      tenantId,
+      generic,
+      name,
+      resolvedEmail
+    );
     return {
-      ownerId: generic,
-      ownerName: (await profileName(client, generic)) ?? null,
+      ...resolved,
+      requestOwnerSpecs: buildRequestOwnerSpecs(input, {
+        ownerName: resolved.ownerName,
+        ownerEmail: resolved.ownerEmail,
+      }),
     };
   }
 
   const byName = await resolveOwnerByDisplayName(client, tenantId, generic);
   if (byName) {
-    return { ownerId: byName.userId, ownerName: byName.ownerName };
+    const resolvedEmail = await profileEmail(client, byName.userId);
+    const resolved = await ensureAccountManagerOwner(
+      client,
+      tenantId,
+      byName.userId,
+      byName.ownerName,
+      resolvedEmail
+    );
+    return {
+      ...resolved,
+      requestOwnerSpecs: buildRequestOwnerSpecs(input, {
+        ownerName: resolved.ownerName ?? byName.ownerName,
+        ownerEmail: resolved.ownerEmail,
+      }),
+    };
   }
 
   return {
     ownerId: null,
     ownerName: null,
-    warning: `Owner "${generic}" not found — order created without owner`,
+    ownerEmail: null,
+    requestOwnerSpecs,
+    warning: `Request owner "${generic}" not found — Owner field left unassigned`,
+  };
+}
+
+export async function resolveWebhookDesigner(
+  client: Client,
+  tenantId: string,
+  input: WebhookDesignerInput
+): Promise<{
+  designerId: string | null;
+  designerName: string | null;
+  warning?: string;
+}> {
+  const designerIdRaw =
+    typeof input.designer_id === "string" ? input.designer_id.trim() : "";
+  const designerEmailRaw =
+    typeof input.designer_email === "string" ? input.designer_email.trim() : "";
+  const designerRaw =
+    typeof input.designer === "string" ? input.designer.trim() : "";
+
+  if (!designerIdRaw && !designerEmailRaw && !designerRaw) {
+    return { designerId: null, designerName: null };
+  }
+
+  async function ensureDesignerRole(
+    userId: string,
+    displayName: string | null
+  ): Promise<{
+    designerId: string | null;
+    designerName: string | null;
+    warning?: string;
+  }> {
+    if (!(await memberHasDesignerRole(client, tenantId, userId))) {
+      return {
+        designerId: null,
+        designerName: null,
+        warning: "Designer is not assigned the Designer role — left unassigned",
+      };
+    }
+    return {
+      designerId: userId,
+      designerName: displayName,
+    };
+  }
+
+  if (designerIdRaw) {
+    if (!UUID_RE.test(designerIdRaw)) {
+      return {
+        designerId: null,
+        designerName: null,
+        warning: "Invalid designer_id — designer left unassigned",
+      };
+    }
+    if (!(await isTenantMember(client, tenantId, designerIdRaw))) {
+      return {
+        designerId: null,
+        designerName: null,
+        warning: "Unknown designer_id — designer left unassigned",
+      };
+    }
+    return ensureDesignerRole(
+      designerIdRaw,
+      (await profileName(client, designerIdRaw)) ?? null
+    );
+  }
+
+  const email = (
+    designerEmailRaw || (designerRaw.includes("@") ? designerRaw : "")
+  )
+    .trim()
+    .toLowerCase();
+  if (email) {
+    const user = await findAuthUserByEmail(
+      client as Parameters<typeof findAuthUserByEmail>[0],
+      email
+    );
+    if (!user) {
+      return {
+        designerId: null,
+        designerName: null,
+        warning: `Unknown designer_email (${email}) — designer left unassigned`,
+      };
+    }
+    if (!(await isTenantMember(client, tenantId, user.id))) {
+      return {
+        designerId: null,
+        designerName: null,
+        warning:
+          "designer_email is not a workspace member — designer left unassigned",
+      };
+    }
+    return ensureDesignerRole(
+      user.id,
+      (await profileName(client, user.id)) ?? user.email ?? null
+    );
+  }
+
+  const generic = designerRaw;
+  if (UUID_RE.test(generic)) {
+    if (!(await isTenantMember(client, tenantId, generic))) {
+      return {
+        designerId: null,
+        designerName: null,
+        warning: "Unknown designer — designer left unassigned",
+      };
+    }
+    return ensureDesignerRole(
+      generic,
+      (await profileName(client, generic)) ?? null
+    );
+  }
+
+  const byName = await resolveOwnerByDisplayName(client, tenantId, generic);
+  if (byName) {
+    return ensureDesignerRole(byName.userId, byName.ownerName);
+  }
+
+  return {
+    designerId: null,
+    designerName: null,
+    warning: `Designer "${generic}" not found — designer left unassigned`,
   };
 }
 
@@ -759,6 +1234,10 @@ interface CreateSingleJobParams {
   totalItems: number;
   categoryId: string | null;
   ownerId: string | null;
+  requestOwnerSpecs: Record<string, string>;
+  designerId: string | null;
+  designerName: string | null;
+  designNotes: string | null;
 }
 
 async function createSingleWebhookJob(
@@ -785,14 +1264,23 @@ async function createSingleWebhookJob(
     totalItems,
     categoryId,
     ownerId,
+    requestOwnerSpecs,
+    designerId,
+    designerName,
+    designNotes,
   } = params;
 
   const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(item.skus);
   const skus = prepareSkusForSave(rawSkus);
 
+  const specFields = normalizeSpecFields(item);
+  if (designNotes) {
+    specFields.designer_information = designNotes;
+  }
+
   const customFieldValues = buildCustomFieldValues(
     fields,
-    item,
+    specFields,
     customerName,
     customerContact,
     skus
@@ -802,7 +1290,10 @@ async function createSingleWebhookJob(
     typeof item.description === "string" ? item.description.trim() : null;
   const description = itemDescription || orderDescription;
 
-  const specs: Record<string, unknown> = { skus };
+  const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs };
+  if (designerId) specs.designer_id = designerId;
+  if (designerName) specs.designer_name = designerName;
+  if (designNotes) specs.design_task = designNotes;
   if (totalItems > 1) {
     specs.webhook_order_number = webhookOrderNumber;
     specs.webhook_item_index = itemIndex;
@@ -976,13 +1467,8 @@ export async function createOrderFromWebhook(
 
   const createdJobs: WebhookCreatedJob[] = [];
   const allWarnings: string[] = [];
-
-  const {
-    ownerId,
-    ownerName,
-    warning: ownerWarning,
-  } = await resolveWebhookOwner(client, tenantId, body);
-  if (ownerWarning) allWarnings.push(ownerWarning);
+  let responseOwnerId: string | null = null;
+  let responseOwnerName: string | null = null;
 
   const orderCategoryName = body.category ?? body.category_name;
   const defaultCategoryId = await resolveCategoryId(
@@ -992,7 +1478,7 @@ export async function createOrderFromWebhook(
   );
 
   for (let i = 0; i < items.length; i++) {
-    const item = items[i];
+    const item = mergeItemWithOrder(body, items[i]);
     const jobTitle = resolveItemTitle(item, orderLevelTitle, i, items.length);
     const cardTitle = isMultiItem
       ? `${baseOrderNumber}-${i + 1}`
@@ -1002,6 +1488,29 @@ export async function createOrderFromWebhook(
     const categoryId = itemCategoryName
       ? await resolveCategoryId(client, tenantId, itemCategoryName)
       : defaultCategoryId;
+
+    const designerInput = mergeDesignerInput(body, item);
+    const {
+      designerId,
+      designerName,
+      warning: designerWarning,
+    } = await resolveWebhookDesigner(client, tenantId, designerInput);
+    if (designerWarning) allWarnings.push(designerWarning);
+
+    const ownerInput = mergeOwnerInput(body, item);
+    const {
+      ownerId,
+      ownerName,
+      requestOwnerSpecs,
+      warning: ownerWarning,
+    } = await resolveWebhookOwner(client, tenantId, ownerInput);
+    if (ownerWarning) allWarnings.push(ownerWarning);
+    if (responseOwnerId === null && ownerId) {
+      responseOwnerId = ownerId;
+    }
+    if (responseOwnerName === null && ownerName) {
+      responseOwnerName = ownerName;
+    }
 
     const result = await createSingleWebhookJob({
       client,
@@ -1024,6 +1533,10 @@ export async function createOrderFromWebhook(
       totalItems: items.length,
       categoryId,
       ownerId,
+      requestOwnerSpecs,
+      designerId,
+      designerName,
+      designNotes: resolveDesignNotes(designerInput),
     });
 
     nextPosition += 1000;
@@ -1043,8 +1556,8 @@ export async function createOrderFromWebhook(
       isMultiItem: true,
       orderNumber: baseOrderNumber,
       jobs: createdJobs,
-      ownerId,
-      ownerName,
+      ownerId: responseOwnerId,
+      ownerName: responseOwnerName,
       warning,
     };
   }
@@ -1053,8 +1566,8 @@ export async function createOrderFromWebhook(
     isMultiItem: false,
     orderId: createdJobs[0].order_id,
     orderNumber: baseOrderNumber,
-    ownerId,
-    ownerName,
+    ownerId: responseOwnerId,
+    ownerName: responseOwnerName,
     warning,
   };
 }

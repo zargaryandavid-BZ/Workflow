@@ -11,6 +11,7 @@ interface SkuImageUploadProps {
   orderId: string;
   skuId: string;
   initialImages: OrderSkuImageWithUrl[];
+  ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   disabled?: boolean;
 }
 
@@ -18,6 +19,7 @@ export function SkuImageUpload({
   orderId,
   skuId,
   initialImages,
+  ensureSkuPersisted,
   disabled = false,
 }: SkuImageUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,6 +48,16 @@ export function SkuImageUpload({
 
     setUploading(true);
     setError(null);
+
+    if (ensureSkuPersisted) {
+      const persistError = await ensureSkuPersisted(skuId);
+      if (persistError) {
+        setError(persistError);
+        setUploading(false);
+        if (inputRef.current) inputRef.current.value = "";
+        return;
+      }
+    }
 
     for (const rawFile of fileArray) {
       const file = await compressImage(rawFile);

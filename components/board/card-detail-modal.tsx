@@ -148,7 +148,9 @@ export function CardDetailModal({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
-  const [orderNumberCopied, setOrderNumberCopied] = useState(false);
+  const [persistedSkuIds, setPersistedSkuIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const isAdmin = role === "admin";
 
   function resetPendingFiles() {
@@ -192,18 +194,24 @@ export function CardDetailModal({
       setCustomerName(name);
       setCustomerContact(contact);
       setFieldValues(map);
+      setPersistedSkuIds(
+        new Set(normalizeSkus(json.order.specs?.skus).map((s) => s.id))
+      );
     },
     [resolved.customerNameField, resolved.customerContactField]
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!orderId) return;
-    setLoading(true);
-    const res = await fetch(`/api/orders/${orderId}`);
-    const json: DetailResponse = await res.json();
-    setLoading(false);
-    if (!res.ok) return;
-    applyDetail(json);
+    if (!options?.silent) setLoading(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`);
+      const json: DetailResponse = await res.json();
+      if (!res.ok) return;
+      applyDetail(json);
+    } finally {
+      if (!options?.silent) setLoading(false);
+    }
   }, [orderId, applyDetail]);
 
   useEffect(() => {
@@ -217,6 +225,7 @@ export function CardDetailModal({
       setTab("details");
       setActivityOpen(false);
       resetPendingFiles();
+      setPersistedSkuIds(new Set());
     }
   }, [open, orderId, load]);
 
@@ -345,6 +354,61 @@ export function CardDetailModal({
   function unmarkSkuArtworkForRemoval(assetId: string) {
     setRemovedSkuArtworkIds((prev) => removeFromSet(prev, assetId));
   }
+
+  const ensureSkuPersisted = useCallback(
+    async (skuId: string): Promise<string | null> => {
+      if (!orderId || persistedSkuIds.has(skuId)) return null;
+
+      const sku = skus.find((s) => s.id === skuId);
+      if (!sku) return "SKU not found.";
+      if (!sku.name.trim()) {
+        return "Enter SKU name before uploading images.";
+      }
+      if (
+        sku.qty == null ||
+        typeof sku.qty !== "number" ||
+        Number.isNaN(sku.qty) ||
+        sku.qty < 1
+      ) {
+        return "Enter SKU quantity before uploading images.";
+      }
+
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          specs: {
+            ...(data?.order.specs ?? {}),
+            skus: prepareSkusForSave(skus, {
+              pendingArtworkIds: Object.keys(pendingSkuArtwork),
+            }),
+          },
+        }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        return json.error ?? "Failed to save SKU";
+      }
+
+      const savedSkus = prepareSkusForSave(skus, {
+        pendingArtworkIds: Object.keys(pendingSkuArtwork),
+      });
+      setPersistedSkuIds((prev) => new Set([...prev, skuId]));
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              order: {
+                ...prev.order,
+                specs: { ...prev.order.specs, skus: savedSkus },
+              },
+            }
+          : prev
+      );
+      return null;
+    },
+    [orderId, persistedSkuIds, skus, data?.order.specs, pendingSkuArtwork]
+  );
 
   const skuImagesBySkuId = useMemo(
     () => groupSkuImagesBySkuId(data?.skuImages ?? []),
@@ -628,11 +692,13 @@ export function CardDetailModal({
               orderId={data.order.id}
               orderNumber={data.order.title}
               appUrl={appUrl}
-              onComplete={(msg) => {
+              onComplete={({ message, refreshOrder }) => {
                 setSaveError(null);
-                onLinkCopied?.(msg);
-                load();
-                onChanged();
+                onLinkCopied?.(message);
+                if (refreshOrder) {
+                  void load({ silent: true });
+                  onChanged();
+                }
               }}
               onError={(msg) => setSaveError(msg)}
             />
@@ -710,6 +776,7 @@ export function CardDetailModal({
               removedSkuArtworkIds={removedSkuArtworkIds}
               onMarkSkuArtworkForRemoval={markSkuArtworkForRemoval}
               onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
+              ensureSkuPersisted={ensureSkuPersisted}
               readOnly={isViewOnly}
               onCopyOrderLink={showCopyOrderLink ? copyOrderLink : undefined}
               copyOrderLinkDisabled={loading || !data || !customerName}
