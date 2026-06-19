@@ -33,6 +33,7 @@ import {
   customerNameFromOrder,
 } from "@/lib/notification-messages";
 import { cn, formatDate, formatDateShort } from "@/lib/utils";
+import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 interface OrderCardProps {
@@ -103,6 +104,8 @@ export function OrderCard({
       ? order.specs.designer_name.trim()
       : "") ||
     null;
+
+  const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
 
   const [copied, setCopied] = useState<string | null>(null);
@@ -269,6 +272,18 @@ export function OrderCard({
                   {CARD_BADGE_LABELS[notificationBadge]}
                 </span>
               ) : null}
+              {orderTags.map((tag) => (
+                <span
+                  key={tag}
+                  className={cn(
+                    "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                    ORDER_TAG_STYLES[tag] ??
+                      "border-slate-200 bg-slate-100 text-slate-600"
+                  )}
+                >
+                  {tag}
+                </span>
+              ))}
               <span
                 className={cn(
                   "inline-flex min-w-0 items-center gap-0.5 truncate text-[10px]",

@@ -54,6 +54,14 @@ export function describeActivity(log: ActivityLog): string {
       return "Order restored";
     case "approval_manual":
       return "Manual approval follow-up saved";
+    case "emailed": {
+      const buttonName = meta.buttonName as string | undefined;
+      const recipients = meta.recipients as string[] | undefined;
+      if (buttonName && recipients?.length) {
+        return `Email sent (${buttonName}) to ${recipients.join(", ")}`;
+      }
+      return "Email sent";
+    }
     case "customer_merged":
       return "Customer records merged";
     default:

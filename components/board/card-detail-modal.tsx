@@ -40,6 +40,7 @@ import {
   validateOrderFormFields,
 } from "@/lib/order-form";
 import { cn, dateInputValue, formatDateTime } from "@/lib/utils";
+import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import type {
   Approval,
   ApprovalNote,
@@ -365,6 +366,7 @@ export function CardDetailModal({
   const orderContact = data
     ? customerContactFromOrder(data.order, fieldValues, customFields)
     : { email: null, phone: null };
+  const orderTags = data ? orderTagsFromSpecs(data.order.specs) : [];
 
   function handleClose() {
     if (
@@ -629,6 +631,8 @@ export function CardDetailModal({
               onComplete={(msg) => {
                 setSaveError(null);
                 onLinkCopied?.(msg);
+                load();
+                onChanged();
               }}
               onError={(msg) => setSaveError(msg)}
             />
@@ -719,6 +723,25 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
+            {orderTags.length > 0 ? (
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="mb-2 text-sm font-semibold text-slate-700">Tags</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {orderTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className={cn(
+                        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                        ORDER_TAG_STYLES[tag] ??
+                          "border-slate-200 bg-slate-100 text-slate-600"
+                      )}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="mb-2 text-sm font-semibold text-slate-700">
                 Approval

@@ -15,14 +15,25 @@ export const EMAIL_RECIPIENT_LABELS: Record<
   ButtonAutomationEmailRecipient,
   string
 > = {
-  customer: "Customer",
-  staff: "Assigned Staff",
-  custom: "Custom Email",
-  both: "Customer + Staff",
+  customer: "Customer email",
+  designer: "Assigned Designer",
+  custom: "Other",
 };
 
 const DEFAULT_SUBJECT =
   "Order {{order_number}} — {{customer_name}}";
+
+function normalizeEmailRecipient(
+  value: unknown
+): ButtonAutomationEmailRecipient {
+  if (value === "customer" || value === "designer" || value === "custom") {
+    return value;
+  }
+  // Legacy configs
+  if (value === "staff") return "designer";
+  if (value === "both") return "customer";
+  return "designer";
+}
 
 export function parseEmailConfig(
   config: ButtonAutomation["config"]
@@ -32,7 +43,7 @@ export function parseEmailConfig(
   Pick<ButtonAutomationEmailConfig, "custom_email"> {
   const c = config as ButtonAutomationEmailConfig;
   return {
-    recipient: c.recipient ?? "staff",
+    recipient: normalizeEmailRecipient(c.recipient),
     custom_email: c.custom_email?.trim() || undefined,
     subject_template: c.subject_template?.trim() || DEFAULT_SUBJECT,
   };
@@ -89,7 +100,7 @@ export function validateButtonAutomationInput(body: {
   if (body.action_type === "send_email") {
     const cfg = parseEmailConfig(body.config ?? {});
     if (cfg.recipient === "custom" && !cfg.custom_email) {
-      return "Custom email is required";
+      return "Email address is required for Other recipient";
     }
     if (
       cfg.custom_email &&

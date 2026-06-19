@@ -228,9 +228,8 @@ export type ButtonAutomationActionType =
 
 export type ButtonAutomationEmailRecipient =
   | "customer"
-  | "staff"
-  | "custom"
-  | "both";
+  | "designer"
+  | "custom";
 
 export interface ButtonAutomationEmailConfig {
   recipient?: ButtonAutomationEmailRecipient;

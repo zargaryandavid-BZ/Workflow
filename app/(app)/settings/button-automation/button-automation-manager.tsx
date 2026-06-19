@@ -412,28 +412,31 @@ function ButtonEditor({
                 }
               >
                 {(
-                  Object.entries(EMAIL_RECIPIENT_LABELS) as [
-                    ButtonAutomationEmailRecipient,
-                    string,
-                  ][]
-                ).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
+                  (
+                    [
+                      "customer",
+                      "designer",
+                      "custom",
+                    ] as ButtonAutomationEmailRecipient[]
+                  ).map((value) => (
+                    <option key={value} value={value}>
+                      {EMAIL_RECIPIENT_LABELS[value]}
+                    </option>
+                  ))
+                )}
               </Select>
             </div>
 
             {recipient === "custom" ? (
               <div>
-                <Label htmlFor="btn-custom-email">Custom email</Label>
+                <Label htmlFor="btn-custom-email">Email address</Label>
                 <Input
                   id="btn-custom-email"
                   type="email"
                   required
                   value={customEmail}
                   onChange={(e) => setCustomEmail(e.target.value)}
-                  placeholder="ops@example.com"
+                  placeholder="name@example.com"
                 />
               </div>
             ) : null}

@@ -180,11 +180,11 @@ export function resolveEmailRecipients(
   const parsed = parseEmailConfig(config);
   const emails = new Set<string>();
 
-  if (parsed.recipient === "customer" || parsed.recipient === "both") {
+  if (parsed.recipient === "customer") {
     if (data.customerEmail) emails.add(data.customerEmail);
   }
-  if (parsed.recipient === "staff" || parsed.recipient === "both") {
-    if (data.assignedToEmail) emails.add(data.assignedToEmail);
+  if (parsed.recipient === "designer") {
+    if (data.designerEmail) emails.add(data.designerEmail);
   }
   if (parsed.recipient === "custom" && parsed.custom_email) {
     emails.add(parsed.custom_email);

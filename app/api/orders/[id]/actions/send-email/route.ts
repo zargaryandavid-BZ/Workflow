@@ -11,7 +11,10 @@ import {
   buildButtonAutomationEmailText,
   resolveEmailRecipients,
 } from "@/lib/button-automation-messages";
+import { parseEmailConfig } from "@/lib/button-automations";
+import { logActivity } from "@/lib/automation";
 import { sendTransactionalEmail } from "@/lib/email";
+import { addOrderTag } from "@/lib/order-tags";
 import type { ButtonAutomationEmailConfig } from "@/lib/types";
 
 export async function POST(
@@ -54,8 +57,18 @@ export async function POST(
   const config = button.config as ButtonAutomationEmailConfig;
   const recipients = resolveEmailRecipients(exportData, config);
   if (recipients.length === 0) {
+    const parsed = parseEmailConfig(config);
+    const errorByRecipient: Record<string, string> = {
+      customer: "No customer email on this order",
+      designer: "No assigned designer email on this order",
+      custom: "Enter a valid email address for Other recipient",
+    };
     return NextResponse.json(
-      { error: "No recipient email address found for this order" },
+      {
+        error:
+          errorByRecipient[parsed.recipient] ??
+          "No recipient email address found for this order",
+      },
       { status: 422 }
     );
   }
@@ -77,6 +90,26 @@ export async function POST(
       { status: 502 }
     );
   }
+
+  await addOrderTag(
+    supabase,
+    orderId,
+    ctx.tenant.id,
+    "Emailed",
+    (exportData.order.specs ?? {}) as Record<string, unknown>
+  );
+
+  await logActivity(supabase, {
+    tenantId: ctx.tenant.id,
+    orderId,
+    actor: ctx.userId,
+    action: "emailed",
+    metadata: {
+      buttonId: button.id,
+      buttonName: button.name,
+      recipients,
+    },
+  });
 
   return NextResponse.json({ ok: true, sent: recipients.length });
 }
