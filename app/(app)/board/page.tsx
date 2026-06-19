@@ -15,10 +15,10 @@ import {
 } from "@/lib/board-card-previews";
 import { loadOrdersWithRelations } from "@/lib/orders/load-with-relations";
 import { loadAccountManagerOwners } from "@/lib/order-owners";
+import { loadButtonAutomations } from "@/lib/button-automations.server";
 import type {
   AutomationRule,
   BoardColumn,
-  ButtonAutomation,
   Category,
   CustomField,
   CustomerResponse,
@@ -48,7 +48,6 @@ export default async function BoardPage({
     categoriesRes,
     memberRes,
     rulesRes,
-    buttonsRes,
   ] = await Promise.all([
     supabase
       .from("board_columns")
@@ -74,13 +73,9 @@ export default async function BoardPage({
       .select("*")
       .eq("tenant_id", tenantId)
       .eq("trigger", "on_enter_column"),
-    supabase
-      .from("button_automations")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("position", { ascending: true }),
   ]);
 
+  const buttonAutomations = await loadButtonAutomations(supabase, tenantId);
   const orders = await loadOrdersWithRelations(supabase, tenantId);
 
   const boardColumns = (columnsRes.data ?? []) as BoardColumn[];
@@ -250,7 +245,7 @@ export default async function BoardPage({
       ownerNameByOrder={ownerNameByOrder}
       smsConfigured={isSmsConfigured()}
       publicAppUrl={isPublicAppUrl()}
-      buttonAutomations={(buttonsRes.data ?? []) as ButtonAutomation[]}
+      buttonAutomations={buttonAutomations}
       initialOrderId={initialOrderId ?? null}
       appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
     />

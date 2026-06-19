@@ -5,6 +5,10 @@ import {
   buildButtonAutomationConfig,
   validateButtonAutomationInput,
 } from "@/lib/button-automations";
+import {
+  buttonAutomationsMigrationMessage,
+  loadButtonAutomationsWithStatus,
+} from "@/lib/button-automations.server";
 import type {
   ButtonAutomationActionType,
   ButtonAutomationEmailConfig,
@@ -15,14 +19,15 @@ export async function GET() {
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("button_automations")
-    .select("*")
-    .eq("tenant_id", ctx.tenant.id)
-    .order("position", { ascending: true });
+  const { buttons, migrationRequired } = await loadButtonAutomationsWithStatus(
+    supabase,
+    ctx.tenant.id
+  );
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ buttons: data ?? [] });
+  if (migrationRequired) {
+    return NextResponse.json({ buttons: [], migrationRequired: true });
+  }
+  return NextResponse.json({ buttons });
 }
 
 export async function POST(request: Request) {
@@ -47,6 +52,17 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
+  const { migrationRequired } = await loadButtonAutomationsWithStatus(
+    supabase,
+    ctx.tenant.id
+  );
+  if (migrationRequired) {
+    return NextResponse.json(
+      { error: buttonAutomationsMigrationMessage() },
+      { status: 503 }
+    );
+  }
+
   const { data: last } = await supabase
     .from("button_automations")
     .select("position")

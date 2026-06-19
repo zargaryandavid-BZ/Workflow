@@ -39,9 +39,14 @@ import type {
 interface Props {
   initialButtons: ButtonAutomation[];
   columns: BoardColumn[];
+  disabled?: boolean;
 }
 
-export function ButtonAutomationManager({ initialButtons, columns }: Props) {
+export function ButtonAutomationManager({
+  initialButtons,
+  columns,
+  disabled = false,
+}: Props) {
   const router = useRouter();
   const [buttons, setButtons] = useState(initialButtons);
   const [editing, setEditing] = useState<ButtonAutomation | "new" | null>(null);
@@ -84,7 +89,7 @@ export function ButtonAutomationManager({ initialButtons, columns }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button onClick={() => setEditing("new")}>
+        <Button onClick={() => setEditing("new")} disabled={disabled}>
           <Plus className="h-4 w-4" /> Add Button
         </Button>
       </div>
