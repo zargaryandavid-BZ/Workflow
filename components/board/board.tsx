@@ -263,7 +263,7 @@ export function Board({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const owners = useMemo(() => {
+  const ownerFilterOptions = useMemo(() => {
     const byId = new Map<string, string>();
     for (const order of orders) {
       if (!order.created_by || byId.has(order.created_by)) continue;
@@ -504,7 +504,7 @@ export function Board({
             aria-label="Filter by owner"
           >
             <option value="">All owners</option>
-            {owners.map((owner) => (
+            {ownerFilterOptions.map((owner) => (
               <option key={owner.id} value={owner.id}>
                 {owner.name}
               </option>

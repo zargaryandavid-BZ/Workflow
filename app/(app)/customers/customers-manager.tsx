@@ -10,13 +10,13 @@ import { Input, Label } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
 import type {
   BoardColumn,
-  Category,
   CustomField,
   CustomerOrderSummary,
   CustomerWithStats,
   Designer,
   Role,
 } from "@/lib/types";
+import type { OrderOwner } from "@/components/board/order-form-body";
 
 function customerToForm(c: CustomerWithStats) {
   return {
@@ -31,7 +31,7 @@ export function CustomersManager({
   customers,
   ordersByCustomer,
   customFields,
-  categories,
+  owners,
   columns,
   designers,
   role,
@@ -39,7 +39,7 @@ export function CustomersManager({
   customers: CustomerWithStats[];
   ordersByCustomer: Record<string, CustomerOrderSummary[]>;
   customFields: CustomField[];
-  categories: Category[];
+  owners: OrderOwner[];
   columns: BoardColumn[];
   designers: Designer[];
   role: Role;
@@ -335,7 +335,7 @@ export function CustomersManager({
         open={viewOrderId !== null}
         onClose={() => setViewOrderId(null)}
         customFields={customFields}
-        categories={categories}
+        owners={owners}
         columns={columns}
         designers={designers}
         role={role}

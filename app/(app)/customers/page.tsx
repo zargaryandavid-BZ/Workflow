@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { CustomersManager } from "./customers-manager";
 import type {
   BoardColumn,
-  Category,
   Customer,
   CustomerOrderSummary,
   CustomerWithStats,
@@ -23,8 +22,7 @@ export default async function CustomersPage() {
     { data: orders },
     { data: columns },
     { data: customFields },
-    { data: categories },
-    { data: designerMembers },
+    { data: memberRows },
   ] = await Promise.all([
     supabase
       .from("customers")
@@ -49,15 +47,9 @@ export default async function CustomersPage() {
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
     supabase
-      .from("categories")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("position", { ascending: true }),
-    supabase
       .from("memberships")
-      .select("user_id")
-      .eq("tenant_id", tenantId)
-      .eq("role", "designer"),
+      .select("user_id, role")
+      .eq("tenant_id", tenantId),
   ]);
 
   const columnNameById = new Map(
@@ -67,20 +59,27 @@ export default async function CustomersPage() {
     ])
   );
 
-  const designerIds = ((designerMembers ?? []) as { user_id: string }[]).map(
-    (m) => m.user_id
-  );
+  const members = (memberRows ?? []) as { user_id: string; role: string }[];
+  const memberIds = [...new Set(members.map((m) => m.user_id))];
+  const designerIds = members
+    .filter((m) => m.role === "designer")
+    .map((m) => m.user_id);
+
   let designers: { id: string; name: string }[] = [];
-  if (designerIds.length > 0) {
+  let owners: { id: string; name: string }[] = [];
+  if (memberIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, full_name")
-      .in("id", designerIds);
+      .in("id", memberIds);
     const nameById = new Map(
       ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
-        (p) => [p.id, p.full_name]
+        (p) => [p.id, p.full_name?.trim() || "Staff member"]
       )
     );
+    owners = memberIds
+      .map((id) => ({ id, name: nameById.get(id) ?? "Staff member" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     designers = designerIds.map((id) => ({
       id,
       name: nameById.get(id) ?? "Unnamed designer",
@@ -148,7 +147,7 @@ export default async function CustomersPage() {
           customers={customersWithStats}
           ordersByCustomer={ordersByCustomer}
           customFields={(customFields ?? []) as CustomField[]}
-          categories={(categories ?? []) as Category[]}
+          owners={owners}
           columns={(columns ?? []) as BoardColumn[]}
           designers={designers}
           role={ctx.role}

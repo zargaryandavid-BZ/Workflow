@@ -3,7 +3,7 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { loadRemovedOrdersWithRelations } from "@/lib/orders/load-with-relations";
 import { RemovedOrdersManager } from "./removed-orders-manager";
-import type { BoardColumn, Category, CustomField } from "@/lib/types";
+import type { BoardColumn, CustomField } from "@/lib/types";
 
 export default async function RemovedOrdersSettingsPage() {
   const ctx = await getTenantContext();
@@ -13,8 +13,7 @@ export default async function RemovedOrdersSettingsPage() {
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
-  const [orders, columnsRes, fieldsRes, categoriesRes, designerMemberRes] =
-    await Promise.all([
+  const [orders, columnsRes, fieldsRes, memberRes] = await Promise.all([
       loadRemovedOrdersWithRelations(supabase, tenantId),
       supabase
         .from("board_columns")
@@ -27,31 +26,32 @@ export default async function RemovedOrdersSettingsPage() {
         .eq("tenant_id", tenantId)
         .order("position", { ascending: true }),
       supabase
-        .from("categories")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .order("position", { ascending: true }),
-      supabase
         .from("memberships")
-        .select("user_id")
-        .eq("tenant_id", tenantId)
-        .eq("role", "designer"),
+        .select("user_id, role")
+        .eq("tenant_id", tenantId),
     ]);
 
-  const designerIds = (
-    (designerMemberRes.data ?? []) as { user_id: string }[]
-  ).map((m) => m.user_id);
+  const members = (memberRes.data ?? []) as { user_id: string; role: string }[];
+  const memberIds = [...new Set(members.map((m) => m.user_id))];
+  const designerIds = members
+    .filter((m) => m.role === "designer")
+    .map((m) => m.user_id);
+
   let designers: { id: string; name: string }[] = [];
-  if (designerIds.length > 0) {
+  let owners: { id: string; name: string }[] = [];
+  if (memberIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, full_name")
-      .in("id", designerIds);
+      .in("id", memberIds);
     const nameById = new Map(
       ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
-        (p) => [p.id, p.full_name]
+        (p) => [p.id, p.full_name?.trim() || "Staff member"]
       )
     );
+    owners = memberIds
+      .map((id) => ({ id, name: nameById.get(id) ?? "Staff member" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     designers = designerIds.map((id) => ({
       id,
       name: nameById.get(id) ?? "Unnamed designer",
@@ -87,7 +87,7 @@ export default async function RemovedOrdersSettingsPage() {
       <RemovedOrdersManager
         orders={orders}
         columns={(columnsRes.data ?? []) as BoardColumn[]}
-        categories={(categoriesRes.data ?? []) as Category[]}
+        owners={owners}
         customFields={(fieldsRes.data ?? []) as CustomField[]}
         designers={designers}
         role={ctx.role}

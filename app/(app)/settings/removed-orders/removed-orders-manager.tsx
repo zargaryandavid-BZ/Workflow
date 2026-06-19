@@ -8,17 +8,17 @@ import { CardDetailModal } from "@/components/board/card-detail-modal";
 import { formatDateTime } from "@/lib/utils";
 import type {
   BoardColumn,
-  Category,
   CustomField,
   Designer,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { OrderOwner } from "@/components/board/order-form-body";
 
 interface RemovedOrdersManagerProps {
   orders: OrderWithRelations[];
   columns: BoardColumn[];
-  categories: Category[];
+  owners: OrderOwner[];
   customFields: CustomField[];
   designers: Designer[];
   role: Role;
@@ -28,7 +28,7 @@ interface RemovedOrdersManagerProps {
 export function RemovedOrdersManager({
   orders: initialOrders,
   columns,
-  categories,
+  owners,
   customFields,
   designers,
   role,
@@ -142,7 +142,7 @@ export function RemovedOrdersManager({
         open={viewOrderId !== null}
         onClose={() => setViewOrderId(null)}
         customFields={customFields}
-        categories={categories}
+        owners={owners}
         columns={columns}
         designers={designers}
         role={role}
