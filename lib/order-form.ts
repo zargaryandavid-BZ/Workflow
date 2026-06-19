@@ -13,8 +13,8 @@ import {
 export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Product",
   "Product Type",
-  "Finished Size",
   "Materials",
+  "Finished Size",
   "Finishing",
   "Sides",
   "Position",

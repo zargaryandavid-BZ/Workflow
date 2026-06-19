@@ -8,6 +8,7 @@ import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { pruneOrphanedSkuAssets } from "@/lib/sku-assets";
+import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import type { ActivityLog, Order } from "@/lib/types";
 
 export async function GET(
@@ -23,12 +24,7 @@ export async function GET(
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
-  const { data: order } = await supabase
-    .from("orders")
-    .select("*, customer:customers(*), category:categories(id, name, color)")
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
+  const order = await loadOrderWithRelations(supabase, id, tenantId);
   if (!order) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -283,12 +279,7 @@ export async function PATCH(
     metadata: { fields: Object.keys(updates) },
   });
 
-  const { data: order } = await supabase
-    .from("orders")
-    .select("*, customer:customers(*), category:categories(id, name, color)")
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
+  const order = await loadOrderWithRelations(supabase, id, tenantId);
 
   return NextResponse.json({ order });
 }

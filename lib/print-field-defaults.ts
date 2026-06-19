@@ -53,8 +53,6 @@ export const DEFAULT_PRINT_FIELDS: DefaultFieldDef[] = [
     options: ["Sheet", "Roll", "Flat", "Folded"],
     required: true,
   },
-  { name: "Finished Size", field_type: "text", options: [], required: true },
-  { name: "Artwork (GDrive link)", field_type: "text", options: [] },
   {
     name: "Materials",
     field_type: "select",
@@ -105,6 +103,8 @@ export const DEFAULT_PRINT_FIELDS: DefaultFieldDef[] = [
     ],
     required: true,
   },
+  { name: "Finished Size", field_type: "text", options: [], required: true },
+  { name: "Artwork (GDrive link)", field_type: "text", options: [] },
   {
     name: "Finishing",
     field_type: "select",

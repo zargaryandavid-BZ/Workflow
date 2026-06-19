@@ -13,6 +13,7 @@ import {
   thumbnailUrlsByOrder,
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
+import { loadOrdersWithRelations } from "@/lib/orders/load-with-relations";
 import type {
   AutomationRule,
   BoardColumn,
@@ -35,7 +36,6 @@ export default async function BoardPage() {
 
   const [
     columnsRes,
-    ordersRes,
     fieldsRes,
     categoriesRes,
     designerMemberRes,
@@ -44,11 +44,6 @@ export default async function BoardPage() {
     supabase
       .from("board_columns")
       .select("*")
-      .eq("tenant_id", tenantId)
-      .order("position", { ascending: true }),
-    supabase
-      .from("orders")
-      .select("*, customer:customers(*), category:categories(id, name, color)")
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
     supabase
@@ -72,6 +67,8 @@ export default async function BoardPage() {
       .eq("tenant_id", tenantId)
       .eq("trigger", "on_enter_column"),
   ]);
+
+  const orders = await loadOrdersWithRelations(supabase, tenantId);
 
   const boardColumns = (columnsRes.data ?? []) as BoardColumn[];
   const automationRules = (rulesRes.data ?? []) as AutomationRule[];
@@ -114,8 +111,6 @@ export default async function BoardPage() {
       name: nameById.get(id) ?? "Unnamed designer",
     }));
   }
-
-  const orders = (ordersRes.data ?? []) as OrderWithRelations[];
 
   const creatorIds = [
     ...new Set(
