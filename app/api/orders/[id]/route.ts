@@ -160,7 +160,7 @@ export async function PATCH(
     title?: string;
     description?: string | null;
     priority?: string;
-    categoryId?: string | null;
+    ownerId?: string | null;
     dueDate?: string | null;
     specs?: Record<string, unknown>;
     customFieldValues?: { customFieldId: string; value: unknown }[];
@@ -193,7 +193,22 @@ export async function PATCH(
   if (body.title !== undefined) updates.title = body.title;
   if (body.description !== undefined) updates.description = body.description;
   if (body.priority !== undefined) updates.priority = body.priority;
-  if (body.categoryId !== undefined) updates.category_id = body.categoryId || null;
+  if (body.ownerId !== undefined) {
+    if (body.ownerId) {
+      const { data: member } = await supabase
+        .from("memberships")
+        .select("user_id")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", body.ownerId)
+        .maybeSingle();
+      if (!member) {
+        return NextResponse.json({ error: "Invalid owner" }, { status: 400 });
+      }
+      updates.created_by = body.ownerId;
+    } else {
+      updates.created_by = null;
+    }
+  }
   if (body.dueDate !== undefined) updates.due_date = body.dueDate || null;
   if (body.specs !== undefined) {
     const rawSkus = body.specs.skus;

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { OrderFormBody } from "./order-form-body";
+import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { createOrderAction } from "@/lib/actions/create-order";
 import { uploadPendingSkuArtwork } from "@/lib/sku-assets";
@@ -13,16 +13,17 @@ import {
   validateDueDate,
   validateOrderFormFields,
 } from "@/lib/order-form";
-import type { BoardColumn, Category, CustomField, Designer } from "@/lib/types";
+import type { BoardColumn, CustomField, Designer } from "@/lib/types";
 
 interface CreateOrderModalProps {
   open: boolean;
   onClose: () => void;
   columnId: string | null;
   columns: BoardColumn[];
-  categories: Category[];
+  owners: OrderOwner[];
   customFields: CustomField[];
   designers: Designer[];
+  currentUserId: string;
   onCreated: () => void;
 }
 
@@ -31,15 +32,16 @@ export function CreateOrderModal({
   onClose,
   columnId,
   columns,
-  categories,
+  owners,
   customFields,
   designers,
+  currentUserId,
   onCreated,
 }: CreateOrderModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
-  const [categoryId, setCategoryId] = useState("");
+  const [ownerId, setOwnerId] = useState(currentUserId);
   const [dueDate, setDueDate] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
@@ -62,7 +64,7 @@ export function CreateOrderModal({
     setTitle("");
     setDescription("");
     setPriority("normal");
-    setCategoryId("");
+    setOwnerId(currentUserId);
     setDueDate("");
     setCustomerName("");
     setCustomerContact("");
@@ -117,7 +119,7 @@ export function CreateOrderModal({
       title,
       description,
       columnId,
-      categoryId: categoryId || null,
+      ownerId: ownerId || null,
       priority,
       dueDate: dueDate ? dueDate.slice(0, 10) : null,
       specs: {
@@ -173,14 +175,14 @@ export function CreateOrderModal({
         <OrderFormBody
           idPrefix="create"
           customFields={customFields}
-          categories={categories}
+          owners={owners}
           designers={designers}
           title={title}
           onTitleChange={setTitle}
           priority={priority}
           onPriorityChange={setPriority}
-          categoryId={categoryId}
-          onCategoryIdChange={setCategoryId}
+          ownerId={ownerId}
+          onOwnerIdChange={setOwnerId}
           description={description}
           onDescriptionChange={setDescription}
           customerName={customerName}

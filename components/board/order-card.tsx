@@ -17,7 +17,11 @@ import {
   CARD_BADGE_STYLES,
   type CardNotificationBadge,
 } from "@/lib/card-badges";
-import { PRIORITY_STYLES } from "@/lib/constants";
+import {
+  PRIORITY_STYLES,
+  UNASSIGNED_DESIGNER_CARD_CLASS,
+  UNASSIGNED_DESIGNER_TEXT_CLASS,
+} from "@/lib/constants";
 import {
   cardOrderQty,
   cardSkuCount,
@@ -99,6 +103,7 @@ export function OrderCard({
       ? order.specs.designer_name.trim()
       : "") ||
     null;
+  const isDesignerUnassigned = !designerName;
 
   const [copied, setCopied] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -168,7 +173,10 @@ export function OrderCard({
       {...(canDrag ? listeners : {})}
       onClick={() => onOpen(order)}
       className={cn(
-        "group rounded-md border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md",
+        "group rounded-md border shadow-sm transition-shadow hover:shadow-md",
+        isDesignerUnassigned
+          ? UNASSIGNED_DESIGNER_CARD_CLASS
+          : "border-slate-200 bg-white",
         expanded ? "p-2.5" : "p-2",
         canDrag ? "cursor-pointer" : "cursor-default"
       )}
@@ -262,10 +270,22 @@ export function OrderCard({
                 </span>
               ) : null}
               <span
-                className="inline-flex min-w-0 items-center gap-0.5 truncate text-[10px] text-slate-500"
+                className={cn(
+                  "inline-flex min-w-0 items-center gap-0.5 truncate text-[10px]",
+                  isDesignerUnassigned
+                    ? UNASSIGNED_DESIGNER_TEXT_CLASS
+                    : "text-slate-500"
+                )}
                 title="Assigned designer"
               >
-                <User className="h-2.5 w-2.5 shrink-0 text-[var(--primary)]" />
+                <User
+                  className={cn(
+                    "h-2.5 w-2.5 shrink-0",
+                    isDesignerUnassigned
+                      ? "text-amber-600"
+                      : "text-[var(--primary)]"
+                  )}
+                />
                 <span className="truncate">{designerName ?? "Unassigned"}</span>
               </span>
             </div>
@@ -289,8 +309,22 @@ export function OrderCard({
               <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] leading-snug">
                 <div className="min-w-0">
                   <span className="text-slate-400">Assigned: </span>
-                  <span className="inline-flex items-center gap-0.5 font-medium text-slate-700">
-                    <User className="h-2.5 w-2.5 shrink-0 text-[var(--primary)]" />
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-0.5 font-medium",
+                      isDesignerUnassigned
+                        ? UNASSIGNED_DESIGNER_TEXT_CLASS
+                        : "text-slate-700"
+                    )}
+                  >
+                    <User
+                      className={cn(
+                        "h-2.5 w-2.5 shrink-0",
+                        isDesignerUnassigned
+                          ? "text-amber-600"
+                          : "text-[var(--primary)]"
+                      )}
+                    />
                     <span className="truncate">
                       {designerName ?? "Unassigned"}
                     </span>

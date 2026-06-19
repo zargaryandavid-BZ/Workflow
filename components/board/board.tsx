@@ -38,6 +38,7 @@ import type {
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { OrderOwner } from "./order-form-body";
 
 import type { CardNotificationBadge } from "@/lib/card-badges";
 
@@ -48,6 +49,8 @@ interface BoardProps {
   columns: BoardColumn[];
   initialOrders: OrderWithRelations[];
   categories: Category[];
+  owners: OrderOwner[];
+  currentUserId: string;
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string>;
@@ -67,6 +70,8 @@ export function Board({
   columns,
   initialOrders,
   categories,
+  owners,
+  currentUserId,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
@@ -587,9 +592,10 @@ export function Board({
         onClose={() => setCreateColumn(null)}
         columnId={createColumn}
         columns={columns}
-        categories={categories}
+        owners={owners}
         customFields={customFields}
         designers={designers}
+        currentUserId={currentUserId}
         onCreated={() => {
           setCreateColumn(null);
           router.refresh();
@@ -601,7 +607,7 @@ export function Board({
         open={detailId !== null}
         onClose={() => setDetailId(null)}
         customFields={customFields}
-        categories={categories}
+        owners={owners}
         columns={columns}
         designers={designers}
         role={role}

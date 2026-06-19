@@ -56,6 +56,11 @@ export const PRIORITY_STYLES: Record<string, string> = {
   urgent: "bg-red-100 text-red-700",
 };
 
+/** Kanban card styling when no designer is assigned. */
+export const UNASSIGNED_DESIGNER_CARD_CLASS =
+  "border-amber-300 bg-amber-50/90 hover:border-amber-400";
+export const UNASSIGNED_DESIGNER_TEXT_CLASS = "font-medium text-amber-800";
+
 export const COLUMN_ACCENT: Record<ColumnKind, string> = {
   normal: "border-t-slate-400",
   exception: "border-t-amber-500",

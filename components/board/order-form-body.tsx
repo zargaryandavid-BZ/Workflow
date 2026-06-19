@@ -14,19 +14,24 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { dateInputValue, localDateInputValue } from "@/lib/utils";
-import type { Asset, Category, CustomField, Designer, OrderSkuImageWithUrl } from "@/lib/types";
+import type { Asset, CustomField, Designer, OrderSkuImageWithUrl } from "@/lib/types";
+
+export interface OrderOwner {
+  id: string;
+  name: string;
+}
 
 export interface OrderFormBodyProps {
   idPrefix: string;
   customFields: CustomField[];
-  categories: Category[];
+  owners: OrderOwner[];
   designers: Designer[];
   title: string;
   onTitleChange: (value: string) => void;
   priority: string;
   onPriorityChange: (value: string) => void;
-  categoryId: string;
-  onCategoryIdChange: (value: string) => void;
+  ownerId: string;
+  onOwnerIdChange: (value: string) => void;
   description: string;
   onDescriptionChange: (value: string) => void;
   customerName: string;
@@ -60,14 +65,14 @@ export interface OrderFormBodyProps {
 export function OrderFormBody({
   idPrefix,
   customFields,
-  categories,
+  owners,
   designers,
   title,
   onTitleChange,
   priority,
   onPriorityChange,
-  categoryId,
-  onCategoryIdChange,
+  ownerId,
+  onOwnerIdChange,
   description,
   onDescriptionChange,
   customerName,
@@ -235,17 +240,17 @@ export function OrderFormBody({
           </Select>
         </div>
         <div>
-          <Label htmlFor={`${idPrefix}-category`}>Category</Label>
+          <Label htmlFor={`${idPrefix}-owner`}>Owner</Label>
           <Select
-            id={`${idPrefix}-category`}
-            value={categoryId}
+            id={`${idPrefix}-owner`}
+            value={ownerId}
             disabled={readOnly}
-            onChange={(e) => onCategoryIdChange(e.target.value)}
+            onChange={(e) => onOwnerIdChange(e.target.value)}
           >
-            <option value="">— No category —</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
+            <option value="">— Unassigned —</option>
+            {owners.map((owner) => (
+              <option key={owner.id} value={owner.id}>
+                {owner.name}
               </option>
             ))}
           </Select>

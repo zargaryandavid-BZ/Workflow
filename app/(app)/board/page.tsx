@@ -38,7 +38,7 @@ export default async function BoardPage() {
     columnsRes,
     fieldsRes,
     categoriesRes,
-    designerMemberRes,
+    memberRes,
     rulesRes,
   ] = await Promise.all([
     supabase
@@ -58,9 +58,8 @@ export default async function BoardPage() {
       .order("position", { ascending: true }),
     supabase
       .from("memberships")
-      .select("user_id")
-      .eq("tenant_id", tenantId)
-      .eq("role", "designer"),
+      .select("user_id, role")
+      .eq("tenant_id", tenantId),
     supabase
       .from("automation_rules")
       .select("*")
@@ -90,22 +89,30 @@ export default async function BoardPage() {
       };
     });
 
-  // Resolve designer names (no FK between memberships and profiles, so fetch
-  // the profiles separately).
-  const designerIds = ((designerMemberRes.data ?? []) as { user_id: string }[]).map(
-    (m) => m.user_id
-  );
+  const memberRows = (memberRes.data ?? []) as {
+    user_id: string;
+    role: string;
+  }[];
+  const memberIds = [...new Set(memberRows.map((m) => m.user_id))];
+  const designerIds = memberRows
+    .filter((m) => m.role === "designer")
+    .map((m) => m.user_id);
+
   let designers: { id: string; name: string }[] = [];
-  if (designerIds.length > 0) {
+  let owners: { id: string; name: string }[] = [];
+  if (memberIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, full_name")
-      .in("id", designerIds);
+      .in("id", memberIds);
     const nameById = new Map(
       ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
-        (p) => [p.id, p.full_name]
+        (p) => [p.id, p.full_name?.trim() || "Staff member"]
       )
     );
+    owners = memberIds
+      .map((id) => ({ id, name: nameById.get(id) ?? "Staff member" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     designers = designerIds.map((id) => ({
       id,
       name: nameById.get(id) ?? "Unnamed designer",
@@ -220,6 +227,8 @@ export default async function BoardPage() {
       columns={boardColumns}
       initialOrders={orders}
       categories={(categoriesRes.data ?? []) as Category[]}
+      owners={owners}
+      currentUserId={ctx.userId}
       customFields={(fieldsRes.data ?? []) as CustomField[]}
       fieldValuesByOrder={fieldValuesByOrder}
       thumbnailByOrder={thumbnailByOrder}

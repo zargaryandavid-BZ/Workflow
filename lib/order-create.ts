@@ -10,7 +10,7 @@ export type CreateOrderInput = {
   title?: string;
   description?: string;
   columnId?: string | null;
-  categoryId?: string | null;
+  ownerId?: string | null;
   priority?: string;
   dueDate?: string | null;
   specs?: Record<string, unknown>;
@@ -83,6 +83,18 @@ export async function createOrder(
     return { error: "No columns found", status: 400 };
   }
 
+  if (body.ownerId) {
+    const { data: member } = await supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("user_id", body.ownerId)
+      .maybeSingle();
+    if (!member) {
+      return { error: "Invalid owner", status: 400 };
+    }
+  }
+
   const { data: last } = await supabase
     .from("orders")
     .select("position")
@@ -120,7 +132,6 @@ export async function createOrder(
       title: body.title.trim(),
       description: body.description ?? null,
       customer_id: customerId,
-      category_id: body.categoryId || null,
       priority: body.priority ?? "normal",
       due_date: body.dueDate || null,
       specs: {
@@ -128,7 +139,7 @@ export async function createOrder(
         skus: prepareSkusForSave(normalizedSkus),
       },
       position,
-      created_by: ctx.userId,
+      created_by: body.ownerId ?? ctx.userId,
     })
     .select("*")
     .single();

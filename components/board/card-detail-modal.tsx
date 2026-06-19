@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { MissingInfoTab } from "./missing-info-tab";
-import { OrderFormBody } from "./order-form-body";
+import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { mergeSkusWithAssets, normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import {
   deleteAssetsById,
@@ -43,7 +43,6 @@ import type {
   ApprovalNote,
   Asset,
   BoardColumn,
-  Category,
   CustomField,
   CustomFieldValue,
   Designer,
@@ -58,7 +57,7 @@ interface CardDetailModalProps {
   open: boolean;
   onClose: () => void;
   customFields: CustomField[];
-  categories: Category[];
+  owners: OrderOwner[];
   columns: BoardColumn[];
   designers: Designer[];
   role: Role;
@@ -98,7 +97,7 @@ export function CardDetailModal({
   open,
   onClose,
   customFields,
-  categories,
+  owners,
   columns,
   designers,
   role,
@@ -120,7 +119,7 @@ export function CardDetailModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
-  const [categoryId, setCategoryId] = useState("");
+  const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
@@ -158,7 +157,7 @@ export function CardDetailModal({
       setTitle(json.order.title);
       setDescription(json.order.description ?? "");
       setPriority(json.order.priority);
-      setCategoryId(json.order.category_id ?? "");
+      setOwnerId(json.order.created_by ?? "");
       setDueDate(dateInputValue(json.order.due_date));
       setSkus(mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets));
       setDesignerId((json.order.specs?.designer_id as string) ?? "");
@@ -254,7 +253,7 @@ export function CardDetailModal({
         title,
         description,
         priority,
-        categoryId: categoryId || null,
+        ownerId: ownerId || null,
         dueDate: dateInputValue(dueDate) || null,
         specs: {
           ...(data?.order.specs ?? {}),
@@ -602,14 +601,14 @@ export function CardDetailModal({
             <OrderFormBody
               idPrefix="edit"
               customFields={customFields}
-              categories={categories}
+              owners={owners}
               designers={designers}
               title={title}
               onTitleChange={setTitle}
               priority={priority}
               onPriorityChange={setPriority}
-              categoryId={categoryId}
-              onCategoryIdChange={setCategoryId}
+              ownerId={ownerId}
+              onOwnerIdChange={setOwnerId}
               description={description}
               onDescriptionChange={setDescription}
               customerName={customerName}
