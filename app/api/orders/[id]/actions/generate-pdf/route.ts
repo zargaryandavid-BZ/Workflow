@@ -44,7 +44,16 @@ export async function POST(
     return NextResponse.json({ error: buttonError }, { status: 400 });
   }
 
-  const pdfBuffer = await generateJobTicketPdf(exportData);
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = await generateJobTicketPdf(exportData);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to generate PDF";
+    console.error("[generate-pdf]", err);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+
   const safeName = exportData.orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_");
 
   return new NextResponse(new Uint8Array(pdfBuffer), {

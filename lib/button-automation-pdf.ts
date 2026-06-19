@@ -1,7 +1,10 @@
 import "server-only";
 
-import PDFDocument from "pdfkit";
+import { createRequire } from "node:module";
 import type { OrderExportData } from "@/lib/button-automation-order-data";
+
+const require = createRequire(import.meta.url);
+const PDFDocument = require("pdfkit") as typeof import("pdfkit");
 
 function yesNo(value: string): string {
   const lower = value.toLowerCase();

@@ -113,12 +113,18 @@ export function Board({
   useEffect(() => {
     if (
       initialOrderId &&
-      orders.some((o) => o.id === initialOrderId) &&
-      detailId !== initialOrderId
+      orders.some((o) => o.id === initialOrderId)
     ) {
       setDetailId(initialOrderId);
     }
-  }, [initialOrderId, orders, detailId]);
+  }, [initialOrderId, orders]);
+
+  function closeOrderDetail() {
+    setDetailId(null);
+    if (initialOrderId) {
+      router.replace("/board", { scroll: false });
+    }
+  }
 
   function flashToast(message: string) {
     setToast(message);
@@ -612,7 +618,7 @@ export function Board({
       <CardDetailModal
         orderId={detailId}
         open={detailId !== null}
-        onClose={() => setDetailId(null)}
+        onClose={closeOrderDetail}
         customFields={customFields}
         owners={owners}
         columns={columns}
