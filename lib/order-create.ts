@@ -10,6 +10,7 @@ export type CreateOrderInput = {
   title?: string;
   description?: string;
   columnId?: string | null;
+  categoryId?: string | null;
   priority?: string;
   dueDate?: string | null;
   specs?: Record<string, unknown>;
@@ -119,6 +120,7 @@ export async function createOrder(
       title: body.title.trim(),
       description: body.description ?? null,
       customer_id: customerId,
+      category_id: body.categoryId || null,
       priority: body.priority ?? "normal",
       due_date: body.dueDate || null,
       specs: {

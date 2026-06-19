@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   ListChecks,
   Plug,
+  Tag,
   Workflow,
   UserCog,
   Columns3,
@@ -31,6 +32,12 @@ const nav = [
     href: "/settings/fields",
     label: "Custom Fields",
     icon: ListChecks,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/categories",
+    label: "Categories",
+    icon: Tag,
     adminOnly: true,
   },
   {

@@ -13,13 +13,14 @@ import {
   validateDueDate,
   validateOrderFormFields,
 } from "@/lib/order-form";
-import type { BoardColumn, CustomField, Designer } from "@/lib/types";
+import type { BoardColumn, Category, CustomField, Designer } from "@/lib/types";
 
 interface CreateOrderModalProps {
   open: boolean;
   onClose: () => void;
   columnId: string | null;
   columns: BoardColumn[];
+  categories: Category[];
   customFields: CustomField[];
   designers: Designer[];
   onCreated: () => void;
@@ -30,6 +31,7 @@ export function CreateOrderModal({
   onClose,
   columnId,
   columns,
+  categories,
   customFields,
   designers,
   onCreated,
@@ -37,6 +39,7 @@ export function CreateOrderModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
+  const [categoryId, setCategoryId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
@@ -59,6 +62,7 @@ export function CreateOrderModal({
     setTitle("");
     setDescription("");
     setPriority("normal");
+    setCategoryId("");
     setDueDate("");
     setCustomerName("");
     setCustomerContact("");
@@ -113,6 +117,7 @@ export function CreateOrderModal({
       title,
       description,
       columnId,
+      categoryId: categoryId || null,
       priority,
       dueDate: dueDate ? dueDate.slice(0, 10) : null,
       specs: {
@@ -168,11 +173,14 @@ export function CreateOrderModal({
         <OrderFormBody
           idPrefix="create"
           customFields={customFields}
+          categories={categories}
           designers={designers}
           title={title}
           onTitleChange={setTitle}
           priority={priority}
           onPriorityChange={setPriority}
+          categoryId={categoryId}
+          onCategoryIdChange={setCategoryId}
           description={description}
           onDescriptionChange={setDescription}
           customerName={customerName}

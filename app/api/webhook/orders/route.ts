@@ -56,6 +56,8 @@ export async function POST(request: Request) {
         success: true,
         order_number: result.orderNumber,
         jobs: result.jobs,
+        ...(result.ownerId ? { owner_id: result.ownerId } : {}),
+        ...(result.ownerName ? { owner_name: result.ownerName } : {}),
         ...(result.warning ? { warning: result.warning } : {}),
       });
     }
@@ -64,6 +66,8 @@ export async function POST(request: Request) {
       success: true,
       order_id: result.orderId,
       order_number: result.orderNumber,
+      ...(result.ownerId ? { owner_id: result.ownerId } : {}),
+      ...(result.ownerName ? { owner_name: result.ownerName } : {}),
       ...(result.warning ? { warning: result.warning } : {}),
     });
   } catch (err) {

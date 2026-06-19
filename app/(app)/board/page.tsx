@@ -16,6 +16,7 @@ import {
 import type {
   AutomationRule,
   BoardColumn,
+  Category,
   CustomField,
   CustomerResponse,
   NotificationChannel,
@@ -36,6 +37,7 @@ export default async function BoardPage() {
     columnsRes,
     ordersRes,
     fieldsRes,
+    categoriesRes,
     designerMemberRes,
     rulesRes,
   ] = await Promise.all([
@@ -46,11 +48,16 @@ export default async function BoardPage() {
       .order("position", { ascending: true }),
     supabase
       .from("orders")
-      .select("*, customer:customers(*)")
+      .select("*, customer:customers(*), category:categories(id, name, color)")
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
     supabase
       .from("custom_fields")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("categories")
       .select("*")
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
@@ -217,6 +224,7 @@ export default async function BoardPage() {
       role={ctx.role}
       columns={boardColumns}
       initialOrders={orders}
+      categories={(categoriesRes.data ?? []) as Category[]}
       customFields={(fieldsRes.data ?? []) as CustomField[]}
       fieldValuesByOrder={fieldValuesByOrder}
       thumbnailByOrder={thumbnailByOrder}

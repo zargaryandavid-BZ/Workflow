@@ -14,16 +14,19 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { dateInputValue, localDateInputValue } from "@/lib/utils";
-import type { Asset, CustomField, Designer } from "@/lib/types";
+import type { Asset, Category, CustomField, Designer } from "@/lib/types";
 
 export interface OrderFormBodyProps {
   idPrefix: string;
   customFields: CustomField[];
+  categories: Category[];
   designers: Designer[];
   title: string;
   onTitleChange: (value: string) => void;
   priority: string;
   onPriorityChange: (value: string) => void;
+  categoryId: string;
+  onCategoryIdChange: (value: string) => void;
   description: string;
   onDescriptionChange: (value: string) => void;
   customerName: string;
@@ -56,11 +59,14 @@ export interface OrderFormBodyProps {
 export function OrderFormBody({
   idPrefix,
   customFields,
+  categories,
   designers,
   title,
   onTitleChange,
   priority,
   onPriorityChange,
+  categoryId,
+  onCategoryIdChange,
   description,
   onDescriptionChange,
   customerName,
@@ -196,7 +202,7 @@ export function OrderFormBody({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <Label htmlFor={`${idPrefix}-title`}>
             Order Number<span className="ml-0.5 text-red-500">*</span>
@@ -222,6 +228,22 @@ export function OrderFormBody({
             {PRIORITY_OPTIONS.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}-category`}>Category</Label>
+          <Select
+            id={`${idPrefix}-category`}
+            value={categoryId}
+            disabled={readOnly}
+            onChange={(e) => onCategoryIdChange(e.target.value)}
+          >
+            <option value="">— No category —</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
               </option>
             ))}
           </Select>

@@ -28,7 +28,7 @@ import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 interface OrderCardProps {
@@ -209,10 +209,10 @@ export function OrderCard({
                 {order.due_date ? (
                   <span
                     className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-slate-500"
-                    title="Due date"
+                    title={`Due ${formatDate(order.due_date)}`}
                   >
                     <CalendarClock className="h-2.5 w-2.5" />
-                    {formatDate(order.due_date)}
+                    {formatDateShort(order.due_date)}
                   </span>
                 ) : null}
               </div>
@@ -243,6 +243,14 @@ export function OrderCard({
           {/* Footer — always visible */}
           <div className="mt-1 flex items-center justify-between gap-1.5">
             <div className="flex min-w-0 items-center gap-1.5 truncate">
+              {order.category ? (
+                <span
+                  className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                  style={{ backgroundColor: order.category.color }}
+                >
+                  {order.category.name}
+                </span>
+              ) : null}
               {notificationBadge ? (
                 <span
                   className={cn(

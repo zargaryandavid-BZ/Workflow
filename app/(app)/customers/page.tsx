@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { CustomersManager } from "./customers-manager";
 import type {
   BoardColumn,
+  Category,
   Customer,
   CustomerOrderSummary,
   CustomerWithStats,
@@ -22,6 +23,7 @@ export default async function CustomersPage() {
     { data: orders },
     { data: columns },
     { data: customFields },
+    { data: categories },
     { data: designerMembers },
   ] = await Promise.all([
     supabase
@@ -42,6 +44,11 @@ export default async function CustomersPage() {
       .order("position", { ascending: true }),
     supabase
       .from("custom_fields")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("categories")
       .select("*")
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
@@ -131,12 +138,16 @@ export default async function CustomersPage() {
           {customersWithStats.length === 1
             ? "1 customer"
             : `${customersWithStats.length} customers`}
-          . Customers are added automatically when orders are created.
+          .
+          {ctx.role === "admin"
+            ? " Admins can edit customer details from the customer panel."
+            : " Customers are added automatically when orders are created."}
         </p>
         <CustomersManager
           customers={customersWithStats}
           ordersByCustomer={ordersByCustomer}
           customFields={(customFields ?? []) as CustomField[]}
+          categories={(categories ?? []) as Category[]}
           columns={(columns ?? []) as BoardColumn[]}
           designers={designers}
           role={ctx.role}

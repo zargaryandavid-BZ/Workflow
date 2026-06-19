@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity } from "@/lib/automation";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
+import { findAuthUserByEmail } from "@/lib/team-members";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
@@ -74,6 +75,8 @@ export interface WebhookItem {
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
+  category?: string;
+  category_name?: string;
   skus?: WebhookSkuPayload[];
 }
 
@@ -85,6 +88,14 @@ export interface WebhookOrderPayload {
   title?: string;
   priority?: string;
   due_date?: string | null;
+  /** Team member email — sets card Owner (`created_by`). */
+  owner_email?: string;
+  /** Team member user UUID — sets card Owner (`created_by`). */
+  owner_id?: string;
+  /** Email, UUID, or display name — sets card Owner when matched. */
+  owner?: string;
+  category?: string;
+  category_name?: string;
   product?: string;
   product_type?: string;
   finished_size?: string;
@@ -521,6 +532,186 @@ async function insertCustomFieldValues(
   return null;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function tenantMemberIds(
+  client: Client,
+  tenantId: string
+): Promise<string[]> {
+  const { data } = await client
+    .from("memberships")
+    .select("user_id")
+    .eq("tenant_id", tenantId);
+  return (data ?? []).map((row) => row.user_id as string);
+}
+
+async function isTenantMember(
+  client: Client,
+  tenantId: string,
+  userId: string
+): Promise<boolean> {
+  const { data } = await client
+    .from("memberships")
+    .select("user_id")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return Boolean(data);
+}
+
+async function profileName(
+  client: Client,
+  userId: string
+): Promise<string | null> {
+  const { data } = await client
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  const name = (data as { full_name: string | null } | null)?.full_name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+async function resolveOwnerByDisplayName(
+  client: Client,
+  tenantId: string,
+  name: string
+): Promise<{ userId: string; ownerName: string } | null> {
+  const memberIds = await tenantMemberIds(client, tenantId);
+  if (memberIds.length === 0) return null;
+
+  const { data: profiles } = await client
+    .from("profiles")
+    .select("id, full_name")
+    .in("id", memberIds);
+
+  const normalized = name.trim().toLowerCase();
+  const rows = (profiles ?? []) as { id: string; full_name: string | null }[];
+
+  const exact = rows.find(
+    (p) => p.full_name?.trim().toLowerCase() === normalized
+  );
+  if (exact) {
+    return {
+      userId: exact.id,
+      ownerName: exact.full_name?.trim() ?? name.trim(),
+    };
+  }
+
+  const partial = rows.filter(
+    (p) =>
+      p.full_name?.trim() &&
+      p.full_name.trim().toLowerCase().includes(normalized)
+  );
+  if (partial.length === 1) {
+    return {
+      userId: partial[0].id,
+      ownerName: partial[0].full_name?.trim() ?? name.trim(),
+    };
+  }
+
+  return null;
+}
+
+export async function resolveWebhookOwner(
+  client: Client,
+  tenantId: string,
+  body: WebhookOrderPayload
+): Promise<{
+  ownerId: string | null;
+  ownerName: string | null;
+  warning?: string;
+}> {
+  const ownerIdRaw =
+    typeof body.owner_id === "string" ? body.owner_id.trim() : "";
+  const ownerEmailRaw =
+    typeof body.owner_email === "string" ? body.owner_email.trim() : "";
+  const ownerRaw = typeof body.owner === "string" ? body.owner.trim() : "";
+
+  if (!ownerIdRaw && !ownerEmailRaw && !ownerRaw) {
+    return { ownerId: null, ownerName: null };
+  }
+
+  if (ownerIdRaw) {
+    if (!UUID_RE.test(ownerIdRaw)) {
+      throw new WebhookValidationError("Invalid owner_id: must be a UUID");
+    }
+    if (!(await isTenantMember(client, tenantId, ownerIdRaw))) {
+      throw new WebhookValidationError(
+        "Unknown owner_id: not a member of this workspace"
+      );
+    }
+    return {
+      ownerId: ownerIdRaw,
+      ownerName: (await profileName(client, ownerIdRaw)) ?? null,
+    };
+  }
+
+  const email = (ownerEmailRaw || (ownerRaw.includes("@") ? ownerRaw : ""))
+    .trim()
+    .toLowerCase();
+  if (email) {
+    const user = await findAuthUserByEmail(
+      client as Parameters<typeof findAuthUserByEmail>[0],
+      email
+    );
+    if (!user) {
+      throw new WebhookValidationError(
+        `Unknown owner_email: no user with email ${email}`
+      );
+    }
+    if (!(await isTenantMember(client, tenantId, user.id))) {
+      throw new WebhookValidationError(
+        "owner_email is not a member of this workspace"
+      );
+    }
+    return {
+      ownerId: user.id,
+      ownerName: (await profileName(client, user.id)) ?? user.email ?? null,
+    };
+  }
+
+  const generic = ownerRaw;
+  if (UUID_RE.test(generic)) {
+    if (!(await isTenantMember(client, tenantId, generic))) {
+      throw new WebhookValidationError(
+        "Unknown owner: not a member of this workspace"
+      );
+    }
+    return {
+      ownerId: generic,
+      ownerName: (await profileName(client, generic)) ?? null,
+    };
+  }
+
+  const byName = await resolveOwnerByDisplayName(client, tenantId, generic);
+  if (byName) {
+    return { ownerId: byName.userId, ownerName: byName.ownerName };
+  }
+
+  return {
+    ownerId: null,
+    ownerName: null,
+    warning: `Owner "${generic}" not found — order created without owner`,
+  };
+}
+
+async function resolveCategoryId(
+  client: Client,
+  tenantId: string,
+  name: string | undefined | null
+): Promise<string | null> {
+  if (typeof name !== "string" || !name.trim()) return null;
+  const { data: cat } = await client
+    .from("categories")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .ilike("name", name.trim())
+    .maybeSingle();
+  return (cat as { id: string } | null)?.id ?? null;
+}
+
 export interface WebhookCreatedJob {
   order_id: string;
   item_index: number;
@@ -531,6 +722,8 @@ export interface WebhookOrderResult {
   isMultiItem: false;
   orderId: string;
   orderNumber: string;
+  ownerId: string | null;
+  ownerName: string | null;
   warning?: string;
 }
 
@@ -538,6 +731,8 @@ export interface WebhookMultiOrderResult {
   isMultiItem: true;
   orderNumber: string;
   jobs: WebhookCreatedJob[];
+  ownerId: string | null;
+  ownerName: string | null;
   warning?: string;
 }
 
@@ -562,6 +757,8 @@ interface CreateSingleJobParams {
   webhookOrderNumber: string;
   itemIndex: number;
   totalItems: number;
+  categoryId: string | null;
+  ownerId: string | null;
 }
 
 async function createSingleWebhookJob(
@@ -586,6 +783,8 @@ async function createSingleWebhookJob(
     webhookOrderNumber,
     itemIndex,
     totalItems,
+    categoryId,
+    ownerId,
   } = params;
 
   const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(item.skus);
@@ -618,11 +817,12 @@ async function createSingleWebhookJob(
       title: cardTitle,
       description: description || null,
       customer_id: customerId,
+      category_id: categoryId,
       priority,
       due_date: dueDate,
       specs,
       position,
-      created_by: null,
+      created_by: ownerId,
     })
     .select("id, title")
     .single();
@@ -681,7 +881,7 @@ async function createSingleWebhookJob(
     await logActivity(client, {
       tenantId,
       orderId,
-      actor: null,
+      actor: ownerId,
       action: "created",
       metadata: {
         source: "webhook",
@@ -777,12 +977,31 @@ export async function createOrderFromWebhook(
   const createdJobs: WebhookCreatedJob[] = [];
   const allWarnings: string[] = [];
 
+  const {
+    ownerId,
+    ownerName,
+    warning: ownerWarning,
+  } = await resolveWebhookOwner(client, tenantId, body);
+  if (ownerWarning) allWarnings.push(ownerWarning);
+
+  const orderCategoryName = body.category ?? body.category_name;
+  const defaultCategoryId = await resolveCategoryId(
+    client,
+    tenantId,
+    orderCategoryName
+  );
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const jobTitle = resolveItemTitle(item, orderLevelTitle, i, items.length);
     const cardTitle = isMultiItem
       ? `${baseOrderNumber}-${i + 1}`
       : baseOrderNumber;
+
+    const itemCategoryName = item.category ?? item.category_name;
+    const categoryId = itemCategoryName
+      ? await resolveCategoryId(client, tenantId, itemCategoryName)
+      : defaultCategoryId;
 
     const result = await createSingleWebhookJob({
       client,
@@ -803,6 +1022,8 @@ export async function createOrderFromWebhook(
       webhookOrderNumber: baseOrderNumber,
       itemIndex: i,
       totalItems: items.length,
+      categoryId,
+      ownerId,
     });
 
     nextPosition += 1000;
@@ -822,6 +1043,8 @@ export async function createOrderFromWebhook(
       isMultiItem: true,
       orderNumber: baseOrderNumber,
       jobs: createdJobs,
+      ownerId,
+      ownerName,
       warning,
     };
   }
@@ -830,6 +1053,8 @@ export async function createOrderFromWebhook(
     isMultiItem: false,
     orderId: createdJobs[0].order_id,
     orderNumber: baseOrderNumber,
+    ownerId,
+    ownerName,
     warning,
   };
 }

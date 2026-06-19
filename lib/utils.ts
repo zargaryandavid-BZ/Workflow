@@ -21,6 +21,18 @@ export function formatDate(value?: string | null) {
   });
 }
 
+/** Month + day only — used on compact board cards to save horizontal space. */
+export function formatDateShort(value?: string | null) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export function formatDateTime(value?: string | null) {
   if (!value) return "";
   const d = new Date(value);

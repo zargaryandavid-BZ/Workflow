@@ -74,6 +74,17 @@ export interface BoardColumn {
   drop_out_roles: Role[] | null;
 }
 
+export interface Category {
+  id: string;
+  tenant_id: string;
+  name: string;
+  color: string;
+  description: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Customer {
   id: string;
   tenant_id: string;
@@ -112,6 +123,7 @@ export interface Order {
   tenant_id: string;
   column_id: string;
   customer_id: string | null;
+  category_id: string | null;
   title: string;
   description: string | null;
   specs: OrderSpecs;
@@ -239,8 +251,15 @@ export interface ActivityLog {
   created_at: string;
 }
 
+export interface OrderCategorySummary {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface OrderWithRelations extends Order {
   customer: Customer | null;
+  category?: OrderCategorySummary | null;
 }
 
 export interface Designer {

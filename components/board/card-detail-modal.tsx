@@ -43,6 +43,7 @@ import type {
   ApprovalNote,
   Asset,
   BoardColumn,
+  Category,
   CustomField,
   CustomFieldValue,
   Designer,
@@ -56,6 +57,7 @@ interface CardDetailModalProps {
   open: boolean;
   onClose: () => void;
   customFields: CustomField[];
+  categories: Category[];
   columns: BoardColumn[];
   designers: Designer[];
   role: Role;
@@ -94,6 +96,7 @@ export function CardDetailModal({
   open,
   onClose,
   customFields,
+  categories,
   columns,
   designers,
   role,
@@ -115,6 +118,7 @@ export function CardDetailModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
+  const [categoryId, setCategoryId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
@@ -149,6 +153,7 @@ export function CardDetailModal({
       setTitle(json.order.title);
       setDescription(json.order.description ?? "");
       setPriority(json.order.priority);
+      setCategoryId(json.order.category_id ?? "");
       setDueDate(dateInputValue(json.order.due_date));
       setSkus(mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets));
       setDesignerId((json.order.specs?.designer_id as string) ?? "");
@@ -244,6 +249,7 @@ export function CardDetailModal({
         title,
         description,
         priority,
+        categoryId: categoryId || null,
         dueDate: dateInputValue(dueDate) || null,
         specs: {
           ...(data?.order.specs ?? {}),
@@ -559,11 +565,14 @@ export function CardDetailModal({
             <OrderFormBody
               idPrefix="edit"
               customFields={customFields}
+              categories={categories}
               designers={designers}
               title={title}
               onTitleChange={setTitle}
               priority={priority}
               onPriorityChange={setPriority}
+              categoryId={categoryId}
+              onCategoryIdChange={setCategoryId}
               description={description}
               onDescriptionChange={setDescription}
               customerName={customerName}

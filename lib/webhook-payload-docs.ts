@@ -48,6 +48,7 @@ export function buildWebhookPayloadDocs(
   "title": "Acme Corp — Mixed Print Order",
   "priority": "normal",
   "due_date": "${due}",
+  "owner_email": "designer@example.com",
   "items": [
     {
       "title": "Roll Labels",
@@ -114,6 +115,9 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
 | \`due_date\` | ✅ | string | \`"YYYY-MM-DD"\` — must be today or a future date |
 | \`description\` | No | string | Order-level notes visible on all cards |
+| \`owner_email\` | No | string | Team member email — sets **Owner** on every card (\`created_by\`) |
+| \`owner_id\` | No | string | Team member UUID — same as \`owner_email\` |
+| \`owner\` | No | string | Email, UUID, or display name — same as \`owner_email\` (name match is fuzzy) |
 | \`items\` | No | array | Omit for legacy single-item flat format |
 
 ---
@@ -205,6 +209,8 @@ ${optionsBlock(positions)}
 {
   "success": true,
   "order_number": "ORD-${year}-001",
+  "owner_id": "uuid",
+  "owner_name": "Jane Doe",
   "jobs": [
     { "order_id": "uuid-1", "item_index": 0, "title": "Roll Labels" },
     { "order_id": "uuid-2", "item_index": 1, "title": "Business Cards" }
@@ -217,7 +223,9 @@ ${optionsBlock(positions)}
 {
   "success": true,
   "order_id": "uuid",
-  "order_number": "ORD-${year}-001"
+  "order_number": "ORD-${year}-001",
+  "owner_id": "uuid",
+  "owner_name": "Jane Doe"
 }
 \`\`\`
 
@@ -237,6 +245,8 @@ Optional \`warning\` string when artwork or custom fields partially fail to save
 | 422 | \`Missing required field: due_date\` | \`due_date\` absent |
 | 422 | \`Due date cannot be in the past.\` | Past \`due_date\` |
 | 422 | \`items array must not be empty\` | \`items: []\` sent |
+| 422 | \`Unknown owner_email: no user with email …\` | Email not found in auth |
+| 422 | \`owner_email is not a member of this workspace\` | User exists but not on this team |
 | 500 | \`Server error\` | Server-side failure |
 
 ---
@@ -246,6 +256,7 @@ Optional \`warning\` string when artwork or custom fields partially fail to save
 - If \`materials\`, \`finishing\`, \`product\`, \`product_type\`, \`sides\`, or \`color\` don't match dropdown options, the field may be **blank** on the card — the order is still created.
 - \`customer_contact\` and \`customer_phone\` — at least one valid email or phone is required. Existing customers are reused (no duplicate).
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
-- **Not set via webhook:** Designer assignment, Artwork GDrive link custom field — staff fill these in the app.
+- **Owner** (\`owner_email\`, \`owner_id\`, or \`owner\`) must match a team member in this workspace. Display-name matches that are ambiguous are skipped (order still created; see \`warning\`).
+- **Not set via webhook:** Assigned designer (\`specs.designer_id\`), Artwork GDrive link custom field — staff fill these in the app.
 - Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.`;
 }

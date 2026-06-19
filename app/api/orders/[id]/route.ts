@@ -25,7 +25,7 @@ export async function GET(
 
   const { data: order } = await supabase
     .from("orders")
-    .select("*, customer:customers(*)")
+    .select("*, customer:customers(*), category:categories(id, name, color)")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -150,6 +150,7 @@ export async function PATCH(
     title?: string;
     description?: string | null;
     priority?: string;
+    categoryId?: string | null;
     dueDate?: string | null;
     specs?: Record<string, unknown>;
     customFieldValues?: { customFieldId: string; value: unknown }[];
@@ -182,6 +183,7 @@ export async function PATCH(
   if (body.title !== undefined) updates.title = body.title;
   if (body.description !== undefined) updates.description = body.description;
   if (body.priority !== undefined) updates.priority = body.priority;
+  if (body.categoryId !== undefined) updates.category_id = body.categoryId || null;
   if (body.dueDate !== undefined) updates.due_date = body.dueDate || null;
   if (body.specs !== undefined) {
     const rawSkus = body.specs.skus;
@@ -283,7 +285,7 @@ export async function PATCH(
 
   const { data: order } = await supabase
     .from("orders")
-    .select("*, customer:customers(*)")
+    .select("*, customer:customers(*), category:categories(id, name, color)")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();

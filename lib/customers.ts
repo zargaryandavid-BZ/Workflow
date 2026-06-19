@@ -537,3 +537,132 @@ export async function syncCustomerFromNotification(
 
   return customerId;
 }
+
+export interface AdminCustomerUpdateInput {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  company?: string | null;
+}
+
+export function validateAdminCustomerUpdate(
+  input: AdminCustomerUpdateInput
+): string | null {
+  if (!input.name.trim()) return "Customer name is required";
+
+  const email = normalizeEmail(input.email);
+  const phone = normalizePhone(input.phone);
+  if (!email && !phone) return "Email or phone is required";
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return "Invalid email address";
+  }
+
+  return null;
+}
+
+async function syncOrdersCustomerFields(
+  client: Client,
+  tenantId: string,
+  customerId: string,
+  name: string,
+  email: string | null,
+  phone: string | null
+): Promise<void> {
+  const fieldIds = await resolveCustomerFieldIds(client, tenantId);
+  if (!fieldIds.nameId && !fieldIds.contactId) return;
+
+  const contact = email ?? phone;
+  if (!contact) return;
+
+  const { data: orders, error: ordersError } = await client
+    .from("orders")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("customer_id", customerId);
+  if (ordersError) throw new Error(ordersError.message);
+
+  const rows: {
+    order_id: string;
+    custom_field_id: string;
+    value: unknown;
+  }[] = [];
+
+  for (const order of (orders ?? []) as { id: string }[]) {
+    if (fieldIds.nameId) {
+      rows.push({
+        order_id: order.id,
+        custom_field_id: fieldIds.nameId,
+        value: name,
+      });
+    }
+    if (fieldIds.contactId) {
+      rows.push({
+        order_id: order.id,
+        custom_field_id: fieldIds.contactId,
+        value: contact,
+      });
+    }
+  }
+
+  if (rows.length === 0) return;
+
+  const { error } = await client
+    .from("custom_field_values")
+    .upsert(rows, { onConflict: "order_id,custom_field_id" });
+  if (error) throw new Error(error.message);
+}
+
+/** Admin edit — full replace of name/email/phone/company on customers + linked orders. */
+export async function updateCustomerByAdmin(
+  client: Client,
+  tenantId: string,
+  customerId: string,
+  input: AdminCustomerUpdateInput
+): Promise<Customer> {
+  const validationError = validateAdminCustomerUpdate(input);
+  if (validationError) throw new Error(validationError);
+
+  const existing = await loadCustomerById(client, customerId);
+  if (!existing || existing.tenant_id !== tenantId) {
+    throw new Error("Customer not found");
+  }
+
+  const email = normalizeEmail(input.email);
+  const phone = normalizePhone(input.phone);
+  const name = input.name.trim();
+  const company = input.company?.trim() || null;
+
+  if (email) {
+    const emailMatch = await findCustomerByEmail(client, tenantId, email);
+    if (emailMatch && emailMatch.id !== customerId) {
+      throw new Error("Another customer already uses this email");
+    }
+  }
+
+  if (phone) {
+    const phoneMatch = await findCustomerByPhone(client, tenantId, phone);
+    if (phoneMatch && phoneMatch.id !== customerId) {
+      throw new Error("Another customer already uses this phone number");
+    }
+  }
+
+  const { data: updated, error } = await client
+    .from("customers")
+    .update({ name, email, phone, company })
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .select(CUSTOMER_SELECT)
+    .single();
+
+  if (error || !updated) {
+    if (isUniqueViolation(error)) {
+      throw new Error("Email or phone is already used by another customer");
+    }
+    throw new Error(error?.message ?? "Failed to update customer");
+  }
+
+  await syncOrdersCustomerFields(client, tenantId, customerId, name, email, phone);
+
+  return updated as Customer;
+}

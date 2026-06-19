@@ -32,6 +32,7 @@ import {
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type {
   BoardColumn,
+  Category,
   CustomField,
   Designer,
   OrderWithRelations,
@@ -46,6 +47,7 @@ interface BoardProps {
   role: Role;
   columns: BoardColumn[];
   initialOrders: OrderWithRelations[];
+  categories: Category[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string>;
@@ -64,6 +66,7 @@ export function Board({
   role,
   columns,
   initialOrders,
+  categories,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
@@ -89,6 +92,7 @@ export function Board({
   } | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
     missingFields: MissingField[];
@@ -115,7 +119,7 @@ export function Board({
   const signature = useMemo(
     () =>
       initialOrders
-        .map((o) => `${o.id}:${o.column_id}:${o.position}:${o.updated_at}`)
+        .map((o) => `${o.id}:${o.column_id}:${o.position}:${o.updated_at}:${o.category_id ?? ""}`)
         .join("|"),
     [initialOrders]
   );
@@ -254,7 +258,8 @@ export function Board({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const filtersActive = orderQuery.trim() !== "" || personFilter !== "";
+  const filtersActive =
+    orderQuery.trim() !== "" || personFilter !== "" || categoryFilter !== "";
 
   const filteredOrders = useMemo(() => {
     const q = orderQuery.trim().toLowerCase();
@@ -264,9 +269,10 @@ export function Board({
         const designerId = (o.specs?.designer_id as string | undefined) ?? "";
         if (designerId !== personFilter) return false;
       }
+      if (categoryFilter && o.category_id !== categoryFilter) return false;
       return true;
     });
-  }, [orders, orderQuery, personFilter]);
+  }, [orders, orderQuery, personFilter, categoryFilter]);
 
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
@@ -472,12 +478,26 @@ export function Board({
               </option>
             ))}
           </Select>
+          <Select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="h-9 min-w-[8rem] max-w-[12rem] flex-1 truncate sm:w-44 sm:flex-none text-sm"
+            aria-label="Filter by category"
+          >
+            <option value="">All categories</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </Select>
           {filtersActive ? (
             <button
               type="button"
               onClick={() => {
                 setOrderQuery("");
                 setPersonFilter("");
+                setCategoryFilter("");
               }}
               className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-sm text-slate-600 hover:bg-slate-50"
             >
@@ -553,6 +573,7 @@ export function Board({
         onClose={() => setCreateColumn(null)}
         columnId={createColumn}
         columns={columns}
+        categories={categories}
         customFields={customFields}
         designers={designers}
         onCreated={() => {
@@ -566,6 +587,7 @@ export function Board({
         open={detailId !== null}
         onClose={() => setDetailId(null)}
         customFields={customFields}
+        categories={categories}
         columns={columns}
         designers={designers}
         role={role}
