@@ -33,11 +33,7 @@ interface NotificationRow {
 }
 
 function productFromFields(fields: Record<string, unknown>): string {
-  const product =
-    fields["Product"] ??
-    fields["Product Type"] ??
-    fields["product"] ??
-    fields["product type"];
+  const product = fields["Product"] ?? fields["product"];
   return product ? String(product) : "order";
 }
 

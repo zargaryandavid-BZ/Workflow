@@ -15,7 +15,11 @@ import {
   pruneOrphanedSkuImages,
 } from "@/lib/sku-images";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
-import type { ActivityLog, Order } from "@/lib/types";
+import {
+  filterValidCustomFieldValues,
+  staleCustomFieldsMessage,
+} from "@/lib/custom-field-values.server";
+import type { ActivityLog, CustomField, Order } from "@/lib/types";
 
 export async function GET(
   _request: Request,
@@ -135,11 +139,18 @@ export async function GET(
     skuImages = [];
   }
 
+  const { data: customFields } = await supabase
+    .from("custom_fields")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+
   return NextResponse.json({
     order,
     assets: assets ?? [],
     skuImages,
     values: values ?? [],
+    customFields: (customFields ?? []) as CustomField[],
     activity: enrichedActivity,
     approvals: approvals ?? [],
     missingInfo,
@@ -254,11 +265,23 @@ export async function PATCH(
   }
 
   if (body.customFieldValues && body.customFieldValues.length > 0) {
+    const { valid, invalidIds } = await filterValidCustomFieldValues(
+      supabase,
+      tenantId,
+      body.customFieldValues
+    );
+    if (invalidIds.length > 0) {
+      return NextResponse.json(
+        { error: staleCustomFieldsMessage(invalidIds) },
+        { status: 400 }
+      );
+    }
+
     try {
       const customerId = await linkCustomerFromOrderFields(
         supabase,
         ctx.tenant.id,
-        body.customFieldValues,
+        valid,
         (existingOrder as { customer_id?: string | null }).customer_id ?? null,
         id
       );
@@ -267,6 +290,18 @@ export async function PATCH(
       const message =
         err instanceof Error ? err.message : "Failed to save customer";
       return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    const rows = valid.map((v) => ({
+      order_id: id,
+      custom_field_id: v.customFieldId,
+      value: v.value,
+    }));
+    const { error } = await supabase
+      .from("custom_field_values")
+      .upsert(rows, { onConflict: "order_id,custom_field_id" });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
   }
 
@@ -289,20 +324,6 @@ export async function PATCH(
       await pruneOrphanedSkuImages(supabase, id, savedSkus);
     } catch {
       // order_sku_images table may not exist yet
-    }
-  }
-
-  if (body.customFieldValues && body.customFieldValues.length > 0) {
-    const rows = body.customFieldValues.map((v) => ({
-      order_id: id,
-      custom_field_id: v.customFieldId,
-      value: v.value,
-    }));
-    const { error } = await supabase
-      .from("custom_field_values")
-      .upsert(rows, { onConflict: "order_id,custom_field_id" });
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
     }
   }
 

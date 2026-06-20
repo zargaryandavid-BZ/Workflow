@@ -12,7 +12,6 @@ import {
 /** Print fields after customer / designer, in display order on create + edit forms. */
 export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Product",
-  "Product Type",
   "Materials",
   "Finished Size",
   "Finishing",
@@ -31,7 +30,6 @@ export const ORDER_FORM_ALWAYS_REQUIRED = [
   CUSTOMER_NAME_FIELD_NAME,
   CUSTOMER_CONTACT_FIELD_NAME,
   "Product",
-  "Product Type",
   "Finished Size",
   "Materials",
 ] as const;
@@ -102,13 +100,21 @@ export function resolveOrderFormFields(customFields: CustomField[]) {
   );
 
   const printFields: CustomField[] = [];
+  const seenPrintNames = new Set<string>();
   for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
     const field = byName.get(name.toLowerCase());
-    if (field) printFields.push(field);
+    if (!field) continue;
+    const key = field.name.toLowerCase();
+    if (seenPrintNames.has(key)) continue;
+    seenPrintNames.add(key);
+    printFields.push(field);
   }
   for (const field of customFields) {
     if (reserved.has(field.name.toLowerCase())) continue;
     if (printFields.some((f) => f.id === field.id)) continue;
+    const key = field.name.toLowerCase();
+    if (seenPrintNames.has(key)) continue;
+    seenPrintNames.add(key);
     printFields.push(field);
   }
 

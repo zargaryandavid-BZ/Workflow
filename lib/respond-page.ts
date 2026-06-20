@@ -29,10 +29,10 @@ export function orderMetaChips(
     : 0;
 
   const chips: (OrderMetaChip | null)[] = [
-    pickField(fields, "Product", "Product Type")
+    pickField(fields, "Product")
       ? {
           label: "Product",
-          value: pickField(fields, "Product", "Product Type")!,
+          value: pickField(fields, "Product")!,
         }
       : null,
     pickField(fields, "Finished Size", "Size")

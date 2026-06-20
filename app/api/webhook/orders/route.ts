@@ -15,8 +15,9 @@ import {
  * Inbound order webhook — POST /api/webhook/orders
  *
  * Auth: x-webhook-secret header (per-tenant key in webhook_configs).
- * Logic: lib/webhook-order.ts (items[], legacy flat payload, SKUs in orders.specs,
- * custom fields, assets.external_url — not order_skus / flat order columns).
+ * Logic: lib/webhook-order.ts — all 8 payload configs; dropdown fields are
+ * fuzzy-matched against tenant Custom Fields (lib/fuzzyMatch.ts) with hardcoded
+ * fallbacks; corrections appear in the response `warning` field.
  */
 export async function POST(request: Request) {
   const secret = request.headers.get("x-webhook-secret")?.trim();

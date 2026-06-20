@@ -15,6 +15,10 @@ import {
 import { prepareSkusForSave, type SkuItem } from "@/lib/skus";
 import { normalizeSmsPhone } from "@/lib/sms";
 import { fuzzyMatch } from "@/lib/fuzzyMatch";
+import {
+  filterValidCustomFieldValues,
+} from "@/lib/custom-field-values.server";
+import { selectOptionsForWebhookField } from "@/lib/webhook-field-options";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -23,12 +27,21 @@ const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 
 const SELECT_WEBHOOK_KEYS = new Set([
   "product",
-  "product_type",
   "materials",
   "finishing",
+  "lamination",
   "sides",
   "color",
+  "color_mode",
   "position",
+]);
+
+const BOOLEAN_WEBHOOK_KEYS = new Set([
+  "spot_uv",
+  "foil",
+  "die_cut",
+  "application",
+  "need_a_design",
 ]);
 
 interface CustomFieldDef {
@@ -40,29 +53,41 @@ interface CustomFieldDef {
 
 const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   product: "Product",
-  product_type: "Product Type",
   finished_size: "Finished Size",
   materials: "Materials",
   finishing: "Finishing",
+  lamination: "Lamination",
   sides: "Sides",
   color: "Color",
+  color_mode: "Color Mode",
   position: "Position",
   order_qty: "Order QTY",
   designer_information: "Designer Information",
+  spot_uv: "Spot UV",
+  foil: "Foil",
+  die_cut: "Die Cut",
+  application: "Application",
+  need_a_design: "Need a Design",
 };
 
 /** DB field names that map to a webhook key (handles renames like Finishing ↔ Lamination). */
 const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   product: ["Product"],
-  product_type: ["Product Type"],
   finished_size: ["Finished Size"],
   materials: ["Materials"],
   finishing: ["Finishing", "Lamination"],
+  lamination: ["Lamination", "Finishing"],
   sides: ["Sides"],
   color: ["Color"],
+  color_mode: ["Color Mode", "Color"],
   position: ["Position"],
   order_qty: ["Order QTY"],
   designer_information: ["Designer Information"],
+  spot_uv: ["Spot UV"],
+  foil: ["Foil"],
+  die_cut: ["Die Cut"],
+  application: ["Application"],
+  need_a_design: ["Need a Design"],
 };
 
 interface WebhookDesignerInput {
@@ -79,6 +104,8 @@ export interface WebhookOwnerInput {
   owner_email?: string;
   /** Account manager UUID — sets card Owner (`created_by`). */
   owner_id?: string;
+  /** Account manager display name — sets card Owner when matched. */
+  owner_name?: string;
   /** Account manager email, UUID, or display name. */
   owner?: string;
   /** Alias for `owner_email` — request submitter / account manager. */
@@ -104,7 +131,6 @@ export interface WebhookSkuPayload {
 export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   title?: string;
   product?: string;
-  product_type?: string;
   finished_size?: string;
   materials?: string;
   finishing?: string;
@@ -114,6 +140,11 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   position?: string;
   roll_direction?: string;
   lamination?: string;
+  spot_uv?: boolean;
+  foil?: boolean;
+  die_cut?: boolean;
+  application?: boolean;
+  need_a_design?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -133,7 +164,6 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   category?: string;
   category_name?: string;
   product?: string;
-  product_type?: string;
   finished_size?: string;
   materials?: string;
   finishing?: string;
@@ -143,6 +173,11 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   position?: string;
   roll_direction?: string;
   lamination?: string;
+  spot_uv?: boolean;
+  foil?: boolean;
+  die_cut?: boolean;
+  application?: boolean;
+  need_a_design?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -298,15 +333,20 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
     {
       title: body.title,
       product: body.product,
-      product_type: body.product_type,
       finished_size: body.finished_size,
       materials: body.materials,
       finishing: body.finishing,
       sides: body.sides,
       color: body.color ?? body.color_mode,
+      color_mode: body.color_mode,
       position: body.position ?? body.roll_direction,
       roll_direction: body.roll_direction,
       lamination: body.lamination,
+      spot_uv: body.spot_uv,
+      foil: body.foil,
+      die_cut: body.die_cut,
+      application: body.application,
+      need_a_design: body.need_a_design,
       order_qty: body.order_qty,
       artwork_url: body.artwork_url,
       description: body.description,
@@ -319,6 +359,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       design_task: body.design_task,
       owner_email: body.owner_email,
       owner_id: body.owner_id,
+      owner_name: body.owner_name,
       owner: body.owner,
       request_owner_email: body.request_owner_email,
       request_owner_id: body.request_owner_id,
@@ -352,15 +393,21 @@ function resolveOrderLevelTitle(body: WebhookOrderPayload): string {
 type WebhookSpecFields = Pick<
   WebhookItem,
   | "product"
-  | "product_type"
   | "finished_size"
   | "materials"
   | "finishing"
+  | "lamination"
   | "sides"
   | "color"
+  | "color_mode"
   | "position"
   | "order_qty"
   | "designer_information"
+  | "spot_uv"
+  | "foil"
+  | "die_cut"
+  | "application"
+  | "need_a_design"
 >;
 
 function resolveDesignNotes(input: WebhookDesignerInput): string | null {
@@ -382,15 +429,20 @@ function mergeItemWithOrder(
   return {
     ...item,
     product: item.product ?? order.product,
-    product_type: item.product_type ?? order.product_type,
     finished_size: item.finished_size ?? order.finished_size,
     materials: item.materials ?? order.materials,
     finishing: item.finishing ?? item.lamination ?? order.finishing ?? order.lamination,
+    lamination: item.lamination ?? item.finishing ?? order.lamination ?? order.finishing,
     sides: item.sides ?? order.sides,
-    color: item.color ?? item.color_mode ?? order.color ?? order.color_mode,
+    color: item.color ?? order.color,
+    color_mode: item.color_mode ?? item.color ?? order.color_mode ?? order.color,
     position: item.position ?? item.roll_direction ?? order.position ?? order.roll_direction,
     roll_direction: item.roll_direction ?? order.roll_direction,
-    lamination: item.lamination ?? order.lamination,
+    spot_uv: item.spot_uv ?? order.spot_uv,
+    foil: item.foil ?? order.foil,
+    die_cut: item.die_cut ?? order.die_cut,
+    application: item.application ?? order.application,
+    need_a_design: item.need_a_design ?? order.need_a_design,
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: item.artwork_url ?? order.artwork_url,
     description: item.description ?? order.description,
@@ -404,6 +456,7 @@ function mergeItemWithOrder(
     design_task: item.design_task ?? order.design_task,
     owner_email: item.owner_email ?? order.owner_email,
     owner_id: item.owner_id ?? order.owner_id,
+    owner_name: item.owner_name ?? order.owner_name,
     owner: item.owner ?? order.owner,
     request_owner_email: item.request_owner_email ?? order.request_owner_email,
     request_owner_id: item.request_owner_id ?? order.request_owner_id,
@@ -451,6 +504,7 @@ function normalizedOwnerLookup(input: WebhookOwnerInput): {
         : ""),
     owner:
       (typeof input.owner === "string" ? input.owner.trim() : "") ||
+      (typeof input.owner_name === "string" ? input.owner_name.trim() : "") ||
       (typeof input.request_owner === "string"
         ? input.request_owner.trim()
         : ""),
@@ -507,15 +561,21 @@ function mergeDesignerInput(
 function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
   return {
     product: item.product,
-    product_type: item.product_type,
     finished_size: item.finished_size,
     materials: item.materials,
     finishing: item.finishing ?? item.lamination,
+    lamination: item.lamination ?? item.finishing,
     sides: item.sides,
-    color: item.color ?? item.color_mode,
+    color: item.color,
+    color_mode: item.color_mode ?? item.color,
     position: item.position ?? item.roll_direction,
     order_qty: item.order_qty,
     designer_information: resolveDesignNotes(item) ?? undefined,
+    spot_uv: item.spot_uv,
+    foil: item.foil,
+    die_cut: item.die_cut,
+    application: item.application,
+    need_a_design: item.need_a_design,
   };
 }
 
@@ -634,6 +694,10 @@ function resolveWebhookFieldValue(
   field: CustomFieldDef | undefined,
   corrections: string[]
 ): unknown {
+  if (BOOLEAN_WEBHOOK_KEYS.has(webhookKey)) {
+    return typeof raw === "boolean" ? raw : null;
+  }
+
   if (raw === null || raw === undefined || raw === "") return null;
 
   if (webhookKey === "order_qty") {
@@ -646,10 +710,12 @@ function resolveWebhookFieldValue(
 
   if (
     field?.field_type === "select" &&
-    SELECT_WEBHOOK_KEYS.has(webhookKey) &&
-    field.options.length > 0
+    SELECT_WEBHOOK_KEYS.has(webhookKey)
   ) {
-    return resolveSelectField(text, field.options, webhookKey, corrections);
+    const options = selectOptionsForWebhookField(webhookKey, field.options);
+    if (options.length > 0) {
+      return resolveSelectField(text, options, webhookKey, corrections);
+    }
   }
 
   return text;
@@ -676,6 +742,8 @@ function buildCustomFieldValues(
       : 0;
 
   for (const [webhookKey] of Object.entries(WEBHOOK_CUSTOM_FIELD_MAP)) {
+    if (webhookKey === "color" && specFields.color_mode) continue;
+    if (webhookKey === "finishing" && specFields.lamination) continue;
     if (webhookKey === "order_qty" && skus.length > 0 && skuQtySum > 0) {
       continue;
     }
@@ -737,13 +805,27 @@ async function insertExternalAsset(
 
 async function insertCustomFieldValues(
   client: Client,
+  tenantId: string,
   orderId: string,
   values: { customFieldId: string; value: unknown }[]
 ): Promise<string | null> {
   if (values.length === 0) return null;
 
+  const { valid, invalidIds } = await filterValidCustomFieldValues(
+    client,
+    tenantId,
+    values
+  );
+  if (invalidIds.length > 0) {
+    console.error("[webhook/orders] skipping stale custom field ids:", {
+      order_id: orderId,
+      invalid_ids: invalidIds,
+    });
+  }
+  if (valid.length === 0) return null;
+
   const { error } = await client.from("custom_field_values").insert(
-    values.map((v) => ({
+    valid.map((v) => ({
       order_id: orderId,
       custom_field_id: v.customFieldId,
       value: v.value,
@@ -757,8 +839,8 @@ async function insertCustomFieldValues(
       details: error.details,
       hint: error.hint,
       order_id: orderId,
-      field_count: values.length,
-      values,
+      field_count: valid.length,
+      values: valid,
     });
     return error.message;
   }
@@ -1365,6 +1447,7 @@ async function createSingleWebhookJob(
 
   const cfvError = await insertCustomFieldValues(
     client,
+    tenantId,
     orderId,
     customFieldValues
   );

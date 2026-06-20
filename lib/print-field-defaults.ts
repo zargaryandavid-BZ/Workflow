@@ -4,6 +4,7 @@ import {
   CUSTOMER_NAME_FIELD_NAME,
   DESIGNER_FIELD_NAME,
 } from "@/lib/constants";
+import { PRODUCTS } from "@/lib/product-data";
 
 export interface DefaultFieldDef {
   name: string;
@@ -29,28 +30,7 @@ export const DEFAULT_PRINT_FIELDS: DefaultFieldDef[] = [
   {
     name: "Product",
     field_type: "select",
-    options: [
-      "Labels (Sheet)",
-      "Pouches",
-      "Folding Cartons / Box",
-      "Business Cards",
-      "Flyers / Postcards",
-      "Booklets",
-      "Diecut Stickers",
-      "Vinyl Labels / 54'' Rolls",
-      "Vinyl Signage",
-      "Banners / Large Format",
-      "Window Decals",
-      "Wallpaper",
-      "Sheet Products (Boyd)",
-      "Other",
-    ],
-    required: true,
-  },
-  {
-    name: "Product Type",
-    field_type: "select",
-    options: ["Sheet", "Roll", "Flat", "Folded"],
+    options: [...PRODUCTS],
     required: true,
   },
   {

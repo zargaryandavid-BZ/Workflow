@@ -67,20 +67,19 @@ export async function resolveCustomerFieldIds(
   const { data } = await client
     .from("custom_fields")
     .select("id, name")
-    .eq("tenant_id", tenantId)
-    .in("name", [CUSTOMER_NAME_FIELD_NAME, CUSTOMER_CONTACT_FIELD_NAME]);
+    .eq("tenant_id", tenantId);
 
-  const byName = new Map(
-    ((data ?? []) as { id: string; name: string }[]).map((f) => [
-      f.name,
-      f.id,
-    ])
-  );
+  let nameId: string | null = null;
+  let contactId: string | null = null;
+  for (const row of (data ?? []) as { id: string; name: string }[]) {
+    const lower = row.name.toLowerCase();
+    if (lower === CUSTOMER_NAME_FIELD_NAME.toLowerCase()) nameId = row.id;
+    if (lower === CUSTOMER_CONTACT_FIELD_NAME.toLowerCase()) {
+      contactId = row.id;
+    }
+  }
 
-  return {
-    nameId: byName.get(CUSTOMER_NAME_FIELD_NAME) ?? null,
-    contactId: byName.get(CUSTOMER_CONTACT_FIELD_NAME) ?? null,
-  };
+  return { nameId, contactId };
 }
 
 export function customerFromFieldValues(

@@ -93,6 +93,7 @@ interface DetailResponse {
   assets: Asset[];
   skuImages: OrderSkuImageWithUrl[];
   values: CustomFieldValue[];
+  customFields?: CustomField[];
   activity: ActivityLogEntry[];
   approvals: Approval[];
   missingInfo: MissingInfoNote[];
@@ -116,9 +117,11 @@ export function CardDetailModal({
   appUrl = "",
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
+  const [modalCustomFields, setModalCustomFields] =
+    useState<CustomField[]>(customFields);
   const resolved = useMemo(
-    () => resolveOrderFormFields(customFields),
-    [customFields]
+    () => resolveOrderFormFields(modalCustomFields),
+    [modalCustomFields]
   );
   const [data, setData] = useState<DetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -164,8 +167,15 @@ export function CardDetailModal({
     Object.keys(pendingSkuArtwork).length > 0 ||
     removedSkuArtworkIds.size > 0;
 
+  useEffect(() => {
+    if (open) setModalCustomFields(customFields);
+  }, [open, customFields]);
+
   const applyDetail = useCallback(
     (json: DetailResponse) => {
+      const fields = json.customFields ?? customFields;
+      setModalCustomFields(fields);
+      const validFieldIds = new Set(fields.map((f) => f.id));
       setData(json);
       setTitle(json.order.title);
       setDescription(json.order.description ?? "");
@@ -176,7 +186,11 @@ export function CardDetailModal({
       setDesignerId((json.order.specs?.designer_id as string) ?? "");
       setDesignTask((json.order.specs?.design_task as string) ?? "");
       const map: Record<string, unknown> = {};
-      for (const v of json.values) map[v.custom_field_id] = v.value;
+      for (const v of json.values) {
+        if (validFieldIds.has(v.custom_field_id)) {
+          map[v.custom_field_id] = v.value;
+        }
+      }
 
       let name = "";
       let contact = "";
@@ -200,7 +214,7 @@ export function CardDetailModal({
         new Set(normalizeSkus(json.order.specs?.skus).map((s) => s.id))
       );
     },
-    [resolved.customerNameField, resolved.customerContactField]
+    [customFields, resolved.customerNameField, resolved.customerContactField]
   );
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
@@ -434,12 +448,12 @@ export function CardDetailModal({
   const showMissingInfoTab = hasMissingInfoNotes || Boolean(isInExceptionColumn);
   const missingFieldsOnOrder =
     data && !isViewOnly
-      ? getMissingFields(data.order, fieldValues, customFields)
+      ? getMissingFields(data.order, fieldValues, modalCustomFields)
       : [];
   const hasApproval = (data?.approvalNotes.length ?? 0) > 0;
   const hasExtraTabs = !isViewOnly && (showMissingInfoTab || hasApproval);
   const orderContact = data
-    ? customerContactFromOrder(data.order, fieldValues, customFields)
+    ? customerContactFromOrder(data.order, fieldValues, modalCustomFields)
     : { email: null, phone: null };
   const orderTags = data ? orderTagsFromSpecs(data.order.specs) : [];
 
@@ -457,7 +471,7 @@ export function CardDetailModal({
 
   async function copyOrderLink() {
     const getField = (name: string) => {
-      const field = findOrderFormField(customFields, name);
+      const field = findOrderFormField(modalCustomFields, name);
       return field ? String(fieldValues[field.id] ?? "") : "";
     };
 
@@ -526,7 +540,6 @@ export function CardDetailModal({
       priority: priority.toLowerCase(),
       due: dueDate,
       product: getField("Product"),
-      product_type: getField("Product Type"),
       width,
       height,
       material: getField("Materials"),
@@ -755,7 +768,7 @@ export function CardDetailModal({
           <div className="space-y-4 md:col-span-2">
             <OrderFormBody
               idPrefix="edit"
-              customFields={customFields}
+              customFields={modalCustomFields}
               owners={ownersForForm}
               designers={designers}
               title={title}

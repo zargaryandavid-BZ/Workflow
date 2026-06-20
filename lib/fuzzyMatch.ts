@@ -2,8 +2,12 @@
  * Fuzzy-match an incoming string against a list of valid options.
  * Returns the best matching option if similarity >= threshold, otherwise null.
  *
- * Algorithm: normalized word-token overlap + character-level similarity.
+ * Algorithm: normalized word-token overlap + character-level Jaro-Winkler.
  * No external dependencies.
+ *
+ * @param input     The string sent in the webhook payload
+ * @param options   Array of valid option strings (from Custom Fields)
+ * @param threshold Minimum similarity to accept (0–1). Default 0.82
  */
 export function fuzzyMatch(
   input: string | null | undefined,
@@ -40,7 +44,11 @@ export function fuzzyMatch(
 }
 
 function similarity(a: string, b: string): number {
-  return (tokenOverlap(a, b) + jaroWinkler(a, b)) / 2;
+  const token = tokenOverlap(a, b);
+  const jaro = jaroWinkler(a, b);
+  // Prefer the stronger signal — averaging under-scores single-token typos
+  // (e.g. "role" vs "roll") while still requiring both to stay conservative.
+  return Math.max(token, jaro);
 }
 
 function tokenOverlap(a: string, b: string): number {

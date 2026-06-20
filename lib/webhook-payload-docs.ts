@@ -43,7 +43,6 @@ function fullSingleItemExample(year: number, due: string): string {
   "designer_information": "Use brand colors from style guide. Leave 0.125 in bleed.",
   "category": "Labels",
   "product": "Vinyl Labels / 54'' Rolls",
-  "product_type": "Roll",
   "finished_size": "4 x 3 in",
   "materials": "White BOPP",
   "finishing": "Spot UV",
@@ -92,7 +91,6 @@ function fullMultiItemExample(year: number, due: string): string {
       "title": "Roll Labels",
       "category": "Labels",
       "product": "Vinyl Labels / 54'' Rolls",
-      "product_type": "Roll",
       "finished_size": "4 x 3 in",
       "materials": "White BOPP",
       "finishing": "Spot UV",
@@ -112,7 +110,6 @@ function fullMultiItemExample(year: number, due: string): string {
       "title": "Business Cards",
       "category": "Cards",
       "product": "Business Cards",
-      "product_type": "Flat",
       "finished_size": "3.5 x 2 in",
       "materials": "16pt C2S",
       "finishing": "Foil Gold",
@@ -136,7 +133,6 @@ export function buildWebhookPayloadDocs(
   const { year, due } = webhookDocDates();
 
   const products = fieldOptions("Product");
-  const productTypes = fieldOptions("Product Type");
   const materials = fieldOptions("Materials");
   const finishing = fieldOptions("Finishing");
   const sides = fieldOptions("Sides");
@@ -217,8 +213,7 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | \`title\` | No | string | Item label in response — card shows suffixed order number |
-| \`product\` | No | string | Must match tenant dropdown (see below) |
-| \`product_type\` | No | string | Must match tenant dropdown |
+| \`product\` | No | string | Must match tenant **Product** dropdown (see below) |
 | \`finished_size\` | No | string | Free text e.g. \`"3.5 x 2 in"\` |
 | \`materials\` | No | string | Must match tenant dropdown |
 | \`finishing\` | No | string | Must match tenant dropdown |
@@ -269,11 +264,6 @@ urgent
 ### \`product\`
 \`\`\`
 ${optionsBlock(products)}
-\`\`\`
-
-### \`product_type\`
-\`\`\`
-${optionsBlock(productTypes)}
 \`\`\`
 
 ### \`materials\`
@@ -353,7 +343,7 @@ Invalid or unknown optional values (owner, designer, dropdown fields) do **not**
 
 - **All payload fields are optional.** Send only what you have — the order is still created with blank fields where data is omitted.
 - If \`order_number\` is omitted, the system generates one (e.g. \`WH-20260619143022-a1b2c3d4\`).
-- If \`materials\`, \`finishing\`, \`product\`, \`product_type\`, \`sides\`, \`color\`, or \`position\`/\`roll_direction\` don't match dropdown options, the field is **left blank** — the order is still created.
+- If \`materials\`, \`finishing\`, \`product\`, \`sides\`, \`color\`, or \`position\`/\`roll_direction\` don't match dropdown options, the field is **left blank** — the order is still created.
 - \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores **both email and phone**. Existing customers are reused (no duplicate).
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
 - **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
@@ -391,7 +381,6 @@ export function buildWebhookPayloadDocsHtml(
 ): string {
   const { year, due } = webhookDocDates();
   const products = fieldOptions("Product");
-  const productTypes = fieldOptions("Product Type");
   const materials = fieldOptions("Materials");
   const finishing = fieldOptions("Finishing");
   const sides = fieldOptions("Sides");
@@ -426,8 +415,7 @@ export function buildWebhookPayloadDocsHtml(
 
   const itemFields: [string, string, string, string][] = [
     ["title", "No", "string", "Item label in response — card shows suffixed order number"],
-    ["product", "No", "string", "Must match tenant dropdown (see below)"],
-    ["product_type", "No", "string", "Must match tenant dropdown"],
+    ["product", "No", "string", "Must match tenant <strong>Product</strong> dropdown (see below)"],
     ["finished_size", "No", "string", 'Free text e.g. <code>"3.5 x 2 in"</code>'],
     ["materials", "No", "string", "Must match tenant dropdown"],
     ["finishing", "No", "string", "Must match tenant dropdown"],
@@ -606,7 +594,6 @@ export function buildWebhookPayloadDocsHtml(
     <h3><code>priority</code></h3>
     <ul class="options"><li><code>normal</code></li><li><code>high</code></li><li><code>low</code></li><li><code>urgent</code></li></ul>
     ${optionsListHtml("product", products)}
-    ${optionsListHtml("product_type", productTypes)}
     ${optionsListHtml("materials", materials)}
     ${optionsListHtml("finishing", finishing)}
     ${optionsListHtml("sides", sides)}
