@@ -149,6 +149,7 @@ export function CardDetailModal({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [orderNumberCopied, setOrderNumberCopied] = useState(false);
   const [persistedSkuIds, setPersistedSkuIds] = useState<Set<string>>(
     () => new Set()
   );
