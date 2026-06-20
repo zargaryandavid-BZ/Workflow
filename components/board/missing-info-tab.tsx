@@ -21,6 +21,8 @@ interface MissingInfoTabProps {
   orderId: string;
   sourceColumnId: string;
   columns: BoardColumn[];
+  columnName?: string;
+  missingFields?: MissingField[];
   contactEmail?: string | null;
   contactPhone?: string | null;
   onSent: () => void;
@@ -402,13 +404,53 @@ export function MissingInfoTab({
   orderId,
   sourceColumnId,
   columns,
+  columnName,
+  missingFields = [],
   contactEmail,
   contactPhone,
   onSent,
 }: MissingInfoTabProps) {
   if (notes.length === 0) {
     return (
-      <p className="text-sm text-slate-400">No missing info notes yet.</p>
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          This order is in the{" "}
+          <span className="font-medium">{columnName ?? "Missing Info"}</span>{" "}
+          column. No customer notification has been logged yet.
+        </p>
+        {missingFields.length > 0 ? (
+          <div>
+            <p className="mb-2 text-sm font-medium text-slate-700">
+              Required fields still incomplete
+            </p>
+            <ul className="space-y-1.5">
+              {missingFields.map((field) => (
+                <li
+                  key={field.field}
+                  className="flex items-center gap-2 text-sm text-slate-600"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                  {field.label}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm text-slate-500">
+              Complete these on the Order Details tab, then move the card forward
+              when ready.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            All required fields appear complete. You can move this card to the next
+            stage when ready.
+          </p>
+        )}
+        <p className="text-sm text-slate-400">
+          To email or text the customer, move the card into Missing Info from
+          another column with automations enabled, or log a manual follow-up after
+          a notification is created.
+        </p>
+      </div>
     );
   }
 

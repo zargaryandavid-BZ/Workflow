@@ -39,6 +39,7 @@ import {
   validateDueDate,
   validateOrderFormFields,
 } from "@/lib/order-form";
+import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { cn, dateInputValue, formatDateTime } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import type {
@@ -424,9 +425,18 @@ export function CardDetailModal({
   }, [owners, ownerId]);
 
   const pendingApproval = data?.approvals.find((a) => a.status === "pending");
-  const hasMissingInfo = (data?.missingInfo.length ?? 0) > 0;
+  const orderColumn = data
+    ? columns.find((c) => c.id === data.order.column_id)
+    : undefined;
+  const isInExceptionColumn = orderColumn?.kind === "exception";
+  const hasMissingInfoNotes = (data?.missingInfo.length ?? 0) > 0;
+  const showMissingInfoTab = hasMissingInfoNotes || Boolean(isInExceptionColumn);
+  const missingFieldsOnOrder =
+    data && !isViewOnly
+      ? getMissingFields(data.order, fieldValues, customFields)
+      : [];
   const hasApproval = (data?.approvalNotes.length ?? 0) > 0;
-  const hasExtraTabs = !isViewOnly && (hasMissingInfo || hasApproval);
+  const hasExtraTabs = !isViewOnly && (showMissingInfoTab || hasApproval);
   const orderContact = data
     ? customerContactFromOrder(data.order, fieldValues, customFields)
     : { email: null, phone: null };
@@ -652,7 +662,7 @@ export function CardDetailModal({
               >
                 Order Details
               </button>
-              {hasMissingInfo ? (
+              {showMissingInfoTab ? (
                 <button
                   type="button"
                   onClick={() => setTab("missing-info")}
@@ -664,7 +674,12 @@ export function CardDetailModal({
                   )}
                 >
                   Missing Info
-                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      hasMissingInfoNotes ? "bg-amber-500" : "bg-slate-300"
+                    )}
+                  />
                 </button>
               ) : null}
               {hasApproval ? (
@@ -704,13 +719,15 @@ export function CardDetailModal({
             />
           ) : null}
 
-          {tab === "missing-info" && hasMissingInfo ? (
+          {tab === "missing-info" && showMissingInfoTab ? (
             <MissingInfoTab
               notes={data.missingInfo}
               customer={data.order.customer}
               orderId={data.order.id}
               sourceColumnId={data.order.column_id}
               columns={columns}
+              columnName={orderColumn?.name}
+              missingFields={missingFieldsOnOrder}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
               onSent={() => {
