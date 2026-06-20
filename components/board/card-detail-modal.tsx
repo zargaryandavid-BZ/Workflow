@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ChevronDown,
@@ -167,55 +167,54 @@ export function CardDetailModal({
     Object.keys(pendingSkuArtwork).length > 0 ||
     removedSkuArtworkIds.size > 0;
 
-  useEffect(() => {
-    if (open) setModalCustomFields(customFields);
-  }, [open, customFields]);
+  const customFieldsRef = useRef(customFields);
+  customFieldsRef.current = customFields;
 
-  const applyDetail = useCallback(
-    (json: DetailResponse) => {
-      const fields = json.customFields ?? customFields;
-      setModalCustomFields(fields);
-      const validFieldIds = new Set(fields.map((f) => f.id));
-      setData(json);
-      setTitle(json.order.title);
-      setDescription(json.order.description ?? "");
-      setPriority(json.order.priority);
-      setOwnerId(json.order.created_by ?? "");
-      setDueDate(dateInputValue(json.order.due_date));
-      setSkus(mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets));
-      setDesignerId((json.order.specs?.designer_id as string) ?? "");
-      setDesignTask((json.order.specs?.design_task as string) ?? "");
-      const map: Record<string, unknown> = {};
-      for (const v of json.values) {
-        if (validFieldIds.has(v.custom_field_id)) {
-          map[v.custom_field_id] = v.value;
-        }
+  const applyDetail = useCallback((json: DetailResponse) => {
+    const fields = json.customFields ?? customFieldsRef.current;
+    setModalCustomFields(fields);
+    const validFieldIds = new Set(fields.map((f) => f.id));
+    const formFields = resolveOrderFormFields(fields);
+    setData(json);
+    setTitle(json.order.title);
+    setDescription(json.order.description ?? "");
+    setPriority(json.order.priority);
+    setOwnerId(json.order.created_by ?? "");
+    setDueDate(dateInputValue(json.order.due_date));
+    setSkus(
+      mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets)
+    );
+    setDesignerId((json.order.specs?.designer_id as string) ?? "");
+    setDesignTask((json.order.specs?.design_task as string) ?? "");
+    const map: Record<string, unknown> = {};
+    for (const v of json.values) {
+      if (validFieldIds.has(v.custom_field_id)) {
+        map[v.custom_field_id] = v.value;
       }
+    }
 
-      let name = "";
-      let contact = "";
-      if (resolved.customerNameField) {
-        name = String(map[resolved.customerNameField.id] ?? "").trim();
+    let name = "";
+    let contact = "";
+    if (formFields.customerNameField) {
+      name = String(map[formFields.customerNameField.id] ?? "").trim();
+    }
+    if (formFields.customerContactField) {
+      contact = String(map[formFields.customerContactField.id] ?? "").trim();
+    }
+    if (json.order.customer) {
+      if (!name) name = json.order.customer.name;
+      if (!contact) {
+        contact =
+          json.order.customer.email ?? json.order.customer.phone ?? "";
       }
-      if (resolved.customerContactField) {
-        contact = String(map[resolved.customerContactField.id] ?? "").trim();
-      }
-      if (json.order.customer) {
-        if (!name) name = json.order.customer.name;
-        if (!contact) {
-          contact =
-            json.order.customer.email ?? json.order.customer.phone ?? "";
-        }
-      }
-      setCustomerName(name);
-      setCustomerContact(contact);
-      setFieldValues(map);
-      setPersistedSkuIds(
-        new Set(normalizeSkus(json.order.specs?.skus).map((s) => s.id))
-      );
-    },
-    [customFields, resolved.customerNameField, resolved.customerContactField]
-  );
+    }
+    setCustomerName(name);
+    setCustomerContact(contact);
+    setFieldValues(map);
+    setPersistedSkuIds(
+      new Set(normalizeSkus(json.order.specs?.skus).map((s) => s.id))
+    );
+  }, []);
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!orderId) return;
@@ -234,6 +233,7 @@ export function CardDetailModal({
     if (open && orderId) {
       setActivityOpen(false);
       resetPendingFiles();
+      setModalCustomFields(customFieldsRef.current);
       load();
     }
     if (!open) {

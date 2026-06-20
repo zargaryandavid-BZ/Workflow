@@ -1,14 +1,100 @@
-import { DEFAULT_PRINT_FIELDS } from "@/lib/print-field-defaults";
+import { PRODUCTS } from "@/lib/product-data";
+import { WEBHOOK_FALLBACK_SELECT_OPTIONS } from "@/lib/webhook-field-options";
 
-function fieldOptions(name: string): string[] {
-  const field = DEFAULT_PRINT_FIELDS.find(
-    (f) => f.name.toLowerCase() === name.toLowerCase()
-  );
-  return field?.options ?? [];
-}
+const MATERIALS_DOC_GROUPS: { title: string; items: string[] }[] = [
+  {
+    title: "Pouches / Cosmetic Web",
+    items: [
+      "Pouch Double sided",
+      "Pouche One sided",
+      "Clear Cosmetic Web",
+      "White Cosmetic Web",
+      "Silver Cosmetic Web",
+    ],
+  },
+  {
+    title: "Jar / Tube combos",
+    items: [
+      "Plastic & Side & Top",
+      "Plastic & Side",
+      "Plastic & Top",
+      "Plastic",
+      "Glass & Side & Top",
+      "Glass & Side",
+      "Glass",
+    ],
+  },
+  {
+    title: "BOPP",
+    items: ["Clear BOPP", "White BOPP", "Silver BOPP", "Holo BOPP"],
+  },
+  {
+    title: "Label Sheets",
+    items: ["Gloss Label Sheet", "Matte Label Sheet", "Semi Gloss"],
+  },
+  {
+    title: "Cardstock (16th Street)",
+    items: [
+      "14pt C1S",
+      "14pt C2S",
+      "16pt C1S",
+      "16pt C2S",
+      "18pt C1S",
+      "18pt C2S",
+      "18pt Silver",
+      "24pt C1S",
+      "24pt C2S",
+    ],
+  },
+  {
+    title: "Cardstock / Sheet (Boyd Street)",
+    items: ["16pt (Boyd)", "18pt (Boyd)", "20pt (Boyd)", "24pt (Boyd)"],
+  },
+  {
+    title: "Cover / Text",
+    items: [
+      "80lb Cover",
+      "100lb Cover",
+      "110lb Cover",
+      "80lb Text",
+      "100lb Text",
+    ],
+  },
+  {
+    title: "Vinyl",
+    items: [
+      "White Vinyl",
+      "White Vinyl - Aggressive Glue",
+      "Holographic Vinyl",
+    ],
+  },
+  {
+    title: "Specialty / Large Format",
+    items: [
+      "Banner Material",
+      "Window Decal",
+      "Self-Adhesive (Peel-and-Stick)",
+      "Traditional / Unpasted",
+    ],
+  },
+  {
+    title: "Apparel",
+    items: [
+      "Sweatshirt",
+      "Hoodie",
+      "Polo",
+      "Tee",
+      "Activewear",
+      "Hat",
+      "Bikini",
+      "Short",
+      "Jogger",
+    ],
+  },
+];
 
-function optionsBlock(options: string[]): string {
-  return options.map((o) => o).join("\n");
+function optionsBlock(options: readonly string[]): string {
+  return options.join("\n");
 }
 
 function webhookDocDates() {
@@ -24,6 +110,21 @@ function escHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function materialsMarkdown(): string {
+  return MATERIALS_DOC_GROUPS.map(
+    (g) => `**${g.title}**\n\`\`\`\n${optionsBlock(g.items)}\n\`\`\``
+  ).join("\n\n");
+}
+
+function materialsHtml(): string {
+  return MATERIALS_DOC_GROUPS.map(
+    (g) =>
+      `<h4>${escHtml(g.title)}</h4><ul class="options">${g.items
+        .map((o) => `<li><code>${escHtml(o)}</code></li>`)
+        .join("")}</ul>`
+  ).join("");
 }
 
 function fullSingleItemExample(year: number, due: string): string {
@@ -42,31 +143,24 @@ function fullSingleItemExample(year: number, due: string): string {
   "designer_email": "artist@example.com",
   "designer_information": "Use brand colors from style guide. Leave 0.125 in bleed.",
   "category": "Labels",
-  "product": "Vinyl Labels / 54'' Rolls",
+  "product": "Labels (Roll)",
   "finished_size": "4 x 3 in",
   "materials": "White BOPP",
-  "finishing": "Spot UV",
   "sides": "1 Side",
+  "color_mode": "CMYK",
   "roll_direction": "1-Top",
-  "color": "CMYK",
+  "lamination": "Matte",
+  "spot_uv": false,
+  "foil": false,
+  "die_cut": false,
+  "application": false,
+  "need_a_design": false,
   "order_qty": 3000,
   "artwork_url": "https://example.com/artwork/order-level-proof.pdf",
   "skus": [
-    {
-      "sku_name": "Flavor A",
-      "quantity": 1000,
-      "artwork_url": "https://example.com/artwork/flavor-a.png"
-    },
-    {
-      "sku_name": "Flavor B",
-      "quantity": 1000,
-      "artwork_url": "https://example.com/artwork/flavor-b.png"
-    },
-    {
-      "sku_name": "Flavor C",
-      "quantity": 1000,
-      "artwork_url": "https://example.com/artwork/flavor-c.png"
-    }
+    { "sku_name": "Flavor A", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-a.png" },
+    { "sku_name": "Flavor B", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-b.png" },
+    { "sku_name": "Flavor C", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-c.png" }
   ]
 }`;
 }
@@ -90,13 +184,18 @@ function fullMultiItemExample(year: number, due: string): string {
     {
       "title": "Roll Labels",
       "category": "Labels",
-      "product": "Vinyl Labels / 54'' Rolls",
+      "product": "Labels (Roll)",
       "finished_size": "4 x 3 in",
       "materials": "White BOPP",
-      "finishing": "Spot UV",
       "sides": "1 Side",
+      "color_mode": "CMYK",
       "roll_direction": "1-Top",
-      "color": "CMYK",
+      "lamination": "Matte",
+      "spot_uv": false,
+      "foil": false,
+      "die_cut": false,
+      "application": false,
+      "need_a_design": false,
       "order_qty": 3000,
       "artwork_url": "https://example.com/artwork/labels-master.pdf",
       "description": "Item-level notes for labels only.",
@@ -112,9 +211,14 @@ function fullMultiItemExample(year: number, due: string): string {
       "product": "Business Cards",
       "finished_size": "3.5 x 2 in",
       "materials": "16pt C2S",
-      "finishing": "Foil Gold",
       "sides": "2 Sides",
-      "color": "CMYK",
+      "color_mode": "CMYK",
+      "lamination": "Gloss",
+      "spot_uv": true,
+      "foil": false,
+      "die_cut": false,
+      "application": false,
+      "need_a_design": false,
       "order_qty": 500,
       "artwork_url": "https://example.com/artwork/business-cards.pdf",
       "skus": [
@@ -125,19 +229,59 @@ function fullMultiItemExample(year: number, due: string): string {
 }`;
 }
 
+const ITEM_FIELDS_MD = `
+| Field | Required | Type | Notes |
+|---|---|---|---|
+| \`title\` | No | string | Item label — card shows suffixed order number |
+| \`product\` | No | string | Must match tenant **Product** dropdown (see below) |
+| \`finished_size\` | No | string | Free text e.g. \`"3.5 x 2 in"\` |
+| \`materials\` | No | string | Must match tenant **Materials** dropdown |
+| \`sides\` | No | string | \`1 Side\` or \`2 Sides\` |
+| \`color_mode\` | No | string | \`CMYK\` · \`CMYK+White\` · \`Pantones\` (also accepts \`color\`) |
+| \`roll_direction\` | No | string | \`1-Top\` · \`2-Bottom\` · \`3-Right\` · \`4-Left\` (also accepts \`position\`) |
+| \`lamination\` | No | string | Must match tenant **Lamination** dropdown |
+| \`spot_uv\` | No | boolean | \`true\` / \`false\` |
+| \`foil\` | No | boolean | \`true\` / \`false\` |
+| \`die_cut\` | No | boolean | \`true\` / \`false\` |
+| \`application\` | No | boolean | \`true\` / \`false\` |
+| \`need_a_design\` | No | boolean | \`true\` / \`false\` |
+| \`order_qty\` | No | number | Auto-calculated from SKUs when omitted |
+| \`artwork_url\` | No | string | Public URL — stored as external artwork asset |
+| \`description\` | No | string | Item-level notes |
+| \`designer_information\` | No | string | Designer notes for this item |
+| \`designer_email\` | No | string | Overrides order-level assigned designer |
+| \`designer_id\` | No | string | Overrides order-level assigned designer |
+| \`designer\` | No | string | Overrides order-level assigned designer |
+| \`request_owner_email\` | No | string | Overrides order-level request owner |
+| \`request_owner_name\` | No | string | Overrides order-level request owner name |
+| \`request_owner_contact\` | No | string | Overrides order-level request owner contact |
+| \`request_owner_phone\` | No | string | Overrides order-level request owner phone |
+| \`category\` | No | string | Category name for this item (also accepts \`category_name\`) |
+| \`skus\` | No | array | Omit for 0 SKU variations |`;
+
+const NOTES_MD = `
+- **All payload fields are optional.** Send only what you have — the order is still created with blank fields where data is omitted.
+- If \`order_number\` is omitted, the system auto-generates one (e.g. \`WH-20260619143022-a1b2c3d4\`).
+- \`color\` is accepted as an alias for \`color_mode\`. \`position\` is accepted as an alias for \`roll_direction\`.
+- The legacy \`finishing\` field (e.g. \`"Spot UV"\`, \`"Foil Gold"\`) is still accepted and maps to the **Finishing** custom field when present. Prefer explicit boolean fields (\`spot_uv\`, \`foil\`, etc.) for new integrations.
+- \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores both email and phone. Existing customers are reused — no duplicates.
+- SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
+- **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
+- \`designer_information\` is saved as designer notes on the card and in the **Designer Information** custom field.
+- **Not set via webhook:** Artwork GDrive link — staff fill this in the app.
+- Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.
+- **⚠️ Rotate the webhook secret before going to production.** Settings → Integrations → Webhook → Regenerate.`;
+
 /** Copy-paste webhook integration guide shown in Settings → Integrations. */
 export function buildWebhookPayloadDocs(
   webhookUrl: string,
   secretKey: string
 ): string {
   const { year, due } = webhookDocDates();
-
-  const products = fieldOptions("Product");
-  const materials = fieldOptions("Materials");
-  const finishing = fieldOptions("Finishing");
-  const sides = fieldOptions("Sides");
-  const colors = fieldOptions("Color");
-  const positions = fieldOptions("Position");
+  const sides = WEBHOOK_FALLBACK_SELECT_OPTIONS.sides ?? [];
+  const colorMode = WEBHOOK_FALLBACK_SELECT_OPTIONS.color_mode ?? [];
+  const rollDirection = WEBHOOK_FALLBACK_SELECT_OPTIONS.position ?? [];
+  const lamination = WEBHOOK_FALLBACK_SELECT_OPTIONS.lamination ?? [];
 
   return `# Webhook Payload Reference — BazaarPrinting Workflow
 
@@ -183,17 +327,17 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | \`customer_name\` | No | string | Customer display name |
-| \`customer_contact\` | No | string | Email. When both contact fields are sent, email is saved on the customer record. |
-| \`customer_phone\` | No | string | Phone. When both are sent, phone is the order's primary Customer Contact and is also saved on the customer record. |
+| \`customer_contact\` | No | string | Email — saved on the customer record |
+| \`customer_phone\` | No | string | Phone — when both are sent, phone is stored as the order's primary Customer Contact |
 | \`order_number\` | No | string | Your reference e.g. \`"ORD-${year}-001"\` — auto-generated (\`WH-…\`) if omitted |
 | \`title\` | No | string | Order title — auto-generated if omitted |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
 | \`due_date\` | No | string | \`"YYYY-MM-DD"\` — must be today or a future date when provided |
 | \`description\` | No | string | Order-level notes visible on all cards |
-| \`owner_email\` | No | string | Account manager email — sets **Owner** on the card (\`created_by\`) |
+| \`owner_email\` | No | string | Account manager email — sets **Owner** on the card |
 | \`owner_id\` | No | string | Account manager UUID — same as \`owner_email\` |
 | \`owner\` | No | string | Account manager email, UUID, or display name |
-| \`request_owner_email\` | No | string | Alias for \`owner_email\` — request submitter / account manager |
+| \`request_owner_email\` | No | string | Alias for \`owner_email\` |
 | \`request_owner_id\` | No | string | Alias for \`owner_id\` |
 | \`request_owner\` | No | string | Alias for \`owner\` |
 | \`request_owner_name\` | No | string | Free-text request owner name (saved on card) |
@@ -209,31 +353,7 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 ---
 
 ## Per-Item Fields (inside \`items[]\`)
-
-| Field | Required | Type | Notes |
-|---|---|---|---|
-| \`title\` | No | string | Item label in response — card shows suffixed order number |
-| \`product\` | No | string | Must match tenant **Product** dropdown (see below) |
-| \`finished_size\` | No | string | Free text e.g. \`"3.5 x 2 in"\` |
-| \`materials\` | No | string | Must match tenant dropdown |
-| \`finishing\` | No | string | Must match tenant dropdown |
-| \`sides\` | No | string | Must match tenant dropdown |
-| \`color\` | No | string | Must match tenant dropdown |
-| \`position\` | No | string | Roll direction — also accepts \`roll_direction\` |
-| \`roll_direction\` | No | string | Alias for \`position\` (e.g. \`1-Top\`) |
-| \`order_qty\` | No | number | Auto-calculated from SKUs when omitted |
-| \`artwork_url\` | No | string | Public URL — stored as external artwork asset |
-| \`description\` | No | string | Item-level notes |
-| \`request_owner_email\` | No | string | Overrides order-level request owner |
-| \`request_owner_name\` | No | string | Overrides order-level request owner name |
-| \`request_owner_contact\` | No | string | Overrides order-level request owner contact |
-| \`request_owner_phone\` | No | string | Overrides order-level request owner phone |
-| \`designer_email\` | No | string | Overrides order-level assigned designer |
-| \`designer_id\` | No | string | Overrides order-level assigned designer |
-| \`designer\` | No | string | Overrides order-level assigned designer |
-| \`designer_information\` | No | string | Designer notes for this item |
-| \`category\` | No | string | Category name (also accepts \`category_name\`) |
-| \`skus\` | No | array | Omit for 0 SKU variations |
+${ITEM_FIELDS_MD}
 
 Legacy flat format: put these fields at the top level instead of inside \`items[]\`.
 
@@ -244,14 +364,14 @@ Legacy flat format: put these fields at the top level instead of inside \`items[
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | \`sku_name\` | No | string | Variant display name |
-| \`quantity\` | No | number | Number of pieces (min 1 when SKU row is sent) |
+| \`quantity\` | No | number | Number of pieces |
 | \`artwork_url\` | No | string | Per-SKU artwork URL |
 
 ---
 
 ## Accepted Field Values
 
-⚠️ Dropdown values must match your tenant's **Settings → Fields** options. The webhook fuzzy-matches case/spacing, but exact matches are safest. Defaults below:
+⚠️ Dropdown values must match your tenant's **Settings → Fields** options. The webhook **fuzzy-matches** case/spacing and minor typos, but exact matches are safest.
 
 ### \`priority\`
 \`\`\`
@@ -263,33 +383,35 @@ urgent
 
 ### \`product\`
 \`\`\`
-${optionsBlock(products)}
+${optionsBlock(PRODUCTS)}
 \`\`\`
 
 ### \`materials\`
-\`\`\`
-${optionsBlock(materials)}
-\`\`\`
 
-### \`finishing\`
-\`\`\`
-${optionsBlock(finishing)}
-\`\`\`
+${materialsMarkdown()}
 
 ### \`sides\`
 \`\`\`
 ${optionsBlock(sides)}
 \`\`\`
 
-### \`color\`
+### \`color_mode\`
 \`\`\`
-${optionsBlock(colors)}
+${optionsBlock(colorMode)}
 \`\`\`
 
-### \`position\` (optional label placement)
+### \`roll_direction\`
 \`\`\`
-${optionsBlock(positions)}
+${optionsBlock(rollDirection)}
 \`\`\`
+
+### \`lamination\`
+\`\`\`
+${optionsBlock(lamination)}
+\`\`\`
+
+### Boolean fields
+\`spot_uv\`, \`foil\`, \`die_cut\`, \`application\`, \`need_a_design\` — send \`true\` or \`false\`. Omitting is treated as \`false\`.
 
 ---
 
@@ -320,7 +442,7 @@ ${optionsBlock(positions)}
 }
 \`\`\`
 
-Optional \`warning\` string when artwork or custom fields partially fail to save.
+Optional \`warning\` string when artwork or custom fields partially fail to save, or when dropdown values were auto-corrected via fuzzy matching.
 
 ---
 
@@ -340,19 +462,10 @@ Invalid or unknown optional values (owner, designer, dropdown fields) do **not**
 ---
 
 ## Notes
-
-- **All payload fields are optional.** Send only what you have — the order is still created with blank fields where data is omitted.
-- If \`order_number\` is omitted, the system generates one (e.g. \`WH-20260619143022-a1b2c3d4\`).
-- If \`materials\`, \`finishing\`, \`product\`, \`sides\`, \`color\`, or \`position\`/\`roll_direction\` don't match dropdown options, the field is **left blank** — the order is still created.
-- \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores **both email and phone**. Existing customers are reused (no duplicate).
-- SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
-- **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
-- \`designer_information\` is saved as designer notes on the card and in the **Designer Information** custom field when present.
-- **Not set via webhook:** Artwork GDrive link custom field — staff can fill this in the app.
-- Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.`;
+${NOTES_MD}`;
 }
 
-function optionsListHtml(label: string, options: string[]): string {
+function optionsListHtml(label: string, options: readonly string[]): string {
   const items = options
     .map((o) => `<li><code>${escHtml(o)}</code></li>`)
     .join("");
@@ -380,65 +493,189 @@ export function buildWebhookPayloadDocsHtml(
   secretKey: string
 ): string {
   const { year, due } = webhookDocDates();
-  const products = fieldOptions("Product");
-  const materials = fieldOptions("Materials");
-  const finishing = fieldOptions("Finishing");
-  const sides = fieldOptions("Sides");
-  const colors = fieldOptions("Color");
-  const positions = fieldOptions("Position");
+  const sides = WEBHOOK_FALLBACK_SELECT_OPTIONS.sides ?? [];
+  const colorMode = WEBHOOK_FALLBACK_SELECT_OPTIONS.color_mode ?? [];
+  const rollDirection = WEBHOOK_FALLBACK_SELECT_OPTIONS.position ?? [];
+  const lamination = WEBHOOK_FALLBACK_SELECT_OPTIONS.lamination ?? [];
 
   const orderFields: [string, string, string, string][] = [
     ["customer_name", "No", "string", "Customer display name"],
-    ["customer_contact", "No", "string", "Email. Saved on customer when both fields are sent."],
-    ["customer_phone", "No", "string", "Phone. Order primary contact when both are sent; also saved on customer."],
-    ["order_number", "No", "string", `Your reference e.g. <code>ORD-${year}-001</code> — auto-generated (<code>WH-…</code>) if omitted`],
+    ["customer_contact", "No", "string", "Email — saved on the customer record"],
+    [
+      "customer_phone",
+      "No",
+      "string",
+      "Phone — when both are sent, phone is the order primary Customer Contact",
+    ],
+    [
+      "order_number",
+      "No",
+      "string",
+      `Your reference e.g. <code>ORD-${year}-001</code> — auto-generated (<code>WH-…</code>) if omitted`,
+    ],
     ["title", "No", "string", "Order title — auto-generated if omitted"],
-    ["priority", "No", "string", "<code>normal</code> · <code>high</code> · <code>low</code> · <code>urgent</code> (default: normal)"],
-    ["due_date", "No", "string", '<code>"YYYY-MM-DD"</code> — must be today or a future date when provided'],
+    [
+      "priority",
+      "No",
+      "string",
+      "<code>normal</code> · <code>high</code> · <code>low</code> · <code>urgent</code> (default: normal)",
+    ],
+    [
+      "due_date",
+      "No",
+      "string",
+      '<code>"YYYY-MM-DD"</code> — must be today or a future date when provided',
+    ],
     ["description", "No", "string", "Order-level notes visible on all cards"],
-    ["owner_email", "No", "string", "Account manager email — sets <strong>Owner</strong> (<code>created_by</code>)"],
+    [
+      "owner_email",
+      "No",
+      "string",
+      "Account manager email — sets <strong>Owner</strong> on the card",
+    ],
     ["owner_id", "No", "string", "Account manager UUID"],
     ["owner", "No", "string", "Account manager email, UUID, or display name"],
     ["request_owner_email", "No", "string", "Alias for <code>owner_email</code>"],
     ["request_owner_id", "No", "string", "Alias for <code>owner_id</code>"],
     ["request_owner", "No", "string", "Alias for <code>owner</code>"],
-    ["request_owner_name", "No", "string", "Free-text request owner name (saved on card)"],
-    ["request_owner_contact", "No", "string", "Free-text request owner email or contact"],
+    [
+      "request_owner_name",
+      "No",
+      "string",
+      "Free-text request owner name (saved on card)",
+    ],
+    [
+      "request_owner_contact",
+      "No",
+      "string",
+      "Free-text request owner email or contact",
+    ],
     ["request_owner_phone", "No", "string", "Free-text request owner phone"],
-    ["designer_email", "No", "string", "Team member email — sets <strong>Assigned Designer</strong>"],
-    ["designer_id", "No", "string", "Team member UUID — sets <strong>Assigned Designer</strong>"],
-    ["designer", "No", "string", "Email, UUID, or display name — sets <strong>Assigned Designer</strong>"],
-    ["designer_information", "No", "string", "Designer notes (also <code>designer_notes</code>, <code>design_task</code>)"],
-    ["category", "No", "string", "Category name (also accepts <code>category_name</code>)"],
+    [
+      "designer_email",
+      "No",
+      "string",
+      "Team member email — sets <strong>Assigned Designer</strong>",
+    ],
+    [
+      "designer_id",
+      "No",
+      "string",
+      "Team member UUID — sets <strong>Assigned Designer</strong>",
+    ],
+    [
+      "designer",
+      "No",
+      "string",
+      "Email, UUID, or display name — sets <strong>Assigned Designer</strong>",
+    ],
+    [
+      "designer_information",
+      "No",
+      "string",
+      "Designer notes (also <code>designer_notes</code>, <code>design_task</code>)",
+    ],
+    [
+      "category",
+      "No",
+      "string",
+      "Category name (also accepts <code>category_name</code>)",
+    ],
     ["items", "No", "array", "Omit for legacy single-item flat format"],
   ];
 
   const itemFields: [string, string, string, string][] = [
-    ["title", "No", "string", "Item label in response — card shows suffixed order number"],
-    ["product", "No", "string", "Must match tenant <strong>Product</strong> dropdown (see below)"],
+    ["title", "No", "string", "Item label — card shows suffixed order number"],
+    [
+      "product",
+      "No",
+      "string",
+      "Must match tenant <strong>Product</strong> dropdown (see below)",
+    ],
     ["finished_size", "No", "string", 'Free text e.g. <code>"3.5 x 2 in"</code>'],
-    ["materials", "No", "string", "Must match tenant dropdown"],
-    ["finishing", "No", "string", "Must match tenant dropdown"],
-    ["sides", "No", "string", "Must match tenant dropdown"],
-    ["color", "No", "string", "Must match tenant dropdown"],
-    ["position", "No", "string", "Roll direction — also accepts <code>roll_direction</code>"],
-    ["roll_direction", "No", "string", "Alias for <code>position</code> (e.g. <code>1-Top</code>)"],
+    [
+      "materials",
+      "No",
+      "string",
+      "Must match tenant <strong>Materials</strong> dropdown",
+    ],
+    ["sides", "No", "string", "<code>1 Side</code> or <code>2 Sides</code>"],
+    [
+      "color_mode",
+      "No",
+      "string",
+      "<code>CMYK</code> · <code>CMYK+White</code> · <code>Pantones</code> (also accepts <code>color</code>)",
+    ],
+    [
+      "roll_direction",
+      "No",
+      "string",
+      "<code>1-Top</code> · <code>2-Bottom</code> · <code>3-Right</code> · <code>4-Left</code> (also accepts <code>position</code>)",
+    ],
+    [
+      "lamination",
+      "No",
+      "string",
+      "Must match tenant <strong>Lamination</strong> dropdown",
+    ],
+    ["spot_uv", "No", "boolean", "<code>true</code> / <code>false</code>"],
+    ["foil", "No", "boolean", "<code>true</code> / <code>false</code>"],
+    ["die_cut", "No", "boolean", "<code>true</code> / <code>false</code>"],
+    ["application", "No", "boolean", "<code>true</code> / <code>false</code>"],
+    ["need_a_design", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["order_qty", "No", "number", "Auto-calculated from SKUs when omitted"],
-    ["artwork_url", "No", "string", "Public URL — stored as external artwork asset"],
+    [
+      "artwork_url",
+      "No",
+      "string",
+      "Public URL — stored as external artwork asset",
+    ],
     ["description", "No", "string", "Item-level notes"],
-    ["request_owner_email", "No", "string", "Overrides order-level request owner"],
-    ["request_owner_name", "No", "string", "Overrides order-level request owner name"],
-    ["request_owner_contact", "No", "string", "Overrides order-level request owner contact"],
-    ["request_owner_phone", "No", "string", "Overrides order-level request owner phone"],
-    ["designer_email", "No", "string", "Overrides order-level assigned designer"],
     ["designer_information", "No", "string", "Designer notes for this item"],
-    ["category", "No", "string", "Category name (also accepts <code>category_name</code>)"],
+    [
+      "designer_email",
+      "No",
+      "string",
+      "Overrides order-level assigned designer",
+    ],
+    ["designer_id", "No", "string", "Overrides order-level assigned designer"],
+    ["designer", "No", "string", "Overrides order-level assigned designer"],
+    [
+      "request_owner_email",
+      "No",
+      "string",
+      "Overrides order-level request owner",
+    ],
+    [
+      "request_owner_name",
+      "No",
+      "string",
+      "Overrides order-level request owner name",
+    ],
+    [
+      "request_owner_contact",
+      "No",
+      "string",
+      "Overrides order-level request owner contact",
+    ],
+    [
+      "request_owner_phone",
+      "No",
+      "string",
+      "Overrides order-level request owner phone",
+    ],
+    [
+      "category",
+      "No",
+      "string",
+      "Category name (also accepts <code>category_name</code>)",
+    ],
     ["skus", "No", "array", "Omit for 0 SKU variations"],
   ];
 
   const skuFields: [string, string, string, string][] = [
     ["sku_name", "No", "string", "Variant display name"],
-    ["quantity", "No", "number", "Number of pieces (min 1 when SKU row is sent)"],
+    ["quantity", "No", "number", "Number of pieces"],
     ["artwork_url", "No", "string", "Per-SKU artwork URL"],
   ];
 
@@ -494,6 +731,7 @@ export function buildWebhookPayloadDocsHtml(
     h2 { font-size: 1.15rem; margin: 2rem 0 0.75rem; padding-top: 0.25rem; border-top: 1px solid var(--border); }
     h2:first-of-type { border-top: 0; margin-top: 1.5rem; }
     h3 { font-size: 0.95rem; margin: 1.25rem 0 0.5rem; color: var(--accent); }
+    h4 { font-size: 0.88rem; margin: 1rem 0 0.35rem; color: var(--muted); font-weight: 600; }
     p, li { color: var(--text); }
     .lede { color: var(--muted); margin: 0 0 1.5rem; }
     .meta {
@@ -562,12 +800,10 @@ export function buildWebhookPayloadDocsHtml(
       <div><strong>Content-Type:</strong> <code>application/json</code></div>
     </div>
 
-    <h2>Full example — single order (all parameters)</h2>
-    <p class="section">Legacy flat format — creates one board card with every supported field.</p>
+    <h2>Quick example — single order (all parameters)</h2>
     <pre><code>${escHtml(fullSingleItemExample(year, due))}</code></pre>
 
-    <h2>Full example — multi-item order</h2>
-    <p class="section">Creates multiple cards: <code>ORD-${year}-013-3-1</code>, <code>ORD-${year}-013-3-2</code>, etc.</p>
+    <h2>Quick example — multi-item order</h2>
     <pre><code>${escHtml(fullMultiItemExample(year, due))}</code></pre>
 
     <h2>All supported configurations</h2>
@@ -590,15 +826,18 @@ export function buildWebhookPayloadDocsHtml(
     ${fieldTableHtml(skuFields)}
 
     <h2>Accepted field values</h2>
-    <p class="warn">⚠️ Dropdown values must match your tenant's Settings → Fields options. Exact matches are safest.</p>
+    <p class="warn">⚠️ Dropdown values must match your tenant's Settings → Fields options. The webhook fuzzy-matches case/spacing and minor typos, but exact matches are safest.</p>
     <h3><code>priority</code></h3>
     <ul class="options"><li><code>normal</code></li><li><code>high</code></li><li><code>low</code></li><li><code>urgent</code></li></ul>
-    ${optionsListHtml("product", products)}
-    ${optionsListHtml("materials", materials)}
-    ${optionsListHtml("finishing", finishing)}
+    ${optionsListHtml("product", PRODUCTS)}
+    <h3><code>materials</code></h3>
+    ${materialsHtml()}
     ${optionsListHtml("sides", sides)}
-    ${optionsListHtml("color", colors)}
-    ${optionsListHtml("position", positions)}
+    ${optionsListHtml("color_mode", colorMode)}
+    ${optionsListHtml("roll_direction", rollDirection)}
+    ${optionsListHtml("lamination", lamination)}
+    <h3>Boolean fields</h3>
+    <p><code>spot_uv</code>, <code>foil</code>, <code>die_cut</code>, <code>application</code>, <code>need_a_design</code> — send <code>true</code> or <code>false</code>. Omitting is treated as <code>false</code>.</p>
 
     <h2>Response format</h2>
     <h3>Multi-item (<code>items[]</code> present)</h3>
@@ -620,7 +859,7 @@ export function buildWebhookPayloadDocsHtml(
   "owner_id": "uuid",
   "owner_name": "Jane Doe"
 }</code></pre>
-    <p>Optional <code>warning</code> string when artwork or custom fields partially fail to save.</p>
+    <p>Optional <code>warning</code> string when artwork or custom fields partially fail to save, or when dropdown values were auto-corrected via fuzzy matching.</p>
 
     <h2>Error responses</h2>
     <table>
@@ -629,20 +868,21 @@ export function buildWebhookPayloadDocsHtml(
         ${errorRows.map(([status, err, cause]) => `<tr><td>${status}</td><td>${err}</td><td>${cause}</td></tr>`).join("")}
       </tbody>
     </table>
-    <p>Invalid or unknown optional values (owner, designer, dropdown fields) do <strong>not</strong> fail the request. Check the <code>warning</code> field in the response.</p>
+    <p>Invalid or unknown optional values (owner, designer, dropdown fields) do <strong>not</strong> fail the request — the order is still created and the field is left blank. Check the <code>warning</code> field in the response.</p>
 
     <h2>Notes</h2>
     <ul class="notes">
       <li><strong>All payload fields are optional.</strong> Send only what you have — the order is still created with blank fields where data is omitted.</li>
-      <li>If <code>order_number</code> is omitted, the system generates one (e.g. <code>WH-20260619143022-a1b2c3d4</code>).</li>
-      <li>If dropdown fields don't match options, the field is <strong>left blank</strong> — the order is still created.</li>
-      <li><code>customer_contact</code> and <code>customer_phone</code> are optional. When both are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
+      <li>If <code>order_number</code> is omitted, the system auto-generates one (e.g. <code>WH-20260619143022-a1b2c3d4</code>).</li>
+      <li><code>color</code> is an alias for <code>color_mode</code>. <code>position</code> is an alias for <code>roll_direction</code>.</li>
+      <li>The legacy <code>finishing</code> field is still accepted and maps to the <strong>Finishing</strong> custom field when present. Prefer explicit boolean fields for new integrations.</li>
+      <li>When both <code>customer_contact</code> and <code>customer_phone</code> are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
       <li>SKUs are stored on <code>orders.specs.skus</code>; artwork URLs create <code>assets</code> rows with <code>external_url</code>.</li>
       <li><strong>Owner</strong> (<code>owner_*</code> / <code>request_owner_*</code>) must be an <strong>account manager</strong> to set the Owner dropdown. Free-text request owner fields are saved on the card when provided.</li>
-      <li><strong>Designer</strong> must match a workspace member with the Designer role. If not found, the order is still created — see <code>warning</code>.</li>
       <li><code>designer_information</code> is saved as designer notes and in the <strong>Designer Information</strong> custom field.</li>
-      <li><strong>Not set via webhook:</strong> Artwork GDrive link — staff can fill this in the app.</li>
-      <li>Cards land in the first board column.</li>
+      <li><strong>Not set via webhook:</strong> Artwork GDrive link — staff fill this in the app.</li>
+      <li>Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.</li>
+      <li><strong>⚠️ Rotate the webhook secret before going to production.</strong> Settings → Integrations → Webhook → Regenerate.</li>
     </ul>
   </div>
 </body>
