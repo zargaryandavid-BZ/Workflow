@@ -5,6 +5,13 @@ export const ORDER_ASSETS_BUCKET = "order-assets";
 /** Signed URL lifetime for order asset downloads (48 hours). */
 export const ORDER_ASSET_SIGNED_URL_TTL_SEC = 60 * 60 * 48;
 
+/** Max upload for SKU gallery images (after client compression). */
+export const SKU_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+/** Max raw image size before client compression for gallery uploads. */
+export const SKU_IMAGE_RAW_MAX_BYTES = 25 * 1024 * 1024;
+/** Max upload for order/SKU artwork files (PDF, AI, PNG, etc.). */
+export const ORDER_ARTWORK_MAX_BYTES = 50 * 1024 * 1024;
+
 export type OrderAssetRow = Asset & { signed_url?: string | null };
 
 /** General order attachments — not SKU artwork or customer notification uploads. */
@@ -121,4 +128,12 @@ export function formatAssetFileSize(bytes: number | null | undefined): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function uploadSizeError(
+  fileSize: number,
+  maxBytes: number
+): string | null {
+  if (fileSize <= maxBytes) return null;
+  return `File is too large (max ${formatAssetFileSize(maxBytes)})`;
 }

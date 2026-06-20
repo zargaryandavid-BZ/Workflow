@@ -2,8 +2,13 @@
  * Compress an image file client-side before upload.
  * Max dimension 1200px; JPEG quality 0.82.
  */
+export function isRasterImageFile(file: File): boolean {
+  if (!file.type.startsWith("image/")) return false;
+  return file.type !== "image/svg+xml";
+}
+
 export async function compressImage(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
+  if (!isRasterImageFile(file)) return file;
 
   return new Promise((resolve) => {
     const img = new Image();
@@ -59,4 +64,10 @@ export async function compressImage(file: File): Promise<File> {
     };
     img.src = url;
   });
+}
+
+/** Compress raster artwork images; leave PDF/AI/SVG and other formats unchanged. */
+export async function prepareArtworkFileForUpload(file: File): Promise<File> {
+  if (!isRasterImageFile(file)) return file;
+  return compressImage(file);
 }

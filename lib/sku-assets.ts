@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { prepareArtworkFileForUpload } from "@/lib/compress-image";
+import {
+  ORDER_ARTWORK_MAX_BYTES,
+  uploadSizeError,
+} from "@/lib/order-assets";
 import { skuIds, type SkuItem } from "@/lib/skus";
 
 const BUCKET = "order-assets";
@@ -41,8 +46,14 @@ export async function uploadPendingSkuArtwork(
   pending: Record<string, File>
 ) {
   for (const [skuKey, file] of Object.entries(pending)) {
+    const prepared = await prepareArtworkFileForUpload(file);
+    const sizeError = uploadSizeError(prepared.size, ORDER_ARTWORK_MAX_BYTES);
+    if (sizeError) {
+      throw new Error(`${file.name}: ${sizeError}`);
+    }
+
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", prepared);
     form.append("orderId", orderId);
     form.append("skuKey", skuKey);
     await fetch("/api/assets/upload", {

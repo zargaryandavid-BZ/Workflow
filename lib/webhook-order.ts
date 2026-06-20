@@ -14,6 +14,7 @@ import {
 } from "@/lib/order-form";
 import { prepareSkusForSave, type SkuItem } from "@/lib/skus";
 import { normalizeSmsPhone } from "@/lib/sms";
+import { fuzzyMatch } from "@/lib/fuzzyMatch";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -109,8 +110,10 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   finishing?: string;
   sides?: string;
   color?: string;
+  color_mode?: string;
   position?: string;
   roll_direction?: string;
+  lamination?: string;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -136,8 +139,10 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   finishing?: string;
   sides?: string;
   color?: string;
+  color_mode?: string;
   position?: string;
   roll_direction?: string;
+  lamination?: string;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -217,18 +222,6 @@ interface WebhookCustomerInfo {
   orderContact: string;
 }
 
-function parseContactEmail(raw: string): string | null {
-  const value = raw.trim();
-  if (!value || !value.includes("@")) return null;
-  return isValidCustomerContact(value) ? value.toLowerCase() : null;
-}
-
-function parseContactPhone(raw: string): string | null {
-  const value = raw.trim();
-  if (!value || value.includes("@")) return null;
-  return isValidCustomerContact(value) ? normalizeSmsPhone(value) : null;
-}
-
 function parseWebhookCustomerInfo(body: WebhookOrderPayload): WebhookCustomerInfo {
   const customerName =
     typeof body.customer_name === "string" ? body.customer_name.trim() : "";
@@ -242,40 +235,28 @@ function parseWebhookCustomerInfo(body: WebhookOrderPayload): WebhookCustomerInf
   const customerPhone =
     parseContactPhone(phoneRaw) ?? parseContactPhone(contactRaw);
 
-  if (!customerName) {
-    throw new WebhookValidationError("Missing required field: customer_name");
-  }
-  if (!customerEmail && !customerPhone) {
-    throw new WebhookValidationError(
-      "Missing required field: customer_contact or customer_phone"
-    );
-  }
-
   return {
     customerName,
     customerEmail,
     customerPhone,
-    orderContact: customerPhone ?? customerEmail!,
+    orderContact: customerPhone ?? customerEmail ?? "",
   };
 }
 
-function validateOrderNumber(body: WebhookOrderPayload): string {
+function resolveOrderNumber(body: WebhookOrderPayload): string {
   const orderNumber =
     typeof body.order_number === "string" ? body.order_number.trim() : "";
-  if (!orderNumber) {
-    throw new WebhookValidationError("Missing required field: order_number");
-  }
-  return orderNumber;
+  if (orderNumber) return orderNumber;
+  const stamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+  return `WH-${stamp}-${randomUUID().slice(0, 8)}`;
 }
 
-function validateDueDateRequired(body: WebhookOrderPayload): string {
+function resolveDueDate(body: WebhookOrderPayload): string | null {
   const dueDate =
     typeof body.due_date === "string" && body.due_date.trim()
       ? body.due_date.trim().slice(0, 10)
       : null;
-  if (!dueDate) {
-    throw new WebhookValidationError("Missing required field: due_date");
-  }
+  if (!dueDate) return null;
   const dueDateError = validateDueDate(dueDate);
   if (dueDateError) {
     throw new WebhookValidationError(dueDateError);
@@ -283,11 +264,22 @@ function validateDueDateRequired(body: WebhookOrderPayload): string {
   return dueDate;
 }
 
+function parseContactEmail(raw: string): string | null {
+  const value = raw.trim();
+  if (!value || !value.includes("@")) return null;
+  return isValidCustomerContact(value) ? value.toLowerCase() : null;
+}
+
+function parseContactPhone(raw: string): string | null {
+  const value = raw.trim();
+  if (!value || value.includes("@")) return null;
+  return isValidCustomerContact(value) ? normalizeSmsPhone(value) : null;
+}
+
 function validateItemsArray(items: unknown): void {
   if (!Array.isArray(items)) return;
-  if (items.length === 0) {
-    throw new WebhookValidationError("items array must not be empty");
-  }
+  // Empty items[] falls back to legacy single-item handling.
+  if (items.length === 0) return;
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (!item || typeof item !== "object") {
@@ -311,9 +303,10 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       materials: body.materials,
       finishing: body.finishing,
       sides: body.sides,
-      color: body.color,
+      color: body.color ?? body.color_mode,
       position: body.position ?? body.roll_direction,
       roll_direction: body.roll_direction,
+      lamination: body.lamination,
       order_qty: body.order_qty,
       artwork_url: body.artwork_url,
       description: body.description,
@@ -392,11 +385,12 @@ function mergeItemWithOrder(
     product_type: item.product_type ?? order.product_type,
     finished_size: item.finished_size ?? order.finished_size,
     materials: item.materials ?? order.materials,
-    finishing: item.finishing ?? order.finishing,
+    finishing: item.finishing ?? item.lamination ?? order.finishing ?? order.lamination,
     sides: item.sides ?? order.sides,
-    color: item.color ?? order.color,
+    color: item.color ?? item.color_mode ?? order.color ?? order.color_mode,
     position: item.position ?? item.roll_direction ?? order.position ?? order.roll_direction,
     roll_direction: item.roll_direction ?? order.roll_direction,
+    lamination: item.lamination ?? order.lamination,
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: item.artwork_url ?? order.artwork_url,
     description: item.description ?? order.description,
@@ -516,9 +510,9 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
     product_type: item.product_type,
     finished_size: item.finished_size,
     materials: item.materials,
-    finishing: item.finishing,
+    finishing: item.finishing ?? item.lamination,
     sides: item.sides,
-    color: item.color,
+    color: item.color ?? item.color_mode,
     position: item.position ?? item.roll_direction,
     order_qty: item.order_qty,
     designer_information: resolveDesignNotes(item) ?? undefined,
@@ -544,8 +538,31 @@ function parseFieldOptions(raw: unknown): string[] {
   return options;
 }
 
-function normalizeOptionText(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** Fuzzy-resolve a webhook value against tenant select options. */
+function resolveSelectField(
+  value: string,
+  options: string[],
+  fieldName: string,
+  corrections: string[]
+): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (options.includes(trimmed)) return trimmed;
+
+  const match = fuzzyMatch(trimmed, options);
+  if (match) {
+    if (match.score < 1) {
+      corrections.push(
+        `"${fieldName}": "${trimmed}" → "${match.matched}" (${Math.round(match.score * 100)}% match)`
+      );
+    }
+    return match.matched;
+  }
+
+  corrections.push(`"${fieldName}": "${trimmed}" — no match found, left blank`);
+  return null;
 }
 
 /** Match incoming webhook text to a tenant select option (case/whitespace insensitive). */
@@ -553,27 +570,7 @@ export function matchSelectOption(
   incoming: string,
   options: string[]
 ): string | null {
-  const trimmed = incoming.trim().replace(/\s+/g, " ");
-  if (!trimmed || options.length === 0) return null;
-
-  const lower = normalizeOptionText(trimmed);
-
-  const exact = options.find(
-    (o) => normalizeOptionText(o) === lower
-  );
-  if (exact) return exact;
-
-  const incomingContains = options
-    .filter((o) => o.trim() && lower.includes(normalizeOptionText(o)))
-    .sort((a, b) => b.length - a.length);
-  if (incomingContains[0]) return incomingContains[0];
-
-  const optionContains = options
-    .filter((o) => o.trim() && normalizeOptionText(o).includes(lower))
-    .sort((a, b) => a.length - b.length);
-  if (optionContains[0]) return optionContains[0];
-
-  return null;
+  return fuzzyMatch(incoming, options)?.matched ?? null;
 }
 
 function fieldNameMatches(fieldName: string, candidates: string[]): boolean {
@@ -634,7 +631,8 @@ async function resolveCustomFields(
 function resolveWebhookFieldValue(
   webhookKey: string,
   raw: unknown,
-  field: CustomFieldDef | undefined
+  field: CustomFieldDef | undefined,
+  corrections: string[]
 ): unknown {
   if (raw === null || raw === undefined || raw === "") return null;
 
@@ -651,7 +649,7 @@ function resolveWebhookFieldValue(
     SELECT_WEBHOOK_KEYS.has(webhookKey) &&
     field.options.length > 0
   ) {
-    return matchSelectOption(text, field.options);
+    return resolveSelectField(text, field.options, webhookKey, corrections);
   }
 
   return text;
@@ -662,14 +660,15 @@ function buildCustomFieldValues(
   specFields: WebhookSpecFields,
   customerName: string,
   orderContact: string,
-  skus: SkuItem[]
+  skus: SkuItem[],
+  corrections: string[]
 ): { customFieldId: string; value: unknown }[] {
   const byFieldId = new Map<string, unknown>();
 
   const nameField = fields.get(CUSTOMER_NAME_FIELD_NAME);
   const contactField = fields.get(CUSTOMER_CONTACT_FIELD_NAME);
-  if (nameField) byFieldId.set(nameField.id, customerName);
-  if (contactField) byFieldId.set(contactField.id, orderContact);
+  if (nameField && customerName) byFieldId.set(nameField.id, customerName);
+  if (contactField && orderContact) byFieldId.set(contactField.id, orderContact);
 
   const skuQtySum =
     skus.length > 0
@@ -683,7 +682,7 @@ function buildCustomFieldValues(
     const field = fields.get(webhookKey);
     if (!field) continue;
     const raw = specFields[webhookKey as keyof WebhookSpecFields];
-    const value = resolveWebhookFieldValue(webhookKey, raw, field);
+    const value = resolveWebhookFieldValue(webhookKey, raw, field, corrections);
     if (value === null) continue;
     byFieldId.set(field.id, value);
   }
@@ -1265,6 +1264,7 @@ interface CreateSingleJobParams {
   designerId: string | null;
   designerName: string | null;
   designNotes: string | null;
+  corrections: string[];
 }
 
 async function createSingleWebhookJob(
@@ -1295,6 +1295,7 @@ async function createSingleWebhookJob(
     designerId,
     designerName,
     designNotes,
+    corrections,
   } = params;
 
   const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(item.skus);
@@ -1310,7 +1311,8 @@ async function createSingleWebhookJob(
     specFields,
     customerName,
     orderContact,
-    skus
+    skus,
+    corrections
   );
 
   const itemDescription =
@@ -1433,8 +1435,8 @@ export async function createOrderFromWebhook(
 ): Promise<WebhookCreateResult> {
   const customerInfo = parseWebhookCustomerInfo(body);
   validateItemsArray(body.items);
-  const baseOrderNumber = validateOrderNumber(body);
-  const dueDate = validateDueDateRequired(body);
+  const baseOrderNumber = resolveOrderNumber(body);
+  const dueDate = resolveDueDate(body);
 
   const priority =
     typeof body.priority === "string" && PRIORITIES.has(body.priority)
@@ -1475,36 +1477,26 @@ export async function createOrderFromWebhook(
     ((last as { position: number } | null)?.position ?? 0) + 1000;
 
   const fields = await resolveCustomFields(client, tenantId);
-  const customerFieldValues = buildCustomFieldValues(
-    fields,
-    {},
-    customerInfo.customerName,
-    customerInfo.orderContact,
-    []
-  );
 
   let customerId: string | null = null;
-  try {
-    const { customerId: id } = await upsertCustomer(client, tenantId, {
-      name: customerInfo.customerName,
-      email: customerInfo.customerEmail,
-      phone: customerInfo.customerPhone,
-    });
-    customerId = id;
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to save customer";
-    console.error("[webhook/orders] customer upsert error:", message);
-  }
-
-  if (!customerId && customerFieldValues.length > 0) {
-    console.warn(
-      "[webhook/orders] customer record not linked; order custom fields still set"
-    );
+  if (customerInfo.customerEmail || customerInfo.customerPhone) {
+    try {
+      const { customerId: id } = await upsertCustomer(client, tenantId, {
+        name: customerInfo.customerName,
+        email: customerInfo.customerEmail,
+        phone: customerInfo.customerPhone,
+      });
+      customerId = id;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save customer";
+      console.error("[webhook/orders] customer upsert error:", message);
+    }
   }
 
   const createdJobs: WebhookCreatedJob[] = [];
   const allWarnings: string[] = [];
+  const allCorrections: string[] = [];
   let responseOwnerId: string | null = null;
   let responseOwnerName: string | null = null;
 
@@ -1575,6 +1567,7 @@ export async function createOrderFromWebhook(
       designerId,
       designerName,
       designNotes: resolveDesignNotes(designerInput),
+      corrections: allCorrections,
     });
 
     nextPosition += 1000;
@@ -1584,6 +1577,12 @@ export async function createOrderFromWebhook(
       item_index: i,
       title: jobTitle,
     });
+  }
+
+  if (allCorrections.length > 0) {
+    allWarnings.push(
+      `Auto-corrected fields: ${allCorrections.join("; ")}`
+    );
   }
 
   const warning =

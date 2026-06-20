@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Pencil, Upload, X } from "lucide-react";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { prepareArtworkFileForUpload } from "@/lib/compress-image";
+import {
+  ORDER_ARTWORK_MAX_BYTES,
+  uploadSizeError,
+} from "@/lib/order-assets";
 import type { Asset } from "@/lib/types";
 
 interface SkuArtworkCellProps {
@@ -55,6 +60,7 @@ export function SkuArtworkCell({
   const [stagedName, setStagedName] = useState<string | null>(null);
   const [stagedMime, setStagedMime] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const stageOnly = deferUpload || !orderId;
@@ -97,13 +103,34 @@ export function SkuArtworkCell({
     };
   }, []);
 
-  function selectFile(file: File) {
+  async function selectFile(file: File) {
     setError(null);
-    setPreviewFromFile(file);
-    if (savedAsset) {
-      onUnmarkForRemoval?.(savedAsset.id);
+    setPreparing(true);
+    try {
+      const sizeError = uploadSizeError(file.size, ORDER_ARTWORK_MAX_BYTES);
+      if (sizeError) {
+        setError(sizeError);
+        return;
+      }
+
+      const prepared = await prepareArtworkFileForUpload(file);
+      const preparedSizeError = uploadSizeError(
+        prepared.size,
+        ORDER_ARTWORK_MAX_BYTES
+      );
+      if (preparedSizeError) {
+        setError(preparedSizeError);
+        return;
+      }
+
+      setPreviewFromFile(prepared);
+      if (savedAsset) {
+        onUnmarkForRemoval?.(savedAsset.id);
+      }
+      onPendingFile?.(prepared);
+    } finally {
+      setPreparing(false);
     }
-    onPendingFile?.(file);
   }
 
   function remove(e?: React.MouseEvent) {
@@ -154,10 +181,10 @@ export function SkuArtworkCell({
           type="file"
           className="hidden"
           accept=".pdf,.ai,.eps,.png,.jpg,.jpeg,.psd,.svg"
-          disabled={disabled}
+          disabled={disabled || preparing}
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) selectFile(file);
+            if (file) void selectFile(file);
             if (inputRef.current) inputRef.current.value = "";
           }}
         />
@@ -235,21 +262,21 @@ export function SkuArtworkCell({
         type="file"
         className="hidden"
         accept=".pdf,.ai,.eps,.png,.jpg,.jpeg,.psd,.svg"
-        disabled={disabled}
+        disabled={disabled || preparing}
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) selectFile(file);
+          if (file) void selectFile(file);
           if (inputRef.current) inputRef.current.value = "";
         }}
       />
       <button
         type="button"
-        disabled={disabled}
+        disabled={disabled || preparing}
         onClick={() => inputRef.current?.click()}
         className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
       >
         <Upload className="h-3.5 w-3.5" />
-        Artwork
+        {preparing ? "Optimizing…" : "Artwork"}
       </button>
       {error ? <p className="mt-0.5 text-[10px] text-red-600">{error}</p> : null}
     </div>

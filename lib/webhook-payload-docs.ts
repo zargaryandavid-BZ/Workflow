@@ -186,13 +186,13 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 
 | Field | Required | Type | Notes |
 |---|---|---|---|
-| \`customer_name\` | ✅ | string | Customer display name |
-| \`customer_contact\` | ✅* | string | Email (*required if no phone). When both contact fields are sent, email is saved on the customer record. |
-| \`customer_phone\` | ✅* | string | Phone (*required if no email). When both are sent, phone is the order's primary Customer Contact and is also saved on the customer record. |
-| \`order_number\` | ✅ | string | Your reference e.g. \`"ORD-${year}-001"\` — stored as the card order number |
+| \`customer_name\` | No | string | Customer display name |
+| \`customer_contact\` | No | string | Email. When both contact fields are sent, email is saved on the customer record. |
+| \`customer_phone\` | No | string | Phone. When both are sent, phone is the order's primary Customer Contact and is also saved on the customer record. |
+| \`order_number\` | No | string | Your reference e.g. \`"ORD-${year}-001"\` — auto-generated (\`WH-…\`) if omitted |
 | \`title\` | No | string | Order title — auto-generated if omitted |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
-| \`due_date\` | ✅ | string | \`"YYYY-MM-DD"\` — must be today or a future date |
+| \`due_date\` | No | string | \`"YYYY-MM-DD"\` — must be today or a future date when provided |
 | \`description\` | No | string | Order-level notes visible on all cards |
 | \`owner_email\` | No | string | Account manager email — sets **Owner** on the card (\`created_by\`) |
 | \`owner_id\` | No | string | Account manager UUID — same as \`owner_email\` |
@@ -248,8 +248,8 @@ Legacy flat format: put these fields at the top level instead of inside \`items[
 
 | Field | Required | Type | Notes |
 |---|---|---|---|
-| \`sku_name\` | ✅ | string | Variant display name |
-| \`quantity\` | ✅ | number | Number of pieces (min 1 when SKU row is sent) |
+| \`sku_name\` | No | string | Variant display name |
+| \`quantity\` | No | number | Number of pieces (min 1 when SKU row is sent) |
 | \`artwork_url\` | No | string | Per-SKU artwork URL |
 
 ---
@@ -341,11 +341,8 @@ Optional \`warning\` string when artwork or custom fields partially fail to save
 | 401 | \`Unauthorized\` | Wrong or missing \`x-webhook-secret\` |
 | 403 | \`Webhook is disabled\` | Webhook toggled off in Settings |
 | 400 | \`Invalid JSON\` | Malformed request body |
-| 422 | \`Missing required field: customer_name\` | Required field absent |
-| 422 | \`Missing required field: order_number\` | \`order_number\` absent |
-| 422 | \`Missing required field: due_date\` | \`due_date\` absent |
-| 422 | \`Due date cannot be in the past.\` | Past \`due_date\` |
-| 422 | \`items array must not be empty\` | \`items: []\` sent |
+| 422 | \`Due date cannot be in the past.\` | Past \`due_date\` when provided |
+| 422 | \`items[N] is invalid\` | Malformed entry in \`items[]\` |
 | 500 | \`Server error\` | Server-side failure |
 
 Invalid or unknown optional values (owner, designer, dropdown fields) do **not** fail the request — the order is still created and the field is left blank. Check the \`warning\` field in the response.
@@ -354,8 +351,10 @@ Invalid or unknown optional values (owner, designer, dropdown fields) do **not**
 
 ## Notes
 
+- **All payload fields are optional.** Send only what you have — the order is still created with blank fields where data is omitted.
+- If \`order_number\` is omitted, the system generates one (e.g. \`WH-20260619143022-a1b2c3d4\`).
 - If \`materials\`, \`finishing\`, \`product\`, \`product_type\`, \`sides\`, \`color\`, or \`position\`/\`roll_direction\` don't match dropdown options, the field is **left blank** — the order is still created.
-- \`customer_contact\` and \`customer_phone\` — at least one valid email or phone is required. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores **both email and phone**. Existing customers are reused (no duplicate).
+- \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores **both email and phone**. Existing customers are reused (no duplicate).
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
 - **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
 - \`designer_information\` is saved as designer notes on the card and in the **Designer Information** custom field when present.
@@ -400,13 +399,13 @@ export function buildWebhookPayloadDocsHtml(
   const positions = fieldOptions("Position");
 
   const orderFields: [string, string, string, string][] = [
-    ["customer_name", "✅", "string", "Customer display name"],
-    ["customer_contact", "✅*", "string", "Email (*required if no phone). Saved on customer when both fields are sent."],
-    ["customer_phone", "✅*", "string", "Phone (*required if no email). Order primary contact when both are sent; also saved on customer."],
-    ["order_number", "✅", "string", `Your reference e.g. <code>ORD-${year}-001</code> — stored as the card order number`],
+    ["customer_name", "No", "string", "Customer display name"],
+    ["customer_contact", "No", "string", "Email. Saved on customer when both fields are sent."],
+    ["customer_phone", "No", "string", "Phone. Order primary contact when both are sent; also saved on customer."],
+    ["order_number", "No", "string", `Your reference e.g. <code>ORD-${year}-001</code> — auto-generated (<code>WH-…</code>) if omitted`],
     ["title", "No", "string", "Order title — auto-generated if omitted"],
     ["priority", "No", "string", "<code>normal</code> · <code>high</code> · <code>low</code> · <code>urgent</code> (default: normal)"],
-    ["due_date", "✅", "string", '<code>"YYYY-MM-DD"</code> — must be today or a future date'],
+    ["due_date", "No", "string", '<code>"YYYY-MM-DD"</code> — must be today or a future date when provided'],
     ["description", "No", "string", "Order-level notes visible on all cards"],
     ["owner_email", "No", "string", "Account manager email — sets <strong>Owner</strong> (<code>created_by</code>)"],
     ["owner_id", "No", "string", "Account manager UUID"],
@@ -450,8 +449,8 @@ export function buildWebhookPayloadDocsHtml(
   ];
 
   const skuFields: [string, string, string, string][] = [
-    ["sku_name", "✅", "string", "Variant display name"],
-    ["quantity", "✅", "number", "Number of pieces (min 1 when SKU row is sent)"],
+    ["sku_name", "No", "string", "Variant display name"],
+    ["quantity", "No", "number", "Number of pieces (min 1 when SKU row is sent)"],
     ["artwork_url", "No", "string", "Per-SKU artwork URL"],
   ];
 
@@ -470,11 +469,8 @@ export function buildWebhookPayloadDocsHtml(
     ["401", "<code>Unauthorized</code>", "Wrong or missing <code>x-webhook-secret</code>"],
     ["403", "<code>Webhook is disabled</code>", "Webhook toggled off in Settings"],
     ["400", "<code>Invalid JSON</code>", "Malformed request body"],
-    ["422", "<code>Missing required field: customer_name</code>", "Required field absent"],
-    ["422", "<code>Missing required field: order_number</code>", "<code>order_number</code> absent"],
-    ["422", "<code>Missing required field: due_date</code>", "<code>due_date</code> absent"],
-    ["422", "<code>Due date cannot be in the past.</code>", "Past <code>due_date</code>"],
-    ["422", "<code>items array must not be empty</code>", "<code>items: []</code> sent"],
+    ["422", "<code>Due date cannot be in the past.</code>", "Past <code>due_date</code> when provided"],
+    ["422", "<code>items[N] is invalid</code>", "Malformed entry in <code>items[]</code>"],
     ["500", "<code>Server error</code>", "Server-side failure"],
   ];
 
@@ -650,8 +646,10 @@ export function buildWebhookPayloadDocsHtml(
 
     <h2>Notes</h2>
     <ul class="notes">
+      <li><strong>All payload fields are optional.</strong> Send only what you have — the order is still created with blank fields where data is omitted.</li>
+      <li>If <code>order_number</code> is omitted, the system generates one (e.g. <code>WH-20260619143022-a1b2c3d4</code>).</li>
       <li>If dropdown fields don't match options, the field is <strong>left blank</strong> — the order is still created.</li>
-      <li><code>customer_contact</code> and <code>customer_phone</code> — at least one valid email or phone is required. When both are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
+      <li><code>customer_contact</code> and <code>customer_phone</code> are optional. When both are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
       <li>SKUs are stored on <code>orders.specs.skus</code>; artwork URLs create <code>assets</code> rows with <code>external_url</code>.</li>
       <li><strong>Owner</strong> (<code>owner_*</code> / <code>request_owner_*</code>) must be an <strong>account manager</strong> to set the Owner dropdown. Free-text request owner fields are saved on the card when provided.</li>
       <li><strong>Designer</strong> must match a workspace member with the Designer role. If not found, the order is still created — see <code>warning</code>.</li>

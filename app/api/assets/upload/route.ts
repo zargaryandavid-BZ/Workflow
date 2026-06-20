@@ -5,7 +5,9 @@ import { logActivity } from "@/lib/automation";
 import {
   ORDER_ASSETS_BUCKET,
   orderAssetStoragePath,
+  ORDER_ARTWORK_MAX_BYTES,
   skuAssetStoragePath,
+  uploadSizeError,
 } from "@/lib/order-assets";
 
 export async function POST(request: Request) {
@@ -37,6 +39,11 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (!order || order.tenant_id !== ctx.tenant.id) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  const sizeError = uploadSizeError(file.size, ORDER_ARTWORK_MAX_BYTES);
+  if (sizeError) {
+    return NextResponse.json({ error: sizeError }, { status: 422 });
   }
 
   const skuKeyTrimmed =

@@ -4,6 +4,11 @@ import { useRef, useState, useEffect } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { compressImage } from "@/lib/compress-image";
+import {
+  SKU_IMAGE_MAX_BYTES,
+  SKU_IMAGE_RAW_MAX_BYTES,
+  uploadSizeError,
+} from "@/lib/order-assets";
 import { MAX_SKU_IMAGES } from "@/lib/sku-images";
 import type { OrderSkuImageWithUrl } from "@/lib/types";
 
@@ -60,7 +65,22 @@ export function SkuImageUpload({
     }
 
     for (const rawFile of fileArray) {
+      const rawSizeError = uploadSizeError(
+        rawFile.size,
+        SKU_IMAGE_RAW_MAX_BYTES
+      );
+      if (rawSizeError) {
+        setError(rawSizeError);
+        break;
+      }
+
       const file = await compressImage(rawFile);
+      const sizeError = uploadSizeError(file.size, SKU_IMAGE_MAX_BYTES);
+      if (sizeError) {
+        setError(sizeError);
+        break;
+      }
+
       const fd = new FormData();
       fd.append("file", file);
 

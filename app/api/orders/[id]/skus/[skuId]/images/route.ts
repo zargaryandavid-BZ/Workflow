@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
+import { ORDER_ASSETS_BUCKET, SKU_IMAGE_MAX_BYTES, uploadSizeError } from "@/lib/order-assets";
 import {
   attachSignedUrlsToSkuImages,
   MAX_SKU_IMAGES,
@@ -67,6 +67,10 @@ export async function POST(
   }
   if (!file.type.startsWith("image/")) {
     return NextResponse.json({ error: "Images only" }, { status: 400 });
+  }
+  const sizeError = uploadSizeError(file.size, SKU_IMAGE_MAX_BYTES);
+  if (sizeError) {
+    return NextResponse.json({ error: sizeError }, { status: 422 });
   }
 
   const supabase = await createClient();
