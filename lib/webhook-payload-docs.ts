@@ -187,8 +187,8 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | \`customer_name\` | ✅ | string | Customer display name |
-| \`customer_contact\` | ✅* | string | Email (*required if no phone) |
-| \`customer_phone\` | ✅* | string | Phone (*required if no email) |
+| \`customer_contact\` | ✅* | string | Email (*required if no phone). When both contact fields are sent, email is saved on the customer record. |
+| \`customer_phone\` | ✅* | string | Phone (*required if no email). When both are sent, phone is the order's primary Customer Contact and is also saved on the customer record. |
 | \`order_number\` | ✅ | string | Your reference e.g. \`"ORD-${year}-001"\` — stored as the card order number |
 | \`title\` | No | string | Order title — auto-generated if omitted |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
@@ -355,7 +355,7 @@ Invalid or unknown optional values (owner, designer, dropdown fields) do **not**
 ## Notes
 
 - If \`materials\`, \`finishing\`, \`product\`, \`product_type\`, \`sides\`, \`color\`, or \`position\`/\`roll_direction\` don't match dropdown options, the field is **left blank** — the order is still created.
-- \`customer_contact\` and \`customer_phone\` — at least one valid email or phone is required. Existing customers are reused (no duplicate).
+- \`customer_contact\` and \`customer_phone\` — at least one valid email or phone is required. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores **both email and phone**. Existing customers are reused (no duplicate).
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
 - **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
 - \`designer_information\` is saved as designer notes on the card and in the **Designer Information** custom field when present.
@@ -401,8 +401,8 @@ export function buildWebhookPayloadDocsHtml(
 
   const orderFields: [string, string, string, string][] = [
     ["customer_name", "✅", "string", "Customer display name"],
-    ["customer_contact", "✅*", "string", "Email (*required if no phone)"],
-    ["customer_phone", "✅*", "string", "Phone (*required if no email)"],
+    ["customer_contact", "✅*", "string", "Email (*required if no phone). Saved on customer when both fields are sent."],
+    ["customer_phone", "✅*", "string", "Phone (*required if no email). Order primary contact when both are sent; also saved on customer."],
     ["order_number", "✅", "string", `Your reference e.g. <code>ORD-${year}-001</code> — stored as the card order number`],
     ["title", "No", "string", "Order title — auto-generated if omitted"],
     ["priority", "No", "string", "<code>normal</code> · <code>high</code> · <code>low</code> · <code>urgent</code> (default: normal)"],
@@ -651,7 +651,7 @@ export function buildWebhookPayloadDocsHtml(
     <h2>Notes</h2>
     <ul class="notes">
       <li>If dropdown fields don't match options, the field is <strong>left blank</strong> — the order is still created.</li>
-      <li><code>customer_contact</code> and <code>customer_phone</code> — at least one valid email or phone is required.</li>
+      <li><code>customer_contact</code> and <code>customer_phone</code> — at least one valid email or phone is required. When both are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
       <li>SKUs are stored on <code>orders.specs.skus</code>; artwork URLs create <code>assets</code> rows with <code>external_url</code>.</li>
       <li><strong>Owner</strong> (<code>owner_*</code> / <code>request_owner_*</code>) must be an <strong>account manager</strong> to set the Owner dropdown. Free-text request owner fields are saved on the card when provided.</li>
       <li><strong>Designer</strong> must match a workspace member with the Designer role. If not found, the order is still created — see <code>warning</code>.</li>

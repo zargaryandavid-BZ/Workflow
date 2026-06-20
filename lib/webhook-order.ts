@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity } from "@/lib/automation";
-import { linkCustomerFromOrderFields } from "@/lib/customers";
+import { upsertCustomer } from "@/lib/customers";
 import { isAccountManagerOwner } from "@/lib/order-owners";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
@@ -13,6 +13,7 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { prepareSkusForSave, type SkuItem } from "@/lib/skus";
+import { normalizeSmsPhone } from "@/lib/sms";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -208,28 +209,54 @@ function normalizeWebhookSkus(
   return { skus, artworkBySkuId };
 }
 
-function validatePayload(body: WebhookOrderPayload): {
+interface WebhookCustomerInfo {
   customerName: string;
-  customerContact: string;
-} {
+  customerEmail: string | null;
+  customerPhone: string | null;
+  /** Stored on the order Customer Contact field — phone preferred when both are sent. */
+  orderContact: string;
+}
+
+function parseContactEmail(raw: string): string | null {
+  const value = raw.trim();
+  if (!value || !value.includes("@")) return null;
+  return isValidCustomerContact(value) ? value.toLowerCase() : null;
+}
+
+function parseContactPhone(raw: string): string | null {
+  const value = raw.trim();
+  if (!value || value.includes("@")) return null;
+  return isValidCustomerContact(value) ? normalizeSmsPhone(value) : null;
+}
+
+function parseWebhookCustomerInfo(body: WebhookOrderPayload): WebhookCustomerInfo {
   const customerName =
     typeof body.customer_name === "string" ? body.customer_name.trim() : "";
-  const customerContact =
-    (typeof body.customer_contact === "string"
-      ? body.customer_contact.trim()
-      : "") ||
-    (typeof body.customer_phone === "string" ? body.customer_phone.trim() : "");
+  const contactRaw =
+    typeof body.customer_contact === "string" ? body.customer_contact.trim() : "";
+  const phoneRaw =
+    typeof body.customer_phone === "string" ? body.customer_phone.trim() : "";
+
+  const customerEmail =
+    parseContactEmail(contactRaw) ?? parseContactEmail(phoneRaw);
+  const customerPhone =
+    parseContactPhone(phoneRaw) ?? parseContactPhone(contactRaw);
 
   if (!customerName) {
     throw new WebhookValidationError("Missing required field: customer_name");
   }
-  if (!customerContact || !isValidCustomerContact(customerContact)) {
+  if (!customerEmail && !customerPhone) {
     throw new WebhookValidationError(
       "Missing required field: customer_contact or customer_phone"
     );
   }
 
-  return { customerName, customerContact };
+  return {
+    customerName,
+    customerEmail,
+    customerPhone,
+    orderContact: customerPhone ?? customerEmail!,
+  };
 }
 
 function validateOrderNumber(body: WebhookOrderPayload): string {
@@ -634,7 +661,7 @@ function buildCustomFieldValues(
   fields: Map<string, CustomFieldDef>,
   specFields: WebhookSpecFields,
   customerName: string,
-  customerContact: string,
+  orderContact: string,
   skus: SkuItem[]
 ): { customFieldId: string; value: unknown }[] {
   const byFieldId = new Map<string, unknown>();
@@ -642,7 +669,7 @@ function buildCustomFieldValues(
   const nameField = fields.get(CUSTOMER_NAME_FIELD_NAME);
   const contactField = fields.get(CUSTOMER_CONTACT_FIELD_NAME);
   if (nameField) byFieldId.set(nameField.id, customerName);
-  if (contactField) byFieldId.set(contactField.id, customerContact);
+  if (contactField) byFieldId.set(contactField.id, orderContact);
 
   const skuQtySum =
     skus.length > 0
@@ -1222,7 +1249,7 @@ interface CreateSingleJobParams {
   fields: Map<string, CustomFieldDef>;
   customerId: string | null;
   customerName: string;
-  customerContact: string;
+  orderContact: string;
   item: WebhookItem;
   priority: string;
   dueDate: string | null;
@@ -1252,7 +1279,7 @@ async function createSingleWebhookJob(
     fields,
     customerId,
     customerName,
-    customerContact,
+    orderContact,
     item,
     priority,
     dueDate,
@@ -1282,7 +1309,7 @@ async function createSingleWebhookJob(
     fields,
     specFields,
     customerName,
-    customerContact,
+    orderContact,
     skus
   );
 
@@ -1404,7 +1431,7 @@ export async function createOrderFromWebhook(
   config: WebhookConfig,
   body: WebhookOrderPayload
 ): Promise<WebhookCreateResult> {
-  const { customerName, customerContact } = validatePayload(body);
+  const customerInfo = parseWebhookCustomerInfo(body);
   validateItemsArray(body.items);
   const baseOrderNumber = validateOrderNumber(body);
   const dueDate = validateDueDateRequired(body);
@@ -1451,17 +1478,28 @@ export async function createOrderFromWebhook(
   const customerFieldValues = buildCustomFieldValues(
     fields,
     {},
-    customerName,
-    customerContact,
+    customerInfo.customerName,
+    customerInfo.orderContact,
     []
   );
 
   let customerId: string | null = null;
-  if (customerFieldValues.length > 0) {
-    customerId = await linkCustomerFromOrderFields(
-      client,
-      tenantId,
-      customerFieldValues
+  try {
+    const { customerId: id } = await upsertCustomer(client, tenantId, {
+      name: customerInfo.customerName,
+      email: customerInfo.customerEmail,
+      phone: customerInfo.customerPhone,
+    });
+    customerId = id;
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to save customer";
+    console.error("[webhook/orders] customer upsert error:", message);
+  }
+
+  if (!customerId && customerFieldValues.length > 0) {
+    console.warn(
+      "[webhook/orders] customer record not linked; order custom fields still set"
     );
   }
 
@@ -1520,8 +1558,8 @@ export async function createOrderFromWebhook(
       position: nextPosition,
       fields,
       customerId,
-      customerName,
-      customerContact,
+      customerName: customerInfo.customerName,
+      orderContact: customerInfo.orderContact,
       item,
       priority,
       dueDate,
