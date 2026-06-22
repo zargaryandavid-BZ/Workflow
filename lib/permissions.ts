@@ -22,6 +22,14 @@ export function canDropOut(role: Role, column: DropColumn): boolean {
 }
 
 /**
+ * Whether `role` may pick up / drag cards in `column` (reorder within column
+ * requires drop-in; leaving the column requires drop-out).
+ */
+export function canDragInColumn(role: Role, column: DropColumn): boolean {
+  return canDropOut(role, column) || canDropIn(role, column);
+}
+
+/**
  * Whether `role` may move an order from `from` to `to`. Reordering within the
  * same column only requires drop-in rights on that column.
  */

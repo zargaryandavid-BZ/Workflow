@@ -24,7 +24,7 @@ import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
-import { canDropIn, canDropOut } from "@/lib/permissions";
+import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
 import {
   getMissingFields,
   type MissingField,
@@ -317,13 +317,6 @@ export function Board({
   }, [filteredOrders, columns]);
 
   const activeOrder = orders.find((o) => o.id === activeId) ?? null;
-  const firstColumnId = columns[0]?.id ?? null;
-  const detailOrder = detailId ? orders.find((o) => o.id === detailId) : null;
-  const showCopyOrderLinkForDetail =
-    detailOrder != null &&
-    firstColumnId != null &&
-    detailOrder.column_id !== firstColumnId;
-
   function findColumnId(id: string): string | null {
     if (columns.some((c) => c.id === id)) return id;
     return orders.find((o) => o.id === id)?.column_id ?? null;
@@ -568,7 +561,7 @@ export function Board({
             <Column
               key={column.id}
               column={column}
-              canDragOut={canDropOut(role, column)}
+              canDragOut={canDragInColumn(role, column)}
               orders={ordersByColumn.get(column.id) ?? []}
               customFields={customFields}
               fieldValuesByOrder={fieldValuesByOrder}
@@ -626,7 +619,6 @@ export function Board({
         role={role}
         onChanged={() => router.refresh()}
         onLinkCopied={flashToast}
-        showCopyOrderLink={showCopyOrderLinkForDetail}
         buttonAutomations={buttonAutomations}
         appUrl={appUrl}
       />

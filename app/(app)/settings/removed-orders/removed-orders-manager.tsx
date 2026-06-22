@@ -147,7 +147,6 @@ export function RemovedOrdersManager({
         designers={designers}
         role={role}
         mode="view"
-        showCopyOrderLink={false}
         onChanged={() => router.refresh()}
       />
     </div>

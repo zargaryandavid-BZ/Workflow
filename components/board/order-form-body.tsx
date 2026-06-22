@@ -65,8 +65,6 @@ export interface OrderFormBodyProps {
   readOnly?: boolean;
   /** Hide order number field (shown in modal title when editing existing orders). */
   hideOrderNumberField?: boolean;
-  onCopyOrderLink?: () => void;
-  copyOrderLinkDisabled?: boolean;
 }
 
 export function OrderFormBody({
@@ -109,11 +107,10 @@ export function OrderFormBody({
   ensureSkuPersisted,
   readOnly = false,
   hideOrderNumberField = false,
-  onCopyOrderLink,
-  copyOrderLinkDisabled = false,
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, designerField, orderQtyField, printFields } = resolved;
+  const [artworkCopied, setArtworkCopied] = useState(false);
   const [dueDateError, setDueDateError] = useState<string | null>(null);
   const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
     null
@@ -123,6 +120,20 @@ export function OrderFormBody({
   const lastLookupKeyRef = useRef<string | null>(null);
   const normalizedDueDate = dateInputValue(dueDate);
   const minDueDate = localDateInputValue();
+  const artworkValue = artworkField
+    ? String(fieldValues[artworkField.id] ?? "").trim()
+    : "";
+
+  async function copyArtworkLink() {
+    if (!artworkValue) return;
+    try {
+      await navigator.clipboard.writeText(artworkValue);
+      setArtworkCopied(true);
+      setTimeout(() => setArtworkCopied(false), 1500);
+    } catch {
+      // ignore clipboard failures
+    }
+  }
 
   useEffect(() => {
     if (readOnly) return;
@@ -324,18 +335,16 @@ export function OrderFormBody({
             ) : null}
           </Label>
           <div className="flex items-center gap-2">
-            {onCopyOrderLink ? (
-              <button
-                type="button"
-                onClick={onCopyOrderLink}
-                disabled={copyOrderLinkDisabled}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Copy pre-filled job ticket link"
-              >
-                <Copy className="h-4 w-4" />
-                Copy Link
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={copyArtworkLink}
+              disabled={!artworkValue}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Copy Artwork GDrive link"
+            >
+              <Copy className="h-4 w-4" />
+              {artworkCopied ? "Copied" : "Copy Link"}
+            </button>
             <Input
               id={`${idPrefix}-artwork`}
               readOnly={readOnly}

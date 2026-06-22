@@ -24,17 +24,9 @@ import {
 import { PRIORITY_STYLES } from "@/lib/constants";
 import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder } from "@/lib/notification-messages";
-import {
-  BUCKET as ORDER_ASSETS_BUCKET,
-  serializeSkusForJobTicketLink,
-  signedUrlsForAssets,
-  SKU_LINK_SIGNED_URL_TTL_SEC,
-} from "@/lib/sku-artwork-url";
 import { groupSkuImagesBySkuId } from "@/lib/sku-images";
-import { createClient } from "@/lib/supabase/client";
 import {
   buildCustomFieldPayload,
-  findOrderFormField,
   resolveOrderFormFields,
   validateDueDate,
   validateOrderFormFields,
@@ -70,8 +62,6 @@ interface CardDetailModalProps {
   /** When "view", all fields are read-only and save/upload actions are hidden. */
   mode?: "edit" | "view";
   onLinkCopied?: (message: string) => void;
-  /** When false, hides the Copy Order Link header button. Defaults to true. */
-  showCopyOrderLink?: boolean;
   buttonAutomations?: ButtonAutomation[];
   appUrl?: string;
 }
@@ -112,7 +102,6 @@ export function CardDetailModal({
   onChanged,
   mode = "edit",
   onLinkCopied,
-  showCopyOrderLink = true,
   buttonAutomations = [],
   appUrl = "",
 }: CardDetailModalProps) {
@@ -469,101 +458,6 @@ export function CardDetailModal({
     onClose();
   }
 
-  async function copyOrderLink() {
-    const getField = (name: string) => {
-      const field = findOrderFormField(modalCustomFields, name);
-      return field ? String(fieldValues[field.id] ?? "") : "";
-    };
-
-    // Require GDrive artwork link before allowing copy
-    const artworkUrl = getField("Artwork (GDrive link)");
-    if (!artworkUrl.trim()) {
-      window.alert(
-        "⚠️ Please add an Artwork GDrive link to this order before copying the job ticket link.\n\nEdit the order → fill in \"Artwork GDrive link\" → then copy."
-      );
-      return;
-    }
-
-    const finishedSize = getField("Finished Size");
-    const sizeMatch = finishedSize.match(/([\d.]+)\s*[xX×]\s*([\d.]+)/);
-    const width = sizeMatch ? sizeMatch[1] : "";
-    const height = sizeMatch ? sizeMatch[2] : "";
-
-    const sidesRaw = getField("Sides").toLowerCase();
-    const sides = sidesRaw.includes("2")
-      ? "2-sided"
-      : sidesRaw.includes("1")
-        ? "1-sided"
-        : "";
-
-    const assetsBySkuKey = new Map<string, Asset>();
-    for (const asset of data?.assets ?? []) {
-      if (asset.sku_key && !removedSkuArtworkIds.has(asset.id)) {
-        assetsBySkuKey.set(asset.sku_key, asset);
-      }
-    }
-
-    const supabase = createClient();
-    const signedUrlByPath = await signedUrlsForAssets(
-      [...assetsBySkuKey.values()],
-      async (paths) => {
-        const { data, error } = await supabase.storage
-          .from(ORDER_ASSETS_BUCKET)
-          .createSignedUrls(paths, SKU_LINK_SIGNED_URL_TTL_SEC);
-        if (error || !data) return new Map();
-        return new Map(
-          data
-            .filter((row) => row.path && row.signedUrl)
-            .map((row) => [row.path as string, row.signedUrl as string])
-        );
-      }
-    );
-
-    const skusStr = serializeSkusForJobTicketLink(
-      skus,
-      assetsBySkuKey,
-      signedUrlByPath
-    );
-
-    const orderQtyField = resolved.orderQtyField;
-    const qty = orderQtyField
-      ? String(fieldValues[orderQtyField.id] ?? "")
-      : skus.length > 0
-        ? String(skus.reduce((sum, s) => sum + (s.qty ?? 0), 0))
-        : "";
-
-    const params = new URLSearchParams({
-      from: "workflow",
-      order_ref: title,
-      customer: customerName,
-      contact: customerContact,
-      priority: priority.toLowerCase(),
-      due: dueDate,
-      product: getField("Product"),
-      width,
-      height,
-      material: getField("Materials"),
-      finishing: getField("Finishing"),
-      sides,
-      color: getField("Color"),
-      qty,
-      notes: description,
-      artwork: artworkUrl,
-      skus: skusStr,
-    });
-
-    const link = `https://pulse-jade-five.vercel.app/pages/job-ticket.html?${params.toString()}`;
-
-    navigator.clipboard
-      .writeText(link)
-      .then(() => {
-        onLinkCopied?.(
-          "✅ Order link copied — paste it in Pulse to create a job ticket"
-        );
-      })
-      .catch(() => {});
-  }
-
   const displayOrderNumber = (data?.order.title ?? title).trim();
 
   async function copyOrderNumber() {
@@ -809,8 +703,6 @@ export function CardDetailModal({
               onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
               ensureSkuPersisted={ensureSkuPersisted}
               readOnly={isViewOnly}
-              onCopyOrderLink={showCopyOrderLink ? copyOrderLink : undefined}
-              copyOrderLinkDisabled={loading || !data || !customerName}
             />
 
             {saveError ? (
