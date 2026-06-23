@@ -54,6 +54,7 @@ interface CustomFieldDef {
 const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   product: "Product",
   finished_size: "Finished Size",
+  die: "Die",
   materials: "Materials",
   finishing: "Finishing",
   lamination: "Lamination",
@@ -74,6 +75,7 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
 const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   product: ["Product"],
   finished_size: ["Finished Size"],
+  die: ["Die"],
   materials: ["Materials"],
   finishing: ["Finishing", "Lamination"],
   lamination: ["Lamination", "Finishing"],
@@ -132,6 +134,7 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   title?: string;
   product?: string;
   finished_size?: string;
+  die?: string;
   materials?: string;
   finishing?: string;
   sides?: string;
@@ -165,6 +168,7 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   category_name?: string;
   product?: string;
   finished_size?: string;
+  die?: string;
   materials?: string;
   finishing?: string;
   sides?: string;
@@ -334,6 +338,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       title: body.title,
       product: body.product,
       finished_size: body.finished_size,
+      die: body.die,
       materials: body.materials,
       finishing: body.finishing,
       sides: body.sides,
@@ -394,6 +399,7 @@ type WebhookSpecFields = Pick<
   WebhookItem,
   | "product"
   | "finished_size"
+  | "die"
   | "materials"
   | "finishing"
   | "lamination"
@@ -430,6 +436,7 @@ function mergeItemWithOrder(
     ...item,
     product: item.product ?? order.product,
     finished_size: item.finished_size ?? order.finished_size,
+    die: item.die ?? order.die,
     materials: item.materials ?? order.materials,
     finishing: item.finishing ?? item.lamination ?? order.finishing ?? order.lamination,
     lamination: item.lamination ?? item.finishing ?? order.lamination ?? order.finishing,
@@ -562,6 +569,7 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
   return {
     product: item.product,
     finished_size: item.finished_size,
+    die: item.die,
     materials: item.materials,
     finishing: item.finishing ?? item.lamination,
     lamination: item.lamination ?? item.finishing,

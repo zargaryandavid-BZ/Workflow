@@ -14,6 +14,7 @@ export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Product",
   "Materials",
   "Finished Size",
+  "Die",
   "Finishing",
   "Sides",
   "Position",
