@@ -67,6 +67,7 @@ export interface OrderExportData {
   assignedToName: string;
   assignedToEmail: string | null;
   product: string;
+  die: string;
   orderNumber: string;
   dueDateFormatted: string;
   priority: string;
@@ -273,6 +274,10 @@ export async function loadOrderExportData(
     assignedToName,
     assignedToEmail,
     product: productFromOrder(fieldValues, customFields),
+    die: (() => {
+      const dieField = findOrderFormField(customFields, "Die");
+      return dieField ? String(fieldValues[dieField.id] ?? "").trim() : "";
+    })(),
     orderNumber: order.title,
     dueDateFormatted: order.due_date ? formatDate(order.due_date) : "—",
     priority: order.priority,

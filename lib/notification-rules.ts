@@ -24,6 +24,7 @@ export const NOTIFICATION_RULE_TEMPLATE_VARS = [
   "{{column_name}}",
   "{{due_date}}",
   "{{product}}",
+  "{{die}}",
   "{{customer_phone}}",
   "{{assigned_to}}",
 ] as const;
@@ -51,6 +52,7 @@ export interface NotificationRuleTemplateContext {
   column_name: string;
   due_date: string;
   product: string;
+  die: string;
   customer_phone: string;
   assigned_to: string;
 }
@@ -64,6 +66,7 @@ export function buildNotificationRuleTemplateContext(
     column_name: data.columnName,
     due_date: data.dueDateFormatted === "—" ? "" : data.dueDateFormatted,
     product: data.product,
+    die: data.die,
     customer_phone: data.customerPhone ?? "",
     assigned_to: data.assignedToName === "—" ? "" : data.assignedToName,
   };
