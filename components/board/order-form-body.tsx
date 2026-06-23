@@ -15,7 +15,7 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
-import type { Asset, CustomField, Designer, OrderSkuImageWithUrl } from "@/lib/types";
+import type { Asset, Category, CustomField, Designer, OrderSkuImageWithUrl } from "@/lib/types";
 
 export interface OrderOwner {
   id: string;
@@ -65,6 +65,9 @@ export interface OrderFormBodyProps {
   readOnly?: boolean;
   /** Hide order number field (shown in modal title when editing existing orders). */
   hideOrderNumberField?: boolean;
+  categories?: Category[];
+  categoryId?: string;
+  onCategoryIdChange?: (value: string) => void;
 }
 
 export function OrderFormBody({
@@ -107,6 +110,9 @@ export function OrderFormBody({
   ensureSkuPersisted,
   readOnly = false,
   hideOrderNumberField = false,
+  categories = [],
+  categoryId = "",
+  onCategoryIdChange,
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, designerField, orderQtyField, printFields } = resolved;

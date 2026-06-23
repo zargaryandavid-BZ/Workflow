@@ -60,6 +60,8 @@ export interface Membership {
   created_at: string;
 }
 
+export type VisibilityMode = "all" | "roles" | "individuals";
+
 export interface BoardColumn {
   id: string;
   tenant_id: string;
@@ -72,6 +74,14 @@ export interface BoardColumn {
   drop_in_roles: Role[] | null;
   /** Roles allowed to move an order OUT OF this column. null = everyone. */
   drop_out_roles: Role[] | null;
+  /** @deprecated Use visibility_mode / visibility_roles / visibility_users_v2 */
+  visible_to_roles: string[];
+  /** @deprecated Use visibility_mode / visibility_roles / visibility_users_v2 */
+  visible_to_users: string[];
+  /** New unified visibility: 'all' | 'roles' | 'individuals'. Defaults to 'all'. */
+  visibility_mode: VisibilityMode;
+  visibility_roles: string[];
+  visibility_users_v2: string[];
 }
 
 export interface Category {
@@ -249,6 +259,63 @@ export interface ButtonAutomation {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export type NotificationRuleRecipient = "customer" | "staff" | "both";
+
+export type NotificationRuleTrigger = "on_enter_column" | "on_job_created";
+
+export interface NotificationRule {
+  id: string;
+  tenant_id: string;
+  name: string;
+  trigger: NotificationRuleTrigger;
+  column_id: string | null;
+  send_email: boolean;
+  send_sms: boolean;
+  recipient: NotificationRuleRecipient;
+  email_subject: string;
+  email_body: string;
+  sms_body: string;
+  /** Fixed phone number to send SMS to. If empty, falls back to customer/staff phone from the order. */
+  sms_to_phone: string;
+  enabled: boolean;
+  position: number;
+  created_at: string;
+  /** Who among staff receives this notification. */
+  recipient_mode: VisibilityMode;
+  recipient_roles: string[];
+  recipient_users: string[];
+}
+
+export type FastActionButtonColor =
+  | "blue"
+  | "green"
+  | "red"
+  | "orange"
+  | "yellow"
+  | "purple"
+  | "gray";
+
+export interface FastActionButton {
+  id: string;
+  tenant_id: string;
+  name: string;
+  color: FastActionButtonColor;
+  destination_column_id: string | null;
+  show_in_columns: string[];
+  /** @deprecated Use visibility_mode / visibility_roles / visibility_users */
+  visible_to_roles: string[];
+  notification_rule_id: string | null;
+  enabled: boolean;
+  position: number;
+  created_at: string;
+  /** New unified visibility: 'all' | 'roles' | 'individuals'. Defaults to 'all'. */
+  visibility_mode: VisibilityMode;
+  visibility_roles: string[];
+  visibility_users: string[];
+  /** Joined relation — present when queried with destination_column select. */
+  destination_column?: { id: string; name: string; color: string | null } | null;
 }
 
 export interface JobNotification {

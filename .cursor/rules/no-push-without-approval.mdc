@@ -1,0 +1,41 @@
+---
+description: Do not push to GitHub or deploy until the user explicitly asks. Test locally first.
+alwaysApply: true
+---
+
+# Git push and deploy — user approval required
+
+This project is tested **locally** (`npm run dev` at http://localhost:3000) before anything goes to production.
+
+## Never do without explicit user request
+
+- `git push` (any remote or branch)
+- `git push -u origin …`
+- Force push
+- Creating/updating a PR that pushes commits
+- Triggering Vercel/production deploys
+
+## Commits
+
+- Do **not** commit unless the user explicitly asks (same as global git safety rules).
+- When asked to commit, still do **not** push unless they also ask to push.
+
+## When the user is ready
+
+Only push when they clearly say so, e.g.:
+
+- "push to GitHub"
+- "push this branch"
+- "deploy to production"
+
+Until then, finish work locally and tell them what to run or what changed — do not push on their behalf.
+
+## Local testing reminder
+
+After code changes, suggest verifying with:
+
+```bash
+npm run dev
+```
+
+Optional: `npm run typecheck` before they ask to push.

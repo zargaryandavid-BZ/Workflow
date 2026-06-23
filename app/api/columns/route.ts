@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { sanitizeDropRoles } from "@/lib/columns";
+import { sanitizeDropRoles, sanitizeVisibleToRoles, sanitizeVisibleToUsers } from "@/lib/columns";
+import { normalizeVisibilityMode } from "@/lib/check-visibility";
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
@@ -17,6 +18,11 @@ export async function POST(request: Request) {
     imageUrl?: string | null;
     dropInRoles?: unknown;
     dropOutRoles?: unknown;
+    visibleToRoles?: unknown;
+    visibleToUsers?: unknown;
+    visibilityMode?: string;
+    visibilityRoles?: string[];
+    visibilityUsersV2?: string[];
   };
   if (!body.name?.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -32,6 +38,8 @@ export async function POST(request: Request) {
     .maybeSingle();
   const position = ((last as { position: number } | null)?.position ?? -1) + 1;
 
+  const visibilityMode = normalizeVisibilityMode(body.visibilityMode);
+
   const { data, error } = await supabase
     .from("board_columns")
     .insert({
@@ -42,6 +50,11 @@ export async function POST(request: Request) {
       image_url: body.imageUrl ?? null,
       drop_in_roles: sanitizeDropRoles(body.dropInRoles),
       drop_out_roles: sanitizeDropRoles(body.dropOutRoles),
+      visible_to_roles: sanitizeVisibleToRoles(body.visibleToRoles),
+      visible_to_users: sanitizeVisibleToUsers(body.visibleToUsers),
+      visibility_mode: visibilityMode,
+      visibility_roles: body.visibilityRoles ?? [],
+      visibility_users_v2: body.visibilityUsersV2 ?? [],
       position,
     })
     .select("*")

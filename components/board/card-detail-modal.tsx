@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { MissingInfoTab } from "./missing-info-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
+import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { mergeSkusWithAssets, normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import {
@@ -39,9 +40,11 @@ import type {
   ApprovalNote,
   Asset,
   BoardColumn,
+  Category,
   CustomField,
   CustomFieldValue,
   Designer,
+  FastActionButton,
   MissingInfoNote,
   OrderSkuImageWithUrl,
   OrderWithRelations,
@@ -58,12 +61,15 @@ interface CardDetailModalProps {
   columns: BoardColumn[];
   designers: Designer[];
   role: Role;
+  userId?: string;
   onChanged: () => void;
   /** When "view", all fields are read-only and save/upload actions are hidden. */
   mode?: "edit" | "view";
   onLinkCopied?: (message: string) => void;
   buttonAutomations?: ButtonAutomation[];
+  fastActionButtons?: FastActionButton[];
   appUrl?: string;
+  categories?: Category[];
 }
 
 function addToSet(prev: ReadonlySet<string>, id: string): Set<string> {
@@ -99,11 +105,14 @@ export function CardDetailModal({
   columns,
   designers,
   role,
+  userId,
   onChanged,
   mode = "edit",
   onLinkCopied,
   buttonAutomations = [],
+  fastActionButtons = [],
   appUrl = "",
+  categories = [],
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
   const [modalCustomFields, setModalCustomFields] =
@@ -122,6 +131,7 @@ export function CardDetailModal({
   const [priority, setPriority] = useState("normal");
   const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
@@ -170,6 +180,7 @@ export function CardDetailModal({
     setPriority(json.order.priority);
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
+    setCategoryId(json.order.category_id ?? "");
     setSkus(
       mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets)
     );
@@ -283,6 +294,7 @@ export function CardDetailModal({
         priority,
         ownerId: ownerId || null,
         dueDate: dateInputValue(dueDate) || null,
+        categoryId: categoryId || null,
         specs: {
           ...(data?.order.specs ?? {}),
           skus: prepareSkusForSave(skus, {
@@ -638,6 +650,7 @@ export function CardDetailModal({
               missingFields={missingFieldsOnOrder}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
+              role={role}
               onSent={() => {
                 load();
                 onChanged();
@@ -659,7 +672,7 @@ export function CardDetailModal({
             />
           ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className="space-y-4 md:col-span-2">
+          <div className="space-y-4 md:col-span-2 pt-2">
             <OrderFormBody
               idPrefix="edit"
               customFields={modalCustomFields}
@@ -703,6 +716,9 @@ export function CardDetailModal({
               onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
               ensureSkuPersisted={ensureSkuPersisted}
               readOnly={isViewOnly}
+              categories={categories}
+              categoryId={categoryId}
+              onCategoryIdChange={isViewOnly ? undefined : setCategoryId}
             />
 
             {saveError ? (
@@ -713,6 +729,26 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
+            {categories.length > 0 ? (
+              <div className="rounded-lg border border-slate-200 p-3 mt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Category
+                </p>
+                <select
+                  value={categoryId}
+                  disabled={isViewOnly}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-60"
+                >
+                  <option value="">— None —</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             {orderTags.length > 0 ? (
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="mb-2 text-sm font-semibold text-slate-700">Tags</p>
@@ -773,6 +809,22 @@ export function CardDetailModal({
                 </a>
               ) : null}
             </div>
+
+            {data ? (
+              <FastActionButtonBar
+                buttons={fastActionButtons}
+                currentColumnId={data.order.column_id}
+                orderId={data.order.id}
+                role={role}
+                userId={userId}
+                onSuccess={(destinationName) => {
+                  onLinkCopied?.(`Moved to ${destinationName}`);
+                  void load({ silent: true });
+                  onChanged();
+                }}
+                onError={(msg) => setSaveError(msg)}
+              />
+            ) : null}
 
             <div className="rounded-lg border border-slate-200">
               <button

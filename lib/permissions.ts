@@ -1,14 +1,23 @@
 import type { BoardColumn, Role } from "./types";
+import { effectiveDropRoles, parseDropRoles } from "./columns";
 
 type DropColumn = Pick<
   BoardColumn,
   "id" | "drop_in_roles" | "drop_out_roles"
 >;
 
+function dropInRoles(column: DropColumn): Role[] | null {
+  return effectiveDropRoles(parseDropRoles(column.drop_in_roles));
+}
+
+function dropOutRoles(column: DropColumn): Role[] | null {
+  return effectiveDropRoles(parseDropRoles(column.drop_out_roles));
+}
+
 /** Whether `role` may move an order INTO `column`. */
 export function canDropIn(role: Role, column: DropColumn): boolean {
   if (role === "admin") return true;
-  const roles = column.drop_in_roles;
+  const roles = dropInRoles(column);
   if (roles == null) return true; // unrestricted
   return roles.includes(role); // [] => admins only
 }
@@ -16,7 +25,7 @@ export function canDropIn(role: Role, column: DropColumn): boolean {
 /** Whether `role` may move an order OUT OF `column`. */
 export function canDropOut(role: Role, column: DropColumn): boolean {
   if (role === "admin") return true;
-  const roles = column.drop_out_roles;
+  const roles = dropOutRoles(column);
   if (roles == null) return true; // unrestricted
   return roles.includes(role); // [] => admins only
 }

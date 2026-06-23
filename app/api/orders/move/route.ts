@@ -4,6 +4,7 @@ import { getTenantContext } from "@/lib/auth";
 import { logActivity, onEnterColumn } from "@/lib/automation";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { canMove } from "@/lib/permissions";
+import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import type { BoardColumn, CustomField, Customer, Order, OrderWithRelations } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -159,6 +160,13 @@ export async function POST(request: Request) {
       },
     });
     await onEnterColumn(supabase, updated as Order, typedColumn, ctx.tenant.name);
+
+    fireNotificationRules(body.orderId, body.toColumnId, tenantId).catch(
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[NotifRule] failed:", message);
+      }
+    );
   }
 
   return NextResponse.json({ order: updated });

@@ -1,6 +1,6 @@
 # Documentation
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 Complete project reference for developers and AI agents.
 
@@ -108,7 +108,7 @@ app/
 components/board/               Kanban UI
 components/notify/              Missing info + approval send popups
 lib/                            Business logic, Supabase clients, email/SMS
-supabase/migrations/            SQL migrations (0001–0012; no 0010)
+supabase/migrations/            SQL migrations (0001–0028; no 0010)
 proxy.ts                        Session middleware helper [see Known issues](#known-issues)
 ```
 
@@ -188,7 +188,7 @@ See the [Database](#database) section below for full schema.
 
 ## Architecture
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 ## High-level diagram
 
@@ -348,11 +348,15 @@ Full reference: [API routes](#api-routes).
 | --- | --- |
 | Orders | `GET/POST /api/orders`, `PATCH/DELETE /api/orders/[id]`, `POST .../move` |
 | Assets | `POST /api/assets`, `DELETE /api/assets/[id]` |
-| Notifications | `POST /api/notifications/send`, `respond`, `asset` |
+| Notifications | `POST /api/notifications/send`, `respond`, `asset`, `comment` |
 | Customers | `GET /api/customers` (403), `POST .../link` |
 | Automations | `GET/POST /api/automations`, `PATCH/DELETE .../[id]` |
-| Columns | `GET/POST /api/columns`, `PATCH/DELETE .../[id]` |
+| Notification rules | `GET/POST /api/notification-rules`, `PATCH/DELETE .../[id]` |
+| Button automations | `GET/POST /api/button-automations`, `PATCH/DELETE .../[id]`, `POST .../reorder` |
+| Fast action buttons | `GET/POST /api/fast-action-buttons`, `PATCH/DELETE .../[id]`, `POST .../[id]/trigger` |
+| Columns | `GET/POST /api/columns`, `PATCH/DELETE .../[id]`, `POST .../reorder` |
 | Custom fields | `GET/POST /api/fields`, `PATCH/DELETE .../[id]` |
+| Analytics | `GET /api/analytics` |
 | Team | `GET /api/team`, `POST .../invite`, `PATCH/DELETE .../[id]` |
 | Tenant | `POST /api/tenant/switch`, `POST /api/onboarding` |
 | Auth | `POST /api/auth/signout` |
@@ -373,6 +377,11 @@ Parallel to `job_notifications`:
 | Order CRUD + move | `lib/orders.ts`, `app/api/orders/*` |
 | Notifications | `lib/notifications.ts` |
 | Automations | `lib/automation.ts` |
+| Notification rules (auto email/SMS on move) | `lib/notification-rules.ts`, `lib/fire-notification-rules.ts` |
+| Button automations | `lib/button-automations.ts`, `lib/button-automations.server.ts` |
+| Fast action buttons | `lib/fast-action-buttons.ts`, `lib/fast-action-buttons.server.ts` |
+| Drop permissions | `lib/permissions.ts`, `lib/columns.ts` |
+| Column visibility | `lib/check-visibility.ts` |
 | Email / SMS | `lib/email.ts`, `lib/sms.ts` |
 | Board + DnD | `components/board/board.tsx` |
 | Types | `lib/types.ts` |
@@ -381,7 +390,7 @@ Parallel to `job_notifications`:
 
 ## Database
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `supabase/setup.sql` (full manual bootstrap). Some columns exist only in `setup.sql` — see [Known schema drift](#known-schema-drift).
 
@@ -730,6 +739,61 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 
 ---
 
+### `notification_rules`
+
+**Purpose:** Automated email/SMS messages fired whenever an order card moves into a configured column. Set up in Settings → Button Automation → Notification Rules.
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `uuid` PK | Rule ID |
+| `tenant_id` | `uuid` | Tenant |
+| `name` | `text` | Human-readable rule name |
+| `trigger` | `text` | `on_enter_column` or `on_job_created` |
+| `column_id` | `uuid` nullable | Target column (null = fire on any column entry) |
+| `send_email` | `boolean` | Send email? |
+| `send_sms` | `boolean` | Send SMS? |
+| `recipient` | `text` | `customer`, `staff`, or `both` |
+| `email_subject` | `text` | Handlebars template for subject |
+| `email_body` | `text` | Handlebars template for body |
+| `sms_body` | `text` | Handlebars template for SMS |
+| `sms_to_phone` | `text` | Fixed phone number override (empty = use customer/staff phone from order) |
+| `enabled` | `boolean` | Active flag |
+| `position` | `integer` | Display/execution order |
+| `created_at` | `timestamptz` | Created |
+
+**Template variables:** `{{order_number}}`, `{{customer_name}}`, `{{column_name}}`, `{{due_date}}`, `{{product}}`, `{{tenant_name}}`.
+
+**FKs:** `tenant_id` → `tenants`; `column_id` → `board_columns`.
+
+**RLS:** Members SELECT; admins ALL.
+
+**Fire path:** `POST /api/orders/move` → `fireNotificationRules()` in `lib/fire-notification-rules.ts` (async, non-blocking).
+
+---
+
+### `button_automations`
+
+**Purpose:** Fast-action buttons visible on job cards, triggering PDF generation, column moves, notifications, or custom webhooks.
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `uuid` PK | Button ID |
+| `tenant_id` | `uuid` | Tenant |
+| `name` | `text` | Button label |
+| `action_type` | `text` | e.g. `pdf`, `move`, `notify`, `webhook` |
+| `config` | `jsonb` | Action-specific config |
+| `enabled` | `boolean` | Active flag |
+| `position` | `integer` | Display order |
+| `created_at` | `timestamptz` | Created |
+
+**FKs:** `tenant_id` → `tenants`.
+
+**RLS:** Members SELECT; admins ALL.
+
+**Fire path:** `POST /api/fast-action-buttons/[id]/trigger` → server action.
+
+---
+
 ## Tables NOT in this project
 
 | Prompt name | Status |
@@ -774,6 +838,13 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `0009_notification_channel_manual.sql` | `manual` channel enum |
 | `0011_respond_order_assets.sql` | `order_id`, `order_fields` in token RPCs |
 | `0012_customers_updated_at.sql` | `customers.updated_at` + trigger |
+| `0013_*` – `0022_*` | Various incremental changes (see file headers) |
+| `0023_notification_rules.sql` | `notification_rules` table + RLS |
+| `0024_fast_action_buttons.sql` | `button_automations` table + RLS |
+| `0025_column_visibility.sql` | Column visibility fields (`visible_to_roles`, etc.) on `board_columns` |
+| `0026_role_or_individual_picker.sql` | Support tables/columns for role-or-individual targeting |
+| `0027_notification_rule_trigger.sql` | `trigger` column on `notification_rules` |
+| `0028_notification_rule_sms_phone.sql` | `sms_to_phone` column on `notification_rules` |
 
 **Note:** There is no `0010_*.sql` in the repo. `sku_key`, `drop_in_roles`, and extended `member_role` values are in `setup.sql` only.
 
@@ -785,7 +856,7 @@ If `sku_key` or `drop_in_roles` errors appear at runtime, apply the relevant sec
 
 ## API routes
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 All authenticated routes require a valid Supabase session and active tenant (`getTenantContext()`). Missing session → **401**. Wrong tenant / not found → **404** or **403** as noted.
 
@@ -1073,6 +1144,91 @@ Delete rule.
 
 ---
 
+## Notification rules
+
+Admin-only. Manages `notification_rules` rows.
+
+### `GET /api/notification-rules`
+
+List all rules for active tenant (ordered by `position`).
+
+| | |
+| --- | --- |
+| **Auth** | Session + tenant; admin required |
+| **Response** | `{ rules: NotificationRule[], migrationPending: boolean }` |
+
+`migrationPending: true` means the `notification_rules` table has not yet been created; UI shows a warning.
+
+### `POST /api/notification-rules`
+
+Create rule.
+
+| | |
+| --- | --- |
+| **Body** | `{ name, trigger, column_id?, send_email, send_sms, recipient, email_subject, email_body, sms_body, sms_to_phone?, enabled? }` |
+| **Response** | `{ rule: NotificationRule }` |
+| **Errors** | 400 invalid fields; 503 migration pending |
+
+### `PATCH /api/notification-rules/[id]`
+
+Update rule (partial).
+
+### `DELETE /api/notification-rules/[id]`
+
+Delete rule.
+
+---
+
+## Fast action buttons
+
+Admin-only. Manages `button_automations` rows.
+
+### `GET /api/fast-action-buttons`
+
+List all buttons for active tenant.
+
+| | |
+| --- | --- |
+| **Response** | `{ buttons: ButtonAutomation[], migrationPending: boolean }` |
+
+### `POST /api/fast-action-buttons`
+
+Create button.
+
+### `PATCH /api/fast-action-buttons/[id]`
+
+Update button.
+
+### `DELETE /api/fast-action-buttons/[id]`
+
+Delete button.
+
+### `POST /api/fast-action-buttons/[id]/trigger`
+
+Trigger a button action on a given order.
+
+| | |
+| --- | --- |
+| **Body** | `{ orderId }` |
+| **Response** | `{ ok: true }` |
+| **Errors** | 400 / 404 / 500 |
+
+---
+
+## Analytics
+
+### `GET /api/analytics`
+
+Return aggregated order throughput, column dwell times, and staff performance metrics.
+
+| | |
+| --- | --- |
+| **Auth** | Session + tenant; admin required |
+| **Query params** | `range` (`7d`, `30d`, `90d`), optional `staffId` |
+| **Response** | `{ throughput, dwellTimes, staffMetrics }` |
+
+---
+
 ## Team / members
 
 ### `GET /api/members`
@@ -1158,7 +1314,7 @@ Success responses vary by route; common patterns: `{ ok: true }`, `{ order }`, `
 
 ## Components
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 Component paths are under `components/` unless noted. User-prompt names are mapped to actual file names.
 
@@ -1379,7 +1535,8 @@ Legacy approval page using `get_approval_by_token` RPC. Also shows `OrderReview`
 | `/settings/team` | `team-manager.tsx` | Invite members, change roles, revoke |
 | `/settings/automations` | `automations-manager.tsx` | Notify rules + approval result moves |
 | `/settings/fields` | `fields-manager.tsx` | Custom field CRUD |
-| `/settings/columns` | `columns-manager.tsx` | Column CRUD, reorder, images, drop roles |
+| `/settings/columns` | `columns-manager.tsx` | Column CRUD, reorder, images, drop roles, visibility |
+| `/settings/button-automation` | `fast-action-buttons-manager.tsx` + `notification-rules-manager.tsx` | Fast action buttons + column notification rules |
 
 All settings live under `app/(app)/settings/` with shared `layout.tsx` (admin nav).
 
@@ -1401,15 +1558,54 @@ All settings live under `app/(app)/settings/` with shared `layout.tsx` (admin na
 
 ---
 
+### `FastActionButtonBar` — `components/board/fast-action-button-bar.tsx`
+
+Horizontal row of quick-action buttons rendered at the bottom of each job card (or in the card detail modal). Each button calls `POST /api/fast-action-buttons/[id]/trigger` with the current `orderId`.
+
+| Prop | Type | Description |
+| --- | --- | --- |
+| `orderId` | `string` | Target order |
+| `buttons` | `ButtonAutomation[]` | Enabled buttons for tenant |
+| `onDone` | `() => void` | Callback after trigger succeeds |
+
+---
+
+### `NotificationRulesManager` — `app/(app)/settings/button-automation/notification-rules-manager.tsx`
+
+Admin UI to create, edit, reorder, enable/disable, and delete column notification rules. Embeds the `RuleEditor` drawer for full-rule configuration.
+
+Key UI sections:
+
+- Rules list with column name, recipient badge, email/SMS toggles, enabled toggle, and edit/delete actions.
+- `RuleEditor` drawer includes: name, trigger, target column, recipient, email subject/body, SMS body, and **Contact number** (`sms_to_phone`) for a fixed SMS override phone.
+
+---
+
+### `FastActionButtonsManager` — `app/(app)/settings/button-automation/fast-action-buttons-manager.tsx`
+
+Admin UI to manage fast action buttons (create, edit, reorder, delete). Mirrors the layout of `NotificationRulesManager`.
+
+---
+
+### `RoleOrIndividualPicker` — `components/RoleOrIndividualPicker.tsx`
+
+Reusable picker that lets the admin select either roles (e.g. `admin`, `designer`) or specific team members for permissions or recipient targeting.
+
+---
+
 ## Component dependency graph (simplified)
 
 ```
 BoardPage (server)
   └── Board
-        ├── Column → OrderCard
+        ├── Column → OrderCard → FastActionButtonBar
         ├── CreateOrderModal → OrderFormBody → SkuEditor → SkuArtworkCell
         ├── CardDetailModal → MissingInfoTab, ApprovalTab, OrderFormBody
         └── NotificationPopup → MissingInfoPopup | ApprovalPopup
+
+ButtonAutomationPage (server)
+  ├── FastActionButtonsManager
+  └── NotificationRulesManager → RuleEditor (drawer)
 
 respond/[token]/page (server)
   ├── OrderReview
@@ -1420,7 +1616,7 @@ respond/[token]/page (server)
 
 ## Workflows
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 End-to-end flows as implemented in code. Column **kinds** in the database are `exception` (missing info) and `approval` (customer approval), not the string names `missing_info` / `customer_approval` (those are notification types).
 
@@ -1519,6 +1715,50 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 ---
 
+## Column Notification Rules workflow
+
+Automated, operator-free email/SMS fired whenever a card enters a column.
+
+### 1. Admin sets up a rule
+
+- Settings → Button Automation → **Notification Rules** section.
+- Admin configures: name, trigger (`on_enter_column`), target column (or "any column"), recipient (`customer` / `staff` / `both`), email subject/body, SMS body, and optionally a fixed **Contact number** (`sms_to_phone`).
+- Rule saved to `notification_rules` table via `POST /api/notification-rules`.
+
+### 2. Order card moves columns
+
+- Any user drags a card to a new column → `POST /api/orders/move`.
+- After the DB update succeeds, `fireNotificationRules(orderId, toColumnId, tenantId)` is called **asynchronously** (non-blocking fire-and-forget).
+
+### 3. Rule matching
+
+`lib/fire-notification-rules.ts`:
+
+- Loads all enabled rules for the tenant where `column_id = toColumnId` OR `column_id IS NULL`.
+- For each matching rule, loads the order, customer, and staff (`assigned_to` profile).
+
+### 4. Template rendering
+
+- Subject/body/SMS are processed through a simple `{{variable}}` template engine.
+- Available variables: `order_number`, `customer_name`, `column_name`, `due_date`, `product`, `tenant_name`.
+
+### 5. Send email
+
+- If `send_email = true` and recipient has an email address.
+- Calls `sendTransactionalEmail()` (Instantly) with rendered subject + body.
+- Recipient resolution: `customer` → customer email from order; `staff` → `assigned_to` profile email; `both` → both.
+
+### 6. Send SMS
+
+- If `send_sms = true`.
+- **Phone override:** if `sms_to_phone` is set on the rule, SMS is sent to that number regardless of recipient setting.
+- **Fallback:** otherwise resolves phone from customer (`phone` custom field or customer record) or staff profile.
+- Calls `sendSms()` (Twilio).
+
+**Key files:** `lib/fire-notification-rules.ts`, `lib/notification-rules.ts`, `lib/notification-rules.server.ts`, `app/api/notification-rules/`, `app/(app)/settings/button-automation/notification-rules-manager.tsx`.
+
+---
+
 ## Team invite workflow
 
 ### 1. Admin opens `/settings/team`
@@ -1591,7 +1831,7 @@ New work should use `job_notifications` + `/respond/[token]`.
 
 ## Deployment
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 ## Prerequisites
 
@@ -1766,7 +2006,7 @@ See `#known-issues` for ongoing gaps.
 
 ## Known issues
 
-**Last updated: June 5, 2026**
+**Last updated: June 23, 2026**
 
 Items identified from codebase audit and production debugging. Verify status before treating as fixed.
 
@@ -1797,6 +2037,10 @@ Migrations jump from `0009` to `0011` (no `0010_*.sql` in repo). Historical dupl
 
 Column permission arrays are in `setup.sql` only. App types and `lib/permissions.ts` expect them; DB may lack columns if only migrations were applied.
 
+**Normalization:** `lib/columns.ts` exports `parseDropRoles()` and `effectiveDropRoles()` to handle legacy rows where the column stored all roles instead of `null` (meaning "everyone"). Use these helpers instead of reading the raw array.
+
+**Drag permission note:** `lib/permissions.ts` provides `canDragInColumn()` which returns `true` if the user has either `drop-out` or `drop-in` permission for a column — this allows reordering cards within a column even when drop-out is restricted.
+
 ### Extended `member_role` enum
 
 App `Role` type includes `preprod_owner`, `designer`, `account_manager`. DB enum may only have `admin` / `member` unless extended via `setup.sql`. [TODO: verify migration for enum extension]
@@ -1821,7 +2065,10 @@ App `Role` type includes `preprod_owner`, `designer`, `account_manager`. DB enum
 | Token expiry UI in settings | Column exists; operator UI may not configure expiry |
 | Chained automations | Single-hop only (`onEnterColumn`) |
 | Mobile-optimized board | Desktop-first Kanban |
-| Audit export / reporting | Activity log view only in order modal |
+| Audit export / reporting | `GET /api/analytics` added; full dashboard in `AnalyticsDashboard.tsx` |
+| Column notification rules | **Implemented** — `notification_rules` table + `fireNotificationRules` + Settings UI |
+| Fast action buttons | **Implemented** — `button_automations` table + trigger API + `FastActionButtonBar` on cards |
+| Column visibility per role | **Implemented** — `visible_to_roles` / `visible_to_users` on `board_columns`; `lib/check-visibility.ts` |
 
 ---
 

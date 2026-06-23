@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileText, Mail, MessageSquare } from "lucide-react";
+import { Download, FileText, Mail, MessageSquare, StickyNote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -13,7 +13,7 @@ import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { validateSmsRecipient } from "@/lib/sms";
-import type { Asset, BoardColumn, Customer, MissingInfoNote } from "@/lib/types";
+import type { Asset, BoardColumn, Customer, MissingInfoNote, Role } from "@/lib/types";
 
 interface MissingInfoTabProps {
   notes: MissingInfoNote[];
@@ -25,6 +25,7 @@ interface MissingInfoTabProps {
   missingFields?: MissingField[];
   contactEmail?: string | null;
   contactPhone?: string | null;
+  role?: Role;
   onSent: () => void;
 }
 
@@ -311,6 +312,7 @@ function HistoryEntry({
   note,
   customer,
   isLatest,
+  canSend,
   contactEmail,
   contactPhone,
   onSent,
@@ -318,25 +320,45 @@ function HistoryEntry({
   note: MissingInfoNote;
   customer: Customer | null;
   isLatest: boolean;
+  canSend: boolean;
   contactEmail?: string | null;
   contactPhone?: string | null;
   onSent: () => void;
 }) {
+  const isInternalNote = note.channel === "none";
   const status = statusSummary(note);
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 p-4">
+    <div
+      className={cn(
+        "space-y-3 rounded-lg border p-4",
+        isInternalNote
+          ? "border-amber-100 bg-amber-50/50"
+          : "border-slate-200"
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Team request
+          <p
+            className={cn(
+              "text-xs font-semibold uppercase tracking-wide",
+              isInternalNote ? "text-amber-600" : "text-slate-400"
+            )}
+          >
+            {isInternalNote ? (
+              <span className="inline-flex items-center gap-1">
+                <StickyNote className="h-3 w-3" /> Internal note
+              </span>
+            ) : (
+              "Team request"
+            )}
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
             {formatDateTime(note.created_at)}
             {note.creator_name ? ` · ${note.creator_name}` : ""}
           </p>
         </div>
-        {isLatest ? (
+        {isLatest && !isInternalNote ? (
           <span className={cn("text-sm font-medium", status.className)}>
             {status.label}
           </span>
@@ -344,12 +366,17 @@ function HistoryEntry({
       </div>
 
       {note.staff_note ? (
-        <blockquote className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+        <blockquote
+          className={cn(
+            "rounded-md px-3 py-2 text-sm text-slate-700",
+            isInternalNote ? "bg-amber-50" : "bg-slate-50"
+          )}
+        >
           {note.staff_note}
         </blockquote>
       ) : null}
 
-      {note.channel !== "none" && note.status !== "pending" ? (
+      {!isInternalNote && note.channel !== "none" && note.status !== "pending" ? (
         <p className="text-sm text-slate-600">
           <span className="font-medium text-slate-700">Sent: </span>
           via {note.channel === "sms" ? "SMS" : "Email"} to{" "}
@@ -359,7 +386,7 @@ function HistoryEntry({
 
       {showCustomerLink(note) ? <CustomerLinkRow token={note.token} /> : null}
 
-      {note.status === "responded" ? (
+      {!isInternalNote && note.status === "responded" ? (
         <div className="border-t border-slate-100 pt-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
             Client reply
@@ -377,11 +404,11 @@ function HistoryEntry({
             <p className="mt-2 text-sm text-slate-500">Response submitted.</p>
           ) : null}
         </div>
-      ) : isLatest && note.channel === "manual" ? (
+      ) : !isInternalNote && isLatest && canSend && note.channel === "manual" ? (
         <p className="text-sm text-slate-600">
           No notification sent. Contact customer directly.
         </p>
-      ) : isLatest && note.channel !== "manual" ? (
+      ) : !isInternalNote && isLatest && canSend && note.channel !== "manual" ? (
         <NotifyRow
           note={note}
           customer={customer}
@@ -391,10 +418,78 @@ function HistoryEntry({
           sendLabel={note.status === "sent" ? "Resend" : "Send"}
           onSent={onSent}
         />
-      ) : (
+      ) : !isInternalNote && !isLatest ? (
         <p className="text-sm text-slate-400">No client response yet</p>
-      )}
+      ) : null}
     </div>
+  );
+}
+
+function InternalCommentForm({
+  orderId,
+  columnId,
+  onSaved,
+}: {
+  orderId: string;
+  columnId: string;
+  onSaved: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!note.trim()) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await fetch("/api/notifications/comment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, staffNote: note.trim(), columnId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Failed to save note");
+        return;
+      }
+      setNote("");
+      onSaved();
+    } catch {
+      setError("Failed to save note");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="space-y-2">
+      <textarea
+        ref={textareaRef}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={3}
+        placeholder="Add an internal note (not sent to customer)…"
+        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 resize-none"
+      />
+      {error ? (
+        <p className="text-xs text-red-600">{error}</p>
+      ) : null}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-400">
+          Visible to staff only — not sent to the customer.
+        </p>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={saving || !note.trim()}
+        >
+          {saving ? "Saving…" : "Save note"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -408,8 +503,11 @@ export function MissingInfoTab({
   missingFields = [],
   contactEmail,
   contactPhone,
+  role,
   onSent,
 }: MissingInfoTabProps) {
+  const canSend = role !== "designer";
+
   if (notes.length === 0) {
     return (
       <div className="space-y-4">
@@ -445,11 +543,24 @@ export function MissingInfoTab({
             stage when ready.
           </p>
         )}
-        <p className="text-sm text-slate-400">
-          To email or text the customer, move the card into Missing Info from
-          another column with automations enabled, or log a manual follow-up after
-          a notification is created.
-        </p>
+        {canSend ? (
+          <p className="text-sm text-slate-400">
+            To email or text the customer, move the card into Missing Info from
+            another column with automations enabled, or log a manual follow-up after
+            a notification is created.
+          </p>
+        ) : null}
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+            Add internal note
+          </p>
+          <InternalCommentForm
+            orderId={orderId}
+            columnId={sourceColumnId}
+            onSaved={onSent}
+          />
+        </div>
       </div>
     );
   }
@@ -463,15 +574,28 @@ export function MissingInfoTab({
 
   return (
     <div className="space-y-5">
-      <div className="text-sm">
-        <span className="font-medium text-slate-700">Status: </span>
-        <span className={latestStatus.className}>{latestStatus.label}</span>
-        {latest.status === "responded" && latest.responded_at ? (
-          <span className="text-slate-500">
-            {" "}
-            — {formatDateTime(latest.responded_at)}
-          </span>
-        ) : null}
+      {canSend ? (
+        <div className="text-sm">
+          <span className="font-medium text-slate-700">Status: </span>
+          <span className={latestStatus.className}>{latestStatus.label}</span>
+          {latest.status === "responded" && latest.responded_at ? (
+            <span className="text-slate-500">
+              {" "}
+              — {formatDateTime(latest.responded_at)}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+          Add internal note
+        </p>
+        <InternalCommentForm
+          orderId={orderId}
+          columnId={sourceColumnId}
+          onSaved={onSent}
+        />
       </div>
 
       <div>
@@ -485,6 +609,7 @@ export function MissingInfoTab({
               note={note}
               customer={customer}
               isLatest={note.id === latest.id}
+              canSend={canSend}
               contactEmail={contactEmail}
               contactPhone={contactPhone}
               onSent={onSent}

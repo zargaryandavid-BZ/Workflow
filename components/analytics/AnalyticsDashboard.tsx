@@ -167,7 +167,9 @@ export default function AnalyticsDashboard({
         dateFrom,
         dateTo,
         prevFrom,
-        prevTo
+        prevTo,
+        custom?.from,
+        custom?.to
       );
       setStats(data);
     } catch (err) {

@@ -8,6 +8,7 @@ import {
 import Image from "next/image";
 import { ArrowDownToLine, ArrowUpFromLine, Plus } from "lucide-react";
 import { OrderCard } from "./order-card";
+import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { CardNotificationBadge } from "@/lib/card-badges";
@@ -20,7 +21,9 @@ import type {
 
 interface ColumnProps {
   column: BoardColumn;
-  canDragOut: boolean;
+  canDragCards: boolean;
+  canAcceptDrop: boolean;
+  isDragActive: boolean;
   orders: OrderWithRelations[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
@@ -34,17 +37,20 @@ interface ColumnProps {
 }
 
 /** Short label of which roles a drop permission applies to. */
-function dropLabel(roles: Role[] | null): string {
-  if (roles == null) return "All";
-  if (roles.length === 0) return "Admins";
-  return BOARD_ROLES.filter((r) => roles.includes(r))
+function dropLabel(roles: Role[] | null | undefined): string {
+  const effective = effectiveDropRoles(parseDropRoles(roles));
+  if (effective == null) return "All";
+  if (effective.length === 0) return "Admins";
+  return BOARD_ROLES.filter((r) => effective.includes(r))
     .map((r) => ROLE_ABBR[r])
     .join(" ");
 }
 
 export function Column({
   column,
-  canDragOut,
+  canDragCards,
+  canAcceptDrop,
+  isDragActive,
   orders,
   customFields,
   fieldValuesByOrder,
@@ -56,10 +62,23 @@ export function Column({
   onOpenOrder,
   onAdd,
 }: ColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const dropDisabled = isDragActive && !canAcceptDrop;
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+    disabled: dropDisabled,
+  });
+
+  const showDropTarget = isDragActive && isOver && canAcceptDrop;
 
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col">
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex h-full w-72 shrink-0 flex-col rounded-lg transition-[opacity,box-shadow]",
+        isDragActive && !canAcceptDrop && "opacity-50",
+        showDropTarget && "ring-2 ring-blue-400 ring-offset-2"
+      )}
+    >
       <div
         className={cn(
           "mb-2 rounded-t-lg border-t-4 bg-slate-200/60 px-3 py-2",
@@ -123,10 +142,9 @@ export function Column({
       </div>
 
       <div
-        ref={setNodeRef}
         className={cn(
-          "board-scroll flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto rounded-b-lg p-1 transition-colors",
-          isOver ? "bg-blue-50" : "bg-slate-100/40"
+          "board-scroll flex min-h-[8rem] flex-1 flex-col gap-1.5 overflow-y-auto rounded-b-lg p-1 transition-colors",
+          showDropTarget ? "bg-blue-50" : "bg-slate-100/40"
         )}
       >
         <SortableContext
@@ -137,7 +155,7 @@ export function Column({
             <OrderCard
               key={order.id}
               order={order}
-              canDrag={canDragOut}
+              canDrag={canDragCards}
               customFields={customFields}
               fieldValues={fieldValuesByOrder[order.id]}
               thumbnail={thumbnailByOrder[order.id]}

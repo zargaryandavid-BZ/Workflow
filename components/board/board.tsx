@@ -7,8 +7,10 @@ import {
   DragOverlay,
   PointerSensor,
   closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
@@ -36,12 +38,20 @@ import type {
   CustomField,
   Designer,
   ButtonAutomation,
+  FastActionButton,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
 import type { OrderOwner } from "./order-form-body";
 
 import type { CardNotificationBadge } from "@/lib/card-badges";
+
+/** Prefer pointer position so empty columns and wide boards register drops reliably. */
+const boardCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) return pointerCollisions;
+  return closestCorners(args);
+};
 
 interface BoardProps {
   tenantId: string;
@@ -63,6 +73,7 @@ interface BoardProps {
   smsConfigured: boolean;
   publicAppUrl: boolean;
   buttonAutomations: ButtonAutomation[];
+  fastActionButtons: FastActionButton[];
   initialOrderId?: string | null;
   appUrl: string;
 }
@@ -87,6 +98,7 @@ export function Board({
   smsConfigured,
   publicAppUrl,
   buttonAutomations,
+  fastActionButtons,
   initialOrderId = null,
   appUrl,
 }: BoardProps) {
@@ -336,9 +348,12 @@ export function Board({
     const overColumn = findColumnId(String(over.id));
     if (!activeColumn || !overColumn || activeColumn === overColumn) return;
 
-    // Don't visually move the card into a column the user can't drop into.
+    const source = columnsById.get(activeColumn);
     const target = columnsById.get(overColumn);
-    if (target && !canDropIn(role, target)) return;
+    if (!source || !target) return;
+
+    // Don't preview a move the user can't complete (needs drop-out + drop-in).
+    if (!canDropOut(role, source) || !canDropIn(role, target)) return;
 
     setOrders((prev) =>
       prev.map((o) =>
@@ -373,14 +388,24 @@ export function Board({
     const from = columnsById.get(activeColumn);
     const to = columnsById.get(overColumn);
     const crossing = activeColumn !== overColumn;
-    if (
-      to &&
-      ((crossing &&
-        (!from || !canDropOut(role, from) || !canDropIn(role, to))) ||
-        (!crossing && !canDropIn(role, to)))
-    ) {
+    if (crossing) {
+      if (from && !canDropOut(role, from)) {
+        flashPermissionError(
+          `You can't move orders out of "${from.name}". Check the ↑ permission on that column.`
+        );
+        abortDrag();
+        return;
+      }
+      if (to && !canDropIn(role, to)) {
+        flashPermissionError(
+          `You can't drop orders into "${to.name}". Check the ↓ permission on that column.`
+        );
+        abortDrag();
+        return;
+      }
+    } else if (to && !canDropIn(role, to)) {
       flashPermissionError(
-        "You don't have permission to move that order here."
+        `You can't reorder orders in "${to.name}". Check the ↓ permission on that column.`
       );
       abortDrag();
       return;
@@ -550,7 +575,7 @@ export function Board({
       <DndContext
         id="production-board"
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={boardCollisionDetection}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
@@ -561,7 +586,9 @@ export function Board({
             <Column
               key={column.id}
               column={column}
-              canDragOut={canDragInColumn(role, column)}
+              canDragCards={canDragInColumn(role, column)}
+              canAcceptDrop={canDropIn(role, column)}
+              isDragActive={activeId !== null}
               orders={ordersByColumn.get(column.id) ?? []}
               customFields={customFields}
               fieldValuesByOrder={fieldValuesByOrder}
@@ -617,10 +644,13 @@ export function Board({
         columns={columns}
         designers={designers}
         role={role}
+        userId={currentUserId}
         onChanged={() => router.refresh()}
         onLinkCopied={flashToast}
         buttonAutomations={buttonAutomations}
+        fastActionButtons={fastActionButtons}
         appUrl={appUrl}
+        categories={categories}
       />
 
       {notifyPopup ? (

@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/client";
 import type { BoardColumn, JobNotification } from "@/lib/types";
 
 export type AnalyticsFilter = "today" | "7d" | "30d" | "90d" | "all" | "custom";
@@ -254,74 +253,36 @@ function buildThroughputBuckets(
     .map(([label, count]) => ({ label, count }));
 }
 
-export async function fetchAnalyticsStats(
-  tenantId: string,
-  filter: AnalyticsFilter,
-  dateFrom: string | null,
-  dateTo: string,
-  prevFrom: string | null,
-  prevTo: string | null,
-  customFrom?: string,
-  customTo?: string
-): Promise<AnalyticsStats> {
-  const supabase = createClient();
+export interface ComputeInput {
+  filter: AnalyticsFilter;
+  dateFrom: string | null;
+  dateTo: string;
+  prevFrom: string | null;
+  prevTo: string | null;
+  columnsRaw: unknown[];
+  ordersRaw: unknown[];
+  activeOrdersRaw: unknown[];
+  activityRaw: unknown[];
+  notificationsRaw: unknown[];
+  profilesRaw: unknown[];
+}
 
-  const [
-    { data: columnsRaw, error: columnsError },
-    { data: ordersRaw, error: ordersError },
-    { data: activeOrdersRaw, error: activeError },
-    { data: activityRaw, error: activityError },
-    { data: notificationsRaw, error: notificationsError },
-    { data: profilesRaw, error: profilesError },
-  ] = await Promise.all([
-    supabase
-      .from("board_columns")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("position", { ascending: true }),
-    supabase
-      .from("orders")
-      .select("id, column_id, due_date, created_at, updated_at, specs")
-      .eq("tenant_id", tenantId)
-      .is("removed_at", null),
-    supabase
-      .from("orders")
-      .select("id, column_id, due_date, specs")
-      .eq("tenant_id", tenantId)
-      .is("removed_at", null),
-    supabase
-      .from("activity_log")
-      .select("id, order_id, action, metadata, created_at")
-      .eq("tenant_id", tenantId),
-    supabase
-      .from("job_notifications")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .eq("status", "responded")
-      .not("responded_at", "is", null),
-    supabase.from("profiles").select("id, full_name"),
-  ]);
+export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
+  const {
+    filter,
+    dateFrom,
+    dateTo,
+    prevFrom,
+    prevTo,
+    columnsRaw,
+    ordersRaw,
+    activeOrdersRaw,
+    activityRaw,
+    notificationsRaw,
+    profilesRaw,
+  } = input;
 
-  if (
-    columnsError ||
-    ordersError ||
-    activeError ||
-    activityError ||
-    notificationsError ||
-    profilesError
-  ) {
-    throw new Error(
-      columnsError?.message ??
-        ordersError?.message ??
-        activeError?.message ??
-        activityError?.message ??
-        notificationsError?.message ??
-        profilesError?.message ??
-        "Failed to load analytics"
-    );
-  }
-
-  const columns = (columnsRaw ?? []) as BoardColumn[];
+  const columns = columnsRaw as BoardColumn[];
   const doneColumnIds = new Set(
     columns.filter((c) => c.kind === "done").map((c) => c.id)
   );
@@ -335,7 +296,7 @@ export async function fetchAnalyticsStats(
       .map((c) => c.id)
   );
 
-  const allOrders = (ordersRaw ?? []) as {
+  const allOrders = ordersRaw as {
     id: string;
     column_id: string;
     due_date: string | null;
@@ -404,7 +365,7 @@ export async function fetchAnalyticsStats(
     color: columnColor(col),
   }));
 
-  const activeOrders = (activeOrdersRaw ?? []) as {
+  const activeOrders = activeOrdersRaw as {
     id: string;
     column_id: string;
     due_date: string | null;
@@ -427,7 +388,7 @@ export async function fetchAnalyticsStats(
     else onTrack += 1;
   }
 
-  const activity = (activityRaw ?? []) as {
+  const activity = activityRaw as {
     order_id: string | null;
     action: string;
     metadata: Record<string, unknown>;
@@ -453,11 +414,8 @@ export async function fetchAnalyticsStats(
   );
 
   const profileNames = new Map<string, string>();
-  for (const p of profilesRaw ?? []) {
-    profileNames.set(
-      p.id as string,
-      (p.full_name as string | null) ?? "Unnamed"
-    );
+  for (const p of profilesRaw as { id: string; full_name: string | null }[]) {
+    profileNames.set(p.id, p.full_name ?? "Unnamed");
   }
 
   const designerCounts = new Map<string, { name: string; count: number }>();
@@ -501,7 +459,7 @@ export async function fetchAnalyticsStats(
       : []),
   ].sort((a, b) => b.count - a.count);
 
-  const notifications = (notificationsRaw ?? []) as JobNotification[];
+  const notifications = notificationsRaw as JobNotification[];
   const moveToMissingInfo = new Map<string, string>();
   for (const a of activity) {
     if (a.action !== "moved" || !a.order_id) continue;
@@ -568,4 +526,31 @@ export async function fetchAnalyticsStats(
     missingInfoResponseHours: avgHours(missingInfoHours),
     approvalResponseHours: avgHours(approvalHours),
   };
+}
+
+export async function fetchAnalyticsStats(
+  _tenantId: string,
+  filter: AnalyticsFilter,
+  _dateFrom: string | null,
+  _dateTo: string,
+  _prevFrom: string | null,
+  _prevTo: string | null,
+  customFrom?: string,
+  customTo?: string
+): Promise<AnalyticsStats> {
+  const params = new URLSearchParams({ filter });
+  if (filter === "custom" && customFrom && customTo) {
+    params.set("customFrom", customFrom);
+    params.set("customTo", customTo);
+  }
+  const res = await fetch(`/api/analytics?${params.toString()}`, {
+    credentials: "same-origin",
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(
+      (json as { error?: string }).error ?? "Failed to load analytics"
+    );
+  }
+  return json as AnalyticsStats;
 }

@@ -17,6 +17,8 @@ import {
 import { loadOrdersWithRelations } from "@/lib/orders/load-with-relations";
 import { loadAccountManagerOwners } from "@/lib/order-owners";
 import { loadButtonAutomations } from "@/lib/button-automations.server";
+import { isColumnVisibleToUser } from "@/lib/columns";
+import { loadFastActionButtons } from "@/lib/fast-action-buttons.server";
 import type {
   AutomationRule,
   BoardColumn,
@@ -76,10 +78,27 @@ export default async function BoardPage({
       .eq("trigger", "on_enter_column"),
   ]);
 
-  const buttonAutomations = await loadButtonAutomations(supabase, tenantId);
-  const orders = await loadOrdersWithRelations(supabase, tenantId);
+  const allBoardColumns = (columnsRes.data ?? []) as BoardColumn[];
 
-  const boardColumns = (columnsRes.data ?? []) as BoardColumn[];
+  // Filter columns by visibility for the current user (role + user ID).
+  // Admins see everything; isColumnVisibleToUser handles that.
+  const boardColumns = allBoardColumns.filter((col) =>
+    isColumnVisibleToUser(col, ctx.role, ctx.userId)
+  );
+
+  const visibleColumnIds = new Set(boardColumns.map((c) => c.id));
+
+  const [buttonAutomations, fastActionButtons, allOrders] = await Promise.all([
+    loadButtonAutomations(supabase, tenantId),
+    loadFastActionButtons(supabase, tenantId),
+    loadOrdersWithRelations(supabase, tenantId),
+  ]);
+
+  // Hide orders that belong to columns the current user can't see.
+  const orders = allOrders.filter(
+    (o) => o.column_id == null || visibleColumnIds.has(o.column_id)
+  );
+
   const automationRules = (rulesRes.data ?? []) as AutomationRule[];
 
   const notifyColumns = boardColumns
@@ -240,6 +259,7 @@ export default async function BoardPage({
       smsConfigured={isSmsConfigured()}
       publicAppUrl={isPublicAppUrl()}
       buttonAutomations={buttonAutomations}
+      fastActionButtons={fastActionButtons}
       initialOrderId={initialOrderId ?? null}
       appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
     />

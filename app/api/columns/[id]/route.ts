@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { sanitizeDropRoles } from "@/lib/columns";
+import { sanitizeDropRoles, sanitizeVisibleToRoles, sanitizeVisibleToUsers } from "@/lib/columns";
+import { normalizeVisibilityMode } from "@/lib/check-visibility";
 
 export async function PATCH(
   request: Request,
@@ -21,6 +22,11 @@ export async function PATCH(
     imageUrl?: string | null;
     dropInRoles?: unknown;
     dropOutRoles?: unknown;
+    visibleToRoles?: unknown;
+    visibleToUsers?: unknown;
+    visibilityMode?: string;
+    visibilityRoles?: string[];
+    visibilityUsersV2?: string[];
   };
 
   const updates: Record<string, unknown> = {};
@@ -32,6 +38,16 @@ export async function PATCH(
     updates.drop_in_roles = sanitizeDropRoles(body.dropInRoles);
   if (body.dropOutRoles !== undefined)
     updates.drop_out_roles = sanitizeDropRoles(body.dropOutRoles);
+  if (body.visibleToRoles !== undefined)
+    updates.visible_to_roles = sanitizeVisibleToRoles(body.visibleToRoles);
+  if (body.visibleToUsers !== undefined)
+    updates.visible_to_users = sanitizeVisibleToUsers(body.visibleToUsers);
+  if (body.visibilityMode !== undefined)
+    updates.visibility_mode = normalizeVisibilityMode(body.visibilityMode);
+  if (body.visibilityRoles !== undefined)
+    updates.visibility_roles = body.visibilityRoles;
+  if (body.visibilityUsersV2 !== undefined)
+    updates.visibility_users_v2 = body.visibilityUsersV2;
 
   const supabase = await createClient();
   const { data, error } = await supabase

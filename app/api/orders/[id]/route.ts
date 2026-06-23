@@ -174,6 +174,7 @@ export async function PATCH(
     priority?: string;
     ownerId?: string | null;
     dueDate?: string | null;
+    categoryId?: string | null;
     specs?: Record<string, unknown>;
     customFieldValues?: { customFieldId: string; value: unknown }[];
   };
@@ -205,6 +206,7 @@ export async function PATCH(
   if (body.title !== undefined) updates.title = body.title;
   if (body.description !== undefined) updates.description = body.description;
   if (body.priority !== undefined) updates.priority = body.priority;
+  if (body.categoryId !== undefined) updates.category_id = body.categoryId ?? null;
   if (body.ownerId !== undefined) {
     if (body.ownerId) {
       const valid = await isAccountManagerOwner(

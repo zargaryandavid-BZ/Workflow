@@ -161,8 +161,7 @@ export function OrderCard({
     );
   }
 
-  const summaryParts = [
-    displayCustomerName,
+  const summaryTrailingParts = [
     productName || null,
     orderQty != null ? `qty ${orderQty}` : null,
     skuCount > 0 ? `${skuCount} SKU` : null,
@@ -228,9 +227,29 @@ export function OrderCard({
                 ) : null}
               </div>
 
-              {summaryParts.length > 0 ? (
-                <p className="mt-0.5 truncate text-[11px] leading-tight text-slate-500">
-                  {summaryParts.join(" · ")}
+              {(displayCustomerName || summaryTrailingParts.length > 0) ? (
+                <p className="mt-0.5 flex min-w-0 items-center truncate text-[11px] leading-tight text-slate-500">
+                  {displayCustomerName ? (
+                    <button
+                      type="button"
+                      onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      title="Copy customer name"
+                      className="group/copy inline-flex max-w-full shrink-0 items-center gap-0.5 text-left font-medium text-slate-600 hover:text-[var(--primary)]"
+                    >
+                      <span className="truncate">
+                        {copied === "customer-name" ? "Copied!" : displayCustomerName}
+                      </span>
+                      {copied === "customer-name" ? null : (
+                        <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                      )}
+                    </button>
+                  ) : null}
+                  {displayCustomerName && summaryTrailingParts.length > 0 ? (
+                    <span className="shrink-0">&nbsp;·&nbsp;{summaryTrailingParts.join(" · ")}</span>
+                  ) : summaryTrailingParts.length > 0 ? (
+                    summaryTrailingParts.join(" · ")
+                  ) : null}
                 </p>
               ) : null}
             </div>
@@ -356,9 +375,13 @@ export function OrderCard({
               {displayCustomerName || email || phone ? (
                 <div className="space-y-0.5">
                   {displayCustomerName ? (
-                    <div className="flex items-center gap-1 text-[11px] font-medium text-slate-700">
+                    <div className="flex items-center gap-1">
                       <User className="h-3 w-3 shrink-0 text-slate-400" />
-                      <span className="truncate">{displayCustomerName}</span>
+                      <CopyableText
+                        text={displayCustomerName}
+                        copyKey="customer-name-exp"
+                        title="Copy customer name"
+                      />
                     </div>
                   ) : null}
                   {email ? (

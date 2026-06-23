@@ -120,16 +120,16 @@ export function buildBrandedEmailLayout(params: {
   <title>${title}</title>
 </head>
 <body style="margin:0; padding:0; background-color:#eaecf7; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#eaecf7; padding:40px 24px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#eaecf7; padding:24px 16px;">
     <tr>
       <td align="center">
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:500px; background:#ffffff; border-radius:8px; overflow:hidden;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.08);">
           <tr>
-            <td style="background:#2563EB; padding:18px 28px;">
+            <td style="background:#2563EB; padding:20px 28px;">
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="color:#ffffff; font-size:15px; font-weight:700;">BazaarPrinting</td>
-                  <td align="right" style="color:rgba(255,255,255,0.8); font-size:13px;">${contextLabel}</td>
+                  <td style="color:#ffffff; font-size:16px; font-weight:700; letter-spacing:-0.2px;">BazaarPrinting</td>
+                  <td align="right" style="color:rgba(255,255,255,0.85); font-size:13px;">${contextLabel}</td>
                 </tr>
               </table>
             </td>
@@ -366,6 +366,82 @@ export function messageToEmailHtml(text: string) {
   return buildBrandedEmailLayout({
     contextLabel: "Notification",
     bodyHtml: paragraphs,
+  });
+}
+
+/**
+ * Renders a notification-rule email body with proper structure:
+ * - Order number in the header label
+ * - "Key: Value" lines styled as a detail card
+ * - All other lines rendered as normal paragraphs
+ */
+export function buildNotificationRuleEmailHtml(text: string, orderNumber: string): string {
+  const lines = text.trim().split("\n");
+  const sections: string[] = [];
+  const detailRows: { label: string; value: string }[] = [];
+  const pendingLines: string[] = [];
+
+  function flushPending() {
+    if (!pendingLines.length) return;
+    const block = pendingLines.join("<br/>").trim();
+    if (block) {
+      sections.push(
+        `<p style="margin:0 0 16px; font-size:14px; color:#374151; line-height:1.7;">${
+          escapeHtml(block).replace(
+            /(https?:\/\/[^\s]+)/g,
+            '<a href="$1" style="color:#2563EB;word-break:break-all;">$1</a>'
+          )
+        }</p>`
+      );
+    }
+    pendingLines.length = 0;
+  }
+
+  function flushDetails() {
+    if (!detailRows.length) return;
+    const rows = detailRows
+      .map(
+        (r) =>
+          `<tr>` +
+          `<td style="padding:9px 16px 9px 0; font-size:13px; color:#6b7280; white-space:nowrap; vertical-align:top; width:38%;">${escapeHtml(r.label)}</td>` +
+          `<td style="padding:9px 0; font-size:13px; color:#111827; font-weight:600;">${escapeHtml(r.value)}</td>` +
+          `</tr>`
+      )
+      .join(`<tr><td colspan="2" style="padding:0;"><hr style="border:none;border-top:1px solid #e5e7eb;margin:0;"/></td></tr>`);
+    sections.push(
+      `<table cellpadding="0" cellspacing="0" style="width:100%; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:2px 14px; margin:0 0 20px;">` +
+        `<tbody>${rows}</tbody>` +
+      `</table>`
+    );
+    detailRows.length = 0;
+  }
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+
+    if (!line.trim()) {
+      flushDetails();
+      flushPending();
+      continue;
+    }
+
+    const kvMatch = line.match(/^([^:]{2,30}):\s+(.+)$/);
+    if (kvMatch) {
+      flushPending();
+      detailRows.push({ label: kvMatch[1].trim(), value: kvMatch[2].trim() });
+    } else {
+      flushDetails();
+      pendingLines.push(line);
+    }
+  }
+
+  flushDetails();
+  flushPending();
+
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${orderNumber}`,
+    bodyHtml: sections.join(""),
+    emailTitle: `Order ${orderNumber} — status update`,
   });
 }
 

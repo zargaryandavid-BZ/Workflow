@@ -87,14 +87,14 @@ function drawFooter(doc: PdfDoc, pageNum: number, totalPages: number) {
 }
 
 function drawSectionTitle(doc: PdfDoc, title: string, y: number): number {
-  doc.rect(MARGIN, y, PAGE_WIDTH - MARGIN * 2, 18).fill("#f3f4f6");
+  doc.rect(MARGIN, y, PAGE_WIDTH - MARGIN * 2, 20).fill("#f3f4f6");
   doc
     .fillColor("#374151")
-    .fontSize(8)
+    .fontSize(9)
     .font("Helvetica-Bold")
-    .text(title, MARGIN + 6, y + 5);
+    .text(title, MARGIN + 6, y + 6);
   doc.fillColor("#000000").font("Helvetica");
-  return y + 22;
+  return y + 24;
 }
 
 function drawSpecRow(
@@ -106,71 +106,179 @@ function drawSpecRow(
   width: number
 ): number {
   doc
-    .fontSize(8)
+    .fontSize(9)
     .font("Helvetica-Bold")
     .fillColor("#6b7280")
-    .text(label, x, y, { width: width * 0.42 });
+    .text(label, x, y, { width: width * 0.28 });
   doc
-    .fontSize(8)
+    .fontSize(9)
     .font("Helvetica")
     .fillColor("#111827")
-    .text(value || "—", x + width * 0.42, y, { width: width * 0.58 });
-  return y + 14;
+    .text(value || "—", x + width * 0.28, y, { width: width * 0.72 });
+  return y + 16;
 }
 
 function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
-  let y = drawSectionTitle(doc, "SPECIFICATIONS", startY);
-  const x = MARGIN + 6;
-  const w = PAGE_WIDTH - MARGIN * 2 - 12;
+  const x = MARGIN;
+  const w = PAGE_WIDTH - MARGIN * 2;
+  const innerX = x + 10;
+  const innerW = w - 20;
 
   const specRows = data.specRows.map((row) => ({
     label: row.label,
     value: yesNo(row.value),
+    link: undefined as string | undefined,
   }));
 
   if (data.artworkLink) {
-    specRows.push({ label: "Artwork GDrive", value: data.artworkLink });
+    specRows.push({ label: "Artwork GDrive", value: "Link", link: data.artworkLink });
   }
 
+  if (!specRows.length) return startY;
+
+  const description = data.order.description?.trim() ?? "";
+
+  const rowH = 20;
+  const headerH = 26;
   const midpoint = Math.ceil(specRows.length / 2);
   const leftSpecs = specRows.slice(0, midpoint);
   const rightSpecs = specRows.slice(midpoint);
   const maxRows = Math.max(leftSpecs.length, rightSpecs.length);
 
+  // Height for designer notes line (if present)
+  const notesH = data.designTask ? rowH + 4 : 0;
+
+  // Height for order description block (if present)
+  let descH = 0;
+  if (description) {
+    doc.fontSize(10);
+    const textH = doc.heightOfString(description, { width: innerW - 12 });
+    descH = 18 + textH + 6;
+  }
+
+  const boxH = headerH + maxRows * rowH + notesH + descH + 10;
+
+  // Highlighted background box
+  doc.rect(x, startY, w, boxH).fill("#fff7ed");
+  // Amber left accent bar
+  doc.rect(x, startY, 4, boxH).fill("#f59e0b");
+  // Border
+  doc.rect(x, startY, w, boxH).strokeColor("#fcd34d").lineWidth(0.5).stroke();
+
+  // Section title inside box
+  doc
+    .fillColor("#92400e")
+    .fontSize(9)
+    .font("Helvetica-Bold")
+    .text("PRODUCT SPECIFICATIONS", innerX + 6, startY + 8);
+  doc.fillColor("#000000").font("Helvetica");
+
+  let y = startY + headerH;
+
+  // Two-column spec rows
   for (let i = 0; i < maxRows; i++) {
-    const rowY = y + i * 14;
+    const rowY = y + i * rowH;
     if (leftSpecs[i]) {
-      drawSpecRow(doc, leftSpecs[i].label, leftSpecs[i].value, x, rowY, COL_WIDTH - 6);
+      doc
+        .fontSize(9)
+        .font("Helvetica-Bold")
+        .fillColor("#78350f")
+        .text(leftSpecs[i].label, innerX + 6, rowY, { width: COL_WIDTH * 0.45 });
+      const lv = leftSpecs[i];
+      doc
+        .fontSize(11)
+        .font("Helvetica-Bold")
+        .fillColor(lv.link ? "#1d4ed8" : "#111827")
+        .text(lv.value || "—", innerX + 6 + COL_WIDTH * 0.45, rowY, {
+          width: COL_WIDTH * 0.5,
+          ...(lv.link ? { link: lv.link, underline: true } : {}),
+        });
     }
     if (rightSpecs[i]) {
-      drawSpecRow(
-        doc,
-        rightSpecs[i].label,
-        rightSpecs[i].value,
-        x + COL_WIDTH,
-        rowY,
-        COL_WIDTH - 6
-      );
+      const rx = innerX + COL_WIDTH + 6;
+      doc
+        .fontSize(9)
+        .font("Helvetica-Bold")
+        .fillColor("#78350f")
+        .text(rightSpecs[i].label, rx, rowY, { width: COL_WIDTH * 0.45 });
+      const rv = rightSpecs[i];
+      doc
+        .fontSize(11)
+        .font("Helvetica-Bold")
+        .fillColor(rv.link ? "#1d4ed8" : "#111827")
+        .text(rv.value || "—", rx + COL_WIDTH * 0.45, rowY, {
+          width: COL_WIDTH * 0.5,
+          ...(rv.link ? { link: rv.link, underline: true } : {}),
+        });
     }
   }
 
-  y += maxRows * 14 + 4;
+  y += maxRows * rowH + 4;
 
   if (data.designTask) {
     doc
-      .fontSize(8)
+      .fontSize(9)
       .font("Helvetica-Bold")
-      .fillColor("#6b7280")
-      .text("Designer Notes", x, y);
+      .fillColor("#78350f")
+      .text("Designer Notes", innerX + 6, y);
     doc
-      .fontSize(8)
-      .font("Helvetica")
+      .fontSize(10)
+      .font("Helvetica-Bold")
       .fillColor("#111827")
-      .text(data.designTask, x + w * 0.3, y, { width: w * 0.7 });
-    y += 14;
+      .text(data.designTask, innerX + 6 + innerW * 0.32, y, { width: innerW * 0.65 });
+    y += rowH;
   }
 
-  return y + 8;
+  if (description) {
+    // Thin divider
+    doc.moveTo(innerX + 6, y + 2).lineTo(x + w - 10, y + 2).strokeColor("#fcd34d").lineWidth(0.5).stroke();
+    y += 10;
+    doc
+      .fontSize(9)
+      .font("Helvetica-Bold")
+      .fillColor("#78350f")
+      .text("Order Description", innerX + 6, y);
+    y += 14;
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor("#111827")
+      .text(description, innerX + 6, y, { width: innerW - 12 });
+  }
+
+  doc.fillColor("#000000").font("Helvetica");
+  return startY + boxH + 8;
+}
+
+function drawDescription(doc: PdfDoc, description: string, startY: number): number {
+  const x = MARGIN;
+  const w = PAGE_WIDTH - MARGIN * 2;
+  const innerX = x + 6;
+  const innerW = w - 12;
+
+  const textHeight = doc.heightOfString(description, {
+    width: innerW - 8,
+  });
+  const boxH = 22 + textHeight + 8;
+
+  doc.rect(x, startY, w, boxH).fill("#f0f9ff");
+  doc.rect(x, startY, 4, boxH).fill("#0ea5e9");
+  doc.rect(x, startY, w, boxH).strokeColor("#bae6fd").lineWidth(0.5).stroke();
+
+  doc
+    .fillColor("#0c4a6e")
+    .fontSize(8)
+    .font("Helvetica-Bold")
+    .text("DESCRIPTION / COMMENTS", innerX + 6, startY + 7);
+
+  doc
+    .fontSize(8.5)
+    .font("Helvetica")
+    .fillColor("#111827")
+    .text(description, innerX + 6, startY + 22, { width: innerW - 8 });
+
+  doc.fillColor("#000000").font("Helvetica");
+  return startY + boxH + 8;
 }
 
 function drawPage1(
@@ -188,17 +296,6 @@ function drawPage1(
     doc,
     "Name",
     data.customerName,
-    MARGIN + 6,
-    y,
-    PAGE_WIDTH - MARGIN * 2 - 12
-  );
-  const contactLine = [data.customerEmail, data.customerPhone]
-    .filter(Boolean)
-    .join("   ·   ");
-  y = drawSpecRow(
-    doc,
-    "Contact",
-    contactLine || data.customerContact || "—",
     MARGIN + 6,
     y,
     PAGE_WIDTH - MARGIN * 2 - 12
@@ -230,21 +327,21 @@ function drawPage1(
   for (const sku of data.skuRows) {
     const rowX = MARGIN + 6;
     doc
-      .fontSize(8)
+      .fontSize(10)
       .font("Helvetica-Bold")
       .fillColor("#9ca3af")
-      .text(`${sku.index}`, rowX, y, { width: 16 });
+      .text(`${sku.index}`, rowX, y, { width: 20 });
     doc
-      .fontSize(8)
+      .fontSize(10)
       .font("Helvetica")
       .fillColor("#111827")
-      .text(sku.name, rowX + 20, y, { width: w - 80 });
+      .text(sku.name, rowX + 24, y, { width: w - 90 });
     doc
-      .fontSize(8)
+      .fontSize(10)
       .font("Helvetica-Bold")
       .fillColor("#374151")
       .text(fmtQty(sku.qty), rowX + w - 60, y, { width: 60, align: "right" });
-    y += 14;
+    y += 18;
   }
 
   drawFooter(doc, 1, totalPages);

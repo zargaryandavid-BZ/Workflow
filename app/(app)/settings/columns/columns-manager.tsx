@@ -17,6 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { BOARD_ROLES, ROLE_ABBR, ROLE_LABELS } from "@/lib/constants";
+import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
+import { RoleOrIndividualPicker, type PickerValue, type TeamMember } from "@/components/RoleOrIndividualPicker";
+import type { ColumnMember } from "./page";
 import type { BoardColumn, ColumnKind, Role } from "@/lib/types";
 
 const KINDS: { value: ColumnKind; label: string; hint: string }[] = [
@@ -41,21 +44,41 @@ function kindMeta(kind: ColumnKind) {
   return KINDS.find((k) => k.value === kind) ?? KINDS[0];
 }
 
-function dropRolesShort(roles: Role[] | null): string {
-  if (roles == null) return "All";
-  if (roles.length === 0) return "Admins only";
-  return roles.map((r) => ROLE_ABBR[r]).join(", ");
+function dropRolesShort(roles: Role[] | null | undefined): string {
+  const effective = effectiveDropRoles(parseDropRoles(roles));
+  if (effective == null) return "All";
+  if (effective.length === 0) return "Admins only";
+  return effective.map((r) => ROLE_ABBR[r]).join(", ");
+}
+
+function visibilityShort(col: BoardColumn): string {
+  const mode = col.visibility_mode ?? "all";
+  if (mode === "all") return "All";
+  if (mode === "roles") return col.visibility_roles?.map((r) => ROLE_ABBR[r as Role] ?? r).join(", ") || "All";
+  const n = col.visibility_users_v2?.length ?? 0;
+  return `${n} individual${n === 1 ? "" : "s"}`;
 }
 
 function columnConfigSummary(col: BoardColumn, index: number): string {
   const color = col.color ?? DEFAULT_COLOR;
   const picture = col.image_url ? "Picture" : "No picture";
-  return `#${index + 1} · ↓ ${dropRolesShort(col.drop_in_roles)} · ↑ ${dropRolesShort(col.drop_out_roles)} · ${color} · ${picture}`;
+  const vis = visibilityShort(col);
+  return `#${index + 1} · ↓ ${dropRolesShort(col.drop_in_roles)} · ↑ ${dropRolesShort(col.drop_out_roles)} · 👁 ${vis} · ${color} · ${picture}`;
+}
+
+/** Convert ColumnMember (uses user_id) → TeamMember (uses id) for the picker. */
+function toTeamMembers(members: ColumnMember[]): TeamMember[] {
+  return members.map((m) => ({
+    id: m.user_id,
+    name: m.name,
+    role: m.role as TeamMember["role"],
+  }));
 }
 
 interface Props {
   initialColumns: BoardColumn[];
   orderCounts: Record<string, number>;
+  members: ColumnMember[];
 }
 
 const DEFAULT_COLOR = "#94a3b8";
@@ -73,7 +96,7 @@ function checkedToRoles(checked: Role[]): Role[] | null {
   return BOARD_ROLES.filter((r) => checked.includes(r));
 }
 
-export function ColumnsManager({ initialColumns, orderCounts }: Props) {
+export function ColumnsManager({ initialColumns, orderCounts, members }: Props) {
   const router = useRouter();
   const [columns, setColumns] = useState<BoardColumn[]>(initialColumns);
   const [editing, setEditing] = useState<BoardColumn | "new" | null>(null);
@@ -199,6 +222,7 @@ export function ColumnsManager({ initialColumns, orderCounts }: Props) {
       {editing ? (
         <ColumnEditor
           column={editing === "new" ? null : editing}
+          members={members}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -225,13 +249,17 @@ export function ColumnsManager({ initialColumns, orderCounts }: Props) {
 
 function ColumnEditor({
   column,
+  members,
   onClose,
   onSaved,
 }: {
   column: BoardColumn | null;
+  members: ColumnMember[];
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const teamMembers = toTeamMembers(members);
+
   const [name, setName] = useState(column?.name ?? "");
   const [kind, setKind] = useState<ColumnKind>(column?.kind ?? "normal");
   const [color, setColor] = useState(column?.color ?? DEFAULT_COLOR);
@@ -244,6 +272,11 @@ function ColumnEditor({
   const [dropOut, setDropOut] = useState<Role[]>(
     rolesToChecked(column?.drop_out_roles)
   );
+  const [visibility, setVisibility] = useState<PickerValue>({
+    mode: column?.visibility_mode ?? "all",
+    roles: column?.visibility_roles ?? [],
+    userIds: column?.visibility_users_v2 ?? [],
+  });
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -279,6 +312,9 @@ function ColumnEditor({
       imageUrl,
       dropInRoles: checkedToRoles(dropIn),
       dropOutRoles: checkedToRoles(dropOut),
+      visibilityMode: visibility.mode,
+      visibilityRoles: visibility.roles,
+      visibilityUsersV2: visibility.userIds,
     };
     const res = await fetch(
       column ? `/api/columns/${column.id}` : "/api/columns",
@@ -407,6 +443,19 @@ function ColumnEditor({
             label="↑ Take out of this stage"
             selected={dropOut}
             onChange={setDropOut}
+          />
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <p className="mb-3 text-xs text-slate-500">
+            Admins always see everything. When set to a specific role or
+            individual, only matching users (plus admins) see this column.
+          </p>
+          <RoleOrIndividualPicker
+            label="Visible to"
+            value={visibility}
+            members={teamMembers}
+            onChange={setVisibility}
           />
         </div>
 
