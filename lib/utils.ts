@@ -5,10 +5,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Dates are formatted with a fixed locale and timezone (UTC) so the output is
-// identical on the server and the client. Using the runtime default locale or
-// timezone causes React hydration mismatches (server runs in UTC, the browser
-// in the user's local zone).
+// Dates are formatted with a fixed locale and timezone so the output is
+// identical on the server and the client, avoiding React hydration mismatches.
+// formatDate/formatDateShort use UTC (date-only values stored as YYYY-MM-DD).
+// formatDateTime uses America/Los_Angeles (PST/PDT) for timestamps.
 export function formatDate(value?: string | null) {
   if (!value) return "";
   const d = new Date(value);
@@ -42,7 +42,7 @@ export function formatDateTime(value?: string | null) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZone: "UTC",
+    timeZone: "America/Los_Angeles",
   });
 }
 
