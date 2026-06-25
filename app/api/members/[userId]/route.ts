@@ -19,35 +19,69 @@ export async function PATCH(
 
   const body = (await request.json().catch(() => ({}))) as {
     role?: string;
+    fullName?: string;
   };
-  if (!isAssignableRole(body.role)) {
-    return NextResponse.json({ error: "Invalid role" }, { status: 400 });
-  }
-  const role: Role = body.role;
 
   const supabase = await createClient();
 
-  // Prevent demoting the last remaining admin.
-  if (role !== "admin") {
-    const { count } = await supabase
+  if (body.role !== undefined) {
+    if (!isAssignableRole(body.role)) {
+      return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    }
+    const role: Role = body.role;
+
+    // Prevent demoting the last remaining admin.
+    if (role !== "admin") {
+      const { count } = await supabase
+        .from("memberships")
+        .select("user_id", { count: "exact", head: true })
+        .eq("tenant_id", ctx.tenant.id)
+        .eq("role", "admin");
+      if ((count ?? 0) <= 1) {
+        return NextResponse.json(
+          { error: "At least one admin is required." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const { error } = await supabase
       .from("memberships")
-      .select("user_id", { count: "exact", head: true })
+      .update({ role })
       .eq("tenant_id", ctx.tenant.id)
-      .eq("role", "admin");
-    if ((count ?? 0) <= 1) {
+      .eq("user_id", userId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (body.fullName !== undefined) {
+    const fullName = body.fullName.trim() || null;
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch {
       return NextResponse.json(
-        { error: "At least one admin is required." },
-        { status: 400 }
+        { error: "SUPABASE_SERVICE_ROLE_KEY is not configured." },
+        { status: 503 }
       );
+    }
+
+    const { data: existing } = await admin.auth.admin.getUserById(userId);
+    if (existing?.user) {
+      await admin.auth.admin.updateUserById(userId, {
+        user_metadata: {
+          ...(existing.user.user_metadata as Record<string, unknown> | undefined),
+          full_name: fullName,
+        },
+      });
+    }
+
+    if (fullName) {
+      await supabase
+        .from("profiles")
+        .upsert({ id: userId, full_name: fullName }, { onConflict: "id" });
     }
   }
 
-  const { error } = await supabase
-    .from("memberships")
-    .update({ role })
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("user_id", userId);
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true });
 }
 

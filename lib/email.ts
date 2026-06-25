@@ -20,6 +20,9 @@ import {
   buildTeamInviteEmailBody,
   buildTeamInviteEmailHtml,
   teamInviteSubject,
+  buildPasswordResetEmailBody,
+  buildPasswordResetEmailHtml,
+  passwordResetSubject,
 } from "@/lib/team-invite-messages";
 
 const INSTANTLY_SEND_URL = "https://api.instantly.ai/api/v2/emails/test";
@@ -334,6 +337,32 @@ export async function sendTeamInviteEmail(args: {
   }
 
   return result;
+}
+
+/** Password-reset email sent by an admin on behalf of an active team member. */
+export async function sendPasswordResetEmail(args: {
+  to: string;
+  tenantName: string;
+  resetUrl: string;
+  fullName?: string | null;
+}): Promise<EmailSendResult> {
+  const html = buildPasswordResetEmailHtml({
+    tenantName: args.tenantName,
+    resetUrl: args.resetUrl,
+    fullName: args.fullName,
+  });
+  const text = buildPasswordResetEmailBody({
+    tenantName: args.tenantName,
+    resetUrl: args.resetUrl,
+    fullName: args.fullName,
+  });
+
+  return sendCustomerEmail({
+    to: args.to,
+    subject: passwordResetSubject(args.tenantName),
+    html,
+    text,
+  });
 }
 
 /** Generic transactional email via Instantly (staff / automation use). */

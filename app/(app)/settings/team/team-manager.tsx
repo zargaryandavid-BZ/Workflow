@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Send, Trash2, UserPlus } from "lucide-react";
+import { Mail, Pencil, RotateCcw, Send, Trash2, UserPlus, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +43,8 @@ export function TeamManager({
     setMembers(initialMembers);
     setLoadError(initialLoadError);
   }, [initialMembers, initialLoadError]);
+
+  // ── Invite form state ────────────────────────────────────────────────────
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("designer");
@@ -51,7 +53,21 @@ export function TeamManager({
   const [message, setMessage] = useState<string | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // ── Resend state ─────────────────────────────────────────────────────────
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendResult, setResendResult] = useState<{
+    memberId: string;
+    message: string;
+    copyUrl?: string | null;
+    copied: boolean;
+  } | null>(null);
+
+  // ── Inline edit state ────────────────────────────────────────────────────
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   const activeMembers = members.filter((m) => !m.pending);
   const pendingMembers = members.filter((m) => m.pending);
@@ -75,18 +91,12 @@ export function TeamManager({
       setInviteUrl(null);
       return;
     }
-
     if (json.emailSent) {
-      setMessage(
-        resend
-          ? `Invite email sent to ${who}.`
-          : `Invite email sent to ${who}.`
-      );
+      setMessage(resend ? `Invite email sent to ${who}.` : `Invite email sent to ${who}.`);
       setInviteUrl(null);
       setError(null);
       return;
     }
-
     setMessage(
       `${who} was added to the team. Email could not be sent — copy the signup link below.`
     );
@@ -123,32 +133,6 @@ export function TeamManager({
     await afterMembershipChange();
   }
 
-  async function resend(member: MemberRow) {
-    if (!member.email) return;
-    setError(null);
-    setMessage(null);
-    setInviteUrl(null);
-    setCopied(false);
-    setResendingId(member.user_id);
-    const res = await fetch("/api/members", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: member.email,
-        role: member.role,
-        fullName: member.profile?.full_name ?? undefined,
-      }),
-    });
-    const json = await res.json();
-    setResendingId(null);
-    if (!res.ok) {
-      setError(json.error ?? "Failed to resend invite");
-      return;
-    }
-    applyInviteResult(json, member.email, true);
-    await afterMembershipChange();
-  }
-
   async function copyInvite() {
     if (!inviteUrl) return;
     await navigator.clipboard.writeText(inviteUrl);
@@ -164,7 +148,7 @@ export function TeamManager({
     });
     if (!res.ok) {
       const json = await res.json();
-      setError(json.error ?? "Failed");
+      setError(json.error ?? "Failed to update role");
       return;
     }
     await afterMembershipChange();
@@ -181,6 +165,75 @@ export function TeamManager({
     await afterMembershipChange();
   }
 
+  // ── Inline name edit ──────────────────────────────────────────────────────
+  function startEdit(member: MemberRow) {
+    setEditingId(member.user_id);
+    setEditName(member.profile?.full_name ?? "");
+    setTimeout(() => editInputRef.current?.focus(), 50);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+  }
+
+  async function saveEdit(userId: string) {
+    setEditSaving(true);
+    const res = await fetch(`/api/members/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fullName: editName }),
+    });
+    setEditSaving(false);
+    if (!res.ok) {
+      const json = await res.json();
+      setError(json.error ?? "Failed to update name");
+      return;
+    }
+    cancelEdit();
+    await afterMembershipChange();
+  }
+
+  // ── Resend invite / password reset ─────────────────────────────────────────
+  async function resendInvite(member: MemberRow) {
+    setResendResult(null);
+    setResendingId(member.user_id);
+    const res = await fetch(`/api/members/${member.user_id}/resend`, {
+      method: "POST",
+    });
+    const json = await res.json();
+    setResendingId(null);
+    if (!res.ok) {
+      setResendResult({
+        memberId: member.user_id,
+        message: json.error ?? "Failed to send.",
+        copied: false,
+      });
+      return;
+    }
+    const copyUrl = json.inviteUrl ?? json.resetUrl ?? null;
+    setResendResult({
+      memberId: member.user_id,
+      message: json.emailSent
+        ? member.pending
+          ? `Invite email sent to ${member.email}.`
+          : `Password reset email sent to ${member.email}.`
+        : `Email could not be sent — copy the link below.`,
+      copyUrl,
+      copied: false,
+    });
+  }
+
+  async function copyResendUrl() {
+    if (!resendResult?.copyUrl) return;
+    await navigator.clipboard.writeText(resendResult.copyUrl);
+    setResendResult((r) => (r ? { ...r, copied: true } : r));
+    setTimeout(
+      () => setResendResult((r) => (r ? { ...r, copied: false } : r)),
+      2000
+    );
+  }
+
   return (
     <div className="space-y-6">
       {loadError ? (
@@ -188,6 +241,8 @@ export function TeamManager({
           Could not load team: {loadError}
         </p>
       ) : null}
+
+      {/* ── Invite form ────────────────────────────────────────────────── */}
       <form
         onSubmit={invite}
         className="space-y-4 rounded-lg border border-slate-200 bg-white p-4"
@@ -265,6 +320,7 @@ export function TeamManager({
         </Button>
       </form>
 
+      {/* ── Active members ─────────────────────────────────────────────── */}
       <div>
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-slate-700">
@@ -282,9 +338,7 @@ export function TeamManager({
         <div className="rounded-lg border border-slate-200 bg-white">
           {members.length === 0 && !loadError ? (
             <p className="p-4 text-sm text-slate-400">
-              No members in this workspace yet. Send an invite above — each
-              person is stored in Supabase{" "}
-              <code className="text-xs">memberships</code> and Auth.
+              No members in this workspace yet. Send an invite above.
             </p>
           ) : activeMembers.length === 0 ? (
             <p className="p-4 text-sm text-slate-400">
@@ -293,57 +347,145 @@ export function TeamManager({
           ) : (
             <ul className="divide-y divide-slate-100">
               {activeMembers.map((m) => (
-                <li
-                  key={m.user_id}
-                  className="flex items-center justify-between px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
-                      {initials(m.profile?.full_name)}
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">
-                        {m.profile?.full_name ?? m.email ?? "Member"}
-                        {m.user_id === currentUserId ? (
-                          <span className="ml-2 text-xs text-slate-400">
-                            (you)
-                          </span>
+                <li key={m.user_id}>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
+                        {initials(m.profile?.full_name)}
+                      </span>
+                      <div className="min-w-0">
+                        {editingId === m.user_id ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              ref={editInputRef}
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveEdit(m.user_id);
+                                if (e.key === "Escape") cancelEdit();
+                              }}
+                              className="h-7 w-44 text-sm"
+                              placeholder="Full name"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveEdit(m.user_id)}
+                              disabled={editSaving}
+                              className="rounded p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                              title="Save"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEdit}
+                              className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                              title="Cancel"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <p className="text-sm font-medium text-slate-800">
+                              {m.profile?.full_name ?? m.email ?? "Member"}
+                              {m.user_id === currentUserId ? (
+                                <span className="ml-2 text-xs text-slate-400">(you)</span>
+                              ) : null}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(m)}
+                              className="ml-0.5 rounded p-0.5 text-slate-300 hover:text-slate-500"
+                              title="Edit name"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
+                        {m.email ? (
+                          <p className="text-xs text-slate-400">{m.email}</p>
                         ) : null}
-                      </p>
-                      {m.email ? (
-                        <p className="text-xs text-slate-400">{m.email}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Select
+                        className="h-8 w-44 text-xs"
+                        value={m.role}
+                        onChange={(e) =>
+                          changeRole(m.user_id, e.target.value as Role)
+                        }
+                      >
+                        {!ASSIGNABLE_ROLES.includes(m.role) ? (
+                          <option value={m.role}>
+                            {ROLE_LABELS[m.role] ?? m.role} (legacy)
+                          </option>
+                        ) : null}
+                        {ASSIGNABLE_ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {ROLE_LABELS[r]}
+                          </option>
+                        ))}
+                      </Select>
+
+                      {/* Password-reset resend */}
+                      {m.user_id !== currentUserId ? (
+                        <button
+                          type="button"
+                          title="Send password reset email"
+                          disabled={resendingId === m.user_id}
+                          onClick={() => resendInvite(m)}
+                          className="rounded p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </button>
+                      ) : null}
+
+                      {m.user_id !== currentUserId ? (
+                        <button
+                          type="button"
+                          onClick={() => remove(m.user_id)}
+                          className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                          title="Remove member"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Select
-                      className="h-8 w-44 text-xs"
-                      value={m.role}
-                      onChange={(e) =>
-                        changeRole(m.user_id, e.target.value as Role)
-                      }
-                    >
-                      {!ASSIGNABLE_ROLES.includes(m.role) ? (
-                        <option value={m.role}>
-                          {ROLE_LABELS[m.role] ?? m.role} (legacy)
-                        </option>
+
+                  {/* Resend result banner for this member */}
+                  {resendResult?.memberId === m.user_id ? (
+                    <div className="mx-4 mb-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-600">{resendResult.message}</p>
+                      {resendResult.copyUrl ? (
+                        <div className="mt-2 flex items-center gap-2">
+                          <Input
+                            readOnly
+                            value={resendResult.copyUrl}
+                            className="h-7 font-mono text-xs"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                            onClick={copyResendUrl}
+                          >
+                            {resendResult.copied ? "Copied" : "Copy"}
+                          </Button>
+                        </div>
                       ) : null}
-                      {ASSIGNABLE_ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {ROLE_LABELS[r]}
-                        </option>
-                      ))}
-                    </Select>
-                    {m.user_id !== currentUserId ? (
                       <button
-                        onClick={() => remove(m.user_id)}
-                        className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
-                        aria-label="Remove member"
+                        type="button"
+                        onClick={() => setResendResult(null)}
+                        className="mt-1.5 text-xs text-slate-400 hover:text-slate-600"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        Dismiss
                       </button>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -351,6 +493,7 @@ export function TeamManager({
         </div>
       </div>
 
+      {/* ── Pending invites ────────────────────────────────────────────── */}
       {pendingMembers.length > 0 ? (
         <div>
           <h2 className="mb-2 text-sm font-semibold text-slate-700">
@@ -359,46 +502,120 @@ export function TeamManager({
           <div className="rounded-lg border border-slate-200 bg-white">
             <ul className="divide-y divide-slate-100">
               {pendingMembers.map((m) => (
-                <li
-                  key={m.user_id}
-                  className="flex items-center justify-between gap-3 px-4 py-3"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-                      <Mail className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-slate-800">
-                        {m.email ?? m.profile?.full_name ?? "Invited user"}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {ROLE_LABELS[m.role] ?? m.role} · invited{" "}
-                        {formatDate(m.created_at)}
-                      </p>
+                <li key={m.user_id}>
+                  <div className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                        <Mail className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        {editingId === m.user_id ? (
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              ref={editingId === m.user_id ? editInputRef : undefined}
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveEdit(m.user_id);
+                                if (e.key === "Escape") cancelEdit();
+                              }}
+                              className="h-7 w-44 text-sm"
+                              placeholder="Full name"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveEdit(m.user_id)}
+                              disabled={editSaving}
+                              className="rounded p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                              title="Save"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEdit}
+                              className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                              title="Cancel"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <p className="truncate text-sm font-medium text-slate-800">
+                              {m.email ?? m.profile?.full_name ?? "Invited user"}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(m)}
+                              className="ml-0.5 shrink-0 rounded p-0.5 text-slate-300 hover:text-slate-500"
+                              title="Edit name"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
+                        <p className="text-xs text-slate-400">
+                          {ROLE_LABELS[m.role] ?? m.role} · invited{" "}
+                          {formatDate(m.created_at)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge className="bg-amber-100 text-amber-700">Pending</Badge>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={resendingId === m.user_id}
+                        onClick={() => resendInvite(m)}
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        {resendingId === m.user_id ? "Sending…" : "Resend"}
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => remove(m.user_id)}
+                        className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+                        title="Revoke invite"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge className="bg-amber-100 text-amber-700">
-                      Pending
-                    </Badge>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={resendingId === m.user_id}
-                      onClick={() => resend(m)}
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      {resendingId === m.user_id ? "Sending…" : "Resend"}
-                    </Button>
-                    <button
-                      onClick={() => remove(m.user_id)}
-                      className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
-                      aria-label="Revoke invite"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
+
+                  {/* Resend result banner for this pending member */}
+                  {resendResult?.memberId === m.user_id ? (
+                    <div className="mx-4 mb-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-600">{resendResult.message}</p>
+                      {resendResult.copyUrl ? (
+                        <div className="mt-2 flex items-center gap-2">
+                          <Input
+                            readOnly
+                            value={resendResult.copyUrl}
+                            className="h-7 font-mono text-xs"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                            onClick={copyResendUrl}
+                          >
+                            {resendResult.copied ? "Copied" : "Copy"}
+                          </Button>
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setResendResult(null)}
+                        className="mt-1.5 text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
