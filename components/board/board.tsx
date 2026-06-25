@@ -653,6 +653,10 @@ export function Board({
         fastActionButtons={fastActionButtons}
         appUrl={appUrl}
         categories={categories}
+        notifyColumns={notifyColumns}
+        onNotifyColumn={(order, notifyColumn, columnName) => {
+          setNotifyPopup({ order, notifyColumn, columnName });
+        }}
       />
 
       {notifyPopup ? (

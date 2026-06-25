@@ -16,7 +16,7 @@ interface FastActionButtonBarProps {
   orderId: string;
   role: Role;
   userId?: string;
-  onSuccess: (destinationName: string) => void;
+  onSuccess: (info: { destinationColumnId: string; destinationName: string }) => void;
   onError: (message: string) => void;
 }
 
@@ -60,7 +60,7 @@ function FastActionButtonPill({
 }: {
   button: FastActionButton;
   orderId: string;
-  onSuccess: (destinationName: string) => void;
+  onSuccess: (info: { destinationColumnId: string; destinationName: string }) => void;
   onError: (message: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
@@ -83,7 +83,10 @@ function FastActionButtonPill({
         onError(json.error ?? "Could not move card. Please try again.");
         return;
       }
-      onSuccess(button.destination_column?.name ?? "new column");
+      onSuccess({
+        destinationColumnId: button.destination_column_id,
+        destinationName: button.destination_column?.name ?? "new column",
+      });
     } catch {
       onError("Could not move card. Please try again.");
     } finally {

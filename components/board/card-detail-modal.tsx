@@ -35,6 +35,7 @@ import {
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { cn, dateInputValue, formatDateTime } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
+import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type {
   Approval,
   ApprovalNote,
@@ -70,6 +71,14 @@ interface CardDetailModalProps {
   fastActionButtons?: FastActionButton[];
   appUrl?: string;
   categories?: Category[];
+  /** Columns that trigger a notification popup when a card enters them. */
+  notifyColumns?: NotifyColumnConfig[];
+  /** Called when a Fast Action Button moves to a column that has an active automation. */
+  onNotifyColumn?: (
+    order: OrderWithRelations,
+    notifyColumn: NotifyColumnConfig,
+    columnName: string
+  ) => void;
 }
 
 function addToSet(prev: ReadonlySet<string>, id: string): Set<string> {
@@ -113,6 +122,8 @@ export function CardDetailModal({
   fastActionButtons = [],
   appUrl = "",
   categories = [],
+  notifyColumns = [],
+  onNotifyColumn,
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
   const [modalCustomFields, setModalCustomFields] =
@@ -817,10 +828,23 @@ export function CardDetailModal({
                 orderId={data.order.id}
                 role={role}
                 userId={userId}
-                onSuccess={(destinationName) => {
+                onSuccess={({ destinationColumnId, destinationName }) => {
                   onLinkCopied?.(`Moved to ${destinationName}`);
                   void load({ silent: true });
                   onChanged();
+                  if (data && onNotifyColumn) {
+                    const notifyCol = notifyColumns.find(
+                      (c) => c.column_id === destinationColumnId && c.automation_enabled
+                    );
+                    if (notifyCol) {
+                      const destColumn = columns.find((c) => c.id === destinationColumnId);
+                      onNotifyColumn(
+                        { ...data.order, column_id: destinationColumnId },
+                        notifyCol,
+                        destColumn?.name ?? destinationName
+                      );
+                    }
+                  }
                 }}
                 onError={(msg) => setSaveError(msg)}
               />
