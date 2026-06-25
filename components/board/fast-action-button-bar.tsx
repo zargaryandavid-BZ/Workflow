@@ -84,7 +84,7 @@ function FastActionButtonPill({
         return;
       }
       onSuccess({
-        destinationColumnId: button.destination_column_id,
+        destinationColumnId: button.destination_column_id ?? "",
         destinationName: button.destination_column?.name ?? "new column",
       });
     } catch {
