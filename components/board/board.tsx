@@ -28,7 +28,6 @@ import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
 import {
-  getMissingFields,
   type MissingField,
 } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
@@ -409,22 +408,6 @@ export function Board({
       );
       abortDrag();
       return;
-    }
-
-    if (crossing && to?.kind !== "exception") {
-      const order = orders.find((o) => o.id === active.id);
-      if (order) {
-        const missingFields = getMissingFields(
-          order,
-          fieldValuesByOrder[order.id] ?? {},
-          customFields
-        );
-        if (missingFields.length > 0) {
-          abortDrag();
-          setMoveBlockedState({ orderId: order.id, missingFields });
-          return;
-        }
-      }
     }
 
     // Reorder within the destination column.
