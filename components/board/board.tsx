@@ -165,6 +165,7 @@ export function Board({
   const draggingRef = useRef(false);
   const dragSourceColumnRef = useRef<string | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevOrderCountRef = useRef(initialOrders.length);
 
   /** Debounced full reload — board page is heavy (signed URLs, notifications). */
   const scheduleRefresh = useCallback(() => {
@@ -174,7 +175,16 @@ export function Board({
   }, [router]);
 
   useEffect(() => {
-    if (!draggingRef.current) setOrders(initialOrders);
+    if (!draggingRef.current) {
+      setOrders(initialOrders);
+      const prev = prevOrderCountRef.current;
+      const next = initialOrders.length;
+      if (next > prev) {
+        const diff = next - prev;
+        flashToast(`${diff} new order${diff > 1 ? "s" : ""} received`);
+      }
+      prevOrderCountRef.current = next;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
@@ -292,6 +302,15 @@ export function Board({
       if (channel) supabase.removeChannel(channel);
     };
   }, [tenantId, scheduleRefresh]);
+
+  // Polling fallback — refreshes board every 20 s so webhook-created orders
+  // appear even when Supabase Realtime is not active or misses an event.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!draggingRef.current) router.refresh();
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [router]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })

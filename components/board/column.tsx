@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import Image from "next/image";
-import { ArrowDownToLine, ArrowUpFromLine, Plus } from "lucide-react";
+import { ArrowDownAZ, ArrowDownToLine, ArrowUpAZ, ArrowUpFromLine, Plus } from "lucide-react";
 import { OrderCard } from "./order-card";
 import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
@@ -18,6 +19,8 @@ import type {
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+
+type DateSort = "default" | "asc" | "desc";
 
 interface ColumnProps {
   column: BoardColumn;
@@ -62,6 +65,8 @@ export function Column({
   onOpenOrder,
   onAdd,
 }: ColumnProps) {
+  const [dateSort, setDateSort] = useState<DateSort>("default");
+
   const dropDisabled = isDragActive && !canAcceptDrop;
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -69,6 +74,21 @@ export function Column({
   });
 
   const showDropTarget = isDragActive && isOver && canAcceptDrop;
+
+  const sortedOrders =
+    dateSort === "default"
+      ? orders
+      : [...orders].sort((a, b) => {
+          const ta = new Date(a.created_at).getTime();
+          const tb = new Date(b.created_at).getTime();
+          return dateSort === "asc" ? ta - tb : tb - ta;
+        });
+
+  function cycleDateSort() {
+    setDateSort((prev) =>
+      prev === "default" ? "asc" : prev === "asc" ? "desc" : "default"
+    );
+  }
 
   return (
     <div
@@ -101,15 +121,39 @@ export function Column({
               {orders.length}
             </span>
           </div>
-          {isFirst ? (
+          <div className="flex items-center gap-0.5">
             <button
-              onClick={() => onAdd(column.id)}
-              className="rounded p-1 text-slate-500 hover:bg-white hover:text-slate-700"
-              aria-label="Add order"
+              onClick={cycleDateSort}
+              className={cn(
+                "rounded p-1 transition-colors",
+                dateSort === "default"
+                  ? "text-slate-400 hover:bg-white hover:text-slate-600"
+                  : "bg-blue-100 text-blue-600 hover:bg-blue-200"
+              )}
+              title={
+                dateSort === "default"
+                  ? "Sort by date created (oldest first)"
+                  : dateSort === "asc"
+                    ? "Sorted: oldest first — click for newest first"
+                    : "Sorted: newest first — click to reset"
+              }
             >
-              <Plus className="h-4 w-4" />
+              {dateSort === "desc" ? (
+                <ArrowDownAZ className="h-4 w-4" />
+              ) : (
+                <ArrowUpAZ className="h-4 w-4" />
+              )}
             </button>
-          ) : null}
+            {isFirst ? (
+              <button
+                onClick={() => onAdd(column.id)}
+                className="rounded p-1 text-slate-500 hover:bg-white hover:text-slate-700"
+                aria-label="Add order"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {column.image_url ? (
@@ -148,10 +192,10 @@ export function Column({
         )}
       >
         <SortableContext
-          items={orders.map((o) => o.id)}
+          items={sortedOrders.map((o) => o.id)}
           strategy={verticalListSortingStrategy}
         >
-          {orders.map((order) => (
+          {sortedOrders.map((order) => (
             <OrderCard
               key={order.id}
               order={order}
