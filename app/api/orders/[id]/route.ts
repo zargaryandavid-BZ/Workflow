@@ -184,7 +184,7 @@ export async function PATCH(
 
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, tenant_id, due_date, specs, customer_id")
+    .select("id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, category_id")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -329,12 +329,82 @@ export async function PATCH(
     }
   }
 
+  // Build a human-readable change list for the activity log.
+  type ChangeEntry = { field: string; from?: unknown; to?: unknown };
+  const changes: ChangeEntry[] = [];
+  const existing = existingOrder as Record<string, unknown> & {
+    specs?: Record<string, unknown>;
+  };
+
+  if (updates.title !== undefined && updates.title !== existing.title)
+    changes.push({ field: "Order number", from: existing.title, to: updates.title });
+  if (updates.priority !== undefined && updates.priority !== existing.priority)
+    changes.push({ field: "Priority", from: existing.priority, to: updates.priority });
+  if (updates.due_date !== undefined && (updates.due_date ?? null) !== (existing.due_date ?? null))
+    changes.push({ field: "Due date", from: existing.due_date ?? null, to: updates.due_date ?? null });
+  if (updates.description !== undefined && (updates.description ?? "") !== (existing.description ?? ""))
+    changes.push({ field: "Description updated" });
+  if (updates.created_by !== undefined && updates.created_by !== existing.created_by)
+    changes.push({ field: "Owner changed" });
+  if (updates.category_id !== undefined && updates.category_id !== existing.category_id)
+    changes.push({ field: "Category changed" });
+
+  if (updates.specs !== undefined) {
+    const oldSpecs = (existing.specs ?? {}) as Record<string, unknown>;
+    const newSpecs = (updates.specs ?? {}) as Record<string, unknown>;
+    const oldDesigner = (oldSpecs.designer_name as string | undefined) ?? null;
+    const newDesigner = (newSpecs.designer_name as string | undefined) ?? null;
+    if ((newSpecs.designer_id ?? null) !== (oldSpecs.designer_id ?? null))
+      changes.push({ field: "Designer", from: oldDesigner, to: newDesigner });
+
+    const oldDesignTask = (oldSpecs.design_task as string | undefined) ?? "";
+    const newDesignTask = (newSpecs.design_task as string | undefined) ?? "";
+    if (newDesignTask !== oldDesignTask)
+      changes.push({ field: "Design task updated" });
+
+    const oldSkus = Array.isArray(oldSpecs.skus) ? oldSpecs.skus : [];
+    const newSkus = Array.isArray(newSpecs.skus) ? newSpecs.skus : [];
+    if (newSkus.length !== oldSkus.length)
+      changes.push({ field: "SKUs", from: oldSkus.length, to: newSkus.length });
+    else if (JSON.stringify(oldSkus) !== JSON.stringify(newSkus))
+      changes.push({ field: "SKUs updated" });
+  }
+
+  if (body.customFieldValues && body.customFieldValues.length > 0) {
+    const cfIds = body.customFieldValues.map((v) => v.customFieldId);
+    const [{ data: cfDefs }, { data: oldCfv }] = await Promise.all([
+      supabase.from("custom_fields").select("id, name").in("id", cfIds),
+      supabase.from("custom_field_values").select("custom_field_id, value").eq("order_id", id).in("custom_field_id", cfIds),
+    ]);
+    const nameById = new Map(
+      ((cfDefs ?? []) as { id: string; name: string }[]).map((f) => [f.id, f.name])
+    );
+    const oldValById = new Map(
+      ((oldCfv ?? []) as { custom_field_id: string; value: unknown }[]).map((v) => [v.custom_field_id, v.value])
+    );
+    const SKIP_CF = new Set(["customer name", "customer contact", "order qty"]);
+    for (const cfv of body.customFieldValues) {
+      const name = nameById.get(cfv.customFieldId) ?? "";
+      if (!name || SKIP_CF.has(name.toLowerCase())) continue;
+      const oldVal = oldValById.get(cfv.customFieldId) ?? null;
+      const newVal = cfv.value ?? null;
+      if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+        if (typeof newVal === "boolean")
+          changes.push({ field: name, to: newVal ? "Yes" : "No" });
+        else if (oldVal !== null && oldVal !== "")
+          changes.push({ field: name, from: oldVal, to: newVal });
+        else
+          changes.push({ field: name, to: newVal });
+      }
+    }
+  }
+
   await logActivity(supabase, {
     tenantId: ctx.tenant.id,
     orderId: id,
     actor: ctx.userId,
     action: "updated",
-    metadata: { fields: Object.keys(updates) },
+    metadata: { changes },
   });
 
   const order = await loadOrderWithRelations(supabase, id, tenantId);

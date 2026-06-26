@@ -14,9 +14,9 @@ const PAGE_HEIGHT = 842;
 const COL_WIDTH = (PAGE_WIDTH - MARGIN * 2) / 2;
 
 function yesNo(value: string): string {
-  const lower = value.toLowerCase();
-  if (lower === "yes" || lower === "true") return "✓";
-  if (lower === "no" || lower === "false") return "✗";
+  const lower = value.trim().toLowerCase();
+  if (lower === "yes" || lower === "true") return "YES";
+  if (lower === "no" || lower === "false") return "NO";
   return value;
 }
 

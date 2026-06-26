@@ -22,8 +22,22 @@ export function describeActivity(log: ActivityLog): string {
       const toName = meta.toName as string | undefined;
       return toName ? `Moved to ${toName}` : "Moved";
     }
-    case "updated":
-      return "Order updated";
+    case "updated": {
+      type ChangeEntry = { field: string; from?: unknown; to?: unknown };
+      const changes = meta.changes as ChangeEntry[] | undefined;
+      if (!changes || changes.length === 0) return "Order updated";
+
+      const parts = changes.map((c) => {
+        if (c.from !== undefined && c.from !== null && c.to !== undefined && c.to !== null)
+          return `${c.field}: ${String(c.from)} → ${String(c.to)}`;
+        if (c.to !== undefined && c.to !== null)
+          return `${c.field}: ${String(c.to)}`;
+        return c.field;
+      });
+
+      if (parts.length <= 3) return parts.join(" · ");
+      return `${parts.slice(0, 3).join(" · ")} +${parts.length - 3} more`;
+    }
     case "asset_uploaded": {
       const file = meta.file as string | undefined;
       return file ? `File uploaded: ${file}` : "File uploaded";

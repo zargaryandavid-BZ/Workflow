@@ -109,6 +109,33 @@ function buildSpecRows(
   customFields: CustomField[],
   fieldValues: Record<string, unknown>
 ): OrderExportSpecRow[] {
+  const checkboxToYesNo = (raw: unknown): "Yes" | "No" => {
+    if (typeof raw === "boolean") return raw ? "Yes" : "No";
+    if (typeof raw === "number") return raw === 1 ? "Yes" : "No";
+    if (typeof raw === "string") {
+      const value = raw.trim().toLowerCase();
+      if (["true", "yes", "1", "on", "checked"].includes(value)) return "Yes";
+      if (
+        [
+          "false",
+          "no",
+          "0",
+          "off",
+          "unchecked",
+          "",
+          "\"",
+          "null",
+          "undefined",
+        ].includes(value)
+      ) {
+        return "No";
+      }
+      // Unknown checkbox-like strings should not print as raw text.
+      return "No";
+    }
+    return "No";
+  };
+
   const byName = new Map(
     customFields.map((f) => [f.name.toLowerCase(), f])
   );
@@ -126,10 +153,15 @@ function buildSpecRows(
     const field = byName.get(name.toLowerCase());
     if (!field) continue;
     const raw = fieldValues[field.id];
-    if (raw === null || raw === undefined || raw === "") continue;
+    if (field.field_type !== "checkbox" && (raw === null || raw === undefined || raw === "")) continue;
     rows.push({
       label: orderFormFieldLabel(field.name),
-      value: typeof raw === "boolean" ? (raw ? "Yes" : "No") : String(raw),
+      value:
+        field.field_type === "checkbox"
+          ? checkboxToYesNo(raw)
+          : typeof raw === "boolean"
+            ? (raw ? "Yes" : "No")
+            : String(raw),
     });
   }
 
@@ -141,10 +173,15 @@ function buildSpecRows(
       continue;
     }
     const raw = fieldValues[field.id];
-    if (raw === null || raw === undefined || raw === "") continue;
+    if (field.field_type !== "checkbox" && (raw === null || raw === undefined || raw === "")) continue;
     rows.push({
       label: orderFormFieldLabel(field.name),
-      value: typeof raw === "boolean" ? (raw ? "Yes" : "No") : String(raw),
+      value:
+        field.field_type === "checkbox"
+          ? checkboxToYesNo(raw)
+          : typeof raw === "boolean"
+            ? (raw ? "Yes" : "No")
+            : String(raw),
     });
   }
 
