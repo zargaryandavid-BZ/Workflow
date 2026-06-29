@@ -103,7 +103,11 @@ function drawSpecRow(
   value: string,
   x: number,
   y: number,
-  width: number
+  width: number,
+  options?: {
+    valueFontSize?: number;
+    valueFont?: "Helvetica" | "Helvetica-Bold";
+  }
 ): number {
   doc
     .fontSize(9)
@@ -111,8 +115,8 @@ function drawSpecRow(
     .fillColor("#6b7280")
     .text(label, x, y, { width: width * 0.28 });
   doc
-    .fontSize(9)
-    .font("Helvetica")
+    .fontSize(options?.valueFontSize ?? 9)
+    .font(options?.valueFont ?? "Helvetica")
     .fillColor("#111827")
     .text(value || "—", x + width * 0.28, y, { width: width * 0.72 });
   return y + 16;
@@ -298,7 +302,8 @@ function drawPage1(
     data.customerName,
     MARGIN + 6,
     y,
-    PAGE_WIDTH - MARGIN * 2 - 12
+    PAGE_WIDTH - MARGIN * 2 - 12,
+    { valueFontSize: 11, valueFont: "Helvetica-Bold" }
   );
   y += 8;
 

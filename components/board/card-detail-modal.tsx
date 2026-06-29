@@ -105,6 +105,8 @@ interface DetailResponse {
   approvalNotes: ApprovalNote[];
 }
 
+type ActivityChangeEntry = { field?: unknown; from?: unknown; to?: unknown };
+
 export function CardDetailModal({
   orderId,
   open,
@@ -468,6 +470,41 @@ export function CardDetailModal({
     ? customerContactFromOrder(data.order, fieldValues, modalCustomFields)
     : { email: null, phone: null };
   const orderTags = data ? orderTagsFromSpecs(data.order.specs) : [];
+  const descriptionVersions = useMemo(() => {
+    if (!data) return [];
+
+    const versions: Array<{
+      id: string;
+      text: string;
+      actorName: string | null;
+      createdAt: string;
+    }> = [];
+
+    for (const log of data.activity) {
+      if (log.action !== "updated") continue;
+      const rawChanges = (log.metadata?.changes ?? []) as ActivityChangeEntry[];
+      const change = rawChanges.find((entry) => entry.field === "Description updated");
+      if (!change || change.to == null) continue;
+
+      versions.push({
+        id: log.id,
+        text: typeof change.to === "string" ? change.to : String(change.to),
+        actorName: log.actor_name,
+        createdAt: log.created_at,
+      });
+    }
+
+    if (versions.length === 0 && (data.order.description ?? "").trim()) {
+      versions.push({
+        id: "current-description",
+        text: data.order.description ?? "",
+        actorName: null,
+        createdAt: data.order.updated_at,
+      });
+    }
+
+    return versions;
+  }, [data]);
 
   function handleClose() {
     if (
@@ -848,6 +885,29 @@ export function CardDetailModal({
                 }}
                 onError={(msg) => setSaveError(msg)}
               />
+            ) : null}
+
+            {descriptionVersions.length > 0 ? (
+              <div className="rounded-lg border border-slate-200 p-3">
+                <p className="mb-2 text-sm font-semibold text-slate-700">
+                  Description versions
+                </p>
+                <div className="space-y-2">
+                  {descriptionVersions.map((version, index) => (
+                    <div key={version.id} className="rounded-md bg-slate-50 p-2">
+                      <p className="text-[11px] font-medium text-slate-500">
+                        Version {descriptionVersions.length - index}
+                        {" · "}
+                        {formatDateTime(version.createdAt)}
+                        {version.actorName ? ` · ${version.actorName}` : ""}
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
+                        {version.text || "—"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : null}
 
             <div className="rounded-lg border border-slate-200">

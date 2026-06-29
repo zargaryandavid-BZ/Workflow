@@ -294,6 +294,14 @@ function resolveOrderNumber(body: WebhookOrderPayload): string {
   return `WH-${stamp}-${randomUUID().slice(0, 8)}`;
 }
 
+function shortOrderCardBase(orderNumber: string): string {
+  const trimmed = orderNumber.trim();
+  const match = /^ord-\d{4}-(.+)$/i.exec(trimmed);
+  if (!match) return trimmed;
+  const short = match[1]?.trim();
+  return short ? short : trimmed;
+}
+
 function resolveDueDate(body: WebhookOrderPayload): string | null {
   const dueDate =
     typeof body.due_date === "string" && body.due_date.trim()
@@ -1548,6 +1556,7 @@ export async function createOrderFromWebhook(
   const orderLevelTitle = resolveOrderLevelTitle(body);
   const orderDescription =
     typeof body.description === "string" ? body.description.trim() : null;
+  const shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
 
   const tenantId = config.tenant_id;
 
@@ -1611,8 +1620,8 @@ export async function createOrderFromWebhook(
     const item = mergeItemWithOrder(body, items[i]);
     const jobTitle = resolveItemTitle(item, orderLevelTitle, i, items.length);
     const cardTitle = isMultiItem
-      ? `${baseOrderNumber}-${i + 1}`
-      : baseOrderNumber;
+      ? `${shortBaseOrderNumber}-${i + 1}`
+      : shortBaseOrderNumber;
 
     const itemCategoryName = item.category ?? item.category_name;
     const categoryId = itemCategoryName

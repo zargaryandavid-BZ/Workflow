@@ -16,6 +16,32 @@ interface Props {
   webhookUrl: string;
 }
 
+function prettyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatResponseValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return prettyJson(value);
+}
+
+function responseValueRows(payload: Record<string, unknown> | null) {
+  if (!payload) return [];
+  return Object.entries(payload).map(([key, value]) => ({
+    key,
+    value: formatResponseValue(value),
+  }));
+}
+
 export function IntegrationsManager({
   initialConfig,
   loadError: initialLoadError,
@@ -364,11 +390,20 @@ export function IntegrationsManager({
             </p>
           ) : (
             <div className="space-y-4">
-              {history.map((entry) => (
-                <article
-                  key={entry.id}
-                  className="rounded-md border border-slate-200 bg-slate-50 p-4"
-                >
+              {history.map((entry) => {
+                const sentPayloadText = entry.request_payload
+                  ? prettyJson(entry.request_payload)
+                  : entry.request_raw || "—";
+                const receivedPayloadText = entry.response_payload
+                  ? prettyJson(entry.response_payload)
+                  : "—";
+                const receivedValues = responseValueRows(entry.response_payload);
+
+                return (
+                  <article
+                    key={entry.id}
+                    className="rounded-md border border-slate-200 bg-slate-50 p-4"
+                  >
                   <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                     <span
                       className={`rounded-full px-2 py-0.5 font-medium ${
@@ -398,28 +433,59 @@ export function IntegrationsManager({
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Sent payload
-                      </p>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Sent payload
+                        </p>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() =>
+                            copyText(sentPayloadText, `sent-${entry.id}`)
+                          }
+                        >
+                          {copiedField === `sent-${entry.id}` ? (
+                            <Check className="h-4 w-4" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                          Copy
+                        </Button>
+                      </div>
                       <pre className="max-h-64 overflow-auto rounded-md bg-white p-3 text-xs text-slate-700">
-                        {entry.request_payload
-                          ? JSON.stringify(entry.request_payload, null, 2)
-                          : entry.request_raw || "—"}
+                        {sentPayloadText}
                       </pre>
                     </div>
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Retrieved response
                       </p>
+                      {receivedValues.length > 0 ? (
+                        <div className="mb-2 max-h-40 overflow-auto rounded-md border border-slate-200 bg-white p-2">
+                          {receivedValues.map((row) => (
+                            <div
+                              key={row.key}
+                              className="grid grid-cols-[9rem_1fr] gap-2 border-b border-slate-100 py-1 last:border-b-0"
+                            >
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                {row.key}
+                              </span>
+                              <span className="break-all text-[11px] text-slate-700">
+                                {row.value}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <pre className="max-h-64 overflow-auto rounded-md bg-white p-3 text-xs text-slate-700">
-                        {entry.response_payload
-                          ? JSON.stringify(entry.response_payload, null, 2)
-                          : "—"}
+                        {receivedPayloadText}
                       </pre>
                     </div>
                   </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>

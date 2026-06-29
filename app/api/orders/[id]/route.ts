@@ -343,7 +343,11 @@ export async function PATCH(
   if (updates.due_date !== undefined && (updates.due_date ?? null) !== (existing.due_date ?? null))
     changes.push({ field: "Due date", from: existing.due_date ?? null, to: updates.due_date ?? null });
   if (updates.description !== undefined && (updates.description ?? "") !== (existing.description ?? ""))
-    changes.push({ field: "Description updated" });
+    changes.push({
+      field: "Description updated",
+      from: existing.description ?? "",
+      to: updates.description ?? "",
+    });
   if (updates.created_by !== undefined && updates.created_by !== existing.created_by)
     changes.push({ field: "Owner changed" });
   if (updates.category_id !== undefined && updates.category_id !== existing.category_id)
