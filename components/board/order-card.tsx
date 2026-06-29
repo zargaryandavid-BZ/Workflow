@@ -199,23 +199,40 @@ export function OrderCard({
           {/* Compact header — always visible */}
           <div className="flex items-start gap-1">
             <div className="min-w-0 flex-1">
+              {/* Customer name + short order number on same line */}
               <div className="flex items-center justify-between gap-1">
-                <button
-                  type="button"
-                  onClick={(e) => copyText(e, order.title, "order")}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  title="Copy order number"
-                  className="group/copy flex min-w-0 items-center gap-0.5 text-left text-xs font-semibold leading-tight text-slate-800 hover:text-[var(--primary)]"
-                >
-                  <span className="truncate">{order.title}</span>
-                  {copied === "order" ? (
-                    <span className="shrink-0 text-[10px] font-normal text-slate-400">
-                      Copied
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  {displayCustomerName ? (
+                    <button
+                      type="button"
+                      onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      title="Copy customer name"
+                      className="group/copy flex min-w-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
+                    >
+                      <span className="truncate">
+                        {copied === "customer-name" ? "Copied!" : displayCustomerName}
+                      </span>
+                      {copied === "customer-name" ? null : (
+                        <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                      )}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={(e) => copyText(e, order.title, "order")}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    title={`Copy order number (${order.title})`}
+                    className="group/copy flex shrink-0 items-center gap-0.5 text-left text-[10px] font-medium leading-tight text-slate-400 hover:text-[var(--primary)]"
+                  >
+                    <span>
+                      {copied === "order"
+                        ? "Copied"
+                        : order.title.replace(/^ORD-\d{4}-/, "")}
                     </span>
-                  ) : (
                     <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-                  )}
-                </button>
+                  </button>
+                </div>
                 {order.due_date ? (
                   <span
                     className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-slate-500"
@@ -227,29 +244,9 @@ export function OrderCard({
                 ) : null}
               </div>
 
-              {(displayCustomerName || summaryTrailingParts.length > 0) ? (
-                <p className="mt-0.5 flex min-w-0 items-center truncate text-[11px] leading-tight text-slate-500">
-                  {displayCustomerName ? (
-                    <button
-                      type="button"
-                      onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      title="Copy customer name"
-                      className="group/copy inline-flex max-w-full shrink-0 items-center gap-0.5 text-left font-medium text-slate-600 hover:text-[var(--primary)]"
-                    >
-                      <span className="truncate">
-                        {copied === "customer-name" ? "Copied!" : displayCustomerName}
-                      </span>
-                      {copied === "customer-name" ? null : (
-                        <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-                      )}
-                    </button>
-                  ) : null}
-                  {displayCustomerName && summaryTrailingParts.length > 0 ? (
-                    <span className="shrink-0">&nbsp;·&nbsp;{summaryTrailingParts.join(" · ")}</span>
-                  ) : summaryTrailingParts.length > 0 ? (
-                    summaryTrailingParts.join(" · ")
-                  ) : null}
+              {summaryTrailingParts.length > 0 ? (
+                <p className="mt-0.5 truncate text-[10px] leading-tight text-slate-500">
+                  {summaryTrailingParts.join(" · ")}
                 </p>
               ) : null}
             </div>
