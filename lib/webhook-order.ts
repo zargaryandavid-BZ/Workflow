@@ -83,7 +83,7 @@ const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   sides: ["Sides"],
   color: ["Color"],
   color_mode: ["Color Mode", "Color"],
-  position: ["Position"],
+  position: ["Position", "Roll Direction", "Roll direction"],
   order_qty: ["Order QTY"],
   designer_information: ["Designer Information"],
   spot_uv: ["Spot UV"],

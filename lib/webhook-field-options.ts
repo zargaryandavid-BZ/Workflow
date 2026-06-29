@@ -31,6 +31,7 @@ export const WEBHOOK_FALLBACK_SELECT_OPTIONS: Record<string, string[]> = {
   finishing: FINISHING_OPTIONS,
   lamination: LAMINATION_OPTIONS,
   position: ROLL_DIRECTION_OPTIONS,
+  roll_direction: ROLL_DIRECTION_OPTIONS,
 };
 
 /**
