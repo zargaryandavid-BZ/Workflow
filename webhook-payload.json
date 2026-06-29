@@ -1,0 +1,38 @@
+{
+  "customer_name": "Acme Corp",
+  "customer_contact": "hello@acme.com",
+  "priority": "normal",
+  "owner": "",
+  "order_number": "ORD-2026-001",
+  "due_date": "2026-07-24",
+  "description": "Order-level notes here.",
+  "artwork_url": "https://yourdomain.com/files/order-proof.pdf",
+  "designer": "",
+  "design_task": "",
+  "product": "Labels (Roll)",
+  "materials": "White BOPP",
+  "finished_size": "4 x 3 in",
+  "die": "",
+  "sides": "1 Side",
+  "roll_direction": "",
+  "color_mode": "CMYK",
+  "lamination": "Matte",
+  "spot_uv": false,
+  "foil": false,
+  "need_a_design": false,
+  "die_cut": false,
+  "application": false,
+  "perforation": false,
+  "skus": [
+    {
+      "sku_name": "SKU A",
+      "quantity": 1000,
+      "artwork_url": "https://yourdomain.com/files/sku-a.png"
+    },
+    {
+      "sku_name": "SKU B",
+      "quantity": 2000,
+      "artwork_url": "https://yourdomain.com/files/sku-b.png"
+    }
+  ]
+}

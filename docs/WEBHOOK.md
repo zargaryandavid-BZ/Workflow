@@ -64,6 +64,7 @@ That's it. Every field is optional — the card is created with whatever you sen
   "die_cut": false,
   "application": false,
   "need_a_design": false,
+  "perforation": false,
   "order_qty": 3000,
   "artwork_url": "https://yourdomain.com/files/order-proof.pdf",
   "skus": [
@@ -193,6 +194,7 @@ Each item object can override any order-level field. Fields not set on the item 
 | `die_cut` | boolean | `true` / `false` |
 | `application` | boolean | `true` / `false` |
 | `need_a_design` | boolean | `true` / `false` |
+| `perforation` | boolean | `true` / `false` |
 | `order_qty` | number | Auto-calculated from SKU quantities when omitted |
 | `artwork_url` | string | **Public URL** to the artwork file — stored as an external asset |
 | `description` | string | Item-level notes |
@@ -382,7 +384,7 @@ Coating
 ```
 
 ### Boolean fields
-`spot_uv`, `foil`, `die_cut`, `application`, `need_a_design` — send `true` or `false`. Omitting is treated as `false`.
+`spot_uv`, `foil`, `die_cut`, `application`, `need_a_design`, `perforation` — send `true` or `false`. Omitting is treated as `false`.
 
 ---
 

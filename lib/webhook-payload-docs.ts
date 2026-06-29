@@ -155,6 +155,7 @@ function fullSingleItemExample(year: number, due: string): string {
   "die_cut": false,
   "application": false,
   "need_a_design": false,
+  "perforation": false,
   "order_qty": 3000,
   "artwork_url": "https://example.com/artwork/order-level-proof.pdf",
   "skus": [
@@ -196,6 +197,7 @@ function fullMultiItemExample(year: number, due: string): string {
       "die_cut": false,
       "application": false,
       "need_a_design": false,
+      "perforation": false,
       "order_qty": 3000,
       "artwork_url": "https://example.com/artwork/labels-master.pdf",
       "description": "Item-level notes for labels only.",
@@ -219,6 +221,7 @@ function fullMultiItemExample(year: number, due: string): string {
       "die_cut": false,
       "application": false,
       "need_a_design": false,
+      "perforation": false,
       "order_qty": 500,
       "artwork_url": "https://example.com/artwork/business-cards.pdf",
       "skus": [
@@ -245,6 +248,7 @@ const ITEM_FIELDS_MD = `
 | \`die_cut\` | No | boolean | \`true\` / \`false\` |
 | \`application\` | No | boolean | \`true\` / \`false\` |
 | \`need_a_design\` | No | boolean | \`true\` / \`false\` |
+| \`perforation\` | No | boolean | \`true\` / \`false\` |
 | \`order_qty\` | No | number | Auto-calculated from SKUs when omitted |
 | \`artwork_url\` | No | string | Public URL — stored as external artwork asset |
 | \`description\` | No | string | Item-level notes |
@@ -411,7 +415,7 @@ ${optionsBlock(lamination)}
 \`\`\`
 
 ### Boolean fields
-\`spot_uv\`, \`foil\`, \`die_cut\`, \`application\`, \`need_a_design\` — send \`true\` or \`false\`. Omitting is treated as \`false\`.
+\`spot_uv\`, \`foil\`, \`die_cut\`, \`application\`, \`need_a_design\`, \`perforation\` — send \`true\` or \`false\`. Omitting is treated as \`false\`.
 
 ---
 
@@ -623,6 +627,7 @@ export function buildWebhookPayloadDocsHtml(
     ["die_cut", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["application", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["need_a_design", "No", "boolean", "<code>true</code> / <code>false</code>"],
+    ["perforation", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["order_qty", "No", "number", "Auto-calculated from SKUs when omitted"],
     [
       "artwork_url",
@@ -837,7 +842,7 @@ export function buildWebhookPayloadDocsHtml(
     ${optionsListHtml("roll_direction", rollDirection)}
     ${optionsListHtml("lamination", lamination)}
     <h3>Boolean fields</h3>
-    <p><code>spot_uv</code>, <code>foil</code>, <code>die_cut</code>, <code>application</code>, <code>need_a_design</code> — send <code>true</code> or <code>false</code>. Omitting is treated as <code>false</code>.</p>
+    <p><code>spot_uv</code>, <code>foil</code>, <code>die_cut</code>, <code>application</code>, <code>need_a_design</code>, <code>perforation</code> — send <code>true</code> or <code>false</code>. Omitting is treated as <code>false</code>.</p>
 
     <h2>Response format</h2>
     <h3>Multi-item (<code>items[]</code> present)</h3>

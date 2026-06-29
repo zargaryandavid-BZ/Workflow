@@ -41,6 +41,7 @@ const BOOLEAN_WEBHOOK_KEYS = new Set([
   "die_cut",
   "application",
   "need_a_design",
+  "perforation",
 ]);
 
 interface CustomFieldDef {
@@ -68,6 +69,7 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   die_cut: "Die Cut",
   application: "Application",
   need_a_design: "Need a Design",
+  perforation: "Perforation",
 };
 
 /** DB field names that map to a webhook key (handles renames like Finishing ↔ Lamination). */
@@ -89,6 +91,7 @@ const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   die_cut: ["Die Cut"],
   application: ["Application"],
   need_a_design: ["Need a Design"],
+  perforation: ["Perforation"],
 };
 
 interface WebhookDesignerInput {
@@ -147,6 +150,7 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   die_cut?: boolean;
   application?: boolean;
   need_a_design?: boolean;
+  perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -181,6 +185,7 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   die_cut?: boolean;
   application?: boolean;
   need_a_design?: boolean;
+  perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
@@ -351,6 +356,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       die_cut: body.die_cut,
       application: body.application,
       need_a_design: body.need_a_design,
+      perforation: body.perforation,
       order_qty: body.order_qty,
       artwork_url: body.artwork_url,
       description: body.description,
@@ -413,6 +419,7 @@ type WebhookSpecFields = Pick<
   | "die_cut"
   | "application"
   | "need_a_design"
+  | "perforation"
 >;
 
 function resolveDesignNotes(input: WebhookDesignerInput): string | null {
@@ -449,6 +456,7 @@ function mergeItemWithOrder(
     die_cut: item.die_cut ?? order.die_cut,
     application: item.application ?? order.application,
     need_a_design: item.need_a_design ?? order.need_a_design,
+    perforation: item.perforation ?? order.perforation,
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: item.artwork_url ?? order.artwork_url,
     description: item.description ?? order.description,
@@ -583,6 +591,7 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
     die_cut: item.die_cut,
     application: item.application,
     need_a_design: item.need_a_design,
+    perforation: item.perforation,
   };
 }
 
