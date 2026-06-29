@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -9,6 +9,8 @@ import {
 import Image from "next/image";
 import { ArrowDownAZ, ArrowDownToLine, ArrowUpAZ, ArrowUpFromLine, Plus } from "lucide-react";
 import { OrderCard } from "./order-card";
+import { GroupedOrderCard } from "./grouped-order-card";
+import { groupOrdersForColumn } from "@/lib/group-orders";
 import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -27,6 +29,7 @@ interface ColumnProps {
   canDragCards: boolean;
   canAcceptDrop: boolean;
   isDragActive: boolean;
+  groupedView: boolean;
   orders: OrderWithRelations[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
@@ -54,6 +57,7 @@ export function Column({
   canDragCards,
   canAcceptDrop,
   isDragActive,
+  groupedView,
   orders,
   customFields,
   fieldValuesByOrder,
@@ -83,6 +87,11 @@ export function Column({
           const tb = new Date(b.created_at).getTime();
           return dateSort === "asc" ? ta - tb : tb - ta;
         });
+
+  const columnEntries = useMemo(
+    () => (groupedView ? groupOrdersForColumn(sortedOrders) : null),
+    [groupedView, sortedOrders]
+  );
 
   function cycleDateSort() {
     setDateSort((prev) =>
@@ -195,20 +204,43 @@ export function Column({
           items={sortedOrders.map((o) => o.id)}
           strategy={verticalListSortingStrategy}
         >
-          {sortedOrders.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              canDrag={canDragCards}
-              customFields={customFields}
-              fieldValues={fieldValuesByOrder[order.id]}
-              thumbnail={thumbnailByOrder[order.id]}
-              designerName={designerNameByOrder[order.id]}
-              notificationBadge={notificationBadgeByOrder[order.id]}
-              ownerName={ownerNameByOrder[order.id]}
-              onOpen={onOpenOrder}
-            />
-          ))}
+          {columnEntries
+            ? columnEntries.map((entry) =>
+                entry.kind === "group" ? (
+                  <GroupedOrderCard
+                    key={`group-${entry.key}`}
+                    entry={entry}
+                    onOpen={onOpenOrder}
+                  />
+                ) : (
+                  <OrderCard
+                    key={entry.order.id}
+                    order={entry.order}
+                    canDrag={canDragCards}
+                    customFields={customFields}
+                    fieldValues={fieldValuesByOrder[entry.order.id]}
+                    thumbnail={thumbnailByOrder[entry.order.id]}
+                    designerName={designerNameByOrder[entry.order.id]}
+                    notificationBadge={notificationBadgeByOrder[entry.order.id]}
+                    ownerName={ownerNameByOrder[entry.order.id]}
+                    onOpen={onOpenOrder}
+                  />
+                )
+              )
+            : sortedOrders.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  canDrag={canDragCards}
+                  customFields={customFields}
+                  fieldValues={fieldValuesByOrder[order.id]}
+                  thumbnail={thumbnailByOrder[order.id]}
+                  designerName={designerNameByOrder[order.id]}
+                  notificationBadge={notificationBadgeByOrder[order.id]}
+                  ownerName={ownerNameByOrder[order.id]}
+                  onOpen={onOpenOrder}
+                />
+              ))}
         </SortableContext>
       </div>
     </div>

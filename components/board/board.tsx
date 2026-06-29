@@ -16,7 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Search, X } from "lucide-react";
+import { Layers, Search, X } from "lucide-react";
 import { Column } from "./column";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
@@ -27,6 +27,7 @@ import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
 import {
   type MissingField,
 } from "@/lib/orders/validate-ready-to-move";
@@ -116,6 +117,7 @@ export function Board({
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [groupedView, setGroupedView] = useState(false);
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
     missingFields: MissingField[];
@@ -554,6 +556,20 @@ export function Board({
               <X className="h-4 w-4" /> Clear
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setGroupedView((v) => !v)}
+            title={groupedView ? "Switch to normal view" : "Group items by order number"}
+            className={cn(
+              "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
+              groupedView
+                ? "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50"
+            )}
+          >
+            <Layers className="h-4 w-4" />
+            Group
+          </button>
           <span className="shrink-0 whitespace-nowrap text-sm text-slate-500">
             {filtersActive
               ? `${filteredOrders.length} of ${orders.length} jobs`
@@ -591,6 +607,7 @@ export function Board({
               canDragCards={canDragInColumn(role, column)}
               canAcceptDrop={canDropIn(role, column)}
               isDragActive={activeId !== null}
+              groupedView={groupedView}
               orders={ordersByColumn.get(column.id) ?? []}
               customFields={customFields}
               fieldValuesByOrder={fieldValuesByOrder}
