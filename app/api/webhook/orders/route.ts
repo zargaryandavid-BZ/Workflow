@@ -8,6 +8,7 @@ import {
   createOrderFromWebhook,
   secretsMatch,
   WebhookValidationError,
+  type WebhookCreateResult,
   type WebhookOrderPayload,
 } from "@/lib/webhook-order";
 
@@ -25,62 +26,162 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let admin;
+  let adminClient: ReturnType<typeof createAdminClient>;
   try {
-    admin = createAdminClient();
+    adminClient = createAdminClient();
   } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 
-  const config = await findWebhookConfigBySecret(admin, secret);
-  if (!config || !secretsMatch(secret, config.secret_key)) {
+  const webhookConfig = await findWebhookConfigBySecret(adminClient, secret);
+  if (!webhookConfig || !secretsMatch(secret, webhookConfig.secret_key)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const activeConfig = webhookConfig;
 
-  if (!config.enabled) {
+  const rawBody = await request.text();
+  let body: WebhookOrderPayload | null = null;
+  try {
+    body = JSON.parse(rawBody) as WebhookOrderPayload;
+  } catch {
+    body = null;
+  }
+
+  async function logWebhookHistory(params: {
+    requestPayload?: WebhookOrderPayload | null;
+    requestRaw?: string | null;
+    responsePayload?: Record<string, unknown>;
+    responseStatus: number;
+    success: boolean;
+    errorMessage?: string | null;
+    result?: WebhookCreateResult;
+  }) {
+    const orderIds: string[] = [];
+    const orderNumbers: string[] = [];
+    if (params.result) {
+      if (params.result.isMultiItem) {
+        orderNumbers.push(params.result.orderNumber);
+        for (const job of params.result.jobs) {
+          orderIds.push(job.order_id);
+        }
+      } else {
+        orderIds.push(params.result.orderId);
+        orderNumbers.push(params.result.orderNumber);
+      }
+    }
+
+    await adminClient
+      .from("webhook_history")
+      .insert({
+        tenant_id: activeConfig.tenant_id,
+        webhook_config_id: activeConfig.id,
+        request_payload: params.requestPayload ?? null,
+        request_raw: params.requestRaw ?? null,
+        response_payload: params.responsePayload ?? null,
+        response_status: params.responseStatus,
+        success: params.success,
+        error_message: params.errorMessage ?? null,
+        order_ids: orderIds,
+        order_numbers: orderNumbers,
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.error("[webhook/orders] history insert error:", error.message);
+        }
+      });
+  }
+
+  if (!activeConfig.enabled) {
+    await logWebhookHistory({
+      requestPayload: body,
+      requestRaw: body ? null : rawBody || null,
+      responsePayload: { error: "Webhook is disabled" },
+      responseStatus: 403,
+      success: false,
+      errorMessage: "Webhook is disabled",
+    });
     return NextResponse.json({ error: "Webhook is disabled" }, { status: 403 });
   }
 
-  let body: WebhookOrderPayload;
-  try {
-    body = (await request.json()) as WebhookOrderPayload;
-  } catch {
+  if (!body) {
+    await logWebhookHistory({
+      requestPayload: null,
+      requestRaw: rawBody || null,
+      responsePayload: { error: "Invalid JSON" },
+      responseStatus: 400,
+      success: false,
+      errorMessage: "Invalid JSON",
+    });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   try {
-    const result = await createOrderFromWebhook(admin, config, body);
-    await touchWebhookLastUsed(admin, config.id);
+    const result = await createOrderFromWebhook(adminClient, activeConfig, body);
+    await touchWebhookLastUsed(adminClient, activeConfig.id);
 
     if (result.isMultiItem) {
-      return NextResponse.json({
+      const response = {
         success: true,
         order_number: result.orderNumber,
         jobs: result.jobs,
         ...(result.ownerId ? { owner_id: result.ownerId } : {}),
         ...(result.ownerName ? { owner_name: result.ownerName } : {}),
         ...(result.warning ? { warning: result.warning } : {}),
+      };
+      await logWebhookHistory({
+        requestPayload: body,
+        requestRaw: null,
+        responsePayload: response,
+        responseStatus: 200,
+        success: true,
+        result,
       });
+      return NextResponse.json(response);
     }
 
-    return NextResponse.json({
+    const response = {
       success: true,
       order_id: result.orderId,
       order_number: result.orderNumber,
       ...(result.ownerId ? { owner_id: result.ownerId } : {}),
       ...(result.ownerName ? { owner_name: result.ownerName } : {}),
       ...(result.warning ? { warning: result.warning } : {}),
+    };
+    await logWebhookHistory({
+      requestPayload: body,
+      requestRaw: null,
+      responsePayload: response,
+      responseStatus: 200,
+      success: true,
+      result,
     });
+    return NextResponse.json(response);
   } catch (err) {
     if (err instanceof WebhookValidationError) {
+      await logWebhookHistory({
+        requestPayload: body,
+        requestRaw: null,
+        responsePayload: { error: err.message },
+        responseStatus: 422,
+        success: false,
+        errorMessage: err.message,
+      });
       return NextResponse.json({ error: err.message }, { status: 422 });
     }
     const message = err instanceof Error ? err.message : "Server error";
     console.error("[webhook/orders] unhandled error:", {
       message,
       stack: err instanceof Error ? err.stack : undefined,
-      has_items: Array.isArray(body.items) && body.items.length > 0,
-      item_count: Array.isArray(body.items) ? body.items.length : 0,
+      has_items: Array.isArray(body?.items) && body.items.length > 0,
+      item_count: Array.isArray(body?.items) ? body.items.length : 0,
+    });
+    await logWebhookHistory({
+      requestPayload: body,
+      requestRaw: null,
+      responsePayload: { error: message || "Internal server error" },
+      responseStatus: 500,
+      success: false,
+      errorMessage: message || "Internal server error",
     });
     return NextResponse.json(
       { error: message || "Internal server error" },

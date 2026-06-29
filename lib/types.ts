@@ -208,6 +208,21 @@ export interface WebhookConfig {
   last_used_at: string | null;
 }
 
+export interface WebhookHistoryEntry {
+  id: string;
+  tenant_id: string;
+  webhook_config_id: string;
+  request_payload: Record<string, unknown> | null;
+  request_raw: string | null;
+  response_payload: Record<string, unknown> | null;
+  response_status: number;
+  success: boolean;
+  error_message: string | null;
+  order_ids: string[];
+  order_numbers: string[];
+  created_at: string;
+}
+
 export interface Approval {
   id: string;
   tenant_id: string;

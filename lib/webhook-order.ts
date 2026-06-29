@@ -2,7 +2,6 @@ import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity } from "@/lib/automation";
 import { upsertCustomer } from "@/lib/customers";
-import { isAccountManagerOwner } from "@/lib/order-owners";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
@@ -977,13 +976,14 @@ async function ensureAccountManagerOwner(
   ownerEmail: string | null;
   warning?: string;
 }> {
-  if (!(await isAccountManagerOwner(client, tenantId, userId))) {
+  const memberIds = await tenantMemberIds(client, tenantId);
+  if (!memberIds.includes(userId)) {
     return {
       ownerId: null,
       ownerName: displayName,
       ownerEmail: email,
       warning:
-        "Request owner is not an account manager — Owner field left unassigned",
+        "Request owner is not a team member — Owner field left unassigned",
     };
   }
   return {
