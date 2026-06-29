@@ -65,6 +65,8 @@ export interface OrderFormBodyProps {
   readOnly?: boolean;
   /** Hide order number field (shown in modal title when editing existing orders). */
   hideOrderNumberField?: boolean;
+  /** Hide priority and due date fields (rendered elsewhere in the modal). */
+  hidePriorityAndDueDateFields?: boolean;
   categories?: Category[];
   categoryId?: string;
   onCategoryIdChange?: (value: string) => void;
@@ -110,6 +112,7 @@ export function OrderFormBody({
   ensureSkuPersisted,
   readOnly = false,
   hideOrderNumberField = false,
+  hidePriorityAndDueDateFields = false,
   categories = [],
   categoryId = "",
   onCategoryIdChange,
@@ -260,6 +263,7 @@ export function OrderFormBody({
             />
           </div>
         ) : null}
+        {!hidePriorityAndDueDateFields ? (
         <div>
           <Label htmlFor={`${idPrefix}-priority`}>Priority</Label>
           <Select
@@ -275,6 +279,7 @@ export function OrderFormBody({
             ))}
           </Select>
         </div>
+        ) : null}
         <div>
           <Label htmlFor={`${idPrefix}-owner`}>Owner</Label>
           <Select
@@ -296,6 +301,7 @@ export function OrderFormBody({
             ))}
           </Select>
         </div>
+        {!hidePriorityAndDueDateFields ? (
         <div>
           <Label htmlFor={`${idPrefix}-due`}>Due date</Label>
           <Input
@@ -318,124 +324,7 @@ export function OrderFormBody({
             <p className="mt-1 text-xs text-red-600">{dueDateError}</p>
           ) : null}
         </div>
-      </div>
-
-      <div>
-        <Label htmlFor={`${idPrefix}-desc`}>Order Description</Label>
-        <Textarea
-          id={`${idPrefix}-desc`}
-          readOnly={readOnly}
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-          placeholder="Notes, references, special instructions…"
-          className={readOnly ? "bg-slate-50" : undefined}
-        />
-      </div>
-
-      {artworkField ? (
-        <div>
-          <Label htmlFor={`${idPrefix}-artwork`}>
-            {orderFormFieldLabel(artworkField.name)}
-            {artworkField.required ? (
-              <span className="ml-0.5 text-red-500">*</span>
-            ) : null}
-          </Label>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={copyArtworkLink}
-              disabled={!artworkValue}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Copy Artwork GDrive link"
-            >
-              <Copy className="h-4 w-4" />
-              {artworkCopied ? "Copied" : "Copy Link"}
-            </button>
-            <Input
-              id={`${idPrefix}-artwork`}
-              readOnly={readOnly}
-              value={(fieldValues[artworkField.id] as string) ?? ""}
-              onChange={(e) =>
-                onFieldValueChange(artworkField.id, e.target.value)
-              }
-              placeholder="https://drive.google.com/…"
-              className={cn(
-                "min-w-0 flex-1",
-                readOnly ? "bg-slate-50" : undefined
-              )}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor={`${idPrefix}-customer-name`}>
-            Customer Name<span className="ml-0.5 text-red-500">*</span>
-          </Label>
-          <Input
-            id={`${idPrefix}-customer-name`}
-            required
-            readOnly={readOnly}
-            value={customerName}
-            onChange={(e) => handleCustomerNameChange(e.target.value)}
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
-        </div>
-        <div>
-          <Label htmlFor={`${idPrefix}-customer-contact`}>
-            Customer Contact<span className="ml-0.5 text-red-500">*</span>
-          </Label>
-          <Input
-            id={`${idPrefix}-customer-contact`}
-            required
-            readOnly={readOnly}
-            value={customerContact}
-            onChange={(e) => onCustomerContactChange(e.target.value)}
-            placeholder="Email or phone"
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
-          {customerLookupHint ? (
-            <p className="mt-1 text-xs text-emerald-600">{customerLookupHint}</p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor={`${idPrefix}-designer`}>
-            Designer
-            {designerField?.required ? (
-              <span className="ml-0.5 text-red-500">*</span>
-            ) : null}
-          </Label>
-          <Select
-            id={`${idPrefix}-designer`}
-            value={designerId}
-            disabled={readOnly}
-            onChange={(e) => onDesignerIdChange(e.target.value)}
-          >
-            <option value="">
-              {designers.length ? "Unassigned" : "No designers on team"}
-            </option>
-            {designers.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor={`${idPrefix}-design-task`}>Design task</Label>
-          <Input
-            id={`${idPrefix}-design-task`}
-            readOnly={readOnly}
-            value={designTask}
-            onChange={(e) => onDesignTaskChange(e.target.value)}
-            placeholder="e.g. Prepare proof / prepress"
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
-        </div>
+        ) : null}
       </div>
 
       {printFields.length > 0 ? (
@@ -479,6 +368,124 @@ export function OrderFormBody({
           readOnly={readOnly}
         />
       ) : null}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`${idPrefix}-designer`}>
+            Designer
+            {designerField?.required ? (
+              <span className="ml-0.5 text-red-500">*</span>
+            ) : null}
+          </Label>
+          <Select
+            id={`${idPrefix}-designer`}
+            value={designerId}
+            disabled={readOnly}
+            onChange={(e) => onDesignerIdChange(e.target.value)}
+          >
+            <option value="">
+              {designers.length ? "Unassigned" : "No designers on team"}
+            </option>
+            {designers.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}-design-task`}>Design task</Label>
+          <Input
+            id={`${idPrefix}-design-task`}
+            readOnly={readOnly}
+            value={designTask}
+            onChange={(e) => onDesignTaskChange(e.target.value)}
+            placeholder="e.g. Prepare proof / prepress"
+            className={readOnly ? "bg-slate-50" : undefined}
+          />
+        </div>
+      </div>
+
+      {artworkField ? (
+        <div>
+          <Label htmlFor={`${idPrefix}-artwork`}>
+            {orderFormFieldLabel(artworkField.name)}
+            {artworkField.required ? (
+              <span className="ml-0.5 text-red-500">*</span>
+            ) : null}
+          </Label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={copyArtworkLink}
+              disabled={!artworkValue}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Copy Artwork GDrive link"
+            >
+              <Copy className="h-4 w-4" />
+              {artworkCopied ? "Copied" : "Copy Link"}
+            </button>
+            <Input
+              id={`${idPrefix}-artwork`}
+              readOnly={readOnly}
+              value={(fieldValues[artworkField.id] as string) ?? ""}
+              onChange={(e) =>
+                onFieldValueChange(artworkField.id, e.target.value)
+              }
+              placeholder="https://drive.google.com/…"
+              className={cn(
+                "min-w-0 flex-1",
+                readOnly ? "bg-slate-50" : undefined
+              )}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div>
+        <Label htmlFor={`${idPrefix}-desc`}>Order Description</Label>
+        <Textarea
+          id={`${idPrefix}-desc`}
+          readOnly={readOnly}
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          placeholder="Notes, references, special instructions…"
+          className={readOnly ? "bg-slate-50" : undefined}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`${idPrefix}-customer-name`}>
+            Customer Name<span className="ml-0.5 text-red-500">*</span>
+          </Label>
+          <Input
+            id={`${idPrefix}-customer-name`}
+            required
+            readOnly={readOnly}
+            value={customerName}
+            onChange={(e) => handleCustomerNameChange(e.target.value)}
+            className={readOnly ? "bg-slate-50" : undefined}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}-customer-contact`}>
+            Customer Contact<span className="ml-0.5 text-red-500">*</span>
+          </Label>
+          <Input
+            id={`${idPrefix}-customer-contact`}
+            required
+            readOnly={readOnly}
+            value={customerContact}
+            onChange={(e) => onCustomerContactChange(e.target.value)}
+            placeholder="Email or phone"
+            className={readOnly ? "bg-slate-50" : undefined}
+          />
+          {customerLookupHint ? (
+            <p className="mt-1 text-xs text-emerald-600">{customerLookupHint}</p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

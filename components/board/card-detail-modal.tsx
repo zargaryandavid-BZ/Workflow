@@ -22,7 +22,8 @@ import {
   deleteAssetsById,
   uploadPendingSkuArtwork,
 } from "@/lib/sku-assets";
-import { PRIORITY_STYLES } from "@/lib/constants";
+import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
+import { Input, Label, Select } from "@/components/ui/input";
 import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder } from "@/lib/notification-messages";
 import { groupSkuImagesBySkuId } from "@/lib/sku-images";
@@ -33,7 +34,7 @@ import {
   validateOrderFormFields,
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
-import { cn, dateInputValue, formatDateTime } from "@/lib/utils";
+import { cn, dateInputValue, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type {
@@ -531,31 +532,57 @@ export function CardDetailModal({
     }
   }
 
+  const ownerName = ownerId ? (owners.find((o) => o.id === ownerId)?.name ?? null) : null;
+
   const modalTitle = (
-    <span className="flex min-w-0 items-center gap-2">
-      <span className="truncate">
-        {isViewOnly ? "View order" : "Order Details"}
-        {displayOrderNumber ? `: ${displayOrderNumber}` : loading ? ": …" : ""}
+    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      {/* Order number + copy */}
+      <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">
+        {displayOrderNumber || (loading ? "…" : "Order Details")}
+        {displayOrderNumber ? (
+          <button
+            type="button"
+            onClick={copyOrderNumber}
+            className={cn(
+              "inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-normal transition-colors",
+              orderNumberCopied
+                ? "text-emerald-600"
+                : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            )}
+            title="Copy order number"
+            aria-label="Copy order number"
+          >
+            {orderNumberCopied ? "Copied" : <Copy className="h-3 w-3" aria-hidden />}
+          </button>
+        ) : null}
       </span>
-      {displayOrderNumber ? (
-        <button
-          type="button"
-          onClick={copyOrderNumber}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-normal transition-colors",
-            orderNumberCopied
-              ? "text-emerald-600"
-              : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-          )}
-          title="Copy order number"
-          aria-label="Copy order number"
-        >
-          {orderNumberCopied ? (
-            "Copied"
-          ) : (
-            <Copy className="h-3.5 w-3.5" aria-hidden />
-          )}
-        </button>
+      {/* Customer name */}
+      {customerName ? (
+        <>
+          <span className="text-slate-300">|</span>
+          <span className="truncate text-sm font-medium text-slate-600">{customerName}</span>
+        </>
+      ) : null}
+      {/* Owner */}
+      {ownerName ? (
+        <>
+          <span className="text-slate-300">|</span>
+          <span className="shrink-0 text-sm text-slate-500">{ownerName}</span>
+        </>
+      ) : null}
+      {/* Priority */}
+      {priority && priority !== "normal" ? (
+        <>
+          <span className="text-slate-300">|</span>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize",
+              PRIORITY_STYLES[priority] ?? "bg-slate-100 text-slate-600"
+            )}
+          >
+            {priority}
+          </span>
+        </>
       ) : null}
     </span>
   );
@@ -567,23 +594,6 @@ export function CardDetailModal({
       onClose={handleClose}
       title={modalTitle}
       className="max-w-3xl"
-      headerAction={
-        !isViewOnly && isAdmin ? (
-          <button
-            type="button"
-            onClick={() => {
-              setRemoveError(null);
-              setConfirmRemove(true);
-            }}
-            disabled={loading || saving || removing}
-            className="flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Remove order"
-          >
-            <Trash2 className="h-4 w-4" />
-            Remove order
-          </button>
-        ) : undefined
-      }
       footer={
         isViewOnly ? (
           <Button variant="ghost" onClick={handleClose} type="button">
@@ -596,6 +606,21 @@ export function CardDetailModal({
                 Unsaved file changes
               </span>
             ) : null}
+            {!isViewOnly && isAdmin ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRemoveError(null);
+                  setConfirmRemove(true);
+                }}
+                disabled={loading || saving || removing}
+                className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Remove order"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete Order
+              </button>
+            ) : null}
             <Button variant="ghost" onClick={handleClose} type="button">
               Close
             </Button>
@@ -604,9 +629,26 @@ export function CardDetailModal({
             </Button>
           </>
         ) : (
-          <Button variant="ghost" onClick={handleClose} type="button">
-            Close
-          </Button>
+          <>
+            {!isViewOnly && isAdmin ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRemoveError(null);
+                  setConfirmRemove(true);
+                }}
+                disabled={loading || saving || removing}
+                className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Remove order"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete Order
+              </button>
+            ) : null}
+            <Button variant="ghost" onClick={handleClose} type="button">
+              Close
+            </Button>
+          </>
         )
       }
     >
@@ -729,6 +771,7 @@ export function CardDetailModal({
               title={title}
               onTitleChange={setTitle}
               hideOrderNumberField
+              hidePriorityAndDueDateFields
               priority={priority}
               onPriorityChange={setPriority}
               ownerId={ownerId}
@@ -777,8 +820,41 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
+            {/* Priority + Due Date box */}
+            <div className="rounded-lg border border-slate-200 p-3 mt-4 space-y-3">
+              <div>
+                <Label htmlFor="sidebar-priority">Priority</Label>
+                <Select
+                  id="sidebar-priority"
+                  value={priority}
+                  disabled={isViewOnly}
+                  onChange={(e) => setPriority(e.target.value)}
+                >
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="sidebar-due">Due date</Label>
+                <Input
+                  id="sidebar-due"
+                  type="date"
+                  min={isViewOnly ? undefined : localDateInputValue()}
+                  readOnly={isViewOnly}
+                  value={dateInputValue(dueDate)}
+                  onChange={(e) => {
+                    setDueDate(e.target.value);
+                    setSaveError(null);
+                  }}
+                  className={isViewOnly ? "bg-slate-50" : undefined}
+                />
+              </div>
+            </div>
             {categories.length > 0 ? (
-              <div className="rounded-lg border border-slate-200 p-3 mt-4">
+              <div className="rounded-lg border border-slate-200 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Category
                 </p>
