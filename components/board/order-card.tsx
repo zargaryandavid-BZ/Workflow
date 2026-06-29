@@ -223,12 +223,12 @@ export function OrderCard({
                     onClick={(e) => copyText(e, order.title, "order")}
                     onPointerDown={(e) => e.stopPropagation()}
                     title={`Copy order number (${order.title})`}
-                    className="group/copy flex shrink-0 items-center gap-0.5 text-left text-[10px] font-medium leading-tight text-slate-400 hover:text-[var(--primary)]"
+                      className="group/copy flex shrink-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-400 hover:text-[var(--primary)]"
                   >
                     <span>
                       {copied === "order"
                         ? "Copied"
-                        : order.title.replace(/^ORD-\d{4}-/, "")}
+                        : order.title.replace(/^ORD-\d{4}-0*/, "")}
                     </span>
                     <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
                   </button>
