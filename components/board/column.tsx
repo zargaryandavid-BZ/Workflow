@@ -202,8 +202,13 @@ export function Column({
       <div
         className={cn(
           "board-scroll flex min-h-[8rem] flex-1 flex-col gap-1.5 overflow-y-auto rounded-b-lg p-1 transition-colors",
-          showDropTarget ? "bg-blue-50" : "bg-slate-100/40"
+          showDropTarget ? "bg-blue-50" : !column.color ? "bg-slate-100/40" : undefined
         )}
+        style={
+          !showDropTarget && column.color
+            ? { backgroundColor: `${column.color}08` }
+            : undefined
+        }
       >
         <SortableContext
           items={sortedOrders.map((o) => o.id)}

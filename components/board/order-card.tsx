@@ -80,15 +80,6 @@ export function OrderCard({
     isDragging,
   } = useSortable({ id: order.id, disabled: !canDrag });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    ...(activeWarning && !animateWarnings
-      ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
-      : {}),
-  };
-
   const specFields = cardSpecFieldsForDisplay(customFields, fieldValues);
   const orderQty = cardOrderQty(customFields, fieldValues, order.specs);
   const skuCount = cardSkuCount(order.specs);
@@ -120,6 +111,15 @@ export function OrderCard({
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    ...(activeWarning && !animateWarnings
+      ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
+      : {}),
+  };
 
   // Derive a 70%-opacity version of the column accent colour for the title.
   const titleColor = (() => {
@@ -240,7 +240,6 @@ export function OrderCard({
                       onPointerDown={(e) => e.stopPropagation()}
                       title="Copy customer name"
                       className="group/copy flex min-w-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
-                      style={titleColor ? { color: titleColor } : undefined}
                     >
                       <span className="truncate">
                         {copied === "customer-name" ? "Copied!" : displayCustomerName}
@@ -255,7 +254,7 @@ export function OrderCard({
                     onClick={(e) => copyText(e, order.title, "order")}
                     onPointerDown={(e) => e.stopPropagation()}
                     title={`Copy order number (${order.title})`}
-                      className="group/copy flex shrink-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-400 hover:text-[var(--primary)]"
+                      className="group/copy flex shrink-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
                   >
                     <span>
                       {copied === "order"

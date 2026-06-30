@@ -24,10 +24,6 @@ function formatHours(hours: number | null): string {
   return `${hours.toFixed(1)} hrs`;
 }
 
-function formatDays(days: number | null): string {
-  if (days === null) return "—";
-  return `${days.toFixed(1)}d`;
-}
 
 function BarChart({
   data,
@@ -97,23 +93,6 @@ function HorizontalBars({
   );
 }
 
-function KpiCard({
-  label,
-  value,
-  trend,
-}: {
-  label: string;
-  value: string;
-  trend: string;
-}) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-slate-800">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{trend}</p>
-    </div>
-  );
-}
 
 function Skeleton() {
   return (
@@ -282,46 +261,26 @@ export default function AnalyticsDashboard({
       {loading ? <Skeleton /> : null}
 
       {!loading && stats ? (
-        <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard
-              label="Total jobs"
-              value={String(stats.totalJobs)}
-              trend={stats.totalTrend}
-            />
-            <KpiCard
-              label="Completed"
-              value={String(stats.completed)}
-              trend={stats.completedTrend}
-            />
-            <KpiCard
-              label="Overdue"
-              value={String(stats.overdue)}
-              trend={stats.overdueTrend}
-            />
-            <KpiCard
-              label="Avg turnaround"
-              value={formatDays(stats.avgTurnaroundDays)}
-              trend={stats.turnaroundTrend}
-            />
+        <div className="grid items-stretch gap-4 lg:grid-cols-2">
+
+          {/* Left column: Pipeline breakdown — stretches to match right column total height */}
+          <div className="flex flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-medium text-slate-700">
+              Pipeline breakdown
+            </h2>
+            <div className="mt-4 flex-1">
+              <HorizontalBars
+                rows={stats.pipeline.map((row) => ({
+                  label: row.name,
+                  count: row.count,
+                  color: row.color,
+                }))}
+              />
+            </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-medium text-slate-700">
-                Pipeline breakdown
-              </h2>
-              <div className="mt-4">
-                <HorizontalBars
-                  rows={stats.pipeline.map((row) => ({
-                    label: row.name,
-                    count: row.count,
-                    color: row.color,
-                  }))}
-                />
-              </div>
-            </div>
-
+          {/* Right column: Due date health (top) + Designer workload (bottom) */}
+          <div className="flex h-full flex-col gap-4">
             <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <h2 className="text-sm font-medium text-slate-700">
                 Due date health
@@ -349,9 +308,7 @@ export default function AnalyticsDashboard({
                     className="flex items-center justify-between text-sm"
                   >
                     <span className="flex items-center gap-2 text-slate-700">
-                      <span
-                        className={cn("h-2 w-2 rounded-full", row.dot)}
-                      />
+                      <span className={cn("h-2 w-2 rounded-full", row.dot)} />
                       {row.label}
                     </span>
                     <span className="font-medium text-slate-800">
@@ -360,15 +317,6 @@ export default function AnalyticsDashboard({
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-medium text-slate-700">
-                Jobs completed
-              </h2>
-              <BarChart data={stats.throughput} barColor="#378ADD" />
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -392,25 +340,6 @@ export default function AnalyticsDashboard({
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-medium text-slate-700">
-              Customer response time
-            </h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-md border border-slate-100 bg-slate-50 px-4 py-3">
-                <p className="text-xs text-slate-400">Missing info</p>
-                <p className="mt-1 text-xl font-semibold text-slate-800">
-                  {formatHours(stats.missingInfoResponseHours)}
-                </p>
-              </div>
-              <div className="rounded-md border border-slate-100 bg-slate-50 px-4 py-3">
-                <p className="text-xs text-slate-400">Approval</p>
-                <p className="mt-1 text-xl font-semibold text-slate-800">
-                  {formatHours(stats.approvalResponseHours)}
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       ) : null}
     </div>

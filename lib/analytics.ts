@@ -283,8 +283,13 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
   } = input;
 
   const columns = columnsRaw as BoardColumn[];
+  // "done" columns + any column named "archive" are treated as inactive
   const doneColumnIds = new Set(
-    columns.filter((c) => c.kind === "done").map((c) => c.id)
+    columns
+      .filter(
+        (c) => c.kind === "done" || c.name.toLowerCase().includes("archive")
+      )
+      .map((c) => c.id)
   );
   const missingInfoColumnIds = new Set(
     columns
@@ -353,9 +358,17 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
       ? Math.round((completed / periodOrders.length) * 100)
       : 0;
 
+  const activeOrders = activeOrdersRaw as {
+    id: string;
+    column_id: string;
+    due_date: string | null;
+    specs: Record<string, unknown>;
+  }[];
+
+  // Pipeline uses all active orders (current snapshot), not just period-created ones
   const pipelineCounts = new Map<string, number>();
   for (const col of columns) pipelineCounts.set(col.id, 0);
-  for (const o of periodOrders) {
+  for (const o of activeOrders) {
     pipelineCounts.set(o.column_id, (pipelineCounts.get(o.column_id) ?? 0) + 1);
   }
   const pipeline: PipelineRow[] = columns.map((col) => ({
@@ -365,12 +378,6 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
     color: columnColor(col),
   }));
 
-  const activeOrders = activeOrdersRaw as {
-    id: string;
-    column_id: string;
-    due_date: string | null;
-    specs: Record<string, unknown>;
-  }[];
   const activeNonDone = activeOrders.filter((o) => !isDone(o.column_id));
 
   let onTrack = 0;
