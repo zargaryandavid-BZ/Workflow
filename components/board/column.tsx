@@ -211,6 +211,8 @@ export function Column({
                     key={`group-${entry.key}`}
                     entry={entry}
                     onOpen={onOpenOrder}
+                    customFields={customFields}
+                    fieldValuesByOrder={fieldValuesByOrder}
                   />
                 ) : (
                   <OrderCard

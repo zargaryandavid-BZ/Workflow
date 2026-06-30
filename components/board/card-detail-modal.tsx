@@ -562,7 +562,9 @@ export function CardDetailModal({
     <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
       {/* Order number + copy */}
       <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">
-        {displayOrderNumber || (loading ? "…" : "Order Details")}
+        {displayOrderNumber
+          ? displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")
+          : loading ? "…" : "Order Details"}
         {displayOrderNumber ? (
           <button
             type="button"

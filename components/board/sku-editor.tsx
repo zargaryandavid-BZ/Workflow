@@ -117,7 +117,7 @@ export function SkuEditor({
             <Label className="mb-0">
               Quantity <span className="text-red-500">*</span>
             </Label>
-            <Label className="mb-0">Artwork</Label>
+            <Label className="mb-0">Artwork (For Client)</Label>
             <span />
           </div>
           {value.map((sku, index) => (

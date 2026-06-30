@@ -276,7 +276,7 @@ export function SkuArtworkCell({
         className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
       >
         <Upload className="h-3.5 w-3.5" />
-        {preparing ? "Optimizing…" : "Artwork"}
+        {preparing ? "Optimizing…" : "Artwork (For Client)"}
       </button>
       {error ? <p className="mt-0.5 text-[10px] text-red-600">{error}</p> : null}
     </div>

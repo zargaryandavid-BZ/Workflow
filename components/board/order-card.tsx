@@ -228,7 +228,7 @@ export function OrderCard({
                     <span>
                       {copied === "order"
                         ? "Copied"
-                        : order.title.replace(/^ORD-\d{4}-0*/, "")}
+                        : order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
                     </span>
                     <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
                   </button>
@@ -305,16 +305,16 @@ export function OrderCard({
               ))}
               <span
                 className={cn(
-                  "inline-flex min-w-0 items-center gap-0.5 truncate text-[10px]",
+                  "inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-semibold",
                   isDesignerUnassigned
                     ? UNASSIGNED_DESIGNER_TEXT_CLASS
-                    : "text-slate-500"
+                    : "bg-[var(--primary)]/10 text-[var(--primary)]"
                 )}
                 title="Assigned designer"
               >
                 <User
                   className={cn(
-                    "h-2.5 w-2.5 shrink-0",
+                    "h-3 w-3 shrink-0",
                     isDesignerUnassigned
                       ? "text-amber-600"
                       : "text-[var(--primary)]"
