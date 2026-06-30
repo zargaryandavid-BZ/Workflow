@@ -169,6 +169,9 @@ export function CardDetailModal({
   const [persistedSkuIds, setPersistedSkuIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [copiedCustomerField, setCopiedCustomerField] = useState<string | null>(null);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
   const isAdmin = role === "admin";
 
   function resetPendingFiles() {
@@ -532,6 +535,27 @@ export function CardDetailModal({
     }
   }
 
+  async function copyCustomerField(text: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCustomerField(key);
+      setTimeout(() => setCopiedCustomerField(null), 1500);
+    } catch {
+      // ignore clipboard failures
+    }
+  }
+
+  useEffect(() => {
+    if (!customerDropdownOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
+        setCustomerDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [customerDropdownOpen]);
+
   const ownerName = ownerId ? (owners.find((o) => o.id === ownerId)?.name ?? null) : null;
 
   const modalTitle = (
@@ -556,11 +580,86 @@ export function CardDetailModal({
           </button>
         ) : null}
       </span>
-      {/* Customer name */}
+      {/* Customer name — dropdown with copy */}
       {customerName ? (
         <>
           <span className="text-slate-300">|</span>
-          <span className="truncate text-sm font-medium text-slate-600">{customerName}</span>
+          <div className="relative" ref={customerDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setCustomerDropdownOpen((v) => !v)}
+              className="flex items-center gap-1 rounded px-1 py-0.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+            >
+              <span className="truncate">{customerName}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform",
+                  customerDropdownOpen && "rotate-180"
+                )}
+              />
+            </button>
+            {customerDropdownOpen ? (
+              <div className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                <div className="space-y-2.5">
+                  {/* Name */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="shrink-0 text-[11px] text-slate-400">Name</span>
+                    <button
+                      type="button"
+                      onClick={() => copyCustomerField(customerName, "name")}
+                      className="group/copy flex min-w-0 items-center gap-1 text-right text-xs font-medium text-slate-700 hover:text-[var(--primary)]"
+                    >
+                      <span className="truncate">
+                        {copiedCustomerField === "name" ? "Copied!" : customerName}
+                      </span>
+                      {copiedCustomerField === "name" ? null : (
+                        <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                      )}
+                    </button>
+                  </div>
+                  {/* Email */}
+                  {orderContact.email ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="shrink-0 text-[11px] text-slate-400">Email</span>
+                      <button
+                        type="button"
+                        onClick={() => copyCustomerField(orderContact.email!, "email")}
+                        className="group/copy flex min-w-0 items-center gap-1 text-right text-xs font-medium text-slate-700 hover:text-[var(--primary)]"
+                      >
+                        <span className="truncate">
+                          {copiedCustomerField === "email" ? "Copied!" : orderContact.email}
+                        </span>
+                        {copiedCustomerField === "email" ? null : (
+                          <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                        )}
+                      </button>
+                    </div>
+                  ) : null}
+                  {/* Phone */}
+                  {orderContact.phone ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="shrink-0 text-[11px] text-slate-400">Phone</span>
+                      <button
+                        type="button"
+                        onClick={() => copyCustomerField(orderContact.phone!, "phone")}
+                        className="group/copy flex min-w-0 items-center gap-1 text-right text-xs font-medium text-slate-700 hover:text-[var(--primary)]"
+                      >
+                        <span className="truncate">
+                          {copiedCustomerField === "phone" ? "Copied!" : orderContact.phone}
+                        </span>
+                        {copiedCustomerField === "phone" ? null : (
+                          <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                        )}
+                      </button>
+                    </div>
+                  ) : null}
+                  {!orderContact.email && !orderContact.phone ? (
+                    <p className="text-[11px] text-slate-400">No contact info on file.</p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </>
       ) : null}
       {/* Priority */}
@@ -786,6 +885,7 @@ export function CardDetailModal({
               hideOrderNumberField
               hidePriorityAndDueDateFields
               hideOwnerField
+              hideCustomerSection
               priority={priority}
               onPriorityChange={setPriority}
               ownerId={ownerId}

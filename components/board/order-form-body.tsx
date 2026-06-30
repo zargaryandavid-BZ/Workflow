@@ -69,6 +69,8 @@ export interface OrderFormBodyProps {
   hidePriorityAndDueDateFields?: boolean;
   /** Hide owner field (rendered in the modal header bar). */
   hideOwnerField?: boolean;
+  /** Hide customer name/contact fields (shown in the modal header dropdown instead). */
+  hideCustomerSection?: boolean;
   categories?: Category[];
   categoryId?: string;
   onCategoryIdChange?: (value: string) => void;
@@ -116,6 +118,7 @@ export function OrderFormBody({
   hideOrderNumberField = false,
   hidePriorityAndDueDateFields = false,
   hideOwnerField = false,
+  hideCustomerSection = false,
   categories = [],
   categoryId = "",
   onCategoryIdChange,
@@ -332,47 +335,49 @@ export function OrderFormBody({
         ) : null}
       </div>
 
-      {printFields.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {printFields.map((field) => (
-            <CustomFieldInput
-              key={field.id}
-              field={{
-                ...field,
-                name: orderFormFieldLabel(field.name),
-              }}
-              value={fieldValues[field.id]}
-              onChange={(v) => onFieldValueChange(field.id, v)}
-              readOnly={readOnly}
-            />
-          ))}
-        </div>
-      ) : null}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+        {printFields.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {printFields.map((field) => (
+              <CustomFieldInput
+                key={field.id}
+                field={{
+                  ...field,
+                  name: orderFormFieldLabel(field.name),
+                }}
+                value={fieldValues[field.id]}
+                onChange={(v) => onFieldValueChange(field.id, v)}
+                readOnly={readOnly}
+              />
+            ))}
+          </div>
+        ) : null}
 
-      <SkuEditor
-        value={skus}
-        onChange={onSkusChange}
-        orderId={orderId}
-        assets={skuAssets}
-        skuImagesBySkuId={skuImagesBySkuId}
-        pendingArtwork={pendingSkuArtwork}
-        onPendingArtworkChange={onPendingSkuArtworkChange}
-        deferArtworkUpload={deferSkuArtworkUpload}
-        removedArtworkIds={removedSkuArtworkIds}
-        onMarkArtworkForRemoval={onMarkSkuArtworkForRemoval}
-        onUnmarkArtworkForRemoval={onUnmarkSkuArtworkForRemoval}
-        ensureSkuPersisted={ensureSkuPersisted}
-        disabled={readOnly}
-      />
-
-      {orderQtyField ? (
-        <OrderQtyField
-          skus={skus}
-          value={(fieldValues[orderQtyField.id] as number | null) ?? null}
-          onChange={(v) => onFieldValueChange(orderQtyField.id, v)}
-          readOnly={readOnly}
+        <SkuEditor
+          value={skus}
+          onChange={onSkusChange}
+          orderId={orderId}
+          assets={skuAssets}
+          skuImagesBySkuId={skuImagesBySkuId}
+          pendingArtwork={pendingSkuArtwork}
+          onPendingArtworkChange={onPendingSkuArtworkChange}
+          deferArtworkUpload={deferSkuArtworkUpload}
+          removedArtworkIds={removedSkuArtworkIds}
+          onMarkArtworkForRemoval={onMarkSkuArtworkForRemoval}
+          onUnmarkArtworkForRemoval={onUnmarkSkuArtworkForRemoval}
+          ensureSkuPersisted={ensureSkuPersisted}
+          disabled={readOnly}
         />
-      ) : null}
+
+        {orderQtyField ? (
+          <OrderQtyField
+            skus={skus}
+            value={(fieldValues[orderQtyField.id] as number | null) ?? null}
+            onChange={(v) => onFieldValueChange(orderQtyField.id, v)}
+            readOnly={readOnly}
+          />
+        ) : null}
+      </div>
 
       <div className="border-t border-slate-200" />
 
@@ -461,40 +466,44 @@ export function OrderFormBody({
         />
       </div>
 
-      <div className="border-t border-slate-200" />
+      {!hideCustomerSection ? (
+        <>
+          <div className="border-t border-slate-200" />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor={`${idPrefix}-customer-name`}>
-            Customer Name<span className="ml-0.5 text-red-500">*</span>
-          </Label>
-          <Input
-            id={`${idPrefix}-customer-name`}
-            required
-            readOnly={readOnly}
-            value={customerName}
-            onChange={(e) => handleCustomerNameChange(e.target.value)}
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
-        </div>
-        <div>
-          <Label htmlFor={`${idPrefix}-customer-contact`}>
-            Customer Contact<span className="ml-0.5 text-red-500">*</span>
-          </Label>
-          <Input
-            id={`${idPrefix}-customer-contact`}
-            required
-            readOnly={readOnly}
-            value={customerContact}
-            onChange={(e) => onCustomerContactChange(e.target.value)}
-            placeholder="Email or phone"
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
-          {customerLookupHint ? (
-            <p className="mt-1 text-xs text-emerald-600">{customerLookupHint}</p>
-          ) : null}
-        </div>
-      </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor={`${idPrefix}-customer-name`}>
+                Customer Name<span className="ml-0.5 text-red-500">*</span>
+              </Label>
+              <Input
+                id={`${idPrefix}-customer-name`}
+                required
+                readOnly={readOnly}
+                value={customerName}
+                onChange={(e) => handleCustomerNameChange(e.target.value)}
+                className={readOnly ? "bg-slate-50" : undefined}
+              />
+            </div>
+            <div>
+              <Label htmlFor={`${idPrefix}-customer-contact`}>
+                Customer Contact<span className="ml-0.5 text-red-500">*</span>
+              </Label>
+              <Input
+                id={`${idPrefix}-customer-contact`}
+                required
+                readOnly={readOnly}
+                value={customerContact}
+                onChange={(e) => onCustomerContactChange(e.target.value)}
+                placeholder="Email or phone"
+                className={readOnly ? "bg-slate-50" : undefined}
+              />
+              {customerLookupHint ? (
+                <p className="mt-1 text-xs text-emerald-600">{customerLookupHint}</p>
+              ) : null}
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
