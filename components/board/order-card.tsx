@@ -84,6 +84,9 @@ export function OrderCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
+    ...(activeWarning && !animateWarnings
+      ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
+      : {}),
   };
 
   const specFields = cardSpecFieldsForDisplay(customFields, fieldValues);
@@ -204,11 +207,6 @@ export function OrderCard({
         canDrag ? "cursor-pointer" : "cursor-default",
         activeWarning && animateWarnings ? `warning-${activeWarning.rule.color}` : ""
       )}
-      style={
-        activeWarning && !animateWarnings
-          ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
-          : undefined
-      }
     >
       {activeWarning ? (
         <span
