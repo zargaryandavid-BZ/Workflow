@@ -563,13 +563,6 @@ export function CardDetailModal({
           <span className="truncate text-sm font-medium text-slate-600">{customerName}</span>
         </>
       ) : null}
-      {/* Owner */}
-      {ownerName ? (
-        <>
-          <span className="text-slate-300">|</span>
-          <span className="shrink-0 text-sm text-slate-500">{ownerName}</span>
-        </>
-      ) : null}
       {/* Priority */}
       {priority && priority !== "normal" ? (
         <>
@@ -594,6 +587,26 @@ export function CardDetailModal({
       onClose={handleClose}
       title={modalTitle}
       className="max-w-3xl"
+      headerAction={
+        !isViewOnly ? (
+          <select
+            value={ownerId}
+            disabled={isViewOnly}
+            onChange={(e) => setOwnerId(e.target.value)}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-60"
+            title="Owner"
+          >
+            <option value="">— Owner —</option>
+            {ownersForForm.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        ) : ownerName ? (
+          <span className="text-sm text-slate-500">{ownerName}</span>
+        ) : undefined
+      }
       footer={
         isViewOnly ? (
           <Button variant="ghost" onClick={handleClose} type="button">
@@ -762,7 +775,7 @@ export function CardDetailModal({
             />
           ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className="space-y-4 md:col-span-2 pt-2">
+          <div className="space-y-4 md:col-span-2">
             <OrderFormBody
               idPrefix="edit"
               customFields={modalCustomFields}
@@ -772,6 +785,7 @@ export function CardDetailModal({
               onTitleChange={setTitle}
               hideOrderNumberField
               hidePriorityAndDueDateFields
+              hideOwnerField
               priority={priority}
               onPriorityChange={setPriority}
               ownerId={ownerId}

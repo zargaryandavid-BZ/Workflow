@@ -67,6 +67,8 @@ export interface OrderFormBodyProps {
   hideOrderNumberField?: boolean;
   /** Hide priority and due date fields (rendered elsewhere in the modal). */
   hidePriorityAndDueDateFields?: boolean;
+  /** Hide owner field (rendered in the modal header bar). */
+  hideOwnerField?: boolean;
   categories?: Category[];
   categoryId?: string;
   onCategoryIdChange?: (value: string) => void;
@@ -113,6 +115,7 @@ export function OrderFormBody({
   readOnly = false,
   hideOrderNumberField = false,
   hidePriorityAndDueDateFields = false,
+  hideOwnerField = false,
   categories = [],
   categoryId = "",
   onCategoryIdChange,
@@ -280,6 +283,7 @@ export function OrderFormBody({
           </Select>
         </div>
         ) : null}
+        {!hideOwnerField ? (
         <div>
           <Label htmlFor={`${idPrefix}-owner`}>Owner</Label>
           <Select
@@ -301,6 +305,7 @@ export function OrderFormBody({
             ))}
           </Select>
         </div>
+        ) : null}
         {!hidePriorityAndDueDateFields ? (
         <div>
           <Label htmlFor={`${idPrefix}-due`}>Due date</Label>
@@ -368,6 +373,8 @@ export function OrderFormBody({
           readOnly={readOnly}
         />
       ) : null}
+
+      <div className="border-t border-slate-200" />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
@@ -453,6 +460,8 @@ export function OrderFormBody({
           className={readOnly ? "bg-slate-50" : undefined}
         />
       </div>
+
+      <div className="border-t border-slate-200" />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>

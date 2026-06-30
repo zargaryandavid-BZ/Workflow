@@ -267,8 +267,11 @@ export function OrderCard({
             </button>
           </div>
 
+          {/* Divider */}
+          <div className="mt-1.5 border-t border-slate-100" />
+
           {/* Footer — always visible */}
-          <div className="mt-1 flex items-center justify-between gap-1.5">
+          <div className="mt-1.5 flex items-center justify-between gap-1.5">
             <div className="flex min-w-0 items-center gap-1.5 truncate">
               {order.category ? (
                 <span

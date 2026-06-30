@@ -62,7 +62,7 @@ export function Modal({
             </button>
           </div>
         </div>
-        <div className="px-5 py-4">{children}</div>
+        <div className="px-5 py-2">{children}</div>
         {footer ? (
           <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
             {footer}
