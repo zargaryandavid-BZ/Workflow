@@ -134,9 +134,15 @@ export async function POST(request: Request) {
 
   const newPosition = body.position ?? typedOrder.position;
 
+  const isColumnChange = fromColumnId !== body.toColumnId;
+
   const { data: updated, error } = await supabase
     .from("orders")
-    .update({ column_id: body.toColumnId, position: newPosition })
+    .update({
+      column_id: body.toColumnId,
+      position: newPosition,
+      ...(isColumnChange ? { last_moved_at: new Date().toISOString() } : {}),
+    })
     .eq("id", body.orderId)
     .eq("tenant_id", tenantId)
     .select("*")

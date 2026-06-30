@@ -147,6 +147,7 @@ export async function createOrder(
       },
       position,
       created_by: createdBy,
+      last_moved_at: new Date().toISOString(),
     })
     .select("*")
     .single();

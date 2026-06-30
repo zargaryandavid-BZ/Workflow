@@ -8,6 +8,7 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronUp,
+  Clock,
   Copy,
   User,
 } from "lucide-react";
@@ -34,7 +35,8 @@ import {
 } from "@/lib/notification-messages";
 import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
-import type { CustomField, OrderWithRelations } from "@/lib/types";
+import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
+import type { CardWarningRule, CustomField, OrderWithRelations } from "@/lib/types";
 
 interface OrderCardProps {
   order: OrderWithRelations;
@@ -48,6 +50,10 @@ interface OrderCardProps {
   designerName?: string;
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
+  warningRules?: CardWarningRule[];
+  animateWarnings?: boolean;
+  /** Column accent color (hex) — used to tint the customer name at 70% opacity. */
+  columnColor?: string | null;
   onOpen: (order: OrderWithRelations) => void;
 }
 
@@ -60,6 +66,9 @@ export function OrderCard({
   designerName: designerNameProp,
   notificationBadge,
   ownerName,
+  warningRules = [],
+  animateWarnings = true,
+  columnColor,
   onOpen,
 }: OrderCardProps) {
   const {
@@ -107,6 +116,18 @@ export function OrderCard({
 
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
+  const activeWarning = getActiveWarning(order, warningRules);
+
+  // Derive a 70%-opacity version of the column accent colour for the title.
+  const titleColor = (() => {
+    if (!columnColor) return undefined;
+    const hex = columnColor.replace("#", "");
+    if (hex.length !== 6) return undefined;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},0.7)`;
+  })();
 
   const [copied, setCopied] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -175,14 +196,26 @@ export function OrderCard({
       {...(canDrag ? listeners : {})}
       onClick={() => onOpen(order)}
       className={cn(
-        "group rounded-md border shadow-sm transition-shadow hover:shadow-md",
+        "group relative rounded-md border shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
           ? UNASSIGNED_DESIGNER_CARD_CLASS
           : "border-slate-200 bg-white",
         expanded ? "p-2.5" : "p-2",
-        canDrag ? "cursor-pointer" : "cursor-default"
+        canDrag ? "cursor-pointer" : "cursor-default",
+        activeWarning && animateWarnings ? `warning-${activeWarning.rule.color}` : ""
       )}
+      style={
+        activeWarning && !animateWarnings
+          ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
+          : undefined
+      }
     >
+      {activeWarning ? (
+        <span
+          className={`warning-dot-${activeWarning.rule.color} absolute right-1.5 top-1.5 h-2 w-2 rounded-full`}
+          title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
+        />
+      ) : null}
       <div className="flex items-start gap-2">
         {thumbnail ? (
           <Image
@@ -209,6 +242,7 @@ export function OrderCard({
                       onPointerDown={(e) => e.stopPropagation()}
                       title="Copy customer name"
                       className="group/copy flex min-w-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
+                      style={titleColor ? { color: titleColor } : undefined}
                     >
                       <span className="truncate">
                         {copied === "customer-name" ? "Copied!" : displayCustomerName}
@@ -244,11 +278,13 @@ export function OrderCard({
                 ) : null}
               </div>
 
-              {summaryTrailingParts.length > 0 ? (
-                <p className="mt-0.5 truncate text-[10px] leading-tight text-slate-500">
-                  {summaryTrailingParts.join(" · ")}
-                </p>
-              ) : null}
+              <p className="mt-0.5 flex min-w-0 items-center gap-1 truncate text-[10px] leading-tight text-slate-400">
+                <Clock className="h-2.5 w-2.5 shrink-0" />
+                <span className="shrink-0">{formatDateShort(order.created_at)}</span>
+                {summaryTrailingParts.length > 0 ? (
+                  <span className="truncate text-slate-500">· {summaryTrailingParts.join(" · ")}</span>
+                ) : null}
+              </p>
             </div>
 
             <button

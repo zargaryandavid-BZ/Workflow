@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type {
   BoardColumn,
+  CardWarningRule,
   CustomField,
   OrderWithRelations,
   Role,
@@ -37,6 +38,8 @@ interface ColumnProps {
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
+  warningRules?: CardWarningRule[];
+  animateWarnings?: boolean;
   isFirst: boolean;
   onOpenOrder: (order: OrderWithRelations) => void;
   onAdd: (columnId: string) => void;
@@ -65,6 +68,8 @@ export function Column({
   designerNameByOrder,
   notificationBadgeByOrder,
   ownerNameByOrder,
+  warningRules = [],
+  animateWarnings = true,
   isFirst,
   onOpenOrder,
   onAdd,
@@ -225,6 +230,9 @@ export function Column({
                     designerName={designerNameByOrder[entry.order.id]}
                     notificationBadge={notificationBadgeByOrder[entry.order.id]}
                     ownerName={ownerNameByOrder[entry.order.id]}
+                    warningRules={warningRules}
+                    animateWarnings={animateWarnings}
+                    columnColor={column.color}
                     onOpen={onOpenOrder}
                   />
                 )
@@ -240,6 +248,9 @@ export function Column({
                   designerName={designerNameByOrder[order.id]}
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}
+                  warningRules={warningRules}
+                  animateWarnings={animateWarnings}
+                  columnColor={column.color}
                   onOpen={onOpenOrder}
                 />
               ))}

@@ -16,7 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Layers, Search, X } from "lucide-react";
+import { Activity, Layers, Search, X } from "lucide-react";
 import { Column } from "./column";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
@@ -34,6 +34,7 @@ import {
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type {
   BoardColumn,
+  CardWarningRule,
   Category,
   CustomField,
   Designer,
@@ -74,6 +75,10 @@ interface BoardProps {
   publicAppUrl: boolean;
   buttonAutomations: ButtonAutomation[];
   fastActionButtons: FastActionButton[];
+  warningRules?: CardWarningRule[];
+  warningAnimationOpacity?: number;
+  warningAnimationSpeedMs?: number;
+  warningAnimationSpreadPx?: number;
   initialOrderId?: string | null;
   appUrl: string;
 }
@@ -99,6 +104,10 @@ export function Board({
   publicAppUrl,
   buttonAutomations,
   fastActionButtons,
+  warningRules = [],
+  warningAnimationOpacity = 30,
+  warningAnimationSpeedMs = 2500,
+  warningAnimationSpreadPx = 3,
   initialOrderId = null,
   appUrl,
 }: BoardProps) {
@@ -118,6 +127,15 @@ export function Board({
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [groupedView, setGroupedView] = useState(false);
+  const [animateWarnings, setAnimateWarnings] = useState(true);
+
+  // Apply per-tenant warning animation CSS variables client-side (avoids SSR hydration mismatch)
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--w-opacity", String(warningAnimationOpacity / 100));
+    root.style.setProperty("--w-spread", `${warningAnimationSpreadPx}px`);
+    root.style.setProperty("--w-duration", `${warningAnimationSpeedMs / 1000}s`);
+  }, [warningAnimationOpacity, warningAnimationSpeedMs, warningAnimationSpreadPx]);
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
     missingFields: MissingField[];
@@ -349,6 +367,9 @@ export function Board({
   }, [filteredOrders, columns]);
 
   const activeOrder = orders.find((o) => o.id === activeId) ?? null;
+  const activeOrderColumnColor = activeOrder
+    ? (columns.find((c) => c.id === activeOrder.column_id)?.color ?? null)
+    : null;
   function findColumnId(id: string): string | null {
     if (columns.some((c) => c.id === id)) return id;
     return orders.find((o) => o.id === id)?.column_id ?? null;
@@ -570,6 +591,22 @@ export function Board({
             <Layers className="h-4 w-4" />
             Group
           </button>
+          {warningRules.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setAnimateWarnings((v) => !v)}
+              title={animateWarnings ? "Switch warnings to border only" : "Switch warnings to animation"}
+              className={cn(
+                "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
+                animateWarnings
+                  ? "border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              <Activity className="h-4 w-4" />
+              Animate
+            </button>
+          ) : null}
           <span className="shrink-0 whitespace-nowrap text-sm text-slate-500">
             {filtersActive
               ? `${filteredOrders.length} of ${orders.length} jobs`
@@ -615,6 +652,8 @@ export function Board({
               designerNameByOrder={designerNameByOrder}
               notificationBadgeByOrder={notificationBadgeByOrder}
               ownerNameByOrder={ownerNameByOrder}
+              warningRules={warningRules}
+              animateWarnings={animateWarnings}
               isFirst={index === 0}
               onOpenOrder={(o) => setDetailId(o.id)}
               onAdd={(colId) => setCreateColumn(colId)}
@@ -633,6 +672,9 @@ export function Board({
               designerName={designerNameByOrder[activeOrder.id]}
               notificationBadge={notificationBadgeByOrder[activeOrder.id]}
               ownerName={ownerNameByOrder[activeOrder.id]}
+              warningRules={warningRules}
+              animateWarnings={animateWarnings}
+              columnColor={activeOrderColumnColor}
               onOpen={() => {}}
             />
           ) : null}

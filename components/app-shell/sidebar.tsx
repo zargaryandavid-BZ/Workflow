@@ -11,6 +11,7 @@ import {
   Trash2,
   Workflow,
   MousePointerClick,
+  ShieldAlert,
   UserCog,
   Columns3,
   Printer,
@@ -52,6 +53,12 @@ const nav = [
     href: "/settings/button-automation",
     label: "Button Automation",
     icon: MousePointerClick,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/card-warnings",
+    label: "Card Warnings",
+    icon: ShieldAlert,
     adminOnly: true,
   },
   {

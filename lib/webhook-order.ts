@@ -1450,6 +1450,7 @@ async function createSingleWebhookJob(
       specs,
       position,
       created_by: ownerId,
+      last_moved_at: new Date().toISOString(),
     })
     .select("id, title")
     .single();

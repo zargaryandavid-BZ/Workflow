@@ -19,9 +19,11 @@ import { loadAccountManagerOwners } from "@/lib/order-owners";
 import { loadButtonAutomations } from "@/lib/button-automations.server";
 import { isColumnVisibleToUser } from "@/lib/columns";
 import { loadFastActionButtons } from "@/lib/fast-action-buttons.server";
+import { loadEnabledCardWarningRules } from "@/lib/card-warning-rules.server";
 import type {
   AutomationRule,
   BoardColumn,
+  CardWarningRule,
   Category,
   CustomField,
   CustomerResponse,
@@ -88,11 +90,13 @@ export default async function BoardPage({
 
   const visibleColumnIds = new Set(boardColumns.map((c) => c.id));
 
-  const [buttonAutomations, fastActionButtons, allOrders] = await Promise.all([
-    loadButtonAutomations(supabase, tenantId),
-    loadFastActionButtons(supabase, tenantId),
-    loadOrdersWithRelations(supabase, tenantId),
-  ]);
+  const [buttonAutomations, fastActionButtons, allOrders, warningRules] =
+    await Promise.all([
+      loadButtonAutomations(supabase, tenantId),
+      loadFastActionButtons(supabase, tenantId),
+      loadOrdersWithRelations(supabase, tenantId),
+      loadEnabledCardWarningRules(supabase, tenantId),
+    ]);
 
   // Hide orders that belong to columns the current user can't see.
   const orders = allOrders.filter(
@@ -238,10 +242,15 @@ export default async function BoardPage({
     }
   }
 
+  const tenant = ctx.tenant;
+
   return (
     <Board
       tenantId={tenantId}
       tenantName={ctx.tenant.name}
+      warningAnimationOpacity={tenant.warning_opacity ?? 30}
+      warningAnimationSpeedMs={tenant.warning_speed_ms ?? 2500}
+      warningAnimationSpreadPx={tenant.warning_spread_px ?? 3}
       role={ctx.role}
       columns={boardColumns}
       initialOrders={orders}
@@ -260,6 +269,7 @@ export default async function BoardPage({
       publicAppUrl={isPublicAppUrl()}
       buttonAutomations={buttonAutomations}
       fastActionButtons={fastActionButtons}
+      warningRules={warningRules}
       initialOrderId={initialOrderId ?? null}
       appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
     />

@@ -34,6 +34,10 @@ export interface Tenant {
   name: string;
   slug: string;
   created_at: string;
+  /** Warning animation settings (admin-controlled) */
+  warning_opacity: number;   // 5–100, default 30
+  warning_speed_ms: number;  // 500–8000, default 2500
+  warning_spread_px: number; // 1–20, default 3
 }
 
 export interface Profile {
@@ -145,6 +149,21 @@ export interface Order {
   removed_by: string | null;
   created_at: string;
   updated_at: string;
+  last_moved_at: string | null;
+}
+
+export type CardWarningColor = "amber" | "orange" | "red" | "purple" | "blue" | "pink";
+
+export interface CardWarningRule {
+  id: string;
+  tenant_id: string;
+  name: string;
+  threshold_days: number;
+  color: CardWarningColor;
+  apply_to_columns: string[];
+  enabled: boolean;
+  position: number;
+  created_at: string;
 }
 
 export interface CustomField {

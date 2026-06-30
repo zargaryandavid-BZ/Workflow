@@ -62,7 +62,10 @@ export async function POST(
 
   const { error: moveError } = await supabase
     .from("orders")
-    .update({ column_id: button.destination_column_id })
+    .update({
+      column_id: button.destination_column_id,
+      last_moved_at: new Date().toISOString(),
+    })
     .eq("id", body.order_id)
     .eq("tenant_id", tenantId);
 
