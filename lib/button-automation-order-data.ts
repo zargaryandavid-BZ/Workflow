@@ -5,6 +5,7 @@ import {
   ARTWORK_FIELD_NAME,
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
+  DESIGNER_FIELD_NAME,
 } from "@/lib/constants";
 import {
   findOrderFormField,
@@ -144,6 +145,7 @@ function buildSpecRows(
       CUSTOMER_NAME_FIELD_NAME,
       CUSTOMER_CONTACT_FIELD_NAME,
       ARTWORK_FIELD_NAME,
+      DESIGNER_FIELD_NAME,
       "designer",
     ].map((n) => n.toLowerCase())
   );
