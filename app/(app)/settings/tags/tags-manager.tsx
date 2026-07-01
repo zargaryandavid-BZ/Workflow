@@ -21,32 +21,32 @@ import { GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { CATEGORY_COLORS } from "@/lib/categories";
+import { TAG_COLORS } from "@/lib/tags";
 import { cn } from "@/lib/utils";
-import type { Category } from "@/lib/types";
+import type { Tag } from "@/lib/types";
 
 interface Props {
-  initialCategories: Category[];
+  initialTags: Tag[];
 }
 
-export function CategoriesManager({ initialCategories }: Props) {
+export function TagsManager({ initialTags }: Props) {
   const router = useRouter();
-  const [categories, setCategories] = useState<Category[]>(initialCategories);
-  const [editing, setEditing] = useState<Category | "new" | null>(null);
-  const [deleting, setDeleting] = useState<Category | null>(null);
+  const [tags, setTags] = useState<Tag[]>(initialTags);
+  const [editing, setEditing] = useState<Tag | "new" | null>(null);
+  const [deleting, setDeleting] = useState<Tag | null>(null);
 
-  useEffect(() => setCategories(initialCategories), [initialCategories]);
+  useEffect(() => setTags(initialTags), [initialTags]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  async function persistOrder(next: Category[]) {
-    setCategories(next);
-    await fetch("/api/categories/reorder", {
+  async function persistOrder(next: Tag[]) {
+    setTags(next);
+    await fetch("/api/tags/reorder", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedIds: next.map((c) => c.id) }),
+      body: JSON.stringify({ orderedIds: next.map((t) => t.id) }),
     });
     router.refresh();
   }
@@ -54,23 +54,23 @@ export function CategoriesManager({ initialCategories }: Props) {
   function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIndex = categories.findIndex((c) => c.id === active.id);
-    const newIndex = categories.findIndex((c) => c.id === over.id);
+    const oldIndex = tags.findIndex((t) => t.id === active.id);
+    const newIndex = tags.findIndex((t) => t.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-    persistOrder(arrayMove(categories, oldIndex, newIndex));
+    persistOrder(arrayMove(tags, oldIndex, newIndex));
   }
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
         <Button onClick={() => setEditing("new")}>
-          <Plus className="h-4 w-4" /> Add Category
+          <Plus className="h-4 w-4" /> Add Tag
         </Button>
       </div>
 
-      {categories.length === 0 ? (
+      {tags.length === 0 ? (
         <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-400">
-          No categories yet.
+          No tags yet.
         </p>
       ) : (
         <DndContext
@@ -79,16 +79,16 @@ export function CategoriesManager({ initialCategories }: Props) {
           onDragEnd={onDragEnd}
         >
           <SortableContext
-            items={categories.map((c) => c.id)}
+            items={tags.map((t) => t.id)}
             strategy={verticalListSortingStrategy}
           >
             <ul className="space-y-1.5">
-              {categories.map((cat) => (
-                <SortableCategoryRow
-                  key={cat.id}
-                  category={cat}
-                  onEdit={() => setEditing(cat)}
-                  onDelete={() => setDeleting(cat)}
+              {tags.map((tag) => (
+                <SortableTagRow
+                  key={tag.id}
+                  tag={tag}
+                  onEdit={() => setEditing(tag)}
+                  onDelete={() => setDeleting(tag)}
                 />
               ))}
             </ul>
@@ -97,8 +97,8 @@ export function CategoriesManager({ initialCategories }: Props) {
       )}
 
       {editing ? (
-        <CategoryEditor
-          category={editing === "new" ? null : editing}
+        <TagEditor
+          tag={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -108,8 +108,8 @@ export function CategoriesManager({ initialCategories }: Props) {
       ) : null}
 
       {deleting ? (
-        <DeleteCategoryDialog
-          category={deleting}
+        <DeleteTagDialog
+          tag={deleting}
           onClose={() => setDeleting(null)}
           onDeleted={() => {
             setDeleting(null);
@@ -121,12 +121,12 @@ export function CategoriesManager({ initialCategories }: Props) {
   );
 }
 
-function SortableCategoryRow({
-  category,
+function SortableTagRow({
+  tag,
   onEdit,
   onDelete,
 }: {
-  category: Category;
+  tag: Tag;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -137,7 +137,7 @@ function SortableCategoryRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: category.id });
+  } = useSortable({ id: tag.id });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -162,20 +162,20 @@ function SortableCategoryRow({
       </button>
       <span
         className="h-3.5 w-3.5 shrink-0 rounded-full"
-        style={{ backgroundColor: category.color }}
+        style={{ backgroundColor: tag.color }}
         aria-hidden
       />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-slate-800">{category.name}</p>
-        {category.description ? (
-          <p className="truncate text-xs text-slate-500">{category.description}</p>
+        <p className="text-sm font-medium text-slate-800">{tag.name}</p>
+        {tag.description ? (
+          <p className="truncate text-xs text-slate-500">{tag.description}</p>
         ) : null}
       </div>
       <button
         type="button"
         onClick={onEdit}
         className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-        aria-label="Edit category"
+        aria-label="Edit tag"
       >
         <Pencil className="h-4 w-4" />
       </button>
@@ -183,7 +183,7 @@ function SortableCategoryRow({
         type="button"
         onClick={onDelete}
         className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
-        aria-label="Delete category"
+        aria-label="Delete tag"
       >
         <Trash2 className="h-4 w-4" />
       </button>
@@ -191,19 +191,19 @@ function SortableCategoryRow({
   );
 }
 
-function CategoryEditor({
-  category,
+function TagEditor({
+  tag,
   onClose,
   onSaved,
 }: {
-  category: Category | null;
+  tag: Tag | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const isNew = category === null;
-  const [name, setName] = useState(category?.name ?? "");
-  const [color, setColor] = useState(category?.color ?? CATEGORY_COLORS[0]);
-  const [description, setDescription] = useState(category?.description ?? "");
+  const isNew = tag === null;
+  const [name, setName] = useState(tag?.name ?? "");
+  const [color, setColor] = useState(tag?.color ?? TAG_COLORS[0]);
+  const [description, setDescription] = useState(tag?.description ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -223,7 +223,7 @@ function CategoryEditor({
     };
 
     const res = await fetch(
-      isNew ? "/api/categories" : `/api/categories/${category.id}`,
+      isNew ? "/api/tags" : `/api/tags/${tag.id}`,
       {
         method: isNew ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -243,25 +243,25 @@ function CategoryEditor({
     <Modal
       open
       onClose={onClose}
-      title={isNew ? "Add Category" : "Edit Category"}
+      title={isNew ? "Add Tag" : "Edit Tag"}
       footer={
         <>
           <Button variant="ghost" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" form="category-form" disabled={loading}>
+          <Button type="submit" form="tag-form" disabled={loading}>
             {loading ? "Saving…" : "Save"}
           </Button>
         </>
       }
     >
-      <form id="category-form" onSubmit={save} className="space-y-4">
+      <form id="tag-form" onSubmit={save} className="space-y-4">
         <div>
-          <Label htmlFor="cat-name">
+          <Label htmlFor="tag-name">
             Name<span className="ml-0.5 text-red-500">*</span>
           </Label>
           <Input
-            id="cat-name"
+            id="tag-name"
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -271,7 +271,7 @@ function CategoryEditor({
         <div>
           <Label>Color</Label>
           <div className="mt-2 flex flex-wrap gap-2">
-            {CATEGORY_COLORS.map((swatch) => (
+            {TAG_COLORS.map((swatch) => (
               <button
                 key={swatch}
                 type="button"
@@ -290,9 +290,9 @@ function CategoryEditor({
           </div>
         </div>
         <div>
-          <Label htmlFor="cat-desc">Description (optional)</Label>
+          <Label htmlFor="tag-desc">Description (optional)</Label>
           <Input
-            id="cat-desc"
+            id="tag-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Rush / urgent production jobs"
@@ -308,12 +308,12 @@ function CategoryEditor({
   );
 }
 
-function DeleteCategoryDialog({
-  category,
+function DeleteTagDialog({
+  tag,
   onClose,
   onDeleted,
 }: {
-  category: Category;
+  tag: Tag;
   onClose: () => void;
   onDeleted: () => void;
 }) {
@@ -322,7 +322,7 @@ function DeleteCategoryDialog({
 
   async function confirm() {
     setLoading(true);
-    const res = await fetch(`/api/categories/${category.id}`, {
+    const res = await fetch(`/api/tags/${tag.id}`, {
       method: "DELETE",
     });
     const json = await res.json();
@@ -338,7 +338,7 @@ function DeleteCategoryDialog({
     <Modal
       open
       onClose={onClose}
-      title="Delete category"
+      title="Delete tag"
       footer={
         <>
           <Button variant="ghost" type="button" onClick={onClose}>
@@ -356,8 +356,8 @@ function DeleteCategoryDialog({
       }
     >
       <p className="text-sm text-slate-600">
-        Delete <strong>{category.name}</strong>? Orders using this category will
-        have their category cleared.
+        Delete <strong>{tag.name}</strong>? Orders using this tag will have
+        their tag cleared.
       </p>
       {error ? (
         <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">

@@ -47,7 +47,7 @@ export interface OrderExportSpecRow {
 export interface OrderExportData {
   order: OrderWithRelations;
   columnName: string;
-  categoryName: string | null;
+  tagName: string | null;
   fieldValues: Record<string, unknown>;
   customFields: CustomField[];
   skus: SkuItem[];
@@ -288,7 +288,7 @@ export async function loadOrderExportData(
   return {
     order,
     columnName: (column as BoardColumn | null)?.name ?? "—",
-    categoryName: order.category?.name ?? null,
+    tagName: order.tag?.name ?? null,
     fieldValues,
     customFields,
     skus,

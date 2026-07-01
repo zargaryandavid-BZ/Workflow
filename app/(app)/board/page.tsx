@@ -24,7 +24,7 @@ import type {
   AutomationRule,
   BoardColumn,
   CardWarningRule,
-  Category,
+  Tag,
   CustomField,
   CustomerResponse,
   NotificationChannel,
@@ -50,7 +50,7 @@ export default async function BoardPage({
   const [
     columnsRes,
     fieldsRes,
-    categoriesRes,
+    tagsRes,
     memberRes,
     rulesRes,
   ] = await Promise.all([
@@ -65,7 +65,7 @@ export default async function BoardPage({
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
     supabase
-      .from("categories")
+      .from("tags")
       .select("*")
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
@@ -254,9 +254,10 @@ export default async function BoardPage({
       role={ctx.role}
       columns={boardColumns}
       initialOrders={orders}
-      categories={(categoriesRes.data ?? []) as Category[]}
+      tags={(tagsRes.data ?? []) as Tag[]}
       owners={owners}
       currentUserId={ctx.userId}
+      currentUserName={ctx.fullName ?? ctx.email ?? "Unknown"}
       customFields={(fieldsRes.data ?? []) as CustomField[]}
       fieldValuesByOrder={fieldValuesByOrder}
       thumbnailByOrder={thumbnailByOrder}

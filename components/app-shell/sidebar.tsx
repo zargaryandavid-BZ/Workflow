@@ -38,8 +38,8 @@ const nav = [
     adminOnly: true,
   },
   {
-    href: "/settings/categories",
-    label: "Categories",
+    href: "/settings/tags",
+    label: "Tags",
     icon: Tag,
     adminOnly: true,
   },

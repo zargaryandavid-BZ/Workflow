@@ -15,7 +15,7 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
-import type { Asset, Category, CustomField, Designer, OrderSkuImageWithUrl } from "@/lib/types";
+import type { Asset, Tag, CustomField, Designer, NoteEntry, OrderSkuImageWithUrl } from "@/lib/types";
 
 export interface OrderOwner {
   id: string;
@@ -43,6 +43,10 @@ export interface OrderFormBodyProps {
   onDesignerIdChange: (value: string) => void;
   designTask: string;
   onDesignTaskChange: (value: string) => void;
+  /** Parsed history of past note entries (edit mode only). */
+  noteHistory?: NoteEntry[];
+  internalNote: string;
+  onInternalNoteChange: (value: string) => void;
   fieldValues: Record<string, unknown>;
   onFieldValueChange: (fieldId: string, value: unknown) => void;
   skus: SkuItem[];
@@ -71,9 +75,9 @@ export interface OrderFormBodyProps {
   hideOwnerField?: boolean;
   /** Hide customer name/contact fields (shown in the modal header dropdown instead). */
   hideCustomerSection?: boolean;
-  categories?: Category[];
-  categoryId?: string;
-  onCategoryIdChange?: (value: string) => void;
+  tags?: Tag[];
+  tagId?: string;
+  onTagIdChange?: (value: string) => void;
 }
 
 export function OrderFormBody({
@@ -97,6 +101,9 @@ export function OrderFormBody({
   onDesignerIdChange,
   designTask,
   onDesignTaskChange,
+  noteHistory,
+  internalNote,
+  onInternalNoteChange,
   fieldValues,
   onFieldValueChange,
   skus,
@@ -119,9 +126,9 @@ export function OrderFormBody({
   hidePriorityAndDueDateFields = false,
   hideOwnerField = false,
   hideCustomerSection = false,
-  categories = [],
-  categoryId = "",
-  onCategoryIdChange,
+  tags = [],
+  tagId = "",
+  onTagIdChange,
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, designerField, orderQtyField, printFields } = resolved;
@@ -377,44 +384,61 @@ export function OrderFormBody({
             readOnly={readOnly}
           />
         ) : null}
+
+        <div>
+          <Label htmlFor={`${idPrefix}-desc`}>Order Description</Label>
+          <Textarea
+            id={`${idPrefix}-desc`}
+            readOnly={readOnly}
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            placeholder="Notes, references, special instructions…"
+            className={readOnly ? "bg-white" : "bg-white"}
+          />
+        </div>
       </div>
 
       <div className="border-t border-slate-200" />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div>
-          <Label htmlFor={`${idPrefix}-designer`}>
-            Designer
-            {designerField?.required ? (
-              <span className="ml-0.5 text-red-500">*</span>
-            ) : null}
-          </Label>
-          <Select
-            id={`${idPrefix}-designer`}
-            value={designerId}
-            disabled={readOnly}
-            onChange={(e) => onDesignerIdChange(e.target.value)}
-          >
-            <option value="">
-              {designers.length ? "Unassigned" : "No designers on team"}
-            </option>
-            {designers.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
+      <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-blue-400">
+          Designer
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <Label htmlFor={`${idPrefix}-designer`}>
+              Assigned designer
+              {designerField?.required ? (
+                <span className="ml-0.5 text-red-500">*</span>
+              ) : null}
+            </Label>
+            <Select
+              id={`${idPrefix}-designer`}
+              value={designerId}
+              disabled={readOnly}
+              onChange={(e) => onDesignerIdChange(e.target.value)}
+            >
+              <option value="">
+                {designers.length ? "Unassigned" : "No designers on team"}
               </option>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor={`${idPrefix}-design-task`}>Design task</Label>
-          <Input
-            id={`${idPrefix}-design-task`}
-            readOnly={readOnly}
-            value={designTask}
-            onChange={(e) => onDesignTaskChange(e.target.value)}
-            placeholder="e.g. Prepare proof / prepress"
-            className={readOnly ? "bg-slate-50" : undefined}
-          />
+              {designers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor={`${idPrefix}-design-task`}>Design task</Label>
+            <Input
+              id={`${idPrefix}-design-task`}
+              readOnly={readOnly}
+              value={designTask}
+              onChange={(e) => onDesignTaskChange(e.target.value)}
+              placeholder="e.g. Prepare proof / prepress"
+              className={readOnly ? "bg-slate-50" : undefined}
+            />
+          </div>
         </div>
       </div>
 
@@ -454,17 +478,59 @@ export function OrderFormBody({
         </div>
       ) : null}
 
-      <div>
-        <Label htmlFor={`${idPrefix}-desc`}>Order Description</Label>
-        <Textarea
-          id={`${idPrefix}-desc`}
-          readOnly={readOnly}
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-          placeholder="Notes, references, special instructions…"
-          className={readOnly ? "bg-slate-50" : undefined}
-        />
+      <div className="flex items-center gap-3">
+        <hr className="flex-1 border-slate-200" />
+        <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Notes (Internal)
+        </span>
+        <hr className="flex-1 border-slate-200" />
       </div>
+
+      {noteHistory && noteHistory.length > 0 ? (
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          {noteHistory.map((entry, i) => (
+            <div key={i}>
+              {i > 0 && <hr className="mb-2 border-slate-200" />}
+              <p className="mb-1 text-[11px] font-semibold text-slate-400">
+                {entry.author}
+                <span className="mx-1 font-normal">/</span>
+                {new Date(entry.date).toLocaleString(undefined, {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+              <p className="whitespace-pre-wrap text-sm text-slate-700">{entry.text}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {!readOnly ? (
+        <div>
+          <Label htmlFor={`${idPrefix}-internal-note`}>
+            {noteHistory && noteHistory.length > 0 ? (
+              <>
+                Add new note{" "}
+                <span className="text-[11px] font-normal text-slate-400">(Internal)</span>
+              </>
+            ) : (
+              <>
+                Note{" "}
+                <span className="text-[11px] font-normal text-slate-400">(Internal)</span>
+              </>
+            )}
+          </Label>
+          <Textarea
+            id={`${idPrefix}-internal-note`}
+            value={internalNote}
+            onChange={(e) => onInternalNoteChange(e.target.value)}
+            placeholder="Internal notes visible only to the team…"
+          />
+        </div>
+      ) : null}
 
       {!hideCustomerSection ? (
         <>

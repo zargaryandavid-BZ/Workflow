@@ -190,10 +190,11 @@ export async function PATCH(
   const body = (await request.json().catch(() => ({}))) as {
     title?: string;
     description?: string | null;
+    internal_note?: string | null;
     priority?: string;
     ownerId?: string | null;
     dueDate?: string | null;
-    categoryId?: string | null;
+    tagId?: string | null;
     specs?: Record<string, unknown>;
     customFieldValues?: { customFieldId: string; value: unknown }[];
   };
@@ -203,7 +204,7 @@ export async function PATCH(
 
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, category_id")
+    .select("id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, tag_id")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -224,8 +225,9 @@ export async function PATCH(
   const updates: Record<string, unknown> = {};
   if (body.title !== undefined) updates.title = body.title;
   if (body.description !== undefined) updates.description = body.description;
+  if (body.internal_note !== undefined) updates.internal_note = body.internal_note;
   if (body.priority !== undefined) updates.priority = body.priority;
-  if (body.categoryId !== undefined) updates.category_id = body.categoryId ?? null;
+  if (body.tagId !== undefined) updates.tag_id = body.tagId ?? null;
   if (body.ownerId !== undefined) {
     if (body.ownerId) {
       const valid = await isAccountManagerOwner(
@@ -369,8 +371,8 @@ export async function PATCH(
     });
   if (updates.created_by !== undefined && updates.created_by !== existing.created_by)
     changes.push({ field: "Owner changed" });
-  if (updates.category_id !== undefined && updates.category_id !== existing.category_id)
-    changes.push({ field: "Category changed" });
+  if (updates.tag_id !== undefined && updates.tag_id !== existing.tag_id)
+    changes.push({ field: "Tag changed" });
 
   if (updates.specs !== undefined) {
     const oldSpecs = (existing.specs ?? {}) as Record<string, unknown>;

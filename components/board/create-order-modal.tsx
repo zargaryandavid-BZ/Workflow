@@ -40,6 +40,7 @@ export function CreateOrderModal({
 }: CreateOrderModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [internalNote, setInternalNote] = useState("");
   const [priority, setPriority] = useState("normal");
   const defaultOwnerId = useMemo(
     () => (owners.some((o) => o.id === currentUserId) ? currentUserId : ""),
@@ -126,6 +127,7 @@ export function CreateOrderModal({
     const json = await createOrderAction({
       title,
       description,
+      internalNote: internalNote || null,
       columnId,
       ownerId: ownerId || null,
       priority,
@@ -193,6 +195,8 @@ export function CreateOrderModal({
           onOwnerIdChange={setOwnerId}
           description={description}
           onDescriptionChange={setDescription}
+              internalNote={internalNote}
+              onInternalNoteChange={setInternalNote}
           customerName={customerName}
           onCustomerNameChange={setCustomerName}
           customerContact={customerContact}

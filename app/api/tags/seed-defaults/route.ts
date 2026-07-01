@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { seedDefaultCategories } from "@/lib/categories";
+import { seedDefaultTags } from "@/lib/tags";
 
 export async function POST() {
   const ctx = await getTenantContext();
@@ -12,11 +12,11 @@ export async function POST() {
 
   const supabase = await createClient();
   try {
-    const added = await seedDefaultCategories(supabase, ctx.tenant.id);
+    const added = await seedDefaultTags(supabase, ctx.tenant.id);
     return NextResponse.json({ added });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to seed categories" },
+      { error: e instanceof Error ? e.message : "Failed to seed tags" },
       { status: 400 }
     );
   }

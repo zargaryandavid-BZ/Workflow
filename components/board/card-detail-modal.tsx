@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { MissingInfoTab } from "./missing-info-tab";
-import { NotesTab } from "./notes-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
@@ -43,12 +42,13 @@ import type {
   ApprovalNote,
   Asset,
   BoardColumn,
-  Category,
+  Tag,
   CustomField,
   CustomFieldValue,
   Designer,
   FastActionButton,
   MissingInfoNote,
+  NoteEntry,
   OrderNote,
   OrderSkuImageWithUrl,
   OrderWithRelations,
@@ -66,6 +66,7 @@ interface CardDetailModalProps {
   designers: Designer[];
   role: Role;
   userId?: string;
+  currentUserName?: string;
   onChanged: () => void;
   /** When "view", all fields are read-only and save/upload actions are hidden. */
   mode?: "edit" | "view";
@@ -73,7 +74,7 @@ interface CardDetailModalProps {
   buttonAutomations?: ButtonAutomation[];
   fastActionButtons?: FastActionButton[];
   appUrl?: string;
-  categories?: Category[];
+  tags?: Tag[];
   /** Columns that trigger a notification popup when a card enters them. */
   notifyColumns?: NotifyColumnConfig[];
   /** Called when a Fast Action Button moves to a column that has an active automation. */
@@ -121,13 +122,14 @@ export function CardDetailModal({
   designers,
   role,
   userId,
+  currentUserName = "Unknown",
   onChanged,
   mode = "edit",
   onLinkCopied,
   buttonAutomations = [],
   fastActionButtons = [],
   appUrl = "",
-  categories = [],
+  tags = [],
   notifyColumns = [],
   onNotifyColumn,
 }: CardDetailModalProps) {
@@ -145,17 +147,19 @@ export function CardDetailModal({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
+  const [newNote, setNewNote] = useState("");
   const [priority, setPriority] = useState("normal");
   const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [categoryId, setCategoryId] = useState("");
+  const [tagId, setTagId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
-  const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "notes">(
+  const [tab, setTab] = useState<"details" | "missing-info" | "approval">(
     "details"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -197,10 +201,26 @@ export function CardDetailModal({
     setData(json);
     setTitle(json.order.title);
     setDescription(json.order.description ?? "");
+    const rawNote = json.order.internal_note ?? "";
+    let parsedHistory: NoteEntry[] = [];
+    if (rawNote) {
+      try {
+        const parsed = JSON.parse(rawNote);
+        if (Array.isArray(parsed)) {
+          parsedHistory = parsed as NoteEntry[];
+        } else {
+          parsedHistory = [{ author: "Unknown", date: new Date().toISOString(), text: rawNote }];
+        }
+      } catch {
+        parsedHistory = [{ author: "Unknown", date: new Date().toISOString(), text: rawNote }];
+      }
+    }
+    setNoteHistory(parsedHistory);
+    setNewNote("");
     setPriority(json.order.priority);
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
-    setCategoryId(json.order.category_id ?? "");
+    setTagId(json.order.tag_id ?? "");
     setSkus(
       mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets)
     );
@@ -251,12 +271,14 @@ export function CardDetailModal({
 
   useEffect(() => {
     if (open && orderId) {
+      setSaveError(null);
       setActivityOpen(false);
       resetPendingFiles();
       setModalCustomFields(customFieldsRef.current);
       load();
     }
     if (!open) {
+      setSaveError(null);
       setData(null);
       setTab("details");
       setActivityOpen(false);
@@ -305,16 +327,30 @@ export function CardDetailModal({
 
     setSaveError(null);
     setSaving(true);
+    const updatedHistory =
+      newNote.trim()
+        ? [
+            ...noteHistory,
+            {
+              author: currentUserName,
+              date: new Date().toISOString(),
+              text: newNote.trim(),
+            },
+          ]
+        : noteHistory;
+    const internalNoteJson =
+      updatedHistory.length > 0 ? JSON.stringify(updatedHistory) : null;
     const res = await fetch(`/api/orders/${orderId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title,
         description,
+        internal_note: internalNoteJson,
         priority,
         ownerId: ownerId || null,
         dueDate: dateInputValue(dueDate) || null,
-        categoryId: categoryId || null,
+        tagId: tagId || null,
         specs: {
           ...(data?.order.specs ?? {}),
           skus: prepareSkusForSave(skus, {
@@ -355,6 +391,8 @@ export function CardDetailModal({
       await uploadPendingSkuArtwork(orderId, pendingSkuArtwork);
     }
 
+    setNoteHistory(updatedHistory);
+    setNewNote("");
     setSaving(false);
     resetPendingFiles();
     onChanged();
@@ -824,23 +862,6 @@ export function CardDetailModal({
                   <span className="h-2 w-2 rounded-full bg-violet-500" />
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={() => setTab("notes")}
-                className={cn(
-                  "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-                  tab === "notes"
-                    ? "border-[var(--primary)] text-[var(--primary)]"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
-                )}
-              >
-                Notes
-                {(data?.notes.length ?? 0) > 0 ? (
-                  <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                    {data?.notes.length}
-                  </span>
-                ) : null}
-              </button>
             </div>
           ) : null}
 
@@ -894,14 +915,6 @@ export function CardDetailModal({
                 onChanged();
               }}
             />
-          ) : tab === "notes" ? (
-            <NotesTab
-              notes={data.notes}
-              orderId={data.order.id}
-              userId={userId}
-              isAdmin={isAdmin}
-              onChanged={() => void load({ silent: true })}
-            />
           ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="space-y-4 md:col-span-2">
@@ -922,6 +935,9 @@ export function CardDetailModal({
               onOwnerIdChange={setOwnerId}
               description={description}
               onDescriptionChange={setDescription}
+              noteHistory={noteHistory}
+              internalNote={newNote}
+              onInternalNoteChange={setNewNote}
               customerName={customerName}
               onCustomerNameChange={setCustomerName}
               customerContact={customerContact}
@@ -951,9 +967,9 @@ export function CardDetailModal({
               onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
               ensureSkuPersisted={ensureSkuPersisted}
               readOnly={isViewOnly}
-              categories={categories}
-              categoryId={categoryId}
-              onCategoryIdChange={isViewOnly ? undefined : setCategoryId}
+              tags={tags}
+              tagId={tagId}
+              onTagIdChange={isViewOnly ? undefined : setTagId}
             />
 
             {saveError ? (
@@ -997,21 +1013,21 @@ export function CardDetailModal({
                 />
               </div>
             </div>
-            {categories.length > 0 ? (
+            {tags.length > 0 ? (
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Category
+                  Tag
                 </p>
                 <select
-                  value={categoryId}
+                  value={tagId}
                   disabled={isViewOnly}
-                  onChange={(e) => setCategoryId(e.target.value)}
+                  onChange={(e) => setTagId(e.target.value)}
                   className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-60"
                 >
                   <option value="">— None —</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
+                  {tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
                     </option>
                   ))}
                 </select>

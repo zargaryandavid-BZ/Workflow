@@ -306,12 +306,12 @@ export function OrderCard({
           {/* Footer — always visible */}
           <div className="mt-1.5 flex items-center justify-between gap-1.5">
             <div className="flex min-w-0 items-center gap-1.5 truncate">
-              {order.category ? (
+              {order.tag ? (
                 <span
                   className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
-                  style={{ backgroundColor: order.category.color }}
+                  style={{ backgroundColor: order.tag.color }}
                 >
-                  {order.category.name}
+                  {order.tag.name}
                 </span>
               ) : null}
               {notificationBadge ? (

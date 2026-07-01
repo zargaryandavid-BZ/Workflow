@@ -88,7 +88,7 @@ export interface BoardColumn {
   visibility_users_v2: string[];
 }
 
-export interface Category {
+export interface Tag {
   id: string;
   tenant_id: string;
   name: string;
@@ -137,9 +137,10 @@ export interface Order {
   tenant_id: string;
   column_id: string;
   customer_id: string | null;
-  category_id: string | null;
+  tag_id: string | null;
   title: string;
   description: string | null;
+  internal_note: string | null;
   specs: OrderSpecs;
   priority: "low" | "normal" | "high" | "urgent";
   due_date: string | null;
@@ -391,6 +392,12 @@ export interface NotifyRuleConfig {
   rejected_to_column?: string | null;
 }
 
+export interface NoteEntry {
+  author: string;
+  date: string;
+  text: string;
+}
+
 export interface OrderNote {
   id: string;
   tenant_id: string;
@@ -411,7 +418,7 @@ export interface ActivityLog {
   created_at: string;
 }
 
-export interface OrderCategorySummary {
+export interface OrderTagSummary {
   id: string;
   name: string;
   color: string;
@@ -419,7 +426,7 @@ export interface OrderCategorySummary {
 
 export interface OrderWithRelations extends Order {
   customer: Customer | null;
-  category?: OrderCategorySummary | null;
+  tag?: OrderTagSummary | null;
 }
 
 export interface Designer {

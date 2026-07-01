@@ -150,8 +150,8 @@ function orderSummaryRows(data: OrderExportData): string {
     detailRow("Due date", escapeHtml(data.dueDateFormatted)),
     detailRow("Priority", priority),
     detailRow("Stage", escapeHtml(data.columnName)),
-    data.categoryName
-      ? detailRow("Category", escapeHtml(data.categoryName))
+    data.tagName
+      ? detailRow("Tag", escapeHtml(data.tagName))
       : "",
     assigned ? detailRow("Assigned to", assigned) : "",
     owner ? detailRow("Owner", owner) : "",
@@ -214,7 +214,7 @@ export function buildButtonAutomationEmailText(data: OrderExportData): string {
     `Stage:        ${data.columnName}`,
   ];
 
-  if (data.categoryName) lines.push(`Category:     ${data.categoryName}`);
+  if (data.tagName) lines.push(`Tag:          ${data.tagName}`);
   if (data.designerName || data.designerEmail) {
     lines.push(
       `Assigned to:  ${data.designerName ?? "—"}${data.designerEmail ? ` (${data.designerEmail})` : ""}`

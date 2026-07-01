@@ -39,7 +39,7 @@ import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type {
   BoardColumn,
   CardWarningRule,
-  Category,
+  Tag,
   CustomField,
   Designer,
   ButtonAutomation,
@@ -64,9 +64,10 @@ interface BoardProps {
   role: Role;
   columns: BoardColumn[];
   initialOrders: OrderWithRelations[];
-  categories: Category[];
+  tags: Tag[];
   owners: OrderOwner[];
   currentUserId: string;
+  currentUserName: string;
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string>;
@@ -93,9 +94,10 @@ export function Board({
   role,
   columns,
   initialOrders,
-  categories,
+  tags,
   owners,
   currentUserId,
+  currentUserName,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
@@ -182,7 +184,7 @@ export function Board({
   const signature = useMemo(
     () =>
       initialOrders
-        .map((o) => `${o.id}:${o.column_id}:${o.position}:${o.updated_at}:${o.category_id ?? ""}`)
+        .map((o) => `${o.id}:${o.column_id}:${o.position}:${o.updated_at}:${o.tag_id ?? ""}`)
         .join("|"),
     [initialOrders]
   );
@@ -721,12 +723,13 @@ export function Board({
         designers={designers}
         role={role}
         userId={currentUserId}
+        currentUserName={currentUserName}
         onChanged={() => router.refresh()}
         onLinkCopied={flashToast}
         buttonAutomations={buttonAutomations}
         fastActionButtons={fastActionButtons}
         appUrl={appUrl}
-        categories={categories}
+        tags={tags}
         notifyColumns={notifyColumns}
         onNotifyColumn={(order, notifyColumn, columnName) => {
           setNotifyPopup({ order, notifyColumn, columnName });

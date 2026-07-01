@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export const CATEGORY_COLORS = [
+export const TAG_COLORS = [
   "#6366f1",
   "#3b82f6",
   "#06b6d4",
@@ -13,7 +13,7 @@ export const CATEGORY_COLORS = [
   "#64748b",
 ] as const;
 
-export const DEFAULT_CATEGORIES = [
+export const DEFAULT_TAGS = [
   {
     name: "Rush Order",
     color: "#ef4444",
@@ -41,26 +41,26 @@ export const DEFAULT_CATEGORIES = [
   },
 ] as const;
 
-export async function seedDefaultCategories(
+export async function seedDefaultTags(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<number> {
   const { count } = await supabase
-    .from("categories")
+    .from("tags")
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId);
 
   if ((count ?? 0) > 0) return 0;
 
-  const rows = DEFAULT_CATEGORIES.map((cat, index) => ({
+  const rows = DEFAULT_TAGS.map((tag, index) => ({
     tenant_id: tenantId,
-    name: cat.name,
-    color: cat.color,
-    description: cat.description,
+    name: tag.name,
+    color: tag.color,
+    description: tag.description,
     position: index,
   }));
 
-  const { error } = await supabase.from("categories").insert(rows);
+  const { error } = await supabase.from("tags").insert(rows);
   if (error) throw new Error(error.message);
   return rows.length;
 }

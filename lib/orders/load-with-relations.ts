@@ -1,23 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderWithRelations } from "@/lib/types";
 
-const ORDER_SELECT_WITH_CATEGORY =
-  "*, customer:customers(*), category:categories(id, name, color)";
+const ORDER_SELECT_WITH_TAG =
+  "*, customer:customers(*), tag:tags(id, name, color)";
 const ORDER_SELECT_BASE = "*, customer:customers(*)";
 
 export async function loadOrdersWithRelations(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<OrderWithRelations[]> {
-  const withCategory = await supabase
+  const withTag = await supabase
     .from("orders")
-    .select(ORDER_SELECT_WITH_CATEGORY)
+    .select(ORDER_SELECT_WITH_TAG)
     .eq("tenant_id", tenantId)
     .is("removed_at", null)
     .order("position", { ascending: true });
 
-  if (!withCategory.error) {
-    return (withCategory.data ?? []) as OrderWithRelations[];
+  if (!withTag.error) {
+    return (withTag.data ?? []) as OrderWithRelations[];
   }
 
   const fallback = await supabase
@@ -35,15 +35,15 @@ export async function loadRemovedOrdersWithRelations(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<OrderWithRelations[]> {
-  const withCategory = await supabase
+  const withTag = await supabase
     .from("orders")
-    .select(ORDER_SELECT_WITH_CATEGORY)
+    .select(ORDER_SELECT_WITH_TAG)
     .eq("tenant_id", tenantId)
     .not("removed_at", "is", null)
     .order("removed_at", { ascending: false });
 
-  if (!withCategory.error) {
-    return (withCategory.data ?? []) as OrderWithRelations[];
+  if (!withTag.error) {
+    return (withTag.data ?? []) as OrderWithRelations[];
   }
 
   const fallback = await supabase
@@ -62,15 +62,15 @@ export async function loadOrderWithRelations(
   orderId: string,
   tenantId: string
 ): Promise<OrderWithRelations | null> {
-  const withCategory = await supabase
+  const withTag = await supabase
     .from("orders")
-    .select(ORDER_SELECT_WITH_CATEGORY)
+    .select(ORDER_SELECT_WITH_TAG)
     .eq("id", orderId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
 
-  if (!withCategory.error && withCategory.data) {
-    return withCategory.data as OrderWithRelations;
+  if (!withTag.error && withTag.data) {
+    return withTag.data as OrderWithRelations;
   }
 
   const fallback = await supabase

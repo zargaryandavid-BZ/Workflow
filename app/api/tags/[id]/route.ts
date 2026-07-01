@@ -28,7 +28,7 @@ export async function PATCH(
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("categories")
+    .from("tags")
     .update(updates)
     .eq("id", id)
     .eq("tenant_id", ctx.tenant.id)
@@ -36,7 +36,7 @@ export async function PATCH(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ category: data });
+  return NextResponse.json({ tag: data });
 }
 
 export async function DELETE(
@@ -52,7 +52,7 @@ export async function DELETE(
 
   const supabase = await createClient();
   const { error } = await supabase
-    .from("categories")
+    .from("tags")
     .delete()
     .eq("id", id)
     .eq("tenant_id", ctx.tenant.id);

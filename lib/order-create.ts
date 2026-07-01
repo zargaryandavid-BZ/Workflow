@@ -10,6 +10,7 @@ import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 export type CreateOrderInput = {
   title?: string;
   description?: string;
+  internalNote?: string | null;
   columnId?: string | null;
   ownerId?: string | null;
   priority?: string;
@@ -138,6 +139,15 @@ export async function createOrder(
       column_id: columnId,
       title: body.title.trim(),
       description: body.description ?? null,
+      internal_note: body.internalNote
+        ? JSON.stringify([
+            {
+              author: ctx.fullName ?? ctx.email ?? "Unknown",
+              date: new Date().toISOString(),
+              text: body.internalNote,
+            },
+          ])
+        : null,
       customer_id: customerId,
       priority: body.priority ?? "normal",
       due_date: body.dueDate || null,

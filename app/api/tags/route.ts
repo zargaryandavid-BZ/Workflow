@@ -8,13 +8,13 @@ export async function GET() {
 
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("categories")
+    .from("tags")
     .select("*")
     .eq("tenant_id", ctx.tenant.id)
     .order("position", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ categories: data });
+  return NextResponse.json({ tags: data });
 }
 
 export async function POST(request: Request) {
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
 
   const supabase = await createClient();
   const { data: last } = await supabase
-    .from("categories")
+    .from("tags")
     .select("position")
     .eq("tenant_id", ctx.tenant.id)
     .order("position", { ascending: false })
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   const { data, error } = await supabase
-    .from("categories")
+    .from("tags")
     .insert({
       tenant_id: ctx.tenant.id,
       name: body.name.trim(),
@@ -55,5 +55,5 @@ export async function POST(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ category: data });
+  return NextResponse.json({ tag: data });
 }

@@ -260,7 +260,7 @@ const ITEM_FIELDS_MD = `
 | \`request_owner_name\` | No | string | Overrides order-level request owner name |
 | \`request_owner_contact\` | No | string | Overrides order-level request owner contact |
 | \`request_owner_phone\` | No | string | Overrides order-level request owner phone |
-| \`category\` | No | string | Category name for this item (also accepts \`category_name\`) |
+| \`category\` | No | string | Tag name for this item (also accepts \`category_name\`) |
 | \`skus\` | No | array | Omit for 0 SKU variations |`;
 
 const NOTES_MD = `
@@ -351,7 +351,7 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`designer_id\` | No | string | Team member UUID — sets **Assigned Designer** |
 | \`designer\` | No | string | Email, UUID, or display name — sets **Assigned Designer** |
 | \`designer_information\` | No | string | Designer notes (also \`designer_notes\`, \`design_task\`) |
-| \`category\` | No | string | Category name (also accepts \`category_name\`) |
+| \`category\` | No | string | Tag name (also accepts \`category_name\`) |
 | \`items\` | No | array | Omit for legacy single-item flat format |
 
 ---
@@ -583,7 +583,7 @@ export function buildWebhookPayloadDocsHtml(
       "category",
       "No",
       "string",
-      "Category name (also accepts <code>category_name</code>)",
+      "Tag name (also accepts <code>category_name</code>)",
     ],
     ["items", "No", "array", "Omit for legacy single-item flat format"],
   ];
@@ -673,7 +673,7 @@ export function buildWebhookPayloadDocsHtml(
       "category",
       "No",
       "string",
-      "Category name (also accepts <code>category_name</code>)",
+      "Tag name (also accepts <code>category_name</code>)",
     ],
     ["skus", "No", "array", "Omit for 0 SKU variations"],
   ];

@@ -1305,19 +1305,19 @@ export async function resolveWebhookDesigner(
   };
 }
 
-async function resolveCategoryId(
+async function resolveTagId(
   client: Client,
   tenantId: string,
   name: string | undefined | null
 ): Promise<string | null> {
   if (typeof name !== "string" || !name.trim()) return null;
-  const { data: cat } = await client
-    .from("categories")
+  const { data: tag } = await client
+    .from("tags")
     .select("id")
     .eq("tenant_id", tenantId)
     .ilike("name", name.trim())
     .maybeSingle();
-  return (cat as { id: string } | null)?.id ?? null;
+  return (tag as { id: string } | null)?.id ?? null;
 }
 
 export interface WebhookCreatedJob {
@@ -1365,7 +1365,7 @@ interface CreateSingleJobParams {
   webhookOrderNumber: string;
   itemIndex: number;
   totalItems: number;
-  categoryId: string | null;
+  tagId: string | null;
   ownerId: string | null;
   requestOwnerSpecs: Record<string, string>;
   designerId: string | null;
@@ -1396,7 +1396,7 @@ async function createSingleWebhookJob(
     webhookOrderNumber,
     itemIndex,
     totalItems,
-    categoryId,
+    tagId,
     ownerId,
     requestOwnerSpecs,
     designerId,
@@ -1444,7 +1444,7 @@ async function createSingleWebhookJob(
       title: cardTitle,
       description: description || null,
       customer_id: customerId,
-      category_id: categoryId,
+      tag_id: tagId,
       priority,
       due_date: dueDate,
       specs,
@@ -1610,11 +1610,11 @@ export async function createOrderFromWebhook(
   let responseOwnerId: string | null = null;
   let responseOwnerName: string | null = null;
 
-  const orderCategoryName = body.category ?? body.category_name;
-  const defaultCategoryId = await resolveCategoryId(
+  const orderTagName = body.category ?? body.category_name;
+  const defaultTagId = await resolveTagId(
     client,
     tenantId,
-    orderCategoryName
+    orderTagName
   );
 
   for (let i = 0; i < items.length; i++) {
@@ -1624,10 +1624,10 @@ export async function createOrderFromWebhook(
       ? `${shortBaseOrderNumber}-${i + 1}`
       : shortBaseOrderNumber;
 
-    const itemCategoryName = item.category ?? item.category_name;
-    const categoryId = itemCategoryName
-      ? await resolveCategoryId(client, tenantId, itemCategoryName)
-      : defaultCategoryId;
+    const itemTagName = item.category ?? item.category_name;
+    const tagId = itemTagName
+      ? await resolveTagId(client, tenantId, itemTagName)
+      : defaultTagId;
 
     const designerInput = mergeDesignerInput(body, item);
     const {
@@ -1671,7 +1671,7 @@ export async function createOrderFromWebhook(
       webhookOrderNumber: baseOrderNumber,
       itemIndex: i,
       totalItems: items.length,
-      categoryId,
+      tagId,
       ownerId,
       requestOwnerSpecs,
       designerId,

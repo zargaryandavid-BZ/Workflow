@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   await Promise.all(
     body.orderedIds.map((id, index) =>
       supabase
-        .from("categories")
+        .from("tags")
         .update({ position: index })
         .eq("id", id)
         .eq("tenant_id", ctx.tenant.id)
