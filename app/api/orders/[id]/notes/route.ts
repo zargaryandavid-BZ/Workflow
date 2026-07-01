@@ -20,7 +20,7 @@ export async function POST(
 
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
-  const userId = ctx.user.id;
+  const userId = ctx.userId;
 
   const { data: order } = await supabase
     .from("orders")
