@@ -122,6 +122,12 @@ function drawSpecRow(
   return y + 16;
 }
 
+function rowHeight(doc: PdfDoc, value: string, colW: number, minH = 18): number {
+  doc.fontSize(11).font("Helvetica-Bold");
+  const h = doc.heightOfString(value || "—", { width: colW * 0.5 });
+  return Math.max(minH, h + 6);
+}
+
 function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   const x = MARGIN;
   const w = PAGE_WIDTH - MARGIN * 2;
@@ -142,25 +148,38 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
 
   const description = data.order.description?.trim() ?? "";
 
-  const rowH = 20;
   const headerH = 26;
   const midpoint = Math.ceil(specRows.length / 2);
   const leftSpecs = specRows.slice(0, midpoint);
   const rightSpecs = specRows.slice(midpoint);
   const maxRows = Math.max(leftSpecs.length, rightSpecs.length);
 
-  // Height for designer notes line (if present)
-  const notesH = data.designTask ? rowH + 4 : 0;
+  // Pre-compute per-row heights based on actual text content
+  const rowHeights: number[] = [];
+  for (let i = 0; i < maxRows; i++) {
+    const lh = leftSpecs[i] ? rowHeight(doc, leftSpecs[i].value, COL_WIDTH) : 0;
+    const rh = rightSpecs[i] ? rowHeight(doc, rightSpecs[i].value, COL_WIDTH) : 0;
+    rowHeights.push(Math.max(lh, rh, 18));
+  }
+  const specsH = rowHeights.reduce((s, h) => s + h, 0);
+
+  // Height for designer notes (if present)
+  let notesH = 0;
+  if (data.designTask) {
+    doc.fontSize(10).font("Helvetica-Bold");
+    const taskH = doc.heightOfString(data.designTask, { width: innerW * 0.65 });
+    notesH = Math.max(20, taskH + 8);
+  }
 
   // Height for order description block (if present)
   let descH = 0;
   if (description) {
-    doc.fontSize(10);
+    doc.fontSize(10).font("Helvetica");
     const textH = doc.heightOfString(description, { width: innerW - 12 });
     descH = 18 + textH + 6;
   }
 
-  const boxH = headerH + maxRows * rowH + notesH + descH + 10;
+  const boxH = headerH + specsH + notesH + descH + 10;
 
   // Highlighted background box
   doc.rect(x, startY, w, boxH).fill("#fff7ed");
@@ -179,9 +198,9 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
 
   let y = startY + headerH;
 
-  // Two-column spec rows
+  // Two-column spec rows with dynamic heights
   for (let i = 0; i < maxRows; i++) {
-    const rowY = y + i * rowH;
+    const rowY = y;
     if (leftSpecs[i]) {
       doc
         .fontSize(9)
@@ -215,9 +234,10 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
           ...(rv.link ? { link: rv.link, underline: true } : {}),
         });
     }
+    y += rowHeights[i];
   }
 
-  y += maxRows * rowH + 4;
+  y += 4;
 
   if (data.designTask) {
     doc
@@ -230,7 +250,7 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
       .font("Helvetica-Bold")
       .fillColor("#111827")
       .text(data.designTask, innerX + 6 + innerW * 0.32, y, { width: innerW * 0.65 });
-    y += rowH;
+    y += notesH;
   }
 
   if (description) {
