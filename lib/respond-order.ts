@@ -1,6 +1,7 @@
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
+  DESIGNER_FIELD_NAME,
 } from "@/lib/constants";
 import {
   isEmptyFieldValue,
@@ -50,6 +51,7 @@ export function buildRespondOrderRows(
   }
 
   for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
+    if (name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase()) continue;
     const value = pickFieldInsensitive(fields, name);
     if (value) {
       rows.push({ label: orderFormFieldLabel(name), value });
@@ -60,17 +62,15 @@ export function buildRespondOrderRows(
   for (const [name, raw] of Object.entries(fields)) {
     const key = name.toLowerCase();
     if (usedKeys.has(key)) continue;
-    if (name === CUSTOMER_NAME_FIELD_NAME || name === CUSTOMER_CONTACT_FIELD_NAME) {
+    if (
+      name === CUSTOMER_NAME_FIELD_NAME ||
+      name === CUSTOMER_CONTACT_FIELD_NAME ||
+      name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase()
+    ) {
       continue;
     }
     if (isEmptyFieldValue(raw)) continue;
     rows.push({ label: orderFormFieldLabel(name), value: String(raw) });
-  }
-
-  const designTask =
-    typeof specs.design_task === "string" ? specs.design_task.trim() : "";
-  if (designTask) {
-    rows.push({ label: "Design task", value: designTask });
   }
 
   const designerName =
