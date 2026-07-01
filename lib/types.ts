@@ -391,6 +391,16 @@ export interface NotifyRuleConfig {
   rejected_to_column?: string | null;
 }
 
+export interface OrderNote {
+  id: string;
+  tenant_id: string;
+  order_id: string;
+  created_by: string | null;
+  creator_name: string | null;
+  text: string;
+  created_at: string;
+}
+
 export interface ActivityLog {
   id: string;
   tenant_id: string;

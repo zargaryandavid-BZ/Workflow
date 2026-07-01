@@ -19,7 +19,7 @@ import {
   filterValidCustomFieldValues,
   staleCustomFieldsMessage,
 } from "@/lib/custom-field-values.server";
-import type { ActivityLog, CustomField, Order } from "@/lib/types";
+import type { ActivityLog, CustomField, Order, OrderNote } from "@/lib/types";
 
 export async function GET(
   _request: Request,
@@ -39,7 +39,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const [{ data: assets }, { data: values }, { data: activity }, { data: approvals }, { data: missingInfoRows }, { data: approvalRows }] =
+  const [{ data: assets }, { data: values }, { data: activity }, { data: approvals }, { data: missingInfoRows }, { data: approvalRows }, { data: notesRows }] =
     await Promise.all([
       supabase
         .from("assets")
@@ -70,13 +70,19 @@ export async function GET(
         .eq("order_id", id)
         .eq("type", "customer_approval")
         .order("created_at", { ascending: false }),
+      supabase
+        .from("order_notes")
+        .select("*")
+        .eq("order_id", id)
+        .order("created_at", { ascending: false }),
     ]);
 
   const missingInfoList = missingInfoRows ?? [];
   const approvalList = approvalRows ?? [];
+  const notesList = (notesRows ?? []) as { id: string; tenant_id: string; order_id: string; created_by: string | null; text: string; created_at: string }[];
   const creatorIds = [
     ...new Set(
-      [...missingInfoList, ...approvalList]
+      [...missingInfoList, ...approvalList, ...notesList]
         .map((n) => n.created_by as string | null)
         .filter(Boolean) as string[]
     ),
@@ -145,6 +151,18 @@ export async function GET(
     .eq("tenant_id", tenantId)
     .order("position", { ascending: true });
 
+  const notes: OrderNote[] = notesList.map((n) => ({
+    id: n.id,
+    tenant_id: n.tenant_id,
+    order_id: n.order_id,
+    created_by: n.created_by,
+    creator_name: n.created_by
+      ? (creatorNameById.get(n.created_by) ?? "Staff member")
+      : null,
+    text: n.text,
+    created_at: n.created_at,
+  }));
+
   return NextResponse.json({
     order,
     assets: assets ?? [],
@@ -155,6 +173,7 @@ export async function GET(
     approvals: approvals ?? [],
     missingInfo,
     approvalNotes,
+    notes,
   });
 }
 

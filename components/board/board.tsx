@@ -17,6 +17,10 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { Activity, Layers, Search, X } from "lucide-react";
+import {
+  customerContactFromOrder,
+  customerNameFromOrder,
+} from "@/lib/notification-messages";
 import { Column } from "./column";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
@@ -344,7 +348,18 @@ export function Board({
   const filteredOrders = useMemo(() => {
     const q = orderQuery.trim().toLowerCase();
     return orders.filter((o) => {
-      if (q && !o.title.toLowerCase().includes(q)) return false;
+      if (q) {
+        const fv = fieldValuesByOrder[o.id] ?? {};
+        const customerName = customerNameFromOrder(o, fv, customFields).toLowerCase();
+        const { email, phone } = customerContactFromOrder(o, fv, customFields);
+        const searchable = [
+          o.title,
+          customerName,
+          email ?? "",
+          phone ?? "",
+        ].join(" ").toLowerCase();
+        if (!searchable.includes(q)) return false;
+      }
       if (personFilter) {
         const designerId = (o.specs?.designer_id as string | undefined) ?? "";
         if (designerId !== personFilter) return false;
@@ -352,7 +367,7 @@ export function Board({
       if (ownerFilter && o.created_by !== ownerFilter) return false;
       return true;
     });
-  }, [orders, orderQuery, personFilter, ownerFilter]);
+  }, [orders, orderQuery, personFilter, ownerFilter, fieldValuesByOrder, customFields]);
 
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
@@ -533,9 +548,9 @@ export function Board({
             <Input
               value={orderQuery}
               onChange={(e) => setOrderQuery(e.target.value)}
-              placeholder="Filter by order number…"
+              placeholder="Filter by order, customer, email, phone…"
               className="h-9 w-full pl-8"
-              aria-label="Filter by order number"
+              aria-label="Filter by order number, customer name, email or phone"
             />
           </div>
           <Select

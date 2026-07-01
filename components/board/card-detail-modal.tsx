@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { MissingInfoTab } from "./missing-info-tab";
+import { NotesTab } from "./notes-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
@@ -48,6 +49,7 @@ import type {
   Designer,
   FastActionButton,
   MissingInfoNote,
+  OrderNote,
   OrderSkuImageWithUrl,
   OrderWithRelations,
   ButtonAutomation,
@@ -104,6 +106,7 @@ interface DetailResponse {
   approvals: Approval[];
   missingInfo: MissingInfoNote[];
   approvalNotes: ApprovalNote[];
+  notes: OrderNote[];
 }
 
 type ActivityChangeEntry = { field?: unknown; from?: unknown; to?: unknown };
@@ -152,7 +155,7 @@ export function CardDetailModal({
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
-  const [tab, setTab] = useState<"details" | "missing-info" | "approval">(
+  const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "notes">(
     "details"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -772,7 +775,7 @@ export function CardDetailModal({
         </div>
       ) : (
         <>
-          {hasExtraTabs ? (
+          {!isViewOnly ? (
             <div className="mb-4 flex gap-1 border-b border-slate-200">
               <button
                 type="button"
@@ -821,6 +824,23 @@ export function CardDetailModal({
                   <span className="h-2 w-2 rounded-full bg-violet-500" />
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => setTab("notes")}
+                className={cn(
+                  "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                  tab === "notes"
+                    ? "border-[var(--primary)] text-[var(--primary)]"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                )}
+              >
+                Notes
+                {(data?.notes.length ?? 0) > 0 ? (
+                  <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                    {data?.notes.length}
+                  </span>
+                ) : null}
+              </button>
             </div>
           ) : null}
 
@@ -873,6 +893,14 @@ export function CardDetailModal({
                 load();
                 onChanged();
               }}
+            />
+          ) : tab === "notes" ? (
+            <NotesTab
+              notes={data.notes}
+              orderId={data.order.id}
+              userId={userId}
+              isAdmin={isAdmin}
+              onChanged={() => void load({ silent: true })}
             />
           ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -1008,48 +1036,6 @@ export function CardDetailModal({
                 </div>
               </div>
             ) : null}
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="mb-2 text-sm font-semibold text-slate-700">
-                Approval
-              </p>
-              {data.approvals.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  Move this job to Customer Approval to request sign-off.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {data.approvals.map((a) => (
-                    <div key={a.id} className="text-sm">
-                      <Badge
-                        className={cn(
-                          a.status === "approved" &&
-                            "bg-emerald-100 text-emerald-700",
-                          a.status === "rejected" && "bg-red-100 text-red-700",
-                          a.status === "pending" &&
-                            "bg-amber-100 text-amber-700"
-                        )}
-                      >
-                        {a.status}
-                      </Badge>
-                      {a.comment ? (
-                        <p className="mt-1 text-slate-500">“{a.comment}”</p>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {pendingApproval ? (
-                <a
-                  href={`/approve/${pendingApproval.token}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 block break-all text-xs text-[var(--primary)] hover:underline"
-                >
-                  Open approval link
-                </a>
-              ) : null}
-            </div>
-
             {data ? (
               <FastActionButtonBar
                 buttons={fastActionButtons}
@@ -1077,29 +1063,6 @@ export function CardDetailModal({
                 }}
                 onError={(msg) => setSaveError(msg)}
               />
-            ) : null}
-
-            {descriptionVersions.length > 0 ? (
-              <div className="rounded-lg border border-slate-200 p-3">
-                <p className="mb-2 text-sm font-semibold text-slate-700">
-                  Description versions
-                </p>
-                <div className="space-y-2">
-                  {descriptionVersions.map((version, index) => (
-                    <div key={version.id} className="rounded-md bg-slate-50 p-2">
-                      <p className="text-[11px] font-medium text-slate-500">
-                        Version {descriptionVersions.length - index}
-                        {" · "}
-                        {formatDateTime(version.createdAt)}
-                        {version.actorName ? ` · ${version.actorName}` : ""}
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
-                        {version.text || "—"}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
             ) : null}
 
             <div className="rounded-lg border border-slate-200">
