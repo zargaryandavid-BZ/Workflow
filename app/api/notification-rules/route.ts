@@ -5,6 +5,7 @@ import {
   DEFAULT_NOTIFICATION_EMAIL_BODY,
   DEFAULT_NOTIFICATION_EMAIL_SUBJECT,
   DEFAULT_NOTIFICATION_SMS_BODY,
+  DEFAULT_NOTIFICATION_WEBHOOK_BODY,
   normalizeNotificationRuleRecipient,
   normalizeNotificationRuleTrigger,
   validateNotificationRuleInput,
@@ -44,18 +45,27 @@ export async function POST(request: Request) {
     column_id?: string | null;
     send_email?: boolean;
     send_sms?: boolean;
+    send_webhook?: boolean;
     recipient?: string;
     email_subject?: string;
     email_body?: string;
     sms_body?: string;
     sms_to_phone?: string;
+    webhook_url?: string;
+    webhook_body_template?: string;
+    webhook_headers?: Record<string, string>;
     enabled?: boolean;
     recipient_mode?: string;
     recipient_roles?: string[];
     recipient_users?: string[];
   };
 
-  const validationError = validateNotificationRuleInput(body);
+  const validationError = validateNotificationRuleInput({
+    ...body,
+    send_email: body.send_email !== false,
+    send_sms: body.send_sms === true,
+    send_webhook: body.send_webhook === true,
+  });
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 422 });
   }
@@ -95,6 +105,7 @@ export async function POST(request: Request) {
   const trigger = normalizeNotificationRuleTrigger(body.trigger);
   const sendEmail = body.send_email !== false;
   const sendSms = body.send_sms === true;
+  const sendWebhook = body.send_webhook === true;
   const recipientMode = normalizeVisibilityMode(body.recipient_mode);
 
   const { data, error } = await supabase
@@ -106,11 +117,15 @@ export async function POST(request: Request) {
       column_id: trigger === "on_job_created" ? null : (body.column_id ?? null),
       send_email: sendEmail,
       send_sms: sendSms,
+      send_webhook: sendWebhook,
       recipient: normalizeNotificationRuleRecipient(body.recipient),
       email_subject: body.email_subject?.trim() || DEFAULT_NOTIFICATION_EMAIL_SUBJECT,
       email_body: body.email_body?.trim() || DEFAULT_NOTIFICATION_EMAIL_BODY,
       sms_body: body.sms_body?.trim() || DEFAULT_NOTIFICATION_SMS_BODY,
       sms_to_phone: body.sms_to_phone?.trim() ?? "",
+      webhook_url: body.webhook_url?.trim() ?? "",
+      webhook_body_template: body.webhook_body_template?.trim() || DEFAULT_NOTIFICATION_WEBHOOK_BODY,
+      webhook_headers: body.webhook_headers ?? {},
       enabled: body.enabled ?? true,
       position: ((last as { position: number } | null)?.position ?? -1) + 1,
       recipient_mode: recipientMode,

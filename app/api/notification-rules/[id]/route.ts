@@ -25,11 +25,15 @@ export async function PATCH(
     column_id?: string | null;
     send_email?: boolean;
     send_sms?: boolean;
+    send_webhook?: boolean;
     recipient?: string;
     email_subject?: string;
     email_body?: string;
     sms_body?: string;
     sms_to_phone?: string;
+    webhook_url?: string;
+    webhook_body_template?: string;
+    webhook_headers?: Record<string, string>;
     enabled?: boolean;
     recipient_mode?: string;
     recipient_roles?: string[];
@@ -52,9 +56,11 @@ export async function PATCH(
     name: body.name ?? existing.name,
     send_email: body.send_email ?? existing.send_email,
     send_sms: body.send_sms ?? existing.send_sms,
+    send_webhook: body.send_webhook ?? existing.send_webhook,
     email_subject: body.email_subject ?? existing.email_subject,
     email_body: body.email_body ?? existing.email_body,
     sms_body: body.sms_body ?? existing.sms_body,
+    webhook_url: body.webhook_url ?? existing.webhook_url,
     recipient: body.recipient ?? existing.recipient,
   };
 
@@ -93,6 +99,10 @@ export async function PATCH(
   if (body.email_body !== undefined) updates.email_body = body.email_body.trim();
   if (body.sms_body !== undefined) updates.sms_body = body.sms_body.trim();
   if (body.sms_to_phone !== undefined) updates.sms_to_phone = body.sms_to_phone.trim();
+  if (body.send_webhook !== undefined) updates.send_webhook = body.send_webhook;
+  if (body.webhook_url !== undefined) updates.webhook_url = body.webhook_url.trim();
+  if (body.webhook_body_template !== undefined) updates.webhook_body_template = body.webhook_body_template.trim();
+  if (body.webhook_headers !== undefined) updates.webhook_headers = body.webhook_headers;
   if (body.enabled !== undefined) updates.enabled = body.enabled;
   if (body.recipient_mode !== undefined)
     updates.recipient_mode = normalizeVisibilityMode(body.recipient_mode);

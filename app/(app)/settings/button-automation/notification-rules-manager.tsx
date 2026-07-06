@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Mail, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, Link2, Mail, MessageSquare, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import {
   DEFAULT_NOTIFICATION_EMAIL_BODY,
   DEFAULT_NOTIFICATION_EMAIL_SUBJECT,
   DEFAULT_NOTIFICATION_SMS_BODY,
+  DEFAULT_NOTIFICATION_WEBHOOK_BODY,
   NOTIFICATION_RULE_RECIPIENT_LABELS,
   NOTIFICATION_RULE_TEMPLATE_VARS,
   NOTIFICATION_RULE_TRIGGER_LABELS,
@@ -143,6 +144,11 @@ function RuleRow({
               <MessageSquare className="h-3.5 w-3.5" />
             </span>
           ) : null}
+          {rule.send_webhook ? (
+            <span title="Webhook enabled">
+              <Link2 className="h-3.5 w-3.5" />
+            </span>
+          ) : null}
           <span className="text-[10px] text-slate-500">
             {NOTIFICATION_RULE_RECIPIENT_LABELS[rule.recipient]}
           </span>
@@ -207,6 +213,7 @@ function RuleEditor({
   });
   const [sendEmail, setSendEmail] = useState(rule?.send_email ?? true);
   const [sendSms, setSendSms] = useState(rule?.send_sms ?? false);
+  const [sendWebhook, setSendWebhook] = useState(rule?.send_webhook ?? false);
   const [emailSubject, setEmailSubject] = useState(
     rule?.email_subject ?? DEFAULT_NOTIFICATION_EMAIL_SUBJECT
   );
@@ -217,15 +224,60 @@ function RuleEditor({
     rule?.sms_body ?? DEFAULT_NOTIFICATION_SMS_BODY
   );
   const [smsToPhone, setSmsToPhone] = useState(rule?.sms_to_phone ?? "");
+  const [webhookUrl, setWebhookUrl] = useState(rule?.webhook_url ?? "");
+  const [webhookBodyTemplate, setWebhookBodyTemplate] = useState(
+    rule?.webhook_body_template || DEFAULT_NOTIFICATION_WEBHOOK_BODY
+  );
+  const [webhookHeaders, setWebhookHeaders] = useState<{ key: string; value: string }[]>(
+    () => Object.entries(rule?.webhook_headers ?? {}).map(([key, value]) => ({ key, value }))
+  );
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [webhookTestResult, setWebhookTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const showStaffPicker = recipient === "staff" || recipient === "both";
 
+  async function testWebhook() {
+    setTestingWebhook(true);
+    setWebhookTestResult(null);
+    const headersObj: Record<string, string> = {};
+    for (const { key, value } of webhookHeaders) {
+      if (key.trim()) headersObj[key.trim()] = value;
+    }
+    try {
+      const res = await fetch("/api/notification-rules/test-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhook_url: webhookUrl.trim(),
+          webhook_body_template: webhookBodyTemplate,
+          webhook_headers: headersObj,
+        }),
+      });
+      const json = await res.json() as { ok?: boolean; status?: number; error?: string };
+      if (json.ok) {
+        setWebhookTestResult({ ok: true, message: `Webhook sent — got ${json.status} OK` });
+      } else if (json.error) {
+        setWebhookTestResult({ ok: false, message: `Could not reach endpoint: ${json.error}` });
+      } else {
+        setWebhookTestResult({ ok: false, message: `Webhook failed — got ${json.status ?? "unknown status"}` });
+      }
+    } catch {
+      setWebhookTestResult({ ok: false, message: "Could not reach endpoint" });
+    }
+    setTestingWebhook(false);
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSaving(true);
+
+    const headersObj: Record<string, string> = {};
+    for (const { key, value } of webhookHeaders) {
+      if (key.trim()) headersObj[key.trim()] = value;
+    }
 
     const payload = {
       name,
@@ -234,10 +286,14 @@ function RuleEditor({
       recipient,
       send_email: sendEmail,
       send_sms: sendSms,
+      send_webhook: sendWebhook,
       email_subject: emailSubject,
       email_body: emailBody,
       sms_body: smsBody,
       sms_to_phone: smsToPhone.trim(),
+      webhook_url: webhookUrl.trim(),
+      webhook_body_template: webhookBodyTemplate,
+      webhook_headers: headersObj,
       recipient_mode: staffRecipients.mode,
       recipient_roles: staffRecipients.roles,
       recipient_users: staffRecipients.userIds,
@@ -436,6 +492,118 @@ function RuleEditor({
                 <p className="mt-1 text-xs text-slate-500">
                   {smsBody.length} / 160
                 </p>
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={sendWebhook}
+              onChange={(e) => {
+                setSendWebhook(e.target.checked);
+                setWebhookTestResult(null);
+              }}
+              className="rounded border-slate-300"
+            />
+            Send Webhook
+          </label>
+
+          {sendWebhook ? (
+            <>
+              <div>
+                <Label htmlFor="rule-webhook-url">Webhook URL</Label>
+                <Input
+                  id="rule-webhook-url"
+                  type="url"
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://"
+                />
+              </div>
+              <div>
+                <Label htmlFor="rule-webhook-body">Request body</Label>
+                <textarea
+                  id="rule-webhook-body"
+                  rows={6}
+                  value={webhookBodyTemplate}
+                  onChange={(e) => setWebhookBodyTemplate(e.target.value)}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <Label>Custom headers (optional)</Label>
+                  {webhookHeaders.length < 10 ? (
+                    <button
+                      type="button"
+                      onClick={() => setWebhookHeaders((h) => [...h, { key: "", value: "" }])}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      + Add header
+                    </button>
+                  ) : null}
+                </div>
+                {webhookHeaders.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {webhookHeaders.map((header, idx) => (
+                      <div key={idx} className="flex gap-1.5">
+                        <Input
+                          value={header.key}
+                          onChange={(e) =>
+                            setWebhookHeaders((h) =>
+                              h.map((row, i) => (i === idx ? { ...row, key: e.target.value } : row))
+                            )
+                          }
+                          placeholder="Header name"
+                          className="flex-1"
+                        />
+                        <Input
+                          value={header.value}
+                          onChange={(e) =>
+                            setWebhookHeaders((h) =>
+                              h.map((row, i) => (i === idx ? { ...row, value: e.target.value } : row))
+                            )
+                          }
+                          placeholder="Value"
+                          className="flex-1"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setWebhookHeaders((h) => h.filter((_, i) => i !== idx))}
+                          className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                          aria-label="Remove header"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={testingWebhook || !webhookUrl.trim()}
+                  onClick={testWebhook}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {testingWebhook ? "Sending…" : "Test webhook"}
+                </button>
+                {webhookTestResult ? (
+                  <span
+                    className={cn(
+                      "text-sm",
+                      webhookTestResult.ok ? "text-green-600" : "text-red-600"
+                    )}
+                  >
+                    {webhookTestResult.ok ? "✓" : "✗"} {webhookTestResult.message}
+                  </span>
+                ) : null}
               </div>
             </>
           ) : null}

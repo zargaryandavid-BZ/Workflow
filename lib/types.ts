@@ -314,6 +314,11 @@ export interface NotificationRule {
   sms_body: string;
   /** Fixed phone number to send SMS to. If empty, falls back to customer/staff phone from the order. */
   sms_to_phone: string;
+  send_webhook: boolean;
+  webhook_url: string;
+  webhook_body_template: string;
+  /** Custom HTTP headers sent with the webhook request. */
+  webhook_headers: Record<string, string>;
   enabled: boolean;
   position: number;
   created_at: string;

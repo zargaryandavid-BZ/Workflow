@@ -250,7 +250,12 @@ export async function fireNotificationRules(
     exportData.columnName = column.name as string;
   }
 
-  const templateContext = buildNotificationRuleTemplateContext(exportData);
+  const movedAt = new Date().toISOString();
+  const templateContext = buildNotificationRuleTemplateContext(exportData, {
+    columnId: newColumnId,
+    tenantId,
+    movedAt,
+  });
 
   for (const rule of rules as NotificationRule[]) {
     // Resolve staff profiles when the rule targets staff.
@@ -318,6 +323,24 @@ export async function fireNotificationRules(
         });
       }
     }
+
+    if (rule.send_webhook && rule.webhook_url?.trim()) {
+      const renderedBody = renderNotificationRuleTemplate(
+        rule.webhook_body_template || "{}",
+        templateContext
+      );
+      await fetch(rule.webhook_url.trim(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(rule.webhook_headers ?? {}),
+        },
+        body: renderedBody,
+      }).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[NotifRule webhook] "${rule.name}" failed:`, message);
+      });
+    }
   }
 }
 
@@ -373,7 +396,12 @@ export async function fireNewJobNotificationRules(
     exportData.columnName = column.name as string;
   }
 
-  const templateContext = buildNotificationRuleTemplateContext(exportData);
+  const movedAt2 = new Date().toISOString();
+  const templateContext = buildNotificationRuleTemplateContext(exportData, {
+    columnId: columnId,
+    tenantId,
+    movedAt: movedAt2,
+  });
 
   for (const rule of rules as NotificationRule[]) {
     let staffProfiles: StaffProfile[] = [];
@@ -414,6 +442,24 @@ export async function fireNewJobNotificationRules(
           console.error(`[NotifRule] SMS error rule ${rule.id}:`, message);
         });
       }
+    }
+
+    if (rule.send_webhook && rule.webhook_url?.trim()) {
+      const renderedBody2 = renderNotificationRuleTemplate(
+        rule.webhook_body_template || "{}",
+        templateContext
+      );
+      await fetch(rule.webhook_url.trim(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(rule.webhook_headers ?? {}),
+        },
+        body: renderedBody2,
+      }).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[NotifRule webhook] "${rule.name}" failed:`, message);
+      });
     }
   }
 }
