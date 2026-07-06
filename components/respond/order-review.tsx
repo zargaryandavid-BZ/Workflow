@@ -62,7 +62,7 @@ function AssetPreview({
         <img
           src={href}
           alt={asset.file_name}
-          className="h-24 w-full object-contain"
+          className="h-56 w-full object-contain"
         />
       </a>
     );
@@ -103,7 +103,7 @@ export function OrderReview({ token, rows, skus, assets }: OrderReviewProps) {
       </p>
 
       {hasRows ? (
-        <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <dl className="grid grid-cols-2 gap-2">
           {rows.map((row) => (
             <div
               key={row.label}
