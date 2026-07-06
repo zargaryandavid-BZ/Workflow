@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  CalendarClock,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -34,7 +35,7 @@ import {
   validateOrderFormFields,
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
-import { cn, dateInputValue, formatDateTime, localDateInputValue } from "@/lib/utils";
+import { cn, dateInputValue, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type {
@@ -112,6 +113,15 @@ interface DetailResponse {
 
 type ActivityChangeEntry = { field?: unknown; from?: unknown; to?: unknown };
 
+function formatDuration(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
 export function CardDetailModal({
   orderId,
   open,
@@ -144,6 +154,7 @@ export function CardDetailModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<"all" | "moves">("all");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -623,6 +634,16 @@ export function CardDetailModal({
           </button>
         ) : null}
       </span>
+      {/* Creation date — non-editable */}
+      {data?.order.created_at ? (
+        <>
+          <span className="text-slate-300">|</span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-slate-400">
+            <CalendarClock className="h-3 w-3" aria-hidden />
+            {formatDate(data.order.created_at)}
+          </span>
+        </>
+      ) : null}
       {/* Customer name — dropdown with copy */}
       {customerName ? (
         <>
@@ -1103,22 +1124,107 @@ export function CardDetailModal({
                 ) : null}
               </button>
               {activityOpen ? (
-                <ul className="space-y-2 border-t border-slate-100 px-3 py-2">
-                  {data.activity.map((log) => (
-                    <li key={log.id} className="text-xs text-slate-500">
-                      <span className="font-medium text-slate-700">
-                        {describeActivity(log)}
-                      </span>
-                      <span className="block text-slate-400">
-                        {formatDateTime(log.created_at)}
-                        {log.actor_name ? ` · ${log.actor_name}` : ""}
-                      </span>
-                    </li>
-                  ))}
-                  {data.activity.length === 0 ? (
-                    <li className="text-xs text-slate-400">No activity yet.</li>
-                  ) : null}
-                </ul>
+                <>
+                  {/* Filter toggle */}
+                  <div className="flex gap-1 border-t border-slate-100 px-3 pt-2 pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setActivityFilter("all")}
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                        activityFilter === "all"
+                          ? "bg-slate-800 text-white"
+                          : "text-slate-500 hover:bg-slate-100"
+                      )}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActivityFilter("moves")}
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                        activityFilter === "moves"
+                          ? "bg-slate-800 text-white"
+                          : "text-slate-500 hover:bg-slate-100"
+                      )}
+                    >
+                      Card moves
+                    </button>
+                  </div>
+
+                  {activityFilter === "all" ? (
+                    <ul className="space-y-2 border-t border-slate-100 px-3 py-2">
+                      {data.activity.map((log) => (
+                        <li key={log.id} className="text-xs text-slate-500">
+                          <span className="font-medium text-slate-700">
+                            {describeActivity(log)}
+                          </span>
+                          <span className="block text-slate-400">
+                            {formatDateTime(log.created_at)}
+                            {log.actor_name ? ` · ${log.actor_name}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                      {data.activity.length === 0 ? (
+                        <li className="text-xs text-slate-400">No activity yet.</li>
+                      ) : null}
+                    </ul>
+                  ) : (() => {
+                    const moveEvents = data.activity
+                      .filter((l) => l.action === "moved")
+                      .slice()
+                      .reverse();
+                    const createdAt = data.order.created_at;
+                    return (
+                      <ul className="space-y-0 border-t border-slate-100 px-3 py-2">
+                        {moveEvents.length === 0 ? (
+                          <li className="text-xs text-slate-400">No column moves yet.</li>
+                        ) : (
+                          moveEvents.map((log, idx) => {
+                            const prevTime = idx === 0
+                              ? new Date(createdAt).getTime()
+                              : new Date(moveEvents[idx - 1].created_at).getTime();
+                            const duration = new Date(log.created_at).getTime() - prevTime;
+                            const meta = log.metadata ?? {};
+                            const from = (meta.fromName as string | undefined) ?? "—";
+                            const to = (meta.toName as string | undefined) ?? "—";
+                            const isLast = idx === moveEvents.length - 1;
+                            return (
+                              <li key={log.id} className="flex gap-2 pb-3 last:pb-0">
+                                {/* Timeline spine */}
+                                <div className="flex flex-col items-center">
+                                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-slate-400" />
+                                  {!isLast ? (
+                                    <span className="mt-0.5 w-px flex-1 bg-slate-200" />
+                                  ) : null}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-slate-700">
+                                    {from}
+                                    <span className="mx-1 text-slate-400">→</span>
+                                    {to}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400">
+                                    {formatDateTime(log.created_at)}
+                                    {log.actor_name ? ` · ${log.actor_name}` : ""}
+                                  </p>
+                                  <p className="text-[11px] text-slate-500">
+                                    Stayed{" "}
+                                    <span className="font-medium text-slate-700">
+                                      {formatDuration(duration)}
+                                    </span>{" "}
+                                    in <span className="font-medium">{from}</span>
+                                  </p>
+                                </div>
+                              </li>
+                            );
+                          })
+                        )}
+                      </ul>
+                    );
+                  })()}
+                </>
               ) : null}
             </div>
           </div>
