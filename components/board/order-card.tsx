@@ -38,13 +38,6 @@ import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
 import type { CardWarningRule, CustomField, OrderWithRelations } from "@/lib/types";
 
-function getDarkTextColor(hexColor: string | null | undefined): string {
-  if (!hexColor || hexColor.length < 7) return "#475569";
-  const r = parseInt(hexColor.slice(1, 3), 16);
-  const g = parseInt(hexColor.slice(3, 5), 16);
-  const b = parseInt(hexColor.slice(5, 7), 16);
-  return `rgb(${Math.round(r * 0.45)}, ${Math.round(g * 0.45)}, ${Math.round(b * 0.45)})`;
-}
 
 interface OrderCardProps {
   order: OrderWithRelations;
@@ -471,11 +464,8 @@ export function OrderCard({
       {/* Full-width tag footer bar */}
       {order.tag ? (
         <div
-          style={{
-            backgroundColor: order.tag.color ?? "#e2e8f0",
-            color: getDarkTextColor(order.tag.color),
-          }}
-          className="w-full py-1 text-center text-xs font-medium tracking-wide"
+          style={{ backgroundColor: order.tag.color ?? "#e2e8f0" }}
+          className="w-full py-1 text-center text-xs font-medium tracking-wide text-white"
         >
           {order.tag.name}
         </div>
