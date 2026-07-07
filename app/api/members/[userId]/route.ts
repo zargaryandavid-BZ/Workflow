@@ -31,17 +31,27 @@ export async function PATCH(
     const role: Role = body.role;
 
     // Prevent demoting the last remaining admin.
+    // Only relevant when the target user is currently an admin.
     if (role !== "admin") {
-      const { count } = await supabase
+      const { data: current } = await supabase
         .from("memberships")
-        .select("user_id", { count: "exact", head: true })
+        .select("role")
         .eq("tenant_id", ctx.tenant.id)
-        .eq("role", "admin");
-      if ((count ?? 0) <= 1) {
-        return NextResponse.json(
-          { error: "At least one admin is required." },
-          { status: 400 }
-        );
+        .eq("user_id", userId)
+        .single();
+
+      if (current?.role === "admin") {
+        const { count } = await supabase
+          .from("memberships")
+          .select("user_id", { count: "exact", head: true })
+          .eq("tenant_id", ctx.tenant.id)
+          .eq("role", "admin");
+        if ((count ?? 0) <= 1) {
+          return NextResponse.json(
+            { error: "At least one admin is required." },
+            { status: 400 }
+          );
+        }
       }
     }
 
