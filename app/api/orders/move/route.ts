@@ -28,16 +28,26 @@ export async function POST(request: Request) {
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
-  const { data: order } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("id", body.orderId)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-  if (!order) {
+  // Fetch order and both columns in parallel — saves 2 sequential round-trips.
+  const [orderRes, toColumnRes] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("*")
+      .eq("id", body.orderId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle(),
+    supabase
+      .from("board_columns")
+      .select("*")
+      .eq("id", body.toColumnId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle(),
+  ]);
+
+  if (!orderRes.data) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
-  const typedOrder = order as Order;
+  const typedOrder = orderRes.data as Order;
   if (typedOrder.removed_at) {
     return NextResponse.json(
       { error: "Removed orders cannot be moved" },
@@ -45,29 +55,26 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: toColumn } = await supabase
-    .from("board_columns")
-    .select("*")
-    .eq("id", body.toColumnId)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-  if (!toColumn) {
+  if (!toColumnRes.data) {
     return NextResponse.json({ error: "Column not found" }, { status: 404 });
   }
-  const typedColumn = toColumn as BoardColumn;
+  const typedColumn = toColumnRes.data as BoardColumn;
 
   const fromColumnId = typedOrder.column_id;
 
-  // Enforce per-column drop permissions based on the mover's role.
-  const { data: fromColumn } = await supabase
-    .from("board_columns")
-    .select("*")
-    .eq("id", fromColumnId)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-  const typedFromColumn = (fromColumn ?? typedColumn) as BoardColumn;
+  // Fetch source column (needed for permission check) — only if different.
+  const fromColumnRes = fromColumnId !== body.toColumnId
+    ? await supabase
+        .from("board_columns")
+        .select("*")
+        .eq("id", fromColumnId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle()
+    : { data: typedColumn };
 
-  if (!fromColumn) {
+  const typedFromColumn = (fromColumnRes.data ?? typedColumn) as BoardColumn;
+
+  if (!fromColumnRes.data) {
     return NextResponse.json({ error: "Column not found" }, { status: 404 });
   }
 
@@ -80,30 +87,31 @@ export async function POST(request: Request) {
 
   // Incomplete cards may still enter Missing Info (exception) columns.
   if (fromColumnId !== body.toColumnId && typedColumn.kind !== "exception") {
-    let customer: Customer | null = null;
-    if (typedOrder.customer_id) {
-      const { data: customerRow } = await supabase
-        .from("customers")
+    // Fetch customer, fields, and values in parallel — saves 2 more round-trips.
+    const [customerRes, customFieldsRes, customFieldValuesRes] = await Promise.all([
+      typedOrder.customer_id
+        ? supabase
+            .from("customers")
+            .select("*")
+            .eq("id", typedOrder.customer_id)
+            .eq("tenant_id", tenantId)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      supabase
+        .from("custom_fields")
         .select("*")
-        .eq("id", typedOrder.customer_id)
         .eq("tenant_id", tenantId)
-        .maybeSingle();
-      customer = (customerRow as Customer | null) ?? null;
-    }
+        .order("position", { ascending: true }),
+      supabase
+        .from("custom_field_values")
+        .select("custom_field_id, value")
+        .eq("order_id", body.orderId),
+    ]);
 
-    const { data: customFieldsRows } = await supabase
-      .from("custom_fields")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("position", { ascending: true });
-
-    const { data: customFieldValues } = await supabase
-      .from("custom_field_values")
-      .select("custom_field_id, value")
-      .eq("order_id", body.orderId);
+    const customer = (customerRes.data as Customer | null) ?? null;
 
     const fieldValues: Record<string, unknown> = {};
-    for (const row of (customFieldValues ?? []) as {
+    for (const row of (customFieldValuesRes.data ?? []) as {
       custom_field_id: string;
       value: unknown;
     }[]) {
@@ -118,7 +126,7 @@ export async function POST(request: Request) {
     const missing = getMissingFields(
       orderWithRelations,
       fieldValues,
-      (customFieldsRows ?? []) as CustomField[]
+      (customFieldsRes.data ?? []) as CustomField[]
     );
 
     if (missing.length > 0) {
@@ -152,8 +160,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  if (fromColumnId !== body.toColumnId) {
-    await logActivity(supabase, {
+  if (isColumnChange) {
+    // Fire activity logging and automations after the response is sent — they
+    // don't affect the outcome and were the biggest source of latency.
+    logActivity(supabase, {
       tenantId: ctx.tenant.id,
       orderId: typedOrder.id,
       actor: ctx.userId,
@@ -164,9 +174,14 @@ export async function POST(request: Request) {
         fromName: typedFromColumn.name,
         toName: typedColumn.name,
       },
+    }).catch((err: unknown) => {
+      console.error("[move] logActivity failed:", err instanceof Error ? err.message : err);
     });
-    await onEnterColumn(supabase, updated as Order, typedColumn, ctx.tenant.name);
-
+    onEnterColumn(supabase, updated as Order, typedColumn, ctx.tenant.name).catch(
+      (err: unknown) => {
+        console.error("[move] onEnterColumn failed:", err instanceof Error ? err.message : err);
+      }
+    );
     fireNotificationRules(body.orderId, body.toColumnId, tenantId).catch(
       (err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);

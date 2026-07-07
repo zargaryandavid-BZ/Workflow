@@ -179,6 +179,85 @@ export function Board({
     window.setTimeout(() => setPermissionError(null), 3500);
   }
 
+  /** Returns the columns a card in `fromColumnId` can be moved to via the right-click menu. */
+  function getMoveableColumns(fromColumnId: string) {
+    const fromCol = columnsById.get(fromColumnId);
+    if (!fromCol || !canDropOut(role, fromCol)) return [];
+    return columns.filter(
+      (c) => c.id !== fromColumnId && canDropIn(role, c)
+    );
+  }
+
+  /** Handles a column move triggered from the right-click context menu. */
+  async function handleContextMove(
+    order: OrderWithRelations,
+    toColumnId: string
+  ) {
+    const fromColumnId = order.column_id;
+    const fromCol = columnsById.get(fromColumnId);
+    const toCol = columnsById.get(toColumnId);
+    if (!fromCol || !toCol) return;
+
+    if (!canDropOut(role, fromCol)) {
+      flashPermissionError(
+        `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
+      );
+      return;
+    }
+    if (!canDropIn(role, toCol)) {
+      flashPermissionError(
+        `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
+      );
+      return;
+    }
+
+    // Append to end of destination column.
+    const destOrders = orders
+      .filter((o) => o.column_id === toColumnId)
+      .sort((a, b) => a.position - b.position);
+    const lastPos = destOrders[destOrders.length - 1]?.position ?? 0;
+    const newPosition = lastPos + 1000;
+
+    // Snapshot for rollback.
+    const snapshot = orders;
+
+    // Optimistic update.
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === order.id
+          ? { ...o, column_id: toColumnId, position: newPosition }
+          : o
+      )
+    );
+
+    const result = await requestOrderMove(
+      { orderId: order.id, toColumnId, position: newPosition },
+      { fromColumnId, columns }
+    );
+
+    if (!result.ok) {
+      if (result.missingFields?.length) {
+        setOrders(snapshot);
+        setMoveBlockedState({ orderId: order.id, missingFields: result.missingFields });
+        return;
+      }
+      flashPermissionError(result.error ?? "Move was rejected.");
+      setOrders(snapshot);
+      scheduleRefresh();
+      return;
+    }
+
+    // Show notification popup if the destination column has automation enabled.
+    const notifyColumn = notifyColumns.find((c) => c.column_id === toColumnId);
+    if (notifyColumn && notifyColumn.automation_enabled) {
+      setNotifyPopup({
+        order: { ...order, column_id: toColumnId },
+        notifyColumn,
+        columnName: toCol.name,
+      });
+    }
+  }
+
   // Keep local state in sync when the server sends fresh data (e.g. realtime
   // refresh) and we are not mid-drag.
   const signature = useMemo(
@@ -257,11 +336,9 @@ export function Board({
       }
 
       if (eventType === "UPDATE" && row.column_id) {
-        let columnMoved = false;
         setOrders((prev) => {
           const idx = prev.findIndex((o) => o.id === row.id);
           if (idx === -1) return prev;
-          columnMoved = prev[idx].column_id !== row.column_id;
           const next = [...prev];
           next[idx] = {
             ...next[idx],
@@ -277,8 +354,9 @@ export function Board({
           };
           return next;
         });
-        // Refresh badges and sync from server when a customer response moves the card.
-        if (columnMoved) scheduleRefresh();
+        // Refresh server data (badges, etc.) for any realtime update —
+        // scheduleRefresh is debounced 800ms and bails when mid-drag.
+        scheduleRefresh();
       }
     }
 
@@ -550,7 +628,10 @@ export function Board({
             columnName: columnsById.get(overColumn)?.name ?? "",
           });
         }
-        // When automation is disabled, do nothing — card stays in the column silently.
+        // Refresh server data (notification badges, etc.) shortly after a
+        // successful cross-column move. draggingRef is cleared in `finally`
+        // before this scheduleRefresh call is reached.
+        scheduleRefresh();
       }
     } finally {
       draggingRef.current = false;
@@ -693,6 +774,8 @@ export function Board({
               warningRules={warningRules}
               animateWarnings={animateWarnings}
               isFirst={index === 0}
+              availableColumns={getMoveableColumns(column.id)}
+              onMoveToColumn={handleContextMove}
               onOpenOrder={(o) => setDetailId(o.id)}
               onAdd={(colId) => setCreateColumn(colId)}
             />

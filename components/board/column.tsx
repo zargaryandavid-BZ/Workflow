@@ -25,6 +25,12 @@ import type {
 
 type DateSort = "default" | "asc" | "desc";
 
+interface ColumnOption {
+  id: string;
+  name: string;
+  color: string | null;
+}
+
 interface ColumnProps {
   column: BoardColumn;
   canDragCards: boolean;
@@ -41,6 +47,9 @@ interface ColumnProps {
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
   isFirst: boolean;
+  /** Columns this card can be moved to via right-click (pre-filtered by board). */
+  availableColumns?: ColumnOption[];
+  onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
   onAdd: (columnId: string) => void;
 }
@@ -71,6 +80,8 @@ export function Column({
   warningRules = [],
   animateWarnings = true,
   isFirst,
+  availableColumns,
+  onMoveToColumn,
   onOpenOrder,
   onAdd,
 }: ColumnProps) {
@@ -238,6 +249,8 @@ export function Column({
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
                     columnColor={column.color}
+                    availableColumns={availableColumns}
+                    onMoveToColumn={onMoveToColumn}
                     onOpen={onOpenOrder}
                   />
                 )
@@ -256,6 +269,8 @@ export function Column({
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}
                   columnColor={column.color}
+                  availableColumns={availableColumns}
+                  onMoveToColumn={onMoveToColumn}
                   onOpen={onOpenOrder}
                 />
               ))}

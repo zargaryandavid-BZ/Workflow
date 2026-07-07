@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Clock,
   Copy,
+  MoveRight,
   User,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,11 @@ import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
 import type { CardWarningRule, CustomField, OrderWithRelations } from "@/lib/types";
 
+interface ColumnOption {
+  id: string;
+  name: string;
+  color: string | null;
+}
 
 interface OrderCardProps {
   order: OrderWithRelations;
@@ -55,6 +61,10 @@ interface OrderCardProps {
   animateWarnings?: boolean;
   /** Column accent color (hex) — used to tint the customer name at 70% opacity. */
   columnColor?: string | null;
+  /** Columns the user is allowed to move this card to (pre-filtered by board). */
+  availableColumns?: ColumnOption[];
+  /** Called when the user selects a column from the right-click menu. */
+  onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
   onOpen: (order: OrderWithRelations) => void;
 }
 
@@ -70,6 +80,8 @@ export function OrderCard({
   warningRules = [],
   animateWarnings = true,
   columnColor,
+  availableColumns = [],
+  onMoveToColumn,
   onOpen,
 }: OrderCardProps) {
   const {
@@ -136,6 +148,38 @@ export function OrderCard({
   const [copied, setCopied] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
+  // Right-click context menu
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClose(e: MouseEvent | KeyboardEvent) {
+      if (e instanceof KeyboardEvent) {
+        if (e.key === "Escape") setMenuOpen(false);
+        return;
+      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClose);
+    document.addEventListener("keydown", handleClose);
+    return () => {
+      document.removeEventListener("mousedown", handleClose);
+      document.removeEventListener("keydown", handleClose);
+    };
+  }, [menuOpen]);
+
+  function handleContextMenu(e: React.MouseEvent) {
+    if (!availableColumns.length || !onMoveToColumn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+    setMenuOpen(true);
+  }
+
   async function copyText(e: React.MouseEvent, text: string, key: string) {
     e.stopPropagation();
     try {
@@ -199,6 +243,7 @@ export function OrderCard({
       {...attributes}
       {...(canDrag ? listeners : {})}
       onClick={() => onOpen(order)}
+      onContextMenu={handleContextMenu}
       className={cn(
         "group relative shrink-0 overflow-hidden rounded-md border shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
@@ -468,6 +513,39 @@ export function OrderCard({
           className="w-full py-1 text-center text-xs font-medium tracking-wide text-white"
         >
           {order.tag.name}
+        </div>
+      ) : null}
+
+      {/* Right-click move menu — rendered via portal-like fixed positioning */}
+      {menuOpen && availableColumns.length > 0 && onMoveToColumn ? (
+        <div
+          ref={menuRef}
+          style={{ top: menuPos.y, left: menuPos.x }}
+          className="fixed z-50 min-w-[11rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <p className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            <MoveRight className="h-3 w-3" />
+            Move to
+          </p>
+          {availableColumns.map((col) => (
+            <button
+              key={col.id}
+              type="button"
+              onClick={() => {
+                onMoveToColumn(order, col.id);
+                setMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
+                style={{ backgroundColor: col.color ?? "#e2e8f0" }}
+              />
+              <span className="truncate">{col.name}</span>
+            </button>
+          ))}
         </div>
       ) : null}
     </div>
