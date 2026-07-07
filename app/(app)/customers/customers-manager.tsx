@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Mail, Pencil, Phone } from "lucide-react";
+import { ChevronRight, Mail, Pencil, Phone, Search, X } from "lucide-react";
 import { CardDetailModal } from "@/components/board/card-detail-modal";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ export function CustomersManager({
 }) {
   const router = useRouter();
   const isAdmin = role === "admin";
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<CustomerWithStats | null>(null);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", company: "" });
@@ -54,6 +55,16 @@ export function CustomersManager({
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
 
   const selectedOrders = selected ? (ordersByCustomer[selected.id] ?? []) : [];
+
+  const filteredCustomers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(
+      (c) =>
+        (c.name ?? "").toLowerCase().includes(q) ||
+        (c.phone ?? "").toLowerCase().includes(q)
+    );
+  }, [customers, query]);
 
   useEffect(() => {
     if (selected) {
@@ -116,15 +127,41 @@ export function CustomersManager({
 
   return (
     <div>
+      {customers.length > 0 && (
+        <div className="relative mb-3">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter by name or phone…"
+            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              aria-label="Clear filter"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
       <div className="rounded-lg border border-slate-200 bg-white">
         {customers.length === 0 ? (
           <p className="p-4 text-sm text-slate-400">
             No customers yet. They will appear here when orders include a
             customer name and contact.
           </p>
+        ) : filteredCustomers.length === 0 ? (
+          <p className="p-4 text-sm text-slate-400">
+            No customers match &ldquo;{query}&rdquo;.
+          </p>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {customers.map((c) => {
+            {filteredCustomers.map((c) => {
               const contact = c.email ?? c.phone;
               return (
                 <li key={c.id}>
