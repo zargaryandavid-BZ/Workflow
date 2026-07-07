@@ -200,7 +200,7 @@ export function OrderCard({
       {...(canDrag ? listeners : {})}
       onClick={() => onOpen(order)}
       className={cn(
-        "group relative overflow-hidden rounded-md border shadow-sm transition-shadow hover:shadow-md",
+        "group relative shrink-0 overflow-hidden rounded-md border shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
           ? UNASSIGNED_DESIGNER_CARD_CLASS
           : "border-slate-200 bg-white",

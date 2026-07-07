@@ -56,7 +56,7 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative shrink-0">
       {/* Main grouped card */}
       <div
         onClick={() => setOpen((v) => !v)}
