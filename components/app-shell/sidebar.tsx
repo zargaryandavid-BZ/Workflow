@@ -101,6 +101,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
       <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
         <Link
           href="/board"
+          prefetch={false}
           onClick={handleNavClick}
           className="flex min-w-0 items-center gap-2 transition-colors hover:bg-slate-50"
           aria-label="Go to Board"
@@ -132,6 +133,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
                 onClick={handleNavClick}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
