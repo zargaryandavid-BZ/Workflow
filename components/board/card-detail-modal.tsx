@@ -35,7 +35,7 @@ import {
   validateOrderFormFields,
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
-import { cn, dateInputValue, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
+import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type {
@@ -641,6 +641,8 @@ export function CardDetailModal({
           <span className="inline-flex shrink-0 items-center gap-1 text-xs text-slate-400">
             <CalendarClock className="h-3 w-3" aria-hidden />
             {formatDate(data.order.created_at)}
+            <span className="text-slate-300">·</span>
+            {daysAgo(data.order.created_at)}
           </span>
         </>
       ) : null}

@@ -46,6 +46,17 @@ export function formatDateTime(value?: string | null) {
   });
 }
 
+/** Returns a short human-readable relative label like "today", "yesterday", or "5 days ago". */
+export function daysAgo(value?: string | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const diff = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  if (diff === 0) return "today";
+  if (diff === 1) return "yesterday";
+  return `${diff} days ago`;
+}
+
 export function initials(name?: string | null) {
   if (!name) return "?";
   return name
