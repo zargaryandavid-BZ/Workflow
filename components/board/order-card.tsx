@@ -520,32 +520,38 @@ export function OrderCard({
       {menuOpen && availableColumns.length > 0 && onMoveToColumn ? (
         <div
           ref={menuRef}
-          style={{ top: menuPos.y, left: menuPos.x }}
-          className="fixed z-50 min-w-[11rem] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+          style={{
+            top: menuPos.y,
+            left: menuPos.x,
+            maxHeight: `calc(100dvh - ${menuPos.y}px - 8px)`,
+          }}
+          className="fixed z-50 flex min-w-[11rem] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <p className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <p className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             <MoveRight className="h-3 w-3" />
             Move to
           </p>
-          {availableColumns.map((col) => (
-            <button
-              key={col.id}
-              type="button"
-              onClick={() => {
-                onMoveToColumn(order, col.id);
-                setMenuOpen(false);
-              }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
-                style={{ backgroundColor: col.color ?? "#e2e8f0" }}
-              />
-              <span className="truncate">{col.name}</span>
-            </button>
-          ))}
+          <div className="overflow-y-auto py-1">
+            {availableColumns.map((col) => (
+              <button
+                key={col.id}
+                type="button"
+                onClick={() => {
+                  onMoveToColumn(order, col.id);
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
+                  style={{ backgroundColor: col.color ?? "#e2e8f0" }}
+                />
+                <span className="truncate">{col.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
