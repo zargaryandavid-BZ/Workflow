@@ -195,12 +195,18 @@ export function Board({
 
   /** Debounced full reload — board page is heavy (signed URLs, notifications). */
   const scheduleRefresh = useCallback(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037e2a'},body:JSON.stringify({sessionId:'037e2a',location:'board.tsx:scheduleRefresh',message:'scheduleRefresh called',data:{draggingRef:draggingRef.current,bailed:draggingRef.current},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     if (draggingRef.current) return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => router.refresh(), 800);
   }, [router]);
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037e2a'},body:JSON.stringify({sessionId:'037e2a',location:'board.tsx:signatureEffect',message:'signature useEffect fired',data:{draggingRef:draggingRef.current,willUpdate:!draggingRef.current},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     if (!draggingRef.current) {
       setOrders(initialOrders);
       const prev = prevOrderCountRef.current;
@@ -397,6 +403,9 @@ export function Board({
     const id = String(event.active.id);
     dragSourceColumnRef.current = findColumnId(id);
     setActiveId(id);
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037e2a'},body:JSON.stringify({sessionId:'037e2a',location:'board.tsx:onDragStart',message:'drag started',data:{orderId:id,sourceColumn:dragSourceColumnRef.current,activeIdSet:id},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
   }
 
   function onDragOver(event: DragOverEvent) {
@@ -430,6 +439,9 @@ export function Board({
     const { active, over } = event;
     setActiveId(null);
     const sourceColumn = dragSourceColumnRef.current;
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037e2a'},body:JSON.stringify({sessionId:'037e2a',location:'board.tsx:onDragEnd:entry',message:'onDragEnd entered — activeId snapshot at entry',data:{activeIdBeforeSet:String(active.id),hasOver:!!over,draggingRef:draggingRef.current},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (!over) {
       abortDrag();
       return;
@@ -496,6 +508,9 @@ export function Board({
       )
     );
 
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037e2a'},body:JSON.stringify({sessionId:'037e2a',location:'board.tsx:onDragEnd:beforeAwait',message:'about to await API — activeId in state is still stale here if batched',data:{draggingRef:draggingRef.current,toColumnId:overColumn,crossing:activeColumn!==overColumn},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     try {
       const result = await requestOrderMove(
         {
@@ -508,6 +523,9 @@ export function Board({
           columns,
         }
       );
+      // #region agent log
+      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037e2a'},body:JSON.stringify({sessionId:'037e2a',location:'board.tsx:onDragEnd:afterAwait',message:'API call completed',data:{ok:result.ok,draggingRef:draggingRef.current},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       if (!result.ok) {
         if (result.missingFields?.length) {
           abortDrag();
@@ -537,6 +555,9 @@ export function Board({
     } finally {
       draggingRef.current = false;
       dragSourceColumnRef.current = null;
+      // #region agent log
+      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037e2a'},body:JSON.stringify({sessionId:'037e2a',location:'board.tsx:onDragEnd:finally',message:'finally block ran — draggingRef reset to false',data:{draggingRef:draggingRef.current},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
     }
   }
 
