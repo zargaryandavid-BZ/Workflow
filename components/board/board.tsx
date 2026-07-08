@@ -34,6 +34,7 @@ import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
+import { getGroupKey } from "@/lib/group-orders";
 import type {
   BoardColumn,
   CardWarningRule,
@@ -149,6 +150,17 @@ export function Board({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [createColumn, setCreateColumn] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  const detailGroupSize = useMemo(() => {
+    if (!detailId) return undefined;
+    const order = orders.find((o) => o.id === detailId);
+    if (!order) return undefined;
+    const key = getGroupKey(order);
+    if (!key) return undefined;
+    const count = orders.filter((o) => getGroupKey(o) === key).length;
+    return count >= 2 ? count : undefined;
+  }, [detailId, orders]);
+
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [notifyPopup, setNotifyPopup] = useState<{
@@ -948,6 +960,7 @@ export function Board({
         orderId={detailId}
         open={detailId !== null}
         onClose={closeOrderDetail}
+        groupSize={detailGroupSize}
         customFields={customFields}
         owners={owners}
         columns={columns}

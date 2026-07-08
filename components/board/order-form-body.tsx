@@ -9,6 +9,7 @@ import { OrderQtyField } from "./order-qty-field";
 import { PRIORITY_OPTIONS } from "@/lib/constants";
 import { normalizeCustomerContact } from "@/lib/customers";
 import {
+  isEmptyFieldValue,
   isValidCustomerContact,
   orderFormFieldLabel,
   resolveOrderFormFields,
@@ -67,6 +68,8 @@ export interface OrderFormBodyProps {
   /** Saves a newly added SKU row before gallery uploads can attach to it. */
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   readOnly?: boolean;
+  /** When true, fields with no value are hidden (view mode). */
+  hideEmpty?: boolean;
   /** Hide order number field (shown in modal title when editing existing orders). */
   hideOrderNumberField?: boolean;
   /** Hide priority and due date fields (rendered elsewhere in the modal). */
@@ -122,6 +125,7 @@ export function OrderFormBody({
   onUnmarkSkuArtworkForRemoval,
   ensureSkuPersisted,
   readOnly = false,
+  hideEmpty = false,
   hideOrderNumberField = false,
   hidePriorityAndDueDateFields = false,
   hideOwnerField = false,
@@ -145,6 +149,10 @@ export function OrderFormBody({
   const artworkValue = artworkField
     ? String(fieldValues[artworkField.id] ?? "").trim()
     : "";
+
+  const visiblePrintFields = hideEmpty
+    ? printFields.filter((f) => !isEmptyFieldValue(fieldValues[f.id]))
+    : printFields;
 
   async function copyArtworkLink() {
     if (!artworkValue) return;
@@ -343,9 +351,9 @@ export function OrderFormBody({
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
-        {printFields.length > 0 ? (
+        {visiblePrintFields.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {printFields.map((field) => (
+            {visiblePrintFields.map((field) => (
               <CustomFieldInput
                 key={field.id}
                 field={{
@@ -385,6 +393,7 @@ export function OrderFormBody({
           />
         ) : null}
 
+        {(!hideEmpty || description.trim()) ? (
         <div>
           <Label htmlFor={`${idPrefix}-desc`}>Order Description</Label>
           <Textarea
@@ -396,10 +405,12 @@ export function OrderFormBody({
             className={readOnly ? "bg-white" : "bg-white"}
           />
         </div>
+        ) : null}
       </div>
 
       <div className="border-t border-slate-200" />
 
+      {(!hideEmpty || designerId || designTask) ? (
       <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-400">
           Designer
@@ -441,8 +452,9 @@ export function OrderFormBody({
           </div>
         </div>
       </div>
+      ) : null}
 
-      {artworkField ? (
+      {artworkField && (!hideEmpty || artworkValue) ? (
         <div>
           <Label htmlFor={`${idPrefix}-artwork`}>
             {orderFormFieldLabel(artworkField.name)}

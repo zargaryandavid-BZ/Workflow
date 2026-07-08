@@ -76,6 +76,8 @@ interface CardDetailModalProps {
   fastActionButtons?: FastActionButton[];
   appUrl?: string;
   tags?: Tag[];
+  /** Total number of items in the same order group (e.g. 3 for "160-2 (3)"). */
+  groupSize?: number;
   /** Columns that trigger a notification popup when a card enters them. */
   notifyColumns?: NotifyColumnConfig[];
   /** Called when a Fast Action Button moves to a column that has an active automation. */
@@ -142,6 +144,7 @@ export function CardDetailModal({
   tags = [],
   notifyColumns = [],
   onNotifyColumn,
+  groupSize,
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
   const [modalCustomFields, setModalCustomFields] =
@@ -153,6 +156,7 @@ export function CardDetailModal({
   const [data, setData] = useState<DetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState<"all" | "moves">("all");
 
@@ -284,6 +288,7 @@ export function CardDetailModal({
     if (open && orderId) {
       setSaveError(null);
       setActivityOpen(false);
+      setIsEditing(false);
       resetPendingFiles();
       setModalCustomFields(customFieldsRef.current);
       load();
@@ -293,6 +298,7 @@ export function CardDetailModal({
       setData(null);
       setTab("details");
       setActivityOpen(false);
+      setIsEditing(false);
       resetPendingFiles();
       setPersistedSkuIds(new Set());
     }
@@ -406,8 +412,16 @@ export function CardDetailModal({
     setNewNote("");
     setSaving(false);
     resetPendingFiles();
+    setIsEditing(false);
     onChanged();
-    onClose();
+    void load({ silent: true });
+  }
+
+  function revert() {
+    if (data) applyDetail(data);
+    setSaveError(null);
+    resetPendingFiles();
+    setIsEditing(false);
   }
 
   async function removeOrder() {
@@ -615,7 +629,12 @@ export function CardDetailModal({
       {/* Order number + copy */}
       <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">
         {displayOrderNumber
-          ? displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")
+          ? <>
+              {displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+              {groupSize != null && groupSize >= 2 && (
+                <span className="font-normal text-slate-400">({groupSize})</span>
+              )}
+            </>
           : loading ? "…" : "Order Details"}
         {displayOrderNumber ? (
           <button
@@ -753,12 +772,11 @@ export function CardDetailModal({
       title={modalTitle}
       className="max-w-3xl"
       headerAction={
-        !isViewOnly ? (
+        !isViewOnly && isEditing ? (
           <select
             value={ownerId}
-            disabled={isViewOnly}
             onChange={(e) => setOwnerId(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-60"
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
             title="Owner"
           >
             <option value="">— Owner —</option>
@@ -773,7 +791,7 @@ export function CardDetailModal({
         ) : undefined
       }
       footer={
-        isViewOnly ? (
+        isViewOnly || !isEditing ? (
           <Button variant="ghost" onClick={handleClose} type="button">
             Close
           </Button>
@@ -784,7 +802,7 @@ export function CardDetailModal({
                 Unsaved file changes
               </span>
             ) : null}
-            {!isViewOnly && isAdmin ? (
+            {isAdmin ? (
               <button
                 type="button"
                 onClick={() => {
@@ -799,8 +817,8 @@ export function CardDetailModal({
                 Delete Order
               </button>
             ) : null}
-            <Button variant="ghost" onClick={handleClose} type="button">
-              Close
+            <Button variant="ghost" onClick={revert} type="button" disabled={saving || removing}>
+              Cancel
             </Button>
             <Button onClick={save} disabled={saving || loading || removing}>
               {saving ? "Saving…" : "Save changes"}
@@ -808,7 +826,7 @@ export function CardDetailModal({
           </>
         ) : (
           <>
-            {!isViewOnly && isAdmin ? (
+            {isAdmin ? (
               <button
                 type="button"
                 onClick={() => {
@@ -823,8 +841,8 @@ export function CardDetailModal({
                 Delete Order
               </button>
             ) : null}
-            <Button variant="ghost" onClick={handleClose} type="button">
-              Close
+            <Button variant="ghost" onClick={revert} type="button" disabled={removing}>
+              Cancel
             </Button>
           </>
         )
@@ -837,7 +855,7 @@ export function CardDetailModal({
       ) : (
         <>
           {!isViewOnly ? (
-            <div className="mb-4 flex gap-1 border-b border-slate-200">
+            <div className="mb-4 flex items-center gap-1 border-b border-slate-200">
               <button
                 type="button"
                 onClick={() => setTab("details")}
@@ -883,6 +901,15 @@ export function CardDetailModal({
                 >
                   Approval
                   <span className="h-2 w-2 rounded-full bg-violet-500" />
+                </button>
+              ) : null}
+              {!isEditing ? (
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  className="ml-auto mb-px rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100"
+                >
+                  Edit
                 </button>
               ) : null}
             </div>
@@ -989,10 +1016,11 @@ export function CardDetailModal({
               onMarkSkuArtworkForRemoval={markSkuArtworkForRemoval}
               onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
               ensureSkuPersisted={ensureSkuPersisted}
-              readOnly={isViewOnly}
+              readOnly={!isEditing || isViewOnly}
+              hideEmpty={!isEditing && !isViewOnly}
               tags={tags}
               tagId={tagId}
-              onTagIdChange={isViewOnly ? undefined : setTagId}
+              onTagIdChange={!isEditing || isViewOnly ? undefined : setTagId}
             />
 
             {saveError ? (
@@ -1010,7 +1038,7 @@ export function CardDetailModal({
                 <Select
                   id="sidebar-priority"
                   value={priority}
-                  disabled={isViewOnly}
+                  disabled={!isEditing || isViewOnly}
                   onChange={(e) => setPriority(e.target.value)}
                 >
                   {PRIORITY_OPTIONS.map((p) => (
@@ -1020,40 +1048,47 @@ export function CardDetailModal({
                   ))}
                 </Select>
               </div>
+              {(isEditing || dueDate) ? (
               <div>
                 <Label htmlFor="sidebar-due">Due date</Label>
                 <Input
                   id="sidebar-due"
                   type="date"
-                  min={isViewOnly ? undefined : localDateInputValue()}
-                  readOnly={isViewOnly}
+                  min={!isEditing || isViewOnly ? undefined : localDateInputValue()}
+                  readOnly={!isEditing || isViewOnly}
                   value={dateInputValue(dueDate)}
                   onChange={(e) => {
                     setDueDate(e.target.value);
                     setSaveError(null);
                   }}
-                  className={isViewOnly ? "bg-slate-50" : undefined}
+                  className={!isEditing || isViewOnly ? "bg-slate-50" : undefined}
                 />
               </div>
+              ) : null}
             </div>
-            {tags.length > 0 ? (
+            {tags.length > 0 && (isEditing || tagId) ? (
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Tag
                 </p>
-                <select
-                  value={tagId}
-                  disabled={isViewOnly}
-                  onChange={(e) => setTagId(e.target.value)}
-                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-60"
-                >
-                  <option value="">— None —</option>
-                  {tags.map((tag) => (
-                    <option key={tag.id} value={tag.id}>
-                      {tag.name}
-                    </option>
-                  ))}
-                </select>
+                {isEditing && !isViewOnly ? (
+                  <select
+                    value={tagId}
+                    onChange={(e) => setTagId(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                  >
+                    <option value="">— None —</option>
+                    {tags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-sm text-slate-700">
+                    {tags.find((t) => t.id === tagId)?.name ?? "—"}
+                  </span>
+                )}
               </div>
             ) : null}
             {orderTags.length > 0 ? (
