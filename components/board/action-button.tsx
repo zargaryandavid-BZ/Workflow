@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { orderCardShareUrl } from "@/lib/button-automations";
 import type { ButtonAutomation } from "@/lib/types";
 
@@ -16,6 +16,8 @@ interface ActionButtonProps {
   orderId: string;
   orderNumber: string;
   appUrl: string;
+  /** When >= 2, SMS buttons show a group confirmation dialog before sending. */
+  groupSize?: number;
   onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
@@ -25,10 +27,33 @@ export function ActionButton({
   orderId,
   orderNumber,
   appUrl,
+  groupSize,
   onComplete,
   onError,
 }: ActionButtonProps) {
   const [loading, setLoading] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(false);
+
+  async function sendSms() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/actions/send-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ button_id: button.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to send SMS");
+      }
+      onComplete({ message: "SMS sent!", refreshOrder: true });
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setLoading(false);
+      setPendingConfirm(false);
+    }
+  }
 
   async function handleClick() {
     setLoading(true);
@@ -51,6 +76,17 @@ export function ActionButton({
           throw new Error(json.error ?? "Failed to send email");
         }
         onComplete({ message: "Email sent!", refreshOrder: true });
+        return;
+      }
+
+      if (button.action_type === "send_sms") {
+        // If this order is part of a group, ask for confirmation first.
+        if ((groupSize ?? 0) >= 2) {
+          setLoading(false);
+          setPendingConfirm(true);
+          return;
+        }
+        await sendSms();
         return;
       }
 
@@ -77,6 +113,44 @@ export function ActionButton({
     } finally {
       setLoading(false);
     }
+  }
+
+  // Confirmation dialog for grouped SMS sends
+  if (pendingConfirm) {
+    return (
+      <div className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-medium text-amber-800">
+              This order has <strong>{groupSize} parts</strong>
+            </p>
+            <p className="mt-0.5 text-amber-700">
+              Please confirm all parts are ready before sending the SMS to the customer.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingConfirm(false)}
+                disabled={loading}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={sendSms}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                {loading ? "Sending…" : "Yes, send SMS"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

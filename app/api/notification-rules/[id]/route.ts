@@ -38,6 +38,7 @@ export async function PATCH(
     recipient_mode?: string;
     recipient_roles?: string[];
     recipient_users?: string[];
+    require_all_group_items?: boolean;
   };
 
   const supabase = await createClient();
@@ -108,6 +109,8 @@ export async function PATCH(
     updates.recipient_mode = normalizeVisibilityMode(body.recipient_mode);
   if (body.recipient_roles !== undefined) updates.recipient_roles = body.recipient_roles;
   if (body.recipient_users !== undefined) updates.recipient_users = body.recipient_users;
+  if (body.require_all_group_items !== undefined)
+    updates.require_all_group_items = body.require_all_group_items;
 
   const { data, error } = await supabase
     .from("notification_rules")

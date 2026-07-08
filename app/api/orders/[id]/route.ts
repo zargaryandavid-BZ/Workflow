@@ -350,6 +350,31 @@ export async function PATCH(
     }
   }
 
+  // Look up tag names when the tag is being changed so activity shows e.g. "Tag: Waiting → Approved".
+  let oldTagName: string | null = null;
+  let newTagName: string | null = null;
+  if (updates.tag_id !== undefined && updates.tag_id !== (existingOrder as Record<string, unknown>).tag_id) {
+    const tagIdsToFetch = [
+      (existingOrder as Record<string, unknown>).tag_id as string | null,
+      updates.tag_id as string | null,
+    ].filter((tid): tid is string => !!tid);
+    if (tagIdsToFetch.length > 0) {
+      const { data: tagRows } = await supabase
+        .from("tags")
+        .select("id, name")
+        .in("id", tagIdsToFetch);
+      const tagMap = new Map(
+        ((tagRows ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name])
+      );
+      oldTagName = ((existingOrder as Record<string, unknown>).tag_id as string | null)
+        ? (tagMap.get((existingOrder as Record<string, unknown>).tag_id as string) ?? null)
+        : null;
+      newTagName = updates.tag_id
+        ? (tagMap.get(updates.tag_id as string) ?? null)
+        : null;
+    }
+  }
+
   // Build a human-readable change list for the activity log.
   type ChangeEntry = { field: string; from?: unknown; to?: unknown };
   const changes: ChangeEntry[] = [];
@@ -372,7 +397,7 @@ export async function PATCH(
   if (updates.created_by !== undefined && updates.created_by !== existing.created_by)
     changes.push({ field: "Owner changed" });
   if (updates.tag_id !== undefined && updates.tag_id !== existing.tag_id)
-    changes.push({ field: "Tag changed" });
+    changes.push({ field: "Tag", from: oldTagName, to: newTagName });
 
   if (updates.specs !== undefined) {
     const oldSpecs = (existing.specs ?? {}) as Record<string, unknown>;

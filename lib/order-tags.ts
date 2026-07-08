@@ -22,13 +22,11 @@ export async function addOrderTag(
   tag: string,
   existingSpecs: Record<string, unknown>
 ): Promise<void> {
-  const tags = orderTagsFromSpecs(existingSpecs as OrderSpecs);
-  if (tags.includes(tag)) return;
-
+  // Replace any existing action tags with the new one so only the most recent action shows on the card.
   const { error } = await supabase
     .from("orders")
     .update({
-      specs: { ...existingSpecs, tags: [...tags, tag] },
+      specs: { ...existingSpecs, tags: [tag] },
     })
     .eq("id", orderId)
     .eq("tenant_id", tenantId);

@@ -58,6 +58,7 @@ export async function POST(request: Request) {
     recipient_mode?: string;
     recipient_roles?: string[];
     recipient_users?: string[];
+    require_all_group_items?: boolean;
   };
 
   const validationError = validateNotificationRuleInput({
@@ -131,6 +132,7 @@ export async function POST(request: Request) {
       recipient_mode: recipientMode,
       recipient_roles: body.recipient_roles ?? [],
       recipient_users: body.recipient_users ?? [],
+      require_all_group_items: body.require_all_group_items ?? false,
     })
     .select("*")
     .single();

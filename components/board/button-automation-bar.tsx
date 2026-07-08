@@ -11,6 +11,8 @@ interface ButtonAutomationBarProps {
   orderId: string;
   orderNumber: string;
   appUrl: string;
+  /** When >= 2, SMS buttons show a group confirmation dialog before sending. */
+  groupSize?: number;
   onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
@@ -21,6 +23,7 @@ export function ButtonAutomationBar({
   orderId,
   orderNumber,
   appUrl,
+  groupSize,
   onComplete,
   onError,
 }: ButtonAutomationBarProps) {
@@ -36,6 +39,7 @@ export function ButtonAutomationBar({
           orderId={orderId}
           orderNumber={orderNumber}
           appUrl={appUrl}
+          groupSize={groupSize}
           onComplete={onComplete}
           onError={onError}
         />

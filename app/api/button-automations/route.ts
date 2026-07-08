@@ -12,6 +12,7 @@ import {
 import type {
   ButtonAutomationActionType,
   ButtonAutomationEmailConfig,
+  ButtonAutomationSmsConfig,
 } from "@/lib/types";
 
 export async function GET() {
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
     icon?: string | null;
     action_type?: ButtonAutomationActionType;
     column_ids?: string[];
-    config?: ButtonAutomationEmailConfig;
+    config?: ButtonAutomationEmailConfig | ButtonAutomationSmsConfig;
     enabled?: boolean;
   };
 

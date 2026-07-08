@@ -203,6 +203,9 @@ export function validateOrderFormFields(
   const toCheck: CustomField[] = [...fields.printFields];
   if (fields.artworkField) toCheck.push(fields.artworkField);
 
+  // #region agent log
+  fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44dc29'},body:JSON.stringify({sessionId:'44dc29',location:'order-form.ts:validateOrderFormFields',message:'required-check',hypothesisId:'A',data:{alwaysRequired:[...requiredNames],fields:toCheck.map(f=>({name:f.name,dbRequired:f.required,inAlwaysRequired:requiredNames.has(f.name.toLowerCase()),empty:isEmptyFieldValue(fieldValues[f.id])}))},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const missing = toCheck.filter((f) => {
     const must =
       requiredNames.has(f.name.toLowerCase()) || f.required;

@@ -57,6 +57,7 @@ interface OrderCardProps {
   designerName?: string;
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
+  groupSize?: number;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
   /** Column accent color (hex) — used to tint the customer name at 70% opacity. */
@@ -77,6 +78,7 @@ export function OrderCard({
   designerName: designerNameProp,
   notificationBadge,
   ownerName,
+  groupSize,
   warningRules = [],
   animateWarnings = true,
   columnColor,
@@ -267,6 +269,7 @@ export function OrderCard({
           title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
         />
       ) : null}
+      {/* Top row: thumbnail + header info */}
       <div className="flex items-start gap-2">
         {thumbnail ? (
           <Image
@@ -310,9 +313,14 @@ export function OrderCard({
                       className="group/copy flex shrink-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
                   >
                     <span>
-                      {copied === "order"
-                        ? "Copied"
-                        : order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+                      {copied === "order" ? "Copied" : (
+                        <>
+                          {order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+                          {groupSize != null && groupSize >= 2 ? (
+                            <span className="font-normal text-slate-400"> ({groupSize})</span>
+                          ) : null}
+                        </>
+                      )}
                     </span>
                     <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
                   </button>
@@ -352,173 +360,173 @@ export function OrderCard({
               )}
             </button>
           </div>
+        </div>
+      </div>
 
-          {/* Divider */}
-          <div className="mt-1.5 border-t border-slate-100" />
+      {/* Divider — full card width */}
+      <div className="mt-1.5 border-t border-slate-100" />
 
-          {/* Footer — always visible */}
-          <div className="mt-1.5 flex items-center justify-between gap-1.5">
-            <div className="flex min-w-0 items-center gap-1.5 truncate">
-              {notificationBadge ? (
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
-                    CARD_BADGE_STYLES[notificationBadge]
-                  )}
-                >
-                  {CARD_BADGE_LABELS[notificationBadge]}
-                </span>
-              ) : null}
-              {orderTags.map((tag) => (
-                <span
-                  key={tag}
-                  className={cn(
-                    "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
-                    ORDER_TAG_STYLES[tag] ??
-                      "border-slate-200 bg-slate-100 text-slate-600"
-                  )}
-                >
-                  {tag}
-                </span>
-              ))}
+      {/* Footer — full card width, badges + priority */}
+      <div className="mt-1.5 flex items-center justify-between gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+          {notificationBadge && orderTags.length === 0 ? (
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                CARD_BADGE_STYLES[notificationBadge]
+              )}
+            >
+              {CARD_BADGE_LABELS[notificationBadge]}
+            </span>
+          ) : null}
+          {orderTags.map((tag) => (
+            <span
+              key={tag}
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                ORDER_TAG_STYLES[tag] ??
+                  "border-slate-200 bg-slate-100 text-slate-600"
+              )}
+            >
+              {tag}
+            </span>
+          ))}
+          <span
+            className={cn(
+              "inline-flex min-w-0 items-center gap-0.5 truncate rounded-full px-1.5 py-px text-[10px] font-semibold",
+              isDesignerUnassigned
+                ? UNASSIGNED_DESIGNER_TEXT_CLASS
+                : "bg-[var(--primary)]/10 text-[var(--primary)]"
+            )}
+            title="Assigned designer"
+          >
+            <User
+              className={cn(
+                "h-2.5 w-2.5 shrink-0",
+                isDesignerUnassigned
+                  ? "text-amber-600"
+                  : "text-[var(--primary)]"
+              )}
+            />
+            <span className="truncate">{designerName ?? "Unassigned"}</span>
+          </span>
+          {ownerName ? (
+            <span
+              className="inline-flex min-w-0 items-center gap-0.5 truncate rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-500"
+              title="Order owner"
+            >
+              <User className="h-2.5 w-2.5 shrink-0 text-slate-400" />
+              <span className="truncate">{ownerName}</span>
+            </span>
+          ) : null}
+        </div>
+        <Badge
+          className={cn(
+            PRIORITY_STYLES[order.priority],
+            "h-5 shrink-0 px-1.5 text-[10px]"
+          )}
+        >
+          {order.priority}
+        </Badge>
+      </div>
+
+      {/* Expanded details */}
+      {expanded ? (
+        <div
+          className="mt-2 space-y-2 border-t border-slate-100 pt-2"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] leading-snug">
+            <div className="min-w-0">
+              <span className="text-slate-400">Assigned: </span>
               <span
                 className={cn(
-                  "inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                  "inline-flex items-center gap-0.5 font-medium",
                   isDesignerUnassigned
                     ? UNASSIGNED_DESIGNER_TEXT_CLASS
-                    : "bg-[var(--primary)]/10 text-[var(--primary)]"
+                    : "text-slate-700"
                 )}
-                title="Assigned designer"
               >
                 <User
                   className={cn(
-                    "h-3 w-3 shrink-0",
+                    "h-2.5 w-2.5 shrink-0",
                     isDesignerUnassigned
                       ? "text-amber-600"
                       : "text-[var(--primary)]"
                   )}
                 />
-                <span className="truncate">{designerName ?? "Unassigned"}</span>
-              </span>
-              {ownerName ? (
-                <span
-                  className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500"
-                  title="Order owner"
-                >
-                  <User className="h-3 w-3 shrink-0 text-slate-400" />
-                  <span className="truncate">{ownerName}</span>
+                <span className="truncate">
+                  {designerName ?? "Unassigned"}
                 </span>
-              ) : null}
+              </span>
             </div>
-            <Badge
-              className={cn(
-                PRIORITY_STYLES[order.priority],
-                "h-5 shrink-0 px-1.5 text-[10px]"
-              )}
-            >
-              {order.priority}
-            </Badge>
+            <div className="min-w-0">
+              <span className="text-slate-400">Owner: </span>
+              <span className="font-medium text-slate-700">
+                {ownerName ?? "—"}
+              </span>
+            </div>
           </div>
 
-          {/* Expanded details */}
-          {expanded ? (
-            <div
-              className="mt-2 space-y-2 border-t border-slate-100 pt-2"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] leading-snug">
-                <div className="min-w-0">
-                  <span className="text-slate-400">Assigned: </span>
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-0.5 font-medium",
-                      isDesignerUnassigned
-                        ? UNASSIGNED_DESIGNER_TEXT_CLASS
-                        : "text-slate-700"
-                    )}
-                  >
-                    <User
-                      className={cn(
-                        "h-2.5 w-2.5 shrink-0",
-                        isDesignerUnassigned
-                          ? "text-amber-600"
-                          : "text-[var(--primary)]"
-                      )}
-                    />
-                    <span className="truncate">
-                      {designerName ?? "Unassigned"}
-                    </span>
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <span className="text-slate-400">Owner: </span>
-                  <span className="font-medium text-slate-700">
-                    {ownerName ?? "—"}
-                  </span>
-                </div>
-              </div>
-
-              {displayCustomerName || email || phone ? (
-                <div className="space-y-0.5">
-                  {displayCustomerName ? (
-                    <div className="flex items-center gap-1">
-                      <User className="h-3 w-3 shrink-0 text-slate-400" />
-                      <CopyableText
-                        text={displayCustomerName}
-                        copyKey="customer-name-exp"
-                        title="Copy customer name"
-                      />
-                    </div>
-                  ) : null}
-                  {email ? (
-                    <CopyableText
-                      text={email}
-                      copyKey="contact-email"
-                      title="Copy email"
-                      className={displayCustomerName ? "ml-4" : undefined}
-                    />
-                  ) : null}
-                  {phone ? (
-                    <CopyableText
-                      text={phone}
-                      copyKey="contact-phone"
-                      title="Copy phone"
-                      className={displayCustomerName ? "ml-4" : undefined}
-                    />
-                  ) : null}
+          {displayCustomerName || email || phone ? (
+            <div className="space-y-0.5">
+              {displayCustomerName ? (
+                <div className="flex items-center gap-1">
+                  <User className="h-3 w-3 shrink-0 text-slate-400" />
+                  <CopyableText
+                    text={displayCustomerName}
+                    copyKey="customer-name-exp"
+                    title="Copy customer name"
+                  />
                 </div>
               ) : null}
+              {email ? (
+                <CopyableText
+                  text={email}
+                  copyKey="contact-email"
+                  title="Copy email"
+                  className={displayCustomerName ? "ml-4" : undefined}
+                />
+              ) : null}
+              {phone ? (
+                <CopyableText
+                  text={phone}
+                  copyKey="contact-phone"
+                  title="Copy phone"
+                  className={displayCustomerName ? "ml-4" : undefined}
+                />
+              ) : null}
+            </div>
+          ) : null}
 
-              {specFields.length > 0 || orderQty != null || skuCount > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {specFields.map(({ field, label, display }) => (
-                    <span
-                      key={field.id}
-                      className="inline-flex max-w-full items-center gap-0.5 rounded bg-slate-100 px-1 py-px text-[10px] text-slate-600"
-                    >
-                      <span className="shrink-0 font-medium text-slate-500">
-                        {label}:
-                      </span>
-                      <span className="truncate">{display}</span>
-                    </span>
-                  ))}
-                  {orderQty != null ? (
-                    <span className="inline-flex items-center rounded bg-slate-100 px-1 py-px text-[10px] text-slate-600">
-                      qty {orderQty}
-                    </span>
-                  ) : null}
-                  {skuCount > 0 ? (
-                    <span className="inline-flex items-center rounded border border-blue-200/80 bg-[#dbeafe] px-1 py-px text-[10px] text-[#1e40af]">
-                      SKU: {skuCount}
-                    </span>
-                  ) : null}
-                </div>
+          {specFields.length > 0 || orderQty != null || skuCount > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {specFields.map(({ field, label, display }) => (
+                <span
+                  key={field.id}
+                  className="inline-flex max-w-full items-center gap-0.5 rounded bg-slate-100 px-1 py-px text-[10px] text-slate-600"
+                >
+                  <span className="shrink-0 font-medium text-slate-500">
+                    {label}:
+                  </span>
+                  <span className="truncate">{display}</span>
+                </span>
+              ))}
+              {orderQty != null ? (
+                <span className="inline-flex items-center rounded bg-slate-100 px-1 py-px text-[10px] text-slate-600">
+                  qty {orderQty}
+                </span>
+              ) : null}
+              {skuCount > 0 ? (
+                <span className="inline-flex items-center rounded border border-blue-200/80 bg-[#dbeafe] px-1 py-px text-[10px] text-[#1e40af]">
+                  SKU: {skuCount}
+                </span>
               ) : null}
             </div>
           ) : null}
         </div>
-      </div>
+      ) : null}
       </div>{/* end padded content wrapper */}
 
       {/* Full-width tag footer bar */}

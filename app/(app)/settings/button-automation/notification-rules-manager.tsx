@@ -231,6 +231,9 @@ function RuleEditor({
   const [webhookHeaders, setWebhookHeaders] = useState<{ key: string; value: string }[]>(
     () => Object.entries(rule?.webhook_headers ?? {}).map(([key, value]) => ({ key, value }))
   );
+  const [requireAllGroupItems, setRequireAllGroupItems] = useState(
+    rule?.require_all_group_items ?? false
+  );
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [webhookTestResult, setWebhookTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -297,6 +300,7 @@ function RuleEditor({
       recipient_mode: staffRecipients.mode,
       recipient_roles: staffRecipients.roles,
       recipient_users: staffRecipients.userIds,
+      require_all_group_items: requireAllGroupItems,
     };
 
     const res = await fetch(
@@ -384,6 +388,24 @@ function RuleEditor({
             Leave blank to trigger on any column.
           </p>
         </div>
+        )}
+
+        {trigger === "on_enter_column" && (
+          <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 cursor-pointer hover:bg-slate-100">
+            <input
+              type="checkbox"
+              checked={requireAllGroupItems}
+              onChange={(e) => setRequireAllGroupItems(e.target.checked)}
+              className="mt-0.5 rounded border-slate-300"
+            />
+            <span>
+              <span className="font-medium">Wait for all group items</span>
+              <span className="block text-xs text-slate-500 mt-0.5">
+                Only send this notification when <em>all</em> sub-items of the order group
+                (e.g. XX-1, XX-2, XX-3) are in this column — not just the first one to arrive.
+              </span>
+            </span>
+          </label>
         )}
 
         <div>

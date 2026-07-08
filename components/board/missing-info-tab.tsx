@@ -405,9 +405,15 @@ function HistoryEntry({
           ) : null}
         </div>
       ) : !isInternalNote && isLatest && canSend && note.channel === "manual" ? (
-        <p className="text-sm text-slate-600">
-          No notification sent. Contact customer directly.
-        </p>
+        <NotifyRow
+          note={note}
+          customer={customer}
+          contactEmail={contactEmail}
+          contactPhone={contactPhone}
+          label="Send notification"
+          sendLabel="Send"
+          onSent={onSent}
+        />
       ) : !isInternalNote && isLatest && canSend && note.channel !== "manual" ? (
         <NotifyRow
           note={note}

@@ -163,7 +163,10 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
                       {itemLabel(order)}
                     </div>
                     <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                      <span>{order.title.replace(/^ORD-\d{4}-/, "")}</span>
+                      <span>
+                        {order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+                        <span className="text-slate-300"> ({orders.length})</span>
+                      </span>
                       {order.due_date ? (
                         <span className="flex items-center gap-0.5">
                           <CalendarClock className="h-2.5 w-2.5" />

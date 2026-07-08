@@ -28,10 +28,11 @@ export function describeActivity(log: ActivityLog): string {
       if (!changes || changes.length === 0) return "Order updated";
 
       const parts = changes.map((c) => {
-        if (c.from !== undefined && c.from !== null && c.to !== undefined && c.to !== null)
-          return `${c.field}: ${String(c.from)} → ${String(c.to)}`;
-        if (c.to !== undefined && c.to !== null)
-          return `${c.field}: ${String(c.to)}`;
+        const hasFrom = c.from !== undefined && c.from !== null && c.from !== "";
+        const hasTo = c.to !== undefined && c.to !== null && c.to !== "";
+        if (hasFrom && hasTo) return `${c.field}: ${String(c.from)} → ${String(c.to)}`;
+        if (hasTo) return `${c.field}: ${String(c.to)}`;
+        if (hasFrom) return `${c.field} removed`;
         return c.field;
       });
 

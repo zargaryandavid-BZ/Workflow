@@ -25,8 +25,10 @@ import { Input, Label, Select } from "@/components/ui/input";
 import {
   BUTTON_ACTION_LABELS,
   EMAIL_RECIPIENT_LABELS,
+  SMS_RECIPIENT_LABELS,
   buildButtonAutomationConfig,
   parseEmailConfig,
+  parseSmsConfig,
 } from "@/lib/button-automations";
 import { cn } from "@/lib/utils";
 import type {
@@ -34,6 +36,7 @@ import type {
   ButtonAutomation,
   ButtonAutomationActionType,
   ButtonAutomationEmailRecipient,
+  ButtonAutomationSmsRecipient,
 } from "@/lib/types";
 
 interface Props {
@@ -266,20 +269,28 @@ function ButtonEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const parsed = parseEmailConfig(button?.config ?? {});
+  const parsedEmail = parseEmailConfig(button?.config ?? {});
+  const parsedSms = parseSmsConfig(button?.config ?? {});
   const [name, setName] = useState(button?.name ?? "");
   const [icon, setIcon] = useState(button?.icon ?? "📋");
   const [actionType, setActionType] = useState<ButtonAutomationActionType>(
     button?.action_type ?? "copy_link"
   );
   const [columnIds, setColumnIds] = useState<string[]>(button?.column_ids ?? []);
+  // Email fields
   const [recipient, setRecipient] = useState<ButtonAutomationEmailRecipient>(
-    parsed.recipient
+    parsedEmail.recipient
   );
-  const [customEmail, setCustomEmail] = useState(parsed.custom_email ?? "");
+  const [customEmail, setCustomEmail] = useState(parsedEmail.custom_email ?? "");
   const [subjectTemplate, setSubjectTemplate] = useState(
-    parsed.subject_template
+    parsedEmail.subject_template
   );
+  // SMS fields
+  const [smsRecipient, setSmsRecipient] = useState<ButtonAutomationSmsRecipient>(
+    parsedSms.recipient
+  );
+  const [customPhone, setCustomPhone] = useState(parsedSms.custom_phone ?? "");
+  const [smsBodyTemplate, setSmsBodyTemplate] = useState(parsedSms.body_template);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -294,16 +305,14 @@ function ButtonEditor({
     setError(null);
     setSaving(true);
 
+    const emailConfig = { recipient, custom_email: customEmail || undefined, subject_template: subjectTemplate };
+    const smsConfig = { recipient: smsRecipient, custom_phone: customPhone || undefined, body_template: smsBodyTemplate };
     const payload = {
       name,
       icon,
       action_type: actionType,
       column_ids: columnIds,
-      config: buildButtonAutomationConfig(actionType, {
-        recipient,
-        custom_email: customEmail || undefined,
-        subject_template: subjectTemplate,
-      }),
+      config: buildButtonAutomationConfig(actionType, actionType === "send_sms" ? smsConfig : emailConfig),
     };
 
     const res = await fetch(
@@ -373,6 +382,7 @@ function ButtonEditor({
           >
             <option value="copy_link">Copy Card Link</option>
             <option value="send_email">Send Email</option>
+            <option value="send_sms">Send SMS</option>
             <option value="generate_pdf">Generate PDF</option>
           </Select>
         </div>
@@ -448,6 +458,54 @@ function ButtonEditor({
                 value={subjectTemplate}
                 onChange={(e) => setSubjectTemplate(e.target.value)}
                 placeholder="Order {{order_number}} — {{customer_name}}"
+              />
+            </div>
+          </>
+        ) : null}
+
+        {actionType === "send_sms" ? (
+          <>
+            <div>
+              <Label htmlFor="btn-sms-recipient">Send to</Label>
+              <Select
+                id="btn-sms-recipient"
+                value={smsRecipient}
+                onChange={(e) => setSmsRecipient(e.target.value as ButtonAutomationSmsRecipient)}
+              >
+                {(["customer", "custom"] as ButtonAutomationSmsRecipient[]).map((value) => (
+                  <option key={value} value={value}>
+                    {SMS_RECIPIENT_LABELS[value]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            {smsRecipient === "custom" ? (
+              <div>
+                <Label htmlFor="btn-custom-phone">Phone number</Label>
+                <Input
+                  id="btn-custom-phone"
+                  type="tel"
+                  required
+                  value={customPhone}
+                  onChange={(e) => setCustomPhone(e.target.value)}
+                  placeholder="+18185551234"
+                />
+              </div>
+            ) : null}
+
+            <div>
+              <Label htmlFor="btn-sms-body">Message template</Label>
+              <p className="mb-1 text-xs text-slate-500">
+                Variables: {"{{order_number}}"}, {"{{customer_name}}"}, {"{{due_date}}"}, {"{{product}}"}, {"{{assigned_to}}"}
+              </p>
+              <textarea
+                id="btn-sms-body"
+                value={smsBodyTemplate}
+                onChange={(e) => setSmsBodyTemplate(e.target.value)}
+                placeholder="Order {{order_number}} — {{customer_name}}"
+                rows={3}
+                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[var(--primary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
               />
             </div>
           </>

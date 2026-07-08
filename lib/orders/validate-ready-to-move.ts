@@ -40,6 +40,10 @@ export function getMissingFields(
     missing.push({ label: "At least one SKU", field: "skus" });
   }
 
+  // #region agent log
+  fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'44dc29'},body:JSON.stringify({sessionId:'44dc29',location:'validate-ready-to-move.ts:getMissingFields',message:'move-block-check',hypothesisId:'B',data:{orderId:order.id,hasDueDate:!!order.due_date,skuCount:skuCountFromSpecs(order.specs),missingAfterHardcoded:missing.map(m=>m.label),customFieldsRequired:customFields.filter(f=>f.required).map(f=>f.name)},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   // Respect each custom field's required toggle from Settings → Fields.
   for (const field of customFields) {
     if (!field.required) continue;

@@ -258,6 +258,48 @@ export async function fireNotificationRules(
   });
 
   for (const rule of rules as NotificationRule[]) {
+    // Guard: when require_all_group_items is set, skip this rule unless every
+    // sub-item of the grouped order is already in the destination column.
+    if (rule.require_all_group_items) {
+      const order = exportData.order;
+      const webhookKey =
+        typeof order.specs?.webhook_order_number === "string"
+          ? order.specs.webhook_order_number.trim()
+          : null;
+      const titleMatch = order.title.match(/^(.+)-(\d+)$/);
+      const groupKey = webhookKey || (titleMatch ? titleMatch[1] : null);
+
+      if (groupKey) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let q: any = supabase
+          .from("orders")
+          .select("id, column_id")
+          .eq("tenant_id", tenantId)
+          .is("removed_at", null)
+          .neq("id", order.id);
+
+        if (webhookKey) {
+          q = q.filter("specs->>'webhook_order_number'", "eq", webhookKey);
+        } else {
+          q = q.ilike("title", `${groupKey}-%`);
+        }
+
+        const { data: siblings } = await q;
+        const allInColumn =
+          !siblings?.length ||
+          (siblings as { id: string; column_id: string }[]).every(
+            (s) => s.column_id === newColumnId
+          );
+
+        if (!allInColumn) {
+          console.log(
+            `[NotifRule] Skipping rule "${rule.name}" — not all group items are in column ${newColumnId}`
+          );
+          continue;
+        }
+      }
+    }
+
     // Resolve staff profiles when the rule targets staff.
     let staffProfiles: StaffProfile[] = [];
     if (rule.recipient === "staff" || rule.recipient === "both") {

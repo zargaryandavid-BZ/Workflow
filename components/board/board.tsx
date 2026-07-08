@@ -16,12 +16,13 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Activity, Layers, Search, X } from "lucide-react";
+import { Activity, LayoutDashboard, Layers, Search, Table2, X } from "lucide-react";
 import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
 import { Column } from "./column";
+import { BoardTable } from "./board-table";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
@@ -161,6 +162,24 @@ export function Board({
     return count >= 2 ? count : undefined;
   }, [detailId, orders]);
 
+  /** Maps every orderId to its cross-column group size (only set when ≥ 2). */
+  const groupSizeByOrder = useMemo(() => {
+    const keyIds = new Map<string, string[]>();
+    for (const o of orders) {
+      const key = getGroupKey(o);
+      if (!key) continue;
+      if (!keyIds.has(key)) keyIds.set(key, []);
+      keyIds.get(key)!.push(o.id);
+    }
+    const map: Record<string, number> = {};
+    for (const ids of keyIds.values()) {
+      if (ids.length >= 2) {
+        for (const id of ids) map[id] = ids.length;
+      }
+    }
+    return map;
+  }, [orders]);
+
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [notifyPopup, setNotifyPopup] = useState<{
@@ -172,6 +191,7 @@ export function Board({
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [groupedView, setGroupedView] = useState(false);
+  const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
   const [animateWarnings, setAnimateWarnings] = useState(true);
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
@@ -767,9 +787,41 @@ export function Board({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <h1 className="text-lg font-semibold text-slate-800">
-          Production Board
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold text-slate-800">
+            Production Board
+          </h1>
+          <div className="flex overflow-hidden rounded-md border border-slate-300 text-sm">
+            <button
+              type="button"
+              onClick={() => setBoardView("kanban")}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-1 transition-colors",
+                boardView === "kanban"
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-600 hover:bg-slate-50"
+              )}
+              title="Kanban view"
+            >
+              <LayoutDashboard className="h-3.5 w-3.5" />
+              Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setBoardView("table")}
+              className={cn(
+                "inline-flex items-center gap-1.5 border-l border-slate-300 px-2.5 py-1 transition-colors",
+                boardView === "table"
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-600 hover:bg-slate-50"
+              )}
+              title="Table view"
+            >
+              <Table2 className="h-3.5 w-3.5" />
+              Table
+            </button>
+          </div>
+        </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="relative min-w-[10rem] flex-1 sm:w-56 sm:flex-none">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -878,6 +930,26 @@ export function Board({
         </div>
       ) : null}
 
+      {boardView === "table" ? (
+        <BoardTable
+          columns={columns}
+          orders={filteredOrders}
+          customFields={customFields}
+          fieldValuesByOrder={fieldValuesByOrder}
+          thumbnailByOrder={thumbnailByOrder}
+          designerNameByOrder={designerNameByOrder}
+          notificationBadgeByOrder={notificationBadgeByOrder}
+          ownerNameByOrder={ownerNameByOrder}
+          groupSizeByOrder={groupSizeByOrder}
+          warningRules={warningRules}
+          animateWarnings={animateWarnings}
+          role={role}
+          getMoveableColumns={getMoveableColumns}
+          onMoveToColumn={handleContextMove}
+          onOpenOrder={(o) => setDetailId(o.id)}
+          onVisible={onColumnVisible}
+        />
+      ) : (
       <DndContext
         id="production-board"
         sensors={sensors}
@@ -903,6 +975,7 @@ export function Board({
                 designerNameByOrder={designerNameByOrder}
                 notificationBadgeByOrder={notificationBadgeByOrder}
                 ownerNameByOrder={ownerNameByOrder}
+                groupSizeByOrder={groupSizeByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
                 isFirst={index === 0}
@@ -938,6 +1011,7 @@ export function Board({
           ) : null}
         </DragOverlay>
       </DndContext>
+      )}
 
       <CreateOrderModal
         open={createColumn !== null}

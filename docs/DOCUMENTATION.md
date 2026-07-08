@@ -172,7 +172,7 @@ See the [Database](#database) section below for full schema.
 - `createApprovalForOrder()` (legacy `approvals` table) is **defined but unused** by the main board flow.
 - Customer API routes (`/api/customers/*`) intentionally return 403.
 - Migration `0010` is missing (jumps 0009 → 0011); some schema only in `setup.sql` may not apply via `db push` alone.
-- `middleware.ts` at repo root handles session refresh via `updateSession()`; auth also enforced in layouts/pages as a fallback.
+- `proxy.ts` at repo root handles session refresh via `updateSession()` (Next.js 16 convention); auth also enforced in layouts/pages as a fallback.
 - Email/SMS require external accounts; without them, operators must copy links from logs or the UI.
 
 ## Rules for AI agents extending this codebase
@@ -296,7 +296,7 @@ Enable Realtime for `orders` in Supabase Dashboard → Database → Replication.
 
 `lib/supabase/middleware.ts` exports `updateSession()` — refreshes auth cookies and redirects unauthenticated users away from protected paths.
 
-`middleware.ts` at repo root calls `updateSession()` and exports `config` with the Next.js matcher. Auth is also enforced in:
+`proxy.ts` at repo root calls `updateSession()` and exports `config` with the Next.js matcher (Next.js 16 convention — not `middleware.ts`). Auth is also enforced in:
 
 - `app/(app)/layout.tsx` → `getTenantContext()` or redirect `/onboarding`
 - `app/page.tsx` → redirect `/login` or `/board`

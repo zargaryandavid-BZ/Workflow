@@ -288,7 +288,7 @@ export function CardDetailModal({
     if (open && orderId) {
       setSaveError(null);
       setActivityOpen(false);
-      setIsEditing(!isViewOnly);
+      setIsEditing(false);
       resetPendingFiles();
       setModalCustomFields(customFieldsRef.current);
       load();
@@ -296,6 +296,9 @@ export function CardDetailModal({
     if (!open) {
       setSaveError(null);
       setData(null);
+      setTitle("");
+      setCustomerName("");
+      setPriority("normal");
       setTab("details");
       setActivityOpen(false);
       setIsEditing(false);
@@ -632,7 +635,7 @@ export function CardDetailModal({
           ? <>
               {displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
               {groupSize != null && groupSize >= 2 && (
-                <span className="font-normal text-slate-400">({groupSize})</span>
+                <span className="font-normal text-slate-400"> ({groupSize})</span>
               )}
             </>
           : loading ? "…" : "Order Details"}
@@ -792,7 +795,7 @@ export function CardDetailModal({
       }
       footer={
         isViewOnly || !isEditing ? (
-          <Button variant="ghost" onClick={handleClose} type="button">
+          <Button variant="outline" onClick={handleClose} type="button">
             Close
           </Button>
         ) : tab === "details" ? (
@@ -817,7 +820,10 @@ export function CardDetailModal({
                 Delete Order
               </button>
             ) : null}
-            <Button variant="ghost" onClick={revert} type="button" disabled={saving || removing}>
+            {/* #region agent log */}
+            {(() => { fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d8bd2b'},body:JSON.stringify({sessionId:'d8bd2b',location:'card-detail-modal.tsx:footer-details',message:'Cancel button rendered',data:{variant:'outline',isViewOnly,isEditing,tab,saving},hypothesisId:'H1,H2,H4',timestamp:Date.now()})}).catch(()=>{}); return null; })()}
+            {/* #endregion */}
+            <Button variant="outline" onClick={revert} type="button" disabled={saving || removing}>
               Cancel
             </Button>
             <Button onClick={save} disabled={saving || loading || removing}>
@@ -841,7 +847,7 @@ export function CardDetailModal({
                 Delete Order
               </button>
             ) : null}
-            <Button variant="ghost" onClick={revert} type="button" disabled={removing}>
+            <Button variant="outline" onClick={revert} type="button" disabled={removing}>
               Cancel
             </Button>
           </>
@@ -922,6 +928,7 @@ export function CardDetailModal({
               orderId={data.order.id}
               orderNumber={data.order.title}
               appUrl={appUrl}
+              groupSize={groupSize}
               onComplete={({ message, refreshOrder }) => {
                 setSaveError(null);
                 onLinkCopied?.(message);
@@ -1031,8 +1038,19 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
+            {/* Inline Save / Cancel above Priority — only shown while editing */}
+            {isEditing && !isViewOnly ? (
+              <div className="mt-4 flex flex-col gap-2">
+                <Button onClick={save} disabled={saving || loading}>
+                  {saving ? "Saving…" : "Save changes"}
+                </Button>
+                <Button variant="ghost" onClick={revert} type="button" disabled={saving}>
+                  Cancel
+                </Button>
+              </div>
+            ) : null}
             {/* Priority + Due Date box */}
-            <div className="rounded-lg border border-slate-200 p-3 mt-4 space-y-3">
+            <div className={`rounded-lg border border-slate-200 p-3 space-y-3${isEditing ? "" : " mt-4"}`}>
               <div>
                 <Label htmlFor="sidebar-priority">Priority</Label>
                 <Select

@@ -269,6 +269,7 @@ export interface AutomationRule {
 export type ButtonAutomationActionType =
   | "copy_link"
   | "send_email"
+  | "send_sms"
   | "generate_pdf";
 
 export type ButtonAutomationEmailRecipient =
@@ -282,6 +283,16 @@ export interface ButtonAutomationEmailConfig {
   subject_template?: string;
 }
 
+export type ButtonAutomationSmsRecipient = "customer" | "custom";
+
+export interface ButtonAutomationSmsConfig {
+  recipient?: ButtonAutomationSmsRecipient;
+  /** Fixed E.164 phone number when recipient is "custom". */
+  custom_phone?: string;
+  /** Message body — supports {{order_number}}, {{customer_name}}, {{due_date}}, {{product}}, {{assigned_to}}. */
+  body_template?: string;
+}
+
 export interface ButtonAutomation {
   id: string;
   tenant_id: string;
@@ -289,7 +300,7 @@ export interface ButtonAutomation {
   icon: string | null;
   action_type: ButtonAutomationActionType;
   column_ids: string[];
-  config: ButtonAutomationEmailConfig | Record<string, never>;
+  config: ButtonAutomationEmailConfig | ButtonAutomationSmsConfig | Record<string, never>;
   position: number;
   enabled: boolean;
   created_at: string;
@@ -324,6 +335,8 @@ export interface NotificationRule {
   created_at: string;
   /** Who among staff receives this notification. */
   recipient_mode: VisibilityMode;
+  /** When true, the rule only fires when all sub-items of a grouped order are in the target column. */
+  require_all_group_items: boolean;
   recipient_roles: string[];
   recipient_users: string[];
 }

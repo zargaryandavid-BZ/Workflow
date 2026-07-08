@@ -52,6 +52,7 @@ interface ColumnProps {
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
+  groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
   isFirst: boolean;
@@ -110,6 +111,7 @@ export function Column({
   designerNameByOrder,
   notificationBadgeByOrder,
   ownerNameByOrder,
+  groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
   isFirst,
@@ -359,6 +361,7 @@ export function Column({
                       notificationBadgeByOrder[entry.order.id]
                     }
                     ownerName={ownerNameByOrder[entry.order.id]}
+                    groupSize={groupSizeByOrder[entry.order.id]}
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
                     columnColor={column.color}
@@ -379,6 +382,7 @@ export function Column({
                   designerName={designerNameByOrder[order.id]}
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}
+                  groupSize={groupSizeByOrder[order.id]}
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}
                   columnColor={column.color}

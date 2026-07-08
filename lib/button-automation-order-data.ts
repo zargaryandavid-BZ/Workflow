@@ -329,7 +329,7 @@ export async function assertButtonVisibleForOrder(
   buttonId: string,
   tenantId: string,
   columnId: string,
-  expectedAction: "send_email" | "generate_pdf"
+  expectedAction: "send_email" | "send_sms" | "generate_pdf"
 ) {
   const { data, error } = await supabase
     .from("button_automations")
