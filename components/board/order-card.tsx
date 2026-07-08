@@ -400,6 +400,15 @@ export function OrderCard({
                 />
                 <span className="truncate">{designerName ?? "Unassigned"}</span>
               </span>
+              {ownerName ? (
+                <span
+                  className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500"
+                  title="Order owner"
+                >
+                  <User className="h-3 w-3 shrink-0 text-slate-400" />
+                  <span className="truncate">{ownerName}</span>
+                </span>
+              ) : null}
             </div>
             <Badge
               className={cn(
