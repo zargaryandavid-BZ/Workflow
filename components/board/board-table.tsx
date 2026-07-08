@@ -322,7 +322,7 @@ export function BoardTable({
               <tr
                 key={order.id}
                 className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/60"
-                onClick={() => { logRowClick(order.id, order.column_id); onOpenOrder(order); }}
+                onClick={() => onOpenOrder(order)}
                 onContextMenu={(e) => {
                   if (!moveableColumns.length) return;
                   e.preventDefault();
