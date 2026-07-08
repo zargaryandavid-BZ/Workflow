@@ -1,13 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import Image from "next/image";
-import { ArrowDownAZ, ArrowDownToLine, ArrowUpAZ, ArrowUpFromLine, Plus } from "lucide-react";
+import {
+  ArrowDownAZ,
+  ArrowDownToLine,
+  ArrowUpAZ,
+  ArrowUpFromLine,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { OrderCard } from "./order-card";
 import { GroupedOrderCard } from "./grouped-order-card";
 import { groupOrdersForColumn } from "@/lib/group-orders";
@@ -24,6 +31,7 @@ import type {
 } from "@/lib/types";
 
 type DateSort = "default" | "asc" | "desc";
+type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
 
 interface ColumnOption {
   id: string;
@@ -52,6 +60,16 @@ interface ColumnProps {
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
   onAdd: (columnId: string) => void;
+  /** Lazy-load state for this column. */
+  loadStatus: ColumnLoadStatus;
+  /** Whether more pages of cards are available for this column. */
+  hasMore: boolean;
+  /** Total order count in this column from the DB (may exceed loaded cards). */
+  total?: number;
+  /** Called when the column enters the viewport — triggers the initial fetch. */
+  onVisible: (columnId: string) => void;
+  /** Called when the user clicks "Load more". */
+  onLoadMore: (columnId: string) => void;
 }
 
 /** Short label of which roles a drop permission applies to. */
@@ -62,6 +80,21 @@ function dropLabel(roles: Role[] | null | undefined): string {
   return BOARD_ROLES.filter((r) => effective.includes(r))
     .map((r) => ROLE_ABBR[r])
     .join(" ");
+}
+
+/** Placeholder cards shown while a column's orders are loading. */
+function ColumnSkeleton({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: Math.min(count, 5) }).map((_, i) => (
+        <div
+          key={i}
+          className="animate-pulse rounded-xl bg-slate-100"
+          style={{ height: "6rem", marginBottom: "0.375rem" }}
+        />
+      ))}
+    </>
+  );
 }
 
 export function Column({
@@ -84,6 +117,11 @@ export function Column({
   onMoveToColumn,
   onOpenOrder,
   onAdd,
+  loadStatus,
+  hasMore,
+  total,
+  onVisible,
+  onLoadMore,
 }: ColumnProps) {
   const [dateSort, setDateSort] = useState<DateSort>("default");
 
@@ -92,6 +130,43 @@ export function Column({
     id: column.id,
     disabled: dropDisabled,
   });
+
+  // Keep a stable ref to onVisible so the IntersectionObserver callback
+  // never captures a stale closure.
+  const onVisibleRef = useRef(onVisible);
+  useEffect(() => {
+    onVisibleRef.current = onVisible;
+  }, [onVisible]);
+
+  // Observe this column entering the viewport and trigger the initial fetch.
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Combine the droppable ref from dnd-kit with our own container ref.
+  const setRefs = useCallback(
+    (node: HTMLDivElement | null) => {
+      (containerRef as React.MutableRefObject<HTMLDivElement | null>).current =
+        node;
+      setNodeRef(node);
+    },
+    [setNodeRef]
+  );
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          onVisibleRef.current(column.id);
+        }
+      },
+      { rootMargin: "200px" } // start loading 200 px before entering viewport
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [column.id]);
 
   const showDropTarget = isDragActive && isOver && canAcceptDrop;
 
@@ -115,15 +190,25 @@ export function Column({
     );
   }
 
+  // Count badge: show total from DB when available, otherwise fall back to
+  // loaded cards length.  Before any load the badge shows 0 briefly; total
+  // arrives with the first API response.
+  const displayCount =
+    total !== undefined && total > orders.length ? total : orders.length;
+
+  // How many cards still to load (shown in the "Load more" button).
+  const remaining = (total ?? 0) - orders.length;
+
   return (
     <div
-      ref={setNodeRef}
+      ref={setRefs}
       className={cn(
         "flex h-full w-72 shrink-0 flex-col rounded-lg transition-[opacity,box-shadow]",
         isDragActive && !canAcceptDrop && "opacity-50",
         showDropTarget && "ring-2 ring-blue-400 ring-offset-2"
       )}
     >
+      {/* ── Column header ─────────────────────────────────────── */}
       <div
         className={cn(
           "mb-2 rounded-t-lg border-t-4 bg-slate-200/60 px-3 py-2",
@@ -143,7 +228,7 @@ export function Column({
               {column.name}
             </span>
             <span className="rounded-full bg-white px-1.5 text-xs font-medium text-slate-500">
-              {orders.length}
+              {displayCount}
             </span>
           </div>
           <div className="flex items-center gap-0.5">
@@ -210,10 +295,15 @@ export function Column({
         </div>
       </div>
 
+      {/* ── Column body ───────────────────────────────────────── */}
       <div
         className={cn(
           "board-scroll flex min-h-[8rem] flex-1 flex-col gap-1.5 overflow-y-auto rounded-b-lg p-1 transition-colors",
-          showDropTarget ? "bg-blue-50" : !column.color ? "bg-slate-100/40" : undefined
+          showDropTarget
+            ? "bg-blue-50"
+            : !column.color
+              ? "bg-slate-100/40"
+              : undefined
         )}
         style={
           !showDropTarget && column.color
@@ -225,6 +315,27 @@ export function Column({
           items={sortedOrders.map((o) => o.id)}
           strategy={verticalListSortingStrategy}
         >
+          {/* Loading skeleton */}
+          {loadStatus === "loading" && orders.length === 0 ? (
+            <ColumnSkeleton count={displayCount || 3} />
+          ) : null}
+
+          {/* Error state */}
+          {loadStatus === "error" ? (
+            <div className="flex flex-col items-center gap-2 py-6 text-sm text-slate-400">
+              <span>Failed to load</span>
+              <button
+                type="button"
+                onClick={() => onVisible(column.id)}
+                className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-700"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            </div>
+          ) : null}
+
+          {/* Cards */}
           {columnEntries
             ? columnEntries.map((entry) =>
                 entry.kind === "group" ? (
@@ -244,7 +355,9 @@ export function Column({
                     fieldValues={fieldValuesByOrder[entry.order.id]}
                     thumbnail={thumbnailByOrder[entry.order.id]}
                     designerName={designerNameByOrder[entry.order.id]}
-                    notificationBadge={notificationBadgeByOrder[entry.order.id]}
+                    notificationBadge={
+                      notificationBadgeByOrder[entry.order.id]
+                    }
                     ownerName={ownerNameByOrder[entry.order.id]}
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
@@ -275,6 +388,26 @@ export function Column({
                 />
               ))}
         </SortableContext>
+
+        {/* Load more */}
+        {hasMore && loadStatus === "loaded" ? (
+          <button
+            type="button"
+            onClick={() => onLoadMore(column.id)}
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white py-2 text-sm text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+          >
+            {loadStatus === "loading"
+              ? "Loading…"
+              : `Load more${remaining > 0 ? ` (${remaining} remaining)` : ""}`}
+          </button>
+        ) : null}
+
+        {/* Loading spinner for subsequent pages */}
+        {loadStatus === "loading" && orders.length > 0 ? (
+          <div className="py-2 text-center text-xs text-slate-400">
+            Loading…
+          </div>
+        ) : null}
       </div>
     </div>
   );

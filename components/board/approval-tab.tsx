@@ -382,7 +382,7 @@ export function ApprovalTab({
     }
     if (note.status === "sent" || note.status === "pending") {
       return {
-        label: "⏳ Waiting for approval",
+        label: "⏳ Waiting",
         className: "text-amber-600",
         time: note.created_at,
       };

@@ -172,7 +172,7 @@ See the [Database](#database) section below for full schema.
 - `createApprovalForOrder()` (legacy `approvals` table) is **defined but unused** by the main board flow.
 - Customer API routes (`/api/customers/*`) intentionally return 403.
 - Migration `0010` is missing (jumps 0009 → 0011); some schema only in `setup.sql` may not apply via `db push` alone.
-- `proxy.ts` exists for session refresh; there is **no root `middleware.ts`** — auth also enforced in layouts/pages.
+- `middleware.ts` at repo root handles session refresh via `updateSession()`; auth also enforced in layouts/pages as a fallback.
 - Email/SMS require external accounts; without them, operators must copy links from logs or the UI.
 
 ## Rules for AI agents extending this codebase
@@ -296,7 +296,7 @@ Enable Realtime for `orders` in Supabase Dashboard → Database → Replication.
 
 `lib/supabase/middleware.ts` exports `updateSession()` — refreshes auth cookies and redirects unauthenticated users away from protected paths.
 
-`proxy.ts` at repo root re-exports this logic. **[TODO: verify]** whether Next.js 16 wires `proxy.ts` automatically; there is no `middleware.ts` at root. Auth is also enforced in:
+`middleware.ts` at repo root calls `updateSession()` and exports `config` with the Next.js matcher. Auth is also enforced in:
 
 - `app/(app)/layout.tsx` → `getTenantContext()` or redirect `/onboarding`
 - `app/page.tsx` → redirect `/login` or `/board`
@@ -2081,9 +2081,9 @@ App `Role` type includes `preprod_owner`, `designer`, `account_manager`. DB enum
 
 `createApprovalForOrder()` is **defined but unused** by the main board flow. Consolidate or remove legacy path.
 
-### `proxy.ts` without root `middleware.ts`
+### Session refresh
 
-`proxy.ts` exports session refresh from `lib/supabase/middleware.ts`, but there is no `middleware.ts` at project root. Auth relies on server layouts (`getTenantContext`) and per-route checks. Session cookie refresh may be incomplete on edge navigations. [TODO: verify Next.js 16 proxy convention]
+`middleware.ts` at project root calls `updateSession()` on every request (matched by the `config.matcher`). Auth is also enforced in server layouts (`getTenantContext`) and per-route checks as a fallback.
 
 ### `setup.sql` vs migrations drift
 

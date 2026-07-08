@@ -25,7 +25,7 @@ export const CARD_BADGE_STYLES: Record<CardNotificationBadge, string> = {
 export const CARD_BADGE_LABELS: Record<CardNotificationBadge, string> = {
   waiting: "⏳ Waiting for client",
   responded: "✓ Client responded",
-  waiting_approval: "⏳ Waiting for approval",
+  waiting_approval: "⏳ Waiting",
   manual: "👤 Manual",
   approved: "✅ Approved",
   rejected: "❌ Rejected",

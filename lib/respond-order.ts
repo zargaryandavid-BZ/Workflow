@@ -46,10 +46,6 @@ export function buildRespondOrderRows(
   const rows: RespondOrderRow[] = [];
   const usedKeys = new Set<string>();
 
-  if (description?.trim()) {
-    rows.push({ label: "Description", value: description.trim() });
-  }
-
   for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
     if (name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase()) continue;
     const value = pickFieldInsensitive(fields, name);
@@ -71,6 +67,11 @@ export function buildRespondOrderRows(
     }
     if (isEmptyFieldValue(raw)) continue;
     rows.push({ label: orderFormFieldLabel(name), value: String(raw) });
+  }
+
+  // Description appears last (bottom-left in the 2-column grid) before Designer.
+  if (description?.trim()) {
+    rows.push({ label: "Description", value: description.trim() });
   }
 
   const designerName =

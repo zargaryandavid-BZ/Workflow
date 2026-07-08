@@ -16,7 +16,7 @@ function dropOutRoles(column: DropColumn): Role[] | null {
 
 /** Whether `role` may move an order INTO `column`. */
 export function canDropIn(role: Role, column: DropColumn): boolean {
-  if (role === "admin") return true;
+  if (role === "admin" || role === "account_manager") return true;
   const roles = dropInRoles(column);
   if (roles == null) return true; // unrestricted
   return roles.includes(role); // [] => admins only
@@ -24,7 +24,7 @@ export function canDropIn(role: Role, column: DropColumn): boolean {
 
 /** Whether `role` may move an order OUT OF `column`. */
 export function canDropOut(role: Role, column: DropColumn): boolean {
-  if (role === "admin") return true;
+  if (role === "admin" || role === "account_manager") return true;
   const roles = dropOutRoles(column);
   if (roles == null) return true; // unrestricted
   return roles.includes(role); // [] => admins only
@@ -43,7 +43,7 @@ export function canDragInColumn(role: Role, column: DropColumn): boolean {
  * same column only requires drop-in rights on that column.
  */
 export function canMove(role: Role, from: DropColumn, to: DropColumn): boolean {
-  if (role === "admin") return true;
+  if (role === "admin" || role === "account_manager") return true;
   if (from.id === to.id) return canDropIn(role, to);
   return canDropOut(role, from) && canDropIn(role, to);
 }

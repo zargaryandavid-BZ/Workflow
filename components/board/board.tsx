@@ -32,9 +32,7 @@ import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
-import {
-  type MissingField,
-} from "@/lib/orders/validate-ready-to-move";
+import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type {
   BoardColumn,
@@ -48,8 +46,8 @@ import type {
   Role,
 } from "@/lib/types";
 import type { OrderOwner } from "./order-form-body";
-
 import type { CardNotificationBadge } from "@/lib/card-badges";
+import type { ColumnOrdersResponse } from "@/app/api/board/column-orders/route";
 
 /** Prefer pointer position so empty columns and wide boards register drops reliably. */
 const boardCollisionDetection: CollisionDetection = (args) => {
@@ -58,24 +56,20 @@ const boardCollisionDetection: CollisionDetection = (args) => {
   return closestCorners(args);
 };
 
+type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
+
 interface BoardProps {
   tenantId: string;
   tenantName: string;
   role: Role;
   columns: BoardColumn[];
-  initialOrders: OrderWithRelations[];
   tags: Tag[];
   owners: OrderOwner[];
   currentUserId: string;
   currentUserName: string;
   customFields: CustomField[];
-  fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string>;
-  designerNameByOrder: Record<string, string>;
   designers: Designer[];
   notifyColumns: NotifyColumnConfig[];
-  notificationBadgeByOrder: Record<string, CardNotificationBadge>;
-  ownerNameByOrder: Record<string, string>;
   smsConfigured: boolean;
   publicAppUrl: boolean;
   buttonAutomations: ButtonAutomation[];
@@ -93,19 +87,13 @@ export function Board({
   tenantName,
   role,
   columns,
-  initialOrders,
   tags,
   owners,
   currentUserId,
   currentUserName,
   customFields,
-  fieldValuesByOrder,
-  thumbnailByOrder,
-  designerNameByOrder,
   designers,
   notifyColumns,
-  notificationBadgeByOrder,
-  ownerNameByOrder,
   smsConfigured,
   publicAppUrl,
   buttonAutomations,
@@ -118,7 +106,46 @@ export function Board({
   appUrl,
 }: BoardProps) {
   const router = useRouter();
-  const [orders, setOrders] = useState<OrderWithRelations[]>(initialOrders);
+
+  // ── Core order state ────────────────────────────────────────────────────────
+  const [orders, setOrders] = useState<OrderWithRelations[]>([]);
+
+  // Canonical snapshot used for DnD rollback — updated on every non-drag mutation.
+  const boardOrdersRef = useRef<OrderWithRelations[]>([]);
+
+  // ── Per-column lazy-load state ───────────────────────────────────────────────
+  const [columnLoadStatus, setColumnLoadStatus] = useState<
+    Record<string, ColumnLoadStatus>
+  >({});
+  const [columnHasMore, setColumnHasMore] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [columnTotal, setColumnTotal] = useState<Record<string, number>>({});
+  // Tracks the last page loaded per column so "load more" fetches the next one.
+  const columnCurrentPageRef = useRef<Record<string, number>>({});
+  // Tracks which columns have ever been loaded (used by scheduleRefresh).
+  const loadedColumnsRef = useRef(new Set<string>());
+  // Mirror of columnLoadStatus in a ref to avoid stale closures in callbacks.
+  const columnLoadStatusRef = useRef<Record<string, ColumnLoadStatus>>({});
+
+  // ── Enrichment maps (populated per-column as cards load) ────────────────────
+  const [fieldValuesByOrder, setFieldValuesByOrder] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
+  const [thumbnailByOrder, setThumbnailByOrder] = useState<
+    Record<string, string>
+  >({});
+  const [notificationBadgeByOrder, setNotificationBadgeByOrder] = useState<
+    Record<string, CardNotificationBadge>
+  >({});
+  const [ownerNameByOrder, setOwnerNameByOrder] = useState<
+    Record<string, string>
+  >({});
+  const [designerNameByOrder, setDesignerNameByOrder] = useState<
+    Record<string, string>
+  >({});
+
+  // ── UI state ────────────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
   const [createColumn, setCreateColumn] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -134,24 +161,22 @@ export function Board({
   const [ownerFilter, setOwnerFilter] = useState("");
   const [groupedView, setGroupedView] = useState(false);
   const [animateWarnings, setAnimateWarnings] = useState(true);
+  const [moveBlockedState, setMoveBlockedState] = useState<{
+    orderId: string;
+    missingFields: MissingField[];
+  } | null>(null);
 
-  // Apply per-tenant warning animation CSS variables client-side (avoids SSR hydration mismatch)
+  // Apply per-tenant warning animation CSS variables client-side.
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty("--w-opacity", String(warningAnimationOpacity / 100));
     root.style.setProperty("--w-spread", `${warningAnimationSpreadPx}px`);
     root.style.setProperty("--w-duration", `${warningAnimationSpeedMs / 1000}s`);
   }, [warningAnimationOpacity, warningAnimationSpeedMs, warningAnimationSpreadPx]);
-  const [moveBlockedState, setMoveBlockedState] = useState<{
-    orderId: string;
-    missingFields: MissingField[];
-  } | null>(null);
 
+  // Open detail modal when deep-linked via ?order=<id>.
   useEffect(() => {
-    if (
-      initialOrderId &&
-      orders.some((o) => o.id === initialOrderId)
-    ) {
+    if (initialOrderId && orders.some((o) => o.id === initialOrderId)) {
       setDetailId(initialOrderId);
     }
   }, [initialOrderId, orders]);
@@ -179,121 +204,130 @@ export function Board({
     window.setTimeout(() => setPermissionError(null), 3500);
   }
 
-  /** Returns the columns a card in `fromColumnId` can be moved to via the right-click menu. */
-  function getMoveableColumns(fromColumnId: string) {
-    const fromCol = columnsById.get(fromColumnId);
-    if (!fromCol || !canDropOut(role, fromCol)) return [];
-    return columns.filter(
-      (c) => c.id !== fromColumnId && canDropIn(role, c)
-    );
-  }
-
-  /** Handles a column move triggered from the right-click context menu. */
-  async function handleContextMove(
-    order: OrderWithRelations,
-    toColumnId: string
-  ) {
-    const fromColumnId = order.column_id;
-    const fromCol = columnsById.get(fromColumnId);
-    const toCol = columnsById.get(toColumnId);
-    if (!fromCol || !toCol) return;
-
-    if (!canDropOut(role, fromCol)) {
-      flashPermissionError(
-        `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
-      );
-      return;
-    }
-    if (!canDropIn(role, toCol)) {
-      flashPermissionError(
-        `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
-      );
-      return;
-    }
-
-    // Append to end of destination column.
-    const destOrders = orders
-      .filter((o) => o.column_id === toColumnId)
-      .sort((a, b) => a.position - b.position);
-    const lastPos = destOrders[destOrders.length - 1]?.position ?? 0;
-    const newPosition = lastPos + 1000;
-
-    // Snapshot for rollback.
-    const snapshot = orders;
-
-    // Optimistic update.
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === order.id
-          ? { ...o, column_id: toColumnId, position: newPosition }
-          : o
-      )
-    );
-
-    const result = await requestOrderMove(
-      { orderId: order.id, toColumnId, position: newPosition },
-      { fromColumnId, columns }
-    );
-
-    if (!result.ok) {
-      if (result.missingFields?.length) {
-        setOrders(snapshot);
-        setMoveBlockedState({ orderId: order.id, missingFields: result.missingFields });
+  // ── Per-column fetch ─────────────────────────────────────────────────────────
+  const fetchColumnOrders = useCallback(
+    async (columnId: string, page: number) => {
+      // Prevent duplicate in-flight fetches for page 0.
+      if (
+        page === 0 &&
+        columnLoadStatusRef.current[columnId] === "loading"
+      ) {
         return;
       }
-      flashPermissionError(result.error ?? "Move was rejected.");
-      setOrders(snapshot);
-      scheduleRefresh();
-      return;
-    }
 
-    // Show notification popup if the destination column has automation enabled.
-    const notifyColumn = notifyColumns.find((c) => c.column_id === toColumnId);
-    if (notifyColumn && notifyColumn.automation_enabled) {
-      setNotifyPopup({
-        order: { ...order, column_id: toColumnId },
-        notifyColumn,
-        columnName: toCol.name,
-      });
-    }
-  }
+      columnLoadStatusRef.current = {
+        ...columnLoadStatusRef.current,
+        [columnId]: "loading",
+      };
+      setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
 
-  // Keep local state in sync when the server sends fresh data (e.g. realtime
-  // refresh) and we are not mid-drag.
-  const signature = useMemo(
-    () =>
-      initialOrders
-        .map((o) => `${o.id}:${o.column_id}:${o.position}:${o.updated_at}:${o.tag_id ?? ""}`)
-        .join("|"),
-    [initialOrders]
+      try {
+        const res = await fetch(
+          `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = (await res.json()) as ColumnOrdersResponse;
+
+        // Merge orders into central state. Page 0 replaces the column's
+        // existing orders (handles refreshes); later pages append.
+        setOrders((prev) => {
+          let next: OrderWithRelations[];
+          if (page === 0) {
+            const kept = prev.filter((o) => o.column_id !== columnId);
+            next = [...kept, ...data.orders];
+          } else {
+            const existingIds = new Set(prev.map((o) => o.id));
+            const newOnly = data.orders.filter((o) => !existingIds.has(o.id));
+            next = [...prev, ...newOnly];
+          }
+          boardOrdersRef.current = next;
+          return next;
+        });
+
+        // Merge enrichments — always additive, orphaned entries are harmless.
+        setFieldValuesByOrder((prev) => ({
+          ...prev,
+          ...data.fieldValuesByOrder,
+        }));
+        setThumbnailByOrder((prev) => ({ ...prev, ...data.thumbnailByOrder }));
+        setNotificationBadgeByOrder((prev) => ({
+          ...prev,
+          ...data.notificationBadgeByOrder,
+        }));
+        setOwnerNameByOrder((prev) => ({ ...prev, ...data.ownerNameByOrder }));
+        setDesignerNameByOrder((prev) => ({
+          ...prev,
+          ...data.designerNameByOrder,
+        }));
+
+        setColumnHasMore((s) => ({ ...s, [columnId]: data.hasMore }));
+        setColumnTotal((s) => ({ ...s, [columnId]: data.total }));
+        columnCurrentPageRef.current = {
+          ...columnCurrentPageRef.current,
+          [columnId]: page,
+        };
+        columnLoadStatusRef.current = {
+          ...columnLoadStatusRef.current,
+          [columnId]: "loaded",
+        };
+        setColumnLoadStatus((s) => ({ ...s, [columnId]: "loaded" }));
+        loadedColumnsRef.current.add(columnId);
+      } catch (err) {
+        console.error("[Board] Failed to load column orders:", err);
+        columnLoadStatusRef.current = {
+          ...columnLoadStatusRef.current,
+          [columnId]: "error",
+        };
+        setColumnLoadStatus((s) => ({ ...s, [columnId]: "error" }));
+      }
+    },
+    [] // all dependencies are refs or stable setters
   );
+
+  // Called by Column's IntersectionObserver when it enters the viewport.
+  const onColumnVisible = useCallback(
+    (columnId: string) => {
+      const status = columnLoadStatusRef.current[columnId] ?? "idle";
+      if (status !== "idle") return;
+      void fetchColumnOrders(columnId, 0);
+    },
+    [fetchColumnOrders]
+  );
+
+  // Called by Column's "Load more" button.
+  const onLoadMore = useCallback(
+    (columnId: string) => {
+      const nextPage = (columnCurrentPageRef.current[columnId] ?? -1) + 1;
+      void fetchColumnOrders(columnId, nextPage);
+    },
+    [fetchColumnOrders]
+  );
+
+  // ── Refresh helpers ──────────────────────────────────────────────────────────
   const draggingRef = useRef(false);
   const dragSourceColumnRef = useRef<string | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevOrderCountRef = useRef(initialOrders.length);
 
-  /** Debounced full reload — board page is heavy (signed URLs, notifications). */
+  /**
+   * Debounced refresh: re-fetches server metadata (column configs, etc.)
+   * and page 0 of every already-loaded column to pick up badge changes,
+   * new orders created by webhooks, etc.
+   */
   const scheduleRefresh = useCallback(() => {
     if (draggingRef.current) return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => router.refresh(), 800);
-  }, [router]);
-
-  useEffect(() => {
-    if (!draggingRef.current) {
-      setOrders(initialOrders);
-      const prev = prevOrderCountRef.current;
-      const next = initialOrders.length;
-      if (next > prev) {
-        const diff = next - prev;
-        flashToast(`${diff} new order${diff > 1 ? "s" : ""} received`);
+    refreshTimerRef.current = setTimeout(() => {
+      // Refresh server-rendered metadata (columns, custom fields, tags, etc.)
+      router.refresh();
+      // Refresh orders + enrichments for every visible column.
+      for (const colId of loadedColumnsRef.current) {
+        void fetchColumnOrders(colId, 0);
       }
-      prevOrderCountRef.current = next;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature]);
+    }, 800);
+  }, [router, fetchColumnOrders]);
 
-  // Realtime: move cards immediately, then refresh server data (badges, etc.).
+  // ── Realtime subscription ────────────────────────────────────────────────────
   useEffect(() => {
     const supabase = createClient();
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -305,13 +339,17 @@ export function Board({
       old: Record<string, unknown>;
     }) {
       const eventType = payload.eventType;
+
       if (eventType === "DELETE") {
         const old = payload.old as { id?: string; tenant_id?: string };
         if (old.tenant_id && old.tenant_id !== tenantId) return;
         if (old.id) {
-          setOrders((prev) => prev.filter((o) => o.id !== old.id));
+          setOrders((prev) => {
+            const next = prev.filter((o) => o.id !== old.id);
+            boardOrdersRef.current = next;
+            return next;
+          });
         }
-        scheduleRefresh();
         return;
       }
 
@@ -325,7 +363,15 @@ export function Board({
       if (!row.id || row.tenant_id !== tenantId) return;
 
       if (eventType === "INSERT") {
-        scheduleRefresh();
+        // Re-fetch the affected column if it has been loaded already.
+        const colId = row.column_id;
+        if (colId && loadedColumnsRef.current.has(colId)) {
+          if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+          refreshTimerRef.current = setTimeout(() => {
+            void fetchColumnOrders(colId, 0);
+            flashToast("New order received");
+          }, 800);
+        }
         return;
       }
 
@@ -346,10 +392,9 @@ export function Board({
                 ? row.updated_at
                 : next[idx].updated_at,
           };
+          boardOrdersRef.current = next;
           return next;
         });
-        // Refresh server data (badges, etc.) for any realtime update —
-        // scheduleRefresh is debounced 800ms and bails when mid-drag.
         scheduleRefresh();
       }
     }
@@ -405,66 +450,107 @@ export function Board({
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [tenantId, scheduleRefresh]);
+  }, [tenantId, scheduleRefresh, fetchColumnOrders]);
 
-  // Polling fallback — refreshes board every 20 s so webhook-created orders
-  // appear even when Supabase Realtime is not active or misses an event.
+  // 20-second polling fallback for missed realtime events (column configs, etc.)
   useEffect(() => {
     const id = setInterval(() => {
-      if (!draggingRef.current) router.refresh();
+      if (!draggingRef.current) scheduleRefresh();
     }, 20_000);
     return () => clearInterval(id);
-  }, [router]);
+  }, [scheduleRefresh]);
 
+  // ── DnD ────────────────────────────────────────────────────────────────────
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const ownerFilterOptions = owners;
+  /** Returns the columns a card in `fromColumnId` can be moved to via right-click. */
+  function getMoveableColumns(fromColumnId: string) {
+    const fromCol = columnsById.get(fromColumnId);
+    if (!fromCol || !canDropOut(role, fromCol)) return [];
+    return columns.filter((c) => c.id !== fromColumnId && canDropIn(role, c));
+  }
 
-  const filtersActive =
-    orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
+  /** Handles a column move triggered from the right-click context menu. */
+  async function handleContextMove(
+    order: OrderWithRelations,
+    toColumnId: string
+  ) {
+    const fromColumnId = order.column_id;
+    const fromCol = columnsById.get(fromColumnId);
+    const toCol = columnsById.get(toColumnId);
+    if (!fromCol || !toCol) return;
 
-  const filteredOrders = useMemo(() => {
-    const q = orderQuery.trim().toLowerCase();
-    return orders.filter((o) => {
-      if (q) {
-        const fv = fieldValuesByOrder[o.id] ?? {};
-        const customerName = customerNameFromOrder(o, fv, customFields).toLowerCase();
-        const { email, phone } = customerContactFromOrder(o, fv, customFields);
-        const searchable = [
-          o.title,
-          customerName,
-          email ?? "",
-          phone ?? "",
-        ].join(" ").toLowerCase();
-        if (!searchable.includes(q)) return false;
-      }
-      if (personFilter) {
-        const designerId = (o.specs?.designer_id as string | undefined) ?? "";
-        if (designerId !== personFilter) return false;
-      }
-      if (ownerFilter && o.created_by !== ownerFilter) return false;
-      return true;
-    });
-  }, [orders, orderQuery, personFilter, ownerFilter, fieldValuesByOrder, customFields]);
-
-  const ordersByColumn = useMemo(() => {
-    const map = new Map<string, OrderWithRelations[]>();
-    for (const col of columns) map.set(col.id, []);
-    for (const order of [...filteredOrders].sort(
-      (a, b) => a.position - b.position
-    )) {
-      if (!map.has(order.column_id)) map.set(order.column_id, []);
-      map.get(order.column_id)!.push(order);
+    if (!canDropOut(role, fromCol)) {
+      flashPermissionError(
+        `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
+      );
+      return;
     }
-    return map;
-  }, [filteredOrders, columns]);
+    if (!canDropIn(role, toCol)) {
+      flashPermissionError(
+        `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
+      );
+      return;
+    }
 
-  const activeOrder = orders.find((o) => o.id === activeId) ?? null;
-  const activeOrderColumnColor = activeOrder
-    ? (columns.find((c) => c.id === activeOrder.column_id)?.color ?? null)
-    : null;
+    const destOrders = orders
+      .filter((o) => o.column_id === toColumnId)
+      .sort((a, b) => a.position - b.position);
+    const lastPos = destOrders[destOrders.length - 1]?.position ?? 0;
+    const newPosition = lastPos + 1000;
+
+    const snapshot = boardOrdersRef.current;
+
+    setOrders((prev) => {
+      const next = prev.map((o) =>
+        o.id === order.id
+          ? { ...o, column_id: toColumnId, position: newPosition }
+          : o
+      );
+      boardOrdersRef.current = next;
+      return next;
+    });
+
+    const result = await requestOrderMove(
+      { orderId: order.id, toColumnId, position: newPosition },
+      { fromColumnId, columns }
+    );
+
+    if (!result.ok) {
+      if (result.missingFields?.length) {
+        setOrders(snapshot);
+        boardOrdersRef.current = snapshot;
+        setMoveBlockedState({
+          orderId: order.id,
+          missingFields: result.missingFields,
+        });
+        return;
+      }
+      flashPermissionError(result.error ?? "Move was rejected.");
+      setOrders(snapshot);
+      boardOrdersRef.current = snapshot;
+      scheduleRefresh();
+      return;
+    }
+
+    // If the destination column hasn't been loaded yet, load it now so the
+    // moved card appears there.
+    if (!loadedColumnsRef.current.has(toColumnId)) {
+      void fetchColumnOrders(toColumnId, 0);
+    }
+
+    const notifyColumn = notifyColumns.find((c) => c.column_id === toColumnId);
+    if (notifyColumn && notifyColumn.automation_enabled) {
+      setNotifyPopup({
+        order: { ...order, column_id: toColumnId },
+        notifyColumn,
+        columnName: toCol.name,
+      });
+    }
+  }
+
   function findColumnId(id: string): string | null {
     if (columns.some((c) => c.id === id)) return id;
     return orders.find((o) => o.id === id)?.column_id ?? null;
@@ -487,8 +573,6 @@ export function Board({
     const source = columnsById.get(activeColumn);
     const target = columnsById.get(overColumn);
     if (!source || !target) return;
-
-    // Don't preview a move the user can't complete (needs drop-out + drop-in).
     if (!canDropOut(role, source) || !canDropIn(role, target)) return;
 
     setOrders((prev) =>
@@ -501,7 +585,7 @@ export function Board({
   function abortDrag() {
     draggingRef.current = false;
     dragSourceColumnRef.current = null;
-    setOrders(initialOrders);
+    setOrders(boardOrdersRef.current);
   }
 
   async function onDragEnd(event: DragEndEvent) {
@@ -520,7 +604,6 @@ export function Board({
       return;
     }
 
-    // Enforce per-column drop permissions before persisting.
     const from = columnsById.get(activeColumn);
     const to = columnsById.get(overColumn);
     const crossing = activeColumn !== overColumn;
@@ -547,7 +630,6 @@ export function Board({
       return;
     }
 
-    // Reorder within the destination column.
     const columnOrders = orders
       .filter((o) => o.column_id === overColumn)
       .sort((a, b) => a.position - b.position);
@@ -566,13 +648,15 @@ export function Board({
     const newPosition =
       next === undefined ? prev + 1000 : (prev + next) / 2;
 
-    setOrders((prevOrders) =>
-      prevOrders.map((o) =>
+    setOrders((prevOrders) => {
+      const next = prevOrders.map((o) =>
         o.id === active.id
           ? { ...o, column_id: overColumn, position: newPosition }
           : o
-      )
-    );
+      );
+      boardOrdersRef.current = next;
+      return next;
+    });
 
     try {
       const result = await requestOrderMove(
@@ -581,10 +665,7 @@ export function Board({
           toColumnId: overColumn,
           position: newPosition,
         },
-        {
-          fromColumnId: sourceColumn,
-          columns,
-        }
+        { fromColumnId: sourceColumn, columns }
       );
       if (!result.ok) {
         if (result.missingFields?.length) {
@@ -596,9 +677,13 @@ export function Board({
           return;
         }
         flashPermissionError(result.error ?? "Move was rejected.");
-        setOrders(initialOrders);
+        setOrders(boardOrdersRef.current);
         scheduleRefresh();
       } else if (crossing) {
+        // Load the destination column if it hasn't been loaded yet.
+        if (!loadedColumnsRef.current.has(overColumn)) {
+          void fetchColumnOrders(overColumn, 0);
+        }
         const notifyColumn = notifyColumns.find(
           (c) => c.column_id === overColumn
         );
@@ -610,9 +695,6 @@ export function Board({
             columnName: columnsById.get(overColumn)?.name ?? "",
           });
         }
-        // Refresh server data (notification badges, etc.) shortly after a
-        // successful cross-column move. draggingRef is cleared in `finally`
-        // before this scheduleRefresh call is reached.
         scheduleRefresh();
       }
     } finally {
@@ -621,10 +703,61 @@ export function Board({
     }
   }
 
+  // ── Filters ──────────────────────────────────────────────────────────────────
+  const ownerFilterOptions = owners;
+  const filtersActive =
+    orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
+
+  const filteredOrders = useMemo(() => {
+    const q = orderQuery.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (q) {
+        const fv = fieldValuesByOrder[o.id] ?? {};
+        const customerName = customerNameFromOrder(
+          o,
+          fv,
+          customFields
+        ).toLowerCase();
+        const { email, phone } = customerContactFromOrder(o, fv, customFields);
+        const searchable = [o.title, customerName, email ?? "", phone ?? ""]
+          .join(" ")
+          .toLowerCase();
+        if (!searchable.includes(q)) return false;
+      }
+      if (personFilter) {
+        const designerId =
+          (o.specs?.designer_id as string | undefined) ?? "";
+        if (designerId !== personFilter) return false;
+      }
+      if (ownerFilter && o.created_by !== ownerFilter) return false;
+      return true;
+    });
+  }, [orders, orderQuery, personFilter, ownerFilter, fieldValuesByOrder, customFields]);
+
+  const ordersByColumn = useMemo(() => {
+    const map = new Map<string, OrderWithRelations[]>();
+    for (const col of columns) map.set(col.id, []);
+    for (const order of [...filteredOrders].sort(
+      (a, b) => a.position - b.position
+    )) {
+      if (!map.has(order.column_id)) map.set(order.column_id, []);
+      map.get(order.column_id)!.push(order);
+    }
+    return map;
+  }, [filteredOrders, columns]);
+
+  const activeOrder = orders.find((o) => o.id === activeId) ?? null;
+  const activeOrderColumnColor = activeOrder
+    ? (columns.find((c) => c.id === activeOrder.column_id)?.color ?? null)
+    : null;
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <h1 className="text-lg font-semibold text-slate-800">Production Board</h1>
+        <h1 className="text-lg font-semibold text-slate-800">
+          Production Board
+        </h1>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="relative min-w-[10rem] flex-1 sm:w-56 sm:flex-none">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -678,7 +811,11 @@ export function Board({
           <button
             type="button"
             onClick={() => setGroupedView((v) => !v)}
-            title={groupedView ? "Switch to normal view" : "Group items by order number"}
+            title={
+              groupedView
+                ? "Switch to normal view"
+                : "Group items by order number"
+            }
             className={cn(
               "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
               groupedView
@@ -693,7 +830,11 @@ export function Board({
             <button
               type="button"
               onClick={() => setAnimateWarnings((v) => !v)}
-              title={animateWarnings ? "Switch warnings to border only" : "Switch warnings to animation"}
+              title={
+                animateWarnings
+                  ? "Switch warnings to border only"
+                  : "Switch warnings to animation"
+              }
               className={cn(
                 "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
                 animateWarnings
@@ -735,30 +876,35 @@ export function Board({
       >
         <div className="board-scroll min-h-0 min-w-0 flex-1 overflow-x-scroll overflow-y-hidden">
           <div className="flex h-full min-w-max gap-3 px-4 pb-4">
-          {columns.map((column, index) => (
-            <Column
-              key={column.id}
-              column={column}
-              canDragCards={canDragInColumn(role, column)}
-              canAcceptDrop={canDropIn(role, column)}
-              isDragActive={activeId !== null}
-              groupedView={groupedView}
-              orders={ordersByColumn.get(column.id) ?? []}
-              customFields={customFields}
-              fieldValuesByOrder={fieldValuesByOrder}
-              thumbnailByOrder={thumbnailByOrder}
-              designerNameByOrder={designerNameByOrder}
-              notificationBadgeByOrder={notificationBadgeByOrder}
-              ownerNameByOrder={ownerNameByOrder}
-              warningRules={warningRules}
-              animateWarnings={animateWarnings}
-              isFirst={index === 0}
-              availableColumns={getMoveableColumns(column.id)}
-              onMoveToColumn={handleContextMove}
-              onOpenOrder={(o) => setDetailId(o.id)}
-              onAdd={(colId) => setCreateColumn(colId)}
-            />
-          ))}
+            {columns.map((column, index) => (
+              <Column
+                key={column.id}
+                column={column}
+                canDragCards={canDragInColumn(role, column)}
+                canAcceptDrop={canDropIn(role, column)}
+                isDragActive={activeId !== null}
+                groupedView={groupedView}
+                orders={ordersByColumn.get(column.id) ?? []}
+                customFields={customFields}
+                fieldValuesByOrder={fieldValuesByOrder}
+                thumbnailByOrder={thumbnailByOrder}
+                designerNameByOrder={designerNameByOrder}
+                notificationBadgeByOrder={notificationBadgeByOrder}
+                ownerNameByOrder={ownerNameByOrder}
+                warningRules={warningRules}
+                animateWarnings={animateWarnings}
+                isFirst={index === 0}
+                availableColumns={getMoveableColumns(column.id)}
+                onMoveToColumn={handleContextMove}
+                onOpenOrder={(o) => setDetailId(o.id)}
+                onAdd={(colId) => setCreateColumn(colId)}
+                loadStatus={columnLoadStatus[column.id] ?? "idle"}
+                hasMore={columnHasMore[column.id] ?? false}
+                total={columnTotal[column.id]}
+                onVisible={onColumnVisible}
+                onLoadMore={onLoadMore}
+              />
+            ))}
           </div>
         </div>
 
@@ -792,6 +938,8 @@ export function Board({
         currentUserId={currentUserId}
         onCreated={() => {
           setCreateColumn(null);
+          // Re-fetch the column the new order was created in.
+          if (createColumn) void fetchColumnOrders(createColumn, 0);
           router.refresh();
         }}
       />
@@ -807,7 +955,12 @@ export function Board({
         role={role}
         userId={currentUserId}
         currentUserName={currentUserName}
-        onChanged={() => router.refresh()}
+        onChanged={() => {
+          // Re-fetch the column of the edited order for fresh data.
+          const order = boardOrdersRef.current.find((o) => o.id === detailId);
+          if (order) void fetchColumnOrders(order.column_id, 0);
+          router.refresh();
+        }}
         onLinkCopied={flashToast}
         buttonAutomations={buttonAutomations}
         fastActionButtons={fastActionButtons}
@@ -851,7 +1004,6 @@ export function Board({
           onClose={() => setMoveBlockedState(null)}
         />
       ) : null}
-
     </div>
   );
 }
