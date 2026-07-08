@@ -114,6 +114,11 @@ export function OrderCard({
     ? String(fieldValues[productField.id] ?? "").trim()
     : "";
 
+  const materialsField = findOrderFormField(customFields, "Materials");
+  const materialsName = materialsField
+    ? String(fieldValues[materialsField.id] ?? "").trim()
+    : "";
+
   const designerName =
     designerNameProp?.trim() ||
     (typeof order.specs?.designer_name === "string"
@@ -232,6 +237,7 @@ export function OrderCard({
 
   const summaryTrailingParts = [
     productName || null,
+    materialsName || null,
     orderQty != null ? `qty ${orderQty}` : null,
     skuCount > 0 ? `${skuCount} SKU` : null,
   ].filter(Boolean);
