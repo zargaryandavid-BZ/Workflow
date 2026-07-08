@@ -288,7 +288,7 @@ export function CardDetailModal({
     if (open && orderId) {
       setSaveError(null);
       setActivityOpen(false);
-      setIsEditing(false);
+      setIsEditing(!isViewOnly);
       resetPendingFiles();
       setModalCustomFields(customFieldsRef.current);
       load();
@@ -588,7 +588,7 @@ export function CardDetailModal({
     onClose();
   }
 
-  const displayOrderNumber = (data?.order.title ?? title).trim();
+  const displayOrderNumber = title.trim() || (data?.order.title ?? "").trim();
 
   async function copyOrderNumber() {
     if (!displayOrderNumber) return;

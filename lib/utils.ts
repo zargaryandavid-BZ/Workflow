@@ -53,8 +53,8 @@ export function daysAgo(value?: string | null): string {
   if (Number.isNaN(d.getTime())) return "";
   const diff = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
   if (diff === 0) return "today";
-  if (diff === 1) return "yesterday";
-  return `${diff} days ago`;
+  if (diff === 1) return "1 day";
+  return `${diff} days`;
 }
 
 export function initials(name?: string | null) {
