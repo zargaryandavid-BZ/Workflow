@@ -18,6 +18,10 @@ interface ActionButtonProps {
   appUrl: string;
   /** When >= 2, SMS buttons show a group confirmation dialog before sending. */
   groupSize?: number;
+  /** How many of the group are in the same column as this order. */
+  groupSameColumnCount?: number;
+  /** Name of the current column (shown in the SMS confirmation dialog). */
+  groupColumnName?: string;
   onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
@@ -28,6 +32,8 @@ export function ActionButton({
   orderNumber,
   appUrl,
   groupSize,
+  groupSameColumnCount,
+  groupColumnName,
   onComplete,
   onError,
 }: ActionButtonProps) {
@@ -124,6 +130,9 @@ export function ActionButton({
           <div className="min-w-0 flex-1 text-sm">
             <p className="font-medium text-amber-800">
               This order has <strong>{groupSize} parts</strong>
+              {groupSameColumnCount != null && groupColumnName ? (
+                <>, <strong>{groupSameColumnCount}/{groupSize}</strong> in the same column: <strong>{groupColumnName}</strong></>
+              ) : null}
             </p>
             <p className="mt-0.5 text-amber-700">
               Please confirm all parts are ready before sending the SMS to the customer.

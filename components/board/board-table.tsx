@@ -182,7 +182,7 @@ export function BoardTable({
 
   return (
     <div className="board-scroll min-h-0 flex-1 overflow-auto px-4 pb-4">
-      <table className="w-full border-collapse text-sm">
+      <table className="border-collapse text-sm">
         {/* ── Sticky header ───────────────────────────────────── */}
         <thead>
           <tr>
@@ -207,7 +207,7 @@ export function BoardTable({
             {/* Tags / people column */}
             <th
               scope="col"
-              className="sticky top-0 z-10 w-[140px] min-w-[140px] max-w-[140px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+              className="sticky top-0 z-10 w-px border-b border-r border-slate-200 bg-slate-50 px-2 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 whitespace-nowrap"
             >
               Tags
             </th>
@@ -220,7 +220,7 @@ export function BoardTable({
                   scope="col"
                   className={cn(
                     "group/th sticky top-0 z-10 border-b border-r border-slate-200 bg-slate-50 px-2 py-2.5 text-center text-xs font-semibold text-slate-600 transition-all",
-                    isHidden ? "w-8 min-w-[2rem] max-w-[2rem]" : "min-w-[100px]"
+                    isHidden ? "w-8" : "w-px"
                   )}
                 >
                   {isHidden ? (
@@ -235,7 +235,7 @@ export function BoardTable({
                     </button>
                   ) : (
                     // Visible state — name + eye icon on hover
-                    <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                       <span
                         className="h-2.5 w-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: col.color ?? "#94a3b8" }}
@@ -254,6 +254,8 @@ export function BoardTable({
                 </th>
               );
             })}
+            {/* Filler — absorbs remaining horizontal space */}
+            <th scope="col" className="sticky top-0 z-10 w-full border-b border-slate-200 bg-slate-50" />
           </tr>
         </thead>
 
@@ -332,7 +334,7 @@ export function BoardTable({
                 {/* ── Order info cell (sticky left) ────────────── */}
                 <td
                   className={cn(
-                    "sticky left-0 z-10 border-r border-slate-200 bg-white px-3 py-2",
+                    "sticky left-0 z-10 border-r border-slate-200 bg-white px-3 py-1.5",
                     activeWarning && !animateWarnings ? "border-l-2" : "border-l-0"
                   )}
                   style={{ width: orderColWidth, minWidth: orderColWidth, maxWidth: orderColWidth, ...warningBorderStyle }}
@@ -391,12 +393,12 @@ export function BoardTable({
                 </td>
 
                 {/* ── People / tags cell ────────────────────────── */}
-                <td className="w-[140px] min-w-[140px] max-w-[140px] border-r border-slate-200 px-2 py-2 align-top">
+                <td className="w-px border-r border-slate-200 px-2 py-1.5 align-top">
                   <div className="flex flex-col gap-1">
                     {notificationBadge ? (
                       <span
                         className={cn(
-                          "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                          "inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-px text-[10px] font-medium",
                           CARD_BADGE_STYLES[notificationBadge]
                         )}
                       >
@@ -406,34 +408,32 @@ export function BoardTable({
                     {orderTags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-600"
+                        className="inline-flex items-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-600"
                       >
                         {tag}
                       </span>
                     ))}
                     <span
                       className={cn(
-                        "inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
+                        "inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold",
                         isDesignerUnassigned
                           ? UNASSIGNED_DESIGNER_TEXT_CLASS
                           : "bg-[var(--primary)]/10 text-[var(--primary)]"
                       )}
                     >
                       <User className="h-2.5 w-2.5 shrink-0" />
-                      <span className="max-w-[120px] truncate">
-                        {designerName ?? "Unassigned"}
-                      </span>
+                      {designerName ?? "Unassigned"}
                     </span>
                     {ownerName ? (
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-500">
+                      <span className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-500">
                         <User className="h-2.5 w-2.5 shrink-0 text-slate-400" />
-                        <span className="max-w-[120px] truncate">{ownerName}</span>
+                        {ownerName}
                       </span>
                     ) : null}
                     {order.priority && order.priority !== "normal" ? (
                       <span
                         className={cn(
-                          "inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-medium capitalize",
+                          "inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-medium capitalize",
                           PRIORITY_STYLES[order.priority] ?? "bg-slate-100 text-slate-600"
                         )}
                       >
@@ -463,7 +463,7 @@ export function BoardTable({
                     return (
                       <td
                         key={col.id}
-                        className="border-r border-slate-200 p-1.5 text-center"
+                        className="w-px border-r border-slate-200 text-center align-middle"
                         style={{
                           backgroundColor: col.color
                             ? `${col.color}1a`
@@ -471,23 +471,12 @@ export function BoardTable({
                           borderLeft: `3px solid ${col.color ?? "#94a3b8"}`,
                         }}
                       >
-                        <div
-                          className="flex w-full flex-col items-center justify-center gap-0.5 rounded py-1"
-                        >
-                          <span
-                            className="h-4 w-4 rounded-full border-2"
-                            style={{
-                              backgroundColor: col.color ?? "#94a3b8",
-                              borderColor: col.color ?? "#94a3b8",
-                            }}
-                          />
-                          <span
-                            className="max-w-[88px] truncate text-[10px] font-semibold"
-                            style={{ color: col.color ?? "#64748b" }}
-                          >
-                            {col.name}
-                          </span>
-                        </div>
+                        <span
+                          className="inline-block h-3 w-3 rounded-full"
+                          style={{
+                            backgroundColor: col.color ?? "#94a3b8",
+                          }}
+                        />
                       </td>
                     );
                   }
@@ -496,7 +485,7 @@ export function BoardTable({
                     return (
                       <td
                         key={col.id}
-                        className="border-r border-slate-200 p-1"
+                        className="w-px border-r border-slate-200 p-1"
                       />
                     );
                   }
@@ -504,10 +493,12 @@ export function BoardTable({
                   return (
                     <td
                       key={col.id}
-                      className="border-r border-slate-200 p-1"
+                      className="w-px border-r border-slate-200 p-1"
                     />
                   );
                 })}
+                {/* Filler cell */}
+                <td className="border-slate-200" />
               </tr>
             );
           })}

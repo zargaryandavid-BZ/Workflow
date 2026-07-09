@@ -13,6 +13,10 @@ interface ButtonAutomationBarProps {
   appUrl: string;
   /** When >= 2, SMS buttons show a group confirmation dialog before sending. */
   groupSize?: number;
+  /** How many of the group are in the same column as this order. */
+  groupSameColumnCount?: number;
+  /** Name of the current column (shown in the SMS confirmation dialog). */
+  groupColumnName?: string;
   onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
@@ -24,6 +28,8 @@ export function ButtonAutomationBar({
   orderNumber,
   appUrl,
   groupSize,
+  groupSameColumnCount,
+  groupColumnName,
   onComplete,
   onError,
 }: ButtonAutomationBarProps) {
@@ -40,6 +46,8 @@ export function ButtonAutomationBar({
           orderNumber={orderNumber}
           appUrl={appUrl}
           groupSize={groupSize}
+          groupSameColumnCount={groupSameColumnCount}
+          groupColumnName={groupColumnName}
           onComplete={onComplete}
           onError={onError}
         />

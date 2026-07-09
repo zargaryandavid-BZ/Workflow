@@ -162,6 +162,20 @@ export function Board({
     return count >= 2 ? count : undefined;
   }, [detailId, orders]);
 
+  /** How many parts of the detail order's group share the same column, plus that column's name. */
+  const detailGroupSameColumn = useMemo(() => {
+    if (!detailId) return undefined;
+    const order = orders.find((o) => o.id === detailId);
+    if (!order) return undefined;
+    const key = getGroupKey(order);
+    if (!key) return undefined;
+    const groupOrders = orders.filter((o) => getGroupKey(o) === key);
+    if (groupOrders.length < 2) return undefined;
+    const sameCount = groupOrders.filter((o) => o.column_id === order.column_id).length;
+    const colName = columns.find((c) => c.id === order.column_id)?.name ?? "this column";
+    return { sameColumnCount: sameCount, columnName: colName };
+  }, [detailId, orders, columns]);
+
   /** Maps every orderId to its cross-column group size (only set when ≥ 2). */
   const groupSizeByOrder = useMemo(() => {
     const keyIds = new Map<string, string[]>();
@@ -1035,6 +1049,8 @@ export function Board({
         open={detailId !== null}
         onClose={closeOrderDetail}
         groupSize={detailGroupSize}
+        groupSameColumnCount={detailGroupSameColumn?.sameColumnCount}
+        groupColumnName={detailGroupSameColumn?.columnName}
         customFields={customFields}
         owners={owners}
         columns={columns}

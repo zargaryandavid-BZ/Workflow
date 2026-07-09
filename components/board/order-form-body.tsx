@@ -440,13 +440,26 @@ export function OrderFormBody({
             </Select>
           </div>
           <div>
-            <Label htmlFor={`${idPrefix}-design-task`}>Design task</Label>
+            <Label htmlFor={`${idPrefix}-design-task`}>
+              {designTask && /^https?:\/\//i.test(designTask.trim()) ? (
+                <a
+                  href={designTask.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--primary)] underline hover:opacity-80"
+                >
+                  Design files ↗
+                </a>
+              ) : (
+                "Design files"
+              )}
+            </Label>
             <Input
               id={`${idPrefix}-design-task`}
               readOnly={readOnly}
               value={designTask}
               onChange={(e) => onDesignTaskChange(e.target.value)}
-              placeholder="e.g. Prepare proof / prepress"
+              placeholder="e.g. https://drive.google.com/..."
               className={readOnly ? "bg-slate-50" : undefined}
             />
           </div>

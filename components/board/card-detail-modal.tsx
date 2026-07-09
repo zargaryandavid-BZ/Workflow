@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Copy,
   Loader2,
+  MessageSquare,
   Trash2,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
@@ -78,6 +79,10 @@ interface CardDetailModalProps {
   tags?: Tag[];
   /** Total number of items in the same order group (e.g. 3 for "160-2 (3)"). */
   groupSize?: number;
+  /** How many of the group are in the same column as this order. */
+  groupSameColumnCount?: number;
+  /** Name of the column this order is currently in (for the SMS confirmation dialog). */
+  groupColumnName?: string;
   /** Columns that trigger a notification popup when a card enters them. */
   notifyColumns?: NotifyColumnConfig[];
   /** Called when a Fast Action Button moves to a column that has an active automation. */
@@ -145,6 +150,8 @@ export function CardDetailModal({
   notifyColumns = [],
   onNotifyColumn,
   groupSize,
+  groupSameColumnCount,
+  groupColumnName,
 }: CardDetailModalProps) {
   const isViewOnly = mode === "view";
   const [modalCustomFields, setModalCustomFields] =
@@ -194,6 +201,12 @@ export function CardDetailModal({
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [copiedCustomerField, setCopiedCustomerField] = useState<string | null>(null);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
+  const [smsOpen, setSmsOpen] = useState(false);
+  const [smsPhone, setSmsPhone] = useState("");
+  const [smsBody, setSmsBody] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const smsRef = useRef<HTMLDivElement>(null);
   const isAdmin = role === "admin";
 
   function resetPendingFiles() {
@@ -625,6 +638,41 @@ export function CardDetailModal({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [customerDropdownOpen]);
 
+  useEffect(() => {
+    if (!smsOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (smsRef.current && !smsRef.current.contains(e.target as Node)) {
+        setSmsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [smsOpen]);
+
+  async function sendQuickSms() {
+    setSmsSending(true);
+    setSmsError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/actions/quick-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: smsPhone, body: smsBody }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSmsError((json as { error?: string }).error ?? "Failed to send SMS");
+        return;
+      }
+      setSmsOpen(false);
+      setSmsBody("");
+      void load({ silent: true });
+    } catch {
+      setSmsError("Failed to send SMS");
+    } finally {
+      setSmsSending(false);
+    }
+  }
+
   const ownerName = ownerId ? (owners.find((o) => o.id === ownerId)?.name ?? null) : null;
 
   const modalTitle = (
@@ -744,6 +792,65 @@ export function CardDetailModal({
                   {!orderContact.email && !orderContact.phone ? (
                     <p className="text-[11px] text-slate-400">No contact info on file.</p>
                   ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Quick SMS icon */}
+          <div className="relative" ref={smsRef}>
+            <button
+              type="button"
+              title="Send quick SMS"
+              onClick={() => {
+                setSmsPhone(orderContact.phone ?? "");
+                setSmsError(null);
+                setSmsOpen((v) => !v);
+              }}
+              className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </button>
+
+            {smsOpen ? (
+              <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                <p className="mb-2 text-xs font-semibold text-slate-700">Quick SMS</p>
+                {smsError ? (
+                  <p className="mb-2 rounded bg-red-50 px-2 py-1 text-xs text-red-600">{smsError}</p>
+                ) : null}
+                <label className="mb-1 block text-[11px] text-slate-500">Phone number</label>
+                <input
+                  type="tel"
+                  value={smsPhone}
+                  onChange={(e) => setSmsPhone(e.target.value)}
+                  placeholder="+1 818 555 1234"
+                  className="mb-2 w-full rounded-md border border-slate-200 px-2 py-1 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                />
+                <label className="mb-1 block text-[11px] text-slate-500">Message</label>
+                <textarea
+                  value={smsBody}
+                  onChange={(e) => setSmsBody(e.target.value)}
+                  rows={3}
+                  placeholder="Type your message…"
+                  className="mb-3 w-full resize-none rounded-md border border-slate-200 px-2 py-1 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSmsOpen(false)}
+                    className="rounded-md border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendQuickSms}
+                    disabled={smsSending || !smsPhone.trim() || !smsBody.trim()}
+                    className="inline-flex items-center gap-1 rounded-md bg-[var(--primary)] px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {smsSending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    {smsSending ? "Sending…" : "Send"}
+                  </button>
                 </div>
               </div>
             ) : null}
@@ -929,6 +1036,8 @@ export function CardDetailModal({
               orderNumber={data.order.title}
               appUrl={appUrl}
               groupSize={groupSize}
+              groupSameColumnCount={groupSameColumnCount}
+              groupColumnName={groupColumnName}
               onComplete={({ message, refreshOrder }) => {
                 setSaveError(null);
                 onLinkCopied?.(message);

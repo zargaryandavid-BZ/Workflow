@@ -77,6 +77,13 @@ export function describeActivity(log: ActivityLog): string {
       }
       return "Email sent";
     }
+    case "texted": {
+      const phone = meta.phone as string | undefined;
+      const buttonName = meta.buttonName as string | undefined;
+      if (buttonName) return `SMS sent (${buttonName})${phone ? ` to ${phone}` : ""}`;
+      if (phone) return `SMS sent to ${phone}`;
+      return "SMS sent";
+    }
     case "customer_merged":
       return "Customer records merged";
     default:
