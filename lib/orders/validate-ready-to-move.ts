@@ -31,15 +31,6 @@ export function getMissingFields(
 ): MissingField[] {
   const missing: MissingField[] = [];
 
-  // Core order fields not stored in custom_fields settings.
-  if (!order.due_date) {
-    missing.push({ label: "Due Date", field: "due_date" });
-  }
-
-  if (skuCountFromSpecs(order.specs) === 0) {
-    missing.push({ label: "At least one SKU", field: "skus" });
-  }
-
   // Respect each custom field's required toggle from Settings → Fields.
   for (const field of customFields) {
     if (!field.required) continue;

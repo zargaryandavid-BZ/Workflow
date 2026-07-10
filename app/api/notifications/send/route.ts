@@ -8,7 +8,7 @@ import type {
   Order,
 } from "@/lib/types";
 
-const TYPES: NotificationType[] = ["missing_info", "customer_approval"];
+const TYPES: NotificationType[] = ["missing_info", "customer_approval", "ready_to_ship"];
 const CHANNELS: NotificationChannel[] = ["email", "sms", "manual", "none"];
 
 export async function POST(request: Request) {

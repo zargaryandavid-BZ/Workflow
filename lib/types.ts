@@ -5,7 +5,7 @@ export type Role =
   | "account_manager"
   | "member";
 
-export type ColumnKind = "normal" | "exception" | "approval" | "done";
+export type ColumnKind = "normal" | "exception" | "approval" | "done" | "ready_to_ship";
 
 export type CustomFieldType =
   | "text"
@@ -18,7 +18,7 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export type AutomationTrigger = "on_enter_column" | "on_approval_result";
 
-export type NotificationType = "missing_info" | "customer_approval";
+export type NotificationType = "missing_info" | "customer_approval" | "ready_to_ship";
 
 export type NotificationChannel = "email" | "sms" | "none" | "manual";
 

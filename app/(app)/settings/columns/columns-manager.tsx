@@ -31,6 +31,11 @@ const KINDS: { value: ColumnKind; label: string; hint: string }[] = [
     hint: "Auto-requests customer sign-off on entry",
   },
   { value: "done", label: "Done", hint: "Ready for production" },
+  {
+    value: "ready_to_ship",
+    label: "Ready to Ship",
+    hint: "Triggers a delivery-ready notification popup",
+  },
 ];
 
 const KIND_BADGE: Record<ColumnKind, string> = {
@@ -38,6 +43,7 @@ const KIND_BADGE: Record<ColumnKind, string> = {
   exception: "bg-amber-100 text-amber-700",
   approval: "bg-violet-100 text-violet-700",
   done: "bg-emerald-100 text-emerald-700",
+  ready_to_ship: "bg-emerald-100 text-emerald-700",
 };
 
 function kindMeta(kind: ColumnKind) {

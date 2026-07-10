@@ -196,18 +196,12 @@ export function validateOrderFormFields(
   const customerErr = validateCustomerFields(customerName, customerContact);
   if (customerErr) return customerErr;
 
-  const requiredNames = new Set<string>(
-    ORDER_FORM_ALWAYS_REQUIRED.map((n) => n.toLowerCase())
-  );
-
   const toCheck: CustomField[] = [...fields.printFields];
   if (fields.artworkField) toCheck.push(fields.artworkField);
 
-  const missing = toCheck.filter((f) => {
-    const must =
-      requiredNames.has(f.name.toLowerCase()) || f.required;
-    return must && isEmptyFieldValue(fieldValues[f.id]);
-  });
+  // Respect the admin's required toggle from Settings → Fields only.
+  // Customer name/contact are always validated separately above.
+  const missing = toCheck.filter((f) => f.required && isEmptyFieldValue(fieldValues[f.id]));
 
   if (
     fields.designerField?.required &&

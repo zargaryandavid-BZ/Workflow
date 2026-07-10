@@ -67,33 +67,42 @@ export async function enrichBoardOrders(
         .select("order_id, custom_field_id, value")
         .in("order_id", orderIds),
 
-      supabase
-        .from("assets")
-        .select(
-          "order_id, storage_path, external_url, file_name, mime_type, created_at"
-        )
-        .in("order_id", orderIds)
-        .order("created_at", { ascending: true })
-        .then(({ data }) =>
-          thumbnailUrlsByOrder(
-            (data ?? []) as OrderAssetPreviewRow[],
-            async (paths) => {
-              const { data: signed } = await supabase.storage
-                .from("order-assets")
-                .createSignedUrls(paths, 3600);
-              return new Map(
-                (
-                  (signed ?? []) as {
-                    path: string | null;
-                    signedUrl: string;
-                  }[]
-                )
-                  .filter((s) => s.path)
-                  .map((s) => [s.path as string, s.signedUrl])
-              );
-            }
-          )
-        ),
+      Promise.all([
+        supabase
+          .from("order_sku_images")
+          .select("order_id, storage_path, file_name, mime_type, position, created_at")
+          .in("order_id", orderIds)
+          .order("position", { ascending: true }),
+        supabase
+          .from("assets")
+          .select("order_id, storage_path, external_url, file_name, mime_type, created_at")
+          .in("order_id", orderIds)
+          .order("created_at", { ascending: true }),
+      ]).then(([skuImagesRes, assetsRes]) => {
+        // SKU images first (by position), then general assets as fallback
+        const skuRows = (skuImagesRes.data ?? []).map((r) => ({
+          order_id: r.order_id as string,
+          storage_path: r.storage_path as string | null,
+          external_url: null,
+          file_name: r.file_name as string,
+          mime_type: r.mime_type as string | null,
+          created_at: r.created_at as string,
+        })) as OrderAssetPreviewRow[];
+        const assetRows = (assetsRes.data ?? []) as OrderAssetPreviewRow[];
+        const combined = [...skuRows, ...assetRows];
+        return thumbnailUrlsByOrder(combined, async (paths) => {
+          const { data: signed } = await supabase.storage
+            .from("order-assets")
+            .createSignedUrls(paths, 3600);
+          return new Map(
+            (
+              (signed ?? []) as { path: string | null; signedUrl: string }[]
+            )
+              .filter((s) => s.path)
+              .map((s) => [s.path as string, s.signedUrl])
+          );
+        });
+      }),
 
       supabase
         .from("job_notifications")

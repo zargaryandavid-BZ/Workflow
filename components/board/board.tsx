@@ -1151,6 +1151,7 @@ export function Board({
       {notifyPopup ? (
         <NotificationPopup
           order={notifyPopup.order}
+          columnId={notifyPopup.notifyColumn.column_id}
           columnName={notifyPopup.columnName}
           type={notifyPopup.notifyColumn.notify_type}
           tenantName={tenantName}

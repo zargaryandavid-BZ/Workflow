@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { Loader2, Plus, X } from "lucide-react";
+import { GripVertical, ImageIcon, Loader2, Plus, X } from "lucide-react";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { compressImage } from "@/lib/compress-image";
 import {
@@ -34,10 +34,12 @@ export function SkuImageUpload({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [lightboxLabel, setLightboxLabel] = useState("");
 
+  // drag-to-reorder state
+  const dragIndexRef = useRef<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+
   const canUpload = !disabled && images.length < MAX_SKU_IMAGES;
 
-  // Only reset local state when the parent passes genuinely different images
-  // (i.e. after a full card reload), not just a new array reference.
   const prevInitialIdsRef = useRef(initialImages.map((i) => i.id).join(","));
   useEffect(() => {
     const ids = initialImages.map((i) => i.id).join(",");
@@ -72,34 +74,21 @@ export function SkuImageUpload({
     }
 
     for (const rawFile of fileArray) {
-      const rawSizeError = uploadSizeError(
-        rawFile.size,
-        SKU_IMAGE_RAW_MAX_BYTES
-      );
-      if (rawSizeError) {
-        setError(rawSizeError);
-        break;
-      }
+      const rawSizeError = uploadSizeError(rawFile.size, SKU_IMAGE_RAW_MAX_BYTES);
+      if (rawSizeError) { setError(rawSizeError); break; }
 
       const file = await compressImage(rawFile);
       const sizeError = uploadSizeError(file.size, SKU_IMAGE_MAX_BYTES);
-      if (sizeError) {
-        setError(sizeError);
-        break;
-      }
+      if (sizeError) { setError(sizeError); break; }
 
       const fd = new FormData();
       fd.append("file", file);
-
       const res = await fetch(`/api/orders/${orderId}/skus/${skuId}/images`, {
         method: "POST",
         body: fd,
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(json.error ?? "Upload failed");
-        break;
-      }
+      if (!res.ok) { setError(json.error ?? "Upload failed"); break; }
     }
 
     await reloadImages();
@@ -121,11 +110,51 @@ export function SkuImageUpload({
     setImages((prev) => prev.filter((i) => i.id !== imageId));
   }
 
+  async function saveOrder(reordered: OrderSkuImageWithUrl[]) {
+    await fetch(`/api/orders/${orderId}/skus/${skuId}/images`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: reordered.map((i) => i.id) }),
+    });
+  }
+
+  function onDragStart(index: number) {
+    dragIndexRef.current = index;
+  }
+
+  function onDragEnter(index: number) {
+    setDragOver(index);
+  }
+
+  function onDragEnd() {
+    const from = dragIndexRef.current;
+    const to = dragOver;
+    dragIndexRef.current = null;
+    setDragOver(null);
+    if (from === null || to === null || from === to) return;
+
+    const reordered = [...images];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    setImages(reordered);
+    void saveOrder(reordered);
+  }
+
   return (
     <div className="mt-1.5 pl-0.5">
       <div className="flex flex-wrap gap-2">
-        {images.map((img) => (
-          <div key={img.id} className="group relative h-14 w-14">
+        {images.map((img, index) => (
+          <div
+            key={img.id}
+            draggable={!disabled}
+            onDragStart={() => onDragStart(index)}
+            onDragEnter={() => onDragEnter(index)}
+            onDragOver={(e) => e.preventDefault()}
+            onDragEnd={onDragEnd}
+            className={`group relative h-14 w-14 cursor-grab active:cursor-grabbing transition-opacity ${
+              dragOver === index ? "opacity-50 ring-2 ring-blue-400 rounded-lg" : ""
+            }`}
+          >
             {img.signed_url ? (
               <button
                 type="button"
@@ -147,6 +176,25 @@ export function SkuImageUpload({
                 ?
               </div>
             )}
+
+            {/* Card thumbnail badge on first image */}
+            {index === 0 ? (
+              <span
+                className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 shadow"
+                title="This image shows on the order card"
+              >
+                <ImageIcon className="h-2.5 w-2.5 text-white" />
+              </span>
+            ) : null}
+
+            {/* Drag handle */}
+            {!disabled ? (
+              <span className="absolute bottom-0.5 left-0.5 hidden group-hover:flex items-center justify-center rounded bg-black/40 p-0.5">
+                <GripVertical className="h-3 w-3 text-white" />
+              </span>
+            ) : null}
+
+            {/* Delete button */}
             {!disabled ? (
               <button
                 type="button"
@@ -174,14 +222,18 @@ export function SkuImageUpload({
             ) : (
               <>
                 <Plus className="h-4 w-4" />
-                <span className="text-[10px]">
-                  {images.length}/{MAX_SKU_IMAGES}
-                </span>
+                <span className="text-[10px]">{images.length}/{MAX_SKU_IMAGES}</span>
               </>
             )}
           </button>
         ) : null}
       </div>
+
+      {images.length > 1 && !disabled ? (
+        <p className="mt-1 text-[10px] text-slate-400">
+          Drag images to reorder · <ImageIcon className="inline h-2.5 w-2.5 text-blue-500" /> = shown on card
+        </p>
+      ) : null}
 
       <input
         ref={inputRef}
@@ -195,9 +247,7 @@ export function SkuImageUpload({
         }}
       />
 
-      {error ? (
-        <p className="mt-1 text-[10px] text-red-600">{error}</p>
-      ) : null}
+      {error ? <p className="mt-1 text-[10px] text-red-600">{error}</p> : null}
 
       {lightboxSrc ? (
         <ImageLightbox

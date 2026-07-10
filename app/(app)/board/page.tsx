@@ -69,19 +69,32 @@ export default async function BoardPage({
 
   const automationRules = (rulesRes.data ?? []) as AutomationRule[];
   const notifyColumns = boardColumns
-    .filter((c) => c.kind === "approval" || c.kind === "exception")
+    .filter(
+      (c) =>
+        c.kind === "approval" ||
+        c.kind === "exception" ||
+        c.kind === "ready_to_ship"
+    )
     .map((col) => {
       const rule = automationRules.find(
         (r) =>
           r.from_column === col.id &&
           (r.config as Partial<NotifyRuleConfig>)?.action === "notify"
       );
+      const notifyType: NotificationType =
+        col.kind === "approval"
+          ? "customer_approval"
+          : col.kind === "ready_to_ship"
+            ? "ready_to_ship"
+            : "missing_info";
+      // ready_to_ship columns always show the popup (it's intrinsic to the kind);
+      // approval/exception columns require an explicit enabled automation rule.
+      const automationEnabled =
+        col.kind === "ready_to_ship" ? true : (rule?.enabled ?? false);
       return {
         column_id: col.id,
-        notify_type: (col.kind === "approval"
-          ? "customer_approval"
-          : "missing_info") as NotificationType,
-        automation_enabled: rule?.enabled ?? false,
+        notify_type: notifyType,
+        automation_enabled: automationEnabled,
       };
     });
 

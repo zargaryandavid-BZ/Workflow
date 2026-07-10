@@ -6,6 +6,9 @@ import {
   customerNameFromOrder,
   missingInfoSubject,
   productFromOrder,
+  buildReadyToShipEmailBody,
+  buildReadyToShipSmsBody,
+  readyToShipSubject,
 } from "@/lib/notification-messages";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type {
@@ -56,6 +59,23 @@ function buildSendBody(params: {
       channel,
       staffNote: "We need additional information to complete your order.",
       subject: channel === "email" ? missingInfoSubject(order.title) : undefined,
+      toEmail: channel === "email" ? contact.email : undefined,
+      toPhone: channel === "sms" ? contact.phone : undefined,
+    };
+  }
+
+  if (type === "ready_to_ship") {
+    return {
+      orderId: order.id,
+      type,
+      channel,
+      subject: channel === "email" ? readyToShipSubject(order.title) : undefined,
+      messageBody:
+        channel === "email"
+          ? buildReadyToShipEmailBody({ customerName, orderNumber: order.title, teamName })
+          : channel === "sms"
+            ? buildReadyToShipSmsBody({ customerName, orderNumber: order.title, brandName: tenantName })
+            : undefined,
       toEmail: channel === "email" ? contact.email : undefined,
       toPhone: channel === "sms" ? contact.phone : undefined,
     };

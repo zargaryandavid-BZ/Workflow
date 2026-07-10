@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy } from "lucide-react";
+import { Copy, Mail, Phone, User } from "lucide-react";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { CustomFieldInput } from "./custom-field-input";
 import { SkuEditor, type SkuItem } from "./sku-editor";
@@ -130,6 +130,25 @@ export function OrderFormBody({
   const nameEditedRef = useRef(false);
   const lookupSeqRef = useRef(0);
   const lastLookupKeyRef = useRef<string | null>(null);
+
+  interface CustomerSuggestion {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    company: string | null;
+  }
+  const [nameSuggestions, setNameSuggestions] = useState<CustomerSuggestion[]>([]);
+  const [showNameDropdown, setShowNameDropdown] = useState(false);
+  const nameSeqRef = useRef(0);
+  const nameWrapperRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const [contactSuggestions, setContactSuggestions] = useState<CustomerSuggestion[]>([]);
+  const [showContactDropdown, setShowContactDropdown] = useState(false);
+  const contactSeqRef = useRef(0);
+  const contactWrapperRef = useRef<HTMLDivElement>(null);
+  const contactInputRef = useRef<HTMLInputElement>(null);
   const normalizedDueDate = dateInputValue(dueDate);
   const minDueDate = localDateInputValue();
   const artworkValue = artworkField
@@ -223,6 +242,120 @@ export function OrderFormBody({
 
     return () => window.clearTimeout(timer);
   }, [customerContact, onCustomerNameChange, readOnly]);
+
+  // Name-based search: debounce and fetch matching customers (starts at 5 chars)
+  useEffect(() => {
+    if (readOnly || customerName.trim().length < 5) {
+      setNameSuggestions([]);
+      setShowNameDropdown(false);
+      return;
+    }
+    const seq = ++nameSeqRef.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/customers/search?q=${encodeURIComponent(customerName.trim())}`
+        );
+        if (seq !== nameSeqRef.current) return;
+        if (!res.ok) { setNameSuggestions([]); return; }
+        const json = (await res.json()) as { customers: CustomerSuggestion[] };
+        if (seq !== nameSeqRef.current) return;
+        setNameSuggestions(json.customers ?? []);
+        setShowNameDropdown((json.customers ?? []).length > 0);
+      } catch {
+        if (seq !== nameSeqRef.current) return;
+        setNameSuggestions([]);
+      }
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [customerName, readOnly]);
+
+  // Close name dropdown on outside click
+  useEffect(() => {
+    if (!showNameDropdown) return;
+    function handler(e: MouseEvent) {
+      if (nameWrapperRef.current && !nameWrapperRef.current.contains(e.target as Node)) {
+        setShowNameDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showNameDropdown]);
+
+  // Contact field search (phone/email prefix, 5+ chars)
+  useEffect(() => {
+    if (readOnly || customerContact.trim().length < 5) {
+      setContactSuggestions([]);
+      setShowContactDropdown(false);
+      return;
+    }
+    const seq = ++contactSeqRef.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/customers/search?contact=${encodeURIComponent(customerContact.trim())}`
+        );
+        if (seq !== contactSeqRef.current) return;
+        if (!res.ok) { setContactSuggestions([]); return; }
+        const json = (await res.json()) as { customers: CustomerSuggestion[] };
+        if (seq !== contactSeqRef.current) return;
+        setContactSuggestions(json.customers ?? []);
+        setShowContactDropdown((json.customers ?? []).length > 0);
+      } catch {
+        if (seq !== contactSeqRef.current) return;
+        setContactSuggestions([]);
+      }
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [customerContact, readOnly]);
+
+  // Close contact dropdown on outside click
+  useEffect(() => {
+    if (!showContactDropdown) return;
+    function handler(e: MouseEvent) {
+      if (contactWrapperRef.current && !contactWrapperRef.current.contains(e.target as Node)) {
+        setShowContactDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showContactDropdown]);
+
+  function pickContactFromSuggestion(s: CustomerSuggestion, typed: string): string {
+    // Pick the contact type that matches what the user searched by.
+    const looksLikePhone = /^[+\d]/.test(typed.trim());
+    if (looksLikePhone && s.phone) return s.phone;
+    if (!looksLikePhone && s.email) return s.email;
+    return s.email ?? s.phone ?? "";
+  }
+
+  function applyContactSuggestion(s: CustomerSuggestion) {
+    const contact = pickContactFromSuggestion(s, customerContact);
+    if (contact) onCustomerContactChange(contact);
+    if (!nameEditedRef.current && s.name) onCustomerNameChange(s.name);
+    setShowContactDropdown(false);
+    setContactSuggestions([]);
+    setCustomerLookupHint(
+      s.email && s.phone
+        ? `Existing customer — also on file: ${contact === s.email ? s.phone : s.email}`
+        : "Existing customer found — fields auto-filled"
+    );
+  }
+
+  function applyNameSuggestion(s: CustomerSuggestion) {
+    onCustomerNameChange(s.name);
+    const contact = s.email ?? s.phone ?? "";
+    if (contact) onCustomerContactChange(contact);
+    setShowNameDropdown(false);
+    setNameSuggestions([]);
+    if (contact) {
+      setCustomerLookupHint(
+        s.email && s.phone
+          ? `Existing customer — also on file: ${s.email === contact ? s.phone : s.email}`
+          : "Existing customer found — fields auto-filled"
+      );
+    }
+  }
 
   function handleCustomerNameChange(value: string) {
     nameEditedRef.current = true;
@@ -541,34 +674,169 @@ export function OrderFormBody({
           <div className="border-t border-slate-200" />
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor={`${idPrefix}-customer-name`}>
-                Customer Name<span className="ml-0.5 text-red-500">*</span>
-              </Label>
-              <Input
-                id={`${idPrefix}-customer-name`}
-                required
-                readOnly={readOnly}
-                value={customerName}
-                onChange={(e) => handleCustomerNameChange(e.target.value)}
-                className={readOnly ? "bg-slate-50" : undefined}
-              />
-            </div>
-            <div>
+            {/* ── Contact field with ghost-text autocomplete ── */}
+            <div ref={contactWrapperRef} className="relative">
               <Label htmlFor={`${idPrefix}-customer-contact`}>
                 Customer Contact<span className="ml-0.5 text-red-500">*</span>
               </Label>
+              {(() => {
+                const typed = customerContact;
+                const ghost = contactSuggestions[0]
+                  ? pickContactFromSuggestion(contactSuggestions[0], typed)
+                  : "";
+                const ghostSuffix =
+                  ghost.toLowerCase().startsWith(typed.toLowerCase()) && typed.length > 0
+                    ? ghost.slice(typed.length)
+                    : "";
+                return ghostSuffix ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute bottom-0 left-0 right-0 flex items-center overflow-hidden rounded-md border border-transparent px-3 text-sm"
+                    style={{ top: "calc(1.5rem + 2px)", height: "2.5rem" }}
+                  >
+                    <span className="invisible whitespace-pre font-[inherit]">{typed}</span>
+                    <span className="text-slate-300">{ghostSuffix}</span>
+                  </div>
+                ) : null;
+              })()}
+              {/* Type icon shown inside the input on the right */}
+              {customerContact && !readOnly ? (
+                <div className="pointer-events-none absolute right-2.5 flex items-center" style={{ top: "calc(1.5rem + 0.6rem)" }}>
+                  {/^[+\d]/.test(customerContact.trim())
+                    ? <Phone className="h-3.5 w-3.5 text-slate-300" />
+                    : customerContact.includes("@")
+                      ? <Mail className="h-3.5 w-3.5 text-slate-300" />
+                      : null}
+                </div>
+              ) : null}
               <Input
+                ref={contactInputRef}
                 id={`${idPrefix}-customer-contact`}
                 required
                 readOnly={readOnly}
                 value={customerContact}
                 onChange={(e) => onCustomerContactChange(e.target.value)}
+                onFocus={() => contactSuggestions.length > 0 && setShowContactDropdown(true)}
+                onKeyDown={(e) => {
+                  const ghost = contactSuggestions[0]
+                    ? pickContactFromSuggestion(contactSuggestions[0], customerContact)
+                    : "";
+                  const ghostSuffix =
+                    ghost.toLowerCase().startsWith(customerContact.toLowerCase()) && customerContact.length > 0
+                      ? ghost.slice(customerContact.length)
+                      : "";
+                  if ((e.key === "Tab" || e.key === "ArrowRight") && ghostSuffix) {
+                    e.preventDefault();
+                    applyContactSuggestion(contactSuggestions[0]);
+                  } else if (e.key === "Escape") {
+                    setShowContactDropdown(false);
+                    setContactSuggestions([]);
+                  }
+                }}
                 placeholder="Email or phone"
-                className={readOnly ? "bg-slate-50" : undefined}
+                autoComplete="off"
+                style={readOnly ? undefined : { background: "transparent" }}
+                className={cn(readOnly ? "bg-slate-50" : undefined, customerContact && !readOnly ? "pr-8" : undefined)}
               />
               {customerLookupHint ? (
                 <p className="mt-1 text-xs text-emerald-600">{customerLookupHint}</p>
+              ) : null}
+              {showContactDropdown && contactSuggestions.length > 1 ? (
+                <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                  {contactSuggestions.map((s) => {
+                    const contactToShow = pickContactFromSuggestion(s, customerContact);
+                    const isPhone = contactToShow === s.phone;
+                    return (
+                      <li key={s.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => { e.preventDefault(); applyContactSuggestion(s); }}
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                        >
+                          {isPhone
+                            ? <Phone className="h-4 w-4 shrink-0 text-slate-400" />
+                            : <Mail className="h-4 w-4 shrink-0 text-slate-400" />}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-slate-800">{s.name}</p>
+                            <p className="truncate text-xs text-slate-400">{contactToShow}</p>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </div>
+
+            {/* ── Name field with ghost-text autocomplete ── */}
+            <div ref={nameWrapperRef} className="relative">
+              <Label htmlFor={`${idPrefix}-customer-name`}>
+                Customer Name<span className="ml-0.5 text-red-500">*</span>
+              </Label>
+              {(() => {
+                const typed = customerName;
+                const ghost = nameSuggestions[0]?.name ?? "";
+                const ghostSuffix =
+                  ghost.toLowerCase().startsWith(typed.toLowerCase()) && typed.length > 0
+                    ? ghost.slice(typed.length)
+                    : "";
+                return ghostSuffix ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute bottom-0 left-0 right-0 flex items-center overflow-hidden rounded-md border border-transparent px-3 text-sm"
+                    style={{ top: "calc(1.5rem + 2px)", height: "2.5rem" }}
+                  >
+                    <span className="invisible whitespace-pre font-[inherit]">{typed}</span>
+                    <span className="text-slate-300">{ghostSuffix}</span>
+                  </div>
+                ) : null;
+              })()}
+              <Input
+                ref={nameInputRef}
+                id={`${idPrefix}-customer-name`}
+                required
+                readOnly={readOnly}
+                value={customerName}
+                onChange={(e) => handleCustomerNameChange(e.target.value)}
+                onFocus={() => nameSuggestions.length > 0 && setShowNameDropdown(true)}
+                onKeyDown={(e) => {
+                  const ghost = nameSuggestions[0]?.name ?? "";
+                  const ghostSuffix =
+                    ghost.toLowerCase().startsWith(customerName.toLowerCase()) && customerName.length > 0
+                      ? ghost.slice(customerName.length)
+                      : "";
+                  if ((e.key === "Tab" || e.key === "ArrowRight") && ghostSuffix) {
+                    e.preventDefault();
+                    applyNameSuggestion(nameSuggestions[0]);
+                  } else if (e.key === "Escape") {
+                    setShowNameDropdown(false);
+                    setNameSuggestions([]);
+                  }
+                }}
+                autoComplete="off"
+                style={readOnly ? undefined : { background: "transparent" }}
+                className={readOnly ? "bg-slate-50" : undefined}
+              />
+              {showNameDropdown && nameSuggestions.length > 1 ? (
+                <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                  {nameSuggestions.map((s) => (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); applyNameSuggestion(s); }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                      >
+                        <User className="h-4 w-4 shrink-0 text-slate-400" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-slate-800">{s.name}</p>
+                          {(s.email ?? s.phone) ? (
+                            <p className="truncate text-xs text-slate-400">{s.email ?? s.phone}</p>
+                          ) : null}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               ) : null}
             </div>
           </div>

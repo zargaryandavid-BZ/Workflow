@@ -66,6 +66,7 @@ export const COLUMN_ACCENT: Record<ColumnKind, string> = {
   exception: "border-t-amber-500",
   approval: "border-t-violet-500",
   done: "border-t-emerald-500",
+  ready_to_ship: "border-t-emerald-400",
 };
 
 /**

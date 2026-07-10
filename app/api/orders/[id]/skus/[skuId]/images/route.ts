@@ -52,6 +52,37 @@ export async function GET(
   return NextResponse.json({ images: withUrls });
 }
 
+/** PATCH — reorder images by accepting a new ordered array of IDs */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string; skuId: string }> }
+) {
+  const { id: orderId, skuId } = await params;
+  const ctx = await getTenantContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = (await request.json().catch(() => ({}))) as { ids?: string[] };
+  if (!Array.isArray(body.ids)) {
+    return NextResponse.json({ error: "ids array required" }, { status: 400 });
+  }
+
+  const supabase = await createClient();
+
+  await Promise.all(
+    body.ids.map((id, position) =>
+      supabase
+        .from("order_sku_images")
+        .update({ position })
+        .eq("id", id)
+        .eq("order_id", orderId)
+        .eq("sku_id", skuId)
+        .eq("tenant_id", ctx.tenant.id)
+    )
+  );
+
+  return NextResponse.json({ success: true });
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string; skuId: string }> }

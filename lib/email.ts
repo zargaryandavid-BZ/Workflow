@@ -36,7 +36,7 @@ interface ApprovalEmailArgs {
 
 interface NotificationEmailArgs {
   to: string;
-  type: "missing_info" | "customer_approval";
+  type: "missing_info" | "customer_approval" | "ready_to_ship";
   orderTitle: string;
   tenantName: string;
   actionUrl: string;

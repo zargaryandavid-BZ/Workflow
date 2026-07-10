@@ -269,27 +269,17 @@ export function OrderCard({
           title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
         />
       ) : null}
-      {/* Top row: thumbnail(s) + header info */}
+      {/* Top row: thumbnail + header info */}
       <div className="flex items-start gap-2.5">
         {thumbnails && thumbnails.length > 0 ? (
-          <div className="flex shrink-0 flex-col gap-1">
-            {thumbnails.slice(0, 3).map((url, i) => (
-              <Image
-                key={i}
-                src={url}
-                alt=""
-                width={64}
-                height={64}
-                className="h-16 w-16 rounded object-cover"
-                unoptimized
-              />
-            ))}
-            {thumbnails.length > 3 ? (
-              <div className="flex h-6 w-16 items-center justify-center rounded bg-slate-100 text-[10px] font-semibold text-slate-500">
-                +{thumbnails.length - 3}
-              </div>
-            ) : null}
-          </div>
+          <Image
+            src={thumbnails[0]}
+            alt=""
+            width={80}
+            height={80}
+            className="h-20 w-20 shrink-0 rounded object-cover"
+            unoptimized
+          />
         ) : null}
 
         <div className="min-w-0 flex-1">

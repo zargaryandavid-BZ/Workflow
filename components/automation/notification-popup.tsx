@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { MissingInfoPopup } from "@/components/notify/MissingInfoPopup";
 import { ApprovalPopup } from "@/components/notify/ApprovalPopup";
+import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import type { CustomField, NotificationType, OrderWithRelations } from "@/lib/types";
 
 interface Props {
   order: OrderWithRelations;
+  columnId: string;
   columnName: string;
   type: NotificationType;
   tenantName: string;
@@ -21,6 +23,7 @@ interface Props {
 
 export function NotificationPopup({
   order,
+  columnId,
   type,
   tenantName,
   customFields,
@@ -64,6 +67,22 @@ export function NotificationPopup({
         fieldValues={fieldValues}
         smsConfigured={smsConfigured}
         publicAppUrl={publicAppUrl}
+        onClose={dismissAsManual}
+        dismissing={dismissing}
+        onSent={(toastMessage) => onSaved(toastMessage)}
+      />
+    );
+  }
+
+  if (type === "ready_to_ship") {
+    return (
+      <ReadyToShipPopup
+        order={order}
+        columnId={columnId}
+        tenantName={tenantName}
+        customFields={customFields}
+        fieldValues={fieldValues}
+        smsConfigured={smsConfigured}
         onClose={dismissAsManual}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}

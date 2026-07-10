@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     toColumnId?: string;
     position?: number;
   };
+
   if (!body.orderId || !body.toColumnId) {
     return NextResponse.json(
       { error: "orderId and toColumnId are required" },

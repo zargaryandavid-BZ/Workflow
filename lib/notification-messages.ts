@@ -445,6 +445,70 @@ export function buildNotificationRuleEmailHtml(text: string, orderNumber: string
   });
 }
 
+export function readyToShipSubject(orderNumber: string) {
+  return `Your order is ready — #${orderNumber}`;
+}
+
+/** Plain-text "ready to ship/pickup" email body. */
+export function buildReadyToShipEmailBody(params: {
+  customerName: string;
+  orderNumber: string;
+  staffNote?: string | null;
+  teamName?: string;
+}) {
+  const team = params.teamName ?? "BazaarPrinting Team";
+  const noteBlock = params.staffNote?.trim()
+    ? `\n\nNote from our team:\n${params.staffNote.trim()}`
+    : "";
+  return [
+    `Hi ${params.customerName},`,
+    `Great news! Your order #${params.orderNumber} is ready.${noteBlock}`,
+    `Please contact us to arrange pickup or delivery.`,
+    `Thank you,\n${team}`,
+  ].join("\n");
+}
+
+/** HTML email for ready-to-ship notifications. */
+export function buildReadyToShipEmailHtml(params: {
+  customerName: string;
+  orderNumber: string;
+  staffNote?: string | null;
+  teamName?: string;
+}) {
+  const name = escapeHtml(params.customerName);
+  const orderNum = escapeHtml(params.orderNumber);
+  const noteHtml = params.staffNote?.trim()
+    ? `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;"><strong>Note from our team:</strong> ${escapeHtml(params.staffNote.trim())}</p>`
+    : "";
+
+  const bodyHtml = [
+    `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Hi ${name},</p>`,
+    `<p style="margin:0 0 20px; font-size:14px; color:#374151; line-height:1.7;">Great news! Your order <strong>#${orderNum}</strong> is ready.</p>`,
+    noteHtml,
+    `<p style="margin:0 0 20px; font-size:14px; color:#374151; line-height:1.7;">Please contact us to arrange pickup or delivery.</p>`,
+    `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
+    `<p style="margin:0; font-size:13px; color:#9ca3af;">— ${escapeHtml(params.teamName ?? "BazaarPrinting Team")}</p>`,
+  ].join("");
+
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${params.orderNumber}`,
+    bodyHtml,
+    emailTitle: readyToShipSubject(params.orderNumber),
+  });
+}
+
+/** Short SMS body for ready-to-ship notifications. */
+export function buildReadyToShipSmsBody(params: {
+  customerName?: string | null;
+  orderNumber: string;
+  staffNote?: string | null;
+  brandName?: string;
+}) {
+  const name = params.customerName?.trim() || "there";
+  const note = params.staffNote?.trim() ? ` ${params.staffNote.trim()}` : "";
+  return `Hi ${name}, your order #${params.orderNumber} is ready${note} at 306 Boyd St, LA. Pickup: 9:30 AM-5:30 PM. Bazaar Printing (No-Reply Automated Text)`;
+}
+
 export function formatFileSize(bytes: number | null | undefined) {
   if (bytes == null || bytes <= 0) return "";
   const units = ["B", "KB", "MB", "GB"];

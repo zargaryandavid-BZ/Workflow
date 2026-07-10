@@ -54,10 +54,10 @@ export function MissingInfoPopup({
   );
 
   const [channel, setChannel] = useState<"email" | "sms">(
-    contact.email ? "email" : "sms"
+    contact.phone ? "sms" : "email"
   );
   const [to, setTo] = useState(
-    contact.email ?? contact.phone ?? ""
+    contact.phone ?? contact.email ?? ""
   );
   const [subject, setSubject] = useState(() => missingInfoSubject(order.title));
   const [internalNote, setInternalNote] = useState("");

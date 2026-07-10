@@ -154,6 +154,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
+  /** Internal staff note — creates an entry in the order's Notes tab. */
+  internal_note?: string;
   category?: string;
   category_name?: string;
   skus?: WebhookSkuPayload[];
@@ -189,6 +191,10 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
+  /** Internal staff note added to the order's Notes tab on creation. Alias: `notes`. */
+  internal_note?: string;
+  /** Alias for `internal_note`. */
+  notes?: string;
   skus?: WebhookSkuPayload[];
   items?: WebhookItem[];
 }
@@ -468,6 +474,7 @@ function mergeItemWithOrder(
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: item.artwork_url ?? order.artwork_url,
     description: item.description ?? order.description,
+    internal_note: item.internal_note ?? order.internal_note ?? order.notes,
     category: item.category ?? order.category,
     category_name: item.category_name ?? order.category_name,
     designer_email: item.designer_email ?? order.designer_email,
@@ -1371,6 +1378,7 @@ interface CreateSingleJobParams {
   designerId: string | null;
   designerName: string | null;
   designNotes: string | null;
+  internalNote: string | null;
   corrections: string[];
 }
 
@@ -1402,6 +1410,7 @@ async function createSingleWebhookJob(
     designerId,
     designerName,
     designNotes,
+    internalNote,
     corrections,
   } = params;
 
@@ -1528,6 +1537,16 @@ async function createSingleWebhookJob(
     const message = err instanceof Error ? err.message : "Activity log failed";
     console.error("[webhook/orders] activity log error:", message);
     warnings.push(message);
+  }
+
+  if (internalNote) {
+    const { error: noteError } = await client
+      .from("order_notes")
+      .insert({ tenant_id: tenantId, order_id: orderId, created_by: null, text: internalNote });
+    if (noteError) {
+      console.error("[webhook/orders] note insert error:", noteError.message);
+      warnings.push(`Internal note could not be saved: ${noteError.message}`);
+    }
   }
 
   return {
@@ -1677,6 +1696,9 @@ export async function createOrderFromWebhook(
       designerId,
       designerName,
       designNotes: resolveDesignNotes(designerInput),
+      internalNote: typeof item.internal_note === "string" && item.internal_note.trim()
+        ? item.internal_note.trim()
+        : null,
       corrections: allCorrections,
     });
 

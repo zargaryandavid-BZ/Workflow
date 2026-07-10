@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Mail, Trash2 } from "lucide-react";
+import { ArrowRight, Mail, Package, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +54,7 @@ export function AutomationsManager({ initialRules, columns }: Props) {
 
   // Columns eligible to trigger a customer notification.
   const notifyColumns = columns.filter(
-    (c) => c.kind === "approval" || c.kind === "exception"
+    (c) => c.kind === "approval" || c.kind === "exception" || c.kind === "ready_to_ship"
   );
 
   async function add(e: React.FormEvent) {
@@ -114,7 +114,7 @@ export function AutomationsManager({ initialRules, columns }: Props) {
 
         {notifyColumns.length === 0 ? (
           <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-400">
-            No approval or exception columns yet. Add one on the Columns page to
+            No approval, exception, or ready-to-ship columns yet. Add one on the Columns page to
             enable notifications.
           </p>
         ) : (
@@ -123,7 +123,9 @@ export function AutomationsManager({ initialRules, columns }: Props) {
               const type: NotificationType =
                 col.kind === "approval"
                   ? "customer_approval"
-                  : "missing_info";
+                  : col.kind === "ready_to_ship"
+                    ? "ready_to_ship"
+                    : "missing_info";
               const rule = notifyRules.find((r) => r.from_column === col.id);
               return (
                 <NotifyColumnRow
@@ -354,21 +356,29 @@ function NotifyColumnRow({
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span
-            className={
-              type === "customer_approval"
-                ? "flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700"
+        <span
+          className={
+            type === "customer_approval"
+              ? "flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700"
+              : type === "ready_to_ship"
+                ? "flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"
                 : "flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700"
-            }
-          >
+          }
+        >
+          {type === "ready_to_ship" ? (
+            <Package className="h-4 w-4" />
+          ) : (
             <Mail className="h-4 w-4" />
-          </span>
+          )}
+        </span>
           <div>
             <p className="text-sm font-medium text-slate-800">{column.name}</p>
             <p className="text-xs text-slate-500">
               {type === "customer_approval"
                 ? "Send a proof approval request"
-                : "Request missing information"}
+                : type === "ready_to_ship"
+                  ? "Notify customer their order is ready"
+                  : "Request missing information"}
             </p>
           </div>
         </div>
@@ -385,6 +395,15 @@ function NotifyColumnRow({
           {enabled ? "Enabled" : "Disabled"}
         </button>
       </div>
+
+      {enabled && type === "ready_to_ship" ? (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="text-xs text-slate-500">
+            When a job is dropped here, a confirmation popup will appear so you
+            can notify the customer via email or SMS that their order is ready.
+          </p>
+        </div>
+      ) : null}
 
       {enabled && type === "missing_info" ? (
         <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
