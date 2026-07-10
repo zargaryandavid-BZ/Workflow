@@ -221,16 +221,16 @@ export function OrderCard({
         onPointerDown={(e) => e.stopPropagation()}
         title={title}
         className={cn(
-          "group/copy flex max-w-full items-center gap-1 text-left text-[11px] font-medium text-slate-700 hover:text-[var(--primary)]",
+          "group/copy flex max-w-full items-center gap-1 text-left text-[13px] font-medium text-slate-700 hover:text-[var(--primary)]",
           className
         )}
       >
         <span className="min-w-0 truncate">
           {copied === copyKey ? "Copied" : text}
         </span>
-        <span className="inline-flex shrink-0 items-center text-[10px] font-normal text-slate-400 group-hover/copy:text-[var(--primary)]">
+        <span className="inline-flex shrink-0 items-center text-[11px] font-normal text-slate-400 group-hover/copy:text-[var(--primary)]">
           {copied === copyKey ? null : (
-            <Copy className="h-2.5 w-2.5 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+            <Copy className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/copy:opacity-100" />
           )}
         </span>
       </button>
@@ -262,46 +262,46 @@ export function OrderCard({
       )}
     >
       {/* padded content wrapper */}
-      <div className={expanded ? "p-2.5" : "p-2"}>
+      <div className={expanded ? "p-3.5" : "p-3"}>
       {activeWarning ? (
         <span
-          className={`warning-dot-${activeWarning.rule.color} absolute right-1.5 top-1.5 h-2 w-2 rounded-full`}
+          className={`warning-dot-${activeWarning.rule.color} absolute right-2 top-2 h-2.5 w-2.5 rounded-full`}
           title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
         />
       ) : null}
       {/* Top row: thumbnail + header info */}
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2.5">
         {thumbnail ? (
           <Image
             src={thumbnail}
             alt=""
-            width={40}
-            height={40}
-            className="h-10 w-10 shrink-0 rounded object-cover"
+            width={56}
+            height={56}
+            className="h-14 w-14 shrink-0 rounded object-cover"
             unoptimized
           />
         ) : null}
 
         <div className="min-w-0 flex-1">
           {/* Compact header — always visible */}
-          <div className="flex items-start gap-1">
+          <div className="flex items-start gap-1.5">
             <div className="min-w-0 flex-1">
               {/* Customer name + short order number on same line */}
-              <div className="flex items-center justify-between gap-1">
-                <div className="flex min-w-0 items-baseline gap-1.5">
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex min-w-0 items-baseline gap-2">
                   {displayCustomerName ? (
                     <button
                       type="button"
                       onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
                       onPointerDown={(e) => e.stopPropagation()}
                       title="Copy customer name"
-                      className="group/copy flex min-w-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
+                      className="group/copy flex min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
                     >
                       <span className="truncate">
                         {copied === "customer-name" ? "Copied!" : displayCustomerName}
                       </span>
                       {copied === "customer-name" ? null : (
-                        <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                        <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
                       )}
                     </button>
                   ) : null}
@@ -310,7 +310,7 @@ export function OrderCard({
                     onClick={(e) => copyText(e, order.title, "order")}
                     onPointerDown={(e) => e.stopPropagation()}
                     title={`Copy order number (${order.title})`}
-                      className="group/copy flex shrink-0 items-center gap-0.5 text-left text-sm font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
+                      className="group/copy flex shrink-0 items-center gap-0.5 text-left text-[15px] font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
                   >
                     <span>
                       {copied === "order" ? "Copied" : (
@@ -322,22 +322,22 @@ export function OrderCard({
                         </>
                       )}
                     </span>
-                    <Copy className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                    <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
                   </button>
                 </div>
                 {order.due_date ? (
                   <span
-                    className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-slate-500"
+                    className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-slate-500"
                     title={`Due ${formatDate(order.due_date)}`}
                   >
-                    <CalendarClock className="h-2.5 w-2.5" />
+                    <CalendarClock className="h-3.5 w-3.5" />
                     {formatDateShort(order.due_date)}
                   </span>
                 ) : null}
               </div>
 
-              <p className="mt-0.5 flex min-w-0 items-center gap-1 truncate text-[10px] leading-tight text-slate-400">
-                <Clock className="h-2.5 w-2.5 shrink-0" />
+              <p className="mt-1 flex min-w-0 items-center gap-1.5 truncate text-[11px] leading-tight text-slate-400">
+                <Clock className="h-3.5 w-3.5 shrink-0" />
                 <span className="shrink-0">{formatDateShort(order.created_at)}</span>
                 {summaryTrailingParts.length > 0 ? (
                   <span className="truncate text-slate-500">· {summaryTrailingParts.join(" · ")}</span>
@@ -351,12 +351,12 @@ export function OrderCard({
               onPointerDown={(e) => e.stopPropagation()}
               title={expanded ? "Show less" : "Show more"}
               aria-expanded={expanded}
-              className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             >
               {expanded ? (
-                <ChevronUp className="h-3.5 w-3.5" />
+                <ChevronUp className="h-5 w-5" />
               ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
+                <ChevronDown className="h-5 w-5" />
               )}
             </button>
           </div>
@@ -364,15 +364,15 @@ export function OrderCard({
       </div>
 
       {/* Divider — full card width */}
-      <div className="mt-1.5 border-t border-slate-100" />
+      <div className="mt-2 border-t border-slate-100" />
 
       {/* Footer — full card width, badges + priority */}
-      <div className="mt-1.5 flex items-center justify-between gap-1.5">
-        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
           {notificationBadge && orderTags.length === 0 ? (
             <span
               className={cn(
-                "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
                 CARD_BADGE_STYLES[notificationBadge]
               )}
             >
@@ -383,7 +383,7 @@ export function OrderCard({
             <span
               key={tag}
               className={cn(
-                "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
                 ORDER_TAG_STYLES[tag] ??
                   "border-slate-200 bg-slate-100 text-slate-600"
               )}
@@ -393,7 +393,7 @@ export function OrderCard({
           ))}
           <span
             className={cn(
-              "inline-flex min-w-0 items-center gap-0.5 truncate rounded-full px-1.5 py-px text-[10px] font-semibold",
+              "inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-semibold",
               isDesignerUnassigned
                 ? UNASSIGNED_DESIGNER_TEXT_CLASS
                 : "bg-[var(--primary)]/10 text-[var(--primary)]"
@@ -402,7 +402,7 @@ export function OrderCard({
           >
             <User
               className={cn(
-                "h-2.5 w-2.5 shrink-0",
+                "h-3.5 w-3.5 shrink-0",
                 isDesignerUnassigned
                   ? "text-amber-600"
                   : "text-[var(--primary)]"
@@ -412,10 +412,10 @@ export function OrderCard({
           </span>
           {ownerName ? (
             <span
-              className="inline-flex min-w-0 items-center gap-0.5 truncate rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-500"
+              className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500"
               title="Order owner"
             >
-              <User className="h-2.5 w-2.5 shrink-0 text-slate-400" />
+              <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <span className="truncate">{ownerName}</span>
             </span>
           ) : null}
@@ -423,7 +423,7 @@ export function OrderCard({
         <Badge
           className={cn(
             PRIORITY_STYLES[order.priority],
-            "h-5 shrink-0 px-1.5 text-[10px]"
+            "h-6 shrink-0 px-2 text-[11px]"
           )}
         >
           {order.priority}
@@ -433,11 +433,11 @@ export function OrderCard({
       {/* Expanded details */}
       {expanded ? (
         <div
-          className="mt-2 space-y-2 border-t border-slate-100 pt-2"
+          className="mt-2.5 space-y-2.5 border-t border-slate-100 pt-2.5"
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] leading-snug">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] leading-snug">
             <div className="min-w-0">
               <span className="text-slate-400">Assigned: </span>
               <span
@@ -450,7 +450,7 @@ export function OrderCard({
               >
                 <User
                   className={cn(
-                    "h-2.5 w-2.5 shrink-0",
+                    "h-3.5 w-3.5 shrink-0",
                     isDesignerUnassigned
                       ? "text-amber-600"
                       : "text-[var(--primary)]"
@@ -470,10 +470,10 @@ export function OrderCard({
           </div>
 
           {displayCustomerName || email || phone ? (
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {displayCustomerName ? (
-                <div className="flex items-center gap-1">
-                  <User className="h-3 w-3 shrink-0 text-slate-400" />
+                <div className="flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                   <CopyableText
                     text={displayCustomerName}
                     copyKey="customer-name-exp"
@@ -486,7 +486,7 @@ export function OrderCard({
                   text={email}
                   copyKey="contact-email"
                   title="Copy email"
-                  className={displayCustomerName ? "ml-4" : undefined}
+                  className={displayCustomerName ? "ml-5" : undefined}
                 />
               ) : null}
               {phone ? (
@@ -494,18 +494,18 @@ export function OrderCard({
                   text={phone}
                   copyKey="contact-phone"
                   title="Copy phone"
-                  className={displayCustomerName ? "ml-4" : undefined}
+                  className={displayCustomerName ? "ml-5" : undefined}
                 />
               ) : null}
             </div>
           ) : null}
 
           {specFields.length > 0 || orderQty != null || skuCount > 0 ? (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {specFields.map(({ field, label, display }) => (
                 <span
                   key={field.id}
-                  className="inline-flex max-w-full items-center gap-0.5 rounded bg-slate-100 px-1 py-px text-[10px] text-slate-600"
+                  className="inline-flex max-w-full items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
                 >
                   <span className="shrink-0 font-medium text-slate-500">
                     {label}:
@@ -514,12 +514,12 @@ export function OrderCard({
                 </span>
               ))}
               {orderQty != null ? (
-                <span className="inline-flex items-center rounded bg-slate-100 px-1 py-px text-[10px] text-slate-600">
+                <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
                   qty {orderQty}
                 </span>
               ) : null}
               {skuCount > 0 ? (
-                <span className="inline-flex items-center rounded border border-blue-200/80 bg-[#dbeafe] px-1 py-px text-[10px] text-[#1e40af]">
+                <span className="inline-flex items-center rounded border border-blue-200/80 bg-[#dbeafe] px-1.5 py-0.5 text-[11px] text-[#1e40af]">
                   SKU: {skuCount}
                 </span>
               ) : null}
@@ -533,7 +533,7 @@ export function OrderCard({
       {order.tag ? (
         <div
           style={{ backgroundColor: order.tag.color ?? "#e2e8f0" }}
-          className="w-full py-1 text-center text-xs font-medium tracking-wide text-white"
+          className="w-full py-1.5 text-center text-[13px] font-medium tracking-wide text-white"
         >
           {order.tag.name}
         </div>

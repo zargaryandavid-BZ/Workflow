@@ -61,46 +61,46 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
       <div
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "cursor-pointer rounded-md border-2 border-blue-200 bg-blue-50 p-2 shadow-sm transition-shadow hover:shadow-md",
+          "cursor-pointer rounded-md border-2 border-blue-200 bg-blue-50 p-3 shadow-sm transition-shadow hover:shadow-md",
           open && "ring-2 ring-blue-400 ring-offset-1"
         )}
       >
         {/* Header row */}
-        <div className="flex items-start justify-between gap-1">
+        <div className="flex items-start justify-between gap-1.5">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <Layers className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 shrink-0 text-blue-500" />
               {displayCustomerName ? (
-                <span className="truncate text-sm font-bold text-slate-900">
+                <span className="truncate text-[15px] font-bold text-slate-900">
                   {displayCustomerName}
                 </span>
               ) : null}
-              <span className="shrink-0 text-sm font-bold text-slate-400">
+              <span className="shrink-0 text-[15px] font-bold text-slate-400">
                 {shortKey}
               </span>
-              <span className="shrink-0 rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+              <span className="shrink-0 rounded-full bg-blue-500 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
                 {orders.length} items
               </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {priority && priority !== "normal" ? (
-              <Badge className={cn("px-1.5 py-0 text-[10px]", PRIORITY_STYLES[priority])}>
+              <Badge className={cn("px-2 py-0 text-[11px]", PRIORITY_STYLES[priority])}>
                 {priority}
               </Badge>
             ) : null}
             {open ? (
-              <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
+              <ChevronUp className="h-5 w-5 text-slate-400" />
             ) : (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              <ChevronDown className="h-5 w-5 text-slate-400" />
             )}
           </div>
         </div>
 
         {/* Due date row */}
         {earliestDue ? (
-          <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500">
-            <CalendarClock className="h-3 w-3 shrink-0" />
+          <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
             <span>{formatDateShort(earliestDue)}</span>
             {orders.some((o) => o.due_date && o.due_date !== dueDate) ? (
               <span className="text-slate-400">(varies)</span>
@@ -109,11 +109,11 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
         ) : null}
 
         {/* Item summary — always visible */}
-        <div className="mt-1.5 space-y-0.5">
+        <div className="mt-2 space-y-1">
           {orders.map((order) => (
             <div
               key={order.id}
-              className="truncate text-[10px] text-slate-600"
+              className="truncate text-[11px] text-slate-600"
             >
               · {itemLabel(order)}
             </div>
@@ -124,14 +124,14 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
       {/* Expanded item list popover */}
       {open ? (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-lg border border-slate-200 bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-            <span className="text-xs font-semibold text-slate-700">
+          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2.5">
+            <span className="text-[13px] font-semibold text-slate-700">
               {key} — {orders.length} items
             </span>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setOpen(false); }}
-              className="text-xs text-slate-400 hover:text-slate-600"
+              className="text-[13px] text-slate-400 hover:text-slate-600"
             >
               ✕
             </button>
@@ -153,35 +153,35 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
                     setOpen(false);
                     onOpen(order);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
                 >
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-600">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-blue-600">
                     {idx + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium text-slate-800">
+                    <div className="truncate text-[13px] font-medium text-slate-800">
                       {itemLabel(order)}
                     </div>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                    <div className="flex items-center gap-2 text-[11px] text-slate-400">
                       <span>
                         {order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
                         <span className="text-slate-300"> ({orders.length})</span>
                       </span>
                       {order.due_date ? (
                         <span className="flex items-center gap-0.5">
-                          <CalendarClock className="h-2.5 w-2.5" />
+                          <CalendarClock className="h-3.5 w-3.5" />
                           {formatDateShort(order.due_date)}
                         </span>
                       ) : null}
                       {typeof order.specs?.designer_name === "string" && order.specs.designer_name.trim() ? (
                         <span className="flex items-center gap-0.5 rounded-full bg-[var(--primary)]/10 px-1.5 py-px font-semibold text-[var(--primary)]">
-                          <User className="h-2.5 w-2.5 shrink-0" />
+                          <User className="h-3.5 w-3.5 shrink-0" />
                           {order.specs.designer_name.trim()}
                         </span>
                       ) : null}
                     </div>
                   </div>
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-slate-300 group-hover:text-slate-500" />
+                  <ExternalLink className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-slate-500" />
                 </button>
               ))}
           </div>

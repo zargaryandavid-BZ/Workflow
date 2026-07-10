@@ -7,7 +7,7 @@ import {
 import { skuIds, type SkuItem } from "@/lib/skus";
 import type { OrderSkuImage, OrderSkuImageWithUrl } from "@/lib/types";
 
-export const MAX_SKU_IMAGES = 5;
+export const MAX_SKU_IMAGES = 10;
 
 export function skuImageStoragePath(
   tenantId: string,
