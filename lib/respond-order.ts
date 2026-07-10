@@ -121,7 +121,7 @@ export interface RespondSkuImage {
   sku_id: string;
   file_name: string;
   mime_type: string | null;
-  size: number | null;
+  file_size: number | null;
 }
 
 /** Multi-image gallery images from order_sku_images, grouped by sku_id. */
@@ -131,7 +131,7 @@ export async function fetchRespondSkuImages(
   const admin = createAdminClient();
   const { data } = await admin
     .from("order_sku_images")
-    .select("id, sku_id, file_name, mime_type, size")
+    .select("id, sku_id, file_name, mime_type, file_size")
     .eq("order_id", orderId)
     .order("position", { ascending: true });
 

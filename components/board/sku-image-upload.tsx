@@ -36,8 +36,15 @@ export function SkuImageUpload({
 
   const canUpload = !disabled && images.length < MAX_SKU_IMAGES;
 
+  // Only reset local state when the parent passes genuinely different images
+  // (i.e. after a full card reload), not just a new array reference.
+  const prevInitialIdsRef = useRef(initialImages.map((i) => i.id).join(","));
   useEffect(() => {
-    setImages(initialImages);
+    const ids = initialImages.map((i) => i.id).join(",");
+    if (ids !== prevInitialIdsRef.current) {
+      prevInitialIdsRef.current = ids;
+      setImages(initialImages);
+    }
   }, [initialImages]);
 
   async function reloadImages() {

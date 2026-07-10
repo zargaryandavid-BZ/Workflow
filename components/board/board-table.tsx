@@ -40,7 +40,7 @@ interface BoardTableProps {
   orders: OrderWithRelations[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string>;
+  thumbnailByOrder: Record<string, string[]>;
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
@@ -274,7 +274,7 @@ export function BoardTable({
 
           {orders.map((order) => {
             const fieldValues = fieldValuesByOrder[order.id] ?? {};
-            const thumbnail = thumbnailByOrder[order.id];
+            const thumbnail = thumbnailByOrder[order.id]?.[0];
             const designerName =
               designerNameByOrder[order.id]?.trim() ||
               (typeof order.specs?.designer_name === "string"

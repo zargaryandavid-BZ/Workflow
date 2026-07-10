@@ -61,7 +61,7 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
       <div
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "cursor-pointer rounded-md border-2 border-blue-200 bg-blue-50 p-3 shadow-sm transition-shadow hover:shadow-md",
+          "cursor-pointer rounded-md border-2 border-blue-200 bg-blue-50 px-3 py-3.5 shadow-sm transition-shadow hover:shadow-md",
           open && "ring-2 ring-blue-400 ring-offset-1"
         )}
       >

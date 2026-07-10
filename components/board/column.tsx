@@ -48,7 +48,7 @@ interface ColumnProps {
   orders: OrderWithRelations[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string>;
+  thumbnailByOrder: Record<string, string[]>;
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
@@ -355,7 +355,7 @@ export function Column({
                     canDrag={canDragCards}
                     customFields={customFields}
                     fieldValues={fieldValuesByOrder[entry.order.id]}
-                    thumbnail={thumbnailByOrder[entry.order.id]}
+                    thumbnails={thumbnailByOrder[entry.order.id]}
                     designerName={designerNameByOrder[entry.order.id]}
                     notificationBadge={
                       notificationBadgeByOrder[entry.order.id]
@@ -378,7 +378,7 @@ export function Column({
                   canDrag={canDragCards}
                   customFields={customFields}
                   fieldValues={fieldValuesByOrder[order.id]}
-                  thumbnail={thumbnailByOrder[order.id]}
+                  thumbnails={thumbnailByOrder[order.id]}
                   designerName={designerNameByOrder[order.id]}
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}

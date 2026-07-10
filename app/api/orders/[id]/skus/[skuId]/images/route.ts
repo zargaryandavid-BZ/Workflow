@@ -103,7 +103,7 @@ export async function POST(
 
   if ((count ?? 0) >= MAX_SKU_IMAGES) {
     return NextResponse.json(
-      { error: "Maximum 5 images per SKU" },
+      { error: `Maximum ${MAX_SKU_IMAGES} images per SKU` },
       { status: 422 }
     );
   }

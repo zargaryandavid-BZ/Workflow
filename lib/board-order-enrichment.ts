@@ -17,7 +17,7 @@ import type {
 
 export interface BoardOrderEnrichment {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string>;
+  thumbnailByOrder: Record<string, string[]>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;

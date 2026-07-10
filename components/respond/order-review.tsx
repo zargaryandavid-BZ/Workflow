@@ -209,8 +209,8 @@ export function OrderReview({
                               )}
                               <p className="mt-1 truncate text-[11px] text-slate-500">
                                 {img.file_name}
-                                {img.size
-                                  ? ` · ${formatFileSize(img.size)}`
+                                {img.file_size
+                                  ? ` · ${formatFileSize(img.file_size)}`
                                   : null}
                               </p>
                             </li>

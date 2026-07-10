@@ -19,11 +19,7 @@ import { MissingInfoTab } from "./missing-info-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
-import { mergeSkusWithAssets, normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
-import {
-  deleteAssetsById,
-  uploadPendingSkuArtwork,
-} from "@/lib/sku-assets";
+import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
 import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
@@ -93,17 +89,6 @@ interface CardDetailModalProps {
   ) => void;
 }
 
-function addToSet(prev: ReadonlySet<string>, id: string): Set<string> {
-  const next = new Set(prev);
-  next.add(id);
-  return next;
-}
-
-function removeFromSet(prev: ReadonlySet<string>, id: string): Set<string> {
-  const next = new Set(prev);
-  next.delete(id);
-  return next;
-}
 
 interface DetailResponse {
   order: OrderWithRelations;
@@ -185,12 +170,6 @@ export function CardDetailModal({
     "details"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [pendingSkuArtwork, setPendingSkuArtwork] = useState<
-    Record<string, File>
-  >({});
-  const [removedSkuArtworkIds, setRemovedSkuArtworkIds] = useState<
-    Set<string>
-  >(new Set());
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -208,15 +187,6 @@ export function CardDetailModal({
   const [smsError, setSmsError] = useState<string | null>(null);
   const smsRef = useRef<HTMLDivElement>(null);
   const isAdmin = role === "admin";
-
-  function resetPendingFiles() {
-    setPendingSkuArtwork({});
-    setRemovedSkuArtworkIds(new Set());
-  }
-
-  const hasPendingFileChanges =
-    Object.keys(pendingSkuArtwork).length > 0 ||
-    removedSkuArtworkIds.size > 0;
 
   const customFieldsRef = useRef(customFields);
   customFieldsRef.current = customFields;
@@ -249,9 +219,7 @@ export function CardDetailModal({
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
     setTagId(json.order.tag_id ?? "");
-    setSkus(
-      mergeSkusWithAssets(normalizeSkus(json.order.specs?.skus), json.assets)
-    );
+    setSkus(normalizeSkus(json.order.specs?.skus));
     setDesignerId((json.order.specs?.designer_id as string) ?? "");
     setDesignTask((json.order.specs?.design_task as string) ?? "");
     const map: Record<string, unknown> = {};
@@ -302,7 +270,6 @@ export function CardDetailModal({
       setSaveError(null);
       setActivityOpen(false);
       setIsEditing(false);
-      resetPendingFiles();
       setModalCustomFields(customFieldsRef.current);
       load();
     }
@@ -315,7 +282,6 @@ export function CardDetailModal({
       setTab("details");
       setActivityOpen(false);
       setIsEditing(false);
-      resetPendingFiles();
       setPersistedSkuIds(new Set());
     }
   }, [open, orderId, load]);
@@ -352,7 +318,7 @@ export function CardDetailModal({
       return;
     }
 
-    const skuError = validateSkus(skus, Object.keys(pendingSkuArtwork));
+    const skuError = validateSkus(skus, []);
     if (skuError) {
       setSaveError(skuError);
       return;
@@ -386,9 +352,7 @@ export function CardDetailModal({
         tagId: tagId || null,
         specs: {
           ...(data?.order.specs ?? {}),
-          skus: prepareSkusForSave(skus, {
-            pendingArtworkIds: Object.keys(pendingSkuArtwork),
-          }),
+          skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
           designer_id: designerId || null,
           designer_name:
             designers.find((d) => d.id === designerId)?.name ?? null,
@@ -410,24 +374,9 @@ export function CardDetailModal({
       return;
     }
 
-    const skuKeysWithPendingUpload = new Set(Object.keys(pendingSkuArtwork));
-    const skuAssetIdsToDelete = [...removedSkuArtworkIds].filter((assetId) => {
-      const asset = data?.assets.find((a) => a.id === assetId);
-      return !(
-        asset?.sku_key && skuKeysWithPendingUpload.has(asset.sku_key)
-      );
-    });
-    if (skuAssetIdsToDelete.length > 0) {
-      await deleteAssetsById(skuAssetIdsToDelete);
-    }
-    if (Object.keys(pendingSkuArtwork).length > 0) {
-      await uploadPendingSkuArtwork(orderId, pendingSkuArtwork);
-    }
-
     setNoteHistory(updatedHistory);
     setNewNote("");
     setSaving(false);
-    resetPendingFiles();
     setIsEditing(false);
     onChanged();
     void load({ silent: true });
@@ -436,7 +385,6 @@ export function CardDetailModal({
   function revert() {
     if (data) applyDetail(data);
     setSaveError(null);
-    resetPendingFiles();
     setIsEditing(false);
   }
 
@@ -463,14 +411,6 @@ export function CardDetailModal({
     setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
   }
 
-  function markSkuArtworkForRemoval(assetId: string) {
-    setRemovedSkuArtworkIds((prev) => addToSet(prev, assetId));
-  }
-
-  function unmarkSkuArtworkForRemoval(assetId: string) {
-    setRemovedSkuArtworkIds((prev) => removeFromSet(prev, assetId));
-  }
-
   const ensureSkuPersisted = useCallback(
     async (skuId: string): Promise<string | null> => {
       if (!orderId || persistedSkuIds.has(skuId)) return null;
@@ -495,9 +435,7 @@ export function CardDetailModal({
         body: JSON.stringify({
           specs: {
             ...(data?.order.specs ?? {}),
-            skus: prepareSkusForSave(skus, {
-              pendingArtworkIds: Object.keys(pendingSkuArtwork),
-            }),
+            skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
           },
         }),
       });
@@ -506,9 +444,7 @@ export function CardDetailModal({
         return json.error ?? "Failed to save SKU";
       }
 
-      const savedSkus = prepareSkusForSave(skus, {
-        pendingArtworkIds: Object.keys(pendingSkuArtwork),
-      });
+      const savedSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
       setPersistedSkuIds((prev) => new Set([...prev, skuId]));
       setData((prev) =>
         prev
@@ -523,7 +459,7 @@ export function CardDetailModal({
       );
       return null;
     },
-    [orderId, persistedSkuIds, skus, data?.order.specs, pendingSkuArtwork]
+    [orderId, persistedSkuIds, skus, data?.order.specs]
   );
 
   const skuImagesBySkuId = useMemo(
@@ -593,14 +529,6 @@ export function CardDetailModal({
   }, [data]);
 
   function handleClose() {
-    if (
-      hasPendingFileChanges &&
-      !window.confirm(
-        "You have unsaved file changes. Close without saving?"
-      )
-    ) {
-      return;
-    }
     onClose();
   }
 
@@ -907,11 +835,6 @@ export function CardDetailModal({
           </Button>
         ) : tab === "details" ? (
           <>
-            {hasPendingFileChanges ? (
-              <span className="mr-auto text-xs text-amber-600">
-                Unsaved file changes
-              </span>
-            ) : null}
             {isAdmin ? (
               <button
                 type="button"
@@ -927,9 +850,6 @@ export function CardDetailModal({
                 Delete Order
               </button>
             ) : null}
-            {/* #region agent log */}
-            {(() => { fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d8bd2b'},body:JSON.stringify({sessionId:'d8bd2b',location:'card-detail-modal.tsx:footer-details',message:'Cancel button rendered',data:{variant:'outline',isViewOnly,isEditing,tab,saving},hypothesisId:'H1,H2,H4',timestamp:Date.now()})}).catch(()=>{}); return null; })()}
-            {/* #endregion */}
             <Button variant="outline" onClick={revert} type="button" disabled={saving || removing}>
               Cancel
             </Button>
@@ -1123,14 +1043,7 @@ export function CardDetailModal({
               }}
               previousDueDate={data.order.due_date}
               orderId={orderId ?? undefined}
-              skuAssets={data.assets}
               skuImagesBySkuId={skuImagesBySkuId}
-              deferSkuArtworkUpload
-              pendingSkuArtwork={pendingSkuArtwork}
-              onPendingSkuArtworkChange={setPendingSkuArtwork}
-              removedSkuArtworkIds={removedSkuArtworkIds}
-              onMarkSkuArtworkForRemoval={markSkuArtworkForRemoval}
-              onUnmarkSkuArtworkForRemoval={unmarkSkuArtworkForRemoval}
               ensureSkuPersisted={ensureSkuPersisted}
               readOnly={!isEditing || isViewOnly}
               hideEmpty={!isEditing && !isViewOnly}

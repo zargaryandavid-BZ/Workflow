@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { createOrderAction } from "@/lib/actions/create-order";
-import { uploadPendingSkuArtwork } from "@/lib/sku-assets";
 import {
   buildCustomFieldPayload,
   resolveOrderFormFields,
@@ -54,9 +53,6 @@ export function CreateOrderModal({
   const [designTask, setDesignTask] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
   const [skus, setSkus] = useState<SkuItem[]>([]);
-  const [pendingSkuArtwork, setPendingSkuArtwork] = useState<
-    Record<string, File>
-  >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,7 +77,6 @@ export function CreateOrderModal({
     setDesignTask("");
     setFieldValues({});
     setSkus([]);
-    setPendingSkuArtwork({});
     setError(null);
   }
 
@@ -117,7 +112,7 @@ export function CreateOrderModal({
       return;
     }
 
-    const skuError = validateSkus(skus, Object.keys(pendingSkuArtwork));
+    const skuError = validateSkus(skus, []);
     if (skuError) {
       setError(skuError);
       return;
@@ -133,9 +128,7 @@ export function CreateOrderModal({
       priority,
       dueDate: dueDate ? dueDate.slice(0, 10) : null,
       specs: {
-        skus: prepareSkusForSave(skus, {
-          pendingArtworkIds: Object.keys(pendingSkuArtwork),
-        }),
+        skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
         designer_id: designerId || null,
         designer_name:
           designers.find((d) => d.id === designerId)?.name ?? null,
@@ -153,10 +146,6 @@ export function CreateOrderModal({
     if (json.error) {
       setError(json.error);
       return;
-    }
-    const orderId = json.order?.id as string | undefined;
-    if (orderId && Object.keys(pendingSkuArtwork).length > 0) {
-      await uploadPendingSkuArtwork(orderId, pendingSkuArtwork);
     }
     reset();
     onCreated();
@@ -211,8 +200,6 @@ export function CreateOrderModal({
           onSkusChange={setSkus}
           dueDate={dueDate}
           onDueDateChange={setDueDate}
-          pendingSkuArtwork={pendingSkuArtwork}
-          onPendingSkuArtworkChange={setPendingSkuArtwork}
         />
 
         {error ? (

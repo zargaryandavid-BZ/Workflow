@@ -51,8 +51,8 @@ interface OrderCardProps {
   canDrag?: boolean;
   customFields?: CustomField[];
   fieldValues?: Record<string, unknown>;
-  /** Signed URL of the first image asset — square preview in compact mode. */
-  thumbnail?: string;
+  /** Signed URLs of all image assets — shown as a gallery in compact mode. */
+  thumbnails?: string[];
   /** Resolved designer display name (from specs or team list). */
   designerName?: string;
   notificationBadge?: CardNotificationBadge;
@@ -74,7 +74,7 @@ export function OrderCard({
   canDrag = true,
   customFields = [],
   fieldValues = {},
-  thumbnail,
+  thumbnails,
   designerName: designerNameProp,
   notificationBadge,
   ownerName,
@@ -253,7 +253,7 @@ export function OrderCard({
       onClick={() => onOpen(order)}
       onContextMenu={handleContextMenu}
       className={cn(
-        "group relative shrink-0 overflow-hidden rounded-md border shadow-sm transition-shadow hover:shadow-md",
+        "group relative @container shrink-0 overflow-hidden rounded-md border shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
           ? UNASSIGNED_DESIGNER_CARD_CLASS
           : "border-slate-200 bg-white",
@@ -262,42 +262,52 @@ export function OrderCard({
       )}
     >
       {/* padded content wrapper */}
-      <div className={expanded ? "p-3.5" : "p-3"}>
+      <div className={expanded ? "px-3.5 py-4" : "px-3 py-3.5"}>
       {activeWarning ? (
         <span
           className={`warning-dot-${activeWarning.rule.color} absolute right-2 top-2 h-2.5 w-2.5 rounded-full`}
           title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
         />
       ) : null}
-      {/* Top row: thumbnail + header info */}
+      {/* Top row: thumbnail(s) + header info */}
       <div className="flex items-start gap-2.5">
-        {thumbnail ? (
-          <Image
-            src={thumbnail}
-            alt=""
-            width={56}
-            height={56}
-            className="h-14 w-14 shrink-0 rounded object-cover"
-            unoptimized
-          />
+        {thumbnails && thumbnails.length > 0 ? (
+          <div className="flex shrink-0 flex-col gap-1">
+            {thumbnails.slice(0, 3).map((url, i) => (
+              <Image
+                key={i}
+                src={url}
+                alt=""
+                width={64}
+                height={64}
+                className="h-16 w-16 rounded object-cover"
+                unoptimized
+              />
+            ))}
+            {thumbnails.length > 3 ? (
+              <div className="flex h-6 w-16 items-center justify-center rounded bg-slate-100 text-[10px] font-semibold text-slate-500">
+                +{thumbnails.length - 3}
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="min-w-0 flex-1">
           {/* Compact header — always visible */}
           <div className="flex items-start gap-1.5">
             <div className="min-w-0 flex-1">
-              {/* Customer name + short order number on same line */}
-              <div className="flex items-center justify-between gap-1.5">
-                <div className="flex min-w-0 items-baseline gap-2">
+              {/* Customer name on first line, order number on second — each truncates with … */}
+              <div className="flex items-start justify-between gap-1.5">
+                <div className="min-w-0 flex-1">
                   {displayCustomerName ? (
                     <button
                       type="button"
                       onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
                       onPointerDown={(e) => e.stopPropagation()}
                       title="Copy customer name"
-                      className="group/copy flex min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
+                      className="group/copy flex w-full min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
                     >
-                      <span className="truncate">
+                      <span className="min-w-0 truncate">
                         {copied === "customer-name" ? "Copied!" : displayCustomerName}
                       </span>
                       {copied === "customer-name" ? null : (
@@ -310,9 +320,9 @@ export function OrderCard({
                     onClick={(e) => copyText(e, order.title, "order")}
                     onPointerDown={(e) => e.stopPropagation()}
                     title={`Copy order number (${order.title})`}
-                      className="group/copy flex shrink-0 items-center gap-0.5 text-left text-[15px] font-bold leading-tight text-slate-900 hover:text-[var(--primary)]"
+                    className="group/copy flex w-full min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
                   >
-                    <span>
+                    <span className="min-w-0 truncate">
                       {copied === "order" ? "Copied" : (
                         <>
                           {order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
@@ -327,7 +337,7 @@ export function OrderCard({
                 </div>
                 {order.due_date ? (
                   <span
-                    className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-slate-500"
+                    className="inline-flex shrink-0 items-center gap-0.5 pt-0.5 text-[11px] font-medium text-slate-500"
                     title={`Due ${formatDate(order.due_date)}`}
                   >
                     <CalendarClock className="h-3.5 w-3.5" />
@@ -336,13 +346,18 @@ export function OrderCard({
                 ) : null}
               </div>
 
-              <p className="mt-1 flex min-w-0 items-center gap-1.5 truncate text-[11px] leading-tight text-slate-400">
-                <Clock className="h-3.5 w-3.5 shrink-0" />
-                <span className="shrink-0">{formatDateShort(order.created_at)}</span>
-                {summaryTrailingParts.length > 0 ? (
-                  <span className="truncate text-slate-500">· {summaryTrailingParts.join(" · ")}</span>
-                ) : null}
-              </p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span className="text-[11px] leading-snug text-slate-400">{formatDateShort(order.created_at)}</span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                    PRIORITY_STYLES[order.priority]
+                  )}
+                >
+                  {order.priority}
+                </span>
+              </div>
             </div>
 
             <button
@@ -363,71 +378,69 @@ export function OrderCard({
         </div>
       </div>
 
-      {/* Divider — full card width */}
-      <div className="mt-2 border-t border-slate-100" />
+      {/* Specs line — full card width, fills to the edge with hyphenated wraps */}
+      {summaryTrailingParts.length > 0 ? (
+        <p
+          lang="en"
+          className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
+        >
+          · {summaryTrailingParts.join(" · ")}
+        </p>
+      ) : null}
 
-      {/* Footer — full card width, badges + priority */}
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-          {notificationBadge && orderTags.length === 0 ? (
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                CARD_BADGE_STYLES[notificationBadge]
-              )}
-            >
-              {CARD_BADGE_LABELS[notificationBadge]}
-            </span>
-          ) : null}
-          {orderTags.map((tag) => (
-            <span
-              key={tag}
-              className={cn(
-                "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                ORDER_TAG_STYLES[tag] ??
-                  "border-slate-200 bg-slate-100 text-slate-600"
-              )}
-            >
-              {tag}
-            </span>
-          ))}
+      {/* Divider — full card width */}
+      <div className="mt-2.5 border-t border-slate-100" />
+
+      {/* Footer — full-width row; each chip gets flex-1 so all chips together = 100% card width */}
+      <div className="mt-2.5 flex w-full items-stretch overflow-hidden rounded-full text-[clamp(9px,3.1cqi,11px)]">
+        {notificationBadge && orderTags.length === 0 ? (
           <span
             className={cn(
-              "inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-semibold",
-              isDesignerUnassigned
-                ? UNASSIGNED_DESIGNER_TEXT_CLASS
-                : "bg-[var(--primary)]/10 text-[var(--primary)]"
+              "flex flex-1 min-w-0 items-center justify-center px-1.5 py-0.5 font-medium",
+              CARD_BADGE_STYLES[notificationBadge]
             )}
-            title="Assigned designer"
           >
-            <User
-              className={cn(
-                "h-3.5 w-3.5 shrink-0",
-                isDesignerUnassigned
-                  ? "text-amber-600"
-                  : "text-[var(--primary)]"
-              )}
-            />
-            <span className="truncate">{designerName ?? "Unassigned"}</span>
+            <span className="truncate">{CARD_BADGE_LABELS[notificationBadge]}</span>
           </span>
-          {ownerName ? (
-            <span
-              className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500"
-              title="Order owner"
-            >
-              <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="truncate">{ownerName}</span>
-            </span>
-          ) : null}
-        </div>
-        <Badge
+        ) : null}
+        {orderTags.map((tag) => (
+          <span
+            key={tag}
+            className={cn(
+              "flex flex-1 min-w-0 items-center justify-center px-1.5 py-0.5 font-medium",
+              ORDER_TAG_STYLES[tag] ??
+                "bg-slate-100 text-slate-600"
+            )}
+          >
+            <span className="truncate">{tag}</span>
+          </span>
+        ))}
+        <span
           className={cn(
-            PRIORITY_STYLES[order.priority],
-            "h-6 shrink-0 px-2 text-[11px]"
+            "flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold",
+            isDesignerUnassigned
+              ? UNASSIGNED_DESIGNER_TEXT_CLASS
+              : "bg-[var(--primary)]/10 text-[var(--primary)]"
           )}
+          title="Assigned designer"
         >
-          {order.priority}
-        </Badge>
+          <User
+            className={cn(
+              "h-[1em] w-[1em] shrink-0",
+              isDesignerUnassigned ? "text-amber-600" : "text-[var(--primary)]"
+            )}
+          />
+          <span className="min-w-0 truncate">{designerName ?? "Unassigned"}</span>
+        </span>
+        {ownerName ? (
+          <span
+            className="flex flex-1 min-w-0 items-center justify-center gap-0.5 bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500"
+            title="Order owner"
+          >
+            <User className="h-[1em] w-[1em] shrink-0 text-slate-400" />
+            <span className="min-w-0 truncate">{ownerName}</span>
+          </span>
+        ) : null}
       </div>
 
       {/* Expanded details */}
@@ -533,7 +546,7 @@ export function OrderCard({
       {order.tag ? (
         <div
           style={{ backgroundColor: order.tag.color ?? "#e2e8f0" }}
-          className="w-full py-1.5 text-center text-[13px] font-medium tracking-wide text-white"
+          className="w-full py-2 text-center text-[13px] font-medium tracking-wide text-white"
         >
           {order.tag.name}
         </div>

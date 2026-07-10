@@ -16,7 +16,7 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
-import type { Asset, Tag, CustomField, Designer, NoteEntry, OrderSkuImageWithUrl } from "@/lib/types";
+import type { Tag, CustomField, Designer, NoteEntry, OrderSkuImageWithUrl } from "@/lib/types";
 
 export interface OrderOwner {
   id: string;
@@ -57,14 +57,7 @@ export interface OrderFormBodyProps {
   /** Original due date when editing — allows saving unchanged legacy past dates. */
   previousDueDate?: string | null;
   orderId?: string;
-  skuAssets?: Asset[];
   skuImagesBySkuId?: Record<string, OrderSkuImageWithUrl[]>;
-  pendingSkuArtwork?: Record<string, File>;
-  onPendingSkuArtworkChange?: (files: Record<string, File>) => void;
-  deferSkuArtworkUpload?: boolean;
-  removedSkuArtworkIds?: ReadonlySet<string>;
-  onMarkSkuArtworkForRemoval?: (assetId: string) => void;
-  onUnmarkSkuArtworkForRemoval?: (assetId: string) => void;
   /** Saves a newly added SKU row before gallery uploads can attach to it. */
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   readOnly?: boolean;
@@ -115,14 +108,7 @@ export function OrderFormBody({
   onDueDateChange,
   previousDueDate,
   orderId,
-  skuAssets,
   skuImagesBySkuId,
-  pendingSkuArtwork,
-  onPendingSkuArtworkChange,
-  deferSkuArtworkUpload,
-  removedSkuArtworkIds,
-  onMarkSkuArtworkForRemoval,
-  onUnmarkSkuArtworkForRemoval,
   ensureSkuPersisted,
   readOnly = false,
   hideEmpty = false,
@@ -372,14 +358,7 @@ export function OrderFormBody({
           value={skus}
           onChange={onSkusChange}
           orderId={orderId}
-          assets={skuAssets}
           skuImagesBySkuId={skuImagesBySkuId}
-          pendingArtwork={pendingSkuArtwork}
-          onPendingArtworkChange={onPendingSkuArtworkChange}
-          deferArtworkUpload={deferSkuArtworkUpload}
-          removedArtworkIds={removedSkuArtworkIds}
-          onMarkArtworkForRemoval={onMarkSkuArtworkForRemoval}
-          onUnmarkArtworkForRemoval={onUnmarkSkuArtworkForRemoval}
           ensureSkuPersisted={ensureSkuPersisted}
           disabled={readOnly}
         />

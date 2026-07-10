@@ -34,20 +34,19 @@ export interface OrderAssetPreviewRow {
   created_at: string;
 }
 
-/** First previewable image per order — storage signed URL or external URL. */
+/** All previewable images per order — storage signed URLs and external URLs, in upload order. */
 export async function thumbnailUrlsByOrder(
   assets: OrderAssetPreviewRow[],
   signPaths: (paths: string[]) => Promise<Map<string, string>>
-): Promise<Record<string, string>> {
-  const thumbnailByOrder: Record<string, string> = {};
-  const pathsToSign = new Map<string, string>();
+): Promise<Record<string, string[]>> {
+  const thumbnailsByOrder: Record<string, string[]> = {};
+  // storage_path → order_id, preserving insertion order per order
+  const pathsToSign: { path: string; orderId: string }[] = [];
 
   for (const asset of assets) {
-    if (thumbnailByOrder[asset.order_id]) continue;
-
     const external = asset.external_url?.trim();
     if (external && isImageExternalUrl(external)) {
-      thumbnailByOrder[asset.order_id] = external;
+      (thumbnailsByOrder[asset.order_id] ??= []).push(external);
       continue;
     }
 
@@ -55,20 +54,19 @@ export async function thumbnailUrlsByOrder(
       asset.storage_path &&
       isImageFileName(asset.file_name, asset.mime_type)
     ) {
-      pathsToSign.set(asset.storage_path, asset.order_id);
+      pathsToSign.push({ path: asset.storage_path, orderId: asset.order_id });
     }
   }
 
-  if (pathsToSign.size > 0) {
-    const signed = await signPaths([...pathsToSign.keys()]);
-    for (const [path, orderId] of pathsToSign) {
-      if (thumbnailByOrder[orderId]) continue;
+  if (pathsToSign.length > 0) {
+    const signed = await signPaths(pathsToSign.map((p) => p.path));
+    for (const { path, orderId } of pathsToSign) {
       const url = signed.get(path);
-      if (url) thumbnailByOrder[orderId] = url;
+      if (url) (thumbnailsByOrder[orderId] ??= []).push(url);
     }
   }
 
-  return thumbnailByOrder;
+  return thumbnailsByOrder;
 }
 
 export function designerNamesByOrder(

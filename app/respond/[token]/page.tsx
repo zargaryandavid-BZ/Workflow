@@ -5,6 +5,8 @@ import {
   fetchRespondOrderAssets,
   fetchRespondSkuImages,
   skusForRespond,
+  type RespondOrderAsset,
+  type RespondSkuImage,
 } from "@/lib/respond-order";
 import { OrderReview } from "@/components/respond/order-review";
 import { orderMetaChips } from "@/lib/respond-page";
@@ -81,7 +83,7 @@ export default async function RespondPage({
 }) {
   const { token } = await params;
   const supabase = await createClient();
-  const { data } = await supabase.rpc("get_notification_by_token", {
+  const { data, error: rpcError } = await supabase.rpc("get_notification_by_token", {
     p_token: token,
   });
 
@@ -123,10 +125,16 @@ export default async function RespondPage({
     notification.order_specs ?? {}
   );
   const skus = skusForRespond(notification.order_specs ?? {});
-  const [assets, skuImages] = await Promise.all([
-    fetchRespondOrderAssets(notification.order_id),
-    fetchRespondSkuImages(notification.order_id),
-  ]);
+  let assets: RespondOrderAsset[] = [];
+  let skuImages: Record<string, RespondSkuImage[]> = {};
+  try {
+    [assets, skuImages] = await Promise.all([
+      fetchRespondOrderAssets(notification.order_id),
+      fetchRespondSkuImages(notification.order_id),
+    ]);
+  } catch {
+    // non-critical; proceed without assets
+  }
 
   if (expired && !alreadyDone) {
     return (

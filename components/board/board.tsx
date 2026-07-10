@@ -133,7 +133,7 @@ export function Board({
     Record<string, Record<string, unknown>>
   >({});
   const [thumbnailByOrder, setThumbnailByOrder] = useState<
-    Record<string, string>
+    Record<string, string[]>
   >({});
   const [notificationBadgeByOrder, setNotificationBadgeByOrder] = useState<
     Record<string, CardNotificationBadge>
@@ -1086,7 +1086,7 @@ export function Board({
               order={activeOrder}
               customFields={customFields}
               fieldValues={displayFieldValuesByOrder[activeOrder.id]}
-              thumbnail={displayThumbnailByOrder[activeOrder.id]}
+              thumbnails={displayThumbnailByOrder[activeOrder.id]}
               designerName={displayDesignerNameByOrder[activeOrder.id]}
               notificationBadge={displayNotificationBadgeByOrder[activeOrder.id]}
               ownerName={displayOwnerNameByOrder[activeOrder.id]}
