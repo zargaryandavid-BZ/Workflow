@@ -315,6 +315,14 @@ export function Board({
     window.setTimeout(() => setPermissionError(null), 3500);
   }
 
+  // Tracks the most recent successful cross-column move for debug correlation.
+  const pendingMoveRef = useRef<{
+    orderId: string;
+    fromColumnId: string;
+    toColumnId: string;
+    at: number;
+  } | null>(null);
+
   // ── Per-column fetch ─────────────────────────────────────────────────────────
   const fetchColumnOrders = useCallback(
     async (columnId: string, page: number) => {
@@ -323,6 +331,9 @@ export function Board({
         page === 0 &&
         columnLoadStatusRef.current[columnId] === "loading"
       ) {
+        // #region agent log
+        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:fetchColumnOrders:skip',message:'skipped fetch — column already loading',hypothesisId:'B',data:{columnId,page,pendingMove:pendingMoveRef.current},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         return;
       }
 
@@ -346,7 +357,21 @@ export function Board({
           let next: OrderWithRelations[];
           if (page === 0) {
             const kept = prev.filter((o) => o.column_id !== columnId);
+            const droppedFromCol = prev.filter((o) => o.column_id === columnId);
             next = [...kept, ...data.orders];
+            // #region agent log
+            const pm = pendingMoveRef.current;
+            const movedWasInPrev = pm
+              ? prev.some((o) => o.id === pm.orderId)
+              : false;
+            const movedInNext = pm
+              ? next.some((o) => o.id === pm.orderId)
+              : false;
+            const movedInFetched = pm
+              ? data.orders.some((o) => o.id === pm.orderId)
+              : false;
+            fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:fetchColumnOrders:merge',message:'page0 column replace merge',hypothesisId:'A',data:{columnId,page,fetchedCount:data.orders.length,total:data.total,hasMore:data.hasMore,droppedCount:droppedFromCol.length,prevCount:prev.length,nextCount:next.length,pendingMove:pm,movedWasInPrev,movedInFetched,movedInNext,isDestOfPending:pm?.toColumnId===columnId,isSourceOfPending:pm?.fromColumnId===columnId},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
           } else {
             const existingIds = new Set(prev.map((o) => o.id));
             const newOnly = data.orders.filter((o) => !existingIds.has(o.id));
@@ -429,6 +454,9 @@ export function Board({
     if (draggingRef.current) return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
+      // #region agent log
+      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:scheduleRefresh:fire',message:'debounced refresh firing',hypothesisId:'E',data:{loadedColumns:[...loadedColumnsRef.current],pendingMove:pendingMoveRef.current},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       // Refresh server-rendered metadata (columns, custom fields, tags, etc.)
       router.refresh();
       // Refresh orders + enrichments for every visible column.
@@ -624,12 +652,19 @@ export function Board({
       return next;
     });
 
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:handleContextMove:optimistic',message:'context move optimistic applied',hypothesisId:'C',data:{orderId:order.id,fromColumnId,toColumnId,newPosition,destLoaded:loadedColumnsRef.current.has(toColumnId),destStatus:columnLoadStatusRef.current[toColumnId]??'idle',destCountBefore:destOrders.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
     const result = await requestOrderMove(
       { orderId: order.id, toColumnId, position: newPosition },
       { fromColumnId, columns }
     );
 
     if (!result.ok) {
+      // #region agent log
+      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:handleContextMove:fail',message:'context move rejected',hypothesisId:'D',data:{orderId:order.id,error:result.error,missing:result.missingFields?.length??0},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (result.missingFields?.length) {
         setOrders(snapshot);
         boardOrdersRef.current = snapshot;
@@ -645,6 +680,13 @@ export function Board({
       scheduleRefresh();
       return;
     }
+
+    pendingMoveRef.current = {
+      orderId: order.id,
+      fromColumnId,
+      toColumnId,
+      at: Date.now(),
+    };
 
     // If the destination column hasn't been loaded yet, load it now so the
     // moved card appears there.
@@ -769,6 +811,10 @@ export function Board({
       return next;
     });
 
+    // #region agent log
+    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:onDragEnd:optimistic',message:'drag end optimistic applied',hypothesisId:'C',data:{orderId:String(active.id),fromColumnId:activeColumn,toColumnId:overColumn,crossing,newPosition,destLoaded:loadedColumnsRef.current.has(overColumn),destStatus:columnLoadStatusRef.current[overColumn]??'idle',destVisibleCount:columnOrders.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
     try {
       const result = await requestOrderMove(
         {
@@ -779,6 +825,9 @@ export function Board({
         { fromColumnId: sourceColumn, columns }
       );
       if (!result.ok) {
+        // #region agent log
+        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:onDragEnd:fail',message:'drag move rejected',hypothesisId:'D',data:{orderId:String(active.id),error:result.error,missing:result.missingFields?.length??0},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         if (result.missingFields?.length) {
           abortDrag();
           setMoveBlockedState({
@@ -791,6 +840,15 @@ export function Board({
         setOrders(boardOrdersRef.current);
         scheduleRefresh();
       } else if (crossing) {
+        pendingMoveRef.current = {
+          orderId: String(active.id),
+          fromColumnId: activeColumn,
+          toColumnId: overColumn,
+          at: Date.now(),
+        };
+        // #region agent log
+        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:onDragEnd:success',message:'drag move succeeded — scheduling refresh',hypothesisId:'E',data:{orderId:String(active.id),fromColumnId:activeColumn,toColumnId:overColumn,willFetchDest:!loadedColumnsRef.current.has(overColumn),loadedColumns:[...loadedColumnsRef.current]},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         // Load the destination column if it hasn't been loaded yet.
         if (!loadedColumnsRef.current.has(overColumn)) {
           void fetchColumnOrders(overColumn, 0);
