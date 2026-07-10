@@ -4,6 +4,7 @@ import { OrderReview } from "@/components/respond/order-review";
 import {
   buildRespondOrderRows,
   fetchRespondOrderAssets,
+  fetchRespondSkuImages,
   skusForRespond,
 } from "@/lib/respond-order";
 import { ApprovalForm } from "./approval-form";
@@ -43,9 +44,12 @@ export default async function ApprovalPage({
       )
     : [];
   const skus = approval ? skusForRespond(approval.order_specs ?? {}) : [];
-  const assets = approval
-    ? await fetchRespondOrderAssets(approval.order_id)
-    : [];
+  const [assets, skuImages] = approval
+    ? await Promise.all([
+        fetchRespondOrderAssets(approval.order_id),
+        fetchRespondSkuImages(approval.order_id),
+      ])
+    : [[], {}];
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-blue-50 p-4">
@@ -84,6 +88,7 @@ export default async function ApprovalPage({
                   rows={orderRows}
                   skus={skus}
                   assets={assets}
+                  skuImages={skuImages}
                 />
               </div>
 

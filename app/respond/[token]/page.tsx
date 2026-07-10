@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   buildRespondOrderRows,
   fetchRespondOrderAssets,
+  fetchRespondSkuImages,
   skusForRespond,
 } from "@/lib/respond-order";
 import { OrderReview } from "@/components/respond/order-review";
@@ -122,7 +123,10 @@ export default async function RespondPage({
     notification.order_specs ?? {}
   );
   const skus = skusForRespond(notification.order_specs ?? {});
-  const assets = await fetchRespondOrderAssets(notification.order_id);
+  const [assets, skuImages] = await Promise.all([
+    fetchRespondOrderAssets(notification.order_id),
+    fetchRespondSkuImages(notification.order_id),
+  ]);
 
   if (expired && !alreadyDone) {
     return (
@@ -178,6 +182,7 @@ export default async function RespondPage({
             rows={orderRows}
             skus={skus}
             assets={assets}
+            skuImages={skuImages}
           />
         }
       />

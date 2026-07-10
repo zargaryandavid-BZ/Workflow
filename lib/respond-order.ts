@@ -97,6 +97,10 @@ export function respondAssetUrl(token: string, assetId: string): string {
   return `/api/notifications/asset?token=${encodeURIComponent(token)}&id=${encodeURIComponent(assetId)}`;
 }
 
+export function respondSkuImageUrl(token: string, imageId: string): string {
+  return `/api/notifications/asset?token=${encodeURIComponent(token)}&id=${encodeURIComponent(imageId)}&type=sku_image`;
+}
+
 /** Staff-uploaded order + SKU artwork (excludes customer reply uploads). */
 export async function fetchRespondOrderAssets(
   orderId: string
@@ -110,6 +114,32 @@ export async function fetchRespondOrderAssets(
     .order("created_at", { ascending: true });
 
   return (data ?? []) as RespondOrderAsset[];
+}
+
+export interface RespondSkuImage {
+  id: string;
+  sku_id: string;
+  file_name: string;
+  mime_type: string | null;
+  size: number | null;
+}
+
+/** Multi-image gallery images from order_sku_images, grouped by sku_id. */
+export async function fetchRespondSkuImages(
+  orderId: string
+): Promise<Record<string, RespondSkuImage[]>> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("order_sku_images")
+    .select("id, sku_id, file_name, mime_type, size")
+    .eq("order_id", orderId)
+    .order("position", { ascending: true });
+
+  const grouped: Record<string, RespondSkuImage[]> = {};
+  for (const row of (data ?? []) as RespondSkuImage[]) {
+    (grouped[row.sku_id] ??= []).push(row);
+  }
+  return grouped;
 }
 
 export function skusForRespond(specs: Record<string, unknown>): SkuItem[] {

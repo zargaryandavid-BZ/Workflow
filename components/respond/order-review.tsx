@@ -2,8 +2,10 @@ import { Download, FileText } from "lucide-react";
 import {
   isRespondImageAsset,
   respondAssetUrl,
+  respondSkuImageUrl,
   type RespondOrderAsset,
   type RespondOrderRow,
+  type RespondSkuImage,
 } from "@/lib/respond-order";
 import { formatFileSize } from "@/lib/respond-page";
 import type { SkuItem } from "@/lib/skus";
@@ -13,6 +15,8 @@ interface OrderReviewProps {
   rows: RespondOrderRow[];
   skus: SkuItem[];
   assets: RespondOrderAsset[];
+  /** Gallery images from order_sku_images, keyed by sku_id. */
+  skuImages?: Record<string, RespondSkuImage[]>;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -82,7 +86,13 @@ function AssetPreview({
   );
 }
 
-export function OrderReview({ token, rows, skus, assets }: OrderReviewProps) {
+export function OrderReview({
+  token,
+  rows,
+  skus,
+  assets,
+  skuImages = {},
+}: OrderReviewProps) {
   const assetsBySku = new Map<string, RespondOrderAsset>();
   const orderAssets: RespondOrderAsset[] = [];
   for (const asset of assets) {
@@ -128,6 +138,8 @@ export function OrderReview({ token, rows, skus, assets }: OrderReviewProps) {
           <ul className="space-y-3">
             {skus.map((sku, index) => {
               const artwork = assetsBySku.get(sku.id);
+              const galleryImages = skuImages[sku.id] ?? [];
+              const hasArtwork = Boolean(artwork) || galleryImages.length > 0;
               return (
                 <li
                   key={sku.id}
@@ -143,18 +155,68 @@ export function OrderReview({ token, rows, skus, assets }: OrderReviewProps) {
                       ) : null}
                     </div>
                   </div>
-                  {artwork ? (
+                  {hasArtwork ? (
                     <div className="mt-2">
-                      <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
                         Artwork
                       </p>
-                      <AssetPreview token={token} asset={artwork} />
-                      <p className="mt-1 truncate text-[11px] text-slate-500">
-                        {artwork.file_name}
-                        {artwork.size
-                          ? ` · ${formatFileSize(artwork.size)}`
-                          : null}
-                      </p>
+                      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {artwork ? (
+                          <li>
+                            <AssetPreview token={token} asset={artwork} />
+                            <p className="mt-1 truncate text-[11px] text-slate-500">
+                              {artwork.file_name}
+                              {artwork.size
+                                ? ` · ${formatFileSize(artwork.size)}`
+                                : null}
+                            </p>
+                          </li>
+                        ) : null}
+                        {galleryImages.map((img) => {
+                          const href = respondSkuImageUrl(token, img.id);
+                          const isImage = isRespondImageAsset(
+                            img.file_name,
+                            img.mime_type
+                          );
+                          return (
+                            <li key={img.id}>
+                              {isImage ? (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                                >
+                                  <img
+                                    src={href}
+                                    alt={img.file_name}
+                                    className="h-56 w-full object-contain"
+                                  />
+                                </a>
+                              ) : (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                                >
+                                  <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                                  <span className="min-w-0 truncate">
+                                    {img.file_name}
+                                  </span>
+                                  <Download className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
+                                </a>
+                              )}
+                              <p className="mt-1 truncate text-[11px] text-slate-500">
+                                {img.file_name}
+                                {img.size
+                                  ? ` · ${formatFileSize(img.size)}`
+                                  : null}
+                              </p>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
                   ) : null}
                 </li>
