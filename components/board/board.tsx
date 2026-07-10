@@ -17,10 +17,6 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { Activity, LayoutDashboard, Layers, Search, Table2, X } from "lucide-react";
-import {
-  customerContactFromOrder,
-  customerNameFromOrder,
-} from "@/lib/notification-messages";
 import { Column } from "./column";
 import { BoardTable } from "./board-table";
 import { OrderCard } from "./order-card";
@@ -50,6 +46,8 @@ import type {
 import type { OrderOwner } from "./order-form-body";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { ColumnOrdersResponse } from "@/app/api/board/column-orders/route";
+import type { SearchOrdersResponse } from "@/app/api/board/search-orders/route";
+import type { BoardOrderEnrichment } from "@/lib/board-order-enrichment";
 
 /** Prefer pointer position so empty columns and wide boards register drops reliably. */
 const boardCollisionDetection: CollisionDetection = (args) => {
@@ -151,35 +149,50 @@ export function Board({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [createColumn, setCreateColumn] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [orderQuery, setOrderQuery] = useState("");
+  const [personFilter, setPersonFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
+    null
+  );
+  const [searchEnrichments, setSearchEnrichments] =
+    useState<BoardOrderEnrichment | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const detailGroupSize = useMemo(() => {
     if (!detailId) return undefined;
-    const order = orders.find((o) => o.id === detailId);
+    const source = searchResults ?? orders;
+    const order = source.find((o) => o.id === detailId);
     if (!order) return undefined;
     const key = getGroupKey(order);
     if (!key) return undefined;
-    const count = orders.filter((o) => getGroupKey(o) === key).length;
+    const count = source.filter((o) => getGroupKey(o) === key).length;
     return count >= 2 ? count : undefined;
-  }, [detailId, orders]);
+  }, [detailId, orders, searchResults]);
 
   /** How many parts of the detail order's group share the same column, plus that column's name. */
   const detailGroupSameColumn = useMemo(() => {
     if (!detailId) return undefined;
-    const order = orders.find((o) => o.id === detailId);
+    const source = searchResults ?? orders;
+    const order = source.find((o) => o.id === detailId);
     if (!order) return undefined;
     const key = getGroupKey(order);
     if (!key) return undefined;
-    const groupOrders = orders.filter((o) => getGroupKey(o) === key);
+    const groupOrders = source.filter((o) => getGroupKey(o) === key);
     if (groupOrders.length < 2) return undefined;
     const sameCount = groupOrders.filter((o) => o.column_id === order.column_id).length;
     const colName = columns.find((c) => c.id === order.column_id)?.name ?? "this column";
     return { sameColumnCount: sameCount, columnName: colName };
-  }, [detailId, orders, columns]);
+  }, [detailId, orders, searchResults, columns]);
 
   /** Maps every orderId to its cross-column group size (only set when ≥ 2). */
   const groupSizeByOrder = useMemo(() => {
+    const source =
+      orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== ""
+        ? (searchResults ?? [])
+        : orders;
     const keyIds = new Map<string, string[]>();
-    for (const o of orders) {
+    for (const o of source) {
       const key = getGroupKey(o);
       if (!key) continue;
       if (!keyIds.has(key)) keyIds.set(key, []);
@@ -192,7 +205,7 @@ export function Board({
       }
     }
     return map;
-  }, [orders]);
+  }, [orders, searchResults, orderQuery, personFilter, ownerFilter]);
 
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -201,9 +214,6 @@ export function Board({
     notifyColumn: NotifyColumnConfig;
     columnName: string;
   } | null>(null);
-  const [orderQuery, setOrderQuery] = useState("");
-  const [personFilter, setPersonFilter] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("");
   const [groupedView, setGroupedView] = useState(false);
   const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
   const [animateWarnings, setAnimateWarnings] = useState(true);
@@ -222,10 +232,65 @@ export function Board({
 
   // Open detail modal when deep-linked via ?order=<id>.
   useEffect(() => {
-    if (initialOrderId && orders.some((o) => o.id === initialOrderId)) {
+    const source = searchResults ?? orders;
+    if (initialOrderId && source.some((o) => o.id === initialOrderId)) {
       setDetailId(initialOrderId);
     }
-  }, [initialOrderId, orders]);
+  }, [initialOrderId, orders, searchResults]);
+
+  // When filters are active, search the full database instead of filtering
+  // only the lazily-loaded pages already in memory.
+  useEffect(() => {
+    const filtersActive =
+      orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
+
+    if (!filtersActive) {
+      setSearchResults(null);
+      setSearchEnrichments(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const params = new URLSearchParams();
+          if (orderQuery.trim()) params.set("q", orderQuery.trim());
+          if (personFilter) params.set("designerId", personFilter);
+          if (ownerFilter) params.set("ownerId", ownerFilter);
+
+          const res = await fetch(`/api/board/search-orders?${params}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = (await res.json()) as SearchOrdersResponse;
+          if (cancelled) return;
+
+          setSearchResults(data.orders);
+          setSearchEnrichments({
+            fieldValuesByOrder: data.fieldValuesByOrder,
+            thumbnailByOrder: data.thumbnailByOrder,
+            notificationBadgeByOrder: data.notificationBadgeByOrder,
+            ownerNameByOrder: data.ownerNameByOrder,
+            designerNameByOrder: data.designerNameByOrder,
+          });
+        } catch (err) {
+          console.error("[Board] Failed to search orders:", err);
+          if (!cancelled) {
+            setSearchResults([]);
+            setSearchEnrichments(null);
+          }
+        } finally {
+          if (!cancelled) setSearchLoading(false);
+        }
+      })();
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [orderQuery, personFilter, ownerFilter]);
 
   function closeOrderDetail() {
     setDetailId(null);
@@ -754,45 +819,40 @@ export function Board({
   const filtersActive =
     orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
 
-  const filteredOrders = useMemo(() => {
-    const q = orderQuery.trim().toLowerCase();
-    return orders.filter((o) => {
-      if (q) {
-        const fv = fieldValuesByOrder[o.id] ?? {};
-        const customerName = customerNameFromOrder(
-          o,
-          fv,
-          customFields
-        ).toLowerCase();
-        const { email, phone } = customerContactFromOrder(o, fv, customFields);
-        const searchable = [o.title, customerName, email ?? "", phone ?? ""]
-          .join(" ")
-          .toLowerCase();
-        if (!searchable.includes(q)) return false;
-      }
-      if (personFilter) {
-        const designerId =
-          (o.specs?.designer_id as string | undefined) ?? "";
-        if (designerId !== personFilter) return false;
-      }
-      if (ownerFilter && o.created_by !== ownerFilter) return false;
-      return true;
-    });
-  }, [orders, orderQuery, personFilter, ownerFilter, fieldValuesByOrder, customFields]);
+  const displayOrders = filtersActive ? (searchResults ?? []) : orders;
+
+  const displayFieldValuesByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.fieldValuesByOrder
+    : fieldValuesByOrder;
+  const displayThumbnailByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.thumbnailByOrder
+    : thumbnailByOrder;
+  const displayNotificationBadgeByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.notificationBadgeByOrder
+    : notificationBadgeByOrder;
+  const displayOwnerNameByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.ownerNameByOrder
+    : ownerNameByOrder;
+  const displayDesignerNameByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.designerNameByOrder
+    : designerNameByOrder;
 
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
     for (const col of columns) map.set(col.id, []);
-    for (const order of [...filteredOrders].sort(
+    for (const order of [...displayOrders].sort(
       (a, b) => a.position - b.position
     )) {
       if (!map.has(order.column_id)) map.set(order.column_id, []);
       map.get(order.column_id)!.push(order);
     }
     return map;
-  }, [filteredOrders, columns]);
+  }, [displayOrders, columns]);
 
-  const activeOrder = orders.find((o) => o.id === activeId) ?? null;
+  const activeOrder =
+    displayOrders.find((o) => o.id === activeId) ??
+    orders.find((o) => o.id === activeId) ??
+    null;
   const activeOrderColumnColor = activeOrder
     ? (columns.find((c) => c.id === activeOrder.column_id)?.color ?? null)
     : null;
@@ -926,7 +986,9 @@ export function Board({
           ) : null}
           <span className="shrink-0 whitespace-nowrap text-sm text-slate-500">
             {filtersActive
-              ? `${filteredOrders.length} of ${orders.length} jobs`
+              ? searchLoading
+                ? "Searching…"
+                : `${displayOrders.length} match${displayOrders.length === 1 ? "" : "es"}`
               : `${orders.length} jobs`}
           </span>
         </div>
@@ -947,13 +1009,13 @@ export function Board({
       {boardView === "table" ? (
         <BoardTable
           columns={columns}
-          orders={filteredOrders}
+          orders={displayOrders}
           customFields={customFields}
-          fieldValuesByOrder={fieldValuesByOrder}
-          thumbnailByOrder={thumbnailByOrder}
-          designerNameByOrder={designerNameByOrder}
-          notificationBadgeByOrder={notificationBadgeByOrder}
-          ownerNameByOrder={ownerNameByOrder}
+          fieldValuesByOrder={displayFieldValuesByOrder}
+          thumbnailByOrder={displayThumbnailByOrder}
+          designerNameByOrder={displayDesignerNameByOrder}
+          notificationBadgeByOrder={displayNotificationBadgeByOrder}
+          ownerNameByOrder={displayOwnerNameByOrder}
           groupSizeByOrder={groupSizeByOrder}
           warningRules={warningRules}
           animateWarnings={animateWarnings}
@@ -974,7 +1036,9 @@ export function Board({
       >
         <div className="board-scroll min-h-0 min-w-0 flex-1 overflow-x-scroll overflow-y-hidden">
           <div className="flex h-full min-w-max gap-3 px-4 pb-4">
-            {columns.map((column, index) => (
+            {columns.map((column, index) => {
+              const columnOrders = ordersByColumn.get(column.id) ?? [];
+              return (
               <Column
                 key={column.id}
                 column={column}
@@ -982,13 +1046,13 @@ export function Board({
                 canAcceptDrop={canDropIn(role, column)}
                 isDragActive={activeId !== null}
                 groupedView={groupedView}
-                orders={ordersByColumn.get(column.id) ?? []}
+                orders={columnOrders}
                 customFields={customFields}
-                fieldValuesByOrder={fieldValuesByOrder}
-                thumbnailByOrder={thumbnailByOrder}
-                designerNameByOrder={designerNameByOrder}
-                notificationBadgeByOrder={notificationBadgeByOrder}
-                ownerNameByOrder={ownerNameByOrder}
+                fieldValuesByOrder={displayFieldValuesByOrder}
+                thumbnailByOrder={displayThumbnailByOrder}
+                designerNameByOrder={displayDesignerNameByOrder}
+                notificationBadgeByOrder={displayNotificationBadgeByOrder}
+                ownerNameByOrder={displayOwnerNameByOrder}
                 groupSizeByOrder={groupSizeByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
@@ -997,13 +1061,22 @@ export function Board({
                 onMoveToColumn={handleContextMove}
                 onOpenOrder={(o) => setDetailId(o.id)}
                 onAdd={(colId) => setCreateColumn(colId)}
-                loadStatus={columnLoadStatus[column.id] ?? "idle"}
-                hasMore={columnHasMore[column.id] ?? false}
-                total={columnTotal[column.id]}
+                loadStatus={
+                  filtersActive
+                    ? searchLoading
+                      ? "loading"
+                      : "loaded"
+                    : (columnLoadStatus[column.id] ?? "idle")
+                }
+                hasMore={filtersActive ? false : (columnHasMore[column.id] ?? false)}
+                total={
+                  filtersActive ? columnOrders.length : columnTotal[column.id]
+                }
                 onVisible={onColumnVisible}
                 onLoadMore={onLoadMore}
               />
-            ))}
+            );
+            })}
           </div>
         </div>
 
@@ -1012,11 +1085,11 @@ export function Board({
             <OrderCard
               order={activeOrder}
               customFields={customFields}
-              fieldValues={fieldValuesByOrder[activeOrder.id]}
-              thumbnail={thumbnailByOrder[activeOrder.id]}
-              designerName={designerNameByOrder[activeOrder.id]}
-              notificationBadge={notificationBadgeByOrder[activeOrder.id]}
-              ownerName={ownerNameByOrder[activeOrder.id]}
+              fieldValues={displayFieldValuesByOrder[activeOrder.id]}
+              thumbnail={displayThumbnailByOrder[activeOrder.id]}
+              designerName={displayDesignerNameByOrder[activeOrder.id]}
+              notificationBadge={displayNotificationBadgeByOrder[activeOrder.id]}
+              ownerName={displayOwnerNameByOrder[activeOrder.id]}
               warningRules={warningRules}
               animateWarnings={animateWarnings}
               columnColor={activeOrderColumnColor}

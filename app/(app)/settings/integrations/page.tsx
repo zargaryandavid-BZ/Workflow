@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ensureWebhookConfig } from "@/lib/webhook-config";
+import { PRODUCTS } from "@/lib/product-data";
 import { IntegrationsManager } from "./integrations-manager";
 import type { WebhookConfig, WebhookHistoryEntry } from "@/lib/types";
 
@@ -47,6 +48,22 @@ export default async function IntegrationsSettingsPage() {
     history = (historyRows ?? []) as WebhookHistoryEntry[];
   }
 
+  // Load product options from the tenant's "Product" custom field, fall back to hardcoded list.
+  let productOptions: string[] = [...PRODUCTS];
+  const { data: productField } = await supabase
+    .from("custom_fields")
+    .select("options")
+    .eq("tenant_id", ctx.tenant.id)
+    .ilike("name", "product")
+    .maybeSingle();
+  if (
+    productField?.options &&
+    Array.isArray(productField.options) &&
+    productField.options.length > 0
+  ) {
+    productOptions = productField.options as string[];
+  }
+
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
     "http://localhost:3000";
@@ -65,6 +82,7 @@ export default async function IntegrationsSettingsPage() {
         initialHistory={history}
         historyLoadError={historyLoadError}
         webhookUrl={`${appUrl}/api/webhook/orders`}
+        productOptions={productOptions}
       />
     </div>
   );

@@ -205,7 +205,7 @@ export function Column({
     <div
       ref={setRefs}
       className={cn(
-        "flex h-full w-72 shrink-0 flex-col rounded-lg transition-[opacity,box-shadow]",
+        "flex h-full w-60 shrink-0 flex-col rounded-lg transition-[opacity,box-shadow]",
         isDragActive && !canAcceptDrop && "opacity-50",
         showDropTarget && "ring-2 ring-blue-400 ring-offset-2"
       )}

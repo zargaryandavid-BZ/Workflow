@@ -14,6 +14,7 @@ interface Props {
   initialHistory: WebhookHistoryEntry[];
   historyLoadError: string | null;
   webhookUrl: string;
+  productOptions: string[];
 }
 
 function prettyJson(value: unknown): string {
@@ -48,6 +49,7 @@ export function IntegrationsManager({
   initialHistory,
   historyLoadError: initialHistoryLoadError,
   webhookUrl,
+  productOptions,
 }: Props) {
   const router = useRouter();
   const [config, setConfig] = useState(initialConfig);
@@ -61,6 +63,12 @@ export function IntegrationsManager({
   const [history, setHistory] = useState(initialHistory);
   const [historyError, setHistoryError] = useState(initialHistoryLoadError);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [excludedProducts, setExcludedProducts] = useState<string[]>(
+    initialConfig?.excluded_products ?? []
+  );
+  const [savingExclusions, setSavingExclusions] = useState(false);
+  const [exclusionMessage, setExclusionMessage] = useState<string | null>(null);
+  const [exclusionError, setExclusionError] = useState<string | null>(null);
 
   async function copyText(text: string, field: string) {
     try {
@@ -131,6 +139,34 @@ export function IntegrationsManager({
     setConfig(json.config as WebhookConfig);
     setMessage("New key generated — update your integration");
     router.refresh();
+  }
+
+  function toggleProduct(product: string) {
+    setExcludedProducts((prev) =>
+      prev.includes(product)
+        ? prev.filter((p) => p !== product)
+        : [...prev, product]
+    );
+  }
+
+  async function saveExclusions() {
+    setExclusionError(null);
+    setExclusionMessage(null);
+    setSavingExclusions(true);
+    const res = await fetch("/api/webhook-config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ excluded_products: excludedProducts }),
+    });
+    const json = await res.json();
+    setSavingExclusions(false);
+    if (!res.ok) {
+      setExclusionError(json.error ?? "Failed to save exclusions");
+      return;
+    }
+    setConfig(json.config as WebhookConfig);
+    setExclusionMessage("Exclusion list saved");
+    setTimeout(() => setExclusionMessage(null), 3000);
   }
 
   if (!config) {
@@ -299,6 +335,68 @@ export function IntegrationsManager({
               : "Never used"}
           </p>
         </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">
+                  Product exclusion list
+                </h2>
+                <p className="mt-1 max-w-lg text-sm text-slate-500">
+                  Webhook orders with an excluded product type will be silently
+                  ignored — no order will be created.
+                </p>
+              </div>
+            </div>
+
+            {exclusionError ? (
+              <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                {exclusionError}
+              </p>
+            ) : null}
+            {exclusionMessage ? (
+              <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {exclusionMessage}
+              </p>
+            ) : null}
+
+            <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+              {productOptions.map((product) => {
+                const checked = excludedProducts.includes(product);
+                return (
+                  <label
+                    key={product}
+                    className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleProduct(product)}
+                      className="h-4 w-4 rounded border-slate-300 accent-[var(--primary)]"
+                    />
+                    {product}
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                onClick={saveExclusions}
+                disabled={savingExclusions}
+              >
+                {savingExclusions ? "Saving…" : "Save exclusions"}
+              </Button>
+              {excludedProducts.length > 0 ? (
+                <span className="text-xs text-slate-500">
+                  {excludedProducts.length} product
+                  {excludedProducts.length === 1 ? "" : "s"} excluded
+                </span>
+              ) : null}
+            </div>
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">

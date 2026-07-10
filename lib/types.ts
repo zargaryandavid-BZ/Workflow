@@ -224,6 +224,7 @@ export interface WebhookConfig {
   secret_key: string;
   enabled: boolean;
   label: string;
+  excluded_products: string[];
   created_at: string;
   last_used_at: string | null;
 }

@@ -33,25 +33,35 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     enabled?: boolean;
+    excluded_products?: unknown;
     label?: unknown;
     config?: unknown;
   };
 
-  if (typeof body.enabled !== "boolean") {
+  const isExclusionUpdate =
+    body.enabled === undefined && Array.isArray(body.excluded_products);
+
+  if (!isExclusionUpdate && typeof body.enabled !== "boolean") {
     return NextResponse.json(
       { error: "enabled must be a boolean" },
       { status: 400 }
     );
   }
 
-  // Label lives on webhook_configs.label only — never duplicate in config JSON.
+  const updates: Record<string, unknown> = {};
+  if (typeof body.enabled === "boolean") updates.enabled = body.enabled;
+  if (Array.isArray(body.excluded_products)) {
+    updates.excluded_products = (body.excluded_products as unknown[]).filter(
+      (v) => typeof v === "string"
+    );
+  }
 
   const supabase = await createClient();
   await ensureWebhookConfig(supabase, ctx.tenant.id);
 
   const { data, error } = await supabase
     .from("webhook_configs")
-    .update({ enabled: body.enabled })
+    .update(updates)
     .eq("tenant_id", ctx.tenant.id)
     .select("*")
     .single();

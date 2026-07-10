@@ -115,6 +115,44 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Product exclusion check — skip orders whose product type is on the exclusion list.
+  const excluded: string[] = activeConfig.excluded_products ?? [];
+  if (excluded.length > 0) {
+    function isExcluded(product: unknown): boolean {
+      if (typeof product !== "string" || product.trim() === "") return false;
+      const lower = product.trim().toLowerCase();
+      return excluded.some((e) => e.toLowerCase() === lower);
+    }
+
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      const filteredItems = body.items.filter(
+        (item) => !isExcluded((item as Record<string, unknown>).product)
+      );
+      if (filteredItems.length === 0) {
+        const response = { skipped: true, reason: "product_excluded" };
+        await logWebhookHistory({
+          requestPayload: body,
+          requestRaw: null,
+          responsePayload: response,
+          responseStatus: 200,
+          success: true,
+        });
+        return NextResponse.json(response);
+      }
+      body = { ...body, items: filteredItems };
+    } else if (isExcluded((body as Record<string, unknown>).product)) {
+      const response = { skipped: true, reason: "product_excluded" };
+      await logWebhookHistory({
+        requestPayload: body,
+        requestRaw: null,
+        responsePayload: response,
+        responseStatus: 200,
+        success: true,
+      });
+      return NextResponse.json(response);
+    }
+  }
+
   try {
     const result = await createOrderFromWebhook(adminClient, activeConfig, body);
     await touchWebhookLastUsed(adminClient, activeConfig.id);
