@@ -21,6 +21,7 @@ Use this endpoint to **automatically create job cards** on the production board 
 
 ```json
 {
+  "source": "crm",
   "customer_name": "Acme Corp",
   "customer_contact": "hello@acme.com",
   "order_number": "ORD-2026-001",
@@ -31,6 +32,8 @@ Use this endpoint to **automatically create job cards** on the production board 
 ```
 
 That's it. Every field is optional — the card is created with whatever you send.
+
+Send a `source` key (e.g. `"crm"`) to match **Settings → Integrations → Source labels** for a colored label above the customer name on the board. Unknown or missing sources use the configured Other style. Cards created manually in the app never show a source label.
 
 ---
 
@@ -157,6 +160,10 @@ When you pass `items[]`, each item becomes a separate board card numbered `ORD-0
 | `due_date` | string | `"YYYY-MM-DD"` — must be today or a future date |
 | `description` | string | Order-level notes — visible on all cards |
 | `category` | string | Category name (also accepts `category_name`) |
+| `source_url` | string | CRM / source order page URL — shown as **Source** on the card globe popover (aliases: `source_link`, `order_url`) |
+| `payment_status` | string | `partial` or `full` (also `paid` / `complete` → full). Alias: `payment` |
+| `deposit` | number \| string | Deposit amount (e.g. `100` or `"$100"`) — stored in `specs.billing` |
+| `balance` | number \| string | Remaining balance — stored in `specs.billing` |
 | `owner_email` | string | Account manager email — sets **Owner** on the card |
 | `owner_id` | string | Account manager UUID |
 | `owner` | string | Account manager email, UUID, or display name |
@@ -446,6 +453,7 @@ An optional `warning` string is included when:
 - When both `customer_contact` (email) and `customer_phone` are sent, the order's **Customer Contact** field stores the phone. The linked customer record stores both. Existing customers are re-used — no duplicates.
 - `artwork_url` must be a **publicly accessible URL**. The file is linked as an external asset (not downloaded). Accepted formats: PDF, PNG, JPG, AI, EPS, etc.
 - Per-SKU `artwork_url` is stored against that specific SKU. Order-level `artwork_url` is stored as a general attachment.
+- Billing fields (`source_url`, `payment_status`, `deposit`, `balance`) are stored in `orders.specs.billing` and shown via a **globe** icon next to the priority chip. If none are sent, no globe appears.
 - `designer_information` / `designer_notes` / `design_task` are all aliases for the same designer notes field.
 - **Owner** fields (`owner_*` / `request_owner_*`) set the card Owner dropdown only when the user is an **account manager** on your team. Free-text `request_owner_name`, `request_owner_contact`, and `request_owner_phone` are always saved on the card.
 - New cards always land in the **first board column**.

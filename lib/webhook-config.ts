@@ -1,8 +1,24 @@
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WebhookConfig } from "@/lib/types";
+import {
+  DEFAULT_WEBHOOK_SOURCE_STYLES,
+  normalizeWebhookSourceStyles,
+} from "@/lib/webhook-source-styles";
 
 type Client = SupabaseClient;
+
+function asWebhookConfig(row: Record<string, unknown>): WebhookConfig {
+  return {
+    ...(row as unknown as WebhookConfig),
+    excluded_products: Array.isArray(row.excluded_products)
+      ? (row.excluded_products as string[])
+      : [],
+    source_styles: normalizeWebhookSourceStyles(
+      row.source_styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES
+    ),
+  };
+}
 
 const SECRET_PREFIX = "wh_live_";
 const SECRET_RANDOM_LENGTH = 32;
@@ -29,7 +45,7 @@ export async function ensureWebhookConfig(
     .maybeSingle();
 
   if (existing) {
-    return existing as WebhookConfig;
+    return asWebhookConfig(existing as Record<string, unknown>);
   }
 
   const { data: created, error } = await client
@@ -48,11 +64,11 @@ export async function ensureWebhookConfig(
       .select("*")
       .eq("tenant_id", tenantId)
       .maybeSingle();
-    if (retry) return retry as WebhookConfig;
+    if (retry) return asWebhookConfig(retry as Record<string, unknown>);
     throw new Error(error.message);
   }
 
-  return created as WebhookConfig;
+  return asWebhookConfig(created as Record<string, unknown>);
 }
 
 export async function regenerateWebhookSecret(
@@ -72,7 +88,7 @@ export async function regenerateWebhookSecret(
     throw new Error(error?.message ?? "Failed to regenerate webhook secret");
   }
 
-  return data as WebhookConfig;
+  return asWebhookConfig(data as Record<string, unknown>);
 }
 
 export async function findWebhookConfigBySecret(
@@ -85,7 +101,8 @@ export async function findWebhookConfigBySecret(
     .eq("secret_key", secretKey)
     .maybeSingle();
 
-  return (data as WebhookConfig | null) ?? null;
+  if (!data) return null;
+  return asWebhookConfig(data as Record<string, unknown>);
 }
 
 export async function touchWebhookLastUsed(

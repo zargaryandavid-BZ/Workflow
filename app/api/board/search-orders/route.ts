@@ -15,6 +15,9 @@ export interface SearchOrdersResponse {
   designerNameByOrder: Record<string, string>;
 }
 
+/** PostgREST default max is 1000; page explicitly so filters cover every column. */
+const FETCH_PAGE = 1000;
+
 export async function GET(req: NextRequest) {
   const ctx = await getTenantContext();
   if (!ctx) {
@@ -29,66 +32,76 @@ export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
-  const [ordersRes, fieldsRes] = await Promise.all([
-    (() => {
-      let query = supabase
-        .from("orders")
-        .select("*, customer:customers(*), tag:tags(id, name, color)")
-        .eq("tenant_id", tenantId)
-        .is("removed_at", null)
-        .order("position", { ascending: true });
+  const fieldsRes = await supabase
+    .from("custom_fields")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
 
-      if (ownerId) {
-        query = query.eq("created_by", ownerId);
-      }
-      if (designerId) {
-        query = query.eq("specs->>designer_id", designerId);
-      }
-
-      return query;
-    })(),
-    supabase
-      .from("custom_fields")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .order("position", { ascending: true }),
-  ]);
-
-  if (ordersRes.error) {
-    return NextResponse.json(
-      { error: "Failed to fetch orders" },
-      { status: 500 }
-    );
-  }
-
-  const allOrders = (ordersRes.data ?? []) as OrderWithRelations[];
   const customFields = (fieldsRes.data ?? []) as CustomField[];
 
+  // Fetch every matching order across pages so unloaded / "Load more" cards
+  // are included in board filtration.
+  const allOrders: OrderWithRelations[] = [];
+  for (let from = 0; ; from += FETCH_PAGE) {
+    let query = supabase
+      .from("orders")
+      .select("*, customer:customers(*), tag:tags(id, name, color)")
+      .eq("tenant_id", tenantId)
+      .is("removed_at", null)
+      .order("position", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + FETCH_PAGE - 1);
+
+    if (ownerId) {
+      query = query.eq("created_by", ownerId);
+    }
+    if (designerId) {
+      query = query.eq("specs->>designer_id", designerId);
+    }
+
+    const ordersRes = await query;
+    if (ordersRes.error) {
+      return NextResponse.json(
+        { error: "Failed to fetch orders" },
+        { status: 500 }
+      );
+    }
+
+    const page = (ordersRes.data ?? []) as OrderWithRelations[];
+    allOrders.push(...page);
+    if (page.length < FETCH_PAGE) break;
+  }
+
   if (allOrders.length === 0) {
-    const empty: SearchOrdersResponse = {
+    return NextResponse.json({
       orders: [],
       fieldValuesByOrder: {},
       thumbnailByOrder: {},
       notificationBadgeByOrder: {},
       ownerNameByOrder: {},
       designerNameByOrder: {},
-    };
-    return NextResponse.json(empty);
+    } satisfies SearchOrdersResponse);
   }
 
-  const orderIds = allOrders.map((o) => o.id);
-  const { data: valueRows } = await supabase
-    .from("custom_field_values")
-    .select("order_id, custom_field_id, value")
-    .in("order_id", orderIds);
-
+  // custom_field_values .in() also has practical size limits — chunk it.
   const fieldValuesByOrder: Record<string, Record<string, unknown>> = {};
-  for (const v of (valueRows ?? []) as {
-    order_id: string;
-    custom_field_id: string;
-    value: unknown;
-  }[]) {
-    (fieldValuesByOrder[v.order_id] ??= {})[v.custom_field_id] = v.value;
+  const orderIds = allOrders.map((o) => o.id);
+  const VALUE_CHUNK = 200;
+  for (let i = 0; i < orderIds.length; i += VALUE_CHUNK) {
+    const chunk = orderIds.slice(i, i + VALUE_CHUNK);
+    const { data: valueRows } = await supabase
+      .from("custom_field_values")
+      .select("order_id, custom_field_id, value")
+      .in("order_id", chunk);
+
+    for (const v of (valueRows ?? []) as {
+      order_id: string;
+      custom_field_id: string;
+      value: unknown;
+    }[]) {
+      (fieldValuesByOrder[v.order_id] ??= {})[v.custom_field_id] = v.value;
+    }
   }
 
   const filters = { q, personFilter: designerId, ownerFilter: ownerId };
@@ -103,10 +116,8 @@ export async function GET(req: NextRequest) {
 
   const enrichment = await enrichBoardOrders(supabase, orders);
 
-  const response: SearchOrdersResponse = {
+  return NextResponse.json({
     orders,
     ...enrichment,
-  };
-
-  return NextResponse.json(response);
+  } satisfies SearchOrdersResponse);
 }

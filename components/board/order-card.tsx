@@ -38,6 +38,9 @@ import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
 import type { CardWarningRule, CustomField, OrderWithRelations } from "@/lib/types";
+import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import { WebhookSourceLabel } from "./webhook-source-label";
+import { OrderBillingGlobe } from "./order-billing-globe";
 
 interface ColumnOption {
   id: string;
@@ -60,6 +63,7 @@ interface OrderCardProps {
   groupSize?: number;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
+  webhookSourceStyles?: WebhookSourceStyles;
   /** Column accent color (hex) — used to tint the customer name at 70% opacity. */
   columnColor?: string | null;
   /** Columns the user is allowed to move this card to (pre-filtered by board). */
@@ -81,6 +85,7 @@ export function OrderCard({
   groupSize,
   warningRules = [],
   animateWarnings = true,
+  webhookSourceStyles,
   columnColor,
   availableColumns = [],
   onMoveToColumn,
@@ -289,6 +294,10 @@ export function OrderCard({
               {/* Customer name on first line, order number on second — each truncates with … */}
               <div className="flex items-start justify-between gap-1.5">
                 <div className="min-w-0 flex-1">
+                  <WebhookSourceLabel
+                    webhookSource={order.webhook_source}
+                    sourceStyles={webhookSourceStyles}
+                  />
                   {displayCustomerName ? (
                     <button
                       type="button"
@@ -347,6 +356,7 @@ export function OrderCard({
                 >
                   {order.priority}
                 </span>
+                <OrderBillingGlobe specs={order.specs} />
               </div>
             </div>
 
@@ -474,6 +484,10 @@ export function OrderCard({
 
           {displayCustomerName || email || phone ? (
             <div className="space-y-1">
+              <WebhookSourceLabel
+                webhookSource={order.webhook_source}
+                sourceStyles={webhookSourceStyles}
+              />
               {displayCustomerName ? (
                 <div className="flex items-center gap-1.5">
                   <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />

@@ -191,7 +191,7 @@ export function validateOrderFormFields(
   customerName: string,
   customerContact: string,
   skus: { qty?: number | null }[] = [],
-  designerId?: string
+  _designerId?: string
 ): string | null {
   const customerErr = validateCustomerFields(customerName, customerContact);
   if (customerErr) return customerErr;
@@ -201,14 +201,19 @@ export function validateOrderFormFields(
 
   // Respect the admin's required toggle from Settings → Fields only.
   // Customer name/contact are always validated separately above.
-  const missing = toCheck.filter((f) => f.required && isEmptyFieldValue(fieldValues[f.id]));
-
-  if (
-    fields.designerField?.required &&
-    !(designerId && designerId.trim())
-  ) {
-    missing.push(fields.designerField);
-  }
+  // Due date / Designer Information are never required to save or move.
+  const missing = toCheck.filter((f) => {
+    if (!f.required || !isEmptyFieldValue(fieldValues[f.id])) return false;
+    const name = f.name.trim().toLowerCase();
+    if (
+      name === DESIGNER_FIELD_NAME.toLowerCase() ||
+      name === "due date" ||
+      name === "due_date"
+    ) {
+      return false;
+    }
+    return true;
+  });
 
   if (missing.length > 0) {
     return `Please fill required field(s): ${missing.map((f) => orderFormFieldLabel(f.name)).join(", ")}`;

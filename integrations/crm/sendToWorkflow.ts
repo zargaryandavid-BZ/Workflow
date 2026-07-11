@@ -107,6 +107,7 @@ export async function sendToWorkflow(
     : undefined;
 
   const payload: Record<string, unknown> = {
+    source: "crm",
     customer_name: customer.name,
     customer_contact: customer.email ?? undefined,
     customer_phone: customer.phone ?? undefined,

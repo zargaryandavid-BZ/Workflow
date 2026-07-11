@@ -16,11 +16,13 @@ import type {
 interface Props {
   initialRules: AutomationRule[];
   columns: BoardColumn[];
+  productOptions: string[];
 }
 
 const TRIGGERS: { value: AutomationTrigger; label: string }[] = [
   { value: "on_enter_column", label: "When a job enters a column" },
   { value: "on_approval_result", label: "When a customer responds" },
+  { value: "on_job_created", label: "When a job is created (by product)" },
 ];
 
 function isNotifyRule(rule: AutomationRule) {
@@ -32,15 +34,24 @@ function triggerLabel(rule: AutomationRule) {
     const result = (rule.config as { result?: string })?.result;
     return `On approval: ${result ?? "any"}`;
   }
+  if (rule.trigger === "on_job_created") {
+    const product = (rule.config as { product?: string })?.product;
+    return product ? `On create: ${product}` : "On create (product)";
+  }
   return "On enter column";
 }
 
-export function AutomationsManager({ initialRules, columns }: Props) {
+export function AutomationsManager({
+  initialRules,
+  columns,
+  productOptions,
+}: Props) {
   const router = useRouter();
   const [trigger, setTrigger] = useState<AutomationTrigger>("on_enter_column");
   const [fromColumn, setFromColumn] = useState("");
   const [toColumn, setToColumn] = useState("");
   const [result, setResult] = useState("approved");
+  const [product, setProduct] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +71,10 @@ export function AutomationsManager({ initialRules, columns }: Props) {
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (trigger === "on_job_created" && !product.trim()) {
+      setError("Select a product");
+      return;
+    }
     setLoading(true);
     const res = await fetch("/api/automations", {
       method: "POST",
@@ -70,7 +85,11 @@ export function AutomationsManager({ initialRules, columns }: Props) {
           trigger === "on_enter_column" ? fromColumn || null : null,
         toColumn,
         config:
-          trigger === "on_approval_result" ? { result } : {},
+          trigger === "on_approval_result"
+            ? { result }
+            : trigger === "on_job_created"
+              ? { product: product.trim() }
+              : {},
       }),
     });
     const json = await res.json();
@@ -81,6 +100,7 @@ export function AutomationsManager({ initialRules, columns }: Props) {
     }
     setToColumn("");
     setFromColumn("");
+    setProduct("");
     router.refresh();
   }
 
@@ -148,9 +168,9 @@ export function AutomationsManager({ initialRules, columns }: Props) {
             Movement rules
           </h2>
           <p className="text-sm text-slate-500">
-            Rules run automatically as jobs flow through the pipeline. The
-            default rules move approved jobs to Done and rejected jobs to
-            Returning Tickets.
+            Rules run automatically as jobs flow through the pipeline. Route new
+            jobs by product on create, move cards when they enter a column, or
+            after a customer approval response.
           </p>
         </div>
 
@@ -190,6 +210,23 @@ export function AutomationsManager({ initialRules, columns }: Props) {
                   ))}
                 </Select>
               </div>
+            ) : trigger === "on_job_created" ? (
+              <div>
+                <Label htmlFor="a-product">Product</Label>
+                <Select
+                  id="a-product"
+                  required
+                  value={product}
+                  onChange={(e) => setProduct(e.target.value)}
+                >
+                  <option value="">Select product…</option>
+                  {productOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             ) : (
               <div>
                 <Label htmlFor="a-result">Customer response</Label>
@@ -220,6 +257,13 @@ export function AutomationsManager({ initialRules, columns }: Props) {
               </Select>
             </div>
           </div>
+          {trigger === "on_job_created" ? (
+            <p className="text-xs text-slate-500">
+              Applies when a job is created manually or via webhook. Matching
+              products are routed to the target column automatically (overrides
+              the default first column).
+            </p>
+          ) : null}
           {error ? (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
               {error}
@@ -247,7 +291,10 @@ export function AutomationsManager({ initialRules, columns }: Props) {
                     <span className="flex items-center gap-1.5 text-slate-500">
                       {rule.trigger === "on_enter_column"
                         ? columnName(rule.from_column)
-                        : null}
+                        : rule.trigger === "on_job_created"
+                          ? ((rule.config as { product?: string }).product ??
+                            "Product")
+                          : null}
                       <ArrowRight className="h-4 w-4" />
                       <span className="font-medium text-slate-700">
                         {columnName(rule.to_column)}

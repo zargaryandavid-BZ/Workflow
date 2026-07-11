@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ensureWebhookConfig } from "@/lib/webhook-config";
+import { normalizeWebhookSourceStyles } from "@/lib/webhook-source-styles";
 
 export async function GET() {
   const ctx = await getTenantContext();
@@ -34,14 +35,25 @@ export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     enabled?: boolean;
     excluded_products?: unknown;
+    source_styles?: unknown;
     label?: unknown;
     config?: unknown;
   };
 
   const isExclusionUpdate =
-    body.enabled === undefined && Array.isArray(body.excluded_products);
+    body.enabled === undefined &&
+    Array.isArray(body.excluded_products) &&
+    body.source_styles === undefined;
+  const isSourceStylesUpdate =
+    body.enabled === undefined &&
+    body.excluded_products === undefined &&
+    body.source_styles !== undefined;
 
-  if (!isExclusionUpdate && typeof body.enabled !== "boolean") {
+  if (
+    !isExclusionUpdate &&
+    !isSourceStylesUpdate &&
+    typeof body.enabled !== "boolean"
+  ) {
     return NextResponse.json(
       { error: "enabled must be a boolean" },
       { status: 400 }
@@ -53,6 +65,16 @@ export async function PATCH(request: Request) {
   if (Array.isArray(body.excluded_products)) {
     updates.excluded_products = (body.excluded_products as unknown[]).filter(
       (v) => typeof v === "string"
+    );
+  }
+  if (body.source_styles !== undefined) {
+    updates.source_styles = normalizeWebhookSourceStyles(body.source_styles);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json(
+      { error: "No valid fields to update" },
+      { status: 400 }
     );
   }
 

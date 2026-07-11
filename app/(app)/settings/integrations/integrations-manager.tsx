@@ -1,11 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, RefreshCw } from "lucide-react";
+import { Check, Copy, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
 import { buildWebhookPayloadDocs, buildWebhookPayloadDocsHtml } from "@/lib/webhook-payload-docs";
+import {
+  DEFAULT_WEBHOOK_SOURCE_STYLES,
+  isHexColor,
+  normalizeWebhookSourceStyles,
+  type WebhookSourceStyleEntry,
+  type WebhookSourceStyles,
+} from "@/lib/webhook-source-styles";
 import type { WebhookConfig, WebhookHistoryEntry } from "@/lib/types";
 
 interface Props {
@@ -69,6 +76,19 @@ export function IntegrationsManager({
   const [savingExclusions, setSavingExclusions] = useState(false);
   const [exclusionMessage, setExclusionMessage] = useState<string | null>(null);
   const [exclusionError, setExclusionError] = useState<string | null>(null);
+  const [sourceStyles, setSourceStyles] = useState<WebhookSourceStyles>(() =>
+    normalizeWebhookSourceStyles(
+      initialConfig?.source_styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES
+    )
+  );
+  const [savingSourceStyles, setSavingSourceStyles] = useState(false);
+  const [sourceStylesMessage, setSourceStylesMessage] = useState<string | null>(
+    null
+  );
+  const [sourceStylesError, setSourceStylesError] = useState<string | null>(
+    null
+  );
+  const [historySearch, setHistorySearch] = useState("");
 
   async function copyText(text: string, field: string) {
     try {
@@ -169,6 +189,92 @@ export function IntegrationsManager({
     setTimeout(() => setExclusionMessage(null), 3000);
   }
 
+  function updateSourceRow(
+    index: number,
+    patch: Partial<WebhookSourceStyleEntry>
+  ) {
+    setSourceStyles((prev) => ({
+      ...prev,
+      sources: prev.sources.map((row, i) =>
+        i === index ? { ...row, ...patch } : row
+      ),
+    }));
+  }
+
+  function addSourceRow() {
+    setSourceStyles((prev) => ({
+      ...prev,
+      sources: [
+        ...prev.sources,
+        { key: "", label: "", color: "#2563eb" },
+      ],
+    }));
+  }
+
+  function removeSourceRow(index: number) {
+    setSourceStyles((prev) => ({
+      ...prev,
+      sources: prev.sources.filter((_, i) => i !== index),
+    }));
+  }
+
+  async function saveSourceStyles() {
+    setSourceStylesError(null);
+    setSourceStylesMessage(null);
+
+    for (const row of sourceStyles.sources) {
+      if (!row.key.trim() || !row.label.trim()) {
+        setSourceStylesError("Each source needs a key and a display label");
+        return;
+      }
+      if (!isHexColor(row.color)) {
+        setSourceStylesError(
+          `Invalid color for "${row.key || row.label}" — use #RGB or #RRGGBB`
+        );
+        return;
+      }
+    }
+    if (!sourceStyles.other.label.trim()) {
+      setSourceStylesError("Other / unknown needs a display label");
+      return;
+    }
+    if (!isHexColor(sourceStyles.other.color)) {
+      setSourceStylesError("Other / unknown color must be #RGB or #RRGGBB");
+      return;
+    }
+
+    setSavingSourceStyles(true);
+    const payload = normalizeWebhookSourceStyles(sourceStyles);
+    try {
+      const res = await fetch("/api/webhook-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_styles: payload }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSourceStylesError(
+          typeof json.error === "string"
+            ? json.error
+            : "Failed to save source styles"
+        );
+        return;
+      }
+      const next = json.config as WebhookConfig;
+      setConfig(next);
+      setSourceStyles(normalizeWebhookSourceStyles(next.source_styles));
+      setSourceStylesMessage("Source styles saved");
+      setTimeout(() => setSourceStylesMessage(null), 3000);
+      router.refresh();
+    } catch {
+      setSourceStylesError(
+        "Could not reach the server — is the local app still running?"
+      );
+    } finally {
+      setSavingSourceStyles(false);
+    }
+  }
+
   if (!config) {
     return (
       <div className="space-y-4">
@@ -193,7 +299,26 @@ export function IntegrationsManager({
 
   const payloadDocs = buildWebhookPayloadDocs(webhookUrl, config.secret_key);
   const payloadDocsHtml = buildWebhookPayloadDocsHtml(webhookUrl, config.secret_key);
-  const historyCountLabel = `${history.length} event${history.length === 1 ? "" : "s"}`;
+
+  const filteredHistory = useMemo(() => {
+    const q = historySearch.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter((entry) => {
+      if (entry.order_numbers.some((n) => n.toLowerCase().includes(q))) return true;
+      if ((entry.success ? "success" : "failed").includes(q)) return true;
+      if (entry.error_message?.toLowerCase().includes(q)) return true;
+      if (entry.created_at.toLowerCase().includes(q)) return true;
+      const raw = entry.request_raw ?? "";
+      if (raw.toLowerCase().includes(q)) return true;
+      const respText = entry.response_payload ? prettyJson(entry.response_payload).toLowerCase() : "";
+      if (respText.includes(q)) return true;
+      return false;
+    });
+  }, [history, historySearch]);
+
+  const historyCountLabel = filteredHistory.length !== history.length
+    ? `${filteredHistory.length} of ${history.length} event${history.length === 1 ? "" : "s"}`
+    : `${history.length} event${history.length === 1 ? "" : "s"}`;
 
   return (
     <div className="space-y-6">
@@ -400,6 +525,172 @@ export function IntegrationsManager({
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">
+                  Source labels
+                </h2>
+                <p className="mt-1 max-w-xl text-sm text-slate-500">
+                  Callers send a <code className="text-xs">source</code> key in
+                  the webhook payload. Matching keys show a small colored label
+                  above the customer name on cards. Unknown or missing sources
+                  use the Other style. Manual cards never show a label.
+                </p>
+              </div>
+              <Button type="button" variant="secondary" size="sm" onClick={addSourceRow}>
+                <Plus className="h-4 w-4" />
+                Add source
+              </Button>
+            </div>
+
+            {sourceStylesError ? (
+              <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                {sourceStylesError}
+              </p>
+            ) : null}
+            {sourceStylesMessage ? (
+              <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {sourceStylesMessage}
+              </p>
+            ) : null}
+
+            <div className="space-y-3">
+              <div className="hidden grid-cols-[1fr_1fr_7.5rem_2.25rem] gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 sm:grid">
+                <span>Payload key</span>
+                <span>Label on card</span>
+                <span>Color</span>
+                <span />
+              </div>
+
+              {sourceStyles.sources.map((row, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_7.5rem_2.25rem] sm:items-center"
+                >
+                  <input
+                    type="text"
+                    value={row.key}
+                    onChange={(e) =>
+                      updateSourceRow(index, { key: e.target.value })
+                    }
+                    placeholder="e.g. crm"
+                    className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  />
+                  <input
+                    type="text"
+                    value={row.label}
+                    onChange={(e) =>
+                      updateSourceRow(index, { label: e.target.value })
+                    }
+                    placeholder="e.g. CRM"
+                    className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={
+                        isHexColor(row.color) && row.color.length === 7
+                          ? row.color
+                          : "#2563eb"
+                      }
+                      onChange={(e) =>
+                        updateSourceRow(index, { color: e.target.value })
+                      }
+                      className="h-9 w-10 cursor-pointer rounded border border-slate-200 bg-white p-0.5"
+                      title="Pick color"
+                    />
+                    <input
+                      type="text"
+                      value={row.color}
+                      onChange={(e) =>
+                        updateSourceRow(index, { color: e.target.value })
+                      }
+                      placeholder="#2563eb"
+                      className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-2 font-mono text-xs text-slate-800 outline-none focus:border-slate-400"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeSourceRow(index)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="Remove source"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+
+              <div className="rounded-md border border-dashed border-slate-200 bg-slate-50/80 p-3">
+                <p className="mb-2 text-xs font-medium text-slate-600">
+                  Other / unknown source
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_7.5rem] sm:items-center">
+                  <input
+                    type="text"
+                    value={sourceStyles.other.label}
+                    onChange={(e) =>
+                      setSourceStyles((prev) => ({
+                        ...prev,
+                        other: { ...prev.other, label: e.target.value },
+                      }))
+                    }
+                    placeholder="Webhook"
+                    className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={
+                        isHexColor(sourceStyles.other.color) &&
+                        sourceStyles.other.color.length === 7
+                          ? sourceStyles.other.color
+                          : "#64748b"
+                      }
+                      onChange={(e) =>
+                        setSourceStyles((prev) => ({
+                          ...prev,
+                          other: { ...prev.other, color: e.target.value },
+                        }))
+                      }
+                      className="h-9 w-10 cursor-pointer rounded border border-slate-200 bg-white p-0.5"
+                      title="Pick color"
+                    />
+                    <input
+                      type="text"
+                      value={sourceStyles.other.color}
+                      onChange={(e) =>
+                        setSourceStyles((prev) => ({
+                          ...prev,
+                          other: { ...prev.other, color: e.target.value },
+                        }))
+                      }
+                      placeholder="#64748b"
+                      className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-2 font-mono text-xs text-slate-800 outline-none focus:border-slate-400"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <Button
+                type="button"
+                size="sm"
+                onClick={saveSourceStyles}
+                disabled={savingSourceStyles}
+              >
+                {savingSourceStyles ? "Saving…" : "Save source labels"}
+              </Button>
+              {sourceStyles.sources.length > 0 ? (
+                <span className="text-xs text-slate-500">
+                  {sourceStyles.sources.length} source
+                  {sourceStyles.sources.length === 1 ? "" : "s"} configured
+                </span>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-slate-800">
@@ -476,6 +767,27 @@ export function IntegrationsManager({
             </div>
           </div>
 
+          <div className="relative mb-4">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={historySearch}
+              onChange={(e) => setHistorySearch(e.target.value)}
+              placeholder="Search by order number, status, error…"
+              className="w-full rounded-md border border-slate-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            />
+            {historySearch ? (
+              <button
+                type="button"
+                onClick={() => setHistorySearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+
           {historyError ? (
             <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               {historyError}
@@ -486,9 +798,13 @@ export function IntegrationsManager({
             <p className="rounded-md border border-dashed border-slate-300 px-4 py-5 text-sm text-slate-500">
               No webhook calls yet.
             </p>
+          ) : filteredHistory.length === 0 ? (
+            <p className="rounded-md border border-dashed border-slate-300 px-4 py-5 text-sm text-slate-500">
+              No events match &ldquo;{historySearch}&rdquo;.
+            </p>
           ) : (
             <div className="space-y-4">
-              {history.map((entry) => {
+              {filteredHistory.map((entry) => {
                 const sentPayloadText = entry.request_payload
                   ? prettyJson(entry.request_payload)
                   : entry.request_raw || "—";

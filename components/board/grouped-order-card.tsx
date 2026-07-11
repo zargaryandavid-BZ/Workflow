@@ -8,15 +8,24 @@ import { itemLabel, type GroupEntry } from "@/lib/group-orders";
 import { customerNameFromOrder } from "@/lib/notification-messages";
 import { cn, formatDateShort } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
+import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import { WebhookSourceLabel } from "./webhook-source-label";
 
 interface GroupedOrderCardProps {
   entry: GroupEntry;
   onOpen: (order: OrderWithRelations) => void;
   customFields?: CustomField[];
   fieldValuesByOrder?: Record<string, Record<string, unknown>>;
+  webhookSourceStyles?: WebhookSourceStyles;
 }
 
-export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValuesByOrder = {} }: GroupedOrderCardProps) {
+export function GroupedOrderCard({
+  entry,
+  onOpen,
+  customFields = [],
+  fieldValuesByOrder = {},
+  webhookSourceStyles,
+}: GroupedOrderCardProps) {
   const { key, orders } = entry;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -68,6 +77,10 @@ export function GroupedOrderCard({ entry, onOpen, customFields = [], fieldValues
         {/* Header row */}
         <div className="flex items-start justify-between gap-1.5">
           <div className="min-w-0 flex-1">
+            <WebhookSourceLabel
+              webhookSource={rep.webhook_source}
+              sourceStyles={webhookSourceStyles}
+            />
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 shrink-0 text-blue-500" />
               {displayCustomerName ? (

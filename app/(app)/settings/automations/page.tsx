@@ -3,6 +3,7 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { SystemConfigPanel } from "@/components/settings/SystemConfigPanel";
 import { AutomationsManager } from "./automations-manager";
+import { PRODUCTS } from "@/lib/product-data";
 import type { AutomationRule, BoardColumn } from "@/lib/types";
 
 export default async function AutomationsSettingsPage() {
@@ -11,7 +12,7 @@ export default async function AutomationsSettingsPage() {
   if (ctx.role !== "admin") redirect("/board");
 
   const supabase = await createClient();
-  const [rulesRes, columnsRes] = await Promise.all([
+  const [rulesRes, columnsRes, productFieldRes] = await Promise.all([
     supabase
       .from("automation_rules")
       .select("*")
@@ -22,7 +23,19 @@ export default async function AutomationsSettingsPage() {
       .select("*")
       .eq("tenant_id", ctx.tenant.id)
       .order("position", { ascending: true }),
+    supabase
+      .from("custom_fields")
+      .select("options")
+      .eq("tenant_id", ctx.tenant.id)
+      .ilike("name", "product")
+      .maybeSingle(),
   ]);
+
+  let productOptions: string[] = [...PRODUCTS];
+  const options = productFieldRes.data?.options;
+  if (Array.isArray(options) && options.length > 0) {
+    productOptions = options.filter((o): o is string => typeof o === "string");
+  }
 
   return (
     <div>
@@ -34,6 +47,7 @@ export default async function AutomationsSettingsPage() {
       <AutomationsManager
         initialRules={(rulesRes.data ?? []) as AutomationRule[]}
         columns={(columnsRes.data ?? []) as BoardColumn[]}
+        productOptions={productOptions}
       />
       <SystemConfigPanel />
     </div>

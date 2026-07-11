@@ -67,14 +67,12 @@ export function getMissingFields(
       continue;
     }
 
-    if (nameLower === DESIGNER_FIELD_NAME.toLowerCase()) {
-      const designerId = order.specs?.designer_id;
-      if (typeof designerId !== "string" || !designerId.trim()) {
-        missing.push({
-          label: orderFormFieldLabel(field.name),
-          field: "designer",
-        });
-      }
+    // Due date and Designer Information never block moves.
+    if (
+      nameLower === DESIGNER_FIELD_NAME.toLowerCase() ||
+      nameLower === "due date" ||
+      fieldKey(field.name) === "due_date"
+    ) {
       continue;
     }
 

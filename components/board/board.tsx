@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import { getGroupKey } from "@/lib/group-orders";
+import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
 import type {
   BoardColumn,
   CardWarningRule,
@@ -43,6 +44,7 @@ import type {
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { OrderOwner } from "./order-form-body";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { ColumnOrdersResponse } from "@/app/api/board/column-orders/route";
@@ -78,6 +80,7 @@ interface BoardProps {
   warningAnimationOpacity?: number;
   warningAnimationSpeedMs?: number;
   warningAnimationSpreadPx?: number;
+  webhookSourceStyles?: WebhookSourceStyles;
   initialOrderId?: string | null;
   appUrl: string;
 }
@@ -102,6 +105,7 @@ export function Board({
   warningAnimationOpacity = 30,
   warningAnimationSpeedMs = 2500,
   warningAnimationSpreadPx = 3,
+  webhookSourceStyles = undefined,
   initialOrderId = null,
   appUrl,
 }: BoardProps) {
@@ -187,10 +191,19 @@ export function Board({
 
   /** Maps every orderId to its cross-column group size (only set when ≥ 2). */
   const groupSizeByOrder = useMemo(() => {
-    const source =
-      orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== ""
-        ? (searchResults ?? [])
-        : orders;
+    const filtersOn =
+      orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
+    const source = filtersOn
+      ? (searchResults ??
+        orders.filter((order) =>
+          orderMatchesBoardFilters(
+            order,
+            fieldValuesByOrder[order.id] ?? {},
+            customFields,
+            { q: orderQuery, personFilter, ownerFilter }
+          )
+        ))
+      : orders;
     const keyIds = new Map<string, string[]>();
     for (const o of source) {
       const key = getGroupKey(o);
@@ -205,7 +218,15 @@ export function Board({
       }
     }
     return map;
-  }, [orders, searchResults, orderQuery, personFilter, ownerFilter]);
+  }, [
+    orders,
+    searchResults,
+    orderQuery,
+    personFilter,
+    ownerFilter,
+    fieldValuesByOrder,
+    customFields,
+  ]);
 
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -261,10 +282,12 @@ export function Board({
           if (personFilter) params.set("designerId", personFilter);
           if (ownerFilter) params.set("ownerId", ownerFilter);
 
+
           const res = await fetch(`/api/board/search-orders?${params}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = (await res.json()) as SearchOrdersResponse;
           if (cancelled) return;
+
 
           setSearchResults(data.orders);
           setSearchEnrichments({
@@ -276,8 +299,10 @@ export function Board({
           });
         } catch (err) {
           console.error("[Board] Failed to search orders:", err);
+          // Keep searchResults null so the board falls back to filtering
+          // already-loaded orders instead of showing an empty board.
           if (!cancelled) {
-            setSearchResults([]);
+            setSearchResults(null);
             setSearchEnrichments(null);
           }
         } finally {
@@ -315,25 +340,66 @@ export function Board({
     window.setTimeout(() => setPermissionError(null), 3500);
   }
 
-  // Tracks the most recent successful cross-column move for debug correlation.
-  const pendingMoveRef = useRef<{
+  /**
+   * When the designer/owner/search filter is active the board renders
+   * `searchResults`, not `orders`. Moves must update both or the card snaps back.
+   */
+  function patchOrderPlacement(
+    orderId: string,
+    patch: { column_id: string; position?: number }
+  ) {
+    setOrders((prev) => {
+      const next = prev.map((o) =>
+        o.id === orderId ? { ...o, ...patch } : o
+      );
+      boardOrdersRef.current = next;
+      return next;
+    });
+    setSearchResults((prev) => {
+      if (!prev) return prev;
+      const next = prev.map((o) =>
+        o.id === orderId ? { ...o, ...patch } : o
+      );
+      return next;
+    });
+  }
+
+  function restoreOrdersSnapshot(snapshot: OrderWithRelations[]) {
+    boardOrdersRef.current = snapshot;
+    setOrders(snapshot);
+    setSearchResults((prev) => {
+      if (!prev) return prev;
+      const byId = new Map(snapshot.map((o) => [o.id, o]));
+      return prev.map((o) => {
+        const updated = byId.get(o.id);
+        return updated
+          ? { ...o, column_id: updated.column_id, position: updated.position }
+          : o;
+      });
+    });
+  }
+
+  // Tracks recent successful cross-column moves so we can detect stale merges.
+  const recentMoveRef = useRef<{
     orderId: string;
     fromColumnId: string;
     toColumnId: string;
     at: number;
   } | null>(null);
 
+  // When a page-0 fetch is requested while one is already in flight, queue a
+  // follow-up so post-save / post-move refreshes are not dropped.
+  const pendingColumnRefetchRef = useRef(new Set<string>());
+
   // ── Per-column fetch ─────────────────────────────────────────────────────────
   const fetchColumnOrders = useCallback(
     async (columnId: string, page: number) => {
-      // Prevent duplicate in-flight fetches for page 0.
+      // Prevent duplicate in-flight fetches for page 0 — queue instead of drop.
       if (
         page === 0 &&
         columnLoadStatusRef.current[columnId] === "loading"
       ) {
-        // #region agent log
-        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:fetchColumnOrders:skip',message:'skipped fetch — column already loading',hypothesisId:'B',data:{columnId,page,pendingMove:pendingMoveRef.current},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
+        pendingColumnRefetchRef.current.add(columnId);
         return;
       }
 
@@ -353,25 +419,35 @@ export function Board({
 
         // Merge orders into central state. Page 0 replaces the column's
         // existing orders (handles refreshes); later pages append.
+        // Cards already in this column but outside page 0 (e.g. just moved to
+        // the end) are preserved so they don't vanish until "Load more".
         setOrders((prev) => {
           let next: OrderWithRelations[];
           if (page === 0) {
-            const kept = prev.filter((o) => o.column_id !== columnId);
-            const droppedFromCol = prev.filter((o) => o.column_id === columnId);
-            next = [...kept, ...data.orders];
-            // #region agent log
-            const pm = pendingMoveRef.current;
-            const movedWasInPrev = pm
-              ? prev.some((o) => o.id === pm.orderId)
-              : false;
-            const movedInNext = pm
-              ? next.some((o) => o.id === pm.orderId)
-              : false;
-            const movedInFetched = pm
-              ? data.orders.some((o) => o.id === pm.orderId)
-              : false;
-            fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:fetchColumnOrders:merge',message:'page0 column replace merge',hypothesisId:'A',data:{columnId,page,fetchedCount:data.orders.length,total:data.total,hasMore:data.hasMore,droppedCount:droppedFromCol.length,prevCount:prev.length,nextCount:next.length,pendingMove:pm,movedWasInPrev,movedInFetched,movedInNext,isDestOfPending:pm?.toColumnId===columnId,isSourceOfPending:pm?.fromColumnId===columnId},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
+            const fetchedIds = new Set(data.orders.map((o) => o.id));
+            // Drop any local copies of fetched ids first so a stale source-column
+            // response cannot leave a duplicate with the old column_id.
+            const kept = prev.filter(
+              (o) => o.column_id !== columnId && !fetchedIds.has(o.id)
+            );
+            const overflow = prev.filter(
+              (o) => o.column_id === columnId && !fetchedIds.has(o.id)
+            );
+            // Prefer recent optimistic move placement over a stale fetch row.
+            const rm = recentMoveRef.current;
+            const mergedFetched = data.orders.map((o) => {
+              if (
+                rm &&
+                o.id === rm.orderId &&
+                Date.now() - rm.at < 15_000 &&
+                o.column_id !== rm.toColumnId
+              ) {
+                return { ...o, column_id: rm.toColumnId };
+              }
+              return o;
+            });
+            next = [...kept, ...mergedFetched, ...overflow];
+
           } else {
             const existingIds = new Set(prev.map((o) => o.id));
             const newOnly = data.orders.filter((o) => !existingIds.has(o.id));
@@ -397,7 +473,18 @@ export function Board({
           ...data.designerNameByOrder,
         }));
 
-        setColumnHasMore((s) => ({ ...s, [columnId]: data.hasMore }));
+        const hasOverflow =
+          page === 0 &&
+          boardOrdersRef.current.some(
+            (o) =>
+              o.column_id === columnId &&
+              !data.orders.some((fetched) => fetched.id === o.id)
+          );
+
+        setColumnHasMore((s) => ({
+          ...s,
+          [columnId]: data.hasMore || hasOverflow,
+        }));
         setColumnTotal((s) => ({ ...s, [columnId]: data.total }));
         columnCurrentPageRef.current = {
           ...columnCurrentPageRef.current,
@@ -416,6 +503,14 @@ export function Board({
           [columnId]: "error",
         };
         setColumnLoadStatus((s) => ({ ...s, [columnId]: "error" }));
+      } finally {
+        if (
+          page === 0 &&
+          pendingColumnRefetchRef.current.has(columnId)
+        ) {
+          pendingColumnRefetchRef.current.delete(columnId);
+          void fetchColumnOrders(columnId, 0);
+        }
       }
     },
     [] // all dependencies are refs or stable setters
@@ -443,6 +538,7 @@ export function Board({
   // ── Refresh helpers ──────────────────────────────────────────────────────────
   const draggingRef = useRef(false);
   const dragSourceColumnRef = useRef<string | null>(null);
+  const dragSnapshotRef = useRef<OrderWithRelations[] | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
@@ -454,9 +550,6 @@ export function Board({
     if (draggingRef.current) return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
-      // #region agent log
-      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:scheduleRefresh:fire',message:'debounced refresh firing',hypothesisId:'E',data:{loadedColumns:[...loadedColumnsRef.current],pendingMove:pendingMoveRef.current},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       // Refresh server-rendered metadata (columns, custom fields, tags, etc.)
       router.refresh();
       // Refresh orders + enrichments for every visible column.
@@ -532,6 +625,25 @@ export function Board({
                 : next[idx].updated_at,
           };
           boardOrdersRef.current = next;
+          return next;
+        });
+        setSearchResults((prev) => {
+          if (!prev) return prev;
+          const idx = prev.findIndex((o) => o.id === row.id);
+          if (idx === -1) return prev;
+          const next = [...prev];
+          next[idx] = {
+            ...next[idx],
+            column_id: row.column_id as string,
+            position:
+              typeof row.position === "number"
+                ? row.position
+                : next[idx].position,
+            updated_at:
+              typeof row.updated_at === "string"
+                ? row.updated_at
+                : next[idx].updated_at,
+          };
           return next;
         });
         scheduleRefresh();
@@ -642,32 +754,20 @@ export function Board({
 
     const snapshot = boardOrdersRef.current;
 
-    setOrders((prev) => {
-      const next = prev.map((o) =>
-        o.id === order.id
-          ? { ...o, column_id: toColumnId, position: newPosition }
-          : o
-      );
-      boardOrdersRef.current = next;
-      return next;
+    patchOrderPlacement(order.id, {
+      column_id: toColumnId,
+      position: newPosition,
     });
-
-    // #region agent log
-    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:handleContextMove:optimistic',message:'context move optimistic applied',hypothesisId:'C',data:{orderId:order.id,fromColumnId,toColumnId,newPosition,destLoaded:loadedColumnsRef.current.has(toColumnId),destStatus:columnLoadStatusRef.current[toColumnId]??'idle',destCountBefore:destOrders.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     const result = await requestOrderMove(
       { orderId: order.id, toColumnId, position: newPosition },
       { fromColumnId, columns }
     );
 
+
     if (!result.ok) {
-      // #region agent log
-      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:handleContextMove:fail',message:'context move rejected',hypothesisId:'D',data:{orderId:order.id,error:result.error,missing:result.missingFields?.length??0},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (result.missingFields?.length) {
-        setOrders(snapshot);
-        boardOrdersRef.current = snapshot;
+        restoreOrdersSnapshot(snapshot);
         setMoveBlockedState({
           orderId: order.id,
           missingFields: result.missingFields,
@@ -675,13 +775,12 @@ export function Board({
         return;
       }
       flashPermissionError(result.error ?? "Move was rejected.");
-      setOrders(snapshot);
-      boardOrdersRef.current = snapshot;
+      restoreOrdersSnapshot(snapshot);
       scheduleRefresh();
       return;
     }
 
-    pendingMoveRef.current = {
+    recentMoveRef.current = {
       orderId: order.id,
       fromColumnId,
       toColumnId,
@@ -706,6 +805,8 @@ export function Board({
 
   function findColumnId(id: string): string | null {
     if (columns.some((c) => c.id === id)) return id;
+    const fromSearch = searchResults?.find((o) => o.id === id)?.column_id;
+    if (fromSearch) return fromSearch;
     return orders.find((o) => o.id === id)?.column_id ?? null;
   }
 
@@ -713,6 +814,7 @@ export function Board({
     draggingRef.current = true;
     const id = String(event.active.id);
     dragSourceColumnRef.current = findColumnId(id);
+    dragSnapshotRef.current = boardOrdersRef.current;
     setActiveId(id);
   }
 
@@ -728,17 +830,28 @@ export function Board({
     if (!source || !target) return;
     if (!canDropOut(role, source) || !canDropIn(role, target)) return;
 
+    // Visual-only during drag: update React state for both orders + searchResults,
+    // but keep boardOrdersRef / dragSnapshotRef as the pre-drag rollback point.
     setOrders((prev) =>
       prev.map((o) =>
         o.id === active.id ? { ...o, column_id: overColumn } : o
       )
     );
+    setSearchResults((prev) => {
+      if (!prev) return prev;
+      return prev.map((o) =>
+        o.id === active.id ? { ...o, column_id: overColumn } : o
+      );
+    });
   }
 
   function abortDrag() {
     draggingRef.current = false;
     dragSourceColumnRef.current = null;
-    setOrders(boardOrdersRef.current);
+    if (dragSnapshotRef.current) {
+      restoreOrdersSnapshot(dragSnapshotRef.current);
+    }
+    dragSnapshotRef.current = null;
   }
 
   async function onDragEnd(event: DragEndEvent) {
@@ -783,7 +896,11 @@ export function Board({
       return;
     }
 
-    const columnOrders = orders
+    const placementSource =
+      personFilter || ownerFilter || orderQuery.trim()
+        ? (searchResults ?? orders)
+        : orders;
+    const columnOrders = placementSource
       .filter((o) => o.column_id === overColumn)
       .sort((a, b) => a.position - b.position);
     const oldIndex = columnOrders.findIndex((o) => o.id === active.id);
@@ -801,19 +918,10 @@ export function Board({
     const newPosition =
       next === undefined ? prev + 1000 : (prev + next) / 2;
 
-    setOrders((prevOrders) => {
-      const next = prevOrders.map((o) =>
-        o.id === active.id
-          ? { ...o, column_id: overColumn, position: newPosition }
-          : o
-      );
-      boardOrdersRef.current = next;
-      return next;
+    patchOrderPlacement(String(active.id), {
+      column_id: overColumn,
+      position: newPosition,
     });
-
-    // #region agent log
-    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:onDragEnd:optimistic',message:'drag end optimistic applied',hypothesisId:'C',data:{orderId:String(active.id),fromColumnId:activeColumn,toColumnId:overColumn,crossing,newPosition,destLoaded:loadedColumnsRef.current.has(overColumn),destStatus:columnLoadStatusRef.current[overColumn]??'idle',destVisibleCount:columnOrders.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     try {
       const result = await requestOrderMove(
@@ -825,11 +933,10 @@ export function Board({
         { fromColumnId: sourceColumn, columns }
       );
       if (!result.ok) {
-        // #region agent log
-        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:onDragEnd:fail',message:'drag move rejected',hypothesisId:'D',data:{orderId:String(active.id),error:result.error,missing:result.missingFields?.length??0},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (result.missingFields?.length) {
-          abortDrag();
+          if (dragSnapshotRef.current) {
+            restoreOrdersSnapshot(dragSnapshotRef.current);
+          }
           setMoveBlockedState({
             orderId: String(active.id),
             missingFields: result.missingFields,
@@ -837,18 +944,17 @@ export function Board({
           return;
         }
         flashPermissionError(result.error ?? "Move was rejected.");
-        setOrders(boardOrdersRef.current);
+        if (dragSnapshotRef.current) {
+          restoreOrdersSnapshot(dragSnapshotRef.current);
+        }
         scheduleRefresh();
       } else if (crossing) {
-        pendingMoveRef.current = {
+        recentMoveRef.current = {
           orderId: String(active.id),
           fromColumnId: activeColumn,
           toColumnId: overColumn,
           at: Date.now(),
         };
-        // #region agent log
-        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb1d87'},body:JSON.stringify({sessionId:'cb1d87',location:'board.tsx:onDragEnd:success',message:'drag move succeeded — scheduling refresh',hypothesisId:'E',data:{orderId:String(active.id),fromColumnId:activeColumn,toColumnId:overColumn,willFetchDest:!loadedColumnsRef.current.has(overColumn),loadedColumns:[...loadedColumnsRef.current]},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         // Load the destination column if it hasn't been loaded yet.
         if (!loadedColumnsRef.current.has(overColumn)) {
           void fetchColumnOrders(overColumn, 0);
@@ -856,7 +962,9 @@ export function Board({
         const notifyColumn = notifyColumns.find(
           (c) => c.column_id === overColumn
         );
-        const movedOrder = orders.find((o) => o.id === active.id);
+        const movedOrder =
+          boardOrdersRef.current.find((o) => o.id === active.id) ??
+          orders.find((o) => o.id === active.id);
         if (notifyColumn && movedOrder && notifyColumn.automation_enabled) {
           setNotifyPopup({
             order: { ...movedOrder, column_id: overColumn },
@@ -869,6 +977,7 @@ export function Board({
     } finally {
       draggingRef.current = false;
       dragSourceColumnRef.current = null;
+      dragSnapshotRef.current = null;
     }
   }
 
@@ -877,7 +986,37 @@ export function Board({
   const filtersActive =
     orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
 
-  const displayOrders = filtersActive ? (searchResults ?? []) : orders;
+  // Prefer full-DB search results. While search is in flight (or if it fails
+  // open), fall back to filtering already-loaded cards so matches in visible
+  // columns still appear. Search covers unloaded / "Load more" pages.
+  const localFilteredOrders = useMemo(() => {
+    if (!filtersActive) return orders;
+    const filters = {
+      q: orderQuery,
+      personFilter,
+      ownerFilter,
+    };
+    return orders.filter((order) =>
+      orderMatchesBoardFilters(
+        order,
+        fieldValuesByOrder[order.id] ?? {},
+        customFields,
+        filters
+      )
+    );
+  }, [
+    filtersActive,
+    orders,
+    orderQuery,
+    personFilter,
+    ownerFilter,
+    fieldValuesByOrder,
+    customFields,
+  ]);
+
+  const displayOrders = filtersActive
+    ? (searchResults ?? localFilteredOrders)
+    : orders;
 
   const displayFieldValuesByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.fieldValuesByOrder
@@ -1077,6 +1216,7 @@ export function Board({
           groupSizeByOrder={groupSizeByOrder}
           warningRules={warningRules}
           animateWarnings={animateWarnings}
+          webhookSourceStyles={webhookSourceStyles}
           role={role}
           getMoveableColumns={getMoveableColumns}
           onMoveToColumn={handleContextMove}
@@ -1114,6 +1254,7 @@ export function Board({
                 groupSizeByOrder={groupSizeByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
+                webhookSourceStyles={webhookSourceStyles}
                 isFirst={index === 0}
                 availableColumns={getMoveableColumns(column.id)}
                 onMoveToColumn={handleContextMove}
@@ -1150,6 +1291,7 @@ export function Board({
               ownerName={displayOwnerNameByOrder[activeOrder.id]}
               warningRules={warningRules}
               animateWarnings={animateWarnings}
+              webhookSourceStyles={webhookSourceStyles}
               columnColor={activeOrderColumnColor}
               onOpen={() => {}}
             />
@@ -1189,8 +1331,33 @@ export function Board({
         role={role}
         userId={currentUserId}
         currentUserName={currentUserName}
-        onChanged={() => {
-          // Re-fetch the column of the edited order for fresh data.
+        onChanged={(patch) => {
+          // Apply saved fields immediately so the card footer (tag, title, etc.)
+          // updates without waiting on a column refetch.
+          if (detailId && patch) {
+            setOrders((prev) => {
+              const next = prev.map((o) =>
+                o.id === detailId ? { ...o, ...patch } : o
+              );
+              boardOrdersRef.current = next;
+              return next;
+            });
+            if (patch.created_by !== undefined) {
+              const ownerName =
+                owners.find((o) => o.id === patch.created_by)?.name ?? "";
+              setOwnerNameByOrder((prev) => ({
+                ...prev,
+                [detailId]: ownerName,
+              }));
+            }
+            if (patch.specs?.designer_name !== undefined) {
+              setDesignerNameByOrder((prev) => ({
+                ...prev,
+                [detailId]: String(patch.specs?.designer_name ?? ""),
+              }));
+            }
+          }
+          // Re-fetch the column of the edited order for enrichments / field values.
           const order = boardOrdersRef.current.find((o) => o.id === detailId);
           if (order) void fetchColumnOrders(order.column_id, 0);
           router.refresh();
@@ -1200,6 +1367,7 @@ export function Board({
         fastActionButtons={fastActionButtons}
         appUrl={appUrl}
         tags={tags}
+        webhookSourceStyles={webhookSourceStyles}
         notifyColumns={notifyColumns}
         onNotifyColumn={(order, notifyColumn, columnName) => {
           setNotifyPopup({ order, notifyColumn, columnName });

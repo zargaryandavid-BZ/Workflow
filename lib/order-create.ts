@@ -2,7 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantContext } from "@/lib/auth";
 import { isAccountManagerOwner } from "@/lib/order-owners";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
-import { logActivity } from "@/lib/automation";
+import {
+  logActivity,
+  resolveColumnForNewJobByProduct,
+} from "@/lib/automation";
 import { ORDER_QTY_FIELD_NAME } from "@/lib/constants";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
@@ -22,6 +25,18 @@ export type CreateOrderInput = {
 export type CreateOrderResult =
   | { order: Record<string, unknown> }
   | { error: string; status: number };
+
+function productFromCustomFieldValues(
+  productFieldId: string | undefined,
+  values: { customFieldId: string; value: unknown }[] | undefined
+): string | null {
+  if (!productFieldId || !values?.length) return null;
+  const row = values.find((v) => v.customFieldId === productFieldId);
+  if (!row) return null;
+  if (typeof row.value === "string") return row.value.trim() || null;
+  if (row.value == null) return null;
+  return String(row.value).trim() || null;
+}
 
 export async function createOrder(
   supabase: SupabaseClient,
@@ -45,12 +60,20 @@ export async function createOrder(
 
   const tenantId = ctx.tenant.id;
 
-  const { data: orderQtyField } = await supabase
-    .from("custom_fields")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .ilike("name", ORDER_QTY_FIELD_NAME)
-    .maybeSingle();
+  const [{ data: orderQtyField }, { data: productField }] = await Promise.all([
+    supabase
+      .from("custom_fields")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .ilike("name", ORDER_QTY_FIELD_NAME)
+      .maybeSingle(),
+    supabase
+      .from("custom_fields")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .ilike("name", "product")
+      .maybeSingle(),
+  ]);
   const orderQtyError = validateOrderQtyFromPayload(
     (orderQtyField as { id: string } | null)?.id,
     body.customFieldValues,
@@ -83,6 +106,19 @@ export async function createOrder(
   }
   if (!columnId) {
     return { error: "No columns found", status: 400 };
+  }
+
+  const product = productFromCustomFieldValues(
+    (productField as { id: string } | null)?.id,
+    body.customFieldValues
+  );
+  const routed = await resolveColumnForNewJobByProduct(
+    supabase,
+    tenantId,
+    product
+  );
+  if (routed) {
+    columnId = routed.columnId;
   }
 
   if (body.ownerId) {
@@ -191,6 +227,12 @@ export async function createOrder(
     metadata: {
       title: order.title,
       column: (column as { name: string } | null)?.name ?? null,
+      ...(routed
+        ? {
+            product_route: routed.product,
+            product_route_column: routed.columnName,
+          }
+        : {}),
     },
   });
 

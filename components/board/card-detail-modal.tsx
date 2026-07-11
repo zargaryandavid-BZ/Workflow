@@ -35,6 +35,8 @@ import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
+import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import { WebhookSourceLabel } from "./webhook-source-label";
 import type {
   Approval,
   ApprovalNote,
@@ -65,7 +67,7 @@ interface CardDetailModalProps {
   role: Role;
   userId?: string;
   currentUserName?: string;
-  onChanged: () => void;
+  onChanged: (patch?: Partial<OrderWithRelations>) => void;
   /** When "view", all fields are read-only and save/upload actions are hidden. */
   mode?: "edit" | "view";
   onLinkCopied?: (message: string) => void;
@@ -81,6 +83,7 @@ interface CardDetailModalProps {
   groupColumnName?: string;
   /** Columns that trigger a notification popup when a card enters them. */
   notifyColumns?: NotifyColumnConfig[];
+  webhookSourceStyles?: WebhookSourceStyles;
   /** Called when a Fast Action Button moves to a column that has an active automation. */
   onNotifyColumn?: (
     order: OrderWithRelations,
@@ -133,6 +136,7 @@ export function CardDetailModal({
   appUrl = "",
   tags = [],
   notifyColumns = [],
+  webhookSourceStyles,
   onNotifyColumn,
   groupSize,
   groupSameColumnCount,
@@ -378,7 +382,26 @@ export function CardDetailModal({
     setNewNote("");
     setSaving(false);
     setIsEditing(false);
-    onChanged();
+    const selectedTag = tagId
+      ? (tags.find((t) => t.id === tagId) ?? null)
+      : null;
+    onChanged({
+      tag_id: tagId || null,
+      tag: selectedTag,
+      title: title.trim(),
+      description: description || null,
+      priority: priority as "low" | "normal" | "high" | "urgent",
+      due_date: dateInputValue(dueDate) || null,
+      created_by: ownerId || null,
+      specs: {
+        ...(data?.order.specs ?? {}),
+        skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
+        designer_id: designerId || null,
+        designer_name:
+          designers.find((d) => d.id === designerId)?.name ?? null,
+        design_task: designTask || null,
+      },
+    });
     void load({ silent: true });
   }
 
@@ -648,7 +671,12 @@ export function CardDetailModal({
       {customerName ? (
         <>
           <span className="text-slate-300">|</span>
-          <div className="relative" ref={customerDropdownRef}>
+          <div className="relative flex flex-col items-start" ref={customerDropdownRef}>
+            <WebhookSourceLabel
+              webhookSource={data?.order.webhook_source}
+              sourceStyles={webhookSourceStyles}
+              className="mb-0 truncate text-[10px] font-semibold uppercase tracking-wide leading-tight"
+            />
             <button
               type="button"
               onClick={() => setCustomerDropdownOpen((v) => !v)}

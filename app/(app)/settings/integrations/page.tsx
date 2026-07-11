@@ -13,7 +13,7 @@ function formatWebhookLoadError(message: string): string {
     message.includes("schema cache") ||
     message.includes("does not exist")
   ) {
-    return "Webhook database tables are not set up yet. Apply migrations including 0015_webhook_configs, 0016_assets_external_url, and 0029_webhook_history (run supabase db push).";
+    return "Webhook database tables are not set up yet. Apply migrations including 0015_webhook_configs, 0016_assets_external_url, 0029_webhook_history, and 0041_webhook_source_styles (run supabase db push).";
   }
   return message;
 }

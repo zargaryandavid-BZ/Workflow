@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { logActivity } from "@/lib/automation";
+import { logActivity, resolveColumnForNewJobByProduct } from "@/lib/automation";
 import { upsertCustomer } from "@/lib/customers";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
@@ -18,6 +18,12 @@ import {
   filterValidCustomFieldValues,
 } from "@/lib/custom-field-values.server";
 import { selectOptionsForWebhookField } from "@/lib/webhook-field-options";
+import { parseWebhookSourceKey } from "@/lib/webhook-source-styles";
+import {
+  hasBillingInfo,
+  parseWebhookBilling,
+  type OrderBillingInfo,
+} from "@/lib/order-billing";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -159,9 +165,23 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   category?: string;
   category_name?: string;
   skus?: WebhookSkuPayload[];
+  /** CRM / source order page URL — shown as Source in the card globe popover. */
+  source_url?: string;
+  source_link?: string;
+  order_url?: string;
+  /** `partial` or `full` (also accepts `paid` / `complete` → full). */
+  payment_status?: string;
+  payment?: string;
+  deposit?: number | string;
+  balance?: number | string;
 }
 
 export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerInput {
+  /**
+   * Integration source key (e.g. "crm"). Matched against Settings → Integrations
+   * source styles for the board label color. Unknown/missing uses the "other" style.
+   */
+  source?: string;
   customer_name?: string;
   customer_contact?: string;
   customer_phone?: string;
@@ -197,6 +217,15 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   notes?: string;
   skus?: WebhookSkuPayload[];
   items?: WebhookItem[];
+  /** CRM / source order page URL — stored in specs.billing and shown on the card. */
+  source_url?: string;
+  source_link?: string;
+  order_url?: string;
+  /** `partial` or `full` (also accepts `paid` / `complete` → full). */
+  payment_status?: string;
+  payment?: string;
+  deposit?: number | string;
+  balance?: number | string;
 }
 
 export class WebhookValidationError extends Error {
@@ -1380,6 +1409,10 @@ interface CreateSingleJobParams {
   designNotes: string | null;
   internalNote: string | null;
   corrections: string[];
+  /** Normalized source key; empty string → Integrations "other" style. */
+  webhookSource: string;
+  /** Payment / source link info → specs.billing (globe popover on card). */
+  billing: OrderBillingInfo | null;
 }
 
 async function createSingleWebhookJob(
@@ -1412,6 +1445,8 @@ async function createSingleWebhookJob(
     designNotes,
     internalNote,
     corrections,
+    webhookSource,
+    billing,
   } = params;
 
   const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(item.skus);
@@ -1431,6 +1466,40 @@ async function createSingleWebhookJob(
     corrections
   );
 
+  const productField = fields.get("product");
+  const productRaw = productField
+    ? customFieldValues.find((v) => v.customFieldId === productField.id)?.value
+    : null;
+  const product =
+    typeof productRaw === "string"
+      ? productRaw.trim()
+      : productRaw != null
+        ? String(productRaw).trim()
+        : "";
+  const routed = await resolveColumnForNewJobByProduct(
+    client,
+    tenantId,
+    product || null
+  );
+
+  let effectiveColumnId = columnId;
+  let effectiveColumnName = columnName;
+  let effectivePosition = position;
+  if (routed) {
+    effectiveColumnId = routed.columnId;
+    effectiveColumnName = routed.columnName;
+    const { data: lastInTarget } = await client
+      .from("orders")
+      .select("position")
+      .eq("column_id", routed.columnId)
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    effectivePosition =
+      ((lastInTarget as { position: number } | null)?.position ?? 0) + 1000;
+  }
+
   const itemDescription =
     typeof item.description === "string" ? item.description.trim() : null;
   const description = itemDescription || orderDescription;
@@ -1439,6 +1508,7 @@ async function createSingleWebhookJob(
   if (designerId) specs.designer_id = designerId;
   if (designerName) specs.designer_name = designerName;
   if (designNotes) specs.design_task = designNotes;
+  if (billing) specs.billing = billing;
   if (totalItems > 1) {
     specs.webhook_order_number = webhookOrderNumber;
     specs.webhook_item_index = itemIndex;
@@ -1449,7 +1519,7 @@ async function createSingleWebhookJob(
     .from("orders")
     .insert({
       tenant_id: tenantId,
-      column_id: columnId,
+      column_id: effectiveColumnId,
       title: cardTitle,
       description: description || null,
       customer_id: customerId,
@@ -1457,9 +1527,10 @@ async function createSingleWebhookJob(
       priority,
       due_date: dueDate,
       specs,
-      position,
+      position: effectivePosition,
       created_by: ownerId,
       last_moved_at: new Date().toISOString(),
+      webhook_source: webhookSource,
     })
     .select("id, title")
     .single();
@@ -1523,8 +1594,15 @@ async function createSingleWebhookJob(
       action: "created",
       metadata: {
         source: "webhook",
+        webhook_source: webhookSource || null,
         title: order.title,
-        column: columnName,
+        column: effectiveColumnName,
+        ...(routed
+          ? {
+              product_route: routed.product,
+              product_route_column: routed.columnName,
+            }
+          : {}),
         ...(totalItems > 1
           ? {
               webhook_order_number: webhookOrderNumber,
@@ -1579,6 +1657,7 @@ export async function createOrderFromWebhook(
   const shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
 
   const tenantId = config.tenant_id;
+  const webhookSource = parseWebhookSourceKey(body.source).toLowerCase();
 
   const { data: firstCol } = await client
     .from("board_columns")
@@ -1636,6 +1715,16 @@ export async function createOrderFromWebhook(
     orderTagName
   );
 
+  const orderLevelBilling = parseWebhookBilling({
+    source_url: body.source_url,
+    source_link: body.source_link,
+    order_url: body.order_url,
+    payment_status: body.payment_status,
+    payment: body.payment,
+    deposit: body.deposit,
+    balance: body.balance,
+  });
+
   for (let i = 0; i < items.length; i++) {
     const item = mergeItemWithOrder(body, items[i]);
     const jobTitle = resolveItemTitle(item, orderLevelTitle, i, items.length);
@@ -1671,6 +1760,31 @@ export async function createOrderFromWebhook(
       responseOwnerName = ownerName;
     }
 
+    const itemBilling = parseWebhookBilling({
+      source_url: item.source_url,
+      source_link: item.source_link,
+      order_url: item.order_url,
+      payment_status: item.payment_status,
+      payment: item.payment,
+      deposit: item.deposit,
+      balance: item.balance,
+    });
+    // Item-level fields override order-level when present.
+    const mergedBilling: OrderBillingInfo | null =
+      itemBilling || orderLevelBilling
+        ? {
+            source_url:
+              itemBilling?.source_url ?? orderLevelBilling?.source_url ?? null,
+            payment_status:
+              itemBilling?.payment_status ??
+              orderLevelBilling?.payment_status ??
+              null,
+            deposit: itemBilling?.deposit ?? orderLevelBilling?.deposit ?? null,
+            balance: itemBilling?.balance ?? orderLevelBilling?.balance ?? null,
+          }
+        : null;
+    const billing = hasBillingInfo(mergedBilling) ? mergedBilling : null;
+
     const result = await createSingleWebhookJob({
       client,
       tenantId,
@@ -1700,6 +1814,8 @@ export async function createOrderFromWebhook(
         ? item.internal_note.trim()
         : null,
       corrections: allCorrections,
+      webhookSource,
+      billing,
     });
 
     nextPosition += 1000;

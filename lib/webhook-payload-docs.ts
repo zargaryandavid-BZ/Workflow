@@ -129,6 +129,7 @@ function materialsHtml(): string {
 
 function fullSingleItemExample(year: number, due: string): string {
   return `{
+  "source": "crm",
   "customer_name": "Acme Corp",
   "customer_contact": "hello@acme.com",
   "customer_phone": "+1 310 555 0100",
@@ -168,6 +169,7 @@ function fullSingleItemExample(year: number, due: string): string {
 
 function fullMultiItemExample(year: number, due: string): string {
   return `{
+  "source": "crm",
   "customer_name": "Acme Corp",
   "customer_contact": "hello@acme.com",
   "customer_phone": "+1 310 555 0100",
@@ -333,6 +335,7 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`customer_name\` | No | string | Customer display name |
 | \`customer_contact\` | No | string | Email — saved on the customer record |
 | \`customer_phone\` | No | string | Phone — when both are sent, phone is stored as the order's primary Customer Contact |
+| \`source\` | No | string | Integration source key (e.g. \`"crm"\`). Matched in **Settings → Integrations → Source labels** for the colored label above the customer name. Unknown/missing uses the Other style. Manual cards have no label. |
 | \`order_number\` | No | string | Your reference e.g. \`"ORD-${year}-001"\` — auto-generated (\`WH-…\`) if omitted |
 | \`title\` | No | string | Order title — auto-generated if omitted |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
@@ -352,6 +355,10 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`designer\` | No | string | Email, UUID, or display name — sets **Assigned Designer** |
 | \`designer_information\` | No | string | Designer notes (also \`designer_notes\`, \`design_task\`) |
 | \`category\` | No | string | Tag name (also accepts \`category_name\`) |
+| \`source_url\` | No | string | CRM / source order URL — card globe popover **Source** link (aliases: \`source_link\`, \`order_url\`) |
+| \`payment_status\` | No | string | \`partial\` or \`full\` (also \`paid\` / \`complete\` → full). Alias: \`payment\` |
+| \`deposit\` | No | number \\| string | Deposit amount stored in \`specs.billing\` |
+| \`balance\` | No | number \\| string | Remaining balance stored in \`specs.billing\` |
 | \`items\` | No | array | Omit for legacy single-item flat format |
 
 ---
@@ -384,6 +391,15 @@ high
 low
 urgent
 \`\`\`
+
+### \`payment_status\`
+\`\`\`
+partial
+full
+\`\`\`
+Also accepted: \`paid\`, \`complete\` (mapped to \`full\`). Alias field: \`payment\`.
+
+Billing fields (\`source_url\`, \`payment_status\`, \`deposit\`, \`balance\`) are stored on the order as \`specs.billing\` and shown via a globe icon next to the priority chip on the board card. If none are sent, no globe is shown.
 
 ### \`product\`
 \`\`\`
@@ -512,6 +528,12 @@ export function buildWebhookPayloadDocsHtml(
       "Phone — when both are sent, phone is the order primary Customer Contact",
     ],
     [
+      "source",
+      "No",
+      "string",
+      'Integration source key (e.g. <code>"crm"</code>). Matched in Settings → Integrations → Source labels for the colored card label. Unknown/missing uses Other style.',
+    ],
+    [
       "order_number",
       "No",
       "string",
@@ -531,6 +553,20 @@ export function buildWebhookPayloadDocsHtml(
       '<code>"YYYY-MM-DD"</code> — must be today or a future date when provided',
     ],
     ["description", "No", "string", "Order-level notes visible on all cards"],
+    [
+      "source_url",
+      "No",
+      "string",
+      "CRM / source order URL — shown as Source on the card globe popover (aliases: <code>source_link</code>, <code>order_url</code>). Stored in <code>specs.billing</code>.",
+    ],
+    [
+      "payment_status",
+      "No",
+      "string",
+      "<code>partial</code> or <code>full</code> (also <code>paid</code> / <code>complete</code> → full). Alias: <code>payment</code>.",
+    ],
+    ["deposit", "No", "number | string", "Deposit amount (e.g. <code>100</code> or <code>$100</code>)"],
+    ["balance", "No", "number | string", "Remaining balance"],
     [
       "owner_email",
       "No",

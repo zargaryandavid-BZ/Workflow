@@ -19,6 +19,12 @@ export async function POST(request: Request) {
   // Notify rules don't require a target column (movement on a customer
   // approval reuses the on_approval_result rules).
   const isNotify = (body.config as { action?: string })?.action === "notify";
+  const isProductCreate =
+    body.trigger === "on_job_created" &&
+    typeof (body.config as { product?: unknown })?.product === "string" &&
+    Boolean(
+      String((body.config as { product?: string }).product ?? "").trim()
+    );
 
   if (!body.trigger || (!body.toColumn && !isNotify)) {
     return NextResponse.json(
@@ -27,15 +33,30 @@ export async function POST(request: Request) {
     );
   }
 
+  if (body.trigger === "on_job_created" && !isProductCreate) {
+    return NextResponse.json(
+      { error: "product is required for create-by-product rules" },
+      { status: 400 }
+    );
+  }
+
+  const config = { ...(body.config ?? {}) };
+  if (body.trigger === "on_job_created") {
+    config.product = String(
+      (body.config as { product?: string }).product ?? ""
+    ).trim();
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("automation_rules")
     .insert({
       tenant_id: ctx.tenant.id,
       trigger: body.trigger,
-      from_column: body.fromColumn || null,
+      from_column:
+        body.trigger === "on_enter_column" ? body.fromColumn || null : null,
       to_column: body.toColumn,
-      config: body.config ?? {},
+      config,
       enabled: true,
     })
     .select("*")

@@ -121,7 +121,7 @@ export function OrderFormBody({
   onTagIdChange,
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
-  const { artworkField, designerField, orderQtyField, printFields } = resolved;
+  const { artworkField, orderQtyField, printFields } = resolved;
   const [artworkCopied, setArtworkCopied] = useState(false);
   const [dueDateError, setDueDateError] = useState<string | null>(null);
   const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
@@ -531,9 +531,6 @@ export function OrderFormBody({
           <div>
             <Label htmlFor={`${idPrefix}-designer`}>
               Assigned designer
-              {designerField?.required ? (
-                <span className="ml-0.5 text-red-500">*</span>
-              ) : null}
             </Label>
             <Select
               id={`${idPrefix}-designer`}

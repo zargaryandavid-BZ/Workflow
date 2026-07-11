@@ -1,3 +1,10 @@
+import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+
+export type {
+  WebhookSourceStyleEntry,
+  WebhookSourceStyles,
+} from "@/lib/webhook-source-styles";
+
 export type Role =
   | "admin"
   | "preprod_owner"
@@ -16,7 +23,10 @@ export type CustomFieldType =
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
-export type AutomationTrigger = "on_enter_column" | "on_approval_result";
+export type AutomationTrigger =
+  | "on_enter_column"
+  | "on_approval_result"
+  | "on_job_created";
 
 export type NotificationType = "missing_info" | "customer_approval" | "ready_to_ship";
 
@@ -129,6 +139,13 @@ export interface OrderSpecs {
   stock?: string;
   finish?: string;
   color?: string;
+  /** Webhook billing / payment info shown on the card globe popover. */
+  billing?: {
+    source_url?: string | null;
+    payment_status?: "partial" | "full" | null;
+    deposit?: number | null;
+    balance?: number | null;
+  };
   [key: string]: unknown;
 }
 
@@ -151,6 +168,12 @@ export interface Order {
   created_at: string;
   updated_at: string;
   last_moved_at: string | null;
+  /**
+   * Webhook payload `source` key when created via inbound webhook.
+   * `null` for manually created cards (no source label on the board).
+   * Empty string means webhook with no/unknown source → Integrations "other" style.
+   */
+  webhook_source: string | null;
 }
 
 export type CardWarningColor = "amber" | "orange" | "red" | "purple" | "blue" | "pink";
@@ -225,6 +248,7 @@ export interface WebhookConfig {
   enabled: boolean;
   label: string;
   excluded_products: string[];
+  source_styles: WebhookSourceStyles;
   created_at: string;
   last_used_at: string | null;
 }

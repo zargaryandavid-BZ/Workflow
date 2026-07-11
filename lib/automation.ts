@@ -209,6 +209,63 @@ export async function approvalTargetColumn(
 }
 
 /**
+ * Finds an enabled on_job_created movement rule matching the given product
+ * and returns the target column. First matching enabled rule wins.
+ * Product match is case-insensitive after trim.
+ */
+export async function resolveColumnForNewJobByProduct(
+  client: Client,
+  tenantId: string,
+  product: string | null | undefined
+): Promise<{
+  columnId: string;
+  columnName: string | null;
+  product: string;
+} | null> {
+  const productKey = typeof product === "string" ? product.trim() : "";
+  if (!productKey) return null;
+
+  const { data: rules } = await client
+    .from("automation_rules")
+    .select("to_column, config")
+    .eq("tenant_id", tenantId)
+    .eq("trigger", "on_job_created")
+    .eq("enabled", true)
+    .order("created_at", { ascending: true });
+
+  if (!rules?.length) return null;
+
+  const needle = productKey.toLowerCase();
+  const match = rules.find((r) => {
+    const cfg = r.config as { product?: unknown };
+    return (
+      typeof cfg?.product === "string" &&
+      cfg.product.trim().toLowerCase() === needle &&
+      typeof r.to_column === "string" &&
+      Boolean(r.to_column)
+    );
+  });
+
+  if (!match?.to_column) return null;
+
+  const columnId = match.to_column as string;
+  const { data: column } = await client
+    .from("board_columns")
+    .select("id, name")
+    .eq("id", columnId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (!column) return null;
+
+  return {
+    columnId: column.id as string,
+    columnName: (column.name as string | null) ?? null,
+    product: productKey,
+  };
+}
+
+/**
  * Applies the configured automation when an approval is decided and moves the
  * order to the resolved target column.
  */

@@ -82,6 +82,8 @@ create table if not exists public.orders (
   due_date date,
   position double precision not null default 1000,
   created_by uuid references auth.users (id) on delete set null,
+  -- Webhook payload `source` key; null for cards created manually in the app.
+  webhook_source text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -143,7 +145,7 @@ create index if not exists approvals_order_idx on public.approvals (order_id);
 create index if not exists approvals_token_idx on public.approvals (token);
 
 -- Automation rules -----------------------------------------------------------
-create type public.automation_trigger as enum ('on_enter_column', 'on_approval_result');
+create type public.automation_trigger as enum ('on_enter_column', 'on_approval_result', 'on_job_created');
 
 create table if not exists public.automation_rules (
   id uuid primary key default gen_random_uuid(),
@@ -591,6 +593,14 @@ alter table public.board_columns
 
 alter table public.custom_fields
   add column if not exists required boolean not null default false;
+
+
+-- =============================================================================
+-- Webhook source on orders (payload `source` key; null = manual card)
+-- =============================================================================
+
+alter table public.orders
+  add column if not exists webhook_source text;
 
 
 -- =============================================================================

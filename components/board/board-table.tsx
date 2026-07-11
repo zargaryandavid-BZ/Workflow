@@ -21,6 +21,7 @@ import {
 } from "@/lib/constants";
 import { orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
+import { OrderBillingGlobe } from "./order-billing-globe";
 import type {
   BoardColumn,
   CardWarningRule,
@@ -28,6 +29,8 @@ import type {
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import { WebhookSourceLabel } from "./webhook-source-label";
 
 interface ColumnOption {
   id: string;
@@ -47,6 +50,7 @@ interface BoardTableProps {
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
+  webhookSourceStyles?: WebhookSourceStyles;
   role: Role;
   getMoveableColumns: (fromColumnId: string) => ColumnOption[];
   onMoveToColumn: (order: OrderWithRelations, toColumnId: string) => void;
@@ -72,6 +76,7 @@ export function BoardTable({
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
+  webhookSourceStyles,
   getMoveableColumns,
   onMoveToColumn,
   onOpenOrder,
@@ -147,6 +152,12 @@ export function BoardTable({
       return next;
     });
   }
+
+  // Hiding a column also filters out rows currently in that column.
+  const visibleOrders =
+    hiddenColIds.size === 0
+      ? orders
+      : orders.filter((o) => !hiddenColIds.has(o.column_id));
 
   // Trigger lazy-load for all columns when table mounts — all are "visible"
   // in table view since there's no horizontal scroll per-column IntersectionObserver.
@@ -261,7 +272,7 @@ export function BoardTable({
 
         {/* ── Body ────────────────────────────────────────────── */}
         <tbody>
-          {orders.length === 0 ? (
+          {visibleOrders.length === 0 ? (
             <tr>
               <td
                 colSpan={columns.filter(c => !hiddenColIds.has(c.id)).length + 2}
@@ -272,7 +283,7 @@ export function BoardTable({
             </tr>
           ) : null}
 
-          {orders.map((order) => {
+          {visibleOrders.map((order) => {
             const fieldValues = fieldValuesByOrder[order.id] ?? {};
             const thumbnail = thumbnailByOrder[order.id]?.[0];
             const designerName =
@@ -352,6 +363,10 @@ export function BoardTable({
                     ) : null}
 
                     <div className="min-w-0 flex-1">
+                      <WebhookSourceLabel
+                        webhookSource={order.webhook_source}
+                        sourceStyles={webhookSourceStyles}
+                      />
                       {/* Customer + order number */}
                       <div className="flex items-baseline gap-1.5">
                         {displayCustomerName ? (
@@ -440,6 +455,7 @@ export function BoardTable({
                         {order.priority}
                       </span>
                     ) : null}
+                    <OrderBillingGlobe specs={order.specs} />
                   </div>
                 </td>
 

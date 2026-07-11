@@ -504,9 +504,7 @@ export function buildReadyToShipSmsBody(params: {
   staffNote?: string | null;
   brandName?: string;
 }) {
-  const name = params.customerName?.trim() || "there";
-  const note = params.staffNote?.trim() ? ` ${params.staffNote.trim()}` : "";
-  return `Hi ${name}, your order #${params.orderNumber} is ready${note} at 306 Boyd St, LA. Pickup: 9:30 AM-5:30 PM. Bazaar Printing (No-Reply Automated Text)`;
+  return `Hi, this is Bazaar Printing. Your order ${params.orderNumber} is ready at 306 Boyd St, LA. Available for pickup: Mon-Fri 9:30 AM - 5:30 PM, and Sat until 4:00 PM. (No-Reply Automated Text)`;
 }
 
 export function formatFileSize(bytes: number | null | undefined) {

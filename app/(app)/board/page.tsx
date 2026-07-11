@@ -18,6 +18,11 @@ import type {
   NotificationType,
   NotifyRuleConfig,
 } from "@/lib/types";
+import {
+  DEFAULT_WEBHOOK_SOURCE_STYLES,
+  normalizeWebhookSourceStyles,
+  type WebhookSourceStyles,
+} from "@/lib/webhook-source-styles";
 
 export default async function BoardPage({
   searchParams,
@@ -34,7 +39,7 @@ export default async function BoardPage({
 
   // Fast parallel fetch — columns + config only, no orders.
   // Orders are loaded lazily per-column by the client Board component.
-  const [columnsRes, fieldsRes, tagsRes, memberRes, rulesRes] =
+  const [columnsRes, fieldsRes, tagsRes, memberRes, rulesRes, webhookRes] =
     await Promise.all([
       supabase
         .from("board_columns")
@@ -60,7 +65,17 @@ export default async function BoardPage({
         .select("*")
         .eq("tenant_id", tenantId)
         .eq("trigger", "on_enter_column"),
+      supabase
+        .from("webhook_configs")
+        .select("source_styles")
+        .eq("tenant_id", tenantId)
+        .maybeSingle(),
     ]);
+
+  const webhookSourceStyles: WebhookSourceStyles = normalizeWebhookSourceStyles(
+    (webhookRes.data as { source_styles?: unknown } | null)?.source_styles ??
+      DEFAULT_WEBHOOK_SOURCE_STYLES
+  );
 
   const allBoardColumns = (columnsRes.data ?? []) as BoardColumn[];
   const boardColumns = allBoardColumns.filter((col) =>
@@ -154,6 +169,7 @@ export default async function BoardPage({
       buttonAutomations={buttonAutomations}
       fastActionButtons={fastActionButtons}
       warningRules={warningRules as CardWarningRule[]}
+      webhookSourceStyles={webhookSourceStyles}
       initialOrderId={initialOrderId ?? null}
       appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
     />

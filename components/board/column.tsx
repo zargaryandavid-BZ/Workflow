@@ -29,6 +29,7 @@ import type {
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 
 type DateSort = "default" | "asc" | "desc";
 type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
@@ -55,6 +56,7 @@ interface ColumnProps {
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
+  webhookSourceStyles?: WebhookSourceStyles;
   isFirst: boolean;
   /** Columns this card can be moved to via right-click (pre-filtered by board). */
   availableColumns?: ColumnOption[];
@@ -114,6 +116,7 @@ export function Column({
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
+  webhookSourceStyles,
   isFirst,
   availableColumns,
   onMoveToColumn,
@@ -347,6 +350,7 @@ export function Column({
                     onOpen={onOpenOrder}
                     customFields={customFields}
                     fieldValuesByOrder={fieldValuesByOrder}
+                    webhookSourceStyles={webhookSourceStyles}
                   />
                 ) : (
                   <OrderCard
@@ -364,6 +368,7 @@ export function Column({
                     groupSize={groupSizeByOrder[entry.order.id]}
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
+                    webhookSourceStyles={webhookSourceStyles}
                     columnColor={column.color}
                     availableColumns={availableColumns}
                     onMoveToColumn={onMoveToColumn}
@@ -385,6 +390,7 @@ export function Column({
                   groupSize={groupSizeByOrder[order.id]}
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}
+                  webhookSourceStyles={webhookSourceStyles}
                   columnColor={column.color}
                   availableColumns={availableColumns}
                   onMoveToColumn={onMoveToColumn}
