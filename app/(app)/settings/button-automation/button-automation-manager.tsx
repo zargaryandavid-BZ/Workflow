@@ -383,7 +383,8 @@ function ButtonEditor({
             <option value="copy_link">Copy Card Link</option>
             <option value="send_email">Send Email</option>
             <option value="send_sms">Send SMS</option>
-            <option value="generate_pdf">Generate PDF</option>
+            <option value="generate_pdf">Generate PDF (Job Ticket)</option>
+            <option value="generate_packing_slip">Generate Packing Slip</option>
           </Select>
         </div>
 

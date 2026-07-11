@@ -295,7 +295,8 @@ export type ButtonAutomationActionType =
   | "copy_link"
   | "send_email"
   | "send_sms"
-  | "generate_pdf";
+  | "generate_pdf"
+  | "generate_packing_slip";
 
 export type ButtonAutomationEmailRecipient =
   | "customer"

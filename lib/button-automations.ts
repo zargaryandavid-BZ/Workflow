@@ -12,6 +12,7 @@ export const BUTTON_ACTION_LABELS: Record<ButtonAutomationActionType, string> = 
   send_email: "Send Email",
   send_sms: "Send SMS",
   generate_pdf: "Generate PDF",
+  generate_packing_slip: "Generate Packing Slip",
 };
 
 export const EMAIL_RECIPIENT_LABELS: Record<
@@ -140,7 +141,13 @@ export function validateButtonAutomationInput(body: {
   if (!body.name?.trim()) return "Name is required";
   if (
     !body.action_type ||
-    !["copy_link", "send_email", "send_sms", "generate_pdf"].includes(body.action_type)
+    ![
+      "copy_link",
+      "send_email",
+      "send_sms",
+      "generate_pdf",
+      "generate_packing_slip",
+    ].includes(body.action_type)
   ) {
     return "Invalid action type";
   }

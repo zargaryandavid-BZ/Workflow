@@ -310,7 +310,7 @@ function drawPage1(
   data: OrderExportData,
   totalPages: number
 ) {
-  drawHeader(doc, data.tenantName, data.orderNumber);
+  drawHeader(doc, data.tenantName, data.orderNumberDisplay);
 
   let y = 56;
   const w = PAGE_WIDTH - MARGIN * 2 - 12;
@@ -420,7 +420,7 @@ function drawArtworkPage(
       width: 60,
       align: "right",
     });
-  doc.fontSize(9).text(data.orderNumber, MARGIN, 28);
+  doc.fontSize(9).text(data.orderNumberDisplay, MARGIN, 28);
 
   const skuLabel =
     totalImagesForSku > 1

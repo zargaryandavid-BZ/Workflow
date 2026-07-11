@@ -24,6 +24,7 @@ import {
   productFromOrder,
 } from "@/lib/notification-messages";
 import { formatDate } from "@/lib/utils";
+import { getGroupKey } from "@/lib/group-orders";
 import type {
   BoardColumn,
   CustomField,
@@ -70,6 +71,9 @@ export interface OrderExportData {
   product: string;
   die: string;
   orderNumber: string;
+  /** Short board-style label, e.g. "0118-2 (3)" when part of a multi-job order. */
+  orderNumberDisplay: string;
+  groupSize: number | null;
   dueDateFormatted: string;
   priority: string;
   tenantName: string;
@@ -204,6 +208,54 @@ function buildSkuRows(
   }));
 }
 
+function formatOrderNumberDisplay(
+  title: string,
+  groupSize: number | null
+): string {
+  const short = title
+    .replace(/^ORD-\d{4}-/, "")
+    .replace(/^0+(\d)/, "$1");
+  if (groupSize != null && groupSize >= 2) {
+    return `${short} (${groupSize})`;
+  }
+  return short;
+}
+
+async function countOrderGroupSize(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: OrderWithRelations
+): Promise<number | null> {
+  const key = getGroupKey(order);
+  if (!key) return null;
+
+  // Prefer webhook key when present; otherwise match title siblings PREFIX-N.
+  const webhookKey =
+    typeof order.specs?.webhook_order_number === "string"
+      ? order.specs.webhook_order_number.trim()
+      : "";
+
+  let query = supabase
+    .from("orders")
+    .select("id, title, specs")
+    .eq("tenant_id", tenantId)
+    .is("removed_at", null);
+
+  if (webhookKey) {
+    query = query.eq("specs->>webhook_order_number", webhookKey);
+  } else {
+    query = query.like("title", `${key}-%`);
+  }
+
+  const { data } = await query;
+  const siblings = ((data ?? []) as Pick<
+    OrderWithRelations,
+    "id" | "title" | "specs"
+  >[]).filter((row) => getGroupKey(row as OrderWithRelations) === key);
+
+  return siblings.length >= 2 ? siblings.length : null;
+}
+
 export async function loadOrderExportData(
   supabase: SupabaseClient,
   orderId: string,
@@ -218,6 +270,7 @@ export async function loadOrderExportData(
     { data: fields },
     { data: column },
     skuImagesRaw,
+    groupSize,
   ] = await Promise.all([
     supabase.from("custom_field_values").select("*").eq("order_id", orderId),
     supabase
@@ -231,6 +284,7 @@ export async function loadOrderExportData(
       .eq("id", order.column_id)
       .maybeSingle(),
     listSkuImagesForOrder(supabase, orderId).catch(() => []),
+    countOrderGroupSize(supabase, tenantId, order),
   ]);
 
   const customFields = (fields ?? []) as CustomField[];
@@ -318,6 +372,8 @@ export async function loadOrderExportData(
       return dieField ? String(fieldValues[dieField.id] ?? "").trim() : "";
     })(),
     orderNumber: order.title,
+    orderNumberDisplay: formatOrderNumberDisplay(order.title, groupSize),
+    groupSize,
     dueDateFormatted: order.due_date ? formatDate(order.due_date) : "—",
     priority: order.priority,
     tenantName,
@@ -329,7 +385,11 @@ export async function assertButtonVisibleForOrder(
   buttonId: string,
   tenantId: string,
   columnId: string,
-  expectedAction: "send_email" | "send_sms" | "generate_pdf"
+  expectedAction:
+    | "send_email"
+    | "send_sms"
+    | "generate_pdf"
+    | "generate_packing_slip"
 ) {
   const { data, error } = await supabase
     .from("button_automations")
