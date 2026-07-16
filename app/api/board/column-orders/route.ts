@@ -3,6 +3,7 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { enrichBoardOrders } from "@/lib/board-order-enrichment";
 import type { CardNotificationBadge } from "@/lib/card-badges";
+import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { OrderWithRelations } from "@/lib/types";
 
 export const PAGE_SIZE = 25;
@@ -14,6 +15,7 @@ export interface ColumnOrdersResponse {
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
+  shippingSignByOrder: Record<string, BoardShippingSign>;
   hasMore: boolean;
   total: number;
   page: number;
@@ -68,6 +70,7 @@ export async function GET(req: NextRequest) {
     notificationBadgeByOrder: {},
     ownerNameByOrder: {},
     designerNameByOrder: {},
+    shippingSignByOrder: {},
     hasMore: false,
     total,
     page,

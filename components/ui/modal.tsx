@@ -10,6 +10,8 @@ interface ModalProps {
   title?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /** Extra classes for the full-screen overlay (e.g. z-[60] for nested modals). */
+  overlayClassName?: string;
   footer?: React.ReactNode;
   /** Rendered in the title bar, immediately to the left of the × close button. */
   headerAction?: React.ReactNode;
@@ -21,6 +23,7 @@ export function Modal({
   title,
   children,
   className,
+  overlayClassName,
   footer,
   headerAction,
 }: ModalProps) {
@@ -37,7 +40,10 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8"
+      className={cn(
+        "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8",
+        overlayClassName
+      )}
       onMouseDown={onClose}
     >
       <div

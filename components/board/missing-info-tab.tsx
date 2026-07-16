@@ -12,6 +12,7 @@ import { MoveBlockedModal } from "./move-blocked-modal";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
+import { defaultSendChannel } from "@/lib/preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
 import type { Asset, BoardColumn, Customer, MissingInfoNote, Role } from "@/lib/types";
 
@@ -122,7 +123,15 @@ function NotifyRow({
   sendLabel?: string;
   onSent: () => void;
 }) {
-  const [channel, setChannel] = useState<"email" | "sms" | null>(null);
+  const [channel, setChannel] = useState<"email" | "sms" | null>(() =>
+    defaultSendChannel(
+      {
+        email: contactEmail ?? customer?.email ?? null,
+        phone: contactPhone ?? customer?.phone ?? null,
+      },
+      customer?.preferred_channel
+    )
+  );
   const [email, setEmail] = useState(
     contactEmail ?? customer?.email ?? ""
   );
@@ -135,7 +144,22 @@ function NotifyRow({
   useEffect(() => {
     setEmail(contactEmail ?? customer?.email ?? "");
     setPhone(contactPhone ?? customer?.phone ?? "");
-  }, [contactEmail, contactPhone, customer?.email, customer?.phone]);
+    setChannel(
+      defaultSendChannel(
+        {
+          email: contactEmail ?? customer?.email ?? null,
+          phone: contactPhone ?? customer?.phone ?? null,
+        },
+        customer?.preferred_channel
+      )
+    );
+  }, [
+    contactEmail,
+    contactPhone,
+    customer?.email,
+    customer?.phone,
+    customer?.preferred_channel,
+  ]);
 
   async function send() {
     if (!channel) return;

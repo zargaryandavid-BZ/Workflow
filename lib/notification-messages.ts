@@ -507,6 +507,66 @@ export function buildReadyToShipSmsBody(params: {
   return `Hi, this is Bazaar Printing. Your order ${params.orderNumber} is ready at 306 Boyd St, LA. Available for pickup: Mon-Fri 9:30 AM - 5:30 PM, and Sat until 4:00 PM. (No-Reply Automated Text)`;
 }
 
+export function shippingPortalSubject(orderNumber: string) {
+  return `Your order ${orderNumber} is ready — choose delivery or pickup`;
+}
+
+/** Plain-text shipping portal email. */
+export function buildShippingPortalEmailBody(params: {
+  customerName: string;
+  orderNumber: string;
+  portalUrl: string;
+  teamName?: string;
+}) {
+  const team = params.teamName ?? "BazaarPrinting Team";
+  return [
+    `Hi ${params.customerName},`,
+    `Your order ${params.orderNumber} is ready to ship!`,
+    `Please open this link to choose self pickup or delivery:`,
+    params.portalUrl,
+    `This link expires in 7 days.`,
+    `— ${team}`,
+  ].join("\n\n");
+}
+
+/** HTML shipping portal email with CTA button. */
+export function buildShippingPortalEmailHtml(params: {
+  customerName: string;
+  orderNumber: string;
+  portalUrl: string;
+  teamName?: string;
+}) {
+  const name = escapeHtml(params.customerName);
+  const orderNum = escapeHtml(params.orderNumber);
+  const url = escapeHtml(params.portalUrl);
+  const bodyHtml = [
+    `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">Hi ${name},</p>`,
+    `<p style="margin:0 0 20px; font-size:14px; color:#374151; line-height:1.7;">Your order <strong>${orderNum}</strong> is ready to ship!</p>`,
+    `<p style="margin:0 0 20px; font-size:14px; color:#374151; line-height:1.7;">Please click the button below to choose how you'd like to receive it:</p>`,
+    `<p style="margin:0 0 24px;"><a href="${url}" style="background:#1a1f2e;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-size:14px;font-weight:600;">Choose Pickup or Delivery →</a></p>`,
+    `<p style="margin:0 0 20px; font-size:13px; color:#6b7280; line-height:1.6;">Or paste this link into your browser:<br /><a href="${url}" style="color:#2563eb;word-break:break-all;">${url}</a></p>`,
+    `<p style="margin:0 0 20px; font-size:13px; color:#9ca3af;">This link expires in 7 days.</p>`,
+    `<hr style="border:none; border-top:1px solid #f3f4f6; margin:0 0 16px;" />`,
+    `<p style="margin:0; font-size:13px; color:#9ca3af;">— ${escapeHtml(params.teamName ?? "BazaarPrinting Team")}</p>`,
+  ].join("");
+
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${params.orderNumber}`,
+    bodyHtml,
+    emailTitle: shippingPortalSubject(params.orderNumber),
+  });
+}
+
+/** SMS with portal link for shipping choice. */
+export function buildShippingPortalSmsBody(params: {
+  customerName?: string | null;
+  orderNumber: string;
+  portalUrl: string;
+}) {
+  const name = params.customerName?.trim() || "there";
+  return `Hi ${name}, your order ${params.orderNumber} is ready! Choose pickup or delivery: ${params.portalUrl}`;
+}
+
 export function formatFileSize(bytes: number | null | undefined) {
   if (bytes == null || bytes <= 0) return "";
   const units = ["B", "KB", "MB", "GB"];

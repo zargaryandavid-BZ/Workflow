@@ -4,7 +4,8 @@ import {
   CUSTOMER_NAME_FIELD_NAME,
 } from "@/lib/constants";
 import { normalizeSmsPhone } from "@/lib/sms";
-import type { Customer } from "@/lib/types";
+import type { Customer, PreferredChannel } from "@/lib/types";
+import { normalizePreferredChannel } from "@/lib/preferred-channel";
 
 type Client = SupabaseClient;
 
@@ -25,7 +26,7 @@ export interface UpsertCustomerResult {
 }
 
 const CUSTOMER_SELECT =
-  "id, tenant_id, name, email, phone, company, created_at, updated_at";
+  "id, tenant_id, name, email, phone, company, preferred_channel, created_at, updated_at";
 
 export function normalizeCustomerContact(
   contact: string
@@ -542,6 +543,7 @@ export interface AdminCustomerUpdateInput {
   email?: string | null;
   phone?: string | null;
   company?: string | null;
+  preferred_channel?: PreferredChannel | null;
 }
 
 export function validateAdminCustomerUpdate(
@@ -555,6 +557,14 @@ export function validateAdminCustomerUpdate(
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return "Invalid email address";
+  }
+
+  if (
+    input.preferred_channel != null &&
+    input.preferred_channel !== "sms" &&
+    input.preferred_channel !== "email"
+  ) {
+    return "Preferred channel must be SMS or Email";
   }
 
   return null;
@@ -631,6 +641,7 @@ export async function updateCustomerByAdmin(
   const phone = normalizePhone(input.phone);
   const name = input.name.trim();
   const company = input.company?.trim() || null;
+  const preferred_channel = normalizePreferredChannel(input.preferred_channel);
 
   if (email) {
     const emailMatch = await findCustomerByEmail(client, tenantId, email);
@@ -648,7 +659,7 @@ export async function updateCustomerByAdmin(
 
   const { data: updated, error } = await client
     .from("customers")
-    .update({ name, email, phone, company })
+    .update({ name, email, phone, company, preferred_channel })
     .eq("id", customerId)
     .eq("tenant_id", tenantId)
     .select(CUSTOMER_SELECT)

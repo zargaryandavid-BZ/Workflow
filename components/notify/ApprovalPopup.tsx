@@ -12,6 +12,10 @@ import {
   customerNameFromOrder,
   productFromOrder,
 } from "@/lib/notification-messages";
+import {
+  destinationForChannel,
+  resolvePreferredNotifyChannel,
+} from "@/lib/preferred-channel";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
@@ -55,10 +59,22 @@ export function ApprovalPopup({
     [fieldValues, customFields]
   );
 
-  const [channel, setChannel] = useState<Channel>(
-    contact.phone ? "sms" : contact.email ? "email" : "manual"
+  const [channel, setChannel] = useState<Channel>(() =>
+    resolvePreferredNotifyChannel(
+      contact,
+      order.customer?.preferred_channel,
+      smsConfigured
+    )
   );
-  const [to, setTo] = useState(contact.phone ?? contact.email ?? "");
+  const [to, setTo] = useState(() => {
+    const initial = resolvePreferredNotifyChannel(
+      contact,
+      order.customer?.preferred_channel,
+      smsConfigured
+    );
+    if (initial === "manual") return "";
+    return destinationForChannel(contact, initial);
+  });
   const [subject, setSubject] = useState(() => approvalSubject(order.title));
   const [emailMessage, setEmailMessage] = useState(() =>
     buildApprovalEmailBody({

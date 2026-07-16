@@ -22,14 +22,19 @@ import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { CardNotificationBadge } from "@/lib/card-badges";
+import type { BoardShippingSign } from "@/lib/board-shipping";
 import type {
   BoardColumn,
+  ButtonAutomation,
   CardWarningRule,
   CustomField,
+  Designer,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { GroupDueDateUpdate } from "./group-due-dates-modal";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import type { ActionButtonResult } from "./action-button";
 
 type DateSort = "default" | "asc" | "desc";
 type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
@@ -53,6 +58,7 @@ interface ColumnProps {
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
+  shippingSignByOrder?: Record<string, BoardShippingSign>;
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
@@ -61,6 +67,21 @@ interface ColumnProps {
   /** Columns this card can be moved to via right-click (pre-filtered by board). */
   availableColumns?: ColumnOption[];
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
+  /** Admin-only automations for this column (filtered by board). */
+  actionButtons?: ButtonAutomation[];
+  appUrl?: string;
+  onActionComplete?: (
+    order: OrderWithRelations,
+    result: ActionButtonResult
+  ) => void;
+  onActionError?: (message: string) => void;
+  designers?: Designer[];
+  onGroupAssignDesigner?: (
+    orders: OrderWithRelations[],
+    designer: { id: string | null; name: string | null }
+  ) => void;
+  onGroupSetDueDates?: (updates: GroupDueDateUpdate[]) => Promise<void>;
+  onMoveGroup?: (orders: OrderWithRelations[], targetColumnId: string) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
   onAdd: (columnId: string) => void;
   /** Lazy-load state for this column. */
@@ -113,6 +134,7 @@ export function Column({
   designerNameByOrder,
   notificationBadgeByOrder,
   ownerNameByOrder,
+  shippingSignByOrder = {},
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
@@ -120,6 +142,14 @@ export function Column({
   isFirst,
   availableColumns,
   onMoveToColumn,
+  actionButtons = [],
+  appUrl = "",
+  onActionComplete,
+  onActionError,
+  designers = [],
+  onGroupAssignDesigner,
+  onGroupSetDueDates,
+  onMoveGroup,
   onOpenOrder,
   onAdd,
   loadStatus,
@@ -351,6 +381,11 @@ export function Column({
                     customFields={customFields}
                     fieldValuesByOrder={fieldValuesByOrder}
                     webhookSourceStyles={webhookSourceStyles}
+                    designers={designers}
+                    availableColumns={availableColumns}
+                    onAssignDesigner={onGroupAssignDesigner}
+                    onSetDueDates={onGroupSetDueDates}
+                    onMoveGroup={onMoveGroup}
                   />
                 ) : (
                   <OrderCard
@@ -365,6 +400,7 @@ export function Column({
                       notificationBadgeByOrder[entry.order.id]
                     }
                     ownerName={ownerNameByOrder[entry.order.id]}
+                    shippingSign={shippingSignByOrder[entry.order.id]}
                     groupSize={groupSizeByOrder[entry.order.id]}
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
@@ -372,6 +408,10 @@ export function Column({
                     columnColor={column.color}
                     availableColumns={availableColumns}
                     onMoveToColumn={onMoveToColumn}
+                    actionButtons={actionButtons}
+                    appUrl={appUrl}
+                    onActionComplete={onActionComplete}
+                    onActionError={onActionError}
                     onOpen={onOpenOrder}
                   />
                 )
@@ -387,6 +427,7 @@ export function Column({
                   designerName={designerNameByOrder[order.id]}
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}
+                  shippingSign={shippingSignByOrder[order.id]}
                   groupSize={groupSizeByOrder[order.id]}
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}
@@ -394,6 +435,10 @@ export function Column({
                   columnColor={column.color}
                   availableColumns={availableColumns}
                   onMoveToColumn={onMoveToColumn}
+                  actionButtons={actionButtons}
+                  appUrl={appUrl}
+                  onActionComplete={onActionComplete}
+                  onActionError={onActionError}
                   onOpen={onOpenOrder}
                 />
               ))}

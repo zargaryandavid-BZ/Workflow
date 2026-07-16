@@ -19,10 +19,13 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { Activity, LayoutDashboard, Layers, Search, Table2, X } from "lucide-react";
 import { Column } from "./column";
 import { BoardTable } from "./board-table";
+import { ColumnVisibilityDropdown } from "./column-visibility-dropdown";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
 import { MoveBlockedModal } from "./move-blocked-modal";
+import type { GroupDueDateUpdate } from "./group-due-dates-modal";
+import type { ActionButtonResult } from "./action-button";
 import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
@@ -33,6 +36,11 @@ import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import { getGroupKey } from "@/lib/group-orders";
 import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
+import { filterButtonsForColumn } from "@/lib/button-automations";
+import {
+  loadHiddenColumnIds,
+  saveHiddenColumnIds,
+} from "@/lib/board-column-visibility";
 import type {
   BoardColumn,
   CardWarningRule,
@@ -50,6 +58,7 @@ import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { ColumnOrdersResponse } from "@/app/api/board/column-orders/route";
 import type { SearchOrdersResponse } from "@/app/api/board/search-orders/route";
 import type { BoardOrderEnrichment } from "@/lib/board-order-enrichment";
+import type { BoardShippingSign } from "@/lib/board-shipping";
 
 /** Prefer pointer position so empty columns and wide boards register drops reliably. */
 const boardCollisionDetection: CollisionDetection = (args) => {
@@ -148,6 +157,9 @@ export function Board({
   const [designerNameByOrder, setDesignerNameByOrder] = useState<
     Record<string, string>
   >({});
+  const [shippingSignByOrder, setShippingSignByOrder] = useState<
+    Record<string, BoardShippingSign>
+  >({});
 
   // ── UI state ────────────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -237,6 +249,38 @@ export function Board({
   } | null>(null);
   const [groupedView, setGroupedView] = useState(false);
   const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
+  const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() =>
+    loadHiddenColumnIds(tenantId)
+  );
+
+  const visibleColumns = useMemo(
+    () => columns.filter((c) => !hiddenColIds.has(c.id)),
+    [columns, hiddenColIds]
+  );
+
+  const toggleColumnVisibility = useCallback(
+    (columnId: string) => {
+      setHiddenColIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(columnId)) {
+          next.delete(columnId);
+        } else {
+          const visibleAfterHide =
+            columns.filter((c) => !next.has(c.id) && c.id !== columnId).length;
+          if (visibleAfterHide === 0) return prev;
+          next.add(columnId);
+        }
+        saveHiddenColumnIds(tenantId, next);
+        return next;
+      });
+    },
+    [columns, tenantId]
+  );
+
+  const showAllColumns = useCallback(() => {
+    setHiddenColIds(new Set());
+    saveHiddenColumnIds(tenantId, new Set());
+  }, [tenantId]);
   const [animateWarnings, setAnimateWarnings] = useState(true);
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
@@ -296,6 +340,7 @@ export function Board({
             notificationBadgeByOrder: data.notificationBadgeByOrder,
             ownerNameByOrder: data.ownerNameByOrder,
             designerNameByOrder: data.designerNameByOrder,
+            shippingSignByOrder: data.shippingSignByOrder ?? {},
           });
         } catch (err) {
           console.error("[Board] Failed to search orders:", err);
@@ -472,6 +517,10 @@ export function Board({
           ...prev,
           ...data.designerNameByOrder,
         }));
+        setShippingSignByOrder((prev) => ({
+          ...prev,
+          ...(data.shippingSignByOrder ?? {}),
+        }));
 
         const hasOverflow =
           page === 0 &&
@@ -533,6 +582,17 @@ export function Board({
       void fetchColumnOrders(columnId, nextPage);
     },
     [fetchColumnOrders]
+  );
+
+  const handleContextActionComplete = useCallback(
+    (order: OrderWithRelations, result: ActionButtonResult) => {
+      flashToast(result.message);
+      if (result.refreshOrder) {
+        void fetchColumnOrders(order.column_id, 0);
+        router.refresh();
+      }
+    },
+    [fetchColumnOrders, router]
   );
 
   // ── Refresh helpers ──────────────────────────────────────────────────────────
@@ -803,6 +863,177 @@ export function Board({
     }
   }
 
+  function patchOrderFields(
+    orderId: string,
+    patch: Partial<OrderWithRelations>
+  ) {
+    setOrders((prev) => {
+      const next = prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o));
+      boardOrdersRef.current = next;
+      return next;
+    });
+    setSearchResults((prev) => {
+      if (!prev) return prev;
+      return prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o));
+    });
+  }
+
+  async function patchOrderApi(
+    orderId: string,
+    body: Record<string, unknown>
+  ) {
+    const res = await fetch(`/api/orders/${orderId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(json.error ?? "Failed to update order");
+    }
+  }
+
+  async function handleGroupAssignDesigner(
+    groupOrders: OrderWithRelations[],
+    designer: { id: string | null; name: string | null }
+  ) {
+    if (groupOrders.length === 0) return;
+    const snapshot = boardOrdersRef.current;
+
+    for (const order of groupOrders) {
+      const specs = {
+        ...(order.specs ?? {}),
+        designer_id: designer.id,
+        designer_name: designer.name,
+      };
+      patchOrderFields(order.id, { specs });
+      setDesignerNameByOrder((prev) => ({
+        ...prev,
+        [order.id]: designer.name ?? "",
+      }));
+    }
+
+    try {
+      await Promise.all(
+        groupOrders.map((order) =>
+          patchOrderApi(order.id, {
+            specs: {
+              ...(order.specs ?? {}),
+              designer_id: designer.id,
+              designer_name: designer.name,
+            },
+          })
+        )
+      );
+      flashToast(
+        designer.name
+          ? `Assigned ${designer.name} to ${groupOrders.length} items`
+          : `Cleared designer on ${groupOrders.length} items`
+      );
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to assign designer"
+      );
+    }
+  }
+
+  async function handleGroupSetDueDates(updates: GroupDueDateUpdate[]) {
+    if (updates.length === 0) return;
+    const snapshot = boardOrdersRef.current;
+
+    for (const { orderId, dueDate } of updates) {
+      patchOrderFields(orderId, { due_date: dueDate });
+    }
+
+    try {
+      await Promise.all(
+        updates.map(({ orderId, dueDate }) =>
+          patchOrderApi(orderId, { dueDate })
+        )
+      );
+      flashToast(`Updated due dates for ${updates.length} items`);
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      throw err;
+    }
+  }
+
+  async function handleGroupMove(
+    groupOrders: OrderWithRelations[],
+    toColumnId: string
+  ) {
+    if (groupOrders.length === 0) return;
+    const fromColumnId = groupOrders[0].column_id;
+    const fromCol = columnsById.get(fromColumnId);
+    const toCol = columnsById.get(toColumnId);
+    if (!fromCol || !toCol) return;
+
+    if (!canDropOut(role, fromCol)) {
+      flashPermissionError(
+        `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
+      );
+      return;
+    }
+    if (!canDropIn(role, toCol)) {
+      flashPermissionError(
+        `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
+      );
+      return;
+    }
+
+    const destOrders = orders
+      .filter((o) => o.column_id === toColumnId)
+      .sort((a, b) => a.position - b.position);
+    let lastPos = destOrders[destOrders.length - 1]?.position ?? 0;
+
+    const snapshot = boardOrdersRef.current;
+    const moves: { order: OrderWithRelations; position: number }[] = [];
+    for (const order of groupOrders) {
+      lastPos += 1000;
+      moves.push({ order, position: lastPos });
+      patchOrderPlacement(order.id, {
+        column_id: toColumnId,
+        position: lastPos,
+      });
+    }
+
+    for (const { order, position } of moves) {
+      const result = await requestOrderMove(
+        { orderId: order.id, toColumnId, position },
+        { fromColumnId, columns }
+      );
+
+      if (!result.ok) {
+        restoreOrdersSnapshot(snapshot);
+        if (result.missingFields?.length) {
+          setMoveBlockedState({
+            orderId: order.id,
+            missingFields: result.missingFields,
+          });
+        } else {
+          flashPermissionError(result.error ?? "Move was rejected.");
+        }
+        return;
+      }
+    }
+
+    if (!loadedColumnsRef.current.has(toColumnId)) {
+      void fetchColumnOrders(toColumnId, 0);
+    }
+
+    const notifyColumn = notifyColumns.find((c) => c.column_id === toColumnId);
+    if (notifyColumn && notifyColumn.automation_enabled) {
+      setNotifyPopup({
+        order: { ...groupOrders[0], column_id: toColumnId },
+        notifyColumn,
+        columnName: toCol.name,
+      });
+    }
+
+    flashToast(`Moved ${groupOrders.length} items to ${toCol.name}`);
+  }
+
   function findColumnId(id: string): string | null {
     if (columns.some((c) => c.id === id)) return id;
     const fromSearch = searchResults?.find((o) => o.id === id)?.column_id;
@@ -1033,6 +1264,9 @@ export function Board({
   const displayDesignerNameByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.designerNameByOrder
     : designerNameByOrder;
+  const displayShippingSignByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.shippingSignByOrder
+    : shippingSignByOrder;
 
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
@@ -1062,12 +1296,12 @@ export function Board({
           <h1 className="text-lg font-semibold text-slate-800">
             Production Board
           </h1>
-          <div className="flex overflow-hidden rounded-md border border-slate-300 text-sm">
+          <div className="flex rounded-md border border-slate-300 text-sm">
             <button
               type="button"
               onClick={() => setBoardView("kanban")}
               className={cn(
-                "inline-flex items-center gap-1.5 px-2.5 py-1 transition-colors",
+                "inline-flex items-center gap-1.5 rounded-l-md px-2.5 py-1 transition-colors",
                 boardView === "kanban"
                   ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
@@ -1091,6 +1325,13 @@ export function Board({
               <Table2 className="h-3.5 w-3.5" />
               Table
             </button>
+            <ColumnVisibilityDropdown
+              columns={columns}
+              hiddenColIds={hiddenColIds}
+              onToggle={toggleColumnVisibility}
+              onShowAll={showAllColumns}
+              segmented
+            />
           </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -1206,6 +1447,8 @@ export function Board({
       {boardView === "table" ? (
         <BoardTable
           columns={columns}
+          hiddenColIds={hiddenColIds}
+          onToggleColumnVisibility={toggleColumnVisibility}
           orders={displayOrders}
           customFields={customFields}
           fieldValuesByOrder={displayFieldValuesByOrder}
@@ -1213,6 +1456,7 @@ export function Board({
           designerNameByOrder={displayDesignerNameByOrder}
           notificationBadgeByOrder={displayNotificationBadgeByOrder}
           ownerNameByOrder={displayOwnerNameByOrder}
+          shippingSignByOrder={displayShippingSignByOrder}
           groupSizeByOrder={groupSizeByOrder}
           warningRules={warningRules}
           animateWarnings={animateWarnings}
@@ -1220,6 +1464,10 @@ export function Board({
           role={role}
           getMoveableColumns={getMoveableColumns}
           onMoveToColumn={handleContextMove}
+          buttonAutomations={buttonAutomations}
+          appUrl={appUrl}
+          onActionComplete={handleContextActionComplete}
+          onActionError={flashPermissionError}
           onOpenOrder={(o) => setDetailId(o.id)}
           onVisible={onColumnVisible}
         />
@@ -1234,7 +1482,7 @@ export function Board({
       >
         <div className="board-scroll min-h-0 min-w-0 flex-1 overflow-x-scroll overflow-y-hidden">
           <div className="flex h-full min-w-max gap-3 px-4 pb-4">
-            {columns.map((column, index) => {
+            {visibleColumns.map((column, index) => {
               const columnOrders = ordersByColumn.get(column.id) ?? [];
               return (
               <Column
@@ -1252,12 +1500,25 @@ export function Board({
                 notificationBadgeByOrder={displayNotificationBadgeByOrder}
                 ownerNameByOrder={displayOwnerNameByOrder}
                 groupSizeByOrder={groupSizeByOrder}
+                shippingSignByOrder={displayShippingSignByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
                 webhookSourceStyles={webhookSourceStyles}
                 isFirst={index === 0}
                 availableColumns={getMoveableColumns(column.id)}
                 onMoveToColumn={handleContextMove}
+                actionButtons={
+                  role === "admin"
+                    ? filterButtonsForColumn(buttonAutomations, column.id)
+                    : []
+                }
+                appUrl={appUrl}
+                onActionComplete={handleContextActionComplete}
+                onActionError={flashPermissionError}
+                designers={designers}
+                onGroupAssignDesigner={handleGroupAssignDesigner}
+                onGroupSetDueDates={handleGroupSetDueDates}
+                onMoveGroup={handleGroupMove}
                 onOpenOrder={(o) => setDetailId(o.id)}
                 onAdd={(colId) => setCreateColumn(colId)}
                 loadStatus={
@@ -1289,6 +1550,7 @@ export function Board({
               designerName={displayDesignerNameByOrder[activeOrder.id]}
               notificationBadge={displayNotificationBadgeByOrder[activeOrder.id]}
               ownerName={displayOwnerNameByOrder[activeOrder.id]}
+              shippingSign={displayShippingSignByOrder[activeOrder.id]}
               warningRules={warningRules}
               animateWarnings={animateWarnings}
               webhookSourceStyles={webhookSourceStyles}

@@ -221,15 +221,16 @@ function formatOrderNumberDisplay(
   return short;
 }
 
-async function countOrderGroupSize(
+async function listOrderGroupSiblings(
   supabase: SupabaseClient,
   tenantId: string,
   order: OrderWithRelations
-): Promise<number | null> {
+): Promise<
+  Pick<OrderWithRelations, "id" | "title" | "column_id" | "specs">[]
+> {
   const key = getGroupKey(order);
-  if (!key) return null;
+  if (!key) return [];
 
-  // Prefer webhook key when present; otherwise match title siblings PREFIX-N.
   const webhookKey =
     typeof order.specs?.webhook_order_number === "string"
       ? order.specs.webhook_order_number.trim()
@@ -237,7 +238,7 @@ async function countOrderGroupSize(
 
   let query = supabase
     .from("orders")
-    .select("id, title, specs")
+    .select("id, title, column_id, specs")
     .eq("tenant_id", tenantId)
     .is("removed_at", null);
 
@@ -248,11 +249,29 @@ async function countOrderGroupSize(
   }
 
   const { data } = await query;
-  const siblings = ((data ?? []) as Pick<
-    OrderWithRelations,
-    "id" | "title" | "specs"
-  >[]).filter((row) => getGroupKey(row as OrderWithRelations) === key);
+  return (
+    (data ?? []) as Pick<
+      OrderWithRelations,
+      "id" | "title" | "column_id" | "specs"
+    >[]
+  ).filter((row) => getGroupKey(row as OrderWithRelations) === key);
+}
 
+/** Exported for SMS tagging: siblings of a multi-part order. */
+export async function fetchOrderGroupSiblings(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: OrderWithRelations
+) {
+  return listOrderGroupSiblings(supabase, tenantId, order);
+}
+
+async function countOrderGroupSize(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: OrderWithRelations
+): Promise<number | null> {
+  const siblings = await listOrderGroupSiblings(supabase, tenantId, order);
   return siblings.length >= 2 ? siblings.length : null;
 }
 

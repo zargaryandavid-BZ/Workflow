@@ -10,7 +10,11 @@ import {
   ChevronUp,
   Clock,
   Copy,
+  CreditCard,
+  Car,
+  MapPin,
   MoveRight,
+  Truck,
   User,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -37,10 +41,21 @@ import {
 import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
-import type { CardWarningRule, CustomField, OrderWithRelations } from "@/lib/types";
+import type {
+  ButtonAutomation,
+  CardWarningRule,
+  CustomField,
+  OrderWithRelations,
+} from "@/lib/types";
+import type { BoardShippingSign } from "@/lib/board-shipping";
+import {
+  shippingCardBorderColor,
+  shippingTagClass,
+} from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderBillingGlobe } from "./order-billing-globe";
+import { ActionButton, type ActionButtonResult } from "./action-button";
 
 interface ColumnOption {
   id: string;
@@ -60,6 +75,8 @@ interface OrderCardProps {
   designerName?: string;
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
+  /** Client shipping choice after they responded on the portal. */
+  shippingSign?: BoardShippingSign;
   groupSize?: number;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
@@ -70,6 +87,14 @@ interface OrderCardProps {
   availableColumns?: ColumnOption[];
   /** Called when the user selects a column from the right-click menu. */
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
+  /** Admin-only automations visible for this card's column (shown by name). */
+  actionButtons?: ButtonAutomation[];
+  appUrl?: string;
+  onActionComplete?: (
+    order: OrderWithRelations,
+    result: ActionButtonResult
+  ) => void;
+  onActionError?: (message: string) => void;
   onOpen: (order: OrderWithRelations) => void;
 }
 
@@ -82,6 +107,7 @@ export function OrderCard({
   designerName: designerNameProp,
   notificationBadge,
   ownerName,
+  shippingSign,
   groupSize,
   warningRules = [],
   animateWarnings = true,
@@ -89,6 +115,10 @@ export function OrderCard({
   columnColor,
   availableColumns = [],
   onMoveToColumn,
+  actionButtons = [],
+  appUrl = "",
+  onActionComplete,
+  onActionError,
   onOpen,
 }: OrderCardProps) {
   const {
@@ -136,6 +166,8 @@ export function OrderCard({
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules);
+  const shippingBorderColor =
+    !activeWarning ? shippingCardBorderColor(shippingSign) : null;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -143,7 +175,9 @@ export function OrderCard({
     opacity: isDragging ? 0.4 : 1,
     ...(activeWarning && !animateWarnings
       ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
-      : {}),
+      : shippingBorderColor
+        ? { borderColor: shippingBorderColor }
+        : {}),
   };
 
   // Derive a 70%-opacity version of the column accent colour for the title.
@@ -165,6 +199,11 @@ export function OrderCard({
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const hasMoveMenu =
+    availableColumns.length > 0 && Boolean(onMoveToColumn);
+  const hasActionMenu = actionButtons.length > 0;
+  const hasContextMenu = hasMoveMenu || hasActionMenu;
+
   useEffect(() => {
     if (!menuOpen) return;
     function handleClose(e: MouseEvent | KeyboardEvent) {
@@ -185,7 +224,7 @@ export function OrderCard({
   }, [menuOpen]);
 
   function handleContextMenu(e: React.MouseEvent) {
-    if (!availableColumns.length || !onMoveToColumn) return;
+    if (!hasContextMenu) return;
     e.preventDefault();
     e.stopPropagation();
     setMenuPos({ x: e.clientX, y: e.clientY });
@@ -258,10 +297,11 @@ export function OrderCard({
       onClick={() => onOpen(order)}
       onContextMenu={handleContextMenu}
       className={cn(
-        "group relative @container shrink-0 overflow-hidden rounded-md border shadow-sm transition-shadow hover:shadow-md",
+        "group relative @container shrink-0 overflow-hidden rounded-md border-2 shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
           ? UNASSIGNED_DESIGNER_CARD_CLASS
-          : "border-slate-200 bg-white",
+          : "bg-white",
+        !shippingBorderColor && !activeWarning ? "border-slate-200" : "",
         canDrag ? "cursor-pointer" : "cursor-default",
         activeWarning && animateWarnings ? `warning-${activeWarning.rule.color}` : ""
       )}
@@ -356,6 +396,28 @@ export function OrderCard({
                 >
                   {order.priority}
                 </span>
+                {shippingSign ? (
+                  <span
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                      shippingTagClass(shippingSign)
+                    )}
+                    title={shippingSign.title}
+                  >
+                    {shippingSign.kind === "awaiting" ? (
+                      <Clock className="h-3 w-3" />
+                    ) : shippingSign.kind === "payment_pending" ? (
+                      <CreditCard className="h-3 w-3" />
+                    ) : shippingSign.kind === "pickup" ? (
+                      <MapPin className="h-3 w-3" />
+                    ) : shippingSign.kind === "uber" ? (
+                      <Car className="h-3 w-3" />
+                    ) : (
+                      <Truck className="h-3 w-3" />
+                    )}
+                    {shippingSign.label}
+                  </span>
+                ) : null}
                 <OrderBillingGlobe specs={order.specs} />
               </div>
             </div>
@@ -546,18 +608,18 @@ export function OrderCard({
       ) : null}
       </div>{/* end padded content wrapper */}
 
-      {/* Full-width tag footer bar */}
+      {/* Full-width tag footer bar — bar height fixed; font −20% from 13px */}
       {order.tag ? (
         <div
           style={{ backgroundColor: order.tag.color ?? "#e2e8f0" }}
-          className="w-full py-2 text-center text-[13px] font-medium tracking-wide text-white"
+          className="flex h-[14.3px] w-full items-center justify-center overflow-hidden text-[10.4px] font-medium leading-none tracking-wide text-white"
         >
           {order.tag.name}
         </div>
       ) : null}
 
-      {/* Right-click move menu — rendered via portal-like fixed positioning */}
-      {menuOpen && availableColumns.length > 0 && onMoveToColumn ? (
+      {/* Right-click admin actions / move menu */}
+      {menuOpen && hasContextMenu ? (
         <div
           ref={menuRef}
           style={{
@@ -569,31 +631,59 @@ export function OrderCard({
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <p className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            <MoveRight className="h-3 w-3" />
-            Move to
-          </p>
-          <div className="overflow-y-auto py-1">
-            {availableColumns.map((col) => (
-              <button
-                key={col.id}
-                type="button"
-                onClick={() => {
-                  onMoveToColumn(order, col.id);
-                  setMenuOpen(false);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
-                  style={{ backgroundColor: col.color ?? "#e2e8f0" }}
+          {hasActionMenu ? (
+            <div className="shrink-0 border-b border-slate-100 py-1">
+              {actionButtons.map((btn) => (
+                <ActionButton
+                  key={btn.id}
+                  appearance="menu"
+                  button={btn}
+                  orderId={order.id}
+                  orderNumber={order.title}
+                  appUrl={appUrl}
+                  groupSize={groupSize}
+                  customerEmail={email ?? order.customer?.email}
+                  customerPhone={phone ?? order.customer?.phone}
+                  productLabel={productName || null}
+                  onComplete={(result) => {
+                    setMenuOpen(false);
+                    onActionComplete?.(order, result);
+                  }}
+                  onError={(message) => onActionError?.(message)}
                 />
-                <span className="truncate">{col.name}</span>
-              </button>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : null}
+          {hasMoveMenu ? (
+            <>
+              <p className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <MoveRight className="h-3 w-3" />
+                Move to
+              </p>
+              <div className="overflow-y-auto py-1">
+                {availableColumns.map((col) => (
+                  <button
+                    key={col.id}
+                    type="button"
+                    onClick={() => {
+                      onMoveToColumn?.(order, col.id);
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
+                      style={{ backgroundColor: col.color ?? "#e2e8f0" }}
+                    />
+                    <span className="truncate">{col.name}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
+
     </div>
   );
 }

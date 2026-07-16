@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
   assertButtonVisibleForOrder,
+  fetchOrderGroupSiblings,
   loadOrderExportData,
 } from "@/lib/button-automation-order-data";
 import {
@@ -31,7 +32,10 @@ export async function POST(
 
   if (!isSmsConfigured()) {
     return NextResponse.json(
-      { error: "SMS is not configured on this account. Add Twilio credentials in your environment." },
+      {
+        error:
+          "SMS is not configured on this account. Add Twilio credentials in your environment.",
+      },
       { status: 503 }
     );
   }
@@ -66,7 +70,11 @@ export async function POST(
       custom: "No custom phone number configured on this button",
     };
     return NextResponse.json(
-      { error: errorByRecipient[parsed.recipient] ?? "No phone number found for this order" },
+      {
+        error:
+          errorByRecipient[parsed.recipient] ??
+          "No phone number found for this order",
+      },
       { status: 422 }
     );
   }
@@ -88,13 +96,35 @@ export async function POST(
     );
   }
 
-  await addOrderTag(
+  // Multi-part orders: if every sibling is in this column, tag all of them
+  // Texted. Otherwise only tag the card the SMS was sent from.
+  const siblings = await fetchOrderGroupSiblings(
     supabase,
-    orderId,
     ctx.tenant.id,
-    "Texted",
-    (exportData.order.specs ?? {}) as Record<string, unknown>
+    exportData.order
   );
+  const columnId = exportData.order.column_id;
+  const siblingsInColumn = siblings.filter((s) => s.column_id === columnId);
+  const allReady =
+    siblings.length >= 2 && siblingsInColumn.length === siblings.length;
+  const tagTargets = allReady
+    ? siblingsInColumn
+    : [
+        {
+          id: orderId,
+          specs: exportData.order.specs,
+        },
+      ];
+
+  for (const target of tagTargets) {
+    await addOrderTag(
+      supabase,
+      target.id,
+      ctx.tenant.id,
+      "Texted",
+      (target.specs ?? {}) as Record<string, unknown>
+    );
+  }
 
   await logActivity(supabase, {
     tenantId: ctx.tenant.id,
@@ -105,8 +135,13 @@ export async function POST(
       buttonId: button.id,
       buttonName: button.name,
       phone,
+      taggedOrderIds: tagTargets.map((t) => t.id),
+      groupFullyInColumn: allReady,
     },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    taggedCount: tagTargets.length,
+  });
 }

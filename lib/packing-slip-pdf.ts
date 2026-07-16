@@ -12,7 +12,7 @@ const PAGE_W = 612;
 const PAGE_H = 792;
 const MARGIN = 36;
 const CONTENT_W = PAGE_W - MARGIN * 2; // 540
-const HEADER_H = 44;
+const HEADER_H = 60;
 const SKU_PER_PAGE = 6;
 const COLS = 2;
 const ROW_GAP = 16;
@@ -65,6 +65,16 @@ export function packingSlipOrderLabel(
   return `${base} (${totalParts})`;
 }
 
+/** Blind mode: optional PO + part suffix, or empty when no PO. */
+export function packingSlipBlindOrderLabel(
+  poNumber: string | undefined,
+  totalParts: number
+): string {
+  const po = poNumber?.trim() ?? "";
+  if (!po) return "";
+  return `${po} (${totalParts})`;
+}
+
 function drawUnderline(
   doc: PdfDoc,
   x: number,
@@ -109,55 +119,188 @@ function drawHRule(doc: PdfDoc, y: number, color = "#e5e7eb") {
 
 function drawPageHeader(
   doc: PdfDoc,
-  tenantName: string,
   orderLabel: string,
   pageNum: number,
   totalPages: number
 ) {
   doc.rect(0, 0, PAGE_W, HEADER_H).fill("#1a1f2e");
 
+  if (orderLabel) {
+    doc
+      .fillColor("#ffffff")
+      .fontSize(22)
+      .font("Helvetica-Bold")
+      .text(orderLabel, MARGIN, 18, { width: CONTENT_W * 0.45 });
+  }
+
   doc
     .fillColor("#ffffff")
     .fontSize(14)
     .font("Helvetica-Bold")
-    .text(tenantName.replace(/\s+/g, "").toUpperCase() || "WORKFLOW", MARGIN, 10, {
-      width: CONTENT_W * 0.45,
-    });
-
-  doc
-    .fontSize(14)
-    .font("Helvetica-Bold")
-    .text("PACKING SLIP", MARGIN, 10, {
+    .text("PACKING SLIP", MARGIN, 12, {
       width: CONTENT_W,
       align: "right",
     });
 
-  doc
-    .fontSize(9)
-    .font("Helvetica")
-    .text(orderLabel, MARGIN, 28, { width: CONTENT_W * 0.35 });
-
   if (totalPages > 1) {
     doc
       .fontSize(8)
-      .text(`Page ${pageNum} of ${totalPages}`, MARGIN, 28, {
+      .font("Helvetica")
+      .text(`Page ${pageNum} of ${totalPages}`, MARGIN, 36, {
         width: CONTENT_W,
         align: "center",
       });
   }
 
-  doc.fontSize(9).text(
-    new Date().toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }),
-    MARGIN,
-    28,
-    { width: CONTENT_W, align: "right" }
-  );
+  doc
+    .fontSize(9)
+    .font("Helvetica")
+    .text(
+      new Date().toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+      MARGIN,
+      32,
+      { width: CONTENT_W, align: "right" }
+    );
 
   doc.fillColor("#000000").font("Helvetica");
+}
+
+/**
+ * One row, three columns:
+ * 1) Customer / Bazaar Printing  2) Order details  3) BOX
+ */
+function drawTopInfoRow(
+  doc: PdfDoc,
+  data: OrderExportData,
+  blind: boolean,
+  startY: number
+): number {
+  const bodyTop = startY;
+  const pad = 8;
+  const lineH = 12;
+  const rowH = 13;
+  const colW = CONTENT_W / 3;
+  const col1X = MARGIN;
+  const col2X = MARGIN + colW;
+  const col3X = MARGIN + colW * 2;
+
+  const identityLines: string[] = blind
+    ? [
+        data.customerName && data.customerName !== "—"
+          ? data.customerName
+          : "",
+        data.order.customer?.company?.trim() || "",
+        data.customerPhone || "",
+        data.customerEmail || "",
+      ].filter(Boolean)
+    : [
+        data.tenantName || "Bazaar Printing",
+        "306 Boyd St",
+        "Los Angeles, CA 90013",
+      ];
+
+  const bodyH = Math.max(52, pad * 2 + Math.max(identityLines.length, 3) * lineH);
+
+  doc
+    .rect(MARGIN, bodyTop, CONTENT_W, bodyH)
+    .strokeColor("#e5e7eb")
+    .lineWidth(0.5)
+    .stroke();
+
+  for (const x of [col2X, col3X]) {
+    doc
+      .moveTo(x, bodyTop)
+      .lineTo(x, bodyTop + bodyH)
+      .strokeColor("#d1d5db")
+      .lineWidth(0.5)
+      .stroke();
+  }
+
+  // Col 1 — Customer / Bazaar Printing
+  let rowY = bodyTop + pad;
+  if (identityLines.length === 0) {
+    doc
+      .fontSize(8)
+      .font("Helvetica")
+      .fillColor("#9ca3af")
+      .text("—", col1X + pad, rowY, {
+        width: colW - pad * 2,
+      });
+  } else {
+    for (let i = 0; i < identityLines.length; i++) {
+      doc
+        .fontSize(i === 0 ? 10 : 8)
+        .font(i === 0 ? "Helvetica-Bold" : "Helvetica")
+        .fillColor("#111827")
+        .text(identityLines[i], col1X + pad, rowY, {
+          width: colW - pad * 2,
+          height: lineH,
+          ellipsis: true,
+        });
+      rowY += lineH;
+    }
+  }
+
+  // Col 2 — Order details
+  const detailX = col2X + pad;
+  const detailW = colW - pad * 2;
+  const detailTop = bodyTop + pad;
+  drawLabeledValue(
+    doc,
+    "Due Date",
+    data.dueDateFormatted,
+    detailX,
+    detailTop,
+    detailW
+  );
+  drawLabeledValue(
+    doc,
+    "Priority",
+    capitalize(data.priority),
+    detailX,
+    detailTop + rowH,
+    detailW
+  );
+  drawLabeledValue(
+    doc,
+    "QTY",
+    fmtQty(data.totalQty),
+    detailX,
+    detailTop + rowH * 2,
+    detailW
+  );
+
+  // Col 3 — BOX
+  doc
+    .fontSize(16)
+    .font("Helvetica-Bold")
+    .fillColor("#1a1f2e")
+    .text("BOX", col3X + pad, bodyTop + 8, {
+      width: colW - pad * 2,
+      align: "center",
+    });
+  const boxLineY = bodyTop + Math.min(bodyH - 12, 36);
+  const underlineW = 36;
+  const gap = 12;
+  const unitW = underlineW * 2 + gap;
+  const boxStartX = col3X + (colW - unitW) / 2;
+  drawUnderline(doc, boxStartX, boxLineY, underlineW);
+  doc
+    .fontSize(11)
+    .font("Helvetica")
+    .fillColor("#6b7280")
+    .text("/", boxStartX + underlineW, boxLineY - 9, {
+      width: gap,
+      align: "center",
+    });
+  drawUnderline(doc, boxStartX + underlineW + gap, boxLineY, underlineW);
+
+  doc.fillColor("#000000").font("Helvetica");
+  return bodyTop + bodyH;
 }
 
 function drawLabeledValue(
@@ -205,127 +348,6 @@ function drawLabeledValue(
         ellipsis: true,
       });
   }
-}
-
-function drawCustomerSection(doc: PdfDoc, data: OrderExportData, startY: number): number {
-  let y = drawSectionBar(doc, startY, "CUSTOMER");
-  const bodyTop = y;
-  const bodyH = 52;
-  const col1W = CONTENT_W * 0.32;
-  const col2W = CONTENT_W * 0.38;
-  const col3W = CONTENT_W - col1W - col2W;
-  const col1X = MARGIN;
-  const col2X = MARGIN + col1W;
-  const col3X = MARGIN + col1W + col2W;
-  const pad = 8;
-  const rowH = 13;
-
-  doc
-    .rect(MARGIN, bodyTop, CONTENT_W, bodyH)
-    .strokeColor("#e5e7eb")
-    .lineWidth(0.5)
-    .stroke();
-
-  // Vertical dividers
-  doc
-    .moveTo(col2X, bodyTop)
-    .lineTo(col2X, bodyTop + bodyH)
-    .strokeColor("#d1d5db")
-    .lineWidth(0.5)
-    .stroke();
-  doc
-    .moveTo(col3X, bodyTop)
-    .lineTo(col3X, bodyTop + bodyH)
-    .strokeColor("#d1d5db")
-    .lineWidth(0.5)
-    .stroke();
-
-  let rowY = bodyTop + 8;
-  drawLabeledValue(
-    doc,
-    "Name",
-    data.customerName,
-    col1X + pad,
-    rowY,
-    col1W - pad * 2
-  );
-  drawLabeledValue(
-    doc,
-    "Due Date",
-    data.dueDateFormatted,
-    col2X + pad,
-    rowY,
-    col2W - pad * 2
-  );
-
-  // BOX column
-  doc
-    .fontSize(18)
-    .font("Helvetica-Bold")
-    .fillColor("#1a1f2e")
-    .text("BOX", col3X + pad, bodyTop + 8, {
-      width: col3W - pad * 2,
-      align: "center",
-    });
-  const boxLineY = bodyTop + 36;
-  const underlineW = 48;
-  const gap = 14;
-  const unitW = underlineW * 2 + gap;
-  const boxStartX = col3X + (col3W - unitW) / 2;
-  drawUnderline(doc, boxStartX, boxLineY, underlineW);
-  doc
-    .fontSize(12)
-    .font("Helvetica")
-    .fillColor("#6b7280")
-    .text("/", boxStartX + underlineW, boxLineY - 10, {
-      width: gap,
-      align: "center",
-    });
-  drawUnderline(doc, boxStartX + underlineW + gap, boxLineY, underlineW);
-
-  rowY += rowH;
-  drawLabeledValue(
-    doc,
-    "Phone",
-    data.customerPhone ?? "—",
-    col1X + pad,
-    rowY,
-    col1W - pad * 2
-  );
-  drawLabeledValue(
-    doc,
-    "Priority",
-    capitalize(data.priority),
-    col2X + pad,
-    rowY,
-    col2W - pad * 2,
-    {
-      extraLabel: "QTY",
-      extraValue: fmtQty(data.totalQty),
-      extraW: 80,
-    }
-  );
-
-  rowY += rowH;
-  drawLabeledValue(
-    doc,
-    "Email",
-    data.customerEmail ?? "—",
-    col1X + pad,
-    rowY,
-    col1W - pad * 2
-  );
-  drawLabeledValue(
-    doc,
-    "Owner",
-    data.ownerName || data.assignedToName || "—",
-    col2X + pad,
-    rowY,
-    col2W - pad * 2
-  );
-
-  doc.fillColor("#000000").font("Helvetica");
-  return bodyTop + bodyH;
 }
 
 function drawDashedPlaceholder(
@@ -481,13 +503,21 @@ function drawItemsGrid(
 
 export async function generatePackingSlipPdf(
   data: OrderExportData,
-  opts: { part: number; totalParts: number }
+  opts: {
+    part: number;
+    totalParts: number;
+    blind?: boolean;
+    poNumber?: string;
+  }
 ): Promise<Buffer> {
-  const orderLabel = packingSlipOrderLabel(
-    data.orderNumberDisplay || data.orderNumber,
-    data.orderNumber,
-    opts.totalParts
-  );
+  const blind = Boolean(opts.blind);
+  const orderLabel = blind
+    ? packingSlipBlindOrderLabel(opts.poNumber, opts.totalParts)
+    : packingSlipOrderLabel(
+        data.orderNumberDisplay || data.orderNumber,
+        data.orderNumber,
+        opts.totalParts
+      );
 
   const skus = data.skuRows ?? [];
   const pages: OrderExportSkuRow[][] = [];
@@ -532,21 +562,15 @@ export async function generatePackingSlipPdf(
   try {
     for (let pageNum = 0; pageNum < pages.length; pageNum++) {
       doc.addPage();
-      drawPageHeader(
-        doc,
-        data.tenantName || "Workflow",
-        orderLabel,
-        pageNum + 1,
-        pages.length
-      );
+      drawPageHeader(doc, orderLabel, pageNum + 1, pages.length);
       drawHRule(doc, HEADER_H, "#1a1f2e");
-      const afterCustomer = drawCustomerSection(doc, data, HEADER_H + 8);
+      const afterTop = drawTopInfoRow(doc, data, blind, HEADER_H + 8);
       drawItemsGrid(
         doc,
         data,
         pages[pageNum],
         imageBuffers,
-        afterCustomer + 8
+        afterTop + 8
       );
     }
     doc.end();

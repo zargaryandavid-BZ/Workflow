@@ -25,6 +25,7 @@ export async function PATCH(
     email?: string | null;
     phone?: string | null;
     company?: string | null;
+    preferred_channel?: "sms" | "email" | null;
   };
 
   const supabase = await createClient();
@@ -39,6 +40,7 @@ export async function PATCH(
         email: body.email,
         phone: body.phone,
         company: body.company,
+        preferred_channel: body.preferred_channel,
       }
     );
 

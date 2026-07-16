@@ -11,6 +11,7 @@ import {
   readyToShipSubject,
 } from "@/lib/notification-messages";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { resolvePreferredNotifyChannel } from "@/lib/preferred-channel";
 import type {
   CustomField,
   NotificationChannel,
@@ -22,15 +23,6 @@ export interface NotifyColumnConfig {
   column_id: string;
   notify_type: NotificationType;
   automation_enabled: boolean;
-}
-
-function resolveChannel(
-  contact: { email: string | null; phone: string | null },
-  smsConfigured: boolean
-): NotificationChannel {
-  if (contact.email) return "email";
-  if (contact.phone && smsConfigured) return "sms";
-  return "manual";
 }
 
 function buildSendBody(params: {
@@ -135,7 +127,11 @@ export async function runColumnNotify(params: {
   const product = productFromOrder(params.fieldValues, params.customFields);
 
   const channel: NotificationChannel = params.notifyColumn.automation_enabled
-    ? resolveChannel(contact, params.smsConfigured)
+    ? resolvePreferredNotifyChannel(
+        contact,
+        params.order.customer?.preferred_channel,
+        params.smsConfigured
+      )
     : "manual";
 
   const body = buildSendBody({

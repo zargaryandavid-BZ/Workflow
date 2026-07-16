@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   ListChecks,
   Plug,
+  Package,
   Tag,
   Trash2,
   Workflow,
@@ -65,6 +66,12 @@ const nav = [
     href: "/settings/integrations",
     label: "Integrations",
     icon: Plug,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/shipping",
+    label: "Shipping",
+    icon: Package,
     adminOnly: true,
   },
   {
@@ -134,7 +141,9 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
                 key={item.href}
                 href={item.href}
                 prefetch={false}
-                onClick={handleNavClick}
+                onClick={() => {
+                  handleNavClick();
+                }}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   active

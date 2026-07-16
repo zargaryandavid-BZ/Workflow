@@ -11,13 +11,16 @@ interface Props {
   className?: string;
 }
 
-/** Small colored source label above customer name. Hidden for manual cards. */
+/** Small colored source label above the customer name. */
 export function WebhookSourceLabel({
   webhookSource,
   sourceStyles,
   className,
 }: Props) {
-  const style = resolveWebhookSourceStyle(webhookSource, sourceStyles);
+  const style =
+    webhookSource == null
+      ? { label: "Manual", color: "#64748b" }
+      : resolveWebhookSourceStyle(webhookSource, sourceStyles);
   if (!style) return null;
 
   return (
@@ -27,7 +30,7 @@ export function WebhookSourceLabel({
         "mb-0.5 block truncate text-[10px] font-semibold uppercase tracking-wide leading-tight"
       }
       style={{ color: style.color }}
-      title={style.label}
+      title={`Card source: ${style.label}`}
     >
       {style.label}
     </span>

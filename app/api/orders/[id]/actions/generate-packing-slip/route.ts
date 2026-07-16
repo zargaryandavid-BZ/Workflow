@@ -33,6 +33,8 @@ export async function POST(
     button_id?: string;
     part?: number;
     totalParts?: number;
+    blind?: boolean;
+    poNumber?: string;
   } = {};
   try {
     body = (await request.json()) as typeof body;
@@ -101,7 +103,14 @@ export async function POST(
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generatePackingSlipPdf(exportData, { part, totalParts });
+    const poNumber =
+      typeof body.poNumber === "string" ? body.poNumber.trim() : "";
+    pdfBuffer = await generatePackingSlipPdf(exportData, {
+      part,
+      totalParts,
+      blind: Boolean(body.blind),
+      poNumber: poNumber || undefined,
+    });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to generate packing slip";

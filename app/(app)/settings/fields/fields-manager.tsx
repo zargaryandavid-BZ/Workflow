@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type { CustomField, CustomFieldType } from "@/lib/types";
 
@@ -16,6 +16,21 @@ const TYPES: { value: CustomFieldType; label: string }[] = [
   { value: "date", label: "Date" },
   { value: "checkbox", label: "Checkbox" },
 ];
+
+/** One option per line; still accepts a single comma-separated line. */
+function parseOptionsText(text: string): string[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 1 && lines[0].includes(",")) {
+    return lines[0]
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
+  }
+  return lines;
+}
 
 export function FieldsManager({
   initialFields,
@@ -84,12 +99,7 @@ export function FieldsManager({
         fieldType,
         required,
         options:
-          fieldType === "select"
-            ? optionsText
-                .split(",")
-                .map((o) => o.trim())
-                .filter(Boolean)
-            : [],
+          fieldType === "select" ? parseOptionsText(optionsText) : [],
       }),
     });
     const json = await res.json();
@@ -192,13 +202,18 @@ export function FieldsManager({
         </div>
         {fieldType === "select" ? (
           <div>
-            <Label htmlFor="f-options">Options (comma separated)</Label>
-            <Input
+            <Label htmlFor="f-options">Options (one per line)</Label>
+            <Textarea
               id="f-options"
               value={optionsText}
               onChange={(e) => setOptionsText(e.target.value)}
-              placeholder="Matte, Gloss, Soft-touch"
+              placeholder={"Pouches Combo\nJar Combo\nTube Combo\nLabels (Roll)"}
+              rows={8}
+              className="min-h-40 font-mono text-[13px] leading-relaxed"
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Put each Product / Materials choice on its own line.
+            </p>
           </div>
         ) : null}
         <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -307,7 +322,7 @@ function FieldEditor({
 }) {
   const [name, setName] = useState(field.name);
   const [fieldType, setFieldType] = useState<CustomFieldType>(field.field_type);
-  const [optionsText, setOptionsText] = useState(field.options.join(", "));
+  const [optionsText, setOptionsText] = useState(field.options.join("\n"));
   const [required, setRequired] = useState(field.required);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -323,13 +338,7 @@ function FieldEditor({
         name,
         fieldType,
         required,
-        options:
-          fieldType === "select"
-            ? optionsText
-                .split(",")
-                .map((o) => o.trim())
-                .filter(Boolean)
-            : [],
+        options: fieldType === "select" ? parseOptionsText(optionsText) : [],
       }),
     });
     const json = await res.json();
@@ -384,13 +393,19 @@ function FieldEditor({
         </div>
         {fieldType === "select" ? (
           <div>
-            <Label htmlFor="fe-options">Options (comma separated)</Label>
-            <Input
+            <Label htmlFor="fe-options">Options (one per line)</Label>
+            <Textarea
               id="fe-options"
               value={optionsText}
               onChange={(e) => setOptionsText(e.target.value)}
-              placeholder="Matte, Gloss, Soft-touch"
+              placeholder={"Pouches Combo\nJar Combo\nTube Combo\nLabels (Roll)"}
+              rows={Math.max(8, field.options.length + 2)}
+              className="min-h-48 font-mono text-[13px] leading-relaxed"
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Put each Product / Materials choice on its own line so you can edit
+              them easily.
+            </p>
           </div>
         ) : null}
         <label className="flex items-center gap-2 text-sm text-slate-700">

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { MissingInfoTab } from "./missing-info-tab";
+import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
@@ -23,7 +24,7 @@ import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from ".
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
 import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
-import { customerContactFromOrder } from "@/lib/notification-messages";
+import { customerContactFromOrder, productFromOrder } from "@/lib/notification-messages";
 import { groupSkuImagesBySkuId } from "@/lib/sku-images";
 import {
   buildCustomFieldPayload,
@@ -54,6 +55,7 @@ import type {
   OrderWithRelations,
   ButtonAutomation,
   Role,
+  ShippingRequest,
 } from "@/lib/types";
 
 interface CardDetailModalProps {
@@ -104,6 +106,7 @@ interface DetailResponse {
   missingInfo: MissingInfoNote[];
   approvalNotes: ApprovalNote[];
   notes: OrderNote[];
+  shippingRequest?: ShippingRequest | null;
 }
 
 type ActivityChangeEntry = { field?: unknown; from?: unknown; to?: unknown };
@@ -170,7 +173,7 @@ export function CardDetailModal({
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
-  const [tab, setTab] = useState<"details" | "missing-info" | "approval">(
+  const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping">(
     "details"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -510,7 +513,9 @@ export function CardDetailModal({
       ? getMissingFields(data.order, fieldValues, modalCustomFields)
       : [];
   const hasApproval = (data?.approvalNotes.length ?? 0) > 0;
-  const hasExtraTabs = !isViewOnly && (showMissingInfoTab || hasApproval);
+  const hasShipping = Boolean(data?.shippingRequest);
+  const hasExtraTabs =
+    !isViewOnly && (showMissingInfoTab || hasApproval || hasShipping);
   const orderContact = data
     ? customerContactFromOrder(data.order, fieldValues, modalCustomFields)
     : { email: null, phone: null };
@@ -964,6 +969,28 @@ export function CardDetailModal({
                   <span className="h-2 w-2 rounded-full bg-violet-500" />
                 </button>
               ) : null}
+              {hasShipping ? (
+                <button
+                  type="button"
+                  onClick={() => setTab("shipping")}
+                  className={cn(
+                    "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                    tab === "shipping"
+                      ? "border-[var(--primary)] text-[var(--primary)]"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  Shipping
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      data?.shippingRequest?.status === "client_responded"
+                        ? "bg-emerald-500"
+                        : "bg-amber-500"
+                    )}
+                  />
+                </button>
+              ) : null}
               {!isEditing ? (
                 <button
                   type="button"
@@ -986,11 +1013,20 @@ export function CardDetailModal({
               groupSize={groupSize}
               groupSameColumnCount={groupSameColumnCount}
               groupColumnName={groupColumnName}
+              customerEmail={orderContact.email}
+              customerPhone={orderContact.phone}
+              productLabel={productFromOrder(fieldValues, modalCustomFields)}
               onComplete={({ message, refreshOrder }) => {
                 setSaveError(null);
                 onLinkCopied?.(message);
                 if (refreshOrder) {
-                  void load({ silent: true });
+                  void load({ silent: true }).then(() => {
+                    if (
+                      /shipment link|link sent/i.test(message)
+                    ) {
+                      setTab("shipping");
+                    }
+                  });
                   onChanged();
                 }
               }}
@@ -1027,6 +1063,25 @@ export function CardDetailModal({
               onChanged={() => {
                 load();
                 onChanged();
+              }}
+            />
+          ) : tab === "shipping" && data.shippingRequest ? (
+            <ShippingTab
+              shippingRequest={data.shippingRequest}
+              orderId={data.order.id}
+              appUrl={appUrl}
+              onStaffNotesSaved={(notes) => {
+                setData((prev) =>
+                  prev?.shippingRequest
+                    ? {
+                        ...prev,
+                        shippingRequest: {
+                          ...prev.shippingRequest,
+                          staff_notes: notes,
+                        },
+                      }
+                    : prev
+                );
               }}
             />
           ) : (

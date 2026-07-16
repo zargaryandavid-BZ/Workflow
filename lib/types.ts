@@ -32,6 +32,9 @@ export type NotificationType = "missing_info" | "customer_approval" | "ready_to_
 
 export type NotificationChannel = "email" | "sms" | "none" | "manual";
 
+/** Customer preference for missing-info / approval / ready-to-ship sends. */
+export type PreferredChannel = "sms" | "email";
+
 export type NotificationStatus = "pending" | "sent" | "responded" | "expired";
 
 export type CustomerResponse =
@@ -116,6 +119,7 @@ export interface Customer {
   email: string | null;
   phone: string | null;
   company: string | null;
+  preferred_channel: PreferredChannel;
   created_at: string;
   updated_at?: string;
 }
@@ -477,3 +481,128 @@ export interface Designer {
   id: string;
   name: string;
 }
+
+export type ShippingRequestStatus =
+  | "pending"
+  | "payment_pending"
+  | "client_responded";
+export type ShippingPaymentStatus = "pending" | "succeeded" | "failed";
+export type ShippingClientChoice = "pickup" | "delivery" | "uber";
+export type ShippingDimUnit = "in" | "cm";
+export type ShippingWeightUnit = "lbs" | "kg";
+
+export interface ShippingBox {
+  length: number;
+  width: number;
+  height: number;
+  weight: number;
+  dimUnit: ShippingDimUnit;
+  weightUnit: ShippingWeightUnit;
+}
+
+export interface ShippingDeliveryAddress {
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+  country?: string;
+}
+
+export interface FedExRateOption {
+  serviceType: string;
+  serviceName: string;
+  totalCharge: number | null;
+  /** FedEx quote before tenant markup (staff reference). */
+  fedexBaseCharge?: number | null;
+  currency: string;
+  deliveryDate: string | null;
+  transitDays: string | null;
+}
+
+export interface FedExConfig {
+  apiKey: string | null;
+  secretKey: string | null;
+  accountNumber: string | null;
+  sandbox: boolean;
+  shipper: {
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
+  pickupHoursNote: string;
+}
+
+export interface ShippingSettings {
+  tenant_id: string;
+  fedex_api_key: string | null;
+  fedex_secret_key: string | null;
+  fedex_account_number: string | null;
+  fedex_sandbox: boolean;
+  shipper_street: string | null;
+  shipper_city: string | null;
+  shipper_state: string | null;
+  shipper_zip: string | null;
+  shipper_country: string | null;
+  pickup_hours_note: string | null;
+  payment_enabled: boolean;
+  stripe_publishable_key: string | null;
+  stripe_secret_key: string | null;
+  stripe_webhook_secret: string | null;
+  markup_fixed_cents: number;
+  markup_percent: number;
+  updated_at: string;
+}
+
+export interface MaskedSecret {
+  set: boolean;
+  preview: string | null;
+}
+
+export interface ShippingSettingsPublic {
+  tenant_id: string;
+  fedex_api_key: MaskedSecret;
+  fedex_secret_key: MaskedSecret;
+  fedex_account_number: string | null;
+  fedex_sandbox: boolean;
+  shipper_street: string | null;
+  shipper_city: string | null;
+  shipper_state: string | null;
+  shipper_zip: string | null;
+  shipper_country: string | null;
+  pickup_hours_note: string | null;
+  payment_enabled: boolean;
+  stripe_publishable_key: string | null;
+  stripe_secret_key: MaskedSecret;
+  stripe_webhook_secret: MaskedSecret;
+  markup_fixed_cents: number;
+  markup_percent: number;
+  updated_at: string;
+  fedex_configured: boolean;
+  stripe_configured: boolean;
+}
+
+export interface ShippingRequest {
+  id: string;
+  tenant_id: string;
+  order_id: string;
+  token: string;
+  boxes: ShippingBox[];
+  status: ShippingRequestStatus;
+  client_choice: ShippingClientChoice | null;
+  fedex_selection: FedExRateOption | null;
+  delivery_address: ShippingDeliveryAddress | null;
+  delivery_notes: string | null;
+  staff_notes: string | null;
+  checkout_session_id: string | null;
+  payment_intent_id: string | null;
+  payment_status: ShippingPaymentStatus | null;
+  payment_amount: number | null;
+  payment_currency: string | null;
+  sent_at: string | null;
+  responded_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { enrichBoardOrders } from "@/lib/board-order-enrichment";
 import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
 import type { CardNotificationBadge } from "@/lib/card-badges";
+import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 export interface SearchOrdersResponse {
@@ -13,6 +14,7 @@ export interface SearchOrdersResponse {
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
+  shippingSignByOrder: Record<string, BoardShippingSign>;
 }
 
 /** PostgREST default max is 1000; page explicitly so filters cover every column. */
@@ -81,6 +83,7 @@ export async function GET(req: NextRequest) {
       notificationBadgeByOrder: {},
       ownerNameByOrder: {},
       designerNameByOrder: {},
+      shippingSignByOrder: {},
     } satisfies SearchOrdersResponse);
   }
 

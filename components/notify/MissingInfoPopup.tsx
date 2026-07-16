@@ -12,6 +12,10 @@ import {
   missingInfoSubject,
   productFromOrder,
 } from "@/lib/notification-messages";
+import {
+  defaultSendChannel,
+  destinationForChannel,
+} from "@/lib/preferred-channel";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
@@ -53,11 +57,22 @@ export function MissingInfoPopup({
     [fieldValues, customFields]
   );
 
-  const [channel, setChannel] = useState<"email" | "sms">(
-    contact.phone ? "sms" : "email"
+  const [channel, setChannel] = useState<"email" | "sms">(() =>
+    defaultSendChannel(
+      contact,
+      order.customer?.preferred_channel,
+      smsConfigured
+    )
   );
-  const [to, setTo] = useState(
-    contact.phone ?? contact.email ?? ""
+  const [to, setTo] = useState(() =>
+    destinationForChannel(
+      contact,
+      defaultSendChannel(
+        contact,
+        order.customer?.preferred_channel,
+        smsConfigured
+      )
+    )
   );
   const [subject, setSubject] = useState(() => missingInfoSubject(order.title));
   const [internalNote, setInternalNote] = useState("");

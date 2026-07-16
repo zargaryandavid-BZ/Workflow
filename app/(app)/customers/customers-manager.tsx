@@ -14,6 +14,7 @@ import type {
   CustomerOrderSummary,
   CustomerWithStats,
   Designer,
+  PreferredChannel,
   Role,
 } from "@/lib/types";
 import type { OrderOwner } from "@/components/board/order-form-body";
@@ -24,6 +25,7 @@ function customerToForm(c: CustomerWithStats) {
     email: c.email ?? "",
     phone: c.phone ?? "",
     company: c.company ?? "",
+    preferred_channel: (c.preferred_channel === "email" ? "email" : "sms") as PreferredChannel,
   };
 }
 
@@ -49,7 +51,13 @@ export function CustomersManager({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<CustomerWithStats | null>(null);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", company: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    company: "",
+    preferred_channel: "sms" as PreferredChannel,
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
@@ -97,6 +105,7 @@ export function CustomersManager({
         email: form.email.trim() || null,
         phone: form.phone.trim() || null,
         company: form.company.trim() || null,
+        preferred_channel: form.preferred_channel,
       }),
     });
 
@@ -289,6 +298,29 @@ export function CustomersManager({
                     }
                   />
                 </div>
+                <div>
+                  <Label htmlFor="customer-preferred-channel">
+                    Default communication channel
+                  </Label>
+                  <select
+                    id="customer-preferred-channel"
+                    value={form.preferred_channel}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        preferred_channel: e.target.value as PreferredChannel,
+                      }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+                  >
+                    <option value="sms">SMS</option>
+                    <option value="email">Email</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Used for missing info and approval notifications. Falls back
+                    if that contact method is missing.
+                  </p>
+                </div>
                 <p className="text-xs text-slate-500">
                   At least one of email or phone is required.
                 </p>
@@ -313,6 +345,12 @@ export function CustomersManager({
                 {selected.company ? (
                   <p className="mt-1 text-slate-600">{selected.company}</p>
                 ) : null}
+                <p className="mt-3 text-sm text-slate-600">
+                  Default channel:{" "}
+                  <span className="font-medium text-slate-800">
+                    {selected.preferred_channel === "email" ? "Email" : "SMS"}
+                  </span>
+                </p>
               </div>
             )}
 

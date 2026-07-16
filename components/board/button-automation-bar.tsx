@@ -17,6 +17,9 @@ interface ButtonAutomationBarProps {
   groupSameColumnCount?: number;
   /** Name of the current column (shown in the SMS confirmation dialog). */
   groupColumnName?: string;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
+  productLabel?: string | null;
   onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
@@ -30,6 +33,9 @@ export function ButtonAutomationBar({
   groupSize,
   groupSameColumnCount,
   groupColumnName,
+  customerEmail,
+  customerPhone,
+  productLabel,
   onComplete,
   onError,
 }: ButtonAutomationBarProps) {
@@ -48,6 +54,9 @@ export function ButtonAutomationBar({
           groupSize={groupSize}
           groupSameColumnCount={groupSameColumnCount}
           groupColumnName={groupColumnName}
+          customerEmail={customerEmail}
+          customerPhone={customerPhone}
+          productLabel={productLabel}
           onComplete={onComplete}
           onError={onError}
         />

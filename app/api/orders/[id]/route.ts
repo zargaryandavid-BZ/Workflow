@@ -19,7 +19,7 @@ import {
   filterValidCustomFieldValues,
   staleCustomFieldsMessage,
 } from "@/lib/custom-field-values.server";
-import type { ActivityLog, CustomField, Order, OrderNote } from "@/lib/types";
+import type { ActivityLog, CustomField, Order, OrderNote, ShippingRequest } from "@/lib/types";
 
 export async function GET(
   _request: Request,
@@ -39,7 +39,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const [{ data: assets }, { data: values }, { data: activity }, { data: approvals }, { data: missingInfoRows }, { data: approvalRows }, { data: notesRows }] =
+  const [{ data: assets }, { data: values }, { data: activity }, { data: approvals }, { data: missingInfoRows }, { data: approvalRows }, { data: notesRows }, shippingResult] =
     await Promise.all([
       supabase
         .from("assets")
@@ -75,7 +75,19 @@ export async function GET(
         .select("*")
         .eq("order_id", id)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("shipping_requests")
+        .select("*")
+        .eq("order_id", id)
+        .order("created_at", { ascending: false })
+        .limit(1),
     ]);
+
+  // Table may be missing until migration 0044 is applied.
+  const shippingRequest =
+    shippingResult.error || !shippingResult.data?.[0]
+      ? null
+      : (shippingResult.data[0] as ShippingRequest);
 
   const missingInfoList = missingInfoRows ?? [];
   const approvalList = approvalRows ?? [];
@@ -174,6 +186,7 @@ export async function GET(
     missingInfo,
     approvalNotes,
     notes,
+    shippingRequest,
   });
 }
 

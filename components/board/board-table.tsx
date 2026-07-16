@@ -2,14 +2,28 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { CalendarClock, Clock, Eye, EyeOff, MoveRight, User } from "lucide-react";
+import {
+  CalendarClock,
+  Clock,
+  CreditCard,
+  Car,
+  Eye,
+  EyeOff,
+  MapPin,
+  MoveRight,
+  Truck,
+  User,
+} from "lucide-react";
 import { cn, formatDateShort } from "@/lib/utils";
 import {
   cardOrderQty,
   cardSkuCount,
   findOrderFormField,
 } from "@/lib/order-form";
-import { customerNameFromOrder } from "@/lib/notification-messages";
+import {
+  customerContactFromOrder,
+  customerNameFromOrder,
+} from "@/lib/notification-messages";
 import {
   CARD_BADGE_LABELS,
   CARD_BADGE_STYLES,
@@ -22,13 +36,18 @@ import {
 import { orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
 import { OrderBillingGlobe } from "./order-billing-globe";
+import { ActionButton, type ActionButtonResult } from "./action-button";
+import { filterButtonsForColumn } from "@/lib/button-automations";
 import type {
   BoardColumn,
+  ButtonAutomation,
   CardWarningRule,
   CustomField,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { BoardShippingSign } from "@/lib/board-shipping";
+import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
 
@@ -40,6 +59,8 @@ interface ColumnOption {
 
 interface BoardTableProps {
   columns: BoardColumn[];
+  hiddenColIds: Set<string>;
+  onToggleColumnVisibility: (columnId: string) => void;
   orders: OrderWithRelations[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
@@ -47,6 +68,7 @@ interface BoardTableProps {
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
+  shippingSignByOrder?: Record<string, BoardShippingSign>;
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
@@ -54,6 +76,13 @@ interface BoardTableProps {
   role: Role;
   getMoveableColumns: (fromColumnId: string) => ColumnOption[];
   onMoveToColumn: (order: OrderWithRelations, toColumnId: string) => void;
+  buttonAutomations?: ButtonAutomation[];
+  appUrl?: string;
+  onActionComplete?: (
+    order: OrderWithRelations,
+    result: ActionButtonResult
+  ) => void;
+  onActionError?: (message: string) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
   onVisible: (columnId: string) => void;
 }
@@ -66,6 +95,8 @@ interface MenuState {
 
 export function BoardTable({
   columns,
+  hiddenColIds,
+  onToggleColumnVisibility,
   orders,
   customFields,
   fieldValuesByOrder,
@@ -73,12 +104,18 @@ export function BoardTable({
   designerNameByOrder,
   notificationBadgeByOrder,
   ownerNameByOrder,
+  shippingSignByOrder = {},
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
   webhookSourceStyles,
+  role,
   getMoveableColumns,
   onMoveToColumn,
+  buttonAutomations = [],
+  appUrl = "",
+  onActionComplete,
+  onActionError,
   onOpenOrder,
   onVisible,
 }: BoardTableProps) {
@@ -125,32 +162,6 @@ export function BoardTable({
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }
-
-  // ── Hidden columns ────────────────────────────────────────────────────────
-  const HIDDEN_KEY = "board-table-hidden-cols";
-
-  const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const stored = localStorage.getItem(HIDDEN_KEY);
-      return stored ? new Set<string>(JSON.parse(stored) as string[]) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
-
-  function toggleColVisibility(colId: string) {
-    setHiddenColIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(colId)) {
-        next.delete(colId);
-      } else {
-        next.add(colId);
-      }
-      localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
-      return next;
-    });
   }
 
   // Hiding a column also filters out rows currently in that column.
@@ -238,7 +249,7 @@ export function BoardTable({
                     // Collapsed state — just the eye-off icon
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); toggleColVisibility(col.id); }}
+                      onClick={(e) => { e.stopPropagation(); onToggleColumnVisibility(col.id); }}
                       title={`Show "${col.name}"`}
                       className="flex w-full items-center justify-center text-slate-300 hover:text-slate-600"
                     >
@@ -254,7 +265,7 @@ export function BoardTable({
                       <span className="truncate">{col.name}</span>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); toggleColVisibility(col.id); }}
+                        onClick={(e) => { e.stopPropagation(); onToggleColumnVisibility(col.id); }}
                         title={`Hide "${col.name}"`}
                         className="ml-0.5 shrink-0 rounded p-0.5 text-slate-300 opacity-0 transition-opacity group-hover/th:opacity-100 hover:text-slate-600"
                       >
@@ -294,6 +305,7 @@ export function BoardTable({
               null;
             const notificationBadge = notificationBadgeByOrder[order.id];
             const ownerName = ownerNameByOrder[order.id];
+            const shippingSign = shippingSignByOrder[order.id];
 
             const customerName = customerNameFromOrder(
               order,
@@ -455,6 +467,28 @@ export function BoardTable({
                         {order.priority}
                       </span>
                     ) : null}
+                    {shippingSign ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold",
+                          shippingTagClass(shippingSign)
+                        )}
+                        title={shippingSign.title}
+                      >
+                        {shippingSign.kind === "awaiting" ? (
+                          <Clock className="h-2.5 w-2.5" />
+                        ) : shippingSign.kind === "payment_pending" ? (
+                          <CreditCard className="h-2.5 w-2.5" />
+                        ) : shippingSign.kind === "pickup" ? (
+                          <MapPin className="h-2.5 w-2.5" />
+                        ) : shippingSign.kind === "uber" ? (
+                          <Car className="h-2.5 w-2.5" />
+                        ) : (
+                          <Truck className="h-2.5 w-2.5" />
+                        )}
+                        {shippingSign.label}
+                      </span>
+                    ) : null}
                     <OrderBillingGlobe specs={order.specs} />
                   </div>
                 </td>
@@ -534,29 +568,87 @@ export function BoardTable({
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <p className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            <MoveRight className="h-3 w-3" />
-            Move to
-          </p>
-          <div className="overflow-y-auto py-1">
-            {getMoveableColumns(menuState.order.column_id).map((col) => (
-              <button
-                key={col.id}
-                type="button"
-                onClick={() => {
-                  onMoveToColumn(menuState.order, col.id);
-                  setMenuState(null);
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
-                  style={{ backgroundColor: col.color ?? "#e2e8f0" }}
-                />
-                <span className="truncate">{col.name}</span>
-              </button>
-            ))}
-          </div>
+          {(() => {
+            const actionButtons =
+              role === "admin"
+                ? filterButtonsForColumn(
+                    buttonAutomations,
+                    menuState.order.column_id
+                  )
+                : [];
+            const moveable = getMoveableColumns(menuState.order.column_id);
+            const values =
+              fieldValuesByOrder[menuState.order.id] ?? {};
+            const contact = customerContactFromOrder(
+              menuState.order,
+              values,
+              customFields
+            );
+            const productField = findOrderFormField(customFields, "Product");
+            const productLabel = productField
+              ? String(values[productField.id] ?? "").trim()
+              : "";
+            return (
+              <>
+                {actionButtons.length > 0 ? (
+                  <div className="shrink-0 border-b border-slate-100 py-1">
+                    {actionButtons.map((btn) => (
+                      <ActionButton
+                        key={btn.id}
+                        appearance="menu"
+                        button={btn}
+                        orderId={menuState.order.id}
+                        orderNumber={menuState.order.title}
+                        appUrl={appUrl}
+                        groupSize={groupSizeByOrder[menuState.order.id]}
+                        customerEmail={
+                          contact.email ?? menuState.order.customer?.email
+                        }
+                        customerPhone={
+                          contact.phone ?? menuState.order.customer?.phone
+                        }
+                        productLabel={productLabel || null}
+                        onComplete={(result) => {
+                          onActionComplete?.(menuState.order, result);
+                          setMenuState(null);
+                        }}
+                        onError={(message) => onActionError?.(message)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {moveable.length > 0 ? (
+                  <>
+                    <p className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      <MoveRight className="h-3 w-3" />
+                      Move to
+                    </p>
+                    <div className="overflow-y-auto py-1">
+                      {moveable.map((col) => (
+                        <button
+                          key={col.id}
+                          type="button"
+                          onClick={() => {
+                            onMoveToColumn(menuState.order, col.id);
+                            setMenuState(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
+                            style={{
+                              backgroundColor: col.color ?? "#e2e8f0",
+                            }}
+                          />
+                          <span className="truncate">{col.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </>
+            );
+          })()}
         </div>
       ) : null}
     </div>

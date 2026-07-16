@@ -9,11 +9,18 @@ import {
 } from "@/lib/board-card-previews";
 import type {
   CustomerResponse,
+  FedExRateOption,
   NotificationChannel,
   NotificationStatus,
   NotificationType,
   OrderWithRelations,
+  ShippingClientChoice,
+  ShippingRequestStatus,
 } from "@/lib/types";
+import {
+  boardShippingSignFromRequest,
+  type BoardShippingSign,
+} from "@/lib/board-shipping";
 
 export interface BoardOrderEnrichment {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
@@ -21,6 +28,8 @@ export interface BoardOrderEnrichment {
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
+  /** Latest shipping portal state for the order. */
+  shippingSignByOrder: Record<string, BoardShippingSign>;
 }
 
 const emptyEnrichment = (): BoardOrderEnrichment => ({
@@ -29,6 +38,7 @@ const emptyEnrichment = (): BoardOrderEnrichment => ({
   notificationBadgeByOrder: {},
   ownerNameByOrder: {},
   designerNameByOrder: {},
+  shippingSignByOrder: {},
 });
 
 export async function enrichBoardOrders(
@@ -60,7 +70,14 @@ export async function enrichBoardOrders(
   }
   const uniqueDesignerIds = [...new Set(designerIdsNeeded)];
 
-  const [valuesRes, thumbnailByOrder, notifRes, ownerProfiles, designerProfiles] =
+  const [
+    valuesRes,
+    thumbnailByOrder,
+    notifRes,
+    ownerProfiles,
+    designerProfiles,
+    shippingRes,
+  ] =
     await Promise.all([
       supabase
         .from("custom_field_values")
@@ -127,6 +144,12 @@ export async function enrichBoardOrders(
         : Promise.resolve({
             data: [] as { id: string; full_name: string | null }[],
           }),
+
+      supabase
+        .from("shipping_requests")
+        .select("order_id, status, client_choice, fedex_selection, created_at")
+        .in("order_id", orderIds)
+        .order("created_at", { ascending: false }),
     ]);
 
   const fieldValuesByOrder: Record<string, Record<string, unknown>> = {};
@@ -204,11 +227,27 @@ export async function enrichBoardOrders(
     }
   }
 
+  const shippingSignByOrder: Record<string, BoardShippingSign> = {};
+  // Table may be missing until migration 0044 is applied.
+  if (!shippingRes.error) {
+    for (const row of (shippingRes.data ?? []) as {
+      order_id: string;
+      status: ShippingRequestStatus;
+      client_choice: ShippingClientChoice | null;
+      fedex_selection: FedExRateOption | null;
+    }[]) {
+      if (shippingSignByOrder[row.order_id]) continue;
+      const sign = boardShippingSignFromRequest(row);
+      if (sign) shippingSignByOrder[row.order_id] = sign;
+    }
+  }
+
   return {
     fieldValuesByOrder,
     thumbnailByOrder,
     notificationBadgeByOrder,
     ownerNameByOrder,
     designerNameByOrder,
+    shippingSignByOrder,
   };
 }
