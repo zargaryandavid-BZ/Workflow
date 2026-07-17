@@ -30,6 +30,8 @@ export interface BoardOrderEnrichment {
   designerNameByOrder: Record<string, string>;
   /** Latest shipping portal state for the order. */
   shippingSignByOrder: Record<string, BoardShippingSign>;
+  /** ISO date when customer last approved (customer_approval + approved). */
+  approvalDateByOrder: Record<string, string>;
 }
 
 const emptyEnrichment = (): BoardOrderEnrichment => ({
@@ -39,6 +41,7 @@ const emptyEnrichment = (): BoardOrderEnrichment => ({
   ownerNameByOrder: {},
   designerNameByOrder: {},
   shippingSignByOrder: {},
+  approvalDateByOrder: {},
 });
 
 export async function enrichBoardOrders(
@@ -124,7 +127,7 @@ export async function enrichBoardOrders(
       supabase
         .from("job_notifications")
         .select(
-          "order_id, type, channel, status, customer_response, created_at"
+          "order_id, type, channel, status, customer_response, responded_at, created_at"
         )
         .in("order_id", orderIds)
         .in("status", ["pending", "sent", "responded"])
@@ -162,13 +165,24 @@ export async function enrichBoardOrders(
   }
 
   const notificationBadgeByOrder: Record<string, CardNotificationBadge> = {};
+  const approvalDateByOrder: Record<string, string> = {};
   for (const row of (notifRes.data ?? []) as {
     order_id: string;
     type: NotificationType;
     channel: NotificationChannel;
     status: NotificationStatus;
     customer_response: CustomerResponse | null;
+    responded_at: string | null;
   }[]) {
+    if (
+      !approvalDateByOrder[row.order_id] &&
+      row.type === "customer_approval" &&
+      row.status === "responded" &&
+      row.customer_response === "approved" &&
+      row.responded_at
+    ) {
+      approvalDateByOrder[row.order_id] = row.responded_at;
+    }
     if (notificationBadgeByOrder[row.order_id]) continue;
     const badge = notificationToCardBadge(
       row.type,
@@ -249,5 +263,6 @@ export async function enrichBoardOrders(
     ownerNameByOrder,
     designerNameByOrder,
     shippingSignByOrder,
+    approvalDateByOrder,
   };
 }

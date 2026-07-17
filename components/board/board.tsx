@@ -160,6 +160,9 @@ export function Board({
   const [shippingSignByOrder, setShippingSignByOrder] = useState<
     Record<string, BoardShippingSign>
   >({});
+  const [approvalDateByOrder, setApprovalDateByOrder] = useState<
+    Record<string, string>
+  >({});
 
   // ── UI state ────────────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -351,6 +354,7 @@ export function Board({
             ownerNameByOrder: data.ownerNameByOrder,
             designerNameByOrder: data.designerNameByOrder,
             shippingSignByOrder: data.shippingSignByOrder ?? {},
+            approvalDateByOrder: data.approvalDateByOrder ?? {},
           });
 
           // Unique text search (XXX-1, or XXX with only one part): jump to its column.
@@ -577,6 +581,10 @@ export function Board({
         setShippingSignByOrder((prev) => ({
           ...prev,
           ...(data.shippingSignByOrder ?? {}),
+        }));
+        setApprovalDateByOrder((prev) => ({
+          ...prev,
+          ...(data.approvalDateByOrder ?? {}),
         }));
 
         const hasOverflow =
@@ -1334,6 +1342,9 @@ export function Board({
   const displayShippingSignByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.shippingSignByOrder
     : shippingSignByOrder;
+  const displayApprovalDateByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.approvalDateByOrder
+    : approvalDateByOrder;
 
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
@@ -1614,6 +1625,7 @@ export function Board({
                 ownerNameByOrder={displayOwnerNameByOrder}
                 groupSizeByOrder={groupSizeByOrder}
                 shippingSignByOrder={displayShippingSignByOrder}
+                approvalDateByOrder={displayApprovalDateByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
                 webhookSourceStyles={webhookSourceStyles}
@@ -1664,6 +1676,7 @@ export function Board({
               notificationBadge={displayNotificationBadgeByOrder[activeOrder.id]}
               ownerName={displayOwnerNameByOrder[activeOrder.id]}
               shippingSign={displayShippingSignByOrder[activeOrder.id]}
+              approvalDate={displayApprovalDateByOrder[activeOrder.id] ?? null}
               warningRules={warningRules}
               animateWarnings={animateWarnings}
               webhookSourceStyles={webhookSourceStyles}

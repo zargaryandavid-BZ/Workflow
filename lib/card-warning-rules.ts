@@ -46,7 +46,7 @@ export interface ActiveWarning {
 }
 
 /** Counts working days (Mon–Fri) between two timestamps. */
-function workingDaysBetween(fromMs: number, toMs: number): number {
+export function workingDaysBetween(fromMs: number, toMs: number): number {
   if (toMs <= fromMs) return 0;
   let count = 0;
   // Walk day by day from start to end
@@ -65,6 +65,17 @@ function workingDaysBetween(fromMs: number, toMs: number): number {
     cursor = new Date(cursor.getTime() + msPerDay);
   }
   return count;
+}
+
+/** Working days since the card last changed columns (`last_moved_at`). */
+export function daysInCurrentColumn(
+  lastMovedAt: string | null | undefined,
+  nowMs: number = Date.now()
+): number | null {
+  if (!lastMovedAt) return null;
+  const movedAt = new Date(lastMovedAt).getTime();
+  if (Number.isNaN(movedAt)) return null;
+  return Math.floor(workingDaysBetween(movedAt, nowMs));
 }
 
 export function getActiveWarning(

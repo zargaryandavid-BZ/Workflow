@@ -19,6 +19,7 @@ export interface SearchOrdersResponse {
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
   shippingSignByOrder: Record<string, BoardShippingSign>;
+  approvalDateByOrder: Record<string, string>;
 }
 
 /** PostgREST default max is 1000; page explicitly so filters cover every column. */
@@ -37,6 +38,7 @@ const emptyResponse = (): SearchOrdersResponse => ({
   ownerNameByOrder: {},
   designerNameByOrder: {},
   shippingSignByOrder: {},
+  approvalDateByOrder: {},
 });
 
 export async function GET(req: NextRequest) {

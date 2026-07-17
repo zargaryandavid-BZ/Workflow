@@ -6,6 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
   CalendarClock,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -14,6 +15,7 @@ import {
   Car,
   MapPin,
   MoveRight,
+  Timer,
   Truck,
   User,
 } from "lucide-react";
@@ -40,7 +42,11 @@ import {
 } from "@/lib/notification-messages";
 import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
-import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
+import {
+  getActiveWarning,
+  daysInCurrentColumn,
+  CARD_WARNING_BORDER_COLORS,
+} from "@/lib/card-warning-rules";
 import type {
   ButtonAutomation,
   CardWarningRule,
@@ -55,6 +61,7 @@ import {
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderBillingGlobe } from "./order-billing-globe";
+import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 
 interface ColumnOption {
@@ -75,6 +82,8 @@ interface OrderCardProps {
   designerName?: string;
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
+  /** ISO timestamp when the customer last approved artwork. */
+  approvalDate?: string | null;
   /** Client shipping choice after they responded on the portal. */
   shippingSign?: BoardShippingSign;
   groupSize?: number;
@@ -107,6 +116,7 @@ export function OrderCard({
   designerName: designerNameProp,
   notificationBadge,
   ownerName,
+  approvalDate = null,
   shippingSign,
   groupSize,
   warningRules = [],
@@ -166,6 +176,9 @@ export function OrderCard({
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules);
+  const daysHere = daysInCurrentColumn(order.last_moved_at);
+  const showTagsRow =
+    !!shippingSign || hasBillingInfo(billingFromSpecs(order.specs));
   const shippingBorderColor =
     !activeWarning ? shippingCardBorderColor(shippingSign) : null;
 
@@ -332,70 +345,58 @@ export function OrderCard({
           <div className="flex items-start gap-1.5">
             <div className="min-w-0 flex-1">
               {/* Customer name on first line, order number on second — each truncates with … */}
-              <div className="flex items-start justify-between gap-1.5">
-                <div className="min-w-0 flex-1">
-                  <WebhookSourceLabel
-                    webhookSource={order.webhook_source}
-                    sourceStyles={webhookSourceStyles}
-                  />
-                  {displayCustomerName ? (
-                    <button
-                      type="button"
-                      onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      title="Copy customer name"
-                      className="group/copy flex w-full min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
-                    >
-                      <span className="min-w-0 truncate">
-                        {copied === "customer-name" ? "Copied!" : displayCustomerName}
-                      </span>
-                      {copied === "customer-name" ? null : (
-                        <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-                      )}
-                    </button>
-                  ) : null}
+              <div className="min-w-0 flex-1">
+                <WebhookSourceLabel
+                  webhookSource={order.webhook_source}
+                  sourceStyles={webhookSourceStyles}
+                />
+                {displayCustomerName ? (
                   <button
                     type="button"
-                    onClick={(e) => copyText(e, order.title, "order")}
+                    onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
                     onPointerDown={(e) => e.stopPropagation()}
-                    title={`Copy order number (${order.title})`}
+                    title="Copy customer name"
                     className="group/copy flex w-full min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
                   >
                     <span className="min-w-0 truncate">
-                      {copied === "order" ? "Copied" : (
-                        <>
-                          {order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
-                          {groupSize != null && groupSize >= 2 ? (
-                            <span className="font-normal text-slate-400"> ({groupSize})</span>
-                          ) : null}
-                        </>
-                      )}
+                      {copied === "customer-name" ? "Copied!" : displayCustomerName}
                     </span>
-                    <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                    {copied === "customer-name" ? null : (
+                      <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                    )}
                   </button>
-                </div>
-                {order.due_date ? (
-                  <span
-                    className="inline-flex shrink-0 items-center gap-0.5 pt-0.5 text-[11px] font-medium text-slate-500"
-                    title={`Due ${formatDate(order.due_date)}`}
-                  >
-                    <CalendarClock className="h-3.5 w-3.5" />
-                    {formatDateShort(order.due_date)}
+                ) : null}
+                <button
+                  type="button"
+                  onClick={(e) => copyText(e, order.title, "order")}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  title={`Copy order number (${order.title})`}
+                  className="group/copy flex w-full min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
+                >
+                  <span className="min-w-0 truncate">
+                    {copied === "order" ? "Copied" : (
+                      <>
+                        {order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+                        {groupSize != null && groupSize >= 2 ? (
+                          <span className="font-normal text-slate-400"> ({groupSize})</span>
+                        ) : null}
+                      </>
+                    )}
                   </span>
+                  <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                </button>
+                {summaryTrailingParts.length > 0 ? (
+                  <p
+                    lang="en"
+                    className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
+                  >
+                    · {summaryTrailingParts.join(" · ")}
+                  </p>
                 ) : null}
               </div>
 
+              {showTagsRow ? (
               <div className="mt-1.5 flex items-center gap-2">
-                <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                <span className="text-[11px] leading-snug text-slate-400">{formatDateShort(order.created_at)}</span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                    PRIORITY_STYLES[order.priority]
-                  )}
-                >
-                  {order.priority}
-                </span>
                 {shippingSign ? (
                   <span
                     className={cn(
@@ -420,6 +421,7 @@ export function OrderCard({
                 ) : null}
                 <OrderBillingGlobe specs={order.specs} />
               </div>
+              ) : null}
             </div>
 
             <button
@@ -440,21 +442,59 @@ export function OrderCard({
         </div>
       </div>
 
-      {/* Specs line — full card width, fills to the edge with hyphenated wraps */}
-      {summaryTrailingParts.length > 0 ? (
-        <p
-          lang="en"
-          className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
-        >
-          · {summaryTrailingParts.join(" · ")}
-        </p>
-      ) : null}
-
       {/* Divider — full card width */}
       <div className="mt-2.5 border-t border-slate-100" />
 
+      {/* Dates + priority — below separator, above footer tags */}
+      <div className="mt-2 flex w-full items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] leading-none text-slate-500">
+          <span
+            className="inline-flex items-center gap-0.5"
+            title={`Created ${formatDate(order.created_at)}`}
+          >
+            <Clock className="h-3 w-3 shrink-0 text-slate-400" />
+            {formatDateShort(order.created_at)}
+          </span>
+          {order.due_date ? (
+            <span
+              className="inline-flex items-center gap-0.5 font-medium text-slate-600"
+              title={`Due ${formatDate(order.due_date)}`}
+            >
+              <CalendarClock className="h-3 w-3 shrink-0" />
+              {formatDateShort(order.due_date)}
+            </span>
+          ) : null}
+          {daysHere != null ? (
+            <span
+              className="inline-flex items-center gap-0.5"
+              title={`${daysHere} working day${daysHere === 1 ? "" : "s"} in this column`}
+            >
+              <Timer className="h-3 w-3 shrink-0 text-slate-400" />
+              {daysHere}d
+            </span>
+          ) : null}
+          {approvalDate ? (
+            <span
+              className="inline-flex items-center gap-0.5 text-green-700"
+              title={`Approved ${formatDate(approvalDate)}`}
+            >
+              <CheckCircle2 className="h-3 w-3 shrink-0" />
+              {formatDateShort(approvalDate)}
+            </span>
+          ) : null}
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+            PRIORITY_STYLES[order.priority]
+          )}
+        >
+          {order.priority}
+        </span>
+      </div>
+
       {/* Footer — full-width row; each chip gets flex-1 so all chips together = 100% card width */}
-      <div className="mt-2.5 flex w-full items-stretch overflow-hidden rounded-full text-[clamp(9px,3.1cqi,11px)]">
+      <div className="mt-2 flex w-full items-stretch overflow-hidden rounded-full text-[clamp(9px,3.1cqi,11px)]">
         {notificationBadge && orderTags.length === 0 ? (
           <span
             className={cn(

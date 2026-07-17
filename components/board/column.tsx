@@ -59,6 +59,7 @@ interface ColumnProps {
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   shippingSignByOrder?: Record<string, BoardShippingSign>;
+  approvalDateByOrder?: Record<string, string>;
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
@@ -135,6 +136,7 @@ export function Column({
   notificationBadgeByOrder,
   ownerNameByOrder,
   shippingSignByOrder = {},
+  approvalDateByOrder = {},
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
@@ -402,6 +404,7 @@ export function Column({
                     }
                     ownerName={ownerNameByOrder[entry.order.id]}
                     shippingSign={shippingSignByOrder[entry.order.id]}
+                    approvalDate={approvalDateByOrder[entry.order.id] ?? null}
                     groupSize={groupSizeByOrder[entry.order.id]}
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
@@ -429,6 +432,7 @@ export function Column({
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}
                   shippingSign={shippingSignByOrder[order.id]}
+                  approvalDate={approvalDateByOrder[order.id] ?? null}
                   groupSize={groupSizeByOrder[order.id]}
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}

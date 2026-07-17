@@ -16,6 +16,7 @@ export interface ColumnOrdersResponse {
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
   shippingSignByOrder: Record<string, BoardShippingSign>;
+  approvalDateByOrder: Record<string, string>;
   hasMore: boolean;
   total: number;
   page: number;
@@ -71,6 +72,7 @@ export async function GET(req: NextRequest) {
     ownerNameByOrder: {},
     designerNameByOrder: {},
     shippingSignByOrder: {},
+    approvalDateByOrder: {},
     hasMore: false,
     total,
     page,
