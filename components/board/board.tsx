@@ -174,6 +174,13 @@ export function Board({
   const [searchEnrichments, setSearchEnrichments] =
     useState<BoardOrderEnrichment | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  /** Avoid re-scrolling for the same unique query while results refresh. */
+  const lastAutoNavQueryRef = useRef("");
+  /** Scroll target after a unique search (may wait for a hidden column to reappear). */
+  const pendingSearchNavRef = useRef<{
+    columnId: string;
+    orderId: string;
+  } | null>(null);
 
   const detailGroupSize = useMemo(() => {
     if (!detailId) return undefined;
@@ -306,8 +313,13 @@ export function Board({
   // When filters are active, search the full database instead of filtering
   // only the lazily-loaded pages already in memory.
   useEffect(() => {
+    const q = orderQuery.trim();
     const filtersActive =
-      orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
+      q !== "" || personFilter !== "" || ownerFilter !== "";
+
+    if (!q) {
+      lastAutoNavQueryRef.current = "";
+    }
 
     if (!filtersActive) {
       setSearchResults(null);
@@ -322,16 +334,14 @@ export function Board({
       void (async () => {
         try {
           const params = new URLSearchParams();
-          if (orderQuery.trim()) params.set("q", orderQuery.trim());
+          if (q) params.set("q", q);
           if (personFilter) params.set("designerId", personFilter);
           if (ownerFilter) params.set("ownerId", ownerFilter);
-
 
           const res = await fetch(`/api/board/search-orders?${params}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = (await res.json()) as SearchOrdersResponse;
           if (cancelled) return;
-
 
           setSearchResults(data.orders);
           setSearchEnrichments({
@@ -342,6 +352,26 @@ export function Board({
             designerNameByOrder: data.designerNameByOrder,
             shippingSignByOrder: data.shippingSignByOrder ?? {},
           });
+
+          // Unique text search (XXX-1, or XXX with only one part): jump to its column.
+          // Multiple hits for a base order (XXX-1 + XXX-2) stay put — no navigation.
+          if (
+            q &&
+            data.orders.length === 1 &&
+            lastAutoNavQueryRef.current !== q
+          ) {
+            lastAutoNavQueryRef.current = q;
+            const columnId = data.orders[0].column_id;
+            const orderId = data.orders[0].id;
+            pendingSearchNavRef.current = { columnId, orderId };
+            setHiddenColIds((prev) => {
+              if (!prev.has(columnId)) return prev;
+              const next = new Set(prev);
+              next.delete(columnId);
+              saveHiddenColumnIds(tenantId, next);
+              return next;
+            });
+          }
         } catch (err) {
           console.error("[Board] Failed to search orders:", err);
           // Keep searchResults null so the board falls back to filtering
@@ -360,7 +390,34 @@ export function Board({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [orderQuery, personFilter, ownerFilter]);
+  }, [orderQuery, personFilter, ownerFilter, tenantId]);
+
+  // Scroll to the unique search hit once its column is visible in the DOM.
+  useEffect(() => {
+    const pending = pendingSearchNavRef.current;
+    if (!pending) return;
+    if (hiddenColIds.has(pending.columnId)) return;
+
+    const { columnId, orderId } = pending;
+    pendingSearchNavRef.current = null;
+
+    const id = window.requestAnimationFrame(() => {
+      const columnEl = document.querySelector(`[data-column-id="${columnId}"]`);
+      if (columnEl) {
+        columnEl.scrollIntoView({
+          behavior: "smooth",
+          inline: "center",
+          block: "nearest",
+        });
+        return;
+      }
+      document.querySelector(`[data-order-id="${orderId}"]`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [hiddenColIds, searchResults, boardView]);
 
   function closeOrderDetail() {
     setDetailId(null);

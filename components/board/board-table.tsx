@@ -346,6 +346,7 @@ export function BoardTable({
             return (
               <tr
                 key={order.id}
+                data-order-id={order.id}
                 className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/60"
                 onClick={() => onOpenOrder(order)}
                 onContextMenu={(e) => {

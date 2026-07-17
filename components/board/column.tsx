@@ -237,6 +237,7 @@ export function Column({
   return (
     <div
       ref={setRefs}
+      data-column-id={column.id}
       className={cn(
         "flex h-full w-80 shrink-0 flex-col rounded-lg transition-[opacity,box-shadow]",
         isDragActive && !canAcceptDrop && "opacity-50",
