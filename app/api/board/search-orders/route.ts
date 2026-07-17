@@ -3,6 +3,10 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { enrichBoardOrders } from "@/lib/board-order-enrichment";
 import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
+import {
+  CUSTOMER_CONTACT_FIELD_NAME,
+  CUSTOMER_NAME_FIELD_NAME,
+} from "@/lib/constants";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
@@ -20,6 +24,21 @@ export interface SearchOrdersResponse {
 /** PostgREST default max is 1000; page explicitly so filters cover every column. */
 const FETCH_PAGE = 1000;
 
+/** Escape `%`, `_`, and `,` for PostgREST `or` / `ilike` filter strings. */
+function escapeIlike(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/[%_,]/g, "\\$&");
+}
+
+const emptyResponse = (): SearchOrdersResponse => ({
+  orders: [],
+  fieldValuesByOrder: {},
+  thumbnailByOrder: {},
+  notificationBadgeByOrder: {},
+  ownerNameByOrder: {},
+  designerNameByOrder: {},
+  shippingSignByOrder: {},
+});
+
 export async function GET(req: NextRequest) {
   const ctx = await getTenantContext();
   if (!ctx) {
@@ -27,9 +46,13 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = req.nextUrl;
-  const q = searchParams.get("q") ?? "";
+  const q = (searchParams.get("q") ?? "").trim();
   const designerId = searchParams.get("designerId") ?? "";
   const ownerId = searchParams.get("ownerId") ?? "";
+
+  if (!q && !designerId && !ownerId) {
+    return NextResponse.json(emptyResponse());
+  }
 
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
@@ -42,8 +65,57 @@ export async function GET(req: NextRequest) {
 
   const customFields = (fieldsRes.data ?? []) as CustomField[];
 
-  // Fetch every matching order across pages so unloaded / "Load more" cards
-  // are included in board filtration.
+  // Narrow at the DB instead of loading every order then filtering in JS.
+  let matchedCustomerIds: string[] = [];
+  let matchedOrderIdsFromFields: string[] = [];
+
+  if (q) {
+    const pattern = `%${escapeIlike(q)}%`;
+    const nameFieldIds = customFields
+      .filter(
+        (f) =>
+          f.name.toLowerCase() === CUSTOMER_NAME_FIELD_NAME.toLowerCase() ||
+          f.name.toLowerCase() === CUSTOMER_CONTACT_FIELD_NAME.toLowerCase()
+      )
+      .map((f) => f.id);
+
+    const customersRes = await supabase
+      .from("customers")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .or(
+        [
+          `name.ilike.${pattern}`,
+          `email.ilike.${pattern}`,
+          `phone.ilike.${pattern}`,
+          `company.ilike.${pattern}`,
+        ].join(",")
+      )
+      .limit(200);
+
+    matchedCustomerIds = ((customersRes.data ?? []) as { id: string }[]).map(
+      (c) => c.id
+    );
+
+    // Best-effort: match Customer Name / Contact custom field values.
+    // Skip quietly if the cast filter isn't supported by PostgREST.
+    if (nameFieldIds.length > 0) {
+      const { data: cfRows, error: cfError } = await supabase
+        .from("custom_field_values")
+        .select("order_id")
+        .in("custom_field_id", nameFieldIds)
+        .filter("value::text", "ilike", pattern)
+        .limit(500);
+      if (!cfError && cfRows) {
+        matchedOrderIdsFromFields = [
+          ...new Set(
+            (cfRows as { order_id: string }[]).map((r) => r.order_id)
+          ),
+        ];
+      }
+    }
+  }
+
   const allOrders: OrderWithRelations[] = [];
   for (let from = 0; ; from += FETCH_PAGE) {
     let query = supabase
@@ -62,8 +134,21 @@ export async function GET(req: NextRequest) {
       query = query.eq("specs->>designer_id", designerId);
     }
 
+    if (q) {
+      const pattern = `%${escapeIlike(q)}%`;
+      const orParts = [`title.ilike.${pattern}`];
+      if (matchedCustomerIds.length > 0) {
+        orParts.push(`customer_id.in.(${matchedCustomerIds.join(",")})`);
+      }
+      if (matchedOrderIdsFromFields.length > 0) {
+        orParts.push(`id.in.(${matchedOrderIdsFromFields.join(",")})`);
+      }
+      query = query.or(orParts.join(","));
+    }
+
     const ordersRes = await query;
     if (ordersRes.error) {
+      console.error("[search-orders]", ordersRes.error);
       return NextResponse.json(
         { error: "Failed to fetch orders" },
         { status: 500 }
@@ -76,18 +161,11 @@ export async function GET(req: NextRequest) {
   }
 
   if (allOrders.length === 0) {
-    return NextResponse.json({
-      orders: [],
-      fieldValuesByOrder: {},
-      thumbnailByOrder: {},
-      notificationBadgeByOrder: {},
-      ownerNameByOrder: {},
-      designerNameByOrder: {},
-      shippingSignByOrder: {},
-    } satisfies SearchOrdersResponse);
+    return NextResponse.json(emptyResponse());
   }
 
-  // custom_field_values .in() also has practical size limits — chunk it.
+  // Only load field values for the narrowed candidate set (enrich also loads
+  // them; we need them here for orderMatchesBoardFilters accuracy).
   const fieldValuesByOrder: Record<string, Record<string, unknown>> = {};
   const orderIds = allOrders.map((o) => o.id);
   const VALUE_CHUNK = 200;

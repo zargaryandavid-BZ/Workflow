@@ -34,7 +34,7 @@ import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
-import { getGroupKey } from "@/lib/group-orders";
+import { getGroupKey, orderGroupSearchSuggestions } from "@/lib/group-orders";
 import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
 import { filterButtonsForColumn } from "@/lib/button-automations";
 import {
@@ -328,9 +328,9 @@ export function Board({
       return;
     }
 
-    setSearchLoading(true);
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      setSearchLoading(true);
       void (async () => {
         try {
           const params = new URLSearchParams();
@@ -384,7 +384,7 @@ export function Board({
           if (!cancelled) setSearchLoading(false);
         }
       })();
-    }, 300);
+    }, 400);
 
     return () => {
       cancelled = true;
@@ -405,14 +405,14 @@ export function Board({
       const columnEl = document.querySelector(`[data-column-id="${columnId}"]`);
       if (columnEl) {
         columnEl.scrollIntoView({
-          behavior: "smooth",
+          behavior: "instant",
           inline: "center",
           block: "nearest",
         });
         return;
       }
       document.querySelector(`[data-order-id="${orderId}"]`)?.scrollIntoView({
-        behavior: "smooth",
+        behavior: "instant",
         block: "nearest",
       });
     });
@@ -1306,6 +1306,16 @@ export function Board({
     ? (searchResults ?? localFilteredOrders)
     : orders;
 
+  /** e.g. typing "XXX" → suggest "XXX-(3)" with part titles to continue filtering. */
+  const orderGroupSuggestions = useMemo(
+    () =>
+      orderGroupSearchSuggestions(
+        orderQuery,
+        searchResults ?? localFilteredOrders
+      ),
+    [orderQuery, searchResults, localFilteredOrders]
+  );
+
   const displayFieldValuesByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.fieldValuesByOrder
     : fieldValuesByOrder;
@@ -1397,10 +1407,56 @@ export function Board({
             <Input
               value={orderQuery}
               onChange={(e) => setOrderQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && orderGroupSuggestions.length > 0) {
+                  e.currentTarget.blur();
+                }
+              }}
               placeholder="Filter by order, customer, email, phone…"
               className="h-9 w-full pl-8"
               aria-label="Filter by order number, customer name, email or phone"
+              aria-autocomplete="list"
+              aria-expanded={orderGroupSuggestions.length > 0}
             />
+            {orderGroupSuggestions.length > 0 ? (
+              <div
+                role="listbox"
+                aria-label="Matching multi-part orders"
+                className="absolute left-0 right-0 top-full z-40 mt-1 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+              >
+                {orderGroupSuggestions.map((suggestion) => (
+                  <div key={suggestion.key} className="border-b border-slate-100 last:border-b-0">
+                    <button
+                      type="button"
+                      role="option"
+                      className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setOrderQuery(`${suggestion.key}-`)}
+                      title="Continue typing the part number"
+                    >
+                      <span>{suggestion.label}</span>
+                      <span className="text-xs font-normal text-slate-500">
+                        {suggestion.parts.length} parts
+                      </span>
+                    </button>
+                    <div className="pb-1">
+                      {suggestion.parts.map((part) => (
+                        <button
+                          key={part.id}
+                          type="button"
+                          role="option"
+                          className="flex w-full px-3 py-1 pl-5 text-left text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setOrderQuery(part.title)}
+                        >
+                          {part.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
           <Select
             value={personFilter}

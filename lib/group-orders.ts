@@ -85,3 +85,58 @@ export function itemLabel(order: OrderWithRelations): string {
   const t = order.specs?.webhook_item_title;
   return typeof t === "string" && t.trim() ? t.trim() : order.title;
 }
+
+export interface OrderGroupSearchSuggestion {
+  key: string;
+  /** e.g. "ORD-2026-0098-(3)" */
+  label: string;
+  parts: OrderWithRelations[];
+}
+
+/**
+ * Multi-part order hints for the board filter (e.g. typing "XXX" → "XXX-(3)").
+ * Only considers order titles / group keys — not customer name matches.
+ */
+export function orderGroupSearchSuggestions(
+  query: string,
+  orders: OrderWithRelations[]
+): OrderGroupSearchSuggestion[] {
+  const q = query.trim();
+  // Ignore 1-char queries — too noisy for group hints.
+  if (q.length < 2 || orders.length < 2) return [];
+
+  const ql = q.toLowerCase();
+  const byKey = new Map<string, OrderWithRelations[]>();
+  for (const order of orders) {
+    const key = getGroupKey(order);
+    if (!key) continue;
+    const list = byKey.get(key);
+    if (list) list.push(order);
+    else byKey.set(key, [order]);
+  }
+
+  const out: OrderGroupSearchSuggestion[] = [];
+  for (const [key, parts] of byKey) {
+    if (parts.length < 2) continue;
+    const kl = key.toLowerCase();
+    const titleHit = parts.some((p) => p.title.toLowerCase().includes(ql));
+    const keyHit = kl.includes(ql) || ql.startsWith(kl);
+    if (!titleHit && !keyHit) continue;
+
+    // User already typed a specific part (XXX-1) and only that title matches — no hint.
+    const matchingTitles = parts.filter((p) =>
+      p.title.toLowerCase().includes(ql)
+    );
+    if (matchingTitles.length === 1 && /-\d+$/.test(q)) continue;
+
+    out.push({
+      key,
+      label: `${key}-(${parts.length})`,
+      parts: [...parts].sort((a, b) =>
+        a.title.localeCompare(b.title, undefined, { numeric: true })
+      ),
+    });
+  }
+
+  return out.slice(0, 5);
+}
