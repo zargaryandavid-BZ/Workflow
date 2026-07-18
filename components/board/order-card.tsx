@@ -186,9 +186,10 @@ export function OrderCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
+    // Animated warnings set border-color in keyframes; avoid an inline color fighting them.
     ...(activeWarning && !animateWarnings
       ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
-      : shippingBorderColor
+      : !activeWarning && shippingBorderColor
         ? { borderColor: shippingBorderColor }
         : {}),
   };
@@ -310,7 +311,10 @@ export function OrderCard({
       onClick={() => onOpen(order)}
       onContextMenu={handleContextMenu}
       className={cn(
-        "group relative @container shrink-0 overflow-hidden rounded-md border-2 shadow-sm transition-shadow hover:shadow-md",
+        "group relative @container shrink-0 overflow-hidden rounded-md border-2",
+        activeWarning && animateWarnings
+          ? ""
+          : "shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
           ? UNASSIGNED_DESIGNER_CARD_CLASS
           : "bg-white",
@@ -323,7 +327,7 @@ export function OrderCard({
       <div className={expanded ? "px-3.5 py-4" : "px-3 py-3.5"}>
       {activeWarning ? (
         <span
-          className={`warning-dot-${activeWarning.rule.color} absolute right-2 top-2 h-2.5 w-2.5 rounded-full`}
+          className={`warning-dot-${activeWarning.rule.color} absolute right-9 top-2 z-10 h-2.5 w-2.5 rounded-full`}
           title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
         />
       ) : null}

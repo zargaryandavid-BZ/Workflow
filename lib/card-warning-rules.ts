@@ -84,12 +84,11 @@ export function getActiveWarning(
 ): ActiveWarning | null {
   if (!order.last_moved_at) return null;
 
-  // No warnings on weekends
-  const todayDay = new Date().getDay(); // 0 = Sun, 6 = Sat
-  if (todayDay === 0 || todayDay === 6) return null;
+  const movedAt = new Date(order.last_moved_at).getTime();
+  if (Number.isNaN(movedAt)) return null;
 
   const now = Date.now();
-  const movedAt = new Date(order.last_moved_at).getTime();
+  // Threshold still counts Mon–Fri only; display/evaluate every day including weekends.
   const daysSinceMoved = workingDaysBetween(movedAt, now);
 
   const applicable = rules.filter((rule) => {
