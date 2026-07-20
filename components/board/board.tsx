@@ -1427,8 +1427,8 @@ export function Board({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 overflow-x-auto px-4 py-3">
+        <div className="flex shrink-0 items-center gap-3">
           <h1 className="text-lg font-semibold text-slate-800">
             Production Board
           </h1>
@@ -1470,8 +1470,8 @@ export function Board({
             />
           </div>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <div className="relative min-w-[10rem] flex-1 sm:w-56 sm:flex-none">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          <div className="relative min-w-[8rem] max-w-[14rem] flex-1 sm:max-w-[16rem]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={orderQuery}
@@ -1530,7 +1530,7 @@ export function Board({
           <Select
             value={personFilter}
             onChange={(e) => setPersonFilter(e.target.value)}
-            className="h-9 min-w-[8rem] max-w-[12rem] flex-1 truncate sm:w-44 sm:flex-none"
+            className="h-9 w-36 shrink-0 truncate text-sm sm:w-40"
             aria-label="Filter by person"
           >
             <option value="">All people</option>
@@ -1543,7 +1543,7 @@ export function Board({
           <Select
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}
-            className="h-9 min-w-[8rem] max-w-[12rem] flex-1 truncate sm:w-44 sm:flex-none text-sm"
+            className="h-9 w-36 shrink-0 truncate text-sm sm:w-40"
             aria-label="Filter by owner"
           >
             <option value="">All owners</option>
@@ -1555,7 +1555,7 @@ export function Board({
           </Select>
           <label
             className={cn(
-              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
+              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-sm transition-colors",
               dueTodayOnly
                 ? "border-amber-300 bg-amber-50 text-amber-800"
                 : "border-slate-300 text-slate-600 hover:bg-slate-50"
@@ -1577,7 +1577,7 @@ export function Board({
           </label>
           <label
             className={cn(
-              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
+              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-sm transition-colors",
               overdueOnly
                 ? "border-red-300 bg-red-50 text-red-700"
                 : "border-slate-300 text-slate-600 hover:bg-slate-50"
