@@ -457,7 +457,7 @@ An optional `warning` string is included when:
 - `designer_information` / `designer_notes` / `design_task` are all aliases for the same designer notes field.
 - **Owner** fields (`owner_*` / `request_owner_*`) set the card Owner dropdown only when the user is an **account manager** on your team. Free-text `request_owner_name`, `request_owner_contact`, and `request_owner_phone` are always saved on the card.
 - New cards always land in the **first board column**.
-- **Not set via webhook:** Artwork GDrive link — staff enter this in the app.
+- **Artwork GDrive link:** Optionally auto-created via **Settings → GDrive** (`26-0098_Customer Name` / `26-0098_Final for Prod`). Otherwise staff enter it in the app.
 - **⚠️ Rotate your webhook secret before going to production.** Settings → Integrations → Webhook → Regenerate.
 
 ---

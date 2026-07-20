@@ -51,6 +51,9 @@ export default async function CardWarningsPage() {
         initialOpacity={ctx.tenant.warning_opacity ?? 30}
         initialSpeedMs={ctx.tenant.warning_speed_ms ?? 2500}
         initialSpreadPx={ctx.tenant.warning_spread_px ?? 3}
+        initialWorkingDays={
+          ctx.tenant.warning_working_days ?? [1, 2, 3, 4, 5]
+        }
       />
     </div>
   );

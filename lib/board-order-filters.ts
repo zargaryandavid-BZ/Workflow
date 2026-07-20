@@ -8,6 +8,27 @@ export interface BoardOrderFilters {
   q: string;
   personFilter: string;
   ownerFilter: string;
+  /** When true, only cards with a past due date (not in Done columns). */
+  overdueOnly?: boolean;
+  /** Column ids with kind `done` — excluded when overdueOnly is on. */
+  doneColumnIds?: ReadonlySet<string>;
+}
+
+/** Local calendar date as YYYY-MM-DD. */
+export function localDateString(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** True when due date is before the end of today (same rule as analytics). */
+export function isOrderOverdue(
+  dueDate: string | null | undefined,
+  nowMs: number = Date.now()
+): boolean {
+  if (!dueDate) return false;
+  return new Date(`${dueDate}T23:59:59`).getTime() < nowMs;
 }
 
 export function orderMatchesBoardFilters(
@@ -39,6 +60,10 @@ export function orderMatchesBoardFilters(
   }
   if (filters.ownerFilter && order.created_by !== filters.ownerFilter) {
     return false;
+  }
+  if (filters.overdueOnly) {
+    if (!isOrderOverdue(order.due_date)) return false;
+    if (filters.doneColumnIds?.has(order.column_id)) return false;
   }
   return true;
 }

@@ -9,6 +9,7 @@ import {
 import { ORDER_QTY_FIELD_NAME } from "@/lib/constants";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
+import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 
 export type CreateOrderInput = {
   title?: string;
@@ -23,7 +24,12 @@ export type CreateOrderInput = {
 };
 
 export type CreateOrderResult =
-  | { order: Record<string, unknown> }
+  | {
+      order: Record<string, unknown>;
+      gdriveFolderUrl?: string;
+      gdriveOpenOnCreate?: boolean;
+      gdriveWarning?: string;
+    }
   | { error: string; status: number };
 
 function productFromCustomFieldValues(
@@ -236,5 +242,19 @@ export async function createOrder(
     },
   });
 
-  return { order };
+  const gdrive = await attachGdriveFoldersToOrders(supabase, tenantId, [
+    {
+      id: order.id as string,
+      title: order.title as string,
+      customer_id: (order.customer_id as string | null) ?? null,
+      specs: (order.specs as Record<string, unknown> | null) ?? null,
+    },
+  ]);
+
+  return {
+    order,
+    ...(gdrive?.linkUrl ? { gdriveFolderUrl: gdrive.linkUrl } : {}),
+    ...(gdrive ? { gdriveOpenOnCreate: gdrive.openOnCreate } : {}),
+    ...(gdrive?.warning ? { gdriveWarning: gdrive.warning } : {}),
+  };
 }

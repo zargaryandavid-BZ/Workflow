@@ -16,7 +16,15 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Activity, LayoutDashboard, Layers, Search, Table2, X } from "lucide-react";
+import {
+  Activity,
+  CalendarClock,
+  LayoutDashboard,
+  Layers,
+  Search,
+  Table2,
+  X,
+} from "lucide-react";
 import { Column } from "./column";
 import { BoardTable } from "./board-table";
 import { ColumnVisibilityDropdown } from "./column-visibility-dropdown";
@@ -89,6 +97,8 @@ interface BoardProps {
   warningAnimationOpacity?: number;
   warningAnimationSpeedMs?: number;
   warningAnimationSpreadPx?: number;
+  /** Weekdays that count toward stale warnings (Date.getDay: 0–6). */
+  warningWorkingDays?: number[];
   webhookSourceStyles?: WebhookSourceStyles;
   initialOrderId?: string | null;
   appUrl: string;
@@ -114,6 +124,7 @@ export function Board({
   warningAnimationOpacity = 30,
   warningAnimationSpeedMs = 2500,
   warningAnimationSpreadPx = 3,
+  warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles = undefined,
   initialOrderId = null,
   appUrl,
@@ -171,6 +182,7 @@ export function Board({
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
     null
   );
@@ -211,10 +223,29 @@ export function Board({
     return { sameColumnCount: sameCount, columnName: colName };
   }, [detailId, orders, searchResults, columns]);
 
+  const doneColumnIds = useMemo(
+    () => new Set(columns.filter((c) => c.kind === "done").map((c) => c.id)),
+    [columns]
+  );
+
+  const boardFilters = useMemo(
+    () => ({
+      q: orderQuery,
+      personFilter,
+      ownerFilter,
+      overdueOnly,
+      doneColumnIds,
+    }),
+    [orderQuery, personFilter, ownerFilter, overdueOnly, doneColumnIds]
+  );
+
   /** Maps every orderId to its cross-column group size (only set when ≥ 2). */
   const groupSizeByOrder = useMemo(() => {
     const filtersOn =
-      orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
+      orderQuery.trim() !== "" ||
+      personFilter !== "" ||
+      ownerFilter !== "" ||
+      overdueOnly;
     const source = filtersOn
       ? (searchResults ??
         orders.filter((order) =>
@@ -222,7 +253,7 @@ export function Board({
             order,
             fieldValuesByOrder[order.id] ?? {},
             customFields,
-            { q: orderQuery, personFilter, ownerFilter }
+            boardFilters
           )
         ))
       : orders;
@@ -246,6 +277,8 @@ export function Board({
     orderQuery,
     personFilter,
     ownerFilter,
+    overdueOnly,
+    boardFilters,
     fieldValuesByOrder,
     customFields,
   ]);
@@ -318,7 +351,7 @@ export function Board({
   useEffect(() => {
     const q = orderQuery.trim();
     const filtersActive =
-      q !== "" || personFilter !== "" || ownerFilter !== "";
+      q !== "" || personFilter !== "" || ownerFilter !== "" || overdueOnly;
 
     if (!q) {
       lastAutoNavQueryRef.current = "";
@@ -340,6 +373,7 @@ export function Board({
           if (q) params.set("q", q);
           if (personFilter) params.set("designerId", personFilter);
           if (ownerFilter) params.set("ownerId", ownerFilter);
+          if (overdueOnly) params.set("overdueOnly", "1");
 
           const res = await fetch(`/api/board/search-orders?${params}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -394,7 +428,7 @@ export function Board({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [orderQuery, personFilter, ownerFilter, tenantId]);
+  }, [orderQuery, personFilter, ownerFilter, overdueOnly, tenantId]);
 
   // Scroll to the unique search hit once its column is visible in the DOM.
   useEffect(() => {
@@ -1193,7 +1227,7 @@ export function Board({
     }
 
     const placementSource =
-      personFilter || ownerFilter || orderQuery.trim()
+      personFilter || ownerFilter || orderQuery.trim() || overdueOnly
         ? (searchResults ?? orders)
         : orders;
     const columnOrders = placementSource
@@ -1280,32 +1314,28 @@ export function Board({
   // ── Filters ──────────────────────────────────────────────────────────────────
   const ownerFilterOptions = owners;
   const filtersActive =
-    orderQuery.trim() !== "" || personFilter !== "" || ownerFilter !== "";
+    orderQuery.trim() !== "" ||
+    personFilter !== "" ||
+    ownerFilter !== "" ||
+    overdueOnly;
 
   // Prefer full-DB search results. While search is in flight (or if it fails
   // open), fall back to filtering already-loaded cards so matches in visible
   // columns still appear. Search covers unloaded / "Load more" pages.
   const localFilteredOrders = useMemo(() => {
     if (!filtersActive) return orders;
-    const filters = {
-      q: orderQuery,
-      personFilter,
-      ownerFilter,
-    };
     return orders.filter((order) =>
       orderMatchesBoardFilters(
         order,
         fieldValuesByOrder[order.id] ?? {},
         customFields,
-        filters
+        boardFilters
       )
     );
   }, [
     filtersActive,
     orders,
-    orderQuery,
-    personFilter,
-    ownerFilter,
+    boardFilters,
     fieldValuesByOrder,
     customFields,
   ]);
@@ -1495,6 +1525,24 @@ export function Board({
               </option>
             ))}
           </Select>
+          <label
+            className={cn(
+              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
+              overdueOnly
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50"
+            )}
+            title="Show only cards past their due date (excludes Done)"
+          >
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={overdueOnly}
+              onChange={(e) => setOverdueOnly(e.target.checked)}
+            />
+            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+            Overdue
+          </label>
           {filtersActive ? (
             <button
               type="button"
@@ -1502,6 +1550,7 @@ export function Board({
                 setOrderQuery("");
                 setPersonFilter("");
                 setOwnerFilter("");
+                setOverdueOnly(false);
               }}
               className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-sm text-slate-600 hover:bg-slate-50"
             >
@@ -1584,6 +1633,7 @@ export function Board({
           groupSizeByOrder={groupSizeByOrder}
           warningRules={warningRules}
           animateWarnings={animateWarnings}
+          warningWorkingDays={warningWorkingDays}
           webhookSourceStyles={webhookSourceStyles}
           role={role}
           getMoveableColumns={getMoveableColumns}
@@ -1628,6 +1678,7 @@ export function Board({
                 approvalDateByOrder={displayApprovalDateByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
+                warningWorkingDays={warningWorkingDays}
                 webhookSourceStyles={webhookSourceStyles}
                 isFirst={index === 0}
                 availableColumns={getMoveableColumns(column.id)}
@@ -1679,6 +1730,7 @@ export function Board({
               approvalDate={displayApprovalDateByOrder[activeOrder.id] ?? null}
               warningRules={warningRules}
               animateWarnings={animateWarnings}
+              warningWorkingDays={warningWorkingDays}
               webhookSourceStyles={webhookSourceStyles}
               columnColor={activeOrderColumnColor}
               onOpen={() => {}}

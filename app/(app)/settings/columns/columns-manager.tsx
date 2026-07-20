@@ -19,8 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { BOARD_ROLES, ROLE_ABBR, ROLE_LABELS } from "@/lib/constants";
 import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { RoleOrIndividualPicker, type PickerValue, type TeamMember } from "@/components/RoleOrIndividualPicker";
+import { StaffVisibilityMatrix } from "./staff-visibility-matrix";
 import type { ColumnMember } from "./page";
 import type { BoardColumn, ColumnKind, Role } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const KINDS: { value: ColumnKind; label: string; hint: string }[] = [
   { value: "normal", label: "Normal", hint: "Standard pipeline stage" },
@@ -107,6 +109,7 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
   const [columns, setColumns] = useState<BoardColumn[]>(initialColumns);
   const [editing, setEditing] = useState<BoardColumn | "new" | null>(null);
   const [deleting, setDeleting] = useState<BoardColumn | null>(null);
+  const [tab, setTab] = useState<"columns" | "staff">("columns");
 
   useEffect(() => setColumns(initialColumns), [initialColumns]);
 
@@ -130,12 +133,52 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setEditing("new")}>
-          <Plus className="h-4 w-4" /> Add column
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <button
+            type="button"
+            onClick={() => setTab("columns")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === "columns"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            Columns
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("staff")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === "staff"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            Staff visibility
+          </button>
+        </div>
+        {tab === "columns" ? (
+          <Button onClick={() => setEditing("new")}>
+            <Plus className="h-4 w-4" /> Add column
+          </Button>
+        ) : null}
       </div>
 
+      {tab === "staff" ? (
+        <StaffVisibilityMatrix
+          columns={columns}
+          members={members}
+          onColumnUpdated={(updated) => {
+            setColumns((prev) =>
+              prev.map((c) => (c.id === updated.id ? updated : c))
+            );
+          }}
+        />
+      ) : (
+      <>
       <ul className="space-y-1.5">
         {columns.map((col, index) => (
           <li
@@ -224,6 +267,8 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
           </li>
         ))}
       </ul>
+      </>
+      )}
 
       {editing ? (
         <ColumnEditor

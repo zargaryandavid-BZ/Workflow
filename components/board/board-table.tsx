@@ -72,6 +72,7 @@ interface BoardTableProps {
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
+  warningWorkingDays?: number[];
   webhookSourceStyles?: WebhookSourceStyles;
   role: Role;
   getMoveableColumns: (fromColumnId: string) => ColumnOption[];
@@ -108,6 +109,7 @@ export function BoardTable({
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
+  warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles,
   role,
   getMoveableColumns,
@@ -325,7 +327,11 @@ export function BoardTable({
             const skuCount = cardSkuCount(order.specs);
 
             const orderTags = orderTagsFromSpecs(order.specs);
-            const activeWarning = getActiveWarning(order, warningRules);
+            const activeWarning = getActiveWarning(
+              order,
+              warningRules,
+              warningWorkingDays
+            );
             const isDesignerUnassigned = !designerName;
 
             const moveableColumns = getMoveableColumns(order.column_id);

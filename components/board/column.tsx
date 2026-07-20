@@ -63,6 +63,7 @@ interface ColumnProps {
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
+  warningWorkingDays?: number[];
   webhookSourceStyles?: WebhookSourceStyles;
   isFirst: boolean;
   /** Columns this card can be moved to via right-click (pre-filtered by board). */
@@ -140,6 +141,7 @@ export function Column({
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
+  warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles,
   isFirst,
   availableColumns,
@@ -408,6 +410,7 @@ export function Column({
                     groupSize={groupSizeByOrder[entry.order.id]}
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
+                    warningWorkingDays={warningWorkingDays}
                     webhookSourceStyles={webhookSourceStyles}
                     columnColor={column.color}
                     availableColumns={availableColumns}
@@ -436,6 +439,7 @@ export function Column({
                   groupSize={groupSizeByOrder[order.id]}
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}
+                  warningWorkingDays={warningWorkingDays}
                   webhookSourceStyles={webhookSourceStyles}
                   columnColor={column.color}
                   availableColumns={availableColumns}

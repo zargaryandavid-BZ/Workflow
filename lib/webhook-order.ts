@@ -24,6 +24,7 @@ import {
   parseWebhookBilling,
   type OrderBillingInfo,
 } from "@/lib/order-billing";
+import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -1831,6 +1832,35 @@ export async function createOrderFromWebhook(
     allWarnings.push(
       `Auto-corrected fields: ${allCorrections.join("; ")}`
     );
+  }
+
+  // One Drive folder tree per webhook order number; same link on every part card.
+  if (createdJobs.length > 0) {
+    try {
+      const { data: createdOrders } = await client
+        .from("orders")
+        .select("id, title, customer_id, specs")
+        .eq("tenant_id", tenantId)
+        .in(
+          "id",
+          createdJobs.map((j) => j.order_id)
+        );
+      const gdrive = await attachGdriveFoldersToOrders(
+        client,
+        tenantId,
+        (createdOrders ?? []) as Array<{
+          id: string;
+          title: string;
+          customer_id?: string | null;
+          specs?: Record<string, unknown> | null;
+        }>
+      );
+      if (gdrive?.warning) allWarnings.push(gdrive.warning);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[webhook/orders] gdrive error:", message);
+      allWarnings.push(`Google Drive: ${message}`);
+    }
   }
 
   const warning =

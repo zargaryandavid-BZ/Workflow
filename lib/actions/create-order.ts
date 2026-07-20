@@ -17,5 +17,10 @@ export async function createOrderAction(body: CreateOrderInput) {
     return { error: result.error };
   }
 
-  return { order: result.order };
+  return {
+    order: result.order,
+    gdriveFolderUrl: result.gdriveFolderUrl,
+    gdriveOpenOnCreate: result.gdriveOpenOnCreate,
+    gdriveWarning: result.gdriveWarning,
+  };
 }

@@ -51,8 +51,11 @@ export async function GET(req: NextRequest) {
   const q = (searchParams.get("q") ?? "").trim();
   const designerId = searchParams.get("designerId") ?? "";
   const ownerId = searchParams.get("ownerId") ?? "";
+  const overdueOnly =
+    searchParams.get("overdueOnly") === "1" ||
+    searchParams.get("overdueOnly") === "true";
 
-  if (!q && !designerId && !ownerId) {
+  if (!q && !designerId && !ownerId && !overdueOnly) {
     return NextResponse.json(emptyResponse());
   }
 
@@ -135,6 +138,14 @@ export async function GET(req: NextRequest) {
     if (designerId) {
       query = query.eq("specs->>designer_id", designerId);
     }
+    if (overdueOnly) {
+      // Due before today's local calendar date (due today is not overdue yet).
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, "0");
+      const d = String(today.getDate()).padStart(2, "0");
+      query = query.not("due_date", "is", null).lt("due_date", `${y}-${m}-${d}`);
+    }
 
     if (q) {
       const pattern = `%${escapeIlike(q)}%`;
@@ -187,7 +198,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const filters = { q, personFilter: designerId, ownerFilter: ownerId };
+  let doneColumnIds: Set<string> | undefined;
+  if (overdueOnly) {
+    const { data: doneCols } = await supabase
+      .from("board_columns")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("kind", "done");
+    doneColumnIds = new Set(
+      ((doneCols ?? []) as { id: string }[]).map((c) => c.id)
+    );
+  }
+
+  const filters = {
+    q,
+    personFilter: designerId,
+    ownerFilter: ownerId,
+    overdueOnly,
+    doneColumnIds,
+  };
   const orders = allOrders.filter((order) =>
     orderMatchesBoardFilters(
       order,

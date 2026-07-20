@@ -26,5 +26,10 @@ export async function POST(request: Request) {
     }
   );
 
-  return NextResponse.json({ order: result.order });
+  return NextResponse.json({
+    order: result.order,
+    gdriveFolderUrl: result.gdriveFolderUrl,
+    gdriveOpenOnCreate: result.gdriveOpenOnCreate,
+    gdriveWarning: result.gdriveWarning,
+  });
 }

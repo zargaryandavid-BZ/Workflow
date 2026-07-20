@@ -155,6 +155,7 @@ export default async function BoardPage({
       warningAnimationOpacity={tenant.warning_opacity ?? 30}
       warningAnimationSpeedMs={tenant.warning_speed_ms ?? 2500}
       warningAnimationSpreadPx={tenant.warning_spread_px ?? 3}
+      warningWorkingDays={tenant.warning_working_days ?? [1, 2, 3, 4, 5]}
       role={ctx.role}
       columns={boardColumns}
       tags={(tagsRes.data ?? []) as Tag[]}

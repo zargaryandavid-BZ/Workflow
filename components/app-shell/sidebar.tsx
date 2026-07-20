@@ -8,6 +8,7 @@ import {
   ListChecks,
   Plug,
   Package,
+  HardDrive,
   Tag,
   Trash2,
   Workflow,
@@ -72,6 +73,12 @@ const nav = [
     href: "/settings/shipping",
     label: "Shipping",
     icon: Package,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/gdrive",
+    label: "GDrive",
+    icon: HardDrive,
     adminOnly: true,
   },
   {

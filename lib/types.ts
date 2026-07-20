@@ -51,6 +51,12 @@ export interface Tenant {
   warning_opacity: number;   // 5–100, default 30
   warning_speed_ms: number;  // 500–8000, default 2500
   warning_spread_px: number; // 1–20, default 3
+  /**
+   * Weekdays that count toward stale-card day thresholds.
+   * Same numbering as Date.getDay(): 0 = Sunday … 6 = Saturday.
+   * Default Mon–Fri: [1, 2, 3, 4, 5].
+   */
+  warning_working_days: number[];
 }
 
 export interface Profile {
@@ -558,6 +564,42 @@ export interface ShippingSettings {
 export interface MaskedSecret {
   set: boolean;
   preview: string | null;
+}
+
+/**
+ * Which Drive folder URL is saved on Artwork (GDrive link).
+ * Layout is job folder + production subfolder; `customer` and `order` both
+ * point at the job folder (`26-0098_Customer Name`).
+ */
+export type GdriveLinkTarget = "customer" | "order" | "final";
+
+export interface GdriveSettings {
+  tenant_id: string;
+  enabled: boolean;
+  client_email: string | null;
+  private_key: string | null;
+  /** Parent folder (or Shared Drive id) where customer folders are created. */
+  root_folder_id: string | null;
+  /** Shared Drive id for API corpora (often same as root_folder_id). */
+  shared_drive_id: string | null;
+  final_folder_name: string;
+  link_target: GdriveLinkTarget;
+  open_on_create: boolean;
+  updated_at: string;
+}
+
+export interface GdriveSettingsPublic {
+  tenant_id: string;
+  enabled: boolean;
+  client_email: string | null;
+  private_key: MaskedSecret;
+  root_folder_id: string | null;
+  shared_drive_id: string | null;
+  final_folder_name: string;
+  link_target: GdriveLinkTarget;
+  open_on_create: boolean;
+  updated_at: string;
+  configured: boolean;
 }
 
 export interface ShippingSettingsPublic {

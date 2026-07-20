@@ -10,7 +10,9 @@ import {
   CARD_WARNING_COLORS,
   CARD_WARNING_COLOR_LABELS,
   CARD_WARNING_COLOR_SWATCHES,
+  WEEKDAY_OPTIONS,
   isCardWarningColor,
+  normalizeWorkingDays,
 } from "@/lib/card-warning-rules";
 import type { BoardColumn, CardWarningColor, CardWarningRule } from "@/lib/types";
 
@@ -21,6 +23,7 @@ interface Props {
   initialOpacity: number;
   initialSpeedMs: number;
   initialSpreadPx: number;
+  initialWorkingDays: number[];
 }
 
 export function CardWarningsManager({
@@ -30,6 +33,7 @@ export function CardWarningsManager({
   initialOpacity,
   initialSpeedMs,
   initialSpreadPx,
+  initialWorkingDays,
 }: Props) {
   const router = useRouter();
   const [rules, setRules] = useState(initialRules);
@@ -40,6 +44,9 @@ export function CardWarningsManager({
   const [opacity, setOpacity]   = useState(initialOpacity);
   const [speedMs, setSpeedMs]   = useState(initialSpeedMs);
   const [spreadPx, setSpreadPx] = useState(initialSpreadPx);
+  const [workingDays, setWorkingDays] = useState<number[]>(() =>
+    normalizeWorkingDays(initialWorkingDays)
+  );
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
 
@@ -47,6 +54,7 @@ export function CardWarningsManager({
     warning_opacity?: number;
     warning_speed_ms?: number;
     warning_spread_px?: number;
+    warning_working_days?: number[];
   }) => {
     setSaving(true);
     setSaved(false);
@@ -58,7 +66,18 @@ export function CardWarningsManager({
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  }, []);
+    router.refresh();
+  }, [router]);
+
+  function toggleWorkingDay(day: number) {
+    if (disabled) return;
+    const next = workingDays.includes(day)
+      ? workingDays.filter((d) => d !== day)
+      : [...workingDays, day].sort((a, b) => a - b);
+    if (next.length === 0) return;
+    setWorkingDays(next);
+    void saveAnimation({ warning_working_days: next });
+  }
 
   async function toggleEnabled(rule: CardWarningRule) {
     const res = await fetch(`/api/card-warning-rules/${rule.id}`, {
@@ -241,6 +260,43 @@ export function CardWarningsManager({
               />
               <p className="mt-0.5 text-[11px] text-slate-400">
                 How far the glow extends beyond the card edge
+              </p>
+            </div>
+
+            {/* Working days */}
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="text-sm font-medium text-slate-700">
+                  Working days
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAY_OPTIONS.map(({ day, short }) => {
+                  const checked = workingDays.includes(day);
+                  return (
+                    <label
+                      key={day}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+                        checked
+                          ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
+                          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={checked}
+                        disabled={disabled || (checked && workingDays.length === 1)}
+                        onChange={() => toggleWorkingDay(day)}
+                      />
+                      {short}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Days that count toward warning thresholds and the days-in-column
+                number on cards. At least one day required.
               </p>
             </div>
 

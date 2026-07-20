@@ -147,6 +147,9 @@ export function CreateOrderModal({
       setError(json.error);
       return;
     }
+    if (json.gdriveFolderUrl && json.gdriveOpenOnCreate) {
+      window.open(json.gdriveFolderUrl, "_blank", "noopener,noreferrer");
+    }
     reset();
     onCreated();
   }

@@ -44,7 +44,7 @@ import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import {
   getActiveWarning,
-  daysInCurrentColumn,
+  formatTimeInColumn,
   CARD_WARNING_BORDER_COLORS,
 } from "@/lib/card-warning-rules";
 import type {
@@ -89,6 +89,7 @@ interface OrderCardProps {
   groupSize?: number;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
+  warningWorkingDays?: number[];
   webhookSourceStyles?: WebhookSourceStyles;
   /** Column accent color (hex) — used to tint the customer name at 70% opacity. */
   columnColor?: string | null;
@@ -121,6 +122,7 @@ export function OrderCard({
   groupSize,
   warningRules = [],
   animateWarnings = true,
+  warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles,
   columnColor,
   availableColumns = [],
@@ -175,8 +177,12 @@ export function OrderCard({
 
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
-  const activeWarning = getActiveWarning(order, warningRules);
-  const daysHere = daysInCurrentColumn(order.last_moved_at);
+  const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
+  const timeHere = formatTimeInColumn(
+    order.last_moved_at,
+    Date.now(),
+    warningWorkingDays
+  );
   const showTagsRow =
     !!shippingSign || hasBillingInfo(billingFromSpecs(order.specs));
   const shippingBorderColor =
@@ -468,13 +474,13 @@ export function OrderCard({
               {formatDateShort(order.due_date)}
             </span>
           ) : null}
-          {daysHere != null ? (
+          {timeHere ? (
             <span
               className="inline-flex items-center gap-0.5"
-              title={`${daysHere} working day${daysHere === 1 ? "" : "s"} in this column`}
+              title={timeHere.title}
             >
               <Timer className="h-3 w-3 shrink-0 text-slate-400" />
-              {daysHere}d
+              {timeHere.label}
             </span>
           ) : null}
           {approvalDate ? (
