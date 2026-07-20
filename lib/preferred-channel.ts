@@ -47,6 +47,35 @@ export function defaultSendChannel(
   return resolved === "sms" ? "sms" : "email";
 }
 
+/**
+ * Default channel selection for send/resend pickers.
+ * When both email and phone are available, select both so staff can send together.
+ */
+export function defaultSendChannels(
+  contact: { email: string | null; phone: string | null },
+  preferred: PreferredChannel | null | undefined,
+  smsConfigured = true
+): Array<"email" | "sms"> {
+  const canEmail = Boolean(contact.email?.trim());
+  const canSms = Boolean(contact.phone?.trim()) && smsConfigured;
+  if (canEmail && canSms) return ["email", "sms"];
+  if (canEmail) return ["email"];
+  if (canSms) return ["sms"];
+  const fallback = defaultSendChannel(contact, preferred, smsConfigured);
+  return [fallback];
+}
+
+export function channelFromSelection(
+  selected: ReadonlyArray<"email" | "sms">
+): "email" | "sms" | "both" | null {
+  const email = selected.includes("email");
+  const sms = selected.includes("sms");
+  if (email && sms) return "both";
+  if (email) return "email";
+  if (sms) return "sms";
+  return null;
+}
+
 export function destinationForChannel(
   contact: { email: string | null; phone: string | null },
   channel: "email" | "sms"

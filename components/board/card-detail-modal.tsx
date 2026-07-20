@@ -38,6 +38,7 @@ import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
+import { sharedOrderTitle } from "@/lib/group-orders";
 import type {
   Approval,
   ApprovalNote,
@@ -680,7 +681,8 @@ export function CardDetailModal({
             <WebhookSourceLabel
               webhookSource={data?.order.webhook_source}
               sourceStyles={webhookSourceStyles}
-              className="mb-0 truncate text-[10px] font-semibold uppercase tracking-wide leading-tight"
+              orderTitle={data?.order ? sharedOrderTitle(data.order) : null}
+              className="mb-0 flex min-w-0 max-w-[14rem] items-baseline gap-1 text-[10px] font-semibold leading-tight tracking-wide"
             />
             <button
               type="button"

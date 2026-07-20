@@ -54,7 +54,10 @@ export default async function GdriveSettingsPage() {
         <code className="rounded bg-slate-100 px-1 text-xs">
           26-0098_Customer Name / 26-0098_Final for Prod
         </code>{" "}
-        when jobs are created, and save the link on each card.
+        when jobs are created (multi-item:{" "}
+        <code className="rounded bg-slate-100 px-1 text-xs">…_1</code>,{" "}
+        <code className="rounded bg-slate-100 px-1 text-xs">…_2</code>
+        ), and save each card’s own Design files / Artwork link.
       </p>
       <GdriveSettingsManager initialSettings={settings} loadError={loadError} />
     </div>

@@ -11,7 +11,7 @@ import { MoveBlockedModal } from "./move-blocked-modal";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
-import { defaultSendChannel } from "@/lib/preferred-channel";
+import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
 import type { ApprovalNote, BoardColumn, Customer } from "@/lib/types";
 
@@ -33,9 +33,26 @@ function showCustomerLink(note: ApprovalNote) {
   );
 }
 
-function sentToLabel(note: ApprovalNote, customer: Customer | null) {
-  if (note.channel === "sms") return customer?.phone ?? "SMS";
-  if (note.channel === "email") return customer?.email ?? "Email";
+function channelLabel(channel: ApprovalNote["channel"]) {
+  if (channel === "both") return "Email + SMS";
+  if (channel === "sms") return "SMS";
+  if (channel === "email") return "Email";
+  return channel;
+}
+
+function sentToLabel(
+  note: ApprovalNote,
+  customer: Customer | null,
+  contactEmail?: string | null,
+  contactPhone?: string | null
+) {
+  const email = contactEmail ?? customer?.email ?? null;
+  const phone = contactPhone ?? customer?.phone ?? null;
+  if (note.channel === "both") {
+    return [email, phone].filter(Boolean).join(" · ") || "Email + SMS";
+  }
+  if (note.channel === "sms") return phone ?? "SMS";
+  if (note.channel === "email") return email ?? "Email";
   return "—";
 }
 
@@ -56,8 +73,8 @@ function NotifyRow({
   contactPhone?: string | null;
   onSent: () => void;
 }) {
-  const [channel, setChannel] = useState<"email" | "sms" | null>(() =>
-    defaultSendChannel(
+  const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
+    defaultSendChannels(
       {
         email: contactEmail ?? customer?.email ?? null,
         phone: contactPhone ?? customer?.phone ?? null,
@@ -77,8 +94,8 @@ function NotifyRow({
   useEffect(() => {
     setEmail(contactEmail ?? customer?.email ?? "");
     setPhone(contactPhone ?? customer?.phone ?? "");
-    setChannel(
-      defaultSendChannel(
+    setSelected(
+      defaultSendChannels(
         {
           email: contactEmail ?? customer?.email ?? null,
           phone: contactPhone ?? customer?.phone ?? null,
@@ -94,42 +111,58 @@ function NotifyRow({
     customer?.preferred_channel,
   ]);
 
+  function toggleChannel(next: "email" | "sms") {
+    setSelected((prev) =>
+      prev.includes(next) ? prev.filter((c) => c !== next) : [...prev, next]
+    );
+    setError(null);
+  }
+
   async function send() {
+    const channel = channelFromSelection(selected);
     if (!channel) return;
     setError(null);
-    if (channel === "sms") {
+    if (selected.includes("sms")) {
       const smsError = validateSmsRecipient(phone);
       if (smsError) {
         setError(smsError);
         return;
       }
-    } else if (!email.trim()) {
+    }
+    if (selected.includes("email") && !email.trim()) {
       setError("Customer email is required.");
       return;
     }
     setSending(true);
     try {
-      const { ok, data } = await postJsonWithTimeout<{ error?: string }>(
-        `/api/notifications/${note.id}/send`,
-        {
-          channel,
-          toEmail: channel === "email" ? email.trim() || undefined : undefined,
-          toPhone: channel === "sms" ? phone.trim() || undefined : undefined,
-        }
-      );
+      const { ok, data } = await postJsonWithTimeout<{
+        error?: string;
+        warning?: string | null;
+      }>(`/api/notifications/${note.id}/send`, {
+        channel,
+        toEmail: selected.includes("email")
+          ? email.trim() || undefined
+          : undefined,
+        toPhone: selected.includes("sms")
+          ? phone.trim() || undefined
+          : undefined,
+      });
       if (!ok) {
         setError(
           data.error ??
-            (channel === "sms"
+            (selected.includes("sms") && !selected.includes("email")
               ? "SMS failed to send. Please check Twilio config."
               : "Email failed. Check INSTANTLY_API_KEY.")
         );
         return;
       }
+      if (data.warning) {
+        setError(data.warning);
+      }
       onSent();
     } catch {
       setError(
-        channel === "sms"
+        selected.includes("sms") && !selected.includes("email")
           ? "SMS failed to send. Please check Twilio config."
           : "Email failed. Check INSTANTLY_API_KEY."
       );
@@ -138,6 +171,10 @@ function NotifyRow({
     }
   }
 
+  const wantEmail = selected.includes("email");
+  const wantSms = selected.includes("sms");
+  const hasSelection = wantEmail || wantSms;
+
   return (
     <div className="space-y-2 border-t border-slate-100 pt-3">
       <p className="text-sm font-medium text-slate-700">Resend notification</p>
@@ -145,10 +182,10 @@ function NotifyRow({
         <div className="flex shrink-0 gap-2">
           <button
             type="button"
-            onClick={() => setChannel(channel === "email" ? null : "email")}
+            onClick={() => toggleChannel("email")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              channel === "email"
+              wantEmail
                 ? "border-blue-500 bg-blue-50 text-blue-700"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50"
             )}
@@ -158,10 +195,10 @@ function NotifyRow({
           </button>
           <button
             type="button"
-            onClick={() => setChannel(channel === "sms" ? null : "sms")}
+            onClick={() => toggleChannel("sms")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              channel === "sms"
+              wantSms
                 ? "border-blue-500 bg-blue-50 text-blue-700"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50"
             )}
@@ -170,20 +207,16 @@ function NotifyRow({
             SMS
           </button>
         </div>
-        {channel ? (
+        {hasSelection && !(wantEmail && wantSms) ? (
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
             <Input
-              type={channel === "email" ? "email" : "tel"}
-              value={channel === "email" ? email : phone}
+              type={wantEmail ? "email" : "tel"}
+              value={wantEmail ? email : phone}
               onChange={(e) =>
-                channel === "email"
-                  ? setEmail(e.target.value)
-                  : setPhone(e.target.value)
+                wantEmail ? setEmail(e.target.value) : setPhone(e.target.value)
               }
               placeholder={
-                channel === "email"
-                  ? "customer@example.com"
-                  : "+1 555 123 4567"
+                wantEmail ? "customer@example.com" : "+1 555 123 4567"
               }
               className="h-9 min-w-0 flex-1 sm:max-w-xs"
             />
@@ -199,6 +232,33 @@ function NotifyRow({
           </div>
         ) : null}
       </div>
+      {wantEmail && wantSms ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="customer@example.com"
+            className="h-9 min-w-0 flex-1"
+          />
+          <Input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+1 555 123 4567"
+            className="h-9 min-w-0 flex-1"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={sending}
+            onClick={send}
+            className="shrink-0"
+          >
+            {sending ? "Sending…" : "Resend"}
+          </Button>
+        </div>
+      ) : null}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );
@@ -404,9 +464,16 @@ export function ApprovalTab({
         time: null,
       };
     }
+    if (note.status === "expired") {
+      return {
+        label: `📤 Sent via ${channelLabel(note.channel)}`,
+        className: "text-slate-500",
+        time: note.created_at,
+      };
+    }
     if (note.status === "sent" || note.status === "pending") {
       return {
-        label: "⏳ Waiting",
+        label: `⏳ Waiting · ${channelLabel(note.channel)}`,
         className: "text-amber-600",
         time: note.created_at,
       };
@@ -439,11 +506,11 @@ export function ApprovalTab({
           <p>
             <span className="font-medium text-slate-700">Sent: </span>
             {formatDateTime(latest.created_at)} via{" "}
-            {latest.channel === "sms" ? "SMS" : "Email"}
+            {channelLabel(latest.channel)}
           </p>
           <p className="mt-1">
             <span className="font-medium text-slate-700">To: </span>
-            {sentToLabel(latest, customer)}
+            {sentToLabel(latest, customer, contactEmail, contactPhone)}
           </p>
           {showCustomerLink(latest) ? (
             <div className="mt-3">
@@ -477,23 +544,30 @@ export function ApprovalTab({
 
       {renderLatestActions()}
 
-      {history.length > 1 ? (
+      {history.length > 0 ? (
         <div>
           <p className="mb-3 text-sm font-semibold text-slate-700">
             Communication history
           </p>
           <div className="space-y-3">
-            {history.map((note) => {
+            {[...history].reverse().map((note) => {
               const status = entryStatus(note);
+              const isLatest = note.id === latest.id;
               return (
                 <div
                   key={note.id}
-                  className="rounded-lg border border-slate-200 p-4 text-sm"
+                  className={cn(
+                    "rounded-lg border p-4 text-sm",
+                    isLatest
+                      ? "border-amber-200 bg-amber-50/40"
+                      : "border-slate-200"
+                  )}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="text-xs text-slate-500">
                       {formatDateTime(note.created_at)}
                       {note.creator_name ? ` · ${note.creator_name}` : ""}
+                      {isLatest ? " · Latest" : ""}
                     </p>
                     <span className={cn("font-medium", status.className)}>
                       {status.label}

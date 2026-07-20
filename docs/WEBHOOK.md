@@ -71,8 +71,8 @@ Send a `source` key (e.g. `"crm"`) to match **Settings → Integrations → Sour
   "order_qty": 3000,
   "artwork_url": "https://yourdomain.com/files/order-proof.pdf",
   "skus": [
-    { "sku_name": "Flavor A", "quantity": 1000, "artwork_url": "https://yourdomain.com/files/flavor-a.png" },
-    { "sku_name": "Flavor B", "quantity": 1000, "artwork_url": "https://yourdomain.com/files/flavor-b.png" },
+    { "sku_name": "Flavor A", "quantity": 1000, "description": "1 sku- 200 boxes- (matte finish)", "artwork_url": "https://yourdomain.com/files/flavor-a.png" },
+    { "sku_name": "Flavor B", "quantity": 1000, "description": "2 sided lb bag- (sample)", "artwork_url": "https://yourdomain.com/files/flavor-b.png" },
     { "sku_name": "Flavor C", "quantity": 1000, "artwork_url": "https://yourdomain.com/files/flavor-c.png" }
   ]
 }
@@ -158,7 +158,7 @@ When you pass `items[]`, each item becomes a separate board card numbered `ORD-0
 | `title` | string | Order title — auto-generated if omitted |
 | `priority` | string | `normal` · `high` · `low` · `urgent` (default: `normal`) |
 | `due_date` | string | `"YYYY-MM-DD"` — must be today or a future date |
-| `description` | string | Order-level notes — visible on all cards |
+| `description` | string | Order-level notes — combined into **Order Description** |
 | `category` | string | Category name (also accepts `category_name`) |
 | `source_url` | string | CRM / source order page URL — shown as **Source** on the card globe popover (aliases: `source_link`, `order_url`) |
 | `payment_status` | string | `partial` or `full` (also `paid` / `complete` → full). Alias: `payment` |
@@ -176,7 +176,8 @@ When you pass `items[]`, each item becomes a separate board card numbered `ORD-0
 | `designer_email` | string | Team member email — sets **Assigned Designer** |
 | `designer_id` | string | Team member UUID — sets **Assigned Designer** |
 | `designer` | string | Email, UUID, or display name — sets **Assigned Designer** |
-| `designer_information` | string | Designer notes (also `designer_notes`, `design_task`) |
+| `designer_information` | string | Designer Information custom field (also `designer_notes`) — **not** Design files |
+| `design_task` | string | **http(s) URL only** → Design files. Non-URL text is folded into Order Description |
 | `items` | array | Omit for legacy single-item flat format |
 
 ---
@@ -204,8 +205,9 @@ Each item object can override any order-level field. Fields not set on the item 
 | `perforation` | boolean | `true` / `false` |
 | `order_qty` | number | Auto-calculated from SKU quantities when omitted |
 | `artwork_url` | string | **Public URL** to the artwork file — stored as an external asset |
-| `description` | string | Item-level notes |
-| `designer_information` | string | Designer notes for this item |
+| `description` | string | Item-level notes — combined into **Order Description** |
+| `designer_information` | string | Designer Information custom field for this item |
+| `design_task` | string | http(s) URL → Design files; non-URL → Order Description |
 | `designer_email` | string | Overrides order-level assigned designer |
 | `designer_id` | string | Overrides order-level assigned designer |
 | `designer` | string | Overrides order-level assigned designer |
@@ -224,6 +226,7 @@ Each item object can override any order-level field. Fields not set on the item 
 | `sku_name` | string | Variant display name e.g. `"Flavor A"` |
 | `quantity` | number | Number of pieces for this variant |
 | `artwork_url` | string | Per-SKU artwork URL (overrides item-level `artwork_url` for this SKU) |
+| `description` | string | Line comment — combined into Order Description as `SKU1: …` (alias: `comment`) |
 
 ---
 
@@ -454,10 +457,17 @@ An optional `warning` string is included when:
 - `artwork_url` must be a **publicly accessible URL**. The file is linked as an external asset (not downloaded). Accepted formats: PDF, PNG, JPG, AI, EPS, etc.
 - Per-SKU `artwork_url` is stored against that specific SKU. Order-level `artwork_url` is stored as a general attachment.
 - Billing fields (`source_url`, `payment_status`, `deposit`, `balance`) are stored in `orders.specs.billing` and shown via a **globe** icon next to the priority chip. If none are sent, no globe appears.
-- `designer_information` / `designer_notes` / `design_task` are all aliases for the same designer notes field.
+- `designer_information` / `designer_notes` fill the **Designer Information** custom field only.
+- `design_task` must be an **http(s) URL** for **Design files** (GDrive job folder). Non-URL text is treated as Order Description content.
+- Per-SKU `description` / `comment` values are combined into **Order Description** as:
+  ```
+  SKU1: first line comment
+  SKU2: second line comment
+  ```
 - **Owner** fields (`owner_*` / `request_owner_*`) set the card Owner dropdown only when the user is an **account manager** on your team. Free-text `request_owner_name`, `request_owner_contact`, and `request_owner_phone` are always saved on the card.
 - New cards always land in the **first board column**.
-- **Artwork GDrive link:** Optionally auto-created via **Settings → GDrive** (`26-0098_Customer Name` / `26-0098_Final for Prod`). Otherwise staff enter it in the app.
+- **Artwork GDrive link:** Optionally auto-created via **Settings → GDrive**. Single-item: `26-0098_Customer Name` / `26-0098_Final for Prod`. Multi-item: `26-0098_Customer Name_1` / `26-0098_Final for Prod_1` (and `_2`, …) with each card linked to its own folder. Otherwise staff enter it in the app.
+- **Design files** (`specs.design_task`) is set to the GDrive **job folder** URL when GDrive automation runs.
 - **⚠️ Rotate your webhook secret before going to production.** Settings → Integrations → Webhook → Regenerate.
 
 ---

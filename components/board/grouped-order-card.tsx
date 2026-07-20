@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PRIORITY_STYLES } from "@/lib/constants";
-import { itemLabel, type GroupEntry } from "@/lib/group-orders";
+import { itemLabel, sharedOrderTitle, type GroupEntry } from "@/lib/group-orders";
 import { customerNameFromOrder } from "@/lib/notification-messages";
 import { cn, formatDateShort } from "@/lib/utils";
 import type { CustomField, Designer, OrderWithRelations } from "@/lib/types";
@@ -187,6 +187,7 @@ export function GroupedOrderCard({
             <WebhookSourceLabel
               webhookSource={rep.webhook_source}
               sourceStyles={webhookSourceStyles}
+              orderTitle={sharedOrderTitle(rep)}
             />
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 shrink-0 text-blue-500" />

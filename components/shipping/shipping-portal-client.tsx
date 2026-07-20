@@ -32,6 +32,10 @@ export interface ShippingPortalData {
   expiredWarning: boolean;
   paymentEnabled: boolean;
   pickupLines: string[];
+  offerPickup: boolean;
+  offerFedex: boolean;
+  offerUber: boolean;
+  offerCurri: boolean;
   paymentReturnSessionId?: string | null;
   paymentCancelled?: boolean;
   /** Board-card main image (SKU gallery / order asset). */
@@ -105,6 +109,17 @@ function formatMoney(amount: number | null, currency: string) {
 }
 
 function formatTransit(rate: FedExRateOption) {
+  if (rate.provider === "curri") {
+    if (rate.transitDays) return rate.transitDays;
+    switch ((rate.priority ?? "sameday").toLowerCase()) {
+      case "rush":
+        return "2–4 hours";
+      case "scheduled":
+        return "Scheduled";
+      default:
+        return "By end of day";
+    }
+  }
   if (rate.deliveryDate) {
     try {
       return new Date(rate.deliveryDate).toLocaleDateString("en-US", {
@@ -122,7 +137,22 @@ function formatTransit(rate: FedExRateOption) {
   return "Est. arrival TBD";
 }
 
+function rateKey(rate: FedExRateOption) {
+  return [
+    rate.provider ?? "fedex",
+    rate.quoteId ?? "",
+    rate.serviceType,
+    rate.priority ?? "",
+  ].join(":");
+}
+
+function isSameRate(a: FedExRateOption | null, b: FedExRateOption) {
+  if (!a) return false;
+  return rateKey(a) === rateKey(b);
+}
+
 export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
+  const offerDelivery = data.offerFedex || data.offerCurri;
   const [step, setStep] = useState<
     "choose" | "pickup" | "delivery" | "uber" | "done"
   >(
@@ -177,29 +207,32 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     setError(null);
     setStep("delivery");
     try {
+      const rate = data.fedexSelection ?? selectedRate;
+      const choice: ShippingClientChoice =
+        rate?.provider === "curri" ? "curri" : "delivery";
       const res = await fetch(`/api/shipping/${data.token}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          choice: "delivery",
+          choice,
           checkoutSessionId,
-          fedexSelection: data.fedexSelection ?? selectedRate,
+          fedexSelection: rate,
           deliveryAddress: data.deliveryAddress ?? address,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (res.status === 409) {
-          setDoneChoice("delivery");
-          setDoneRate(data.fedexSelection ?? selectedRate);
+          setDoneChoice(choice);
+          setDoneRate(rate);
           setDoneAddress(data.deliveryAddress ?? address);
           setStep("done");
           return;
         }
         throw new Error(json.error ?? "Failed to confirm after payment");
       }
-      setDoneChoice("delivery");
-      setDoneRate(data.fedexSelection ?? selectedRate);
+      setDoneChoice(choice);
+      setDoneRate(rate);
       setDoneAddress(data.deliveryAddress ?? address);
       setStep("done");
     } catch (err) {
@@ -256,21 +289,82 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     }
     setLoadingRates(true);
     try {
-      const res = await fetch(`/api/shipping/${data.token}/fedex-rates`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deliveryAddress: address }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error ?? "Failed to get shipping rates");
+      const payload = JSON.stringify({ deliveryAddress: address });
+      const headers = { "Content-Type": "application/json" };
+
+      const fetches: Promise<{
+        ok: boolean;
+        rates: FedExRateOption[];
+        paymentEnabled?: boolean;
+        error?: string;
+        source: "fedex" | "curri";
+      }>[] = [];
+
+      if (data.offerFedex) {
+        fetches.push(
+          fetch(`/api/shipping/${data.token}/fedex-rates`, {
+            method: "POST",
+            headers,
+            body: payload,
+          }).then(async (res) => {
+            const json = await res.json().catch(() => ({}));
+            return {
+              ok: res.ok,
+              rates: (json.rates ?? []) as FedExRateOption[],
+              paymentEnabled: Boolean(json.paymentEnabled),
+              error:
+                typeof json.error === "string" ? json.error : undefined,
+              source: "fedex" as const,
+            };
+          })
+        );
       }
-      const nextRates = (json.rates ?? []) as FedExRateOption[];
+
+      if (data.offerCurri) {
+        fetches.push(
+          fetch(`/api/shipping/${data.token}/curri-rates`, {
+            method: "POST",
+            headers,
+            body: payload,
+          }).then(async (res) => {
+            const json = await res.json().catch(() => ({}));
+            // Curri out-of-area → empty rates, never block FedEx.
+            return {
+              ok: true,
+              rates: res.ok ? ((json.rates ?? []) as FedExRateOption[]) : [],
+              paymentEnabled: Boolean(json.paymentEnabled),
+              source: "curri" as const,
+            };
+          })
+        );
+      }
+
+      const results = await Promise.all(fetches);
+      const fedexResult = results.find((r) => r.source === "fedex");
+      if (fedexResult && !fedexResult.ok) {
+        throw new Error(fedexResult.error ?? "Failed to get FedEx rates");
+      }
+
+      const fedexRates = (fedexResult?.rates ?? []).map((r) => ({
+        ...r,
+        provider: "fedex" as const,
+      }));
+      const curriRates = (
+        results.find((r) => r.source === "curri")?.rates ?? []
+      ).map((r) => ({ ...r, provider: "curri" as const }));
+
+      const nextRates = [...curriRates, ...fedexRates].sort((a, b) => {
+        const ac = a.totalCharge ?? Number.POSITIVE_INFINITY;
+        const bc = b.totalCharge ?? Number.POSITIVE_INFINITY;
+        return ac - bc;
+      });
+
+      const paymentEnabled = results.some((r) => r.paymentEnabled);
       setRates(nextRates);
-      setPaymentRequired(Boolean(json.paymentEnabled));
+      setPaymentRequired(paymentEnabled);
       setSelectedRate(nextRates[0] ?? null);
       if (nextRates.length === 0) {
-        setError("No FedEx rates returned for this address.");
+        setError("No delivery rates returned for this address.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to get rates");
@@ -326,6 +420,8 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     }
     setConfirming(true);
     setError(null);
+    const choice: ShippingClientChoice =
+      selectedRate.provider === "curri" ? "curri" : "delivery";
     try {
       if (paymentRequired) {
         const res = await fetch(
@@ -354,7 +450,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          choice: "delivery",
+          choice,
           fedexSelection: selectedRate,
           deliveryAddress: address,
         }),
@@ -363,7 +459,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       if (!res.ok) {
         throw new Error(json.error ?? "Failed to confirm delivery");
       }
-      setDoneChoice("delivery");
+      setDoneChoice(choice);
       setDoneRate(selectedRate);
       setDoneAddress(address);
       setStep("done");
@@ -424,57 +520,73 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
           <p className="text-sm font-medium text-slate-800">
             How would you like to receive your order?
           </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => {
-                setStep("pickup");
-                setError(null);
-              }}
-              className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
-            >
-              <UserRound className="mb-2 h-5 w-5 text-slate-600" />
-              <p className="font-semibold text-slate-900">Self Pickup</p>
-              <div className="mt-2 space-y-0.5 text-sm text-slate-600">
-                {pickupLines.slice(0, 2).map((line) => (
-                  <p key={line}>{line}</p>
-                ))}
-                {pickupLines[2] ? (
-                  <p className="pt-1 text-xs leading-snug text-slate-500">
-                    {pickupLines[2]}
-                  </p>
-                ) : null}
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStep("delivery");
-                setError(null);
-              }}
-              className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
-            >
-              <Truck className="mb-2 h-5 w-5 text-slate-600" />
-              <p className="font-semibold text-slate-900">Shipping</p>
-              <p className="mt-1 text-sm text-slate-500">
-                We ship to you via FedEx
-              </p>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStep("uber");
-                setError(null);
-              }}
-              className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
-            >
-              <Car className="mb-2 h-5 w-5 text-slate-600" />
-              <p className="font-semibold text-slate-900">Uber Delivery</p>
-              <p className="mt-1 text-sm text-slate-500">
-                Local delivery to your address
-              </p>
-            </button>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {data.offerPickup ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("pickup");
+                  setError(null);
+                }}
+                className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
+              >
+                <UserRound className="mb-2 h-5 w-5 text-slate-600" />
+                <p className="font-semibold text-slate-900">Self Pickup</p>
+                <div className="mt-2 space-y-0.5 text-sm text-slate-600">
+                  {pickupLines.slice(0, 2).map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                  {pickupLines[2] ? (
+                    <p className="pt-1 text-xs leading-snug text-slate-500">
+                      {pickupLines[2]}
+                    </p>
+                  ) : null}
+                </div>
+              </button>
+            ) : null}
+            {offerDelivery ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("delivery");
+                  setError(null);
+                }}
+                className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
+              >
+                <Truck className="mb-2 h-5 w-5 text-slate-600" />
+                <p className="font-semibold text-slate-900">Delivery</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {data.offerFedex && data.offerCurri
+                    ? "FedEx and Curri rates to your address"
+                    : data.offerCurri
+                      ? "Curri courier delivery to your address"
+                      : "We ship to you via FedEx"}
+                </p>
+              </button>
+            ) : null}
+            {data.offerUber ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("uber");
+                  setError(null);
+                }}
+                className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
+              >
+                <Car className="mb-2 h-5 w-5 text-slate-600" />
+                <p className="font-semibold text-slate-900">Delivery Uber</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Local delivery to your address
+                </p>
+              </button>
+            ) : null}
           </div>
+          {!data.offerPickup && !offerDelivery && !data.offerUber ? (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              No delivery options are available right now. Please contact the
+              shop.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -682,20 +794,26 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             {loadingRates ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : null}
-            {loadingRates ? "Getting rates…" : "Get FedEx rates"}
+            {loadingRates
+              ? "Getting rates…"
+              : data.offerFedex && data.offerCurri
+                ? "Get delivery rates"
+                : data.offerCurri
+                  ? "Get Curri rates"
+                  : "Get FedEx rates"}
           </button>
 
           {rates.length > 0 ? (
             <div className="space-y-2 rounded-xl border border-slate-200 p-3">
               <p className="text-sm font-medium text-slate-800">
-                Select a shipping option
+                Select a delivery option
               </p>
               {rates.map((rate) => {
-                const selected =
-                  selectedRate?.serviceType === rate.serviceType;
+                const selected = isSameRate(selectedRate, rate);
+                const isCurri = rate.provider === "curri";
                 return (
                   <label
-                    key={rate.serviceType}
+                    key={rateKey(rate)}
                     className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm ${
                       selected
                         ? "border-slate-800 bg-slate-50"
@@ -707,11 +825,24 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                       checked={selected}
                       onChange={() => setSelectedRate(rate)}
                     />
-                    <span className="flex-1 font-medium text-slate-800">
-                      {rate.serviceName}
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex flex-wrap items-center gap-2 font-medium text-slate-800">
+                        {rate.serviceName}
+                        {isCurri ? (
+                          <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                            Curri · Same Day
+                          </span>
+                        ) : (
+                          <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">
+                            FedEx
+                          </span>
+                        )}
+                      </span>
                     </span>
-                    <span className="text-slate-500">{formatTransit(rate)}</span>
-                    <span className="font-semibold text-slate-900">
+                    <span className="shrink-0 text-slate-500">
+                      {formatTransit(rate)}
+                    </span>
+                    <span className="shrink-0 font-semibold text-slate-900">
                       {formatMoney(rate.totalCharge, rate.currency)}
                     </span>
                     {rate.fedexBaseCharge != null &&
@@ -735,7 +866,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 ) : null}
                 {paymentRequired
                   ? "Continue to Payment →"
-                  : "Confirm Shipping →"}
+                  : "Confirm Delivery →"}
               </button>
             </div>
           ) : null}
@@ -750,7 +881,9 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               ? "Self pickup confirmed"
               : doneChoice === "uber"
                 ? "Uber delivery confirmed"
-                : "Shipping preference saved"}
+                : doneRate?.provider === "curri"
+                  ? "Curri delivery confirmed"
+                  : "Shipping preference saved"}
           </p>
           {doneChoice === "pickup" ? (
             <div className="mt-3 text-sm text-emerald-800">

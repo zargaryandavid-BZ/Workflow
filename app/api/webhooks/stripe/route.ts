@@ -108,7 +108,7 @@ export async function POST(request: Request) {
 
     if (fedexSelection && deliveryAddress) {
       await completeShippingResponse(admin, token, {
-        choice: "delivery",
+        choice: fedexSelection.provider === "curri" ? "curri" : "delivery",
         fedexSelection,
         deliveryAddress,
         checkoutSessionId: session.id,

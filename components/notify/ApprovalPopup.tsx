@@ -13,7 +13,8 @@ import {
   productFromOrder,
 } from "@/lib/notification-messages";
 import {
-  destinationForChannel,
+  channelFromSelection,
+  defaultSendChannels,
   resolvePreferredNotifyChannel,
 } from "@/lib/preferred-channel";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
@@ -21,7 +22,7 @@ import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
-type Channel = "email" | "sms" | "manual";
+type Mode = "notify" | "manual";
 
 interface Props {
   order: OrderWithRelations;
@@ -59,22 +60,26 @@ export function ApprovalPopup({
     [fieldValues, customFields]
   );
 
-  const [channel, setChannel] = useState<Channel>(() =>
-    resolvePreferredNotifyChannel(
-      contact,
-      order.customer?.preferred_channel,
-      smsConfigured
-    )
+  const initialResolved = resolvePreferredNotifyChannel(
+    contact,
+    order.customer?.preferred_channel,
+    smsConfigured
   );
-  const [to, setTo] = useState(() => {
-    const initial = resolvePreferredNotifyChannel(
-      contact,
-      order.customer?.preferred_channel,
-      smsConfigured
-    );
-    if (initial === "manual") return "";
-    return destinationForChannel(contact, initial);
-  });
+
+  const [mode, setMode] = useState<Mode>(() =>
+    initialResolved === "manual" ? "manual" : "notify"
+  );
+  const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
+    initialResolved === "manual"
+      ? defaultSendChannels(contact, order.customer?.preferred_channel, smsConfigured)
+      : defaultSendChannels(
+          contact,
+          order.customer?.preferred_channel,
+          smsConfigured
+        )
+  );
+  const [email, setEmail] = useState(contact.email ?? "");
+  const [phone, setPhone] = useState(contact.phone ?? "");
   const [subject, setSubject] = useState(() => approvalSubject(order.title));
   const [emailMessage, setEmailMessage] = useState(() =>
     buildApprovalEmailBody({
@@ -89,27 +94,48 @@ export function ApprovalPopup({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const wantEmail = mode === "notify" && selected.includes("email");
+  const wantSms = mode === "notify" && selected.includes("sms");
+  const isManual = mode === "manual";
+
+  function toggleChannel(next: "email" | "sms") {
+    setMode("notify");
+    setSelected((prev) => {
+      if (prev.includes(next)) {
+        const nextSel = prev.filter((c) => c !== next);
+        return nextSel.length === 0 ? prev : nextSel;
+      }
+      return [...prev, next];
+    });
+    setError(null);
+  }
+
+  function selectManual() {
+    setMode("manual");
+    setError(null);
+  }
+
   async function saveAndSend() {
     setError(null);
 
-    if (channel !== "manual") {
-      const destination = to.trim();
-      if (!destination) {
-        setError(
-          channel === "email"
-            ? "Customer email is required."
-            : "Customer phone number is required."
-        );
+    if (!isManual) {
+      const channel = channelFromSelection(selected);
+      if (!channel) {
+        setError("Select Email, SMS, or both.");
         return;
       }
-      if (channel === "sms") {
-        const smsError = validateSmsRecipient(destination);
+      if (wantEmail && !email.trim()) {
+        setError("Customer email is required.");
+        return;
+      }
+      if (wantSms) {
+        const smsError = validateSmsRecipient(phone);
         if (smsError) {
           setError(smsError);
           return;
         }
       }
-      if (channel === "email" && !emailMessage.trim()) {
+      if (wantEmail && !emailMessage.trim()) {
         setError("Email message is required.");
         return;
       }
@@ -117,8 +143,15 @@ export function ApprovalPopup({
 
     setLoading(true);
     try {
+      const channel = isManual ? "manual" : channelFromSelection(selected);
+      if (!channel) {
+        setError("Select Email, SMS, or both.");
+        setLoading(false);
+        return;
+      }
+
       const emailBody =
-        channel === "email"
+        wantEmail
           ? appendStaffNoteToEmail(emailMessage, staffNote)
           : undefined;
       const { ok, data } = await postJsonWithTimeout<{ error?: string }>(
@@ -128,46 +161,47 @@ export function ApprovalPopup({
           type: "customer_approval",
           channel,
           staffNote: staffNote.trim() || undefined,
-          subject: channel === "email" ? subject.trim() : undefined,
-          messageBody:
-            channel === "email"
-              ? emailBody
-              : channel === "sms"
-                ? buildApprovalSmsBody({
-                    customerName,
-                    productType: product,
-                    orderNumber: order.title,
-                    approvalLink: "[reply link added on send]",
-                    brandName: tenantName,
-                  })
-                : undefined,
-          toEmail: channel === "email" ? to.trim() || undefined : undefined,
-          toPhone: channel === "sms" ? to.trim() || undefined : undefined,
+          subject: wantEmail ? subject.trim() : undefined,
+          messageBody: wantEmail
+            ? emailBody
+            : wantSms
+              ? buildApprovalSmsBody({
+                  customerName,
+                  productType: product,
+                  orderNumber: order.title,
+                  approvalLink: "[reply link added on send]",
+                  brandName: tenantName,
+                })
+              : undefined,
+          toEmail: wantEmail ? email.trim() || undefined : undefined,
+          toPhone: wantSms ? phone.trim() || undefined : undefined,
         }
       );
       if (!ok) {
         setError(
           data.error ??
-            (channel === "sms"
+            (wantSms && !wantEmail
               ? "SMS failed to send. Please check Twilio config."
-              : channel === "email"
+              : wantEmail
                 ? "Email failed. Check INSTANTLY_API_KEY."
                 : "Failed to save")
         );
         return;
       }
-      if (channel === "manual") {
+      if (isManual) {
         onSent("Saved — manual follow-up");
+      } else if (channel === "both") {
+        onSent(`Approval request sent via Email + SMS to ${customerName}`);
       } else if (channel === "email") {
         onSent(`Approval request sent to ${customerName}`);
       } else {
-        onSent(`SMS sent to ${to.trim()}`);
+        onSent(`SMS sent to ${phone.trim()}`);
       }
     } catch {
       setError(
-        channel === "sms"
+        wantSms && !wantEmail
           ? "SMS failed to send. Please check Twilio config."
-          : channel === "email"
+          : wantEmail
             ? "Email failed. Check INSTANTLY_API_KEY."
             : "Failed to save"
       );
@@ -175,15 +209,6 @@ export function ApprovalPopup({
       setLoading(false);
     }
   }
-
-  function switchChannel(next: Channel) {
-    setChannel(next);
-    if (next === "email") setTo(contact.email ?? "");
-    else if (next === "sms") setTo(contact.phone ?? "");
-    setError(null);
-  }
-
-  const isManual = channel === "manual";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -224,10 +249,10 @@ export function ApprovalPopup({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => switchChannel("email")}
+                onClick={() => toggleChannel("email")}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                  channel === "email"
+                  wantEmail
                     ? "border-blue-500 bg-blue-50 text-blue-700"
                     : "border-slate-200 text-slate-600 hover:bg-slate-50"
                 )}
@@ -237,10 +262,10 @@ export function ApprovalPopup({
               </button>
               <button
                 type="button"
-                onClick={() => switchChannel("sms")}
+                onClick={() => toggleChannel("sms")}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                  channel === "sms"
+                  wantSms
                     ? "border-blue-500 bg-blue-50 text-blue-700"
                     : "border-slate-200 text-slate-600 hover:bg-slate-50"
                 )}
@@ -250,10 +275,10 @@ export function ApprovalPopup({
               </button>
               <button
                 type="button"
-                onClick={() => switchChannel("manual")}
+                onClick={selectManual}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-                  channel === "manual"
+                  isManual
                     ? "border-blue-500 bg-blue-50 text-blue-700"
                     : "border-slate-200 text-slate-600 hover:bg-slate-50"
                 )}
@@ -262,6 +287,11 @@ export function ApprovalPopup({
                 Manual
               </button>
             </div>
+            {!isManual ? (
+              <p className="mt-1.5 text-xs text-slate-500">
+                Select Email, SMS, or both when contact details are available.
+              </p>
+            ) : null}
           </div>
 
           {isManual ? (
@@ -271,35 +301,46 @@ export function ApprovalPopup({
             </p>
           ) : (
             <>
-              <div>
-                <Label htmlFor="approval-to">To</Label>
-                <Input
-                  id="approval-to"
-                  type={channel === "email" ? "email" : "tel"}
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  placeholder={
-                    channel === "email"
-                      ? "customer@example.com"
-                      : "+1 555 123 4567"
-                  }
-                />
-                {channel === "sms" && !smsConfigured ? (
-                  <p className="mt-1 text-xs text-amber-700">
-                    Twilio is not configured. Add Twilio credentials to
-                    .env.local and restart the dev server.
-                  </p>
-                ) : null}
-                {channel === "sms" && smsConfigured && !publicAppUrl ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Approval links use localhost and won&apos;t open on a
-                    customer&apos;s phone until you set NEXT_PUBLIC_APP_URL to
-                    your public domain.
-                  </p>
-                ) : null}
-              </div>
+              {wantEmail ? (
+                <div>
+                  <Label htmlFor="approval-email">Email</Label>
+                  <Input
+                    id="approval-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="customer@example.com"
+                  />
+                </div>
+              ) : null}
 
-              {channel === "email" ? (
+              {wantSms ? (
+                <div>
+                  <Label htmlFor="approval-phone">Phone</Label>
+                  <Input
+                    id="approval-phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+1 555 123 4567"
+                  />
+                  {!smsConfigured ? (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Twilio is not configured. Add Twilio credentials to
+                      .env.local and restart the dev server.
+                    </p>
+                  ) : null}
+                  {smsConfigured && !publicAppUrl ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Approval links use localhost and won&apos;t open on a
+                      customer&apos;s phone until you set NEXT_PUBLIC_APP_URL to
+                      your public domain.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {wantEmail ? (
                 <>
                   <div>
                     <Label htmlFor="approval-subject">Subject</Label>
@@ -320,12 +361,16 @@ export function ApprovalPopup({
                     />
                     <p className="mt-1 text-xs text-slate-400">
                       Edit the email sent to the customer. Keep{" "}
-                      <span className="font-mono">[reply link added on send]</span>{" "}
+                      <span className="font-mono">
+                        [reply link added on send]
+                      </span>{" "}
                       where the approval link should appear.
                     </p>
                   </div>
                 </>
-              ) : (
+              ) : null}
+
+              {wantSms ? (
                 <div>
                   <Label>Message preview (SMS)</Label>
                   <p className="mt-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -338,7 +383,7 @@ export function ApprovalPopup({
                     })}
                   </p>
                 </div>
-              )}
+              ) : null}
             </>
           )}
 
@@ -364,7 +409,11 @@ export function ApprovalPopup({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
-          <Button variant="ghost" onClick={onClose} disabled={loading || dismissing}>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            disabled={loading || dismissing}
+          >
             Cancel
           </Button>
           <Button onClick={saveAndSend} disabled={loading || dismissing}>

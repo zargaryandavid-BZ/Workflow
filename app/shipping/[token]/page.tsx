@@ -42,6 +42,10 @@ interface ShippingRpcRow {
   shipper_zip: string | null;
   shipper_country: string | null;
   pickup_hours_note: string | null;
+  offer_pickup: boolean | null;
+  offer_fedex: boolean | null;
+  offer_uber: boolean | null;
+  offer_curri: boolean | null;
 }
 
 function productFromFields(fields: Record<string, unknown> | null): string {
@@ -210,6 +214,10 @@ export default async function ShippingPortalPage({
     expiredWarning,
     paymentEnabled: Boolean(row.payment_enabled),
     pickupLines: pickupLinesFromRow(row),
+    offerPickup: row.offer_pickup !== false,
+    offerFedex: row.offer_fedex !== false,
+    offerUber: row.offer_uber !== false,
+    offerCurri: Boolean(row.offer_curri),
     paymentReturnSessionId,
     paymentCancelled: query.payment === "cancelled",
     mainImageUrl,

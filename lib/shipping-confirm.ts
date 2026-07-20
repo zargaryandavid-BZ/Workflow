@@ -52,7 +52,10 @@ export async function completeShippingResponse(
     };
   }
 
-  const needsAddress = args.choice === "delivery" || args.choice === "uber";
+  const needsAddress =
+    args.choice === "delivery" ||
+    args.choice === "uber" ||
+    args.choice === "curri";
   const deliveryAddress =
     needsAddress && args.deliveryAddress
       ? normalizeAddress(args.deliveryAddress)
@@ -64,8 +67,11 @@ export async function completeShippingResponse(
     .from("shipping_requests")
     .update({
       client_choice: args.choice,
+      // Rate quote (FedEx or Curri) — both live under fedex_selection jsonb.
       fedex_selection:
-        args.choice === "delivery" ? (args.fedexSelection ?? null) : null,
+        args.choice === "delivery" || args.choice === "curri"
+          ? (args.fedexSelection ?? null)
+          : null,
       delivery_address: deliveryAddress,
       delivery_notes: deliveryNotes,
       checkout_session_id: args.checkoutSessionId ?? null,

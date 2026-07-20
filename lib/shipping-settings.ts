@@ -34,6 +34,10 @@ function rowToSettings(row: Record<string, unknown>): ShippingSettings {
     shipper_zip: (row.shipper_zip as string | null) ?? null,
     shipper_country: (row.shipper_country as string | null) ?? "US",
     pickup_hours_note: (row.pickup_hours_note as string | null) ?? null,
+    offer_pickup: row.offer_pickup !== false,
+    offer_fedex: row.offer_fedex !== false,
+    offer_uber: row.offer_uber !== false,
+    offer_curri: Boolean(row.offer_curri),
     payment_enabled: Boolean(row.payment_enabled),
     stripe_publishable_key:
       (row.stripe_publishable_key as string | null) ?? null,
@@ -67,6 +71,10 @@ export function toPublicShippingSettings(
     shipper_zip: settings.shipper_zip,
     shipper_country: settings.shipper_country,
     pickup_hours_note: settings.pickup_hours_note,
+    offer_pickup: settings.offer_pickup,
+    offer_fedex: settings.offer_fedex,
+    offer_uber: settings.offer_uber,
+    offer_curri: settings.offer_curri,
     payment_enabled: settings.payment_enabled,
     stripe_publishable_key: settings.stripe_publishable_key,
     stripe_secret_key: maskSecret(settings.stripe_secret_key),
@@ -212,6 +220,27 @@ export function pickupLocationFromConfig(config: FedExConfig): string[] {
   return [street, `${city}, ${state} ${zip}`, config.pickupHoursNote];
 }
 
+/** Whether the client portal may offer this choice for the tenant. */
+export function isShippingChoiceOffered(
+  settings: ShippingSettings | null | undefined,
+  choice: "pickup" | "delivery" | "uber" | "curri"
+): boolean {
+  switch (choice) {
+    case "pickup":
+      return settings?.offer_pickup !== false;
+    case "delivery":
+      // Delivery step shows FedEx and/or Curri live rates.
+      return (
+        settings?.offer_fedex !== false || Boolean(settings?.offer_curri)
+      );
+    case "uber":
+      return settings?.offer_uber !== false;
+    case "curri":
+      // Legacy: Curri is now a rate under delivery; still allow stored responses.
+      return Boolean(settings?.offer_curri);
+  }
+}
+
 export type ShippingSettingsPatch = Partial<{
   fedex_api_key: string | null;
   fedex_secret_key: string | null;
@@ -223,6 +252,10 @@ export type ShippingSettingsPatch = Partial<{
   shipper_zip: string | null;
   shipper_country: string | null;
   pickup_hours_note: string | null;
+  offer_pickup: boolean;
+  offer_fedex: boolean;
+  offer_uber: boolean;
+  offer_curri: boolean;
   payment_enabled: boolean;
   stripe_publishable_key: string | null;
   stripe_secret_key: string | null;
@@ -250,6 +283,10 @@ export function buildShippingSettingsUpdate(
   copyIfDefined("shipper_zip");
   copyIfDefined("shipper_country");
   copyIfDefined("pickup_hours_note");
+  copyIfDefined("offer_pickup");
+  copyIfDefined("offer_fedex");
+  copyIfDefined("offer_uber");
+  copyIfDefined("offer_curri");
   copyIfDefined("payment_enabled");
   copyIfDefined("markup_fixed_cents");
   copyIfDefined("markup_percent");

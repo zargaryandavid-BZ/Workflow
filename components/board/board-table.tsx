@@ -50,6 +50,7 @@ import type { BoardShippingSign } from "@/lib/board-shipping";
 import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
+import { sharedOrderTitle } from "@/lib/group-orders";
 
 interface ColumnOption {
   id: string;
@@ -385,6 +386,7 @@ export function BoardTable({
                       <WebhookSourceLabel
                         webhookSource={order.webhook_source}
                         sourceStyles={webhookSourceStyles}
+                        orderTitle={sharedOrderTitle(order)}
                       />
                       {/* Customer + order number */}
                       <div className="flex items-baseline gap-1.5">
@@ -488,7 +490,8 @@ export function BoardTable({
                           <CreditCard className="h-2.5 w-2.5" />
                         ) : shippingSign.kind === "pickup" ? (
                           <MapPin className="h-2.5 w-2.5" />
-                        ) : shippingSign.kind === "uber" ? (
+                        ) : shippingSign.kind === "uber" ||
+                          shippingSign.kind === "curri" ? (
                           <Car className="h-2.5 w-2.5" />
                         ) : (
                           <Truck className="h-2.5 w-2.5" />

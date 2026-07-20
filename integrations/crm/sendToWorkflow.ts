@@ -71,6 +71,9 @@ export interface CrmSku {
   sku_name: string;
   quantity: number;
   artwork_url?: string | null;
+  /** Line comment — becomes `SKU1: …` in Workflow Order Description. */
+  description?: string | null;
+  comment?: string | null;
 }
 
 export interface CrmCustomer {
@@ -138,6 +141,7 @@ export async function sendToWorkflow(
       sku_name: s.sku_name,
       quantity: s.quantity,
       artwork_url: s.artwork_url ?? undefined,
+      description: s.description ?? s.comment ?? undefined,
     }));
   }
 

@@ -253,7 +253,9 @@ export async function createOrder(
 
   return {
     order,
-    ...(gdrive?.linkUrl ? { gdriveFolderUrl: gdrive.linkUrl } : {}),
+    ...(gdrive?.jobUrl || gdrive?.linkUrl
+      ? { gdriveFolderUrl: gdrive.jobUrl || gdrive.linkUrl }
+      : {}),
     ...(gdrive ? { gdriveOpenOnCreate: gdrive.openOnCreate } : {}),
     ...(gdrive?.warning ? { gdriveWarning: gdrive.warning } : {}),
   };

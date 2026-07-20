@@ -10,11 +10,15 @@ import { ensureOrderDriveFolders } from "@/lib/google-drive";
 
 type Client = SupabaseClient;
 
-/** Full order key used to derive the short Drive code (e.g. ORD-2026-0098). */
-function orderKeyFromOrder(order: {
+type OrderForGdrive = {
+  id: string;
   title: string;
+  customer_id?: string | null;
   specs?: Record<string, unknown> | null;
-}): string {
+};
+
+/** Full order key used to derive the short Drive code (e.g. ORD-2026-0098). */
+function orderKeyFromOrder(order: OrderForGdrive): string {
   const webhook =
     typeof order.specs?.webhook_order_number === "string"
       ? order.specs.webhook_order_number.trim()
@@ -26,6 +30,26 @@ function orderKeyFromOrder(order: {
   if (match) return match[1];
 
   return order.title.trim() || "Untitled order";
+}
+
+/**
+ * 1-based item index for multi-item Drive folders (`_1`, `_2`, …).
+ * Prefer specs.webhook_item_index (0-based), then title suffix, then fallbackIndex.
+ */
+function partIndexFromOrder(
+  order: OrderForGdrive,
+  fallbackIndex: number
+): number {
+  const fromSpecs = order.specs?.webhook_item_index;
+  if (typeof fromSpecs === "number" && Number.isFinite(fromSpecs)) {
+    return Math.max(1, Math.floor(fromSpecs) + 1);
+  }
+  const match = order.title.trim().match(/-(\d+)$/);
+  if (match) {
+    const n = Number.parseInt(match[1], 10);
+    if (Number.isFinite(n) && n >= 1) return n;
+  }
+  return fallbackIndex;
 }
 
 async function resolveCustomerName(
@@ -104,24 +128,56 @@ async function upsertArtworkLink(
 }
 
 export type AttachGdriveResult = {
+  /** URL saved on Artwork (per link_target; often Final for Prod). */
   linkUrl: string;
+  /** Job folder URL — also written to specs.design_task (Design files). */
+  jobUrl: string;
   openOnCreate: boolean;
   warning?: string;
 };
 
+async function upsertDesignTaskLink(
+  client: Client,
+  orderIds: string[],
+  jobUrl: string
+): Promise<void> {
+  for (const orderId of orderIds) {
+    const { data: row, error: readError } = await client
+      .from("orders")
+      .select("specs")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (readError) {
+      console.error("[gdrive] failed to read specs for design_task", readError);
+      continue;
+    }
+    const specs =
+      row?.specs && typeof row.specs === "object" && !Array.isArray(row.specs)
+        ? { ...(row.specs as Record<string, unknown>) }
+        : {};
+    specs.design_task = jobUrl;
+    const { error } = await client
+      .from("orders")
+      .update({ specs })
+      .eq("id", orderId);
+    if (error) {
+      console.error("[gdrive] failed to save Design files link", error);
+    }
+  }
+}
+
 /**
- * Create `{code}_{Customer}` / `{code}_Final for Prod` and save the link on each card.
+ * Create Drive folders and save links on each card.
+ * - Single-item: `{code}_{Customer}` / `{code}_Final for Prod`
+ * - Multi-item: `{code}_{Customer}_1` / `{code}_Final for Prod_1`, etc.
+ * - Artwork (GDrive link) ← link_target (default Final for Prod)
+ * - Design files (`specs.design_task`) ← that card’s job folder
  * No-ops when GDrive is disabled or not configured.
  */
 export async function attachGdriveFoldersToOrders(
   client: Client,
   tenantId: string,
-  orders: Array<{
-    id: string;
-    title: string;
-    customer_id?: string | null;
-    specs?: Record<string, unknown> | null;
-  }>
+  orders: OrderForGdrive[]
 ): Promise<AttachGdriveResult | null> {
   if (orders.length === 0) return null;
 
@@ -145,31 +201,69 @@ export async function attachGdriveFoldersToOrders(
     return null;
   }
 
+  const multiItem = orders.length > 1;
   const primary = orders[0];
   const customerName = await resolveCustomerName(client, tenantId, primary);
   const orderKey = orderKeyFromOrder(primary);
 
   try {
-    const refs = await ensureOrderDriveFolders(
-      settings,
-      customerName,
-      orderKey
-    );
-    await upsertArtworkLink(
-      client,
-      tenantId,
-      orders.map((o) => o.id),
-      refs.linkUrl
-    );
+    let firstLinkUrl = "";
+    let firstJobUrl = "";
+    const warnings: string[] = [];
+
+    for (let i = 0; i < orders.length; i++) {
+      const order = orders[i];
+      const itemIndex = multiItem ? partIndexFromOrder(order, i + 1) : null;
+      try {
+        const refs = await ensureOrderDriveFolders(
+          settings,
+          customerName,
+          orderKeyFromOrder(order) || orderKey,
+          itemIndex
+        );
+        if (!firstLinkUrl) firstLinkUrl = refs.linkUrl;
+        if (!firstJobUrl) firstJobUrl = refs.jobUrl;
+        await upsertArtworkLink(client, tenantId, [order.id], refs.linkUrl);
+        await upsertDesignTaskLink(client, [order.id], refs.jobUrl);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[gdrive] folder create failed for order ${order.id}`,
+          message
+        );
+        warnings.push(
+          `Part ${itemIndex ?? i + 1}: ${message}`
+        );
+      }
+    }
+
+    if (!firstJobUrl && !firstLinkUrl) {
+      return {
+        linkUrl: "",
+        jobUrl: "",
+        openOnCreate: false,
+        warning: `Google Drive folder could not be created: ${
+          warnings[0] ?? "unknown error"
+        }`,
+      };
+    }
+
     return {
-      linkUrl: refs.linkUrl,
+      linkUrl: firstLinkUrl,
+      jobUrl: firstJobUrl,
       openOnCreate: settings.open_on_create,
+      ...(warnings.length > 0
+        ? {
+            warning: `Google Drive: ${warnings.join("; ")}`,
+          }
+        : {}),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[gdrive] folder create failed", message);
     return {
       linkUrl: "",
+      jobUrl: "",
       openOnCreate: false,
       warning: `Google Drive folder could not be created: ${message}`,
     };

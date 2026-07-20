@@ -9,7 +9,13 @@ import type {
 } from "@/lib/types";
 
 const TYPES: NotificationType[] = ["missing_info", "customer_approval", "ready_to_ship"];
-const CHANNELS: NotificationChannel[] = ["email", "sms", "manual", "none"];
+const CHANNELS: NotificationChannel[] = [
+  "email",
+  "sms",
+  "both",
+  "manual",
+  "none",
+];
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
@@ -53,23 +59,27 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { notification, actionUrl } = await createNotification(supabase, {
-      order: order as Order,
-      tenantName: ctx.tenant.name,
-      type: body.type,
-      channel: body.channel,
-      staffNote: body.staffNote ?? null,
-      toEmail: body.toEmail ?? null,
-      toPhone: body.toPhone ?? null,
-      createdBy: ctx.userId,
-      subject: body.subject ?? null,
-      messageBody: body.messageBody ?? null,
-    });
+    const { notification, actionUrl, warning } = await createNotification(
+      supabase,
+      {
+        order: order as Order,
+        tenantName: ctx.tenant.name,
+        type: body.type,
+        channel: body.channel,
+        staffNote: body.staffNote ?? null,
+        toEmail: body.toEmail ?? null,
+        toPhone: body.toPhone ?? null,
+        createdBy: ctx.userId,
+        subject: body.subject ?? null,
+        messageBody: body.messageBody ?? null,
+      }
+    );
     return NextResponse.json({
       ok: true,
       channel: body.channel,
       token: notification.token,
       actionUrl,
+      warning,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to notify";

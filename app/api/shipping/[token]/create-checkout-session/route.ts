@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dollarsToCents } from "@/lib/shipping-markup";
 import {
+  isShippingChoiceOffered,
   isStripeConfiguredFromSettings,
   loadShippingSettings,
   resolveStripePublishableKey,
@@ -73,6 +74,12 @@ export async function POST(
   }
 
   const settings = await loadShippingSettings(admin, shipReq.tenant_id);
+  if (!isShippingChoiceOffered(settings, "delivery")) {
+    return NextResponse.json(
+      { error: "FedEx shipping is not available." },
+      { status: 403 }
+    );
+  }
   if (!settings?.payment_enabled) {
     return NextResponse.json(
       { error: "Online payment is not enabled for this shop." },
@@ -179,7 +186,8 @@ export async function POST(
       payment_currency: (fedexSelection.currency ?? "usd").toLowerCase(),
       delivery_address: normalizedAddress,
       fedex_selection: fedexSelection,
-      client_choice: "delivery",
+      client_choice:
+        fedexSelection.provider === "curri" ? "curri" : "delivery",
     })
     .eq("token", token);
 

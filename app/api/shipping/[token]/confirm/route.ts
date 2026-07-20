@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { completeShippingResponse } from "@/lib/shipping-confirm";
 import { dollarsToCents } from "@/lib/shipping-markup";
 import {
+  isShippingChoiceOffered,
   isStripeConfiguredFromSettings,
   loadShippingSettings,
 } from "@/lib/shipping-settings";
@@ -36,10 +37,13 @@ export async function POST(
   if (
     body.choice !== "pickup" &&
     body.choice !== "delivery" &&
-    body.choice !== "uber"
+    body.choice !== "uber" &&
+    body.choice !== "curri"
   ) {
     return NextResponse.json(
-      { error: "choice must be 'pickup', 'delivery', or 'uber'" },
+      {
+        error: "choice must be 'pickup', 'delivery', 'uber', or 'curri'",
+      },
       { status: 422 }
     );
   }
@@ -56,13 +60,30 @@ export async function POST(
   }
 
   const settings = await loadShippingSettings(admin, shipReq.tenant_id);
+  if (!isShippingChoiceOffered(settings, body.choice)) {
+    return NextResponse.json(
+      { error: "That delivery option is not available." },
+      { status: 403 }
+    );
+  }
   const paymentRequired =
-    body.choice === "delivery" && (settings?.payment_enabled ?? false);
+    (body.choice === "delivery" || body.choice === "curri") &&
+    (settings?.payment_enabled ?? false);
 
-  if (body.choice === "delivery") {
+  if (body.choice === "delivery" || body.choice === "curri") {
     if (!body.fedexSelection?.serviceType) {
       return NextResponse.json(
-        { error: "Select a FedEx delivery option." },
+        { error: "Select a delivery option." },
+        { status: 422 }
+      );
+    }
+    if (
+      body.choice === "curri" &&
+      body.fedexSelection.provider != null &&
+      body.fedexSelection.provider !== "curri"
+    ) {
+      return NextResponse.json(
+        { error: "Select a Curri delivery option." },
         { status: 422 }
       );
     }
@@ -136,12 +157,17 @@ export async function POST(
         err instanceof Error ? err.message : "Failed to verify payment";
       return NextResponse.json({ error: message }, { status: 402 });
     }
-  } else if (body.choice === "delivery" && body.fedexSelection?.totalCharge != null) {
+  } else if (
+    (body.choice === "delivery" || body.choice === "curri") &&
+    body.fedexSelection?.totalCharge != null
+  ) {
     paymentAmount = dollarsToCents(body.fedexSelection.totalCharge);
   }
 
   const deliveryAddress =
-    (body.choice === "delivery" || body.choice === "uber") &&
+    (body.choice === "delivery" ||
+      body.choice === "uber" ||
+      body.choice === "curri") &&
     body.deliveryAddress
       ? {
           street: body.deliveryAddress.street.trim(),
@@ -154,12 +180,16 @@ export async function POST(
       : null;
 
   const deliveryNotes =
-    body.choice === "uber" ? body.deliveryNotes?.trim() || null : null;
+    body.choice === "uber" || body.choice === "curri"
+      ? body.deliveryNotes?.trim() || null
+      : null;
 
   const result = await completeShippingResponse(admin, token, {
     choice: body.choice,
     fedexSelection:
-      body.choice === "delivery" ? (body.fedexSelection ?? null) : null,
+      body.choice === "delivery" || body.choice === "curri"
+        ? (body.fedexSelection ?? null)
+        : null,
     deliveryAddress,
     deliveryNotes,
     checkoutSessionId,

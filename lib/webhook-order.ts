@@ -137,6 +137,10 @@ export interface WebhookSkuPayload {
   sku_name?: string;
   quantity?: number | string;
   artwork_url?: string;
+  /** Line comment for this SKU — combined into Order Description as `SKU1: …`. */
+  description?: string;
+  /** Alias for `description`. */
+  comment?: string;
 }
 
 export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
@@ -254,12 +258,25 @@ function fileNameFromUrl(url: string): string {
   return "artwork";
 }
 
+function skuLineComment(item: WebhookSkuPayload): string | null {
+  for (const key of ["description", "comment"] as const) {
+    const raw = item[key];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
 function normalizeWebhookSkus(
   raw: WebhookSkuPayload[] | undefined
-): { skus: SkuItem[]; artworkBySkuId: Map<string, string> } {
+): {
+  skus: SkuItem[];
+  artworkBySkuId: Map<string, string>;
+  skuComments: { index: number; name: string; comment: string }[];
+} {
   const artworkBySkuId = new Map<string, string>();
+  const skuComments: { index: number; name: string; comment: string }[] = [];
   if (!Array.isArray(raw)) {
-    return { skus: [], artworkBySkuId };
+    return { skus: [], artworkBySkuId, skuComments };
   }
 
   const skus: SkuItem[] = [];
@@ -275,7 +292,9 @@ function normalizeWebhookSkus(
           ? Number(qtyRaw)
           : null;
     const id = randomUUID();
-    if (name || (qty != null && !Number.isNaN(qty))) {
+    const comment = skuLineComment(item);
+    const hasSku = name || (qty != null && !Number.isNaN(qty));
+    if (hasSku) {
       skus.push({
         id,
         name,
@@ -284,13 +303,109 @@ function normalizeWebhookSkus(
             ? Math.floor(qty)
             : null,
       });
+      if (comment) {
+        skuComments.push({
+          index: skus.length,
+          name,
+          comment,
+        });
+      }
+    } else if (comment) {
+      // Comment-only row still counts toward labeled description lines.
+      skuComments.push({
+        index: skuComments.length + 1,
+        name: "",
+        comment,
+      });
     }
     if (typeof item.artwork_url === "string" && item.artwork_url.trim()) {
       artworkBySkuId.set(id, item.artwork_url.trim());
     }
   }
 
-  return { skus, artworkBySkuId };
+  return { skus, artworkBySkuId, skuComments };
+}
+
+/** Design files field — only accept http(s) folder/file links. */
+function resolveDesignTaskUrl(input: WebhookDesignerInput): string | null {
+  const raw =
+    typeof input.design_task === "string" ? input.design_task.trim() : "";
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Free-text designer notes for the Designer Information custom field.
+ * Non-URL `design_task` values are treated as misrouted line comments (see
+ * buildWebhookOrderDescription), not Design files.
+ */
+function resolveDesignNotes(input: WebhookDesignerInput): string | null {
+  for (const key of ["designer_information", "designer_notes"] as const) {
+    const raw = input[key];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
+/** Non-URL design_task text — CRM often sent line comments here by mistake. */
+function resolveMisroutedDesignTaskText(
+  input: WebhookDesignerInput
+): string | null {
+  const raw =
+    typeof input.design_task === "string" ? input.design_task.trim() : "";
+  if (!raw) return null;
+  if (resolveDesignTaskUrl(input)) return null;
+  return raw;
+}
+
+/**
+ * Build Order Description: optional order/item notes, then labeled SKU comments.
+ *
+ * ```
+ * Rush if possible
+ *
+ * SKU1: 1 sku- 200 boxes- (matte finish)
+ * SKU2: 2 sided lb bag- (sample)
+ * ```
+ */
+export function buildWebhookOrderDescription(opts: {
+  orderDescription?: string | null;
+  itemDescription?: string | null;
+  skuComments?: { index: number; name: string; comment: string }[];
+  /** Non-URL text wrongly sent as design_task. */
+  misroutedDesignTask?: string | null;
+}): string | null {
+  const parts: string[] = [];
+  const orderDesc = opts.orderDescription?.trim() || "";
+  const itemDesc = opts.itemDescription?.trim() || "";
+  if (orderDesc) parts.push(orderDesc);
+  if (itemDesc && itemDesc !== orderDesc) parts.push(itemDesc);
+
+  const skuLines = (opts.skuComments ?? [])
+    .filter((s) => s.comment.trim())
+    .map((s) => `SKU${s.index}: ${s.comment.trim()}`);
+  if (skuLines.length > 0) {
+    parts.push(skuLines.join("\n"));
+  }
+
+  const misrouted = opts.misroutedDesignTask?.trim() || "";
+  if (misrouted) {
+    // Already covered by SKU lines? skip duplicate dump
+    const already =
+      skuLines.some((line) => line.includes(misrouted)) ||
+      orderDesc === misrouted ||
+      itemDesc === misrouted;
+    if (!already) parts.push(misrouted);
+  }
+
+  const combined = parts.join("\n\n").trim();
+  return combined || null;
 }
 
 interface WebhookCustomerInfo {
@@ -465,18 +580,6 @@ type WebhookSpecFields = Pick<
   | "need_a_design"
   | "perforation"
 >;
-
-function resolveDesignNotes(input: WebhookDesignerInput): string | null {
-  for (const key of [
-    "designer_information",
-    "designer_notes",
-    "design_task",
-  ] as const) {
-    const raw = input[key];
-    if (typeof raw === "string" && raw.trim()) return raw.trim();
-  }
-  return null;
-}
 
 function mergeItemWithOrder(
   order: WebhookOrderPayload,
@@ -1399,6 +1502,8 @@ interface CreateSingleJobParams {
   orderDescription: string | null;
   cardTitle: string;
   jobTitle: string;
+  /** Parent payload title — same on every multi-item card. */
+  orderLevelTitle: string;
   webhookOrderNumber: string;
   itemIndex: number;
   totalItems: number;
@@ -1407,7 +1512,12 @@ interface CreateSingleJobParams {
   requestOwnerSpecs: Record<string, string>;
   designerId: string | null;
   designerName: string | null;
+  /** Free-text notes for Designer Information custom field (not Design files). */
   designNotes: string | null;
+  /** http(s) link for Design files (`specs.design_task`); GDrive may overwrite. */
+  designTaskUrl: string | null;
+  /** Non-URL design_task text — folded into Order Description. */
+  misroutedDesignTask: string | null;
   internalNote: string | null;
   corrections: string[];
   /** Normalized source key; empty string → Integrations "other" style. */
@@ -1435,6 +1545,7 @@ async function createSingleWebhookJob(
     orderDescription,
     cardTitle,
     jobTitle,
+    orderLevelTitle,
     webhookOrderNumber,
     itemIndex,
     totalItems,
@@ -1444,13 +1555,19 @@ async function createSingleWebhookJob(
     designerId,
     designerName,
     designNotes,
+    designTaskUrl,
+    misroutedDesignTask,
     internalNote,
     corrections,
     webhookSource,
     billing,
   } = params;
 
-  const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(item.skus);
+  const {
+    skus: rawSkus,
+    artworkBySkuId,
+    skuComments,
+  } = normalizeWebhookSkus(item.skus);
   const skus = prepareSkusForSave(rawSkus);
 
   const specFields = normalizeSpecFields(item);
@@ -1503,13 +1620,22 @@ async function createSingleWebhookJob(
 
   const itemDescription =
     typeof item.description === "string" ? item.description.trim() : null;
-  const description = itemDescription || orderDescription;
+  const description = buildWebhookOrderDescription({
+    orderDescription,
+    itemDescription,
+    skuComments,
+    misroutedDesignTask,
+  });
 
   const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs };
   if (designerId) specs.designer_id = designerId;
   if (designerName) specs.designer_name = designerName;
-  if (designNotes) specs.design_task = designNotes;
+  if (designTaskUrl) specs.design_task = designTaskUrl;
   if (billing) specs.billing = billing;
+  const sharedTitle = orderLevelTitle.trim();
+  if (sharedTitle) {
+    specs.webhook_order_title = sharedTitle;
+  }
   if (totalItems > 1) {
     specs.webhook_order_number = webhookOrderNumber;
     specs.webhook_item_index = itemIndex;
@@ -1802,6 +1928,7 @@ export async function createOrderFromWebhook(
       orderDescription,
       cardTitle,
       jobTitle,
+      orderLevelTitle,
       webhookOrderNumber: baseOrderNumber,
       itemIndex: i,
       totalItems: items.length,
@@ -1811,6 +1938,8 @@ export async function createOrderFromWebhook(
       designerId,
       designerName,
       designNotes: resolveDesignNotes(designerInput),
+      designTaskUrl: resolveDesignTaskUrl(designerInput),
+      misroutedDesignTask: resolveMisroutedDesignTaskText(designerInput),
       internalNote: typeof item.internal_note === "string" && item.internal_note.trim()
         ? item.internal_note.trim()
         : null,
@@ -1834,7 +1963,7 @@ export async function createOrderFromWebhook(
     );
   }
 
-  // One Drive folder tree per webhook order number; same link on every part card.
+  // Drive folders: one tree per card for multi-item (`…_1`, `…_2`); shared link no longer.
   if (createdJobs.length > 0) {
     try {
       const { data: createdOrders } = await client

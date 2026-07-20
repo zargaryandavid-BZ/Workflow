@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { enrichBoardOrders } from "@/lib/board-order-enrichment";
-import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
+import {
+  isOrderNumberQuery,
+  orderMatchesBoardFilters,
+} from "@/lib/board-order-filters";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
@@ -54,8 +57,11 @@ export async function GET(req: NextRequest) {
   const overdueOnly =
     searchParams.get("overdueOnly") === "1" ||
     searchParams.get("overdueOnly") === "true";
+  const dueTodayOnly =
+    searchParams.get("dueTodayOnly") === "1" ||
+    searchParams.get("dueTodayOnly") === "true";
 
-  if (!q && !designerId && !ownerId && !overdueOnly) {
+  if (!q && !designerId && !ownerId && !overdueOnly && !dueTodayOnly) {
     return NextResponse.json(emptyResponse());
   }
 
@@ -74,7 +80,7 @@ export async function GET(req: NextRequest) {
   let matchedCustomerIds: string[] = [];
   let matchedOrderIdsFromFields: string[] = [];
 
-  if (q) {
+  if (q && !isOrderNumberQuery(q)) {
     const pattern = `%${escapeIlike(q)}%`;
     const nameFieldIds = customFields
       .filter(
@@ -146,6 +152,13 @@ export async function GET(req: NextRequest) {
       const d = String(today.getDate()).padStart(2, "0");
       query = query.not("due_date", "is", null).lt("due_date", `${y}-${m}-${d}`);
     }
+    if (dueTodayOnly) {
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, "0");
+      const d = String(today.getDate()).padStart(2, "0");
+      query = query.eq("due_date", `${y}-${m}-${d}`);
+    }
 
     if (q) {
       const pattern = `%${escapeIlike(q)}%`;
@@ -199,7 +212,7 @@ export async function GET(req: NextRequest) {
   }
 
   let doneColumnIds: Set<string> | undefined;
-  if (overdueOnly) {
+  if (overdueOnly || dueTodayOnly) {
     const { data: doneCols } = await supabase
       .from("board_columns")
       .select("id")
@@ -215,6 +228,7 @@ export async function GET(req: NextRequest) {
     personFilter: designerId,
     ownerFilter: ownerId,
     overdueOnly,
+    dueTodayOnly,
     doneColumnIds,
   };
   const orders = allOrders.filter((order) =>

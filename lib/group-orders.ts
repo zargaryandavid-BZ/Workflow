@@ -86,6 +86,17 @@ export function itemLabel(order: OrderWithRelations): string {
   return typeof t === "string" && t.trim() ? t.trim() : order.title;
 }
 
+/**
+ * Shared parent order title from the webhook payload (same on every multi-item card).
+ * Shown after the source label: e.g. "CRM | Mixed Print Order".
+ */
+export function sharedOrderTitle(
+  order: { specs?: Record<string, unknown> | null }
+): string | null {
+  const t = order.specs?.webhook_order_title;
+  return typeof t === "string" && t.trim() ? t.trim() : null;
+}
+
 export interface OrderGroupSearchSuggestion {
   key: string;
   /** e.g. "ORD-2026-0098-(3)" */

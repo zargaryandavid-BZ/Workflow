@@ -14,7 +14,7 @@ function formatLoadError(message: string): string {
     message.includes("schema cache") ||
     message.includes("does not exist")
   ) {
-    return "Shipping settings table is not set up yet. Apply migration 0046_shipping_settings_and_payments.sql (run supabase db push).";
+    return "Shipping settings table is not set up yet. Apply migration 0046_shipping_settings_and_payments.sql (and 0050_shipping_offer_options.sql if needed; run supabase db push).";
   }
   return message;
 }
@@ -76,9 +76,49 @@ export async function PATCH(request: Request) {
     body.markup_percent = pct;
   }
 
+  for (const key of [
+    "offer_pickup",
+    "offer_fedex",
+    "offer_uber",
+    "offer_curri",
+  ] as const) {
+    if (body[key] !== undefined && typeof body[key] !== "boolean") {
+      return NextResponse.json(
+        { error: `${key} must be a boolean` },
+        { status: 400 }
+      );
+    }
+  }
+
   const supabase = await createClient();
   try {
     const existing = await ensureShippingSettings(supabase, ctx.tenant.id);
+    const nextOffers = {
+      offer_pickup:
+        body.offer_pickup !== undefined
+          ? body.offer_pickup
+          : existing.offer_pickup,
+      offer_fedex:
+        body.offer_fedex !== undefined ? body.offer_fedex : existing.offer_fedex,
+      offer_uber:
+        body.offer_uber !== undefined ? body.offer_uber : existing.offer_uber,
+      offer_curri:
+        body.offer_curri !== undefined
+          ? body.offer_curri
+          : existing.offer_curri,
+    };
+    if (
+      !nextOffers.offer_pickup &&
+      !nextOffers.offer_fedex &&
+      !nextOffers.offer_uber &&
+      !nextOffers.offer_curri
+    ) {
+      return NextResponse.json(
+        { error: "Enable at least one delivery option for clients" },
+        { status: 400 }
+      );
+    }
+
     const updates = buildShippingSettingsUpdate(existing, body);
 
     if (Object.keys(updates).length <= 1) {

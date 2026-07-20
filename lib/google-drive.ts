@@ -136,14 +136,34 @@ function pickLink(
 }
 
 /**
+ * Shared Drive IDs from Drive URLs typically start with `0A`.
+ * Folder IDs usually start with `1` — never pass those as `driveId`.
+ */
+function resolveSharedDriveId(settings: GdriveSettings): string | null {
+  const explicit = settings.shared_drive_id?.trim() || null;
+  if (explicit) return explicit;
+  const root = settings.root_folder_id?.trim() || "";
+  // Root is the Shared Drive itself (user pasted the drive URL id).
+  if (/^0A[A-Za-z0-9_-]+$/.test(root)) return root;
+  return null;
+}
+
+/**
  * Shared Drive root
- *   └── {code}_{Customer Name}/
+ *   └── {code}_{Customer Name}/              (single-item)
  *         └── {code}_{Final for Prod}/
+ *   └── {code}_{Customer Name}_1/            (multi-item part 1)
+ *         └── {code}_{Final for Prod}_1/
+ *   └── {code}_{Customer Name}_2/            (multi-item part 2)
+ *         └── {code}_{Final for Prod}_2/
+ *
+ * @param itemIndex 1-based part number for multi-item orders; omit for single-item.
  */
 export async function ensureOrderDriveFolders(
   settings: GdriveSettings,
   customerName: string,
-  orderKey: string
+  orderKey: string,
+  itemIndex?: number | null
 ): Promise<DriveFolderRefs> {
   if (!isGdriveConfigured(settings)) {
     throw new Error("Google Drive is not configured");
@@ -151,18 +171,22 @@ export async function ensureOrderDriveFolders(
 
   const drive = driveClient(settings);
   const rootId = settings.root_folder_id!.trim();
-  const sharedDriveId =
-    settings.shared_drive_id?.trim() ||
-    // When root is the Shared Drive itself, use it for corpora.
-    rootId;
+  const sharedDriveId = resolveSharedDriveId(settings);
   const code = sanitizeDriveFolderName(shortDriveOrderCode(orderKey));
   const customer = sanitizeDriveFolderName(customerName);
   const finalLabel = sanitizeDriveFolderName(
     settings.final_folder_name || "Final for Prod"
   );
 
-  const jobFolderName = sanitizeDriveFolderName(`${code}_${customer}`);
-  const finalFolderName = sanitizeDriveFolderName(`${code}_${finalLabel}`);
+  const suffix =
+    typeof itemIndex === "number" && itemIndex >= 1 ? `_${itemIndex}` : "";
+
+  const jobFolderName = sanitizeDriveFolderName(
+    `${code}_${customer}${suffix}`
+  );
+  const finalFolderName = sanitizeDriveFolderName(
+    `${code}_${finalLabel}${suffix}`
+  );
 
   const jobFolder = await findOrCreateFolder(
     drive,

@@ -10,8 +10,19 @@ export interface BoardOrderFilters {
   ownerFilter: string;
   /** When true, only cards with a past due date (not in Done columns). */
   overdueOnly?: boolean;
-  /** Column ids with kind `done` — excluded when overdueOnly is on. */
+  /** When true, only cards due on today's local calendar date (not in Done). */
+  dueTodayOnly?: boolean;
+  /** Column ids with kind `done` — excluded when overdue/due-today filters are on. */
   doneColumnIds?: ReadonlySet<string>;
+}
+
+/**
+ * True when the query looks like an order number (e.g. `213`, `0213-1`),
+ * not a name/email/phone search. Short digit strings must not match phone
+ * area codes (e.g. `213` → `+1213…`).
+ */
+export function isOrderNumberQuery(q: string): boolean {
+  return /^0*\d{1,8}(-\d+)?$/i.test(q.trim());
 }
 
 /** Local calendar date as YYYY-MM-DD. */
@@ -31,6 +42,15 @@ export function isOrderOverdue(
   return new Date(`${dueDate}T23:59:59`).getTime() < nowMs;
 }
 
+/** True when due_date is exactly today's local calendar date (YYYY-MM-DD). */
+export function isOrderDueToday(
+  dueDate: string | null | undefined,
+  today: string = localDateString()
+): boolean {
+  if (!dueDate) return false;
+  return dueDate.slice(0, 10) === today;
+}
+
 export function orderMatchesBoardFilters(
   order: OrderWithRelations,
   fieldValues: Record<string, unknown>,
@@ -39,20 +59,24 @@ export function orderMatchesBoardFilters(
 ): boolean {
   const q = filters.q.trim().toLowerCase();
   if (q) {
-    const customerName = customerNameFromOrder(
-      order,
-      fieldValues,
-      customFields
-    ).toLowerCase();
-    const { email, phone } = customerContactFromOrder(
-      order,
-      fieldValues,
-      customFields
-    );
-    const searchable = [order.title, customerName, email ?? "", phone ?? ""]
-      .join(" ")
-      .toLowerCase();
-    if (!searchable.includes(q)) return false;
+    if (isOrderNumberQuery(q)) {
+      if (!order.title.toLowerCase().includes(q)) return false;
+    } else {
+      const customerName = customerNameFromOrder(
+        order,
+        fieldValues,
+        customFields
+      ).toLowerCase();
+      const { email, phone } = customerContactFromOrder(
+        order,
+        fieldValues,
+        customFields
+      );
+      const searchable = [order.title, customerName, email ?? "", phone ?? ""]
+        .join(" ")
+        .toLowerCase();
+      if (!searchable.includes(q)) return false;
+    }
   }
   if (filters.personFilter) {
     const designerId = (order.specs?.designer_id as string | undefined) ?? "";
@@ -63,6 +87,10 @@ export function orderMatchesBoardFilters(
   }
   if (filters.overdueOnly) {
     if (!isOrderOverdue(order.due_date)) return false;
+    if (filters.doneColumnIds?.has(order.column_id)) return false;
+  }
+  if (filters.dueTodayOnly) {
+    if (!isOrderDueToday(order.due_date)) return false;
     if (filters.doneColumnIds?.has(order.column_id)) return false;
   }
   return true;

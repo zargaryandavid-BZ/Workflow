@@ -142,7 +142,10 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
           <code className="rounded bg-white px-1">
             26-0098_Customer / 26-0098_{finalFolderName || "Final for Prod"}
           </code>
-          . Status:{" "}
+          . Multi-item orders get{" "}
+          <code className="rounded bg-white px-1">_1</code>,{" "}
+          <code className="rounded bg-white px-1">_2</code>, … on each card’s
+          folders. Status:{" "}
           {settings.configured ? (
             <span className="text-emerald-700">credentials saved</span>
           ) : (
@@ -230,10 +233,10 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
           className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
         >
           <option value="final">
-            Production subfolder (26-0098_Final for Prod)
+            Production subfolder (26-0098_Final for Prod / …_1 for multi-item)
           </option>
-          <option value="order">Job folder (26-0098_Customer Name)</option>
-          <option value="customer">Job folder (26-0098_Customer Name)</option>
+          <option value="order">Job folder (26-0098_Customer Name / …_1)</option>
+          <option value="customer">Job folder (26-0098_Customer Name / …_1)</option>
         </select>
       </label>
 

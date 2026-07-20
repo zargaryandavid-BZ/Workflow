@@ -30,7 +30,7 @@ export type AutomationTrigger =
 
 export type NotificationType = "missing_info" | "customer_approval" | "ready_to_ship";
 
-export type NotificationChannel = "email" | "sms" | "none" | "manual";
+export type NotificationChannel = "email" | "sms" | "both" | "none" | "manual";
 
 /** Customer preference for missing-info / approval / ready-to-ship sends. */
 export type PreferredChannel = "sms" | "email";
@@ -493,7 +493,7 @@ export type ShippingRequestStatus =
   | "payment_pending"
   | "client_responded";
 export type ShippingPaymentStatus = "pending" | "succeeded" | "failed";
-export type ShippingClientChoice = "pickup" | "delivery" | "uber";
+export type ShippingClientChoice = "pickup" | "delivery" | "uber" | "curri";
 export type ShippingDimUnit = "in" | "cm";
 export type ShippingWeightUnit = "lbs" | "kg";
 
@@ -514,15 +514,28 @@ export interface ShippingDeliveryAddress {
   country?: string;
 }
 
+export type ShippingRateProvider = "fedex" | "curri";
+
 export interface FedExRateOption {
   serviceType: string;
   serviceName: string;
   totalCharge: number | null;
-  /** FedEx quote before tenant markup (staff reference). */
+  /** Carrier quote before tenant markup (staff reference). */
   fedexBaseCharge?: number | null;
   currency: string;
   deliveryDate: string | null;
   transitDays: string | null;
+  /** Defaults to FedEx when omitted (legacy rows). */
+  provider?: ShippingRateProvider;
+  /** Curri quote id — needed to book; expires in ~15 minutes. */
+  quoteId?: string;
+  /** Curri priority: rush | sameday | scheduled */
+  priority?: string;
+  feeComparison?: {
+    rush?: number;
+    sameday?: number;
+    scheduled?: number;
+  };
 }
 
 export interface FedExConfig {
@@ -552,6 +565,11 @@ export interface ShippingSettings {
   shipper_zip: string | null;
   shipper_country: string | null;
   pickup_hours_note: string | null;
+  /** Methods shown on the client shipping portal. */
+  offer_pickup: boolean;
+  offer_fedex: boolean;
+  offer_uber: boolean;
+  offer_curri: boolean;
   payment_enabled: boolean;
   stripe_publishable_key: string | null;
   stripe_secret_key: string | null;
@@ -614,6 +632,10 @@ export interface ShippingSettingsPublic {
   shipper_zip: string | null;
   shipper_country: string | null;
   pickup_hours_note: string | null;
+  offer_pickup: boolean;
+  offer_fedex: boolean;
+  offer_uber: boolean;
+  offer_curri: boolean;
   payment_enabled: boolean;
   stripe_publishable_key: string | null;
   stripe_secret_key: MaskedSecret;

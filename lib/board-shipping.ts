@@ -9,7 +9,8 @@ export type BoardShippingKind =
   | "payment_pending"
   | "pickup"
   | "delivery"
-  | "uber";
+  | "uber"
+  | "curri";
 
 /** Compact label shown on board cards for the latest shipping portal state. */
 export interface BoardShippingSign {
@@ -94,6 +95,16 @@ export function boardShippingSignFromRequest(row: {
     };
   }
   if (row.client_choice === "delivery") {
+    if (row.fedex_selection?.provider === "curri") {
+      const name =
+        row.fedex_selection.serviceName?.trim() || "Curri";
+      return {
+        kind: "curri",
+        choice: "delivery",
+        label: "Curri",
+        title: `Client chose Curri · ${name}`,
+      };
+    }
     const { label, title } = shortDeliveryLabel(row.fedex_selection);
     return {
       kind: "delivery",
@@ -108,6 +119,15 @@ export function boardShippingSignFromRequest(row: {
       choice: "uber",
       label: "Uber",
       title: "Client chose Uber delivery",
+    };
+  }
+  if (row.client_choice === "curri") {
+    const name = row.fedex_selection?.serviceName?.trim() || "Curri";
+    return {
+      kind: "curri",
+      choice: "curri",
+      label: "Curri",
+      title: `Client chose Curri · ${name}`,
     };
   }
   return null;
@@ -128,6 +148,7 @@ export function shippingCardBorderColor(
   }
   if (sign.kind === "pickup") return "#34d399"; // emerald-400
   if (sign.kind === "uber") return "#a78bfa"; // violet-400
+  if (sign.kind === "curri") return "#fb923c"; // orange-400
   return "#38bdf8"; // sky-400 — FedEx delivery
 }
 
@@ -141,6 +162,7 @@ export function shippingTagClass(
   }
   if (sign.kind === "pickup") return "bg-emerald-50 text-emerald-700";
   if (sign.kind === "uber") return "bg-violet-50 text-violet-700";
+  if (sign.kind === "curri") return "bg-orange-50 text-orange-700";
   if (isOvernightShippingSign(sign)) return "bg-red-50 text-red-700";
   return "bg-sky-50 text-sky-700";
 }

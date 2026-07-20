@@ -273,6 +273,9 @@ const NOTES_MD = `
 - \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores both email and phone. Existing customers are reused — no duplicates.
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
 - **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
+- \`designer_information\` / \`designer_notes\` fill the **Designer Information** custom field only.
+- \`design_task\` must be an **http(s) URL** for Design files; non-URL text goes into Order Description.
+- Per-SKU \`description\` / \`comment\` values become Order Description lines: \`SKU1: …\`, \`SKU2: …\`.
 - \`designer_information\` is saved as designer notes on the card and in the **Designer Information** custom field.
 - **Not set via webhook:** Artwork GDrive link — staff fill this in the app.
 - Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.
@@ -353,7 +356,8 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`designer_email\` | No | string | Team member email — sets **Assigned Designer** |
 | \`designer_id\` | No | string | Team member UUID — sets **Assigned Designer** |
 | \`designer\` | No | string | Email, UUID, or display name — sets **Assigned Designer** |
-| \`designer_information\` | No | string | Designer notes (also \`designer_notes\`, \`design_task\`) |
+| \`designer_information\` | No | string | Designer Information custom field (also \`designer_notes\`) |
+| \`design_task\` | No | string | http(s) URL → Design files; non-URL → Order Description |
 | \`category\` | No | string | Tag name (also accepts \`category_name\`) |
 | \`source_url\` | No | string | CRM / source order URL — card globe popover **Source** link (aliases: \`source_link\`, \`order_url\`) |
 | \`payment_status\` | No | string | \`partial\` or \`full\` (also \`paid\` / \`complete\` → full). Alias: \`payment\` |
@@ -377,6 +381,7 @@ Legacy flat format: put these fields at the top level instead of inside \`items[
 | \`sku_name\` | No | string | Variant display name |
 | \`quantity\` | No | number | Number of pieces |
 | \`artwork_url\` | No | string | Per-SKU artwork URL |
+| \`description\` | No | string | Line comment → Order Description as \`SKU1: …\` (alias: \`comment\`) |
 
 ---
 
@@ -613,7 +618,13 @@ export function buildWebhookPayloadDocsHtml(
       "designer_information",
       "No",
       "string",
-      "Designer notes (also <code>designer_notes</code>, <code>design_task</code>)",
+      "Designer Information custom field (also <code>designer_notes</code>)",
+    ],
+    [
+      "design_task",
+      "No",
+      "string",
+      "http(s) URL → Design files; non-URL → Order Description",
     ],
     [
       "category",
@@ -718,6 +729,12 @@ export function buildWebhookPayloadDocsHtml(
     ["sku_name", "No", "string", "Variant display name"],
     ["quantity", "No", "number", "Number of pieces"],
     ["artwork_url", "No", "string", "Per-SKU artwork URL"],
+    [
+      "description",
+      "No",
+      "string",
+      "Line comment → Order Description as <code>SKU1: …</code> (alias: <code>comment</code>)",
+    ],
   ];
 
   const configRows = [
@@ -920,7 +937,9 @@ export function buildWebhookPayloadDocsHtml(
       <li>When both <code>customer_contact</code> and <code>customer_phone</code> are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
       <li>SKUs are stored on <code>orders.specs.skus</code>; artwork URLs create <code>assets</code> rows with <code>external_url</code>.</li>
       <li><strong>Owner</strong> (<code>owner_*</code> / <code>request_owner_*</code>) must be an <strong>account manager</strong> to set the Owner dropdown. Free-text request owner fields are saved on the card when provided.</li>
-      <li><code>designer_information</code> is saved as designer notes and in the <strong>Designer Information</strong> custom field.</li>
+      <li><code>designer_information</code> fills the <strong>Designer Information</strong> custom field only.</li>
+      <li><code>design_task</code> must be an http(s) URL for <strong>Design files</strong>; non-URL text goes into Order Description.</li>
+      <li>Per-SKU <code>description</code> / <code>comment</code> values become Order Description lines: <code>SKU1: …</code>, <code>SKU2: …</code>.</li>
       <li><strong>Not set via webhook:</strong> Artwork GDrive link — staff fill this in the app.</li>
       <li>Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.</li>
       <li><strong>⚠️ Rotate the webhook secret before going to production.</strong> Settings → Integrations → Webhook → Regenerate.</li>

@@ -114,5 +114,5 @@ export function formatBillingMoney(amount: number | null | undefined): string {
 export function paymentStatusLabel(status: PaymentStatus | null | undefined): string {
   if (status === "full") return "Full";
   if (status === "partial") return "Partial";
-  return "—";
+  return "Unpaid";
 }

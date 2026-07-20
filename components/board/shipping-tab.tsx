@@ -66,26 +66,32 @@ function AddressBlock({
   label: string;
   copied: boolean;
   onCopy: () => void;
-  tone?: "amber" | "slate" | "violet";
+  tone?: "amber" | "slate" | "violet" | "orange";
 }) {
   const labelClass =
     tone === "amber"
       ? "text-amber-700/70"
       : tone === "violet"
         ? "text-violet-600/80"
-        : "text-slate-400";
+        : tone === "orange"
+          ? "text-orange-600/80"
+          : "text-slate-400";
   const buttonClass =
     tone === "amber"
       ? "text-amber-700 hover:bg-white hover:text-amber-950"
       : tone === "violet"
-        ? "text-violet-600 hover:bg-white hover:text-violet-900"
-        : "text-slate-500 hover:bg-white hover:text-slate-800";
+        ? "text-violet-700 hover:bg-white hover:text-violet-950"
+        : tone === "orange"
+          ? "text-orange-700 hover:bg-white hover:text-orange-950"
+          : "text-slate-500 hover:bg-white hover:text-slate-800";
   const boxClass =
     tone === "amber"
       ? "bg-white/70 text-amber-950"
       : tone === "violet"
         ? "bg-violet-50 text-violet-950"
-        : "bg-slate-50 text-slate-800";
+        : tone === "orange"
+          ? "bg-orange-50 text-orange-950"
+          : "bg-slate-50 text-slate-800";
 
   return (
     <div className={`rounded-md px-3 py-2 ${boxClass}`}>
@@ -137,8 +143,14 @@ export function ShippingTab({
     shippingRequest.status === "pending" ||
     shippingRequest.status === "payment_pending";
   const isPickup = shippingRequest.client_choice === "pickup";
-  const isDelivery = shippingRequest.client_choice === "delivery";
   const isUber = shippingRequest.client_choice === "uber";
+  const isCurri =
+    shippingRequest.client_choice === "curri" ||
+    (shippingRequest.client_choice === "delivery" &&
+      shippingRequest.fedex_selection?.provider === "curri");
+  const isCourier = isUber || isCurri;
+  const isDelivery =
+    shippingRequest.client_choice === "delivery" && !isCurri;
   const rate = shippingRequest.fedex_selection;
   const address = shippingRequest.delivery_address;
   const portalUrl = appUrl
@@ -271,7 +283,7 @@ export function ShippingTab({
             <p>
               {shippingRequest.status === "payment_pending"
                 ? "Awaiting payment — client started checkout but hasn’t finished yet."
-                : "Awaiting client response — they haven’t chosen pickup, FedEx shipping, or Uber delivery yet."}
+                : "Awaiting client response — they haven’t chosen a delivery option yet."}
             </p>
             {shippingRequest.status === "payment_pending" && rate ? (
               <dl className="space-y-1.5">
@@ -311,24 +323,56 @@ export function ShippingTab({
               </p>
             ) : null}
           </div>
-        ) : isUber ? (
+        ) : isUber || isCurri ? (
           <div className="space-y-3 text-sm text-slate-700">
             <p className="flex items-center gap-2 font-medium text-slate-900">
-              <Car className="h-4 w-4 text-violet-500" />
-              Uber Delivery
+              <Car
+                className={`h-4 w-4 ${isCurri ? "text-orange-500" : "text-violet-500"}`}
+              />
+              {isCurri
+                ? rate?.serviceName
+                  ? `Curri · ${rate.serviceName.replace(/^Curri\s*[—–-]\s*/i, "")}`
+                  : "Curri Delivery"
+                : "Uber Delivery"}
             </p>
+            {isCurri && money ? (
+              <dl className="space-y-1.5">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">Rate</dt>
+                  <dd className="font-medium text-slate-800">{money}</dd>
+                </div>
+                {rate?.quoteId ? (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-500">Quote ID</dt>
+                    <dd className="break-all text-right font-mono text-xs text-slate-700">
+                      {rate.quoteId}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : null}
             {address ? (
               <AddressBlock
                 address={address}
                 label="Deliver to"
                 copied={addressCopied}
                 onCopy={() => void copyDeliveryAddress()}
-                tone="violet"
+                tone={isCurri ? "orange" : "violet"}
               />
             ) : null}
             {shippingRequest.delivery_notes ? (
-              <div className="rounded-lg bg-violet-50 px-3 py-2 text-violet-950">
-                <p className="text-xs font-medium uppercase tracking-wide text-violet-600/80">
+              <div
+                className={`rounded-lg px-3 py-2 ${
+                  isCurri
+                    ? "bg-orange-50 text-orange-950"
+                    : "bg-violet-50 text-violet-950"
+                }`}
+              >
+                <p
+                  className={`text-xs font-medium uppercase tracking-wide ${
+                    isCurri ? "text-orange-600/80" : "text-violet-600/80"
+                  }`}
+                >
                   Customer note
                 </p>
                 <p className="mt-1 whitespace-pre-wrap">
@@ -402,28 +446,53 @@ export function ShippingTab({
         )}
       </section>
 
-      {isUber ? (
-        <section className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
-          <h3 className="text-sm font-semibold text-violet-900">
-            Uber booking notes
+      {isCourier ? (
+        <section
+          className={`rounded-xl border p-4 ${
+            isCurri
+              ? "border-orange-200 bg-orange-50/40"
+              : "border-violet-200 bg-violet-50/40"
+          }`}
+        >
+          <h3
+            className={`text-sm font-semibold ${
+              isCurri ? "text-orange-900" : "text-violet-900"
+            }`}
+          >
+            {isCurri ? "Curri booking notes" : "Uber booking notes"}
           </h3>
-          <p className="mt-1 text-xs text-violet-700/80">
-            Internal only — add your Uber order reference or payment details
+          <p
+            className={`mt-1 text-xs ${
+              isCurri ? "text-orange-700/80" : "text-violet-700/80"
+            }`}
+          >
+            Internal only — add your{" "}
+            {isCurri ? "Curri" : "Uber"} order reference or payment details
             after you book the delivery.
           </p>
           <textarea
             value={staffNotes}
             onChange={(e) => setStaffNotes(e.target.value)}
             rows={3}
-            placeholder="Uber order ID, driver notes, payment reference…"
-            className="mt-3 w-full rounded-md border border-violet-200 bg-white px-3 py-2 text-sm text-slate-800"
+            placeholder={
+              isCurri
+                ? "Curri order ID, driver notes, payment reference…"
+                : "Uber order ID, driver notes, payment reference…"
+            }
+            className={`mt-3 w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-800 ${
+              isCurri ? "border-orange-200" : "border-violet-200"
+            }`}
           />
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
               disabled={savingStaffNotes}
               onClick={() => void saveStaffNotes()}
-              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
+                isCurri
+                  ? "bg-orange-600 hover:bg-orange-700"
+                  : "bg-violet-600 hover:bg-violet-700"
+              }`}
             >
               {savingStaffNotes ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

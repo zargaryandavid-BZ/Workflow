@@ -60,6 +60,7 @@ import {
 } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
+import { sharedOrderTitle } from "@/lib/group-orders";
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
@@ -175,6 +176,14 @@ export function OrderCard({
       : "") ||
     null;
 
+  const designFilesUrl = (() => {
+    const raw =
+      typeof order.specs?.design_task === "string"
+        ? order.specs.design_task.trim()
+        : "";
+    return /^https?:\/\//i.test(raw) ? raw : null;
+  })();
+
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
@@ -183,8 +192,6 @@ export function OrderCard({
     Date.now(),
     warningWorkingDays
   );
-  const showTagsRow =
-    !!shippingSign || hasBillingInfo(billingFromSpecs(order.specs));
   const shippingBorderColor =
     !activeWarning ? shippingCardBorderColor(shippingSign) : null;
 
@@ -285,7 +292,7 @@ export function OrderCard({
         onPointerDown={(e) => e.stopPropagation()}
         title={title}
         className={cn(
-          "group/copy flex max-w-full items-center gap-1 text-left text-[13px] font-medium text-slate-700 hover:text-[var(--primary)]",
+          "group/copy inline-flex max-w-full items-center gap-1 text-left text-[13px] font-medium text-slate-700 hover:text-[var(--primary)]",
           className
         )}
       >
@@ -328,6 +335,8 @@ export function OrderCard({
         canDrag ? "cursor-pointer" : "cursor-default",
         activeWarning && animateWarnings ? `warning-${activeWarning.rule.color}` : ""
       )}
+      data-order-card=""
+      data-order-id={order.id}
     >
       {/* padded content wrapper */}
       <div className={expanded ? "px-3.5 py-4" : "px-3 py-3.5"}>
@@ -359,6 +368,7 @@ export function OrderCard({
                 <WebhookSourceLabel
                   webhookSource={order.webhook_source}
                   sourceStyles={webhookSourceStyles}
+                  orderTitle={sharedOrderTitle(order)}
                 />
                 {displayCustomerName ? (
                   <button
@@ -366,7 +376,7 @@ export function OrderCard({
                     onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
                     onPointerDown={(e) => e.stopPropagation()}
                     title="Copy customer name"
-                    className="group/copy flex w-full min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
+                    className="group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
                   >
                     <span className="min-w-0 truncate">
                       {copied === "customer-name" ? "Copied!" : displayCustomerName}
@@ -378,58 +388,103 @@ export function OrderCard({
                 ) : null}
                 <button
                   type="button"
-                  onClick={(e) => copyText(e, order.title, "order")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (designFilesUrl) {
+                      window.open(
+                        designFilesUrl,
+                        "_blank",
+                        "noopener,noreferrer"
+                      );
+                      return;
+                    }
+                    copyText(e, order.title, "order");
+                  }}
                   onPointerDown={(e) => e.stopPropagation()}
-                  title={`Copy order number (${order.title})`}
-                  className="group/copy flex w-full min-w-0 items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
+                  title={
+                    designFilesUrl
+                      ? "Open Design files (Google Drive)"
+                      : `Copy order number (${order.title})`
+                  }
+                  className="group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
                 >
                   <span className="min-w-0 truncate">
-                    {copied === "order" ? "Copied" : (
+                    {copied === "order" ? (
+                      "Copied"
+                    ) : (
                       <>
-                        {order.title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+                        {order.title
+                          .replace(/^ORD-\d{4}-/, "")
+                          .replace(/^0+(\d)/, "$1")}
                         {groupSize != null && groupSize >= 2 ? (
-                          <span className="font-normal text-slate-400"> ({groupSize})</span>
+                          <span className="font-normal text-slate-400">
+                            {" "}
+                            ({groupSize})
+                          </span>
                         ) : null}
                       </>
                     )}
                   </span>
-                  <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                  {designFilesUrl ? (
+                    <span className="shrink-0 text-[10px] font-semibold text-[var(--primary)] opacity-70 group-hover/copy:opacity-100">
+                      ↗
+                    </span>
+                  ) : (
+                    <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                  )}
                 </button>
-                {summaryTrailingParts.length > 0 ? (
+                {summaryTrailingParts.length > 0 ||
+                hasBillingInfo(billingFromSpecs(order.specs)) ? (
                   <p
                     lang="en"
                     className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
                   >
-                    · {summaryTrailingParts.join(" · ")}
+                    {summaryTrailingParts.length > 0 ? (
+                      <span>
+                        · {summaryTrailingParts.join(" · ")}
+                        {hasBillingInfo(billingFromSpecs(order.specs)) ? (
+                          <>
+                            {" "}
+                            <OrderBillingGlobe
+                              specs={order.specs}
+                              className="inline-flex align-middle"
+                            />
+                          </>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <OrderBillingGlobe
+                        specs={order.specs}
+                        className="inline-flex align-middle"
+                      />
+                    )}
                   </p>
                 ) : null}
               </div>
 
-              {showTagsRow ? (
+              {shippingSign ? (
               <div className="mt-1.5 flex items-center gap-2">
-                {shippingSign ? (
-                  <span
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                      shippingTagClass(shippingSign)
-                    )}
-                    title={shippingSign.title}
-                  >
-                    {shippingSign.kind === "awaiting" ? (
-                      <Clock className="h-3 w-3" />
-                    ) : shippingSign.kind === "payment_pending" ? (
-                      <CreditCard className="h-3 w-3" />
-                    ) : shippingSign.kind === "pickup" ? (
-                      <MapPin className="h-3 w-3" />
-                    ) : shippingSign.kind === "uber" ? (
-                      <Car className="h-3 w-3" />
-                    ) : (
-                      <Truck className="h-3 w-3" />
-                    )}
-                    {shippingSign.label}
-                  </span>
-                ) : null}
-                <OrderBillingGlobe specs={order.specs} />
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                    shippingTagClass(shippingSign)
+                  )}
+                  title={shippingSign.title}
+                >
+                  {shippingSign.kind === "awaiting" ? (
+                    <Clock className="h-3 w-3" />
+                  ) : shippingSign.kind === "payment_pending" ? (
+                    <CreditCard className="h-3 w-3" />
+                  ) : shippingSign.kind === "pickup" ? (
+                    <MapPin className="h-3 w-3" />
+                  ) : shippingSign.kind === "uber" ||
+                    shippingSign.kind === "curri" ? (
+                    <Car className="h-3 w-3" />
+                  ) : (
+                    <Truck className="h-3 w-3" />
+                  )}
+                  {shippingSign.label}
+                </span>
               </div>
               ) : null}
             </div>
@@ -599,6 +654,7 @@ export function OrderCard({
               <WebhookSourceLabel
                 webhookSource={order.webhook_source}
                 sourceStyles={webhookSourceStyles}
+                orderTitle={sharedOrderTitle(order)}
               />
               {displayCustomerName ? (
                 <div className="flex items-center gap-1.5">

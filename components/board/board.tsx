@@ -19,6 +19,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   Activity,
   CalendarClock,
+  CalendarDays,
   LayoutDashboard,
   Layers,
   Search,
@@ -183,6 +184,7 @@ export function Board({
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [dueTodayOnly, setDueTodayOnly] = useState(false);
   const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
     null
   );
@@ -234,9 +236,10 @@ export function Board({
       personFilter,
       ownerFilter,
       overdueOnly,
+      dueTodayOnly,
       doneColumnIds,
     }),
-    [orderQuery, personFilter, ownerFilter, overdueOnly, doneColumnIds]
+    [orderQuery, personFilter, ownerFilter, overdueOnly, dueTodayOnly, doneColumnIds]
   );
 
   /** Maps every orderId to its cross-column group size (only set when ≥ 2). */
@@ -245,7 +248,8 @@ export function Board({
       orderQuery.trim() !== "" ||
       personFilter !== "" ||
       ownerFilter !== "" ||
-      overdueOnly;
+      overdueOnly ||
+      dueTodayOnly;
     const source = filtersOn
       ? (searchResults ??
         orders.filter((order) =>
@@ -278,6 +282,7 @@ export function Board({
     personFilter,
     ownerFilter,
     overdueOnly,
+    dueTodayOnly,
     boardFilters,
     fieldValuesByOrder,
     customFields,
@@ -351,10 +356,15 @@ export function Board({
   useEffect(() => {
     const q = orderQuery.trim();
     const filtersActive =
-      q !== "" || personFilter !== "" || ownerFilter !== "" || overdueOnly;
+      q !== "" ||
+      personFilter !== "" ||
+      ownerFilter !== "" ||
+      overdueOnly ||
+      dueTodayOnly;
 
     if (!q) {
       lastAutoNavQueryRef.current = "";
+      pendingSearchNavRef.current = null;
     }
 
     if (!filtersActive) {
@@ -374,6 +384,7 @@ export function Board({
           if (personFilter) params.set("designerId", personFilter);
           if (ownerFilter) params.set("ownerId", ownerFilter);
           if (overdueOnly) params.set("overdueOnly", "1");
+          if (dueTodayOnly) params.set("dueTodayOnly", "1");
 
           const res = await fetch(`/api/board/search-orders?${params}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -409,6 +420,10 @@ export function Board({
               saveHiddenColumnIds(tenantId, next);
               return next;
             });
+          } else if (q) {
+            if (lastAutoNavQueryRef.current !== q) {
+              pendingSearchNavRef.current = null;
+            }
           }
         } catch (err) {
           console.error("[Board] Failed to search orders:", err);
@@ -428,7 +443,7 @@ export function Board({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [orderQuery, personFilter, ownerFilter, overdueOnly, tenantId]);
+  }, [orderQuery, personFilter, ownerFilter, overdueOnly, dueTodayOnly, tenantId]);
 
   // Scroll to the unique search hit once its column is visible in the DOM.
   useEffect(() => {
@@ -437,20 +452,28 @@ export function Board({
     if (hiddenColIds.has(pending.columnId)) return;
 
     const { columnId, orderId } = pending;
-    pendingSearchNavRef.current = null;
 
+    // Do not clear pending until scroll succeeds — Strict Mode cleanup
+    // cancels rAF; clearing early would drop the nav on the remount pass.
     const id = window.requestAnimationFrame(() => {
       const columnEl = document.querySelector(`[data-column-id="${columnId}"]`);
-      if (columnEl) {
-        columnEl.scrollIntoView({
-          behavior: "instant",
+      const orderEl = document.querySelector(`[data-order-id="${orderId}"]`);
+      if (!columnEl && !orderEl) return;
+      pendingSearchNavRef.current = null;
+
+      // Prefer the card so horizontal (board) + vertical (column) scroll
+      // both land with the hit in the center of the viewport.
+      if (orderEl) {
+        orderEl.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
           inline: "center",
-          block: "nearest",
         });
         return;
       }
-      document.querySelector(`[data-order-id="${orderId}"]`)?.scrollIntoView({
-        behavior: "instant",
+      columnEl?.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
         block: "nearest",
       });
     });
@@ -1227,7 +1250,11 @@ export function Board({
     }
 
     const placementSource =
-      personFilter || ownerFilter || orderQuery.trim() || overdueOnly
+      personFilter ||
+      ownerFilter ||
+      orderQuery.trim() ||
+      overdueOnly ||
+      dueTodayOnly
         ? (searchResults ?? orders)
         : orders;
     const columnOrders = placementSource
@@ -1317,7 +1344,8 @@ export function Board({
     orderQuery.trim() !== "" ||
     personFilter !== "" ||
     ownerFilter !== "" ||
-    overdueOnly;
+    overdueOnly ||
+    dueTodayOnly;
 
   // Prefer full-DB search results. While search is in flight (or if it fails
   // open), fall back to filtering already-loaded cards so matches in visible
@@ -1528,6 +1556,28 @@ export function Board({
           <label
             className={cn(
               "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
+              dueTodayOnly
+                ? "border-amber-300 bg-amber-50 text-amber-800"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50"
+            )}
+            title="Show only cards due today (excludes Done)"
+          >
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={dueTodayOnly}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setDueTodayOnly(on);
+                if (on) setOverdueOnly(false);
+              }}
+            />
+            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+            Today&apos;s Due
+          </label>
+          <label
+            className={cn(
+              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
               overdueOnly
                 ? "border-red-300 bg-red-50 text-red-700"
                 : "border-slate-300 text-slate-600 hover:bg-slate-50"
@@ -1538,7 +1588,11 @@ export function Board({
               type="checkbox"
               className="sr-only"
               checked={overdueOnly}
-              onChange={(e) => setOverdueOnly(e.target.checked)}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setOverdueOnly(on);
+                if (on) setDueTodayOnly(false);
+              }}
             />
             <CalendarClock className="h-3.5 w-3.5 shrink-0" />
             Overdue
@@ -1551,6 +1605,7 @@ export function Board({
                 setPersonFilter("");
                 setOwnerFilter("");
                 setOverdueOnly(false);
+                setDueTodayOnly(false);
               }}
               className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-sm text-slate-600 hover:bg-slate-50"
             >

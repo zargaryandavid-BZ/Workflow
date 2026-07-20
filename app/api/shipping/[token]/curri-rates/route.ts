@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchFedExRates } from "@/lib/fedex";
+import { fetchCurriRates, isCurriConfigured } from "@/lib/curri";
 import { applyShippingMarkup } from "@/lib/shipping-markup";
-import { loadShippingSettings } from "@/lib/shipping-settings";
+import {
+  loadShippingSettings,
+  resolveFedExConfig,
+} from "@/lib/shipping-settings";
 import type {
   FedExRateOption,
   ShippingBox,
@@ -16,6 +19,11 @@ export async function POST(
   const { token } = await params;
   if (!token) {
     return NextResponse.json({ error: "Token required" }, { status: 422 });
+  }
+
+  // Outside service area / missing credentials → empty rates (not an error).
+  if (!isCurriConfigured()) {
+    return NextResponse.json({ rates: [], paymentEnabled: false });
   }
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -38,7 +46,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: shipReq, error } = await admin
     .from("shipping_requests")
-    .select("id, status, boxes, tenant_id, expires_at")
+    .select("id, status, boxes, tenant_id")
     .eq("token", token)
     .maybeSingle();
 
@@ -53,19 +61,17 @@ export async function POST(
     );
   }
 
-  const boxes = (shipReq.boxes ?? []) as ShippingBox[];
-  if (boxes.length === 0) {
-    return NextResponse.json(
-      { error: "No box details found for this shipment." },
-      { status: 422 }
-    );
-  }
-
   const settings = await loadShippingSettings(admin, shipReq.tenant_id);
-  if (settings?.offer_fedex === false) {
+  if (settings?.offer_curri === false) {
     return NextResponse.json({ rates: [], paymentEnabled: false });
   }
 
+  const boxes = (shipReq.boxes ?? []) as ShippingBox[];
+  if (boxes.length === 0) {
+    return NextResponse.json({ rates: [], paymentEnabled: false });
+  }
+
+  const config = resolveFedExConfig(settings);
   const deliveryAddress = {
     street: addr.street.trim(),
     city: addr.city.trim(),
@@ -74,39 +80,33 @@ export async function POST(
     country: (addr.country ?? "US").trim().toUpperCase() || "US",
   };
 
-  try {
-    const baseRates = await fetchFedExRates({
-      boxes,
-      deliveryAddress,
-      settings,
-    });
+  const baseRates = await fetchCurriRates({
+    boxes,
+    deliveryAddress,
+    origin: {
+      street: config.shipper.street,
+      city: config.shipper.city,
+      state: config.shipper.state,
+      zip: config.shipper.zip,
+    },
+  });
 
-    const paymentEnabled = settings?.payment_enabled ?? false;
-    const markupFixed = settings?.markup_fixed_cents ?? 0;
-    const markupPercent = settings?.markup_percent ?? 0;
+  const paymentEnabled = settings?.payment_enabled ?? false;
+  const markupFixed = settings?.markup_fixed_cents ?? 0;
+  const markupPercent = settings?.markup_percent ?? 0;
 
-    const rates: FedExRateOption[] = baseRates.map((rate) => {
-      const tagged = { ...rate, provider: "fedex" as const };
-      const base = tagged.totalCharge;
-      if (!paymentEnabled || base == null) {
-        return tagged;
-      }
-      const withMarkup = applyShippingMarkup(base, markupFixed, markupPercent);
-      return {
-        ...tagged,
-        fedexBaseCharge: base,
-        totalCharge: withMarkup,
-      };
-    });
+  const rates: FedExRateOption[] = baseRates.map((rate) => {
+    const base = rate.totalCharge;
+    if (!paymentEnabled || base == null) {
+      return rate;
+    }
+    const withMarkup = applyShippingMarkup(base, markupFixed, markupPercent);
+    return {
+      ...rate,
+      fedexBaseCharge: base,
+      totalCharge: withMarkup,
+    };
+  });
 
-    return NextResponse.json({
-      rates,
-      paymentEnabled,
-    });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to fetch FedEx rates";
-    console.error("[fedex-rates]", message);
-    return NextResponse.json({ error: message }, { status: 502 });
-  }
+  return NextResponse.json({ rates, paymentEnabled });
 }

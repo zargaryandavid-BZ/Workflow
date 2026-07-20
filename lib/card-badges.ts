@@ -46,7 +46,9 @@ export function notificationToCardBadge(
     }
     if (status === "pending" || status === "sent") {
       if (channel === "manual") return "manual";
-      if (channel === "email" || channel === "sms") return "waiting_approval";
+      if (channel === "email" || channel === "sms" || channel === "both") {
+        return "waiting_approval";
+      }
     }
     return null;
   }

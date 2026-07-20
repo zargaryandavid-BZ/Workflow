@@ -69,20 +69,22 @@ function productFromOrder(order: Order): string {
   return product?.trim() || "order";
 }
 
+type DeliverChannel = "email" | "sms" | "both";
+
 async function deliverNotification(
   client: Client,
   params: {
     notification: JobNotification;
     order: Order;
     tenantName: string;
-    channel: "email" | "sms";
+    channel: DeliverChannel;
     staffNote?: string | null;
     toEmail?: string | null;
     toPhone?: string | null;
     subject?: string | null;
     messageBody?: string | null;
   }
-): Promise<{ sent: boolean; error?: string }> {
+): Promise<{ sent: boolean; error?: string; channel?: DeliverChannel }> {
   const actionUrl = `${appUrl()}/respond/${params.notification.token}`;
   const { customerEmail, customerPhone, customerName } =
     await resolveCustomerContact(
@@ -106,109 +108,127 @@ async function deliverNotification(
     params.order = { ...params.order, customer_id: syncedCustomerId };
   }
 
-  if (params.channel === "email" && customerEmail) {
-    const staffNote = params.staffNote ?? params.notification.staff_note;
-    let htmlBody: string | undefined;
-    if (params.notification.type === "missing_info") {
-      htmlBody = buildMissingInfoEmailHtml({
-        customerName: customerName ?? "there",
-        productType: productFromOrder(params.order),
-        orderNumber: params.order.title,
-        replyLink: actionUrl,
-        staffNote,
-        teamName: `${params.tenantName} Team`,
-      });
-    } else if (params.notification.type === "customer_approval") {
-      if (params.messageBody) {
-        htmlBody = messageToEmailHtml(params.messageBody);
-      } else {
-        htmlBody = buildApprovalEmailHtml({
+  const wantEmail =
+    params.channel === "email" || params.channel === "both";
+  const wantSms = params.channel === "sms" || params.channel === "both";
+  const sentParts: Array<"email" | "sms"> = [];
+  const errors: string[] = [];
+
+  if (wantEmail) {
+    if (!customerEmail?.trim()) {
+      errors.push("Customer email is required to send.");
+    } else {
+      const staffNote = params.staffNote ?? params.notification.staff_note;
+      let htmlBody: string | undefined;
+      if (params.notification.type === "missing_info") {
+        htmlBody = buildMissingInfoEmailHtml({
           customerName: customerName ?? "there",
           productType: productFromOrder(params.order),
           orderNumber: params.order.title,
-          approvalLink: actionUrl,
-          internalNote: staffNote,
+          replyLink: actionUrl,
+          staffNote,
           teamName: `${params.tenantName} Team`,
         });
-      }
-    } else if (params.messageBody) {
-      htmlBody = messageToEmailHtml(
-        injectReplyLink(params.messageBody, actionUrl)
-      );
-    }
-
-    const emailResult = await sendNotificationEmail({
-      to: customerEmail,
-      type: params.notification.type,
-      orderTitle: params.order.title,
-      tenantName: params.tenantName,
-      actionUrl,
-      staffNote,
-      customerName,
-      productType: productFromOrder(params.order),
-      subject:
-        params.subject ??
-        (params.notification.type === "missing_info"
-          ? missingInfoSubject(params.order.title)
-          : params.notification.type === "customer_approval"
-            ? approvalSubject(params.order.title)
-            : undefined),
-      htmlBody,
-      textBody:
-        params.notification.type === "customer_approval" && params.messageBody
-          ? params.messageBody
-          : undefined,
-    });
-    if (!emailResult.sent) {
-      return {
-        sent: false,
-        error: emailResult.error ?? deliveryErrorMessage("email"),
-      };
-    }
-  } else if (params.channel === "sms" && customerPhone) {
-    const greeting = customerName ? `Hi ${customerName}, ` : "";
-    const body =
-      params.notification.type === "missing_info"
-        ? buildMissingInfoSmsBody({
-            customerName,
+      } else if (params.notification.type === "customer_approval") {
+        if (params.messageBody) {
+          htmlBody = messageToEmailHtml(params.messageBody);
+        } else {
+          htmlBody = buildApprovalEmailHtml({
+            customerName: customerName ?? "there",
+            productType: productFromOrder(params.order),
             orderNumber: params.order.title,
-            replyLink: actionUrl,
-            brandName: params.tenantName,
-          })
-        : params.notification.type === "customer_approval"
-          ? buildApprovalSmsBody({
+            approvalLink: actionUrl,
+            internalNote: staffNote,
+            teamName: `${params.tenantName} Team`,
+          });
+        }
+      } else if (params.messageBody) {
+        htmlBody = messageToEmailHtml(
+          injectReplyLink(params.messageBody, actionUrl)
+        );
+      }
+
+      const emailResult = await sendNotificationEmail({
+        to: customerEmail,
+        type: params.notification.type,
+        orderTitle: params.order.title,
+        tenantName: params.tenantName,
+        actionUrl,
+        staffNote,
+        customerName,
+        productType: productFromOrder(params.order),
+        subject:
+          params.subject ??
+          (params.notification.type === "missing_info"
+            ? missingInfoSubject(params.order.title)
+            : params.notification.type === "customer_approval"
+              ? approvalSubject(params.order.title)
+              : undefined),
+        htmlBody,
+        textBody:
+          params.notification.type === "customer_approval" && params.messageBody
+            ? params.messageBody
+            : undefined,
+      });
+      if (emailResult.sent) {
+        sentParts.push("email");
+      } else {
+        errors.push(emailResult.error ?? deliveryErrorMessage("email"));
+      }
+    }
+  }
+
+  if (wantSms) {
+    if (!customerPhone?.trim()) {
+      errors.push("Customer phone number is required to send.");
+    } else {
+      const greeting = customerName ? `Hi ${customerName}, ` : "";
+      const body =
+        params.notification.type === "missing_info"
+          ? buildMissingInfoSmsBody({
               customerName,
-              productType: productFromOrder(params.order),
               orderNumber: params.order.title,
-              approvalLink: actionUrl,
+              replyLink: actionUrl,
               brandName: params.tenantName,
             })
-          : params.messageBody
-            ? injectReplyLink(params.messageBody, actionUrl)
-            : `${greeting}we need more info for "${params.order.title}". Please respond: ${actionUrl}`;
-    const smsResult = await sendSms({ to: customerPhone, body });
-    if (!smsResult.sent) {
-      return {
-        sent: false,
-        error: smsResult.error ?? deliveryErrorMessage("sms"),
-      };
+          : params.notification.type === "customer_approval"
+            ? buildApprovalSmsBody({
+                customerName,
+                productType: productFromOrder(params.order),
+                orderNumber: params.order.title,
+                approvalLink: actionUrl,
+                brandName: params.tenantName,
+              })
+            : params.messageBody
+              ? injectReplyLink(params.messageBody, actionUrl)
+              : `${greeting}we need more info for "${params.order.title}". Please respond: ${actionUrl}`;
+      const smsResult = await sendSms({ to: customerPhone, body });
+      if (smsResult.sent) {
+        sentParts.push("sms");
+      } else {
+        errors.push(smsResult.error ?? deliveryErrorMessage("sms"));
+      }
     }
-  } else {
+  }
+
+  if (sentParts.length === 0) {
     console.info(
       `[notification-link:${params.notification.type}] ${actionUrl}`
     );
     return {
       sent: false,
-      error:
-        params.channel === "email"
-          ? "Customer email is required to send."
-          : "Customer phone number is required to send.",
+      error: errors[0] ?? deliveryErrorMessage(wantEmail ? "email" : "sms"),
     };
   }
 
+  const storedChannel: DeliverChannel =
+    sentParts.includes("email") && sentParts.includes("sms")
+      ? "both"
+      : sentParts[0];
+
   await client
     .from("job_notifications")
-    .update({ channel: params.channel, status: "sent" })
+    .update({ channel: storedChannel, status: "sent" })
     .eq("id", params.notification.id);
 
   await logActivity(client, {
@@ -218,20 +238,31 @@ async function deliverNotification(
     action: "customer_notified",
     metadata: {
       type: params.notification.type,
-      channel: params.channel,
+      channel: storedChannel,
       notificationId: params.notification.id,
     },
   });
 
-  return { sent: true };
+  if (errors.length > 0) {
+    return {
+      sent: true,
+      channel: storedChannel,
+      error: errors.join(" "),
+    };
+  }
+
+  return { sent: true, channel: storedChannel };
 }
 
-function deliveryErrorMessage(channel: "email" | "sms"): string {
+function deliveryErrorMessage(channel: "email" | "sms" | "both"): string {
   if (channel === "email") {
     if (!isCustomerEmailConfigured()) {
       return "Email not configured. Add INSTANTLY_API_KEY.";
     }
     return "Email failed. Check INSTANTLY_API_KEY.";
+  }
+  if (channel === "both") {
+    return "Failed to send email and/or SMS. Check Instantly and Twilio config.";
   }
   if (!isSmsConfigured()) {
     return "SMS not configured. Please add Twilio credentials.";
@@ -343,7 +374,7 @@ export async function dispatchNotification(
     notification: JobNotification;
     order: Order;
     tenantName: string;
-    channel: "email" | "sms";
+    channel: DeliverChannel;
     toEmail?: string | null;
     toPhone?: string | null;
     subject?: string | null;
@@ -354,7 +385,10 @@ export async function dispatchNotification(
   if (!delivery.sent) {
     throw new Error(delivery.error ?? deliveryErrorMessage(params.channel));
   }
-  return { actionUrl: `${appUrl()}/respond/${params.notification.token}` };
+  return {
+    actionUrl: `${appUrl()}/respond/${params.notification.token}`,
+    warning: delivery.error ?? null,
+  };
 }
 
 /**
@@ -398,8 +432,13 @@ export async function createNotification(
   if (error) throw new Error(error.message);
 
   const actionUrl = `${appUrl()}/respond/${notification.token}`;
+  let warning: string | null = null;
 
-  if (params.channel === "email" || params.channel === "sms") {
+  if (
+    params.channel === "email" ||
+    params.channel === "sms" ||
+    params.channel === "both"
+  ) {
     const delivery = await deliverNotification(client, {
       notification: notification as JobNotification,
       order: params.order,
@@ -410,7 +449,8 @@ export async function createNotification(
       toPhone: params.toPhone,
       subject: params.subject,
       messageBody:
-        params.channel === "email" && params.messageBody
+        (params.channel === "email" || params.channel === "both") &&
+        params.messageBody
           ? injectApprovalLink(params.messageBody, actionUrl)
           : params.messageBody,
     });
@@ -419,6 +459,8 @@ export async function createNotification(
         delivery.error ?? deliveryErrorMessage(params.channel)
       );
     }
+    // Partial success (e.g. email ok, SMS failed on channel "both").
+    warning = delivery.error ?? null;
   } else if (params.channel === "manual") {
     await logActivity(client, {
       tenantId: params.order.tenant_id,
@@ -441,7 +483,7 @@ export async function createNotification(
     });
   }
 
-  return { notification, actionUrl };
+  return { notification, actionUrl, warning };
 }
 
 /**

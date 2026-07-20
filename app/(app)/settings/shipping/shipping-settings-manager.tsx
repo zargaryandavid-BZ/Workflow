@@ -70,6 +70,10 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
   const [pickupHoursNote, setPickupHoursNote] = useState(
     settings.pickup_hours_note ?? ""
   );
+  const [offerPickup, setOfferPickup] = useState(settings.offer_pickup);
+  const [offerFedex, setOfferFedex] = useState(settings.offer_fedex);
+  const [offerUber, setOfferUber] = useState(settings.offer_uber);
+  const [offerCurri, setOfferCurri] = useState(settings.offer_curri);
   const [paymentEnabled, setPaymentEnabled] = useState(settings.payment_enabled);
   const [stripePublishableKey, setStripePublishableKey] = useState(
     settings.stripe_publishable_key ?? ""
@@ -97,6 +101,10 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
       shipper_zip: shipperZip.trim() || null,
       shipper_country: shipperCountry.trim() || "US",
       pickup_hours_note: pickupHoursNote.trim() || null,
+      offer_pickup: offerPickup,
+      offer_fedex: offerFedex,
+      offer_uber: offerUber,
+      offer_curri: offerCurri,
       payment_enabled: paymentEnabled,
       stripe_publishable_key: stripePublishableKey.trim() || null,
       markup_fixed_dollars: Number.parseFloat(markupFixedDollars) || 0,
@@ -125,6 +133,10 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
 
     const next = json.settings as ShippingSettingsPublic;
     setSettings(next);
+    setOfferPickup(next.offer_pickup);
+    setOfferFedex(next.offer_fedex);
+    setOfferUber(next.offer_uber);
+    setOfferCurri(next.offer_curri);
     setFedexApiKey("");
     setFedexSecretKey("");
     setStripeSecretKey("");
@@ -138,6 +150,38 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
     typeof window !== "undefined"
       ? window.location.origin
       : "https://your-domain.com";
+
+  const offerOptions = [
+    {
+      id: "pickup" as const,
+      label: "Pickup",
+      description: "Client picks up at your shop",
+      checked: offerPickup,
+      set: setOfferPickup,
+    },
+    {
+      id: "fedex" as const,
+      label: "Delivery FedEx",
+      description: "Live FedEx rates on the portal",
+      checked: offerFedex,
+      set: setOfferFedex,
+    },
+    {
+      id: "uber" as const,
+      label: "Delivery Uber",
+      description: "Local Uber delivery to their address",
+      checked: offerUber,
+      set: setOfferUber,
+    },
+    {
+      id: "curri" as const,
+      label: "Curri rates",
+      description:
+        "Show Curri same-day quotes with FedEx on the Delivery step",
+      checked: offerCurri,
+      set: setOfferCurri,
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -156,6 +200,53 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
           {message}
         </p>
       ) : null}
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-base font-semibold text-slate-800">
+          Offer to clients
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Choose which delivery options appear on the client shipping portal.
+          At least one must stay enabled.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {offerOptions.map((opt) => {
+            const enabledCount = [
+              offerPickup,
+              offerFedex,
+              offerUber,
+              offerCurri,
+            ].filter(Boolean).length;
+            const disableUncheck = opt.checked && enabledCount === 1;
+            return (
+              <label
+                key={opt.id}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors ${
+                  opt.checked
+                    ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                } ${disableUncheck ? "opacity-80" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={opt.checked}
+                  disabled={disableUncheck}
+                  onChange={(e) => opt.set(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-800">
+                    {opt.label}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    {opt.description}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-800">FedEx</h2>

@@ -579,10 +579,29 @@ export function OrderFormBody({
       {artworkField && (!hideEmpty || artworkValue) ? (
         <div>
           <Label htmlFor={`${idPrefix}-artwork`}>
-            {orderFormFieldLabel(artworkField.name)}
-            {artworkField.required ? (
-              <span className="ml-0.5 text-red-500">*</span>
-            ) : null}
+            {(() => {
+              const url = String(fieldValues[artworkField.id] ?? "").trim();
+              if (/^https?:\/\//i.test(url)) {
+                return (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--primary)] underline hover:opacity-80"
+                  >
+                    {orderFormFieldLabel(artworkField.name)} ↗
+                  </a>
+                );
+              }
+              return (
+                <>
+                  {orderFormFieldLabel(artworkField.name)}
+                  {artworkField.required ? (
+                    <span className="ml-0.5 text-red-500">*</span>
+                  ) : null}
+                </>
+              );
+            })()}
           </Label>
           <div className="flex items-center gap-2">
             <button

@@ -12,7 +12,7 @@ import { MoveBlockedModal } from "./move-blocked-modal";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
-import { defaultSendChannel } from "@/lib/preferred-channel";
+import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
 import type { Asset, BoardColumn, Customer, MissingInfoNote, Role } from "@/lib/types";
 
@@ -32,14 +32,33 @@ interface MissingInfoTabProps {
 
 function showCustomerLink(note: MissingInfoNote) {
   return (
-    (note.channel === "email" || note.channel === "sms") &&
+    (note.channel === "email" ||
+      note.channel === "sms" ||
+      note.channel === "both") &&
     note.status === "sent"
   );
 }
 
-function sentToLabel(note: MissingInfoNote, customer: Customer | null) {
-  if (note.channel === "sms") return customer?.phone ?? "SMS";
-  if (note.channel === "email") return customer?.email ?? "Email";
+function channelLabel(channel: MissingInfoNote["channel"]) {
+  if (channel === "both") return "Email + SMS";
+  if (channel === "sms") return "SMS";
+  if (channel === "email") return "Email";
+  return channel;
+}
+
+function sentToLabel(
+  note: MissingInfoNote,
+  customer: Customer | null,
+  contactEmail?: string | null,
+  contactPhone?: string | null
+) {
+  const email = contactEmail ?? customer?.email ?? null;
+  const phone = contactPhone ?? customer?.phone ?? null;
+  if (note.channel === "both") {
+    return [email, phone].filter(Boolean).join(" · ") || "Email + SMS";
+  }
+  if (note.channel === "sms") return phone ?? "SMS";
+  if (note.channel === "email") return email ?? "Email";
   return "—";
 }
 
@@ -123,8 +142,8 @@ function NotifyRow({
   sendLabel?: string;
   onSent: () => void;
 }) {
-  const [channel, setChannel] = useState<"email" | "sms" | null>(() =>
-    defaultSendChannel(
+  const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
+    defaultSendChannels(
       {
         email: contactEmail ?? customer?.email ?? null,
         phone: contactPhone ?? customer?.phone ?? null,
@@ -144,8 +163,8 @@ function NotifyRow({
   useEffect(() => {
     setEmail(contactEmail ?? customer?.email ?? "");
     setPhone(contactPhone ?? customer?.phone ?? "");
-    setChannel(
-      defaultSendChannel(
+    setSelected(
+      defaultSendChannels(
         {
           email: contactEmail ?? customer?.email ?? null,
           phone: contactPhone ?? customer?.phone ?? null,
@@ -161,42 +180,58 @@ function NotifyRow({
     customer?.preferred_channel,
   ]);
 
+  function toggleChannel(next: "email" | "sms") {
+    setSelected((prev) =>
+      prev.includes(next) ? prev.filter((c) => c !== next) : [...prev, next]
+    );
+    setError(null);
+  }
+
   async function send() {
+    const channel = channelFromSelection(selected);
     if (!channel) return;
     setError(null);
-    if (channel === "sms") {
+    if (selected.includes("sms")) {
       const smsError = validateSmsRecipient(phone);
       if (smsError) {
         setError(smsError);
         return;
       }
-    } else if (!email.trim()) {
+    }
+    if (selected.includes("email") && !email.trim()) {
       setError("Customer email is required.");
       return;
     }
     setSending(true);
     try {
-      const { ok, data } = await postJsonWithTimeout<{ error?: string }>(
-        `/api/notifications/${note.id}/send`,
-        {
-          channel,
-          toEmail: channel === "email" ? email.trim() || undefined : undefined,
-          toPhone: channel === "sms" ? phone.trim() || undefined : undefined,
-        }
-      );
+      const { ok, data } = await postJsonWithTimeout<{
+        error?: string;
+        warning?: string | null;
+      }>(`/api/notifications/${note.id}/send`, {
+        channel,
+        toEmail: selected.includes("email")
+          ? email.trim() || undefined
+          : undefined,
+        toPhone: selected.includes("sms")
+          ? phone.trim() || undefined
+          : undefined,
+      });
       if (!ok) {
         setError(
           data.error ??
-            (channel === "sms"
+            (selected.includes("sms") && !selected.includes("email")
               ? "SMS failed to send. Please check Twilio config."
               : "Email failed. Check INSTANTLY_API_KEY.")
         );
         return;
       }
+      if (data.warning) {
+        setError(data.warning);
+      }
       onSent();
     } catch {
       setError(
-        channel === "sms"
+        selected.includes("sms") && !selected.includes("email")
           ? "SMS failed to send. Please check Twilio config."
           : "Email failed. Check INSTANTLY_API_KEY."
       );
@@ -205,6 +240,10 @@ function NotifyRow({
     }
   }
 
+  const wantEmail = selected.includes("email");
+  const wantSms = selected.includes("sms");
+  const hasSelection = wantEmail || wantSms;
+
   return (
     <div className="space-y-2 border-t border-slate-100 pt-3">
       <p className="text-sm font-medium text-slate-700">{label}</p>
@@ -212,10 +251,10 @@ function NotifyRow({
         <div className="flex shrink-0 gap-2">
           <button
             type="button"
-            onClick={() => setChannel(channel === "email" ? null : "email")}
+            onClick={() => toggleChannel("email")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              channel === "email"
+              wantEmail
                 ? "border-blue-500 bg-blue-50 text-blue-700"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50"
             )}
@@ -225,10 +264,10 @@ function NotifyRow({
           </button>
           <button
             type="button"
-            onClick={() => setChannel(channel === "sms" ? null : "sms")}
+            onClick={() => toggleChannel("sms")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              channel === "sms"
+              wantSms
                 ? "border-blue-500 bg-blue-50 text-blue-700"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50"
             )}
@@ -238,20 +277,16 @@ function NotifyRow({
           </button>
         </div>
 
-        {channel ? (
+        {hasSelection && !(wantEmail && wantSms) ? (
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
             <Input
-              type={channel === "email" ? "email" : "tel"}
-              value={channel === "email" ? email : phone}
+              type={wantEmail ? "email" : "tel"}
+              value={wantEmail ? email : phone}
               onChange={(e) =>
-                channel === "email"
-                  ? setEmail(e.target.value)
-                  : setPhone(e.target.value)
+                wantEmail ? setEmail(e.target.value) : setPhone(e.target.value)
               }
               placeholder={
-                channel === "email"
-                  ? "customer@example.com"
-                  : "+1 555 123 4567"
+                wantEmail ? "customer@example.com" : "+1 555 123 4567"
               }
               className="h-9 min-w-0 flex-1 sm:max-w-xs"
             />
@@ -267,6 +302,34 @@ function NotifyRow({
           </div>
         ) : null}
       </div>
+
+      {wantEmail && wantSms ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="customer@example.com"
+            className="h-9 min-w-0 flex-1"
+          />
+          <Input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+1 555 123 4567"
+            className="h-9 min-w-0 flex-1"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={sending}
+            onClick={send}
+            className="shrink-0"
+          >
+            {sending ? "Sending…" : sendLabel}
+          </Button>
+        </div>
+      ) : null}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );
@@ -403,8 +466,8 @@ function HistoryEntry({
       {!isInternalNote && note.channel !== "none" && note.status !== "pending" ? (
         <p className="text-sm text-slate-600">
           <span className="font-medium text-slate-700">Sent: </span>
-          via {note.channel === "sms" ? "SMS" : "Email"} to{" "}
-          {sentToLabel(note, customer)}
+          via {channelLabel(note.channel)} to{" "}
+          {sentToLabel(note, customer, contactEmail, contactPhone)}
         </p>
       ) : null}
 
