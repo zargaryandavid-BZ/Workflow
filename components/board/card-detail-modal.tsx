@@ -20,17 +20,20 @@ import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
-import { normalizeSkus, prepareSkusForSave, type SkuItem } from "./sku-editor";
+import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
 import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder, productFromOrder } from "@/lib/notification-messages";
 import { groupSkuImagesBySkuId } from "@/lib/sku-images";
 import {
+  buildCustomFieldPayload,
   resolveOrderFormFields,
+  validateDueDate,
+  validateOrderFormFields,
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
-import { cn, dateInputValue, daysAgo, formatDate, formatDateTime } from "@/lib/utils";
+import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
@@ -146,14 +149,20 @@ export function CardDetailModal({
   const isViewOnly = mode === "view";
   const [modalCustomFields, setModalCustomFields] =
     useState<CustomField[]>(customFields);
+  const resolved = useMemo(
+    () => resolveOrderFormFields(modalCustomFields),
+    [modalCustomFields]
+  );
   const [data, setData] = useState<DetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState<"all" | "moves">("all");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
+  const [newNote, setNewNote] = useState("");
   const [priority, setPriority] = useState("normal");
   const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -212,6 +221,7 @@ export function CardDetailModal({
       }
     }
     setNoteHistory(parsedHistory);
+    setNewNote("");
     setPriority(json.order.priority);
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
@@ -280,6 +290,173 @@ export function CardDetailModal({
       setPersistedSkuIds(new Set());
     }
   }, [open, orderId, load]);
+
+  async function save(options?: { reload?: boolean }): Promise<boolean> {
+    if (!orderId) return false;
+
+    if (!title.trim()) {
+      setSaveError("Order Number is required");
+      return false;
+    }
+
+    const validationError = validateOrderFormFields(
+      resolved,
+      fieldValues,
+      customerName,
+      customerContact,
+      skus,
+      designerId
+    );
+    if (validationError) {
+      setSaveError(validationError);
+      return false;
+    }
+
+    const dueDateError = validateDueDate(dueDate, data?.order.due_date);
+    if (dueDateError) {
+      setSaveError(dueDateError);
+      return false;
+    }
+
+    if (ownerId && !owners.some((o) => o.id === ownerId)) {
+      setSaveError("Owner must be an account manager");
+      return false;
+    }
+
+    const skuError = validateSkus(skus, []);
+    if (skuError) {
+      setSaveError(skuError);
+      return false;
+    }
+
+    setSaveError(null);
+    setSaving(true);
+    const updatedHistory =
+      newNote.trim()
+        ? [
+            ...noteHistory,
+            {
+              author: currentUserName,
+              date: new Date().toISOString(),
+              text: newNote.trim(),
+            },
+          ]
+        : noteHistory;
+    const internalNoteJson =
+      updatedHistory.length > 0 ? JSON.stringify(updatedHistory) : null;
+    const savedSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
+    const nextSpecs = {
+      ...(data?.order.specs ?? {}),
+      skus: savedSkus,
+      designer_id: designerId || null,
+      designer_name:
+        designers.find((d) => d.id === designerId)?.name ?? null,
+      design_task: designTask || null,
+    };
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description,
+          internal_note: internalNoteJson,
+          priority,
+          ownerId: ownerId || null,
+          dueDate: dateInputValue(dueDate) || null,
+          tagId: tagId || null,
+          specs: nextSpecs,
+          customFieldValues: buildCustomFieldPayload(
+            resolved,
+            fieldValues,
+            skus,
+            customerName,
+            customerContact
+          ),
+        }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setSaveError(json.error ?? "Failed to save order");
+        return false;
+      }
+
+      setNoteHistory(updatedHistory);
+      setNewNote("");
+      const selectedTag = tagId
+        ? (tags.find((t) => t.id === tagId) ?? null)
+        : null;
+      onChanged({
+        tag_id: tagId || null,
+        tag: selectedTag,
+        title: title.trim(),
+        description: description || null,
+        priority: priority as "low" | "normal" | "high" | "urgent",
+        due_date: dateInputValue(dueDate) || null,
+        created_by: ownerId || null,
+        specs: nextSpecs,
+      });
+      if (options?.reload !== false) {
+        void load({ silent: true });
+      }
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function isDirty(): boolean {
+    if (!data) return false;
+    const order = data.order;
+    if (title !== order.title) return true;
+    if ((description || "") !== (order.description ?? "")) return true;
+    if (newNote.trim()) return true;
+    if (priority !== order.priority) return true;
+    if ((ownerId || "") !== (order.created_by ?? "")) return true;
+    if (dateInputValue(dueDate) !== dateInputValue(order.due_date)) return true;
+    if ((tagId || "") !== (order.tag_id ?? "")) return true;
+    if ((designerId || "") !== String(order.specs?.designer_id ?? "")) return true;
+    if ((designTask || "") !== String(order.specs?.design_task ?? "")) return true;
+
+    const savedSkus = prepareSkusForSave(
+      normalizeSkus(order.specs?.skus),
+      { pendingArtworkIds: [] }
+    );
+    const currentSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
+    if (JSON.stringify(currentSkus) !== JSON.stringify(savedSkus)) return true;
+
+    const formFields = resolved;
+    const savedValues: Record<string, unknown> = {};
+    for (const v of data.values) {
+      savedValues[v.custom_field_id] = v.value;
+    }
+    if (formFields.customerNameField) {
+      const id = formFields.customerNameField.id;
+      const savedName = String(savedValues[id] ?? order.customer?.name ?? "").trim();
+      if (customerName.trim() !== savedName) return true;
+    }
+    if (formFields.customerContactField) {
+      const id = formFields.customerContactField.id;
+      const savedContact = String(
+        savedValues[id] ??
+          order.customer?.email ??
+          order.customer?.phone ??
+          ""
+      ).trim();
+      if (customerContact.trim() !== savedContact) return true;
+    }
+    for (const field of [
+      ...formFields.printFields,
+      ...(formFields.orderQtyField ? [formFields.orderQtyField] : []),
+    ]) {
+      const current = fieldValues[field.id];
+      const saved = savedValues[field.id];
+      if (JSON.stringify(current ?? null) !== JSON.stringify(saved ?? null)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   async function removeOrder() {
     if (!orderId) return;
@@ -423,8 +600,22 @@ export function CardDetailModal({
     return versions;
   }, [data]);
 
-  function handleClose() {
-    onClose();
+  async function handleClose() {
+    if (saving || removing) return;
+    if (isViewOnly || !data || !orderId) {
+      onClose();
+      return;
+    }
+    if (!isDirty()) {
+      onClose();
+      return;
+    }
+    const ok = await save({ reload: false });
+    if (ok) {
+      onClose();
+      return;
+    }
+    setTab("details");
   }
 
   const displayOrderNumber = title.trim() || (data?.order.title ?? "").trim();
@@ -711,7 +902,21 @@ export function CardDetailModal({
       title={modalTitle}
       className="max-w-3xl"
       headerAction={
-        ownerName ? (
+        !isViewOnly ? (
+          <select
+            value={ownerId}
+            onChange={(e) => setOwnerId(e.target.value)}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            title="Owner"
+          >
+            <option value="">— Owner —</option>
+            {ownersForForm.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        ) : ownerName ? (
           <span className="text-sm text-slate-500">{ownerName}</span>
         ) : undefined
       }
@@ -724,7 +929,7 @@ export function CardDetailModal({
                 setRemoveError(null);
                 setConfirmRemove(true);
               }}
-              disabled={loading || removing}
+              disabled={loading || saving || removing}
               className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
               title="Remove order"
             >
@@ -732,8 +937,13 @@ export function CardDetailModal({
               Delete Order
             </button>
           ) : null}
-          <Button variant="outline" onClick={handleClose} type="button">
-            Close
+          <Button
+            variant="outline"
+            onClick={handleClose}
+            type="button"
+            disabled={saving || removing}
+          >
+            {saving ? "Saving…" : "Close"}
           </Button>
         </>
       }
@@ -920,8 +1130,8 @@ export function CardDetailModal({
               description={description}
               onDescriptionChange={setDescription}
               noteHistory={noteHistory}
-              internalNote=""
-              onInternalNoteChange={() => {}}
+              internalNote={newNote}
+              onInternalNoteChange={setNewNote}
               customerName={customerName}
               onCustomerNameChange={setCustomerName}
               customerContact={customerContact}
@@ -943,11 +1153,11 @@ export function CardDetailModal({
               orderId={orderId ?? undefined}
               skuImagesBySkuId={skuImagesBySkuId}
               ensureSkuPersisted={ensureSkuPersisted}
-              readOnly
-              hideEmpty
+              readOnly={isViewOnly}
+              hideEmpty={false}
               tags={tags}
               tagId={tagId}
-              onTagIdChange={undefined}
+              onTagIdChange={isViewOnly ? undefined : setTagId}
             />
 
             {saveError ? (
@@ -965,7 +1175,7 @@ export function CardDetailModal({
                 <Select
                   id="sidebar-priority"
                   value={priority}
-                  disabled
+                  disabled={isViewOnly}
                   onChange={(e) => setPriority(e.target.value)}
                 >
                   {PRIORITY_OPTIONS.map((p) => (
@@ -975,31 +1185,45 @@ export function CardDetailModal({
                   ))}
                 </Select>
               </div>
-              {dueDate ? (
               <div>
                 <Label htmlFor="sidebar-due">Due date</Label>
                 <Input
                   id="sidebar-due"
                   type="date"
-                  readOnly
+                  min={isViewOnly ? undefined : localDateInputValue()}
+                  readOnly={isViewOnly}
                   value={dateInputValue(dueDate)}
                   onChange={(e) => {
                     setDueDate(e.target.value);
                     setSaveError(null);
                   }}
-                  className="bg-slate-50"
+                  className={isViewOnly ? "bg-slate-50" : undefined}
                 />
               </div>
-              ) : null}
             </div>
-            {tags.length > 0 && tagId ? (
+            {tags.length > 0 ? (
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Tag
                 </p>
-                <span className="text-sm text-slate-700">
-                  {tags.find((t) => t.id === tagId)?.name ?? "—"}
-                </span>
+                {!isViewOnly ? (
+                  <select
+                    value={tagId}
+                    onChange={(e) => setTagId(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                  >
+                    <option value="">— None —</option>
+                    {tags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-sm text-slate-700">
+                    {tags.find((t) => t.id === tagId)?.name ?? "—"}
+                  </span>
+                )}
               </div>
             ) : null}
             {orderTags.length > 0 ? (

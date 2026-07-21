@@ -1,39 +1,57 @@
 {
+  "source": "crm",
+  "source_url": "https://crm.example.com/orders/ORD-2026-500",
   "customer_name": "Acme Corp",
   "customer_contact": "hello@acme.com",
+  "customer_phone": "+1 310 555 0100",
   "order_number": "ORD-2026-500",
+  "title": "Acme Corp — Mixed Print Order",
   "priority": "high",
   "due_date": "2026-07-24",
+  "description": "Parent order production notes.",
+  "notes": "Internal: split ship — labels first, cards next week.",
+  "payment_status": "partial",
+  "deposit": 750,
+  "balance": 2250,
   "owner": "",
   "designer": "",
   "design_task": "",
-  "description": "Parent order notes",
+  "designer_information": "Match prior batch colors.",
   "items": [
     {
       "title": "Roll Labels",
       "product": "Labels (Roll)",
       "materials": "White BOPP",
       "finished_size": "4 x 3 in",
-      "die": "",
+      "width": "4",
+      "height": "3",
+      "die": "GM-12",
       "sides": "1 Side",
       "roll_direction": "1-Top",
       "color_mode": "CMYK",
       "lamination": "Matte",
+      "special_effects": ["Gold Foil"],
+      "unit_price": 0.12,
+      "quantity": 3000,
       "spot_uv": false,
       "foil": false,
       "need_a_design": false,
       "die_cut": false,
       "application": false,
       "perforation": false,
+      "order_qty": 3000,
+      "artwork_url": "https://yourdomain.com/files/labels-master.pdf",
       "skus": [
         {
           "sku_name": "Flavor A",
           "quantity": 1000,
+          "comment": "matte finish",
           "artwork_url": "https://yourdomain.com/files/labels-a.png"
         },
         {
           "sku_name": "Flavor B",
           "quantity": 2000,
+          "comment": "sample",
           "artwork_url": "https://yourdomain.com/files/labels-b.png"
         }
       ]
@@ -43,26 +61,35 @@
       "product": "Business Cards",
       "materials": "16pt C2S",
       "finished_size": "3.5 x 2 in",
+      "width": "3.5",
+      "height": "2",
       "die": "",
       "sides": "2 Sides",
       "roll_direction": "",
       "color_mode": "CMYK",
       "lamination": "Gloss",
+      "special_effects": ["1-pass raised UV"],
+      "unit_price": 0.08,
+      "quantity": 750,
       "spot_uv": true,
       "foil": false,
       "need_a_design": false,
       "die_cut": false,
       "application": false,
       "perforation": false,
+      "order_qty": 750,
+      "artwork_url": "https://yourdomain.com/files/business-cards.pdf",
       "skus": [
         {
           "sku_name": "Employee Set",
           "quantity": 500,
+          "comment": "standard set",
           "artwork_url": "https://yourdomain.com/files/cards-employee.pdf"
         },
         {
           "sku_name": "Manager Set",
           "quantity": 250,
+          "comment": "foil accent",
           "artwork_url": "https://yourdomain.com/files/cards-manager.pdf"
         }
       ]

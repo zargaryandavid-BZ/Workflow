@@ -139,6 +139,10 @@ function fullSingleItemExample(year: number, due: string): string {
   "due_date": "${due}",
   "description": "Rush if possible — ship to LA warehouse.",
   "notes": "Internal: confirm ship date with warehouse.",
+  "payment_status": "partial",
+  "deposit": 500,
+  "balance": 1500,
+  "source_url": "https://crm.example.com/orders/ORD-${year}-013-3",
   "request_owner_email": "am@example.com",
   "request_owner_name": "Sarah Kim",
   "request_owner_phone": "+1 310 555 0199",
@@ -176,6 +180,7 @@ function fullSingleItemExample(year: number, due: string): string {
 function fullMultiItemExample(year: number, due: string): string {
   return `{
   "source": "crm",
+  "source_url": "https://crm.example.com/orders/ORD-${year}-013-3",
   "customer_name": "Acme Corp",
   "customer_contact": "hello@acme.com",
   "customer_phone": "+1 310 555 0100",
@@ -183,7 +188,11 @@ function fullMultiItemExample(year: number, due: string): string {
   "title": "Acme Corp — Mixed Print Order",
   "priority": "high",
   "due_date": "${due}",
-  "description": "Order-level notes visible on all cards.",
+  "description": "Order-level production notes.",
+  "notes": "Internal: split ship — labels first.",
+  "payment_status": "partial",
+  "deposit": 750,
+  "balance": 2250,
   "request_owner_email": "am@example.com",
   "request_owner_name": "Sarah Kim",
   "designer_email": "artist@example.com",
@@ -195,11 +204,15 @@ function fullMultiItemExample(year: number, due: string): string {
       "category": "Labels",
       "product": "Labels (Roll)",
       "finished_size": "4 x 3 in",
+      "width": "4",
+      "height": "3",
       "materials": "White BOPP",
       "sides": "1 Side",
       "color_mode": "CMYK",
       "roll_direction": "1-Top",
       "lamination": "Matte",
+      "special_effects": ["Gold Foil"],
+      "unit_price": 0.12,
       "spot_uv": false,
       "foil": false,
       "die_cut": false,
@@ -208,10 +221,9 @@ function fullMultiItemExample(year: number, due: string): string {
       "perforation": false,
       "order_qty": 3000,
       "artwork_url": "https://example.com/artwork/labels-master.pdf",
-      "description": "Item-level notes for labels only.",
       "skus": [
-        { "sku_name": "Flavor A", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-a.png" },
-        { "sku_name": "Flavor B", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-b.png" },
+        { "sku_name": "Flavor A", "quantity": 1000, "comment": "matte finish", "artwork_url": "https://example.com/artwork/flavor-a.png" },
+        { "sku_name": "Flavor B", "quantity": 1000, "comment": "sample", "artwork_url": "https://example.com/artwork/flavor-b.png" },
         { "sku_name": "Flavor C", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-c.png" }
       ]
     },
@@ -220,10 +232,14 @@ function fullMultiItemExample(year: number, due: string): string {
       "category": "Cards",
       "product": "Business Cards",
       "finished_size": "3.5 x 2 in",
+      "width": "3.5",
+      "height": "2",
       "materials": "16pt C2S",
       "sides": "2 Sides",
       "color_mode": "CMYK",
       "lamination": "Gloss",
+      "special_effects": ["1-pass raised UV"],
+      "unit_price": 0.08,
       "spot_uv": true,
       "foil": false,
       "die_cut": false,
@@ -233,7 +249,7 @@ function fullMultiItemExample(year: number, due: string): string {
       "order_qty": 500,
       "artwork_url": "https://example.com/artwork/business-cards.pdf",
       "skus": [
-        { "sku_name": "Standard", "quantity": 500, "artwork_url": "https://example.com/artwork/biz-card.png" }
+        { "sku_name": "Standard", "quantity": 500, "comment": "foil accent", "artwork_url": "https://example.com/artwork/biz-card.png" }
       ]
     }
   ]

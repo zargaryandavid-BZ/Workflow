@@ -3,6 +3,7 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ensureWebhookConfig } from "@/lib/webhook-config";
 import { PRODUCTS } from "@/lib/product-data";
+import { buildWebhookFieldOptionsFromCustomFields } from "@/lib/webhook-ai-prompt";
 import { IntegrationsManager } from "./integrations-manager";
 import type { WebhookConfig, WebhookHistoryEntry } from "@/lib/types";
 
@@ -50,18 +51,16 @@ export default async function IntegrationsSettingsPage() {
 
   // Load product options from the tenant's "Product" custom field, fall back to hardcoded list.
   let productOptions: string[] = [...PRODUCTS];
-  const { data: productField } = await supabase
+  const { data: customFields } = await supabase
     .from("custom_fields")
-    .select("options")
-    .eq("tenant_id", ctx.tenant.id)
-    .ilike("name", "product")
-    .maybeSingle();
-  if (
-    productField?.options &&
-    Array.isArray(productField.options) &&
-    productField.options.length > 0
-  ) {
-    productOptions = productField.options as string[];
+    .select("name, options")
+    .eq("tenant_id", ctx.tenant.id);
+
+  const tenantFieldOptions = buildWebhookFieldOptionsFromCustomFields(
+    (customFields ?? []) as { name: string; options: unknown }[]
+  );
+  if (tenantFieldOptions.product?.length) {
+    productOptions = tenantFieldOptions.product;
   }
 
   const appUrl =
@@ -83,6 +82,7 @@ export default async function IntegrationsSettingsPage() {
         historyLoadError={historyLoadError}
         webhookUrl={`${appUrl}/api/webhook/orders`}
         productOptions={productOptions}
+        tenantFieldOptions={tenantFieldOptions}
       />
     </div>
   );

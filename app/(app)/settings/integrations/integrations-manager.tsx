@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
+import { buildWebhookAiPrompt } from "@/lib/webhook-ai-prompt";
 import { buildWebhookPayloadDocs, buildWebhookPayloadDocsHtml } from "@/lib/webhook-payload-docs";
 import {
   DEFAULT_WEBHOOK_SOURCE_STYLES,
@@ -22,6 +23,8 @@ interface Props {
   historyLoadError: string | null;
   webhookUrl: string;
   productOptions: string[];
+  /** Live custom-field select options keyed by webhook field name. */
+  tenantFieldOptions?: Record<string, string[]>;
 }
 
 function prettyJson(value: unknown): string {
@@ -57,6 +60,7 @@ export function IntegrationsManager({
   historyLoadError: initialHistoryLoadError,
   webhookUrl,
   productOptions,
+  tenantFieldOptions = {},
 }: Props) {
   const router = useRouter();
   const [config, setConfig] = useState(initialConfig);
@@ -299,6 +303,16 @@ export function IntegrationsManager({
 
   const payloadDocs = buildWebhookPayloadDocs(webhookUrl, config.secret_key);
   const payloadDocsHtml = buildWebhookPayloadDocsHtml(webhookUrl, config.secret_key);
+  const aiPrompt = useMemo(
+    () =>
+      buildWebhookAiPrompt({
+        webhookUrl,
+        tenantFieldOptions,
+        sourceStyles,
+        excludedProducts: excludedProducts,
+      }),
+    [webhookUrl, tenantFieldOptions, sourceStyles, excludedProducts]
+  );
 
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
@@ -691,50 +705,84 @@ export function IntegrationsManager({
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-slate-800">
-              Payload reference
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Share this with the developer integrating your webhook.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => copyText(payloadDocsHtml, "html")}
-            >
-              {copiedField === "html" ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-              Copy HTML
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => copyText(payloadDocs, "docs")}
-            >
-              {copiedField === "docs" ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-              Copy Markdown
-            </Button>
-          </div>
-        </div>
-        <iframe
-          title="Webhook payload reference"
-          srcDoc={payloadDocsHtml}
-          className="h-[48rem] w-full rounded-md border border-slate-200 bg-white"
-          sandbox="allow-same-origin"
-        />
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">
+                  AI webhook prompt
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Paste into ChatGPT / Claude with your CRM schema. Updates when
+                  field options, source styles, or excluded products change.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => copyText(aiPrompt, "ai-prompt")}
+              >
+                {copiedField === "ai-prompt" ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                Copy prompt
+              </Button>
+            </div>
+            <textarea
+              readOnly
+              value={aiPrompt}
+              rows={16}
+              className="w-full resize-y rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700"
+              spellCheck={false}
+            />
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">
+                  Payload reference
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Share this with the developer integrating your webhook.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => copyText(payloadDocsHtml, "html")}
+                >
+                  {copiedField === "html" ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  Copy HTML
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => copyText(payloadDocs, "docs")}
+                >
+                  {copiedField === "docs" ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  Copy Markdown
+                </Button>
+              </div>
+            </div>
+            <iframe
+              title="Webhook payload reference"
+              srcDoc={payloadDocsHtml}
+              className="h-[48rem] w-full rounded-md border border-slate-200 bg-white"
+              sandbox="allow-same-origin"
+            />
           </section>
         </>
       ) : (
