@@ -176,14 +176,6 @@ export function OrderCard({
       : "") ||
     null;
 
-  const designFilesUrl = (() => {
-    const raw =
-      typeof order.specs?.design_task === "string"
-        ? order.specs.design_task.trim()
-        : "";
-    return /^https?:\/\//i.test(raw) ? raw : null;
-  })();
-
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
@@ -388,29 +380,14 @@ export function OrderCard({
                 ) : null}
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (designFilesUrl) {
-                      window.open(
-                        designFilesUrl,
-                        "_blank",
-                        "noopener,noreferrer"
-                      );
-                      return;
-                    }
-                    copyText(e, order.title, "order");
-                  }}
+                  onClick={(e) => copyText(e, order.title, "order")}
                   onPointerDown={(e) => e.stopPropagation()}
-                  title={
-                    designFilesUrl
-                      ? "Open Design files (Google Drive)"
-                      : `Copy order number (${order.title})`
-                  }
+                  title={`Copy order number (${order.title})`}
                   className="group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
                 >
                   <span className="min-w-0 truncate">
                     {copied === "order" ? (
-                      "Copied"
+                      "Copied!"
                     ) : (
                       <>
                         {order.title
@@ -425,11 +402,7 @@ export function OrderCard({
                       </>
                     )}
                   </span>
-                  {designFilesUrl ? (
-                    <span className="shrink-0 text-[10px] font-semibold text-[var(--primary)] opacity-70 group-hover/copy:opacity-100">
-                      ↗
-                    </span>
-                  ) : (
+                  {copied === "order" ? null : (
                     <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
                   )}
                 </button>

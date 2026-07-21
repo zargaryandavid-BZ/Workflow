@@ -20,8 +20,8 @@ import {
   Activity,
   CalendarClock,
   CalendarDays,
-  LayoutDashboard,
   Layers,
+  LayoutDashboard,
   Search,
   Table2,
   X,
@@ -39,6 +39,7 @@ import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
@@ -386,7 +387,7 @@ export function Board({
           if (overdueOnly) params.set("overdueOnly", "1");
           if (dueTodayOnly) params.set("dueTodayOnly", "1");
 
-          const res = await fetch(`/api/board/search-orders?${params}`);
+          const res = await fetchWithAuth(`/api/board/search-orders?${params}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = (await res.json()) as SearchOrdersResponse;
           if (cancelled) return;
@@ -573,7 +574,7 @@ export function Board({
       setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
 
       try {
-        const res = await fetch(
+        const res = await fetchWithAuth(
           `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1004,7 +1005,7 @@ export function Board({
     orderId: string,
     body: Record<string, unknown>
   ) {
-    const res = await fetch(`/api/orders/${orderId}`, {
+    const res = await fetchWithAuth(`/api/orders/${orderId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -1424,11 +1425,26 @@ export function Board({
     ? (columns.find((c) => c.id === activeOrder.column_id)?.color ?? null)
     : null;
 
+  const selectedPersonLabel =
+    designers.find((d) => d.id === personFilter)?.name ?? "All people";
+  const selectedOwnerLabel =
+    ownerFilterOptions.find((o) => o.id === ownerFilter)?.name ?? "All owners";
+  const dueFilterValue = dueTodayOnly
+    ? "today"
+    : overdueOnly
+      ? "overdue"
+      : "";
+  const canAnimateWarnings = warningRules.length > 0;
+
+  function adaptiveSelectWidth(label: string, minCh = 10, maxCh = 16) {
+    return `${Math.min(maxCh, Math.max(minCh, label.length + 3))}ch`;
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <div className="flex items-center gap-3 overflow-x-auto px-4 py-3">
-        <div className="flex shrink-0 items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 sm:gap-3">
           <h1 className="text-lg font-semibold text-slate-800">
             Production Board
           </h1>
@@ -1470,8 +1486,8 @@ export function Board({
             />
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <div className="relative min-w-[8rem] max-w-[14rem] flex-1 sm:max-w-[16rem]">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <div className="relative min-w-[10rem] max-w-md flex-1 basis-[12rem]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={orderQuery}
@@ -1530,8 +1546,10 @@ export function Board({
           <Select
             value={personFilter}
             onChange={(e) => setPersonFilter(e.target.value)}
-            className="h-9 w-36 shrink-0 truncate text-sm sm:w-40"
+            style={{ width: adaptiveSelectWidth(selectedPersonLabel) }}
+            className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
             aria-label="Filter by person"
+            title={selectedPersonLabel}
           >
             <option value="">All people</option>
             {designers.map((d) => (
@@ -1543,8 +1561,10 @@ export function Board({
           <Select
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}
-            className="h-9 w-36 shrink-0 truncate text-sm sm:w-40"
+            style={{ width: adaptiveSelectWidth(selectedOwnerLabel) }}
+            className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
             aria-label="Filter by owner"
+            title={selectedOwnerLabel}
           >
             <option value="">All owners</option>
             {ownerFilterOptions.map((owner) => (
@@ -1553,50 +1573,119 @@ export function Board({
               </option>
             ))}
           </Select>
-          <label
-            className={cn(
-              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-sm transition-colors",
-              dueTodayOnly
-                ? "border-amber-300 bg-amber-50 text-amber-800"
-                : "border-slate-300 text-slate-600 hover:bg-slate-50"
-            )}
-            title="Show only cards due today (excludes Done)"
-          >
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={dueTodayOnly}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setDueTodayOnly(on);
-                if (on) setOverdueOnly(false);
-              }}
-            />
-            <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-            Today&apos;s Due
-          </label>
-          <label
-            className={cn(
-              "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-sm transition-colors",
-              overdueOnly
-                ? "border-red-300 bg-red-50 text-red-700"
-                : "border-slate-300 text-slate-600 hover:bg-slate-50"
-            )}
-            title="Show only cards past their due date (excludes Done)"
-          >
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={overdueOnly}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setOverdueOnly(on);
-                if (on) setDueTodayOnly(false);
-              }}
-            />
-            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-            Overdue
-          </label>
+          <details className="relative shrink-0">
+            <summary
+              className={cn(
+                "flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
+                dueFilterValue === "today" &&
+                  "border-amber-300 bg-amber-50 text-amber-800",
+                dueFilterValue === "overdue" &&
+                  "border-red-300 bg-red-50 text-red-700",
+                dueFilterValue === "" &&
+                  "border-slate-300 text-slate-600 hover:bg-slate-50"
+              )}
+              aria-label="Filter by due date"
+              title={
+                dueFilterValue === "today"
+                  ? "Today's due"
+                  : dueFilterValue === "overdue"
+                    ? "Overdue"
+                    : "Due dates"
+              }
+            >
+              <CalendarDays className="h-4 w-4" />
+            </summary>
+            <div className="absolute right-0 z-50 mt-1 w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50",
+                  dueFilterValue === ""
+                    ? "bg-slate-100 font-medium text-slate-800"
+                    : "text-slate-700"
+                )}
+                onClick={(e) => {
+                  setDueTodayOnly(false);
+                  setOverdueOnly(false);
+                  e.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                All due dates
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50",
+                  dueFilterValue === "today"
+                    ? "bg-amber-50 font-medium text-amber-800"
+                    : "text-slate-700"
+                )}
+                onClick={(e) => {
+                  setDueTodayOnly(true);
+                  setOverdueOnly(false);
+                  e.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                Today
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50",
+                  dueFilterValue === "overdue"
+                    ? "bg-red-50 font-medium text-red-700"
+                    : "text-slate-700"
+                )}
+                onClick={(e) => {
+                  setOverdueOnly(true);
+                  setDueTodayOnly(false);
+                  e.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                Overdue
+              </button>
+            </div>
+          </details>
+          <details className="relative shrink-0">
+            <summary
+              className={cn(
+                "flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
+                groupedView
+                  ? "border-blue-400 bg-blue-50 text-blue-700"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+              )}
+              aria-label="Board view options"
+              title="Group cards and warning animation"
+            >
+              <Layers className="h-4 w-4" />
+            </summary>
+            <div className="absolute right-0 z-50 mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+              <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300"
+                  checked={groupedView}
+                  onChange={(e) => setGroupedView(e.target.checked)}
+                />
+                <Layers className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                Group
+              </label>
+              {canAnimateWarnings ? (
+                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300"
+                    checked={animateWarnings}
+                    onChange={(e) => setAnimateWarnings(e.target.checked)}
+                  />
+                  <Activity className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                  Animate
+                </label>
+              ) : null}
+            </div>
+          </details>
           {filtersActive ? (
             <button
               type="button"
@@ -1610,44 +1699,6 @@ export function Board({
               className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-sm text-slate-600 hover:bg-slate-50"
             >
               <X className="h-4 w-4" /> Clear
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setGroupedView((v) => !v)}
-            title={
-              groupedView
-                ? "Switch to normal view"
-                : "Group items by order number"
-            }
-            className={cn(
-              "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
-              groupedView
-                ? "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                : "border-slate-300 text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            <Layers className="h-4 w-4" />
-            Group
-          </button>
-          {warningRules.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setAnimateWarnings((v) => !v)}
-              title={
-                animateWarnings
-                  ? "Switch warnings to border only"
-                  : "Switch warnings to animation"
-              }
-              className={cn(
-                "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors",
-                animateWarnings
-                  ? "border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
-              )}
-            >
-              <Activity className="h-4 w-4" />
-              Animate
             </button>
           ) : null}
           <span className="shrink-0 whitespace-nowrap text-sm text-slate-500">

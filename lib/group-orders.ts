@@ -89,12 +89,32 @@ export function itemLabel(order: OrderWithRelations): string {
 /**
  * Shared parent order title from the webhook payload (same on every multi-item card).
  * Shown after the source label: e.g. "CRM | Mixed Print Order".
+ * Hides values that are just the order number (legacy webhook fallback).
  */
 export function sharedOrderTitle(
-  order: { specs?: Record<string, unknown> | null }
+  order: {
+    title?: string;
+    specs?: Record<string, unknown> | null;
+  }
 ): string | null {
   const t = order.specs?.webhook_order_title;
-  return typeof t === "string" && t.trim() ? t.trim() : null;
+  if (typeof t !== "string" || !t.trim()) return null;
+  const title = t.trim();
+
+  const webhookNumber =
+    typeof order.specs?.webhook_order_number === "string"
+      ? order.specs.webhook_order_number.trim()
+      : "";
+  if (webhookNumber && title === webhookNumber) return null;
+
+  const orderTitle = typeof order.title === "string" ? order.title.trim() : "";
+  if (orderTitle && title === orderTitle) return null;
+
+  // e.g. title "ORD-2026-0288" with card "ORD-2026-0288-1" or "288-1"
+  const groupFromTitle = orderTitle.match(/^(.+)-(\d+)$/);
+  if (groupFromTitle && title === groupFromTitle[1]) return null;
+
+  return title;
 }
 
 export interface OrderGroupSearchSuggestion {

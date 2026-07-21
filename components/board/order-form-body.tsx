@@ -380,29 +380,25 @@ export function OrderFormBody({
 
   return (
     <div className="space-y-4">
-      <div
-        className={
-          hideOrderNumberField
-            ? "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-            : "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
-        }
-      >
-        {!hideOrderNumberField ? (
-          <div>
-            <Label htmlFor={`${idPrefix}-title`}>
-              Order Number<span className="ml-0.5 text-red-500">*</span>
-            </Label>
-            <Input
-              id={`${idPrefix}-title`}
-              required
-              readOnly={readOnly}
-              value={title}
-              onChange={(e) => onTitleChange(e.target.value)}
-              placeholder="e.g. PO-10245"
-              className={readOnly ? "bg-slate-50" : undefined}
-            />
-          </div>
-        ) : null}
+      {!hideOrderNumberField ? (
+        <div>
+          <Label htmlFor={`${idPrefix}-title`}>
+            Order Title<span className="ml-0.5 text-red-500">*</span>
+          </Label>
+          <Input
+            id={`${idPrefix}-title`}
+            required
+            readOnly={readOnly}
+            value={title}
+            onChange={(e) => onTitleChange(e.target.value)}
+            placeholder="e.g. Mixed Print Order — ACME Corp"
+            className={readOnly ? "bg-slate-50" : undefined}
+          />
+        </div>
+      ) : null}
+
+      {(!hidePriorityAndDueDateFields || !hideOwnerField) ? (
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {!hidePriorityAndDueDateFields ? (
         <div>
           <Label htmlFor={`${idPrefix}-priority`}>Priority</Label>
@@ -468,6 +464,7 @@ export function OrderFormBody({
         </div>
         ) : null}
       </div>
+      ) : null}
 
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
         {visiblePrintFields.length > 0 ? (
@@ -556,11 +553,14 @@ export function OrderFormBody({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[var(--primary)] underline hover:opacity-80"
+                  title="Job folder on Google Drive (e.g. 26-0098_Customer_1)"
                 >
-                  Design files ↗
+                  Order folder ↗
                 </a>
               ) : (
-                "Design files"
+                <span title="Job folder on Google Drive (e.g. 26-0098_Customer_1)">
+                  Order folder
+                </span>
               )}
             </Label>
             <Input
@@ -568,7 +568,7 @@ export function OrderFormBody({
               readOnly={readOnly}
               value={designTask}
               onChange={(e) => onDesignTaskChange(e.target.value)}
-              placeholder="e.g. https://drive.google.com/..."
+              placeholder="e.g. …/26-0098_Customer_1"
               className={readOnly ? "bg-slate-50" : undefined}
             />
           </div>
@@ -588,18 +588,19 @@ export function OrderFormBody({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[var(--primary)] underline hover:opacity-80"
+                    title="Final for Prod folder (e.g. 26-0098_Final for Prod_1)"
                   >
                     {orderFormFieldLabel(artworkField.name)} ↗
                   </a>
                 );
               }
               return (
-                <>
+                <span title="Final for Prod folder (e.g. 26-0098_Final for Prod_1)">
                   {orderFormFieldLabel(artworkField.name)}
                   {artworkField.required ? (
                     <span className="ml-0.5 text-red-500">*</span>
                   ) : null}
-                </>
+                </span>
               );
             })()}
           </Label>
@@ -609,7 +610,7 @@ export function OrderFormBody({
               onClick={copyArtworkLink}
               disabled={!artworkValue}
               className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Copy Artwork GDrive link"
+              title="Copy Final production GDrive link"
             >
               <Copy className="h-4 w-4" />
               {artworkCopied ? "Copied" : "Copy Link"}
@@ -621,7 +622,7 @@ export function OrderFormBody({
               onChange={(e) =>
                 onFieldValueChange(artworkField.id, e.target.value)
               }
-              placeholder="https://drive.google.com/…"
+              placeholder="e.g. …/26-0098_Final for Prod_1"
               className={cn(
                 "min-w-0 flex-1",
                 readOnly ? "bg-slate-50" : undefined

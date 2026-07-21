@@ -138,6 +138,7 @@ function fullSingleItemExample(year: number, due: string): string {
   "priority": "normal",
   "due_date": "${due}",
   "description": "Rush if possible — ship to LA warehouse.",
+  "notes": "Internal: confirm ship date with warehouse.",
   "request_owner_email": "am@example.com",
   "request_owner_name": "Sarah Kim",
   "request_owner_phone": "+1 310 555 0199",
@@ -146,11 +147,16 @@ function fullSingleItemExample(year: number, due: string): string {
   "category": "Labels",
   "product": "Labels (Roll)",
   "finished_size": "4 x 3 in",
+  "width": "4",
+  "height": "3",
   "materials": "White BOPP",
   "sides": "1 Side",
   "color_mode": "CMYK",
   "roll_direction": "1-Top",
   "lamination": "Matte",
+  "special_effects": ["Gold Foil", "1-pass raised UV"],
+  "unit_price": 0.12,
+  "die": "GM-12",
   "spot_uv": false,
   "foil": false,
   "die_cut": false,
@@ -160,8 +166,8 @@ function fullSingleItemExample(year: number, due: string): string {
   "order_qty": 3000,
   "artwork_url": "https://example.com/artwork/order-level-proof.pdf",
   "skus": [
-    { "sku_name": "Flavor A", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-a.png" },
-    { "sku_name": "Flavor B", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-b.png" },
+    { "sku_name": "Flavor A", "quantity": 1000, "comment": "matte finish", "artwork_url": "https://example.com/artwork/flavor-a.png" },
+    { "sku_name": "Flavor B", "quantity": 1000, "comment": "sample", "artwork_url": "https://example.com/artwork/flavor-b.png" },
     { "sku_name": "Flavor C", "quantity": 1000, "artwork_url": "https://example.com/artwork/flavor-c.png" }
   ]
 }`;
@@ -239,12 +245,19 @@ const ITEM_FIELDS_MD = `
 |---|---|---|---|
 | \`title\` | No | string | Item label — card shows suffixed order number |
 | \`product\` | No | string | Must match tenant **Product** dropdown (see below) |
-| \`finished_size\` | No | string | Free text e.g. \`"3.5 x 2 in"\` |
+| \`finished_size\` | No | string | Free text e.g. \`"3.5 x 2 in"\` (auto-built from \`width\` + \`height\` when omitted) |
+| \`width\` | No | number \\| string | → **Width** custom field; also builds Finished Size |
+| \`height\` | No | number \\| string | → **Height** custom field; also builds Finished Size |
+| \`die\` | No | string | Maps to **Die** custom field |
 | \`materials\` | No | string | Must match tenant **Materials** dropdown |
 | \`sides\` | No | string | \`1 Side\` or \`2 Sides\` |
 | \`color_mode\` | No | string | \`CMYK\` · \`CMYK+White\` · \`Pantones\` (also accepts \`color\`) |
-| \`roll_direction\` | No | string | \`1-Top\` · \`2-Bottom\` · \`3-Right\` · \`4-Left\` (also accepts \`position\`) |
-| \`lamination\` | No | string | Must match tenant **Lamination** dropdown |
+| \`position\` | No | string | → **Position** custom field |
+| \`roll_direction\` | No | string | \`1-Top\` · \`2-Bottom\` · \`3-Right\` · \`4-Left\` → **Roll Direction** |
+| \`lamination\` | No | string | Must match tenant **Lamination** / **Finishing** dropdown |
+| \`special_effects\` | No | string \\| string[] | e.g. \`"1-pass raised UV"\` or \`["Gold Foil"]\` → **Special effects** |
+| \`unit_price\` | No | number \\| string | → **Unit Price** / **Unit Price ($)** |
+| \`quantity\` | No | number \\| string | → **Quantity** (falls back to SKU qty sum) |
 | \`spot_uv\` | No | boolean | \`true\` / \`false\` |
 | \`foil\` | No | boolean | \`true\` / \`false\` |
 | \`die_cut\` | No | boolean | \`true\` / \`false\` |
@@ -253,7 +266,8 @@ const ITEM_FIELDS_MD = `
 | \`perforation\` | No | boolean | \`true\` / \`false\` |
 | \`order_qty\` | No | number | Auto-calculated from SKUs when omitted |
 | \`artwork_url\` | No | string | Public URL — stored as external artwork asset |
-| \`description\` | No | string | Item-level notes |
+| \`description\` | No | string | Item-level **Order Description** |
+| \`notes\` | No | string | Item-level **Notes** tab (alias: \`internal_note\`) |
 | \`designer_information\` | No | string | Designer notes for this item |
 | \`designer_email\` | No | string | Overrides order-level assigned designer |
 | \`designer_id\` | No | string | Overrides order-level assigned designer |
@@ -268,15 +282,19 @@ const ITEM_FIELDS_MD = `
 const NOTES_MD = `
 - **All payload fields are optional.** Send only what you have — the order is still created with blank fields where data is omitted.
 - If \`order_number\` is omitted, the system auto-generates one (e.g. \`WH-20260619143022-a1b2c3d4\`).
-- \`color\` is accepted as an alias for \`color_mode\`. \`position\` is accepted as an alias for \`roll_direction\`.
+- \`color\` is accepted as an alias for \`color_mode\`. \`position\` and \`roll_direction\` map to separate custom fields when both exist.
+- Send \`width\` + \`height\` to fill those fields and auto-build \`finished_size\` when omitted. \`special_effects\`, \`unit_price\`, and \`quantity\` map to the matching custom fields.
 - The legacy \`finishing\` field (e.g. \`"Spot UV"\`, \`"Foil Gold"\`) is still accepted and maps to the **Finishing** custom field when present. Prefer explicit boolean fields (\`spot_uv\`, \`foil\`, etc.) for new integrations.
 - \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores both email and phone. Existing customers are reused — no duplicates.
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
 - **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
 - \`designer_information\` / \`designer_notes\` fill the **Designer Information** custom field only.
 - \`design_task\` must be an **http(s) URL** for Design files; non-URL text goes into Order Description.
-- Per-SKU \`description\` / \`comment\` values become Order Description lines: \`SKU1: …\`, \`SKU2: …\`.
-- \`designer_information\` is saved as designer notes on the card and in the **Designer Information** custom field.
+- \`notes\` / \`internal_note\` land on the card **Notes** tab.
+- Per-SKU \`description\` / \`comment\` values are combined into the **Notes** tab as \`SKU1: …\`, \`SKU2: …\` (together with \`notes\`).
+- \`description\` (order or item) fills **Order Description** only — not Notes.
+- Billing fields (\`source_url\`, \`payment_status\`, \`deposit\`, \`balance\`) power the card globe popover.
+- \`title\` is the label after the source (\`CRM | …\`). **Omit or send empty** to leave it blank — do not fall back to \`order_number\`.
 - **Not set via webhook:** Artwork GDrive link — staff fill this in the app.
 - Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.
 - **⚠️ Rotate the webhook secret before going to production.** Settings → Integrations → Webhook → Regenerate.`;
@@ -340,10 +358,11 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`customer_phone\` | No | string | Phone — when both are sent, phone is stored as the order's primary Customer Contact |
 | \`source\` | No | string | Integration source key (e.g. \`"crm"\`). Matched in **Settings → Integrations → Source labels** for the colored label above the customer name. Unknown/missing uses the Other style. Manual cards have no label. |
 | \`order_number\` | No | string | Your reference e.g. \`"ORD-${year}-001"\` — auto-generated (\`WH-…\`) if omitted |
-| \`title\` | No | string | Order title — auto-generated if omitted |
+| \`title\` | No | string | Order title after source label — **leave empty/omit for blank** (order # still shows) |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
 | \`due_date\` | No | string | \`"YYYY-MM-DD"\` — must be today or a future date when provided |
-| \`description\` | No | string | Order-level notes visible on all cards |
+| \`description\` | No | string | **Order Description** on the card |
+| \`notes\` | No | string | **Notes** tab (alias: \`internal_note\`). Combined with SKU comments |
 | \`owner_email\` | No | string | Account manager email — sets **Owner** on the card |
 | \`owner_id\` | No | string | Account manager UUID — same as \`owner_email\` |
 | \`owner\` | No | string | Account manager email, UUID, or display name |
@@ -381,7 +400,7 @@ Legacy flat format: put these fields at the top level instead of inside \`items[
 | \`sku_name\` | No | string | Variant display name |
 | \`quantity\` | No | number | Number of pieces |
 | \`artwork_url\` | No | string | Per-SKU artwork URL |
-| \`description\` | No | string | Line comment → Order Description as \`SKU1: …\` (alias: \`comment\`) |
+| \`description\` | No | string | Line comment → **Notes** tab as \`SKU1: …\` (alias: \`comment\`) |
 
 ---
 
@@ -544,7 +563,7 @@ export function buildWebhookPayloadDocsHtml(
       "string",
       `Your reference e.g. <code>ORD-${year}-001</code> — auto-generated (<code>WH-…</code>) if omitted`,
     ],
-    ["title", "No", "string", "Order title — auto-generated if omitted"],
+    ["title", "No", "string", "Order title after source label — leave empty/omit for blank"],
     [
       "priority",
       "No",
@@ -557,7 +576,13 @@ export function buildWebhookPayloadDocsHtml(
       "string",
       '<code>"YYYY-MM-DD"</code> — must be today or a future date when provided',
     ],
-    ["description", "No", "string", "Order-level notes visible on all cards"],
+    ["description", "No", "string", "<strong>Order Description</strong> on the card"],
+    [
+      "notes",
+      "No",
+      "string",
+      "<strong>Notes</strong> tab (alias: <code>internal_note</code>). Combined with SKU comments",
+    ],
     [
       "source_url",
       "No",
@@ -643,7 +668,19 @@ export function buildWebhookPayloadDocsHtml(
       "string",
       "Must match tenant <strong>Product</strong> dropdown (see below)",
     ],
-    ["finished_size", "No", "string", 'Free text e.g. <code>"3.5 x 2 in"</code>'],
+    ["finished_size", "No", "string", 'Free text e.g. <code>"3.5 x 2 in"</code> (auto-built from width + height when omitted)'],
+    [
+      "width",
+      "No",
+      "number | string",
+      "→ <strong>Width</strong>; also builds Finished Size",
+    ],
+    [
+      "height",
+      "No",
+      "number | string",
+      "→ <strong>Height</strong>; also builds Finished Size",
+    ],
     [
       "materials",
       "No",
@@ -657,17 +694,36 @@ export function buildWebhookPayloadDocsHtml(
       "string",
       "<code>CMYK</code> · <code>CMYK+White</code> · <code>Pantones</code> (also accepts <code>color</code>)",
     ],
+    ["position", "No", "string", "→ <strong>Position</strong> custom field"],
     [
       "roll_direction",
       "No",
       "string",
-      "<code>1-Top</code> · <code>2-Bottom</code> · <code>3-Right</code> · <code>4-Left</code> (also accepts <code>position</code>)",
+      "<code>1-Top</code> · <code>2-Bottom</code> · <code>3-Right</code> · <code>4-Left</code> → <strong>Roll Direction</strong>",
     ],
     [
       "lamination",
       "No",
       "string",
-      "Must match tenant <strong>Lamination</strong> dropdown",
+      "Must match tenant <strong>Lamination</strong> / <strong>Finishing</strong> dropdown",
+    ],
+    [
+      "special_effects",
+      "No",
+      "string | string[]",
+      "e.g. <code>\"1-pass raised UV\"</code> → <strong>Special effects</strong>",
+    ],
+    [
+      "unit_price",
+      "No",
+      "number | string",
+      "→ <strong>Unit Price</strong> / <strong>Unit Price ($)</strong>",
+    ],
+    [
+      "quantity",
+      "No",
+      "number | string",
+      "→ <strong>Quantity</strong> (falls back to SKU qty sum)",
     ],
     ["spot_uv", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["foil", "No", "boolean", "<code>true</code> / <code>false</code>"],
@@ -733,7 +789,7 @@ export function buildWebhookPayloadDocsHtml(
       "description",
       "No",
       "string",
-      "Line comment → Order Description as <code>SKU1: …</code> (alias: <code>comment</code>)",
+      "Line comment → <strong>Notes</strong> tab as <code>SKU1: …</code> (alias: <code>comment</code>)",
     ],
   ];
 
@@ -932,14 +988,17 @@ export function buildWebhookPayloadDocsHtml(
     <ul class="notes">
       <li><strong>All payload fields are optional.</strong> Send only what you have — the order is still created with blank fields where data is omitted.</li>
       <li>If <code>order_number</code> is omitted, the system auto-generates one (e.g. <code>WH-20260619143022-a1b2c3d4</code>).</li>
-      <li><code>color</code> is an alias for <code>color_mode</code>. <code>position</code> is an alias for <code>roll_direction</code>.</li>
+      <li><code>color</code> is an alias for <code>color_mode</code>. <code>position</code> and <code>roll_direction</code> map to separate custom fields when both exist.</li>
+      <li>Send <code>width</code> + <code>height</code>, <code>special_effects</code>, <code>unit_price</code>, and <code>quantity</code> to fill the matching custom fields. Finished Size is auto-built from width/height when omitted.</li>
       <li>The legacy <code>finishing</code> field is still accepted and maps to the <strong>Finishing</strong> custom field when present. Prefer explicit boolean fields for new integrations.</li>
       <li>When both <code>customer_contact</code> and <code>customer_phone</code> are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
       <li>SKUs are stored on <code>orders.specs.skus</code>; artwork URLs create <code>assets</code> rows with <code>external_url</code>.</li>
       <li><strong>Owner</strong> (<code>owner_*</code> / <code>request_owner_*</code>) must be an <strong>account manager</strong> to set the Owner dropdown. Free-text request owner fields are saved on the card when provided.</li>
       <li><code>designer_information</code> fills the <strong>Designer Information</strong> custom field only.</li>
       <li><code>design_task</code> must be an http(s) URL for <strong>Design files</strong>; non-URL text goes into Order Description.</li>
-      <li>Per-SKU <code>description</code> / <code>comment</code> values become Order Description lines: <code>SKU1: …</code>, <code>SKU2: …</code>.</li>
+      <li><code>notes</code> / <code>internal_note</code> land on the card <strong>Notes</strong> tab.</li>
+      <li>Per-SKU <code>description</code> / <code>comment</code> values are combined into the <strong>Notes</strong> tab as <code>SKU1: …</code>, <code>SKU2: …</code>.</li>
+      <li><code>title</code> after the source label (<code>CRM | …</code>) — omit or send empty to leave blank; do not fall back to <code>order_number</code>.</li>
       <li><strong>Not set via webhook:</strong> Artwork GDrive link — staff fill this in the app.</li>
       <li>Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.</li>
       <li><strong>⚠️ Rotate the webhook secret before going to production.</strong> Settings → Integrations → Webhook → Regenerate.</li>

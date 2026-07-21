@@ -71,8 +71,8 @@ Send a `source` key (e.g. `"crm"`) to match **Settings → Integrations → Sour
   "order_qty": 3000,
   "artwork_url": "https://yourdomain.com/files/order-proof.pdf",
   "skus": [
-    { "sku_name": "Flavor A", "quantity": 1000, "description": "1 sku- 200 boxes- (matte finish)", "artwork_url": "https://yourdomain.com/files/flavor-a.png" },
-    { "sku_name": "Flavor B", "quantity": 1000, "description": "2 sided lb bag- (sample)", "artwork_url": "https://yourdomain.com/files/flavor-b.png" },
+    { "sku_name": "Flavor A", "quantity": 1000, "comment": "1 sku- 200 boxes- (matte finish)", "artwork_url": "https://yourdomain.com/files/flavor-a.png" },
+    { "sku_name": "Flavor B", "quantity": 1000, "comment": "2 sided lb bag- (sample)", "artwork_url": "https://yourdomain.com/files/flavor-b.png" },
     { "sku_name": "Flavor C", "quantity": 1000, "artwork_url": "https://yourdomain.com/files/flavor-c.png" }
   ]
 }
@@ -155,10 +155,11 @@ When you pass `items[]`, each item becomes a separate board card numbered `ORD-0
 | `customer_contact` | string | Customer **email** — saved on the customer record |
 | `customer_phone` | string | Customer **phone** — when both are sent, phone is the primary Customer Contact |
 | `order_number` | string | Your reference e.g. `"ORD-2026-001"` — auto-generated if omitted |
-| `title` | string | Order title — auto-generated if omitted |
+| `title` | string | Label after source (`CRM \| …`) — **omit/empty for blank** (order # still shows) |
 | `priority` | string | `normal` · `high` · `low` · `urgent` (default: `normal`) |
 | `due_date` | string | `"YYYY-MM-DD"` — must be today or a future date |
-| `description` | string | Order-level notes — combined into **Order Description** |
+| `description` | string | **Order Description** on the card |
+| `notes` | string | **Notes** tab (alias: `internal_note`). Combined with SKU comments |
 | `category` | string | Category name (also accepts `category_name`) |
 | `source_url` | string | CRM / source order page URL — shown as **Source** on the card globe popover (aliases: `source_link`, `order_url`) |
 | `payment_status` | string | `partial` or `full` (also `paid` / `complete` → full). Alias: `payment` |
@@ -191,12 +192,18 @@ Each item object can override any order-level field. Fields not set on the item 
 | `title` | string | Item label — card shows suffixed order number |
 | `category` | string | Category for this item (also `category_name`) |
 | `product` | string | Must match **Product** dropdown — see values below |
-| `finished_size` | string | Free text e.g. `"3.5 x 2 in"` |
+| `finished_size` | string | Free text e.g. `"3.5 x 2 in"` (auto-built from `width` + `height` when omitted) |
+| `width` | number \| string | Width — stored on **Width** custom field; also used to build Finished Size |
+| `height` | number \| string | Height — stored on **Height** custom field; also used to build Finished Size |
 | `materials` | string | Must match **Materials** dropdown — see values below |
 | `sides` | string | `1 Side` or `2 Sides` |
 | `color_mode` | string | `CMYK` · `CMYK+White` · `Pantones` (also accepts `color`) |
-| `roll_direction` | string | `1-Top` · `2-Bottom` · `3-Right` · `4-Left` (also accepts `position`) |
-| `lamination` | string | Must match **Lamination** dropdown — see values below |
+| `position` | string | Position custom field (when present) |
+| `roll_direction` | string | `1-Top` · `2-Bottom` · `3-Right` · `4-Left` → **Roll Direction** |
+| `lamination` | string | Must match **Lamination** / **Finishing** dropdown — see values below |
+| `special_effects` | string \| string[] | e.g. `"1-pass raised UV"` or `["Gold Foil","Spot UV"]` → **Special effects** |
+| `unit_price` | number \| string | Unit price → **Unit Price** / **Unit Price ($)** |
+| `quantity` | number \| string | Line quantity → **Quantity** (falls back to SKU qty sum) |
 | `spot_uv` | boolean | `true` / `false` |
 | `foil` | boolean | `true` / `false` |
 | `die_cut` | boolean | `true` / `false` |
@@ -205,7 +212,8 @@ Each item object can override any order-level field. Fields not set on the item 
 | `perforation` | boolean | `true` / `false` |
 | `order_qty` | number | Auto-calculated from SKU quantities when omitted |
 | `artwork_url` | string | **Public URL** to the artwork file — stored as an external asset |
-| `description` | string | Item-level notes — combined into **Order Description** |
+| `description` | string | Item-level **Order Description** |
+| `notes` | string | Item-level **Notes** tab (alias: `internal_note`) |
 | `designer_information` | string | Designer Information custom field for this item |
 | `design_task` | string | http(s) URL → Design files; non-URL → Order Description |
 | `designer_email` | string | Overrides order-level assigned designer |
@@ -226,7 +234,7 @@ Each item object can override any order-level field. Fields not set on the item 
 | `sku_name` | string | Variant display name e.g. `"Flavor A"` |
 | `quantity` | number | Number of pieces for this variant |
 | `artwork_url` | string | Per-SKU artwork URL (overrides item-level `artwork_url` for this SKU) |
-| `description` | string | Line comment — combined into Order Description as `SKU1: …` (alias: `comment`) |
+| `description` | string | Line comment → **Notes** tab as `SKU1: …` (alias: `comment`) |
 
 ---
 
@@ -459,11 +467,13 @@ An optional `warning` string is included when:
 - Billing fields (`source_url`, `payment_status`, `deposit`, `balance`) are stored in `orders.specs.billing` and shown via a **globe** icon next to the priority chip. If none are sent, no globe appears.
 - `designer_information` / `designer_notes` fill the **Designer Information** custom field only.
 - `design_task` must be an **http(s) URL** for **Design files** (GDrive job folder). Non-URL text is treated as Order Description content.
-- Per-SKU `description` / `comment` values are combined into **Order Description** as:
+- `notes` / `internal_note` land on the card **Notes** tab.
+- Per-SKU `description` / `comment` values are combined into the **Notes** tab as:
   ```
   SKU1: first line comment
   SKU2: second line comment
   ```
+- `title` after the source label — omit or send empty to leave blank; do not fall back to `order_number`.
 - **Owner** fields (`owner_*` / `request_owner_*`) set the card Owner dropdown only when the user is an **account manager** on your team. Free-text `request_owner_name`, `request_owner_contact`, and `request_owner_phone` are always saved on the card.
 - New cards always land in the **first board column**.
 - **Artwork GDrive link:** Optionally auto-created via **Settings → GDrive**. Single-item: `26-0098_Customer Name` / `26-0098_Final for Prod`. Multi-item: `26-0098_Customer Name_1` / `26-0098_Final for Prod_1` (and `_2`, …) with each card linked to its own folder. Otherwise staff enter it in the app.

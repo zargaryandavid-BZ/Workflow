@@ -53,7 +53,7 @@ export function OrderBillingGlobe({ specs, className }: Props) {
   const billing = billingFromSpecs(specs);
   const [open, setOpen] = useState(false);
   const [hostRect, setHostRect] = useState<DOMRect | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLSpanElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
@@ -102,9 +102,9 @@ export function OrderBillingGlobe({ specs, className }: Props) {
   const tone = globeTone(billing.payment_status);
 
   return (
-    <div
+    <span
       ref={wrapRef}
-      className={cn("relative shrink-0", className)}
+      className={cn("relative inline-flex shrink-0", className)}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
@@ -139,7 +139,7 @@ export function OrderBillingGlobe({ specs, className }: Props) {
             document.body
           )
         : null}
-    </div>
+    </span>
   );
 }
 

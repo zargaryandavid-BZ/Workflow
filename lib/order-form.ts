@@ -13,17 +13,29 @@ import {
 export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Product",
   "Materials",
-  "Finished Size",
-  "Die",
+  "Special effects",
   "Finishing",
   "Sides",
   "Position",
+  "Roll Direction",
   "Color",
+  "Color Mode",
+  "Die",
+  "Width",
+  "Height",
+  "Finished Size",
+  "Need a Design",
+  "Application",
+  "Die Cut",
+  "Perforation",
+  "Unit Price ($)",
+  "Unit Price",
+  "Quantity",
 ] as const;
 
 /** Labels that differ from the stored custom-field name. */
 export const ORDER_FORM_FIELD_LABELS: Record<string, string> = {
-  "Artwork (GDrive link)": "Artwork (Client See)",
+  "Artwork (GDrive link)": "Final production",
 };
 
 /** Always required on the order form regardless of the custom-field toggle. */

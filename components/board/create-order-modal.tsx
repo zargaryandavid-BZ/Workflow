@@ -89,7 +89,7 @@ export function CreateOrderModal({
     setError(null);
 
     if (!title.trim()) {
-      setError("Order Number is required");
+      setError("Order Title is required");
       return;
     }
 

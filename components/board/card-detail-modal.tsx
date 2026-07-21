@@ -20,20 +20,17 @@ import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
-import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
+import { normalizeSkus, prepareSkusForSave, type SkuItem } from "./sku-editor";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
 import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder, productFromOrder } from "@/lib/notification-messages";
 import { groupSkuImagesBySkuId } from "@/lib/sku-images";
 import {
-  buildCustomFieldPayload,
   resolveOrderFormFields,
-  validateDueDate,
-  validateOrderFormFields,
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
-import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
+import { cn, dateInputValue, daysAgo, formatDate, formatDateTime } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
@@ -149,21 +146,14 @@ export function CardDetailModal({
   const isViewOnly = mode === "view";
   const [modalCustomFields, setModalCustomFields] =
     useState<CustomField[]>(customFields);
-  const resolved = useMemo(
-    () => resolveOrderFormFields(modalCustomFields),
-    [modalCustomFields]
-  );
   const [data, setData] = useState<DetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState<"all" | "moves">("all");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
-  const [newNote, setNewNote] = useState("");
   const [priority, setPriority] = useState("normal");
   const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -222,7 +212,6 @@ export function CardDetailModal({
       }
     }
     setNoteHistory(parsedHistory);
-    setNewNote("");
     setPriority(json.order.priority);
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
@@ -277,7 +266,6 @@ export function CardDetailModal({
     if (open && orderId) {
       setSaveError(null);
       setActivityOpen(false);
-      setIsEditing(false);
       setModalCustomFields(customFieldsRef.current);
       load();
     }
@@ -289,131 +277,9 @@ export function CardDetailModal({
       setPriority("normal");
       setTab("details");
       setActivityOpen(false);
-      setIsEditing(false);
       setPersistedSkuIds(new Set());
     }
   }, [open, orderId, load]);
-
-  async function save() {
-    if (!orderId) return;
-
-    if (!title.trim()) {
-      setSaveError("Order Number is required");
-      return;
-    }
-
-    const validationError = validateOrderFormFields(
-      resolved,
-      fieldValues,
-      customerName,
-      customerContact,
-      skus,
-      designerId
-    );
-    if (validationError) {
-      setSaveError(validationError);
-      return;
-    }
-
-    const dueDateError = validateDueDate(dueDate, data?.order.due_date);
-    if (dueDateError) {
-      setSaveError(dueDateError);
-      return;
-    }
-
-    if (ownerId && !owners.some((o) => o.id === ownerId)) {
-      setSaveError("Owner must be an account manager");
-      return;
-    }
-
-    const skuError = validateSkus(skus, []);
-    if (skuError) {
-      setSaveError(skuError);
-      return;
-    }
-
-    setSaveError(null);
-    setSaving(true);
-    const updatedHistory =
-      newNote.trim()
-        ? [
-            ...noteHistory,
-            {
-              author: currentUserName,
-              date: new Date().toISOString(),
-              text: newNote.trim(),
-            },
-          ]
-        : noteHistory;
-    const internalNoteJson =
-      updatedHistory.length > 0 ? JSON.stringify(updatedHistory) : null;
-    const res = await fetch(`/api/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        description,
-        internal_note: internalNoteJson,
-        priority,
-        ownerId: ownerId || null,
-        dueDate: dateInputValue(dueDate) || null,
-        tagId: tagId || null,
-        specs: {
-          ...(data?.order.specs ?? {}),
-          skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
-          designer_id: designerId || null,
-          designer_name:
-            designers.find((d) => d.id === designerId)?.name ?? null,
-          design_task: designTask || null,
-        },
-        customFieldValues: buildCustomFieldPayload(
-          resolved,
-          fieldValues,
-          skus,
-          customerName,
-          customerContact
-        ),
-      }),
-    });
-    if (!res.ok) {
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      setSaveError(json.error ?? "Failed to save order");
-      setSaving(false);
-      return;
-    }
-
-    setNoteHistory(updatedHistory);
-    setNewNote("");
-    setSaving(false);
-    setIsEditing(false);
-    const selectedTag = tagId
-      ? (tags.find((t) => t.id === tagId) ?? null)
-      : null;
-    onChanged({
-      tag_id: tagId || null,
-      tag: selectedTag,
-      title: title.trim(),
-      description: description || null,
-      priority: priority as "low" | "normal" | "high" | "urgent",
-      due_date: dateInputValue(dueDate) || null,
-      created_by: ownerId || null,
-      specs: {
-        ...(data?.order.specs ?? {}),
-        skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
-        designer_id: designerId || null,
-        designer_name:
-          designers.find((d) => d.id === designerId)?.name ?? null,
-        design_task: designTask || null,
-      },
-    });
-    void load({ silent: true });
-  }
-
-  function revert() {
-    if (data) applyDetail(data);
-    setSaveError(null);
-    setIsEditing(false);
-  }
 
   async function removeOrder() {
     if (!orderId) return;
@@ -845,75 +711,31 @@ export function CardDetailModal({
       title={modalTitle}
       className="max-w-3xl"
       headerAction={
-        !isViewOnly && isEditing ? (
-          <select
-            value={ownerId}
-            onChange={(e) => setOwnerId(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
-            title="Owner"
-          >
-            <option value="">— Owner —</option>
-            {ownersForForm.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        ) : ownerName ? (
+        ownerName ? (
           <span className="text-sm text-slate-500">{ownerName}</span>
         ) : undefined
       }
       footer={
-        isViewOnly || !isEditing ? (
+        <>
+          {isAdmin && !isViewOnly ? (
+            <button
+              type="button"
+              onClick={() => {
+                setRemoveError(null);
+                setConfirmRemove(true);
+              }}
+              disabled={loading || removing}
+              className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Remove order"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Order
+            </button>
+          ) : null}
           <Button variant="outline" onClick={handleClose} type="button">
             Close
           </Button>
-        ) : tab === "details" ? (
-          <>
-            {isAdmin ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setRemoveError(null);
-                  setConfirmRemove(true);
-                }}
-                disabled={loading || saving || removing}
-                className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Remove order"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete Order
-              </button>
-            ) : null}
-            <Button variant="outline" onClick={revert} type="button" disabled={saving || removing}>
-              Cancel
-            </Button>
-            <Button onClick={save} disabled={saving || loading || removing}>
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-          </>
-        ) : (
-          <>
-            {isAdmin ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setRemoveError(null);
-                  setConfirmRemove(true);
-                }}
-                disabled={loading || saving || removing}
-                className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Remove order"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete Order
-              </button>
-            ) : null}
-            <Button variant="outline" onClick={revert} type="button" disabled={removing}>
-              Cancel
-            </Button>
-          </>
-        )
+        </>
       }
     >
       {loading || !data ? (
@@ -991,15 +813,6 @@ export function CardDetailModal({
                         : "bg-amber-500"
                     )}
                   />
-                </button>
-              ) : null}
-              {!isEditing ? (
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="ml-auto mb-px rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100"
-                >
-                  Edit
                 </button>
               ) : null}
             </div>
@@ -1107,8 +920,8 @@ export function CardDetailModal({
               description={description}
               onDescriptionChange={setDescription}
               noteHistory={noteHistory}
-              internalNote={newNote}
-              onInternalNoteChange={setNewNote}
+              internalNote=""
+              onInternalNoteChange={() => {}}
               customerName={customerName}
               onCustomerNameChange={setCustomerName}
               customerContact={customerContact}
@@ -1130,11 +943,11 @@ export function CardDetailModal({
               orderId={orderId ?? undefined}
               skuImagesBySkuId={skuImagesBySkuId}
               ensureSkuPersisted={ensureSkuPersisted}
-              readOnly={!isEditing || isViewOnly}
-              hideEmpty={!isEditing && !isViewOnly}
+              readOnly
+              hideEmpty
               tags={tags}
               tagId={tagId}
-              onTagIdChange={!isEditing || isViewOnly ? undefined : setTagId}
+              onTagIdChange={undefined}
             />
 
             {saveError ? (
@@ -1145,25 +958,14 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
-            {/* Inline Save / Cancel above Priority — only shown while editing */}
-            {isEditing && !isViewOnly ? (
-              <div className="mt-4 flex flex-col gap-2">
-                <Button onClick={save} disabled={saving || loading}>
-                  {saving ? "Saving…" : "Save changes"}
-                </Button>
-                <Button variant="ghost" onClick={revert} type="button" disabled={saving}>
-                  Cancel
-                </Button>
-              </div>
-            ) : null}
             {/* Priority + Due Date box */}
-            <div className={`rounded-lg border border-slate-200 p-3 space-y-3${isEditing ? "" : " mt-4"}`}>
+            <div className="mt-4 rounded-lg border border-slate-200 p-3 space-y-3">
               <div>
                 <Label htmlFor="sidebar-priority">Priority</Label>
                 <Select
                   id="sidebar-priority"
                   value={priority}
-                  disabled={!isEditing || isViewOnly}
+                  disabled
                   onChange={(e) => setPriority(e.target.value)}
                 >
                   {PRIORITY_OPTIONS.map((p) => (
@@ -1173,47 +975,31 @@ export function CardDetailModal({
                   ))}
                 </Select>
               </div>
-              {(isEditing || dueDate) ? (
+              {dueDate ? (
               <div>
                 <Label htmlFor="sidebar-due">Due date</Label>
                 <Input
                   id="sidebar-due"
                   type="date"
-                  min={!isEditing || isViewOnly ? undefined : localDateInputValue()}
-                  readOnly={!isEditing || isViewOnly}
+                  readOnly
                   value={dateInputValue(dueDate)}
                   onChange={(e) => {
                     setDueDate(e.target.value);
                     setSaveError(null);
                   }}
-                  className={!isEditing || isViewOnly ? "bg-slate-50" : undefined}
+                  className="bg-slate-50"
                 />
               </div>
               ) : null}
             </div>
-            {tags.length > 0 && (isEditing || tagId) ? (
+            {tags.length > 0 && tagId ? (
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Tag
                 </p>
-                {isEditing && !isViewOnly ? (
-                  <select
-                    value={tagId}
-                    onChange={(e) => setTagId(e.target.value)}
-                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
-                  >
-                    <option value="">— None —</option>
-                    {tags.map((tag) => (
-                      <option key={tag.id} value={tag.id}>
-                        {tag.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="text-sm text-slate-700">
-                    {tags.find((t) => t.id === tagId)?.name ?? "—"}
-                  </span>
-                )}
+                <span className="text-sm text-slate-700">
+                  {tags.find((t) => t.id === tagId)?.name ?? "—"}
+                </span>
               </div>
             ) : null}
             {orderTags.length > 0 ? (

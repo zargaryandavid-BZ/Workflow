@@ -40,6 +40,8 @@ const SELECT_WEBHOOK_KEYS = new Set([
   "color",
   "color_mode",
   "position",
+  "roll_direction",
+  "special_effects",
 ]);
 
 const BOOLEAN_WEBHOOK_KEYS = new Set([
@@ -49,6 +51,16 @@ const BOOLEAN_WEBHOOK_KEYS = new Set([
   "application",
   "need_a_design",
   "perforation",
+]);
+
+/** CRM / free-text sentinels that mean “no value” (not a real option). */
+const NONE_SENTINELS = new Set([
+  "none",
+  "none (inactive)",
+  "n/a",
+  "na",
+  "-",
+  "—",
 ]);
 
 interface CustomFieldDef {
@@ -69,7 +81,13 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   color: "Color",
   color_mode: "Color Mode",
   position: "Position",
+  roll_direction: "Roll Direction",
   order_qty: "Order QTY",
+  quantity: "Quantity",
+  width: "Width",
+  height: "Height",
+  unit_price: "Unit Price",
+  special_effects: "Special effects",
   designer_information: "Designer Information",
   spot_uv: "Spot UV",
   foil: "Foil",
@@ -90,8 +108,14 @@ const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   sides: ["Sides"],
   color: ["Color"],
   color_mode: ["Color Mode", "Color"],
-  position: ["Position", "Roll Direction", "Roll direction"],
+  position: ["Position"],
+  roll_direction: ["Roll Direction", "Roll direction"],
   order_qty: ["Order QTY"],
+  quantity: ["Quantity"],
+  width: ["Width"],
+  height: ["Height"],
+  unit_price: ["Unit Price", "Unit Price ($)"],
+  special_effects: ["Special effects", "Special Effects"],
   designer_information: ["Designer Information"],
   spot_uv: ["Spot UV"],
   foil: ["Foil"],
@@ -137,7 +161,7 @@ export interface WebhookSkuPayload {
   sku_name?: string;
   quantity?: number | string;
   artwork_url?: string;
-  /** Line comment for this SKU — combined into Order Description as `SKU1: …`. */
+  /** Line comment for this SKU — combined into the Notes tab as `SKU1: …`. */
   description?: string;
   /** Alias for `description`. */
   comment?: string;
@@ -156,6 +180,13 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   position?: string;
   roll_direction?: string;
   lamination?: string;
+  width?: string | number;
+  height?: string | number;
+  unit_price?: string | number;
+  /** Line-level quantity custom field (separate from order_qty / SKU sum). */
+  quantity?: number | string;
+  /** Finishing multi-select names, e.g. `["Gold Foil", "Spot UV"]`. */
+  special_effects?: string[] | string;
   spot_uv?: boolean;
   foil?: boolean;
   die_cut?: boolean;
@@ -167,6 +198,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   description?: string;
   /** Internal staff note — creates an entry in the order's Notes tab. */
   internal_note?: string;
+  /** Alias for `internal_note`. */
+  notes?: string;
   category?: string;
   category_name?: string;
   skus?: WebhookSkuPayload[];
@@ -191,6 +224,10 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   customer_contact?: string;
   customer_phone?: string;
   order_number?: string;
+  /**
+   * Human-readable title after the source label (`CRM | …`).
+   * Omit or send empty to leave the card title blank (order # still shows).
+   */
   title?: string;
   priority?: string;
   due_date?: string | null;
@@ -207,6 +244,11 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   position?: string;
   roll_direction?: string;
   lamination?: string;
+  width?: string | number;
+  height?: string | number;
+  unit_price?: string | number;
+  quantity?: number | string;
+  special_effects?: string[] | string;
   spot_uv?: boolean;
   foil?: boolean;
   die_cut?: boolean;
@@ -215,6 +257,7 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
+  /** Order Description on the card (customer/production notes). */
   description?: string;
   /** Internal staff note added to the order's Notes tab on creation. Alias: `notes`. */
   internal_note?: string;
@@ -365,18 +408,13 @@ function resolveMisroutedDesignTaskText(
 }
 
 /**
- * Build Order Description: optional order/item notes, then labeled SKU comments.
- *
- * ```
- * Rush if possible
- *
- * SKU1: 1 sku- 200 boxes- (matte finish)
- * SKU2: 2 sided lb bag- (sample)
- * ```
+ * Build Order Description: optional order/item notes only.
+ * Per-SKU comments go to the Notes tab via {@link buildWebhookNotes}.
  */
 export function buildWebhookOrderDescription(opts: {
   orderDescription?: string | null;
   itemDescription?: string | null;
+  /** @deprecated SKU comments now go to Notes — ignored when present. */
   skuComments?: { index: number; name: string; comment: string }[];
   /** Non-URL text wrongly sent as design_task. */
   misroutedDesignTask?: string | null;
@@ -387,6 +425,34 @@ export function buildWebhookOrderDescription(opts: {
   if (orderDesc) parts.push(orderDesc);
   if (itemDesc && itemDesc !== orderDesc) parts.push(itemDesc);
 
+  const misrouted = opts.misroutedDesignTask?.trim() || "";
+  if (misrouted) {
+    const already = orderDesc === misrouted || itemDesc === misrouted;
+    if (!already) parts.push(misrouted);
+  }
+
+  const combined = parts.join("\n\n").trim();
+  return combined || null;
+}
+
+/**
+ * Build Notes-tab text: staff notes + labeled SKU comments.
+ *
+ * ```
+ * Rush — confirm ship date
+ *
+ * SKU1: 1 sku- 200 boxes- (matte finish)
+ * SKU2: 2 sided lb bag- (sample)
+ * ```
+ */
+export function buildWebhookNotes(opts: {
+  internalNote?: string | null;
+  skuComments?: { index: number; name: string; comment: string }[];
+}): string | null {
+  const parts: string[] = [];
+  const note = opts.internalNote?.trim() || "";
+  if (note) parts.push(note);
+
   const skuLines = (opts.skuComments ?? [])
     .filter((s) => s.comment.trim())
     .map((s) => `SKU${s.index}: ${s.comment.trim()}`);
@@ -394,18 +460,42 @@ export function buildWebhookOrderDescription(opts: {
     parts.push(skuLines.join("\n"));
   }
 
-  const misrouted = opts.misroutedDesignTask?.trim() || "";
-  if (misrouted) {
-    // Already covered by SKU lines? skip duplicate dump
-    const already =
-      skuLines.some((line) => line.includes(misrouted)) ||
-      orderDesc === misrouted ||
-      itemDesc === misrouted;
-    if (!already) parts.push(misrouted);
-  }
-
   const combined = parts.join("\n\n").trim();
   return combined || null;
+}
+
+function formatSpecialEffects(
+  raw: string[] | string | null | undefined
+): string | null {
+  if (raw == null) return null;
+  if (Array.isArray(raw)) {
+    const parts = raw
+      .map((v) => (typeof v === "string" ? v.trim() : String(v).trim()))
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return null;
+}
+
+function formatDimension(raw: string | number | null | undefined): string | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return null;
+}
+
+function buildFinishedSizeFromDimensions(
+  width: string | number | null | undefined,
+  height: string | number | null | undefined,
+  existing?: string | null
+): string | null {
+  const existingTrim = typeof existing === "string" ? existing.trim() : "";
+  if (existingTrim) return existingTrim;
+  const w = formatDimension(width);
+  const h = formatDimension(height);
+  if (w && h) return `${w} x ${h}`;
+  return w || h || null;
 }
 
 interface WebhookCustomerInfo {
@@ -507,9 +597,14 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       sides: body.sides,
       color: body.color ?? body.color_mode,
       color_mode: body.color_mode,
-      position: body.position ?? body.roll_direction,
+      position: body.position,
       roll_direction: body.roll_direction,
       lamination: body.lamination,
+      width: body.width,
+      height: body.height,
+      unit_price: body.unit_price,
+      quantity: body.quantity,
+      special_effects: body.special_effects,
       spot_uv: body.spot_uv,
       foil: body.foil,
       die_cut: body.die_cut,
@@ -519,6 +614,8 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       order_qty: body.order_qty,
       artwork_url: body.artwork_url,
       description: body.description,
+      internal_note: body.internal_note ?? body.notes,
+      notes: body.notes,
       skus: body.skus,
       designer_email: body.designer_email,
       designer_id: body.designer_id,
@@ -549,37 +646,57 @@ export function resolveItemTitle(
   if (item.title?.trim()) return item.title.trim();
   if (totalItems === 1) return orderTitle;
   const productLabel = item.product?.trim() || `Item ${itemIndex + 1}`;
+  if (!orderTitle.trim()) return productLabel;
   return `${orderTitle} — ${productLabel}`;
 }
 
-function resolveOrderLevelTitle(body: WebhookOrderPayload): string {
-  return (
-    (typeof body.title === "string" ? body.title.trim() : "") ||
-    (typeof body.order_number === "string" ? body.order_number.trim() : "")
-  );
+/**
+ * Human-readable title shown after the source label (`CRM | …`).
+ * Prefer top-level `title`, then a single item's `title`.
+ * Never fall back to `order_number` — that already appears as the card order #.
+ */
+function resolveOrderLevelTitle(
+  body: WebhookOrderPayload,
+  items: WebhookItem[]
+): string {
+  const top = typeof body.title === "string" ? body.title.trim() : "";
+  if (top) return top;
+
+  if (items.length === 1) {
+    const itemTitle =
+      typeof items[0].title === "string" ? items[0].title.trim() : "";
+    if (itemTitle) return itemTitle;
+  }
+
+  return "";
 }
 
-type WebhookSpecFields = Pick<
-  WebhookItem,
-  | "product"
-  | "finished_size"
-  | "die"
-  | "materials"
-  | "finishing"
-  | "lamination"
-  | "sides"
-  | "color"
-  | "color_mode"
-  | "position"
-  | "order_qty"
-  | "designer_information"
-  | "spot_uv"
-  | "foil"
-  | "die_cut"
-  | "application"
-  | "need_a_design"
-  | "perforation"
->;
+type WebhookSpecFields = {
+  product?: string;
+  finished_size?: string;
+  die?: string;
+  materials?: string;
+  finishing?: string;
+  lamination?: string;
+  sides?: string;
+  color?: string;
+  color_mode?: string;
+  position?: string;
+  roll_direction?: string;
+  order_qty?: number | string;
+  quantity?: number | string;
+  width?: string;
+  height?: string;
+  unit_price?: number | string;
+  special_effects?: string;
+  designer_information?: string;
+  spot_uv?: boolean;
+  foil?: boolean;
+  die_cut?: boolean;
+  application?: boolean;
+  need_a_design?: boolean;
+  perforation?: boolean;
+};
 
 function mergeItemWithOrder(
   order: WebhookOrderPayload,
@@ -596,8 +713,13 @@ function mergeItemWithOrder(
     sides: item.sides ?? order.sides,
     color: item.color ?? order.color,
     color_mode: item.color_mode ?? item.color ?? order.color_mode ?? order.color,
-    position: item.position ?? item.roll_direction ?? order.position ?? order.roll_direction,
+    position: item.position ?? order.position,
     roll_direction: item.roll_direction ?? order.roll_direction,
+    width: item.width ?? order.width,
+    height: item.height ?? order.height,
+    unit_price: item.unit_price ?? order.unit_price,
+    quantity: item.quantity ?? order.quantity,
+    special_effects: item.special_effects ?? order.special_effects,
     spot_uv: item.spot_uv ?? order.spot_uv,
     foil: item.foil ?? order.foil,
     die_cut: item.die_cut ?? order.die_cut,
@@ -607,7 +729,12 @@ function mergeItemWithOrder(
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: item.artwork_url ?? order.artwork_url,
     description: item.description ?? order.description,
-    internal_note: item.internal_note ?? order.internal_note ?? order.notes,
+    internal_note:
+      item.internal_note ??
+      item.notes ??
+      order.internal_note ??
+      order.notes,
+    notes: item.notes ?? order.notes,
     category: item.category ?? order.category,
     category_name: item.category_name ?? order.category_name,
     designer_email: item.designer_email ?? order.designer_email,
@@ -721,9 +848,13 @@ function mergeDesignerInput(
 }
 
 function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
+  const width = formatDimension(item.width);
+  const height = formatDimension(item.height);
   return {
     product: item.product,
-    finished_size: item.finished_size,
+    finished_size:
+      buildFinishedSizeFromDimensions(width, height, item.finished_size) ??
+      undefined,
     die: item.die,
     materials: item.materials,
     finishing: item.finishing ?? item.lamination,
@@ -731,8 +862,14 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
     sides: item.sides,
     color: item.color,
     color_mode: item.color_mode ?? item.color,
-    position: item.position ?? item.roll_direction,
+    position: item.position,
+    roll_direction: item.roll_direction,
     order_qty: item.order_qty,
+    quantity: item.quantity,
+    width: width ?? undefined,
+    height: height ?? undefined,
+    unit_price: item.unit_price,
+    special_effects: formatSpecialEffects(item.special_effects) ?? undefined,
     designer_information: resolveDesignNotes(item) ?? undefined,
     spot_uv: item.spot_uv,
     foil: item.foil,
@@ -773,7 +910,29 @@ function resolveSelectField(
   const trimmed = value.trim();
   if (!trimmed) return null;
 
+  // CRM often sends "None" / "None (inactive)" for empty dropdowns.
+  if (NONE_SENTINELS.has(trimmed.toLowerCase())) {
+    const noneOption = options.find((o) => o.trim().toLowerCase() === "none");
+    if (noneOption) return noneOption;
+    return null;
+  }
+
   if (options.includes(trimmed)) return trimmed;
+
+  const alias = resolveKnownSelectAlias(fieldName, trimmed);
+  if (alias) {
+    const aliased = options.find(
+      (o) => o.toLowerCase() === alias.toLowerCase()
+    );
+    if (aliased) {
+      if (aliased !== trimmed) {
+        corrections.push(
+          `"${fieldName}": "${trimmed}" → "${aliased}" (alias)`
+        );
+      }
+      return aliased;
+    }
+  }
 
   const match = fuzzyMatch(trimmed, options);
   if (match) {
@@ -787,6 +946,76 @@ function resolveSelectField(
 
   corrections.push(`"${fieldName}": "${trimmed}" — no match found, left blank`);
   return null;
+}
+
+/**
+ * Known CRM → Workflow option aliases for select fields.
+ * Keys are lowercase incoming values; values are preferred option labels.
+ */
+function resolveKnownSelectAlias(
+  fieldName: string,
+  incoming: string
+): string | null {
+  const key = incoming.trim().toLowerCase().replace(/\s+/g, " ");
+  if (fieldName === "product") {
+    const map: Record<string, string> = {
+      "die cut / kiss cut stickers": "Diecut Stickers",
+      "die-cut / kiss-cut stickers": "Diecut Stickers",
+      "die cut stickers": "Diecut Stickers",
+      "kiss cut stickers": "Diecut Stickers",
+      "diecut stickers": "Diecut Stickers",
+    };
+    return map[key] ?? null;
+  }
+  if (fieldName === "materials") {
+    const map: Record<string, string> = {
+      "holographic label (rainbow holographic bopp)": "Holo BOPP",
+      "rainbow holographic bopp": "Holo BOPP",
+      "holographic label": "Holo BOPP",
+      "holo bopp": "Holo BOPP",
+    };
+    return map[key] ?? null;
+  }
+  if (fieldName === "lamination" || fieldName === "finishing") {
+    const map: Record<string, string> = {
+      "matte lamination": "Matte",
+      "gloss lamination": "Gloss",
+      "soft touch lamination": "Soft Touch",
+    };
+    return map[key] ?? null;
+  }
+  return null;
+}
+
+/** Resolve comma-/array-style multi values against select options. */
+function resolveMultiSelectField(
+  raw: unknown,
+  options: string[],
+  fieldName: string,
+  corrections: string[]
+): string | null {
+  const parts: string[] = [];
+  if (Array.isArray(raw)) {
+    for (const v of raw) {
+      const s = typeof v === "string" ? v.trim() : String(v ?? "").trim();
+      if (s) parts.push(s);
+    }
+  } else if (typeof raw === "string") {
+    for (const part of raw.split(/[,;|]/)) {
+      const s = part.trim();
+      if (s) parts.push(s);
+    }
+  } else {
+    return null;
+  }
+  if (parts.length === 0) return null;
+
+  const matched: string[] = [];
+  for (const part of parts) {
+    const resolved = resolveSelectField(part, options, fieldName, corrections);
+    if (resolved) matched.push(resolved);
+  }
+  return matched.length > 0 ? matched.join(", ") : null;
 }
 
 /** Match incoming webhook text to a tenant select option (case/whitespace insensitive). */
@@ -864,13 +1093,50 @@ function resolveWebhookFieldValue(
 
   if (raw === null || raw === undefined || raw === "") return null;
 
-  if (webhookKey === "order_qty") {
+  if (webhookKey === "order_qty" || webhookKey === "quantity") {
     const n = typeof raw === "number" ? raw : Number(raw);
     return Number.isNaN(n) ? null : n;
   }
 
+  if (webhookKey === "unit_price" || webhookKey === "width" || webhookKey === "height") {
+    if (webhookKey === "unit_price") {
+      const n =
+        typeof raw === "number"
+          ? raw
+          : Number(String(raw).trim().replace(/[$,\s]/g, ""));
+      return Number.isFinite(n) ? n : null;
+    }
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    const dim = String(raw).trim();
+    if (!dim || NONE_SENTINELS.has(dim.toLowerCase())) return null;
+    const n = Number(dim);
+    return Number.isFinite(n) ? n : dim;
+  }
+
+  if (webhookKey === "special_effects") {
+    const options =
+      field?.field_type === "select"
+        ? selectOptionsForWebhookField(webhookKey, field.options)
+        : [];
+    if (options.length > 0) {
+      return resolveMultiSelectField(raw, options, webhookKey, corrections);
+    }
+    return formatSpecialEffects(
+      raw as string[] | string | null | undefined
+    );
+  }
+
   const text = String(raw).trim();
   if (!text) return null;
+  if (
+    NONE_SENTINELS.has(text.toLowerCase()) &&
+    !(
+      field?.field_type === "select" &&
+      field.options.some((o) => o.trim().toLowerCase() === "none")
+    )
+  ) {
+    return null;
+  }
 
   if (
     field?.field_type === "select" &&
@@ -911,6 +1177,17 @@ function buildCustomFieldValues(
     if (webhookKey === "order_qty" && skus.length > 0 && skuQtySum > 0) {
       continue;
     }
+    if (webhookKey === "quantity" && skus.length > 0 && skuQtySum > 0) {
+      // Prefer explicit quantity; SKU sum fills below when blank.
+      const explicit = specFields.quantity;
+      if (
+        explicit === null ||
+        explicit === undefined ||
+        explicit === ""
+      ) {
+        continue;
+      }
+    }
     const field = fields.get(webhookKey);
     if (!field) continue;
     const raw = specFields[webhookKey as keyof WebhookSpecFields];
@@ -922,6 +1199,14 @@ function buildCustomFieldValues(
   const orderQtyField = fields.get("order_qty");
   if (orderQtyField && skus.length > 0 && skuQtySum > 0) {
     byFieldId.set(orderQtyField.id, skuQtySum);
+  }
+
+  const quantityField = fields.get("quantity");
+  if (quantityField && skus.length > 0 && skuQtySum > 0) {
+    const existing = byFieldId.get(quantityField.id);
+    if (existing === undefined || existing === null || existing === "") {
+      byFieldId.set(quantityField.id, skuQtySum);
+    }
   }
 
   return [...byFieldId.entries()].map(([customFieldId, value]) => ({
@@ -1623,8 +1908,11 @@ async function createSingleWebhookJob(
   const description = buildWebhookOrderDescription({
     orderDescription,
     itemDescription,
-    skuComments,
     misroutedDesignTask,
+  });
+  const notesText = buildWebhookNotes({
+    internalNote,
+    skuComments,
   });
 
   const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs };
@@ -1744,10 +2032,10 @@ async function createSingleWebhookJob(
     warnings.push(message);
   }
 
-  if (internalNote) {
+  if (notesText) {
     const { error: noteError } = await client
       .from("order_notes")
-      .insert({ tenant_id: tenantId, order_id: orderId, created_by: null, text: internalNote });
+      .insert({ tenant_id: tenantId, order_id: orderId, created_by: null, text: notesText });
     if (noteError) {
       console.error("[webhook/orders] note insert error:", noteError.message);
       warnings.push(`Internal note could not be saved: ${noteError.message}`);
@@ -1778,7 +2066,7 @@ export async function createOrderFromWebhook(
 
   const isMultiItem = Array.isArray(body.items) && body.items.length > 0;
   const items = normalizeItems(body);
-  const orderLevelTitle = resolveOrderLevelTitle(body);
+  const orderLevelTitle = resolveOrderLevelTitle(body, items);
   const orderDescription =
     typeof body.description === "string" ? body.description.trim() : null;
   const shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
@@ -1940,9 +2228,12 @@ export async function createOrderFromWebhook(
       designNotes: resolveDesignNotes(designerInput),
       designTaskUrl: resolveDesignTaskUrl(designerInput),
       misroutedDesignTask: resolveMisroutedDesignTaskText(designerInput),
-      internalNote: typeof item.internal_note === "string" && item.internal_note.trim()
-        ? item.internal_note.trim()
-        : null,
+      internalNote:
+        typeof item.internal_note === "string" && item.internal_note.trim()
+          ? item.internal_note.trim()
+          : typeof item.notes === "string" && item.notes.trim()
+            ? item.notes.trim()
+            : null,
       corrections: allCorrections,
       webhookSource,
       billing,
