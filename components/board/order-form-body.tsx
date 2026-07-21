@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Mail, Phone, User } from "lucide-react";
+import { AlertTriangle, Copy, Mail, Phone, User } from "lucide-react";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { CustomFieldInput } from "./custom-field-input";
 import { SkuEditor, type SkuItem } from "./sku-editor";
@@ -631,57 +631,58 @@ export function OrderFormBody({
         </div>
       ) : null}
 
-      <div className="flex items-center gap-3">
-        <hr className="flex-1 border-slate-200" />
-        <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Notes (Internal)
-        </span>
-        <hr className="flex-1 border-slate-200" />
-      </div>
+      {(!hideEmpty || (noteHistory && noteHistory.length > 0) || !readOnly) ? (
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+              Attention
+            </p>
+            <span className="text-[11px] font-normal text-amber-600/80">
+              Internal notes
+            </span>
+          </div>
 
-      {noteHistory && noteHistory.length > 0 ? (
-        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-          {noteHistory.map((entry, i) => (
-            <div key={i}>
-              {i > 0 && <hr className="mb-2 border-slate-200" />}
-              <p className="mb-1 text-[11px] font-semibold text-slate-400">
-                {entry.author}
-                <span className="mx-1 font-normal">/</span>
-                {new Date(entry.date).toLocaleString(undefined, {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-              <p className="whitespace-pre-wrap text-sm text-slate-700">{entry.text}</p>
+          {noteHistory && noteHistory.length > 0 ? (
+            <div className="space-y-2">
+              {noteHistory.map((entry, i) => (
+                <div key={i}>
+                  {i > 0 && <hr className="mb-2 border-amber-200/80" />}
+                  <p className="mb-1 text-[11px] font-semibold text-amber-800/70">
+                    {entry.author}
+                    <span className="mx-1 font-normal">/</span>
+                    {new Date(entry.date).toLocaleString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  <p className="whitespace-pre-wrap text-sm text-amber-950">
+                    {entry.text}
+                  </p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      ) : null}
+          ) : null}
 
-      {!readOnly ? (
-        <div>
-          <Label htmlFor={`${idPrefix}-internal-note`}>
-            {noteHistory && noteHistory.length > 0 ? (
-              <>
-                Add new note{" "}
-                <span className="text-[11px] font-normal text-slate-400">(Internal)</span>
-              </>
-            ) : (
-              <>
-                Note{" "}
-                <span className="text-[11px] font-normal text-slate-400">(Internal)</span>
-              </>
-            )}
-          </Label>
-          <Textarea
-            id={`${idPrefix}-internal-note`}
-            value={internalNote}
-            onChange={(e) => onInternalNoteChange(e.target.value)}
-            placeholder="Internal notes visible only to the team…"
-          />
+          {!readOnly ? (
+            <div>
+              <Label htmlFor={`${idPrefix}-internal-note`}>
+                {noteHistory && noteHistory.length > 0
+                  ? "Add new note"
+                  : "Note"}
+              </Label>
+              <Textarea
+                id={`${idPrefix}-internal-note`}
+                value={internalNote}
+                onChange={(e) => onInternalNoteChange(e.target.value)}
+                placeholder="Internal notes visible only to the team…"
+                className="border-amber-200 bg-white focus-visible:ring-amber-400"
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 

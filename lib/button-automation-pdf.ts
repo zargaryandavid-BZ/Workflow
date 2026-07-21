@@ -30,6 +30,38 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * `orders.internal_note` is stored as JSON history
+ * `[{ author, date, text }, …]` (or legacy plain text).
+ * Returns clear note text only for PDF display.
+ */
+function formatInternalNoteText(raw: string | null | undefined): string {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((entry) => {
+          if (entry && typeof entry === "object" && "text" in entry) {
+            const text = (entry as { text?: unknown }).text;
+            return typeof text === "string" ? text.trim() : "";
+          }
+          return typeof entry === "string" ? entry.trim() : "";
+        })
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    if (parsed && typeof parsed === "object" && "text" in parsed) {
+      const text = (parsed as { text?: unknown }).text;
+      return typeof text === "string" ? text.trim() : trimmed;
+    }
+  } catch {
+    /* legacy plain text */
+  }
+  return trimmed;
+}
+
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
@@ -147,6 +179,7 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   if (!specRows.length) return startY;
 
   const description = data.order.description?.trim() ?? "";
+  const attentionText = formatInternalNoteText(data.order.internal_note);
 
   const headerH = 26;
   const midpoint = Math.ceil(specRows.length / 2);
@@ -174,12 +207,24 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   // Height for order description block (if present)
   let descH = 0;
   if (description) {
+    descH = 10; // top divider spacing
     doc.fontSize(10).font("Helvetica");
     const textH = doc.heightOfString(description, { width: innerW - 12 });
-    descH = 18 + textH + 6;
+    descH += 18 + textH + 4;
   }
 
   const boxH = headerH + specsH + notesH + descH + 10;
+
+  // Attention box (separate, below specs) — clear text only
+  const attentionInnerW = w - 24;
+  let attentionBoxH = 0;
+  if (attentionText) {
+    doc.fontSize(10).font("Helvetica-Bold");
+    const labelH = 14;
+    doc.fontSize(10).font("Helvetica");
+    const textH = doc.heightOfString(attentionText, { width: attentionInnerW });
+    attentionBoxH = 10 + labelH + textH + 10;
+  }
 
   // Highlighted background box
   doc.rect(x, startY, w, boxH).fill("#fff7ed");
@@ -249,13 +294,20 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
       .fontSize(10)
       .font("Helvetica-Bold")
       .fillColor("#111827")
-      .text(data.designTask, innerX + 6 + innerW * 0.32, y, { width: innerW * 0.65 });
+      .text(data.designTask, innerX + 6 + innerW * 0.32, y, {
+        width: innerW * 0.65,
+      });
     y += notesH;
   }
 
   if (description) {
     // Thin divider
-    doc.moveTo(innerX + 6, y + 2).lineTo(x + w - 10, y + 2).strokeColor("#fcd34d").lineWidth(0.5).stroke();
+    doc
+      .moveTo(innerX + 6, y + 2)
+      .lineTo(x + w - 10, y + 2)
+      .strokeColor("#fcd34d")
+      .lineWidth(0.5)
+      .stroke();
     y += 10;
     doc
       .fontSize(9)
@@ -271,7 +323,38 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   }
 
   doc.fillColor("#000000").font("Helvetica");
-  return startY + boxH + 8;
+
+  let nextY = startY + boxH + 8;
+
+  if (attentionText) {
+    const ax = x;
+    const aw = w;
+    const ay = nextY;
+    doc.rect(ax, ay, aw, attentionBoxH).fill("#fef2f2");
+    doc.rect(ax, ay, 4, attentionBoxH).fill("#dc2626");
+    doc
+      .rect(ax, ay, aw, attentionBoxH)
+      .strokeColor("#dc2626")
+      .lineWidth(1.25)
+      .stroke();
+
+    doc
+      .fillColor("#991b1b")
+      .fontSize(10)
+      .font("Helvetica-Bold")
+      .text("ATTENTION :", ax + 12, ay + 10, { width: attentionInnerW });
+
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor("#111827")
+      .text(attentionText, ax + 12, ay + 24, { width: attentionInnerW });
+
+    doc.fillColor("#000000").font("Helvetica");
+    nextY = ay + attentionBoxH + 8;
+  }
+
+  return nextY;
 }
 
 function drawDescription(doc: PdfDoc, description: string, startY: number): number {
