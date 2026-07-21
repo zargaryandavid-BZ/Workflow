@@ -89,7 +89,7 @@ export function itemLabel(order: OrderWithRelations): string {
 /**
  * Shared parent order title from the webhook payload (same on every multi-item card).
  * Shown after the source label: e.g. "CRM | Mixed Print Order".
- * Hides values that are just the order number (legacy webhook fallback).
+ * Hides empty values and anything that is just the order number.
  */
 export function sharedOrderTitle(
   order: {
@@ -105,16 +105,49 @@ export function sharedOrderTitle(
     typeof order.specs?.webhook_order_number === "string"
       ? order.specs.webhook_order_number.trim()
       : "";
-  if (webhookNumber && title === webhookNumber) return null;
+  if (webhookNumber && titlesMatchOrderNumber(title, webhookNumber)) {
+    return null;
+  }
 
   const orderTitle = typeof order.title === "string" ? order.title.trim() : "";
-  if (orderTitle && title === orderTitle) return null;
+  if (orderTitle && titlesMatchOrderNumber(title, orderTitle)) {
+    return null;
+  }
 
-  // e.g. title "ORD-2026-0288" with card "ORD-2026-0288-1" or "288-1"
+  // Card title "142-1" / "0142-1" with shared title "ORD-2026-0142"
+  if (orderTitle && titlesMatchOrderNumber(title, expandOrdFromCardTitle(orderTitle))) {
+    return null;
+  }
+
+  // Any bare ORD-YYYY-… value is the order #, not a human title
+  if (/^ord-\d{4}-\S+$/i.test(title)) return null;
+
+  // e.g. title "ORD-2026-0288" with card "ORD-2026-0288-1" or group key match
   const groupFromTitle = orderTitle.match(/^(.+)-(\d+)$/);
   if (groupFromTitle && title === groupFromTitle[1]) return null;
 
   return title;
+}
+
+function titlesMatchOrderNumber(title: string, orderNumber: string): boolean {
+  const t = title.trim().toLowerCase();
+  const o = orderNumber.trim().toLowerCase();
+  if (!t || !o) return false;
+  if (t === o) return true;
+
+  const strip = (s: string) =>
+    s.replace(/^ord-\d{4}-/i, "").replace(/^0+(\d)/, "$1");
+  if (strip(t) && strip(t) === strip(o)) return true;
+
+  return false;
+}
+
+/** Best-effort full order number from a short card title like "142" or "142-1". */
+function expandOrdFromCardTitle(cardTitle: string): string {
+  const base = cardTitle.replace(/-\d+$/, "").trim();
+  if (/^ord-/i.test(base)) return base;
+  // Unknown year — still useful for strip-compare via titlesMatchOrderNumber
+  return base;
 }
 
 export interface OrderGroupSearchSuggestion {

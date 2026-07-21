@@ -652,23 +652,36 @@ export function resolveItemTitle(
 
 /**
  * Human-readable title shown after the source label (`CRM | …`).
- * Prefer top-level `title`, then a single item's `title`.
- * Never fall back to `order_number` — that already appears as the card order #.
+ * Only the top-level `title` field — never item title, never `order_number`.
+ * Empty/omitted title → blank on the card (order # already shows separately).
  */
 function resolveOrderLevelTitle(
   body: WebhookOrderPayload,
-  items: WebhookItem[]
+  orderNumber: string
 ): string {
   const top = typeof body.title === "string" ? body.title.trim() : "";
-  if (top) return top;
+  if (!top) return "";
+  if (isOrderNumberLikeTitle(top, orderNumber)) return "";
+  return top;
+}
 
-  if (items.length === 1) {
-    const itemTitle =
-      typeof items[0].title === "string" ? items[0].title.trim() : "";
-    if (itemTitle) return itemTitle;
-  }
+/** True when a "title" is really just the order number (or a short form of it). */
+export function isOrderNumberLikeTitle(
+  title: string,
+  orderNumber: string
+): boolean {
+  const t = title.trim();
+  if (!t) return true;
+  const ord = orderNumber.trim();
+  if (ord && t.toLowerCase() === ord.toLowerCase()) return true;
 
-  return "";
+  const shortOrd = shortOrderCardBase(ord);
+  if (shortOrd && t.toLowerCase() === shortOrd.toLowerCase()) return true;
+
+  // Bare ORD-YYYY-NNNN (or same with optional suffix) with no other words
+  if (/^ord-\d{4}-\S+$/i.test(t)) return true;
+
+  return false;
 }
 
 type WebhookSpecFields = {
@@ -2066,7 +2079,7 @@ export async function createOrderFromWebhook(
 
   const isMultiItem = Array.isArray(body.items) && body.items.length > 0;
   const items = normalizeItems(body);
-  const orderLevelTitle = resolveOrderLevelTitle(body, items);
+  const orderLevelTitle = resolveOrderLevelTitle(body, baseOrderNumber);
   const orderDescription =
     typeof body.description === "string" ? body.description.trim() : null;
   const shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
