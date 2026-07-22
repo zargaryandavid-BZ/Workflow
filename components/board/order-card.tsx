@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
@@ -29,7 +29,10 @@ import {
   PRIORITY_STYLES,
   UNASSIGNED_DESIGNER_CARD_CLASS,
   UNASSIGNED_DESIGNER_TEXT_CLASS,
+  UNASSIGNED_OWNER_TEXT_CLASS,
 } from "@/lib/constants";
+import { dueDateBadgeClass, dueDateStatus } from "@/lib/board-due-date";
+import type { ColumnKind } from "@/lib/types";
 import {
   cardOrderQty,
   cardSkuCount,
@@ -94,6 +97,8 @@ interface OrderCardProps {
   webhookSourceStyles?: WebhookSourceStyles;
   /** Column accent color (hex) — used to tint the customer name at 70% opacity. */
   columnColor?: string | null;
+  /** Used to skip overdue badges in terminal (done) columns. */
+  columnKind?: ColumnKind | null;
   /** Columns the user is allowed to move this card to (pre-filtered by board). */
   availableColumns?: ColumnOption[];
   /** Called when the user selects a column from the right-click menu. */
@@ -126,6 +131,7 @@ export function OrderCard({
   warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles,
   columnColor,
+  columnKind = null,
   availableColumns = [],
   onMoveToColumn,
   actionButtons = [],
@@ -175,6 +181,11 @@ export function OrderCard({
       ? order.specs.designer_name.trim()
       : "") ||
     null;
+
+  const isOwnerUnassigned = !order.created_by;
+  const dueStatus = dueDateStatus(order.due_date, {
+    inDoneColumn: columnKind === "done",
+  });
 
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
@@ -241,6 +252,33 @@ export function OrderCard({
       document.removeEventListener("keydown", handleClose);
     };
   }, [menuOpen]);
+
+  // Keep the menu fully on-screen (flip up / shift left when near edges).
+  useLayoutEffect(() => {
+    if (!menuOpen || !menuRef.current) return;
+    const el = menuRef.current;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let x = menuPos.x;
+    let y = menuPos.y;
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad);
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad);
+    }
+    if (x !== menuPos.x || y !== menuPos.y) {
+      setMenuPos({ x, y });
+    }
+  }, [
+    menuOpen,
+    menuPos.x,
+    menuPos.y,
+    hasActionMenu,
+    hasMoveMenu,
+    actionButtons.length,
+    availableColumns.length,
+  ]);
 
   function handleContextMenu(e: React.MouseEvent) {
     if (!hasContextMenu) return;
@@ -501,6 +539,30 @@ export function OrderCard({
               <CalendarClock className="h-3 w-3 shrink-0" />
               {formatDateShort(order.due_date)}
             </span>
+          ) : (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                dueDateBadgeClass(dueStatus)
+              )}
+            >
+              {dueStatus.label}
+            </span>
+          )}
+          {dueStatus.kind === "late" ||
+          dueStatus.kind === "today" ||
+          dueStatus.kind === "soon" ? (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
+                dueDateBadgeClass(dueStatus)
+              )}
+              title={
+                order.due_date ? `Due ${formatDate(order.due_date)}` : undefined
+              }
+            >
+              {dueStatus.label}
+            </span>
           ) : null}
           {timeHere ? (
             <span
@@ -572,13 +634,25 @@ export function OrderCard({
           />
           <span className="min-w-0 truncate">{designerName ?? "Unassigned"}</span>
         </span>
-        {ownerName ? (
+        {isOwnerUnassigned || ownerName ? (
           <span
-            className="flex flex-1 min-w-0 items-center justify-center gap-0.5 bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500"
-            title="Order owner"
+            className={cn(
+              "flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold",
+              isOwnerUnassigned
+                ? UNASSIGNED_OWNER_TEXT_CLASS
+                : "bg-slate-100 text-slate-500"
+            )}
+            title={isOwnerUnassigned ? "No owner assigned" : "Order owner"}
           >
-            <User className="h-[1em] w-[1em] shrink-0 text-slate-400" />
-            <span className="min-w-0 truncate">{ownerName}</span>
+            <User
+              className={cn(
+                "h-[1em] w-[1em] shrink-0",
+                isOwnerUnassigned ? "text-amber-600" : "text-slate-400"
+              )}
+            />
+            <span className="min-w-0 truncate">
+              {isOwnerUnassigned ? "Unassigned" : ownerName}
+            </span>
           </span>
         ) : null}
       </div>
@@ -704,7 +778,7 @@ export function OrderCard({
           style={{
             top: menuPos.y,
             left: menuPos.x,
-            maxHeight: `calc(100dvh - ${menuPos.y}px - 8px)`,
+            maxHeight: "calc(100dvh - 16px)",
           }}
           className="fixed z-50 flex min-w-[11rem] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
           onClick={(e) => e.stopPropagation()}
@@ -739,7 +813,7 @@ export function OrderCard({
                 <MoveRight className="h-3 w-3" />
                 Move to
               </p>
-              <div className="overflow-y-auto py-1">
+              <div className="min-h-0 flex-1 overflow-y-auto py-1">
                 {availableColumns.map((col) => (
                   <button
                     key={col.id}

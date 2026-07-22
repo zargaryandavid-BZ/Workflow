@@ -6,6 +6,7 @@ import {
   isOrderNumberQuery,
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
+import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
@@ -138,7 +139,9 @@ export async function GET(req: NextRequest) {
       .order("id", { ascending: true })
       .range(from, from + FETCH_PAGE - 1);
 
-    if (ownerId) {
+    if (ownerId === UNASSIGNED_OWNER_FILTER) {
+      query = query.is("created_by", null);
+    } else if (ownerId) {
       query = query.eq("created_by", ownerId);
     }
     if (designerId) {

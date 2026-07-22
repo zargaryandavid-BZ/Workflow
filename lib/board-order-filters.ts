@@ -2,6 +2,7 @@ import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
+import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 export interface BoardOrderFilters {
@@ -82,8 +83,12 @@ export function orderMatchesBoardFilters(
     const designerId = (order.specs?.designer_id as string | undefined) ?? "";
     if (designerId !== filters.personFilter) return false;
   }
-  if (filters.ownerFilter && order.created_by !== filters.ownerFilter) {
-    return false;
+  if (filters.ownerFilter) {
+    if (filters.ownerFilter === UNASSIGNED_OWNER_FILTER) {
+      if (order.created_by) return false;
+    } else if (order.created_by !== filters.ownerFilter) {
+      return false;
+    }
   }
   if (filters.overdueOnly) {
     if (!isOrderOverdue(order.due_date)) return false;

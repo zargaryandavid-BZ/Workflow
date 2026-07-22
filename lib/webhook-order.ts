@@ -651,18 +651,14 @@ export function resolveItemTitle(
 }
 
 /**
- * Human-readable title shown after the source label (`CRM | …`).
- * Only the top-level `title` field — never item title, never `order_number`.
- * Empty/omitted title → blank on the card (order # already shows separately).
+ * CRM order reference stored on every card (`specs.webhook_order_title`).
+ * Always `order_number` (e.g. ORD-2026-0298) — never product/line `title`.
  */
 function resolveOrderLevelTitle(
-  body: WebhookOrderPayload,
+  _body: WebhookOrderPayload,
   orderNumber: string
 ): string {
-  const top = typeof body.title === "string" ? body.title.trim() : "";
-  if (!top) return "";
-  if (isOrderNumberLikeTitle(top, orderNumber)) return "";
-  return top;
+  return orderNumber.trim();
 }
 
 /** True when a "title" is really just the order number (or a short form of it). */
@@ -2080,12 +2076,22 @@ export async function createOrderFromWebhook(
   const isMultiItem = Array.isArray(body.items) && body.items.length > 0;
   const items = normalizeItems(body);
   const orderLevelTitle = resolveOrderLevelTitle(body, baseOrderNumber);
+  const shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
+  const payloadTitle =
+    typeof body.title === "string" ? body.title.trim() : "";
+  const itemParentLabel =
+    payloadTitle && !isOrderNumberLikeTitle(payloadTitle, baseOrderNumber)
+      ? payloadTitle
+      : shortBaseOrderNumber;
   const orderDescription =
     typeof body.description === "string" ? body.description.trim() : null;
-  const shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
 
   const tenantId = config.tenant_id;
-  const webhookSource = parseWebhookSourceKey(body.source).toLowerCase();
+  let webhookSource = parseWebhookSourceKey(body.source).toLowerCase();
+  // CRM orders are ORD-YYYY-… — stamp source when the payload omitted it.
+  if (!webhookSource && /^ord-\d{4}-/i.test(baseOrderNumber)) {
+    webhookSource = "crm";
+  }
 
   const { data: firstCol } = await client
     .from("board_columns")
@@ -2155,7 +2161,7 @@ export async function createOrderFromWebhook(
 
   for (let i = 0; i < items.length; i++) {
     const item = mergeItemWithOrder(body, items[i]);
-    const jobTitle = resolveItemTitle(item, orderLevelTitle, i, items.length);
+    const jobTitle = resolveItemTitle(item, itemParentLabel, i, items.length);
     const cardTitle = isMultiItem
       ? `${shortBaseOrderNumber}-${i + 1}`
       : shortBaseOrderNumber;

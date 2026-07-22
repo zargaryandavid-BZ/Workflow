@@ -458,6 +458,11 @@ export function CardDetailModal({
     return false;
   }
 
+  function revert() {
+    if (data) applyDetail(data);
+    setSaveError(null);
+  }
+
   async function removeOrder() {
     if (!orderId) return;
     setRemoving(true);
@@ -606,16 +611,16 @@ export function CardDetailModal({
       onClose();
       return;
     }
-    if (!isDirty()) {
-      onClose();
-      return;
+    if (isDirty()) {
+      if (
+        !window.confirm(
+          "You have unsaved changes. Close without saving?"
+        )
+      ) {
+        return;
+      }
     }
-    const ok = await save({ reload: false });
-    if (ok) {
-      onClose();
-      return;
-    }
-    setTab("details");
+    onClose();
   }
 
   const displayOrderNumber = title.trim() || (data?.order.title ?? "").trim();
@@ -937,14 +942,33 @@ export function CardDetailModal({
               Delete Order
             </button>
           ) : null}
-          <Button
-            variant="outline"
-            onClick={handleClose}
-            type="button"
-            disabled={saving || removing}
-          >
-            {saving ? "Saving…" : "Close"}
-          </Button>
+          {!isViewOnly && isDirty() ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={revert}
+                type="button"
+                disabled={saving || removing}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void save()}
+                disabled={saving || loading || removing}
+              >
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={handleClose}
+              type="button"
+              disabled={saving || removing}
+            >
+              Close
+            </Button>
+          )}
         </>
       }
     >

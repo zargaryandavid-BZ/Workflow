@@ -61,6 +61,13 @@ export const UNASSIGNED_DESIGNER_CARD_CLASS =
   "border-amber-300 bg-amber-50/90 hover:border-amber-400";
 export const UNASSIGNED_DESIGNER_TEXT_CLASS = "font-medium text-amber-800";
 
+/** Owner chip when `created_by` is null. */
+export const UNASSIGNED_OWNER_TEXT_CLASS =
+  "border border-amber-300 bg-amber-50 font-medium text-amber-800";
+
+/** Sentinel for board owner filter — jobs with no `created_by`. */
+export const UNASSIGNED_OWNER_FILTER = "__unassigned__";
+
 export const COLUMN_ACCENT: Record<ColumnKind, string> = {
   normal: "border-t-slate-400",
   exception: "border-t-amber-500",

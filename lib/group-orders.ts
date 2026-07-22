@@ -87,9 +87,8 @@ export function itemLabel(order: OrderWithRelations): string {
 }
 
 /**
- * Shared parent order title from the webhook payload (same on every multi-item card).
- * Shown after the source label: e.g. "CRM | Mixed Print Order".
- * Hides empty values and anything that is just the order number.
+ * CRM order reference shown after the source label (`CRM | ORD-2026-0298`).
+ * Always the webhook `order_number` — never a product/line description.
  */
 export function sharedOrderTitle(
   order: {
@@ -98,35 +97,19 @@ export function sharedOrderTitle(
   }
 ): string | null {
   const t = order.specs?.webhook_order_title;
-  if (typeof t !== "string" || !t.trim()) return null;
-  const title = t.trim();
+  if (typeof t === "string" && t.trim()) return t.trim();
 
+  // Legacy cards: prefer multi-item group key, then expand short card titles.
   const webhookNumber =
     typeof order.specs?.webhook_order_number === "string"
       ? order.specs.webhook_order_number.trim()
       : "";
-  if (webhookNumber && titlesMatchOrderNumber(title, webhookNumber)) {
-    return null;
-  }
+  if (webhookNumber) return webhookNumber;
 
   const orderTitle = typeof order.title === "string" ? order.title.trim() : "";
-  if (orderTitle && titlesMatchOrderNumber(title, orderTitle)) {
-    return null;
-  }
-
-  // Card title "142-1" / "0142-1" with shared title "ORD-2026-0142"
-  if (orderTitle && titlesMatchOrderNumber(title, expandOrdFromCardTitle(orderTitle))) {
-    return null;
-  }
-
-  // Any bare ORD-YYYY-… value is the order #, not a human title
-  if (/^ord-\d{4}-\S+$/i.test(title)) return null;
-
-  // e.g. title "ORD-2026-0288" with card "ORD-2026-0288-1" or group key match
-  const groupFromTitle = orderTitle.match(/^(.+)-(\d+)$/);
-  if (groupFromTitle && title === groupFromTitle[1]) return null;
-
-  return title;
+  if (!orderTitle) return null;
+  const expanded = expandOrdFromCardTitle(orderTitle);
+  return expanded || null;
 }
 
 function titlesMatchOrderNumber(title: string, orderNumber: string): boolean {

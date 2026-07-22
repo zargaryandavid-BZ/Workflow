@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   CalendarClock,
@@ -173,14 +173,12 @@ export function BoardTable({
       ? orders
       : orders.filter((o) => !hiddenColIds.has(o.column_id));
 
-  // Trigger lazy-load for all columns when table mounts — all are "visible"
-  // in table view since there's no horizontal scroll per-column IntersectionObserver.
+  // Trigger lazy-load for all columns whenever table is shown / columns change.
   useEffect(() => {
     for (const col of columns) {
       onVisible(col.id);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [columns, onVisible]);
 
   // Close right-click menu on outside click or Escape.
   useEffect(() => {
@@ -201,6 +199,40 @@ export function BoardTable({
       document.removeEventListener("keydown", close);
     };
   }, [menuState]);
+
+  const menuActionCount =
+    menuState && role === "admin"
+      ? filterButtonsForColumn(
+          buttonAutomations,
+          menuState.order.column_id
+        ).length
+      : 0;
+  const menuMoveCount = menuState
+    ? getMoveableColumns(menuState.order.column_id).length
+    : 0;
+
+  // Keep the menu fully on-screen (flip up / shift left when near edges).
+  useLayoutEffect(() => {
+    if (!menuState || !menuRef.current) return;
+    const el = menuRef.current;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let x = menuState.x;
+    let y = menuState.y;
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad);
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad);
+    }
+    if (x !== menuState.x || y !== menuState.y) {
+      setMenuState((prev) => (prev ? { ...prev, x, y } : prev));
+    }
+  }, [
+    menuState,
+    menuActionCount,
+    menuMoveCount,
+  ]);
 
   const productField = findOrderFormField(customFields, "Product");
   const materialsField = findOrderFormField(customFields, "Materials");
@@ -572,7 +604,7 @@ export function BoardTable({
           style={{
             top: menuState.y,
             left: menuState.x,
-            maxHeight: `calc(100dvh - ${menuState.y}px - 8px)`,
+            maxHeight: "calc(100dvh - 16px)",
           }}
           className="fixed z-50 flex min-w-[11rem] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
           onClick={(e) => e.stopPropagation()}
@@ -633,7 +665,7 @@ export function BoardTable({
                       <MoveRight className="h-3 w-3" />
                       Move to
                     </p>
-                    <div className="overflow-y-auto py-1">
+                    <div className="min-h-0 flex-1 overflow-y-auto py-1">
                       {moveable.map((col) => (
                         <button
                           key={col.id}

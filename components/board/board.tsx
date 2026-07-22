@@ -46,6 +46,7 @@ import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import { getGroupKey, orderGroupSearchSuggestions } from "@/lib/group-orders";
 import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
+import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
 import { filterButtonsForColumn } from "@/lib/button-automations";
 import {
   loadHiddenColumnIds,
@@ -574,9 +575,13 @@ export function Board({
       setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
 
       try {
-        const res = await fetchWithAuth(
-          `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`
-        );
+        const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`;
+        let res = await fetchWithAuth(url);
+        // Retry once on transient upstream / server errors (e.g. Supabase timeouts).
+        if (res.status === 500 || res.status === 503) {
+          await new Promise((r) => setTimeout(r, 600));
+          res = await fetchWithAuth(url);
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const data = (await res.json()) as ColumnOrdersResponse;
@@ -688,15 +693,27 @@ export function Board({
     [] // all dependencies are refs or stable setters
   );
 
-  // Called by Column's IntersectionObserver when it enters the viewport.
+  // Called by Column's IntersectionObserver / Table when a column needs data.
+  // Retry allowed after error; idle kicks off the first load.
   const onColumnVisible = useCallback(
     (columnId: string) => {
       const status = columnLoadStatusRef.current[columnId] ?? "idle";
-      if (status !== "idle") return;
+      if (status === "loading" || status === "loaded") return;
       void fetchColumnOrders(columnId, 0);
     },
     [fetchColumnOrders]
   );
+
+  // Table view has no IntersectionObserver — load every column when entering it.
+  useEffect(() => {
+    if (boardView !== "table") return;
+    for (const col of columns) {
+      const status = columnLoadStatusRef.current[col.id] ?? "idle";
+      if (status === "idle" || status === "error") {
+        void fetchColumnOrders(col.id, 0);
+      }
+    }
+  }, [boardView, columns, fetchColumnOrders]);
 
   // Called by Column's "Load more" button.
   const onLoadMore = useCallback(
@@ -1428,7 +1445,10 @@ export function Board({
   const selectedPersonLabel =
     designers.find((d) => d.id === personFilter)?.name ?? "All people";
   const selectedOwnerLabel =
-    ownerFilterOptions.find((o) => o.id === ownerFilter)?.name ?? "All owners";
+    ownerFilter === UNASSIGNED_OWNER_FILTER
+      ? "Unassigned"
+      : ownerFilterOptions.find((o) => o.id === ownerFilter)?.name ??
+        "All owners";
   const dueFilterValue = dueTodayOnly
     ? "today"
     : overdueOnly
@@ -1567,6 +1587,7 @@ export function Board({
             title={selectedOwnerLabel}
           >
             <option value="">All owners</option>
+            <option value={UNASSIGNED_OWNER_FILTER}>Unassigned</option>
             {ownerFilterOptions.map((owner) => (
               <option key={owner.id} value={owner.id}>
                 {owner.name}
@@ -1702,11 +1723,9 @@ export function Board({
             </button>
           ) : null}
           <span className="shrink-0 whitespace-nowrap text-sm text-slate-500">
-            {filtersActive
-              ? searchLoading
-                ? "Searching…"
-                : `${displayOrders.length} match${displayOrders.length === 1 ? "" : "es"}`
-              : `${orders.length} jobs`}
+            {filtersActive && searchLoading
+              ? "Searching…"
+              : `${displayOrders.length} job${displayOrders.length === 1 ? "" : "s"}`}
           </span>
         </div>
       </div>
