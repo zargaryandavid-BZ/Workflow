@@ -520,9 +520,7 @@ export function ApprovalTab({
         </div>
       ) : null}
 
-      {latest.status === "responded" &&
-      latest.customer_response === "changes_requested" &&
-      latest.customer_note ? (
+      {latest.status === "responded" && latest.customer_note ? (
         <div>
           <p className="text-sm font-medium text-slate-700">Customer note:</p>
           <blockquote className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">

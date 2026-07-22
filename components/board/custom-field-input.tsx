@@ -1,6 +1,7 @@
 "use client";
 
 import { Input, Label, Select } from "@/components/ui/input";
+import { uniqueOptions } from "@/lib/field-links";
 import type { CustomField } from "@/lib/types";
 
 export function CustomFieldInput({
@@ -30,6 +31,8 @@ export function CustomFieldInput({
     );
   }
 
+  const selectOptions = uniqueOptions(field.options);
+
   return (
     <div>
       <Label>
@@ -43,7 +46,7 @@ export function CustomFieldInput({
           onChange={(e) => onChange(e.target.value)}
         >
           <option value="">—</option>
-          {field.options.map((opt) => (
+          {selectOptions.map((opt) => (
             <option key={opt} value={opt}>
               {opt}
             </option>

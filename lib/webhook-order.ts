@@ -25,6 +25,7 @@ import {
   type OrderBillingInfo,
 } from "@/lib/order-billing";
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
+import { categoryForProduct } from "@/lib/product-data";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -33,6 +34,7 @@ const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 
 const SELECT_WEBHOOK_KEYS = new Set([
   "product",
+  "product_category",
   "materials",
   "finishing",
   "lamination",
@@ -72,6 +74,7 @@ interface CustomFieldDef {
 
 const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   product: "Product",
+  product_category: "Category",
   finished_size: "Finished Size",
   die: "Die",
   materials: "Materials",
@@ -100,6 +103,7 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
 /** DB field names that map to a webhook key (handles renames like Finishing ↔ Lamination). */
 const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   product: ["Product"],
+  product_category: ["Category"],
   finished_size: ["Finished Size"],
   die: ["Die"],
   materials: ["Materials"],
@@ -170,6 +174,11 @@ export interface WebhookSkuPayload {
 export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   title?: string;
   product?: string;
+  /**
+   * Product taxonomy category (custom field "Category").
+   * Distinct from `category` / `category_name`, which map to board tags.
+   */
+  product_category?: string;
   finished_size?: string;
   die?: string;
   materials?: string;
@@ -234,6 +243,11 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   category?: string;
   category_name?: string;
   product?: string;
+  /**
+   * Product taxonomy category (custom field "Category").
+   * Distinct from `category` / `category_name`, which map to board tags.
+   */
+  product_category?: string;
   finished_size?: string;
   die?: string;
   materials?: string;
@@ -535,6 +549,31 @@ function resolveOrderNumber(body: WebhookOrderPayload): string {
   return `WH-${stamp}-${randomUUID().slice(0, 8)}`;
 }
 
+/** CRM reference codes look like ORD-2026-0298 (optional item suffix allowed on card titles only). */
+const CRM_ORDER_NUMBER_RE = /^ORD-\d{4}-\S+$/i;
+
+/**
+ * When the payload is CRM (explicit source or ORD-… number), require a valid
+ * order_number. Never accept product descriptions as the order reference.
+ */
+function assertCrmOrderNumber(
+  orderNumber: string,
+  sourceKey: string
+): void {
+  const looksLikeCrm =
+    sourceKey === "crm" || CRM_ORDER_NUMBER_RE.test(orderNumber);
+  if (!looksLikeCrm) return;
+  if (!CRM_ORDER_NUMBER_RE.test(orderNumber)) {
+    console.error(
+      "[webhook/orders] rejected: CRM order_number must match ORD-YYYY-####",
+      { orderNumber, source: sourceKey || "(empty)" }
+    );
+    throw new WebhookValidationError(
+      "CRM orders require order_number matching ORD-YYYY-#### (e.g. ORD-2026-0298)"
+    );
+  }
+}
+
 function shortOrderCardBase(orderNumber: string): string {
   const trimmed = orderNumber.trim();
   const match = /^ord-\d{4}-(.+)$/i.exec(trimmed);
@@ -590,6 +629,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
     {
       title: body.title,
       product: body.product,
+      product_category: body.product_category,
       finished_size: body.finished_size,
       die: body.die,
       materials: body.materials,
@@ -682,6 +722,7 @@ export function isOrderNumberLikeTitle(
 
 type WebhookSpecFields = {
   product?: string;
+  product_category?: string;
   finished_size?: string;
   die?: string;
   materials?: string;
@@ -714,6 +755,7 @@ function mergeItemWithOrder(
   return {
     ...item,
     product: item.product ?? order.product,
+    product_category: item.product_category ?? order.product_category,
     finished_size: item.finished_size ?? order.finished_size,
     die: item.die ?? order.die,
     materials: item.materials ?? order.materials,
@@ -861,6 +903,7 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
   const height = formatDimension(item.height);
   return {
     product: item.product,
+    product_category: item.product_category,
     finished_size:
       buildFinishedSizeFromDimensions(width, height, item.finished_size) ??
       undefined,
@@ -1216,6 +1259,20 @@ function buildCustomFieldValues(
     if (existing === undefined || existing === null || existing === "") {
       byFieldId.set(quantityField.id, skuQtySum);
     }
+  }
+
+  // Infer Category from Product when product_category was not sent.
+  const categoryFieldDef = fields.get("product_category");
+  const productFieldDef = fields.get("product");
+  if (categoryFieldDef && !byFieldId.has(categoryFieldDef.id)) {
+    const productVal = productFieldDef
+      ? byFieldId.get(productFieldDef.id)
+      : undefined;
+    const productStr =
+      (typeof productVal === "string" && productVal.trim()) ||
+      (typeof specFields.product === "string" ? specFields.product : "");
+    const inferred = categoryForProduct(productStr);
+    if (inferred) byFieldId.set(categoryFieldDef.id, inferred);
   }
 
   return [...byFieldId.entries()].map(([customFieldId, value]) => ({
@@ -2092,6 +2149,7 @@ export async function createOrderFromWebhook(
   if (!webhookSource && /^ord-\d{4}-/i.test(baseOrderNumber)) {
     webhookSource = "crm";
   }
+  assertCrmOrderNumber(baseOrderNumber, webhookSource);
 
   const { data: firstCol } = await client
     .from("board_columns")

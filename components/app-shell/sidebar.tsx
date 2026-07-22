@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Clock,
   LayoutGrid,
   ListChecks,
   Plug,
@@ -22,10 +23,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
+import { TimerWidget } from "@/components/time/TimerWidget";
 
 const nav = [
   { href: "/board", label: "Board", icon: LayoutGrid, adminOnly: false },
   { href: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
+  { href: "/time", label: "Time (beta)", icon: Clock, adminOnly: false },
   { href: "/customers", label: "Customers", icon: Users, adminOnly: false },
   {
     href: "/settings/columns",
@@ -164,6 +167,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
             );
           })}
       </nav>
+      <TimerWidget />
       <div className="border-t border-slate-200 p-3 text-xs text-slate-400">
         {role === "admin" ? "Admin" : "Member"}
       </div>

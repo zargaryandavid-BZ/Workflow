@@ -52,16 +52,16 @@ export function ColumnVisibilityDropdown({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-center gap-1.5 transition-colors",
+          "inline-flex items-center justify-center transition-colors",
           segmented
             ? cn(
-                "rounded-r-md border-l border-slate-300 px-2.5 py-1 text-sm",
+                "rounded-r-md border-l border-slate-300 px-2 py-1 text-sm",
                 open
                   ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
               )
             : cn(
-                "h-9 rounded-md border px-2.5 text-sm",
+                "h-9 rounded-md border px-2 text-sm",
                 hasHidden
                   ? "border-blue-400 bg-blue-50 text-blue-700 hover:bg-blue-100"
                   : "border-slate-300 text-slate-600 hover:bg-slate-50"
@@ -69,14 +69,14 @@ export function ColumnVisibilityDropdown({
         )}
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-label="Choose visible columns"
         title="Choose visible columns"
       >
         <Columns3 className="h-3.5 w-3.5" />
-        Columns
         {hasHidden ? (
           <span
             className={cn(
-              "rounded-full px-1.5 text-[10px] font-semibold",
+              "ml-1 rounded-full px-1.5 text-[10px] font-semibold",
               segmented
                 ? open
                   ? "bg-white/20 text-white"

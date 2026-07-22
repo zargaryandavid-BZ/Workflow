@@ -13,20 +13,22 @@ export function sumSkuQty(skus: SkuItem[]): number {
 }
 
 /**
- * Order QTY input. When one or more SKUs exist the value is auto-calculated as
- * the sum of their quantities and the field becomes read-only. With no SKUs the
- * user can type a total manually.
+ * Order QTY / Quantity input. When one or more SKUs exist the value is
+ * auto-calculated as the sum of their quantities and the field becomes
+ * read-only. With no SKUs the user can type a total manually.
  */
 export function OrderQtyField({
   skus,
   value,
   onChange,
   readOnly = false,
+  label = "Quantity",
 }: {
   skus: SkuItem[];
   value: number | null;
   onChange: (value: number | null) => void;
   readOnly?: boolean;
+  label?: string;
 }) {
   const hasSkus = skus.length > 0;
   const display = hasSkus ? sumSkuQty(skus) : value ?? "";
@@ -34,8 +36,8 @@ export function OrderQtyField({
 
   return (
     <div>
-      <Label htmlFor="order-qty">
-        Order QTY
+      <Label htmlFor="order-qty" className="font-semibold">
+        {label}
         {!isReadOnly ? <span className="ml-0.5 text-red-500">*</span> : null}
       </Label>
       <Input

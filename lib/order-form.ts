@@ -6,11 +6,14 @@ import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
   DESIGNER_FIELD_NAME,
+  ORDER_QTY_FIELD_ALIASES,
   ORDER_QTY_FIELD_NAME,
+  QUANTITY_FIELD_NAME,
 } from "@/lib/constants";
 
 /** Print fields after customer / designer, in display order on create + edit forms. */
 export const ORDER_FORM_PRINT_FIELD_NAMES = [
+  "Category",
   "Product",
   "Materials",
   "Special effects",
@@ -28,9 +31,12 @@ export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Application",
   "Die Cut",
   "Perforation",
+] as const;
+
+/** Custom fields kept off the order form (still available for webhooks / settings). */
+const ORDER_FORM_HIDDEN_FIELD_NAMES = [
   "Unit Price ($)",
   "Unit Price",
-  "Quantity",
 ] as const;
 
 /** Labels that differ from the stored custom-field name. */
@@ -84,6 +90,16 @@ export function findOrderFormField(
   return fields.find((f) => f.name.toLowerCase() === lower);
 }
 
+/** Prefer "Order QTY", fall back to "Quantity". */
+export function findOrderQtyField(
+  fields: CustomField[]
+): CustomField | undefined {
+  return (
+    findOrderFormField(fields, ORDER_QTY_FIELD_NAME) ??
+    findOrderFormField(fields, QUANTITY_FIELD_NAME)
+  );
+}
+
 export function resolveOrderFormFields(customFields: CustomField[]) {
   const artworkField = findOrderFormField(customFields, ARTWORK_FIELD_NAME);
   const customerNameField = findOrderFormField(
@@ -94,7 +110,7 @@ export function resolveOrderFormFields(customFields: CustomField[]) {
     customFields,
     CUSTOMER_CONTACT_FIELD_NAME
   );
-  const orderQtyField = findOrderFormField(customFields, ORDER_QTY_FIELD_NAME);
+  const orderQtyField = findOrderQtyField(customFields);
 
   const reserved = new Set(
     [
@@ -102,7 +118,8 @@ export function resolveOrderFormFields(customFields: CustomField[]) {
       ARTWORK_FIELD_NAME,
       CUSTOMER_NAME_FIELD_NAME,
       CUSTOMER_CONTACT_FIELD_NAME,
-      ORDER_QTY_FIELD_NAME,
+      ...ORDER_QTY_FIELD_ALIASES,
+      ...ORDER_FORM_HIDDEN_FIELD_NAMES,
     ].map((n) => n.toLowerCase())
   );
 
@@ -312,7 +329,7 @@ export function cardOrderQty(
   const skuCount = skuCountFromSpecs(specs);
   if (skuCount > 0) return skuQtySumFromSpecs(specs);
 
-  const field = findOrderFormField(customFields, ORDER_QTY_FIELD_NAME);
+  const field = findOrderQtyField(customFields);
   if (!field) return null;
   const raw = fieldValues[field.id];
   if (typeof raw === "number" && !Number.isNaN(raw)) return raw;

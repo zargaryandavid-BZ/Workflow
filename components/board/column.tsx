@@ -96,6 +96,7 @@ interface ColumnProps {
   onVisible: (columnId: string) => void;
   /** Called when the user clicks "Load more". */
   onLoadMore: (columnId: string) => void;
+  role?: Role;
 }
 
 /** Short label of which roles a drop permission applies to. */
@@ -161,6 +162,7 @@ export function Column({
   total,
   onVisible,
   onLoadMore,
+  role,
 }: ColumnProps) {
   const [dateSort, setDateSort] = useState<DateSort>("default");
 
@@ -413,6 +415,7 @@ export function Column({
                     warningWorkingDays={warningWorkingDays}
                     webhookSourceStyles={webhookSourceStyles}
                     columnColor={column.color}
+                    columnKind={column.kind}
                     availableColumns={availableColumns}
                     onMoveToColumn={onMoveToColumn}
                     actionButtons={actionButtons}
@@ -420,6 +423,7 @@ export function Column({
                     onActionComplete={onActionComplete}
                     onActionError={onActionError}
                     onOpen={onOpenOrder}
+                    role={role}
                   />
                 )
               )
@@ -442,6 +446,7 @@ export function Column({
                   warningWorkingDays={warningWorkingDays}
                   webhookSourceStyles={webhookSourceStyles}
                   columnColor={column.color}
+                  columnKind={column.kind}
                   availableColumns={availableColumns}
                   onMoveToColumn={onMoveToColumn}
                   actionButtons={actionButtons}
@@ -449,6 +454,7 @@ export function Column({
                   onActionComplete={onActionComplete}
                   onActionError={onActionError}
                   onOpen={onOpenOrder}
+                  role={role}
                 />
               ))}
         </SortableContext>

@@ -86,8 +86,14 @@ export const DESIGNER_FIELD_NAME = "Designer Information";
 /**
  * Name of the built-in "Order QTY" number field. When SKUs are present on a job,
  * this value is auto-calculated as the sum of all SKU quantities.
+ * "Quantity" is accepted as an alias (same behavior).
  */
 export const ORDER_QTY_FIELD_NAME = "Order QTY";
+export const QUANTITY_FIELD_NAME = "Quantity";
+export const ORDER_QTY_FIELD_ALIASES = [
+  ORDER_QTY_FIELD_NAME,
+  QUANTITY_FIELD_NAME,
+] as const;
 
 /**
  * Name of the built-in "Artwork" link field. Rendered next to the order
@@ -97,6 +103,9 @@ export const ARTWORK_FIELD_NAME = "Artwork (GDrive link)";
 
 export const CUSTOMER_NAME_FIELD_NAME = "Customer Name";
 export const CUSTOMER_CONTACT_FIELD_NAME = "Customer Contact";
+
+/** Product taxonomy parent (cascades into Product → Materials). */
+export const CATEGORY_FIELD_NAME = "Category";
 
 /** Max activity entries kept per order (display + storage). */
 export const ACTIVITY_LOG_LIMIT = 50;

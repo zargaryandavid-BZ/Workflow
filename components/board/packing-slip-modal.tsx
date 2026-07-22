@@ -30,6 +30,14 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
+/** 1-based part from title suffix (e.g. 266-1 → 1), else 1. */
+function partFromOrderNumber(orderNumber: string): number {
+  const match = orderNumber.trim().match(/-(\d+)$/);
+  if (!match) return 1;
+  const n = Number.parseInt(match[1], 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 export function PackingSlipModal({
   open,
   orderId,
@@ -41,9 +49,9 @@ export function PackingSlipModal({
   onComplete,
   onError,
 }: PackingSlipModalProps) {
-  const defaultParts = Math.max(1, groupSize ?? 1);
-  const [part, setPart] = useState(1);
-  const [totalParts, setTotalParts] = useState(defaultParts);
+  const totalParts = Math.max(1, groupSize ?? 1);
+  const part = Math.min(partFromOrderNumber(orderNumber), totalParts);
+
   const [blindPrinting, setBlindPrinting] = useState(false);
   const [poNumber, setPoNumber] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,24 +59,20 @@ export function PackingSlipModal({
 
   useEffect(() => {
     if (!open) return;
-    setPart(1);
-    setTotalParts(Math.max(1, groupSize ?? 1));
     setBlindPrinting(false);
     setPoNumber("");
     setError(null);
     setLoading(false);
-  }, [open, groupSize, orderId, buttonId]);
+  }, [open, orderId, buttonId]);
 
   async function generate() {
-    const safePart = Math.max(1, Math.floor(Number(part)) || 1);
-    const safeTotal = Math.max(safePart, Math.floor(Number(totalParts)) || 1);
     const trimmedPo = poNumber.trim();
     setError(null);
     setLoading(true);
     try {
       const qs = new URLSearchParams({
-        part: String(safePart),
-        totalParts: String(safeTotal),
+        part: String(part),
+        totalParts: String(totalParts),
       });
       const res = await fetch(
         `/api/orders/${orderId}/actions/generate-packing-slip?${qs}`,
@@ -77,8 +81,8 @@ export function PackingSlipModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             button_id: buttonId,
-            part: safePart,
-            totalParts: safeTotal,
+            part,
+            totalParts,
             blind: blindPrinting,
             poNumber: blindPrinting && trimmedPo ? trimmedPo : undefined,
           }),
@@ -101,7 +105,7 @@ export function PackingSlipModal({
       const safeOrder = orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_");
       triggerBlobDownload(
         blob,
-        `packing-slip-${safeOrder}-${safePart}of${safeTotal}.pdf`
+        `packing-slip-${safeOrder}-${part}of${totalParts}.pdf`
       );
       onComplete("Packing slip downloaded!");
       onClose();
@@ -150,31 +154,16 @@ export function PackingSlipModal({
       }
     >
       <div className="space-y-3 py-2">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
-          <span>Part</span>
-          <input
-            type="number"
-            min={1}
-            max={totalParts}
-            value={part}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              if (!Number.isFinite(next)) return;
-              setPart(Math.min(Math.max(1, Math.floor(next)), totalParts));
-            }}
-            className="w-14 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-center text-sm"
-          />
-          <span>of</span>
-          <input
-            type="number"
-            min={1}
-            value={totalParts}
-            readOnly
-            tabIndex={-1}
-            aria-label="Total parts"
-            className="w-14 cursor-default rounded-md border border-slate-200 bg-slate-100 px-2 py-1.5 text-center text-sm text-slate-700"
-          />
-        </div>
+        <p className="text-sm text-slate-600">
+          Slip for{" "}
+          <span className="font-medium text-slate-800">{orderNumber}</span>
+          {totalParts >= 2 ? (
+            <span className="text-slate-500">
+              {" "}
+              (item {part} of {totalParts})
+            </span>
+          ) : null}
+        </p>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
@@ -188,7 +177,7 @@ export function PackingSlipModal({
           />
           <span>Blind printing</span>
           <span className="text-xs text-slate-500">
-            (customer info instead of Bazaar Printing)
+            (hide Bazaar address; customer only)
           </span>
         </label>
 

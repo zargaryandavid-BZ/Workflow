@@ -6,7 +6,7 @@ import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
   DESIGNER_FIELD_NAME,
-  ORDER_QTY_FIELD_NAME,
+  ORDER_QTY_FIELD_ALIASES,
 } from "@/lib/constants";
 import {
   customerContactFromOrder,
@@ -76,7 +76,9 @@ export function getMissingFields(
       continue;
     }
 
-    if (nameLower === ORDER_QTY_FIELD_NAME.toLowerCase()) {
+    if (
+      ORDER_QTY_FIELD_ALIASES.some((n) => n.toLowerCase() === nameLower)
+    ) {
       if (skuCountFromSpecs(order.specs) > 0) continue;
       if (isEmptyFieldValue(fieldValues[field.id])) {
         missing.push({

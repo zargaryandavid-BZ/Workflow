@@ -170,9 +170,41 @@ function drawPageHeader(
 }
 
 /**
- * One row, three columns:
- * 1) Customer / Bazaar Printing  2) Order details  3) BOX
+ * Header info row under the title bar.
+ * - Blind (3 cols): Customer | Order details | BOX
+ * - Normal (4 cols): Company | Customer + sales rep | Order details | BOX
  */
+function drawTextLines(
+  doc: PdfDoc,
+  lines: string[],
+  x: number,
+  startY: number,
+  width: number,
+  lineH: number
+) {
+  let rowY = startY;
+  if (lines.length === 0) {
+    doc
+      .fontSize(8)
+      .font("Helvetica")
+      .fillColor("#9ca3af")
+      .text("—", x, rowY, { width });
+    return;
+  }
+  for (let i = 0; i < lines.length; i++) {
+    doc
+      .fontSize(i === 0 ? 10 : 8)
+      .font(i === 0 ? "Helvetica-Bold" : "Helvetica")
+      .fillColor("#111827")
+      .text(lines[i], x, rowY, {
+        width,
+        height: lineH,
+        ellipsis: true,
+      });
+    rowY += lineH;
+  }
+}
+
 function drawTopInfoRow(
   doc: PdfDoc,
   data: OrderExportData,
@@ -183,27 +215,37 @@ function drawTopInfoRow(
   const pad = 8;
   const lineH = 12;
   const rowH = 13;
-  const colW = CONTENT_W / 3;
-  const col1X = MARGIN;
-  const col2X = MARGIN + colW;
-  const col3X = MARGIN + colW * 2;
 
-  const identityLines: string[] = blind
-    ? [
-        data.customerName && data.customerName !== "—"
-          ? data.customerName
-          : "",
-        data.order.customer?.company?.trim() || "",
-        data.customerPhone || "",
-        data.customerEmail || "",
-      ].filter(Boolean)
-    : [
-        data.tenantName || "Bazaar Printing",
-        "306 Boyd St",
-        "Los Angeles, CA 90013",
-      ];
+  const companyLines = [
+    data.tenantName || "Bazaar Printing",
+    "306 Boyd St",
+    "Los Angeles, CA 90013",
+  ];
 
-  const bodyH = Math.max(52, pad * 2 + Math.max(identityLines.length, 3) * lineH);
+  const customerLines = [
+    data.customerName && data.customerName !== "—"
+      ? data.customerName
+      : "",
+    data.order.customer?.company?.trim() || "",
+    data.customerPhone || "",
+    data.customerEmail || "",
+  ].filter(Boolean);
+
+  const salesRep = data.ownerName?.trim() || "";
+  const customerBlock = [
+    ...customerLines,
+    !blind && salesRep ? `Sales Rep: ${salesRep}` : "",
+  ].filter(Boolean);
+
+  const colCount = blind ? 3 : 4;
+  const colW = CONTENT_W / colCount;
+  const colXs = Array.from({ length: colCount }, (_, i) => MARGIN + colW * i);
+
+  const tallestBlock = blind
+    ? Math.max(customerBlock.length, 3)
+    : Math.max(companyLines.length, customerBlock.length, 3);
+
+  const bodyH = Math.max(52, pad * 2 + tallestBlock * lineH);
 
   doc
     .rect(MARGIN, bodyTop, CONTENT_W, bodyH)
@@ -211,83 +253,72 @@ function drawTopInfoRow(
     .lineWidth(0.5)
     .stroke();
 
-  for (const x of [col2X, col3X]) {
+  for (let i = 1; i < colCount; i++) {
     doc
-      .moveTo(x, bodyTop)
-      .lineTo(x, bodyTop + bodyH)
+      .moveTo(colXs[i], bodyTop)
+      .lineTo(colXs[i], bodyTop + bodyH)
       .strokeColor("#d1d5db")
       .lineWidth(0.5)
       .stroke();
   }
 
-  // Col 1 — Customer / Bazaar Printing
-  let rowY = bodyTop + pad;
-  if (identityLines.length === 0) {
-    doc
-      .fontSize(8)
-      .font("Helvetica")
-      .fillColor("#9ca3af")
-      .text("—", col1X + pad, rowY, {
-        width: colW - pad * 2,
-      });
+  const textW = colW - pad * 2;
+  const textTop = bodyTop + pad;
+
+  if (blind) {
+    // Col 1 — Customer only
+    drawTextLines(doc, customerBlock, colXs[0] + pad, textTop, textW, lineH);
   } else {
-    for (let i = 0; i < identityLines.length; i++) {
-      doc
-        .fontSize(i === 0 ? 10 : 8)
-        .font(i === 0 ? "Helvetica-Bold" : "Helvetica")
-        .fillColor("#111827")
-        .text(identityLines[i], col1X + pad, rowY, {
-          width: colW - pad * 2,
-          height: lineH,
-          ellipsis: true,
-        });
-      rowY += lineH;
-    }
+    // Col 1 — Company
+    drawTextLines(doc, companyLines, colXs[0] + pad, textTop, textW, lineH);
+    // Col 2 — Customer + sales rep
+    drawTextLines(doc, customerBlock, colXs[1] + pad, textTop, textW, lineH);
   }
 
-  // Col 2 — Order details
-  const detailX = col2X + pad;
-  const detailW = colW - pad * 2;
-  const detailTop = bodyTop + pad;
+  // Order details (col 2 when blind, col 3 when normal)
+  const detailCol = blind ? 1 : 2;
+  const detailX = colXs[detailCol] + pad;
   drawLabeledValue(
     doc,
     "Due Date",
     data.dueDateFormatted,
     detailX,
-    detailTop,
-    detailW
+    textTop,
+    textW
   );
   drawLabeledValue(
     doc,
     "Priority",
     capitalize(data.priority),
     detailX,
-    detailTop + rowH,
-    detailW
+    textTop + rowH,
+    textW
   );
   drawLabeledValue(
     doc,
     "QTY",
     fmtQty(data.totalQty),
     detailX,
-    detailTop + rowH * 2,
-    detailW
+    textTop + rowH * 2,
+    textW
   );
 
-  // Col 3 — BOX
+  // BOX (last column)
+  const boxCol = colCount - 1;
+  const boxX = colXs[boxCol];
   doc
     .fontSize(16)
     .font("Helvetica-Bold")
     .fillColor("#1a1f2e")
-    .text("BOX", col3X + pad, bodyTop + 8, {
-      width: colW - pad * 2,
+    .text("BOX", boxX + pad, bodyTop + 8, {
+      width: textW,
       align: "center",
     });
   const boxLineY = bodyTop + Math.min(bodyH - 12, 36);
-  const underlineW = 36;
+  const underlineW = Math.min(36, (textW - 12) / 2);
   const gap = 12;
   const unitW = underlineW * 2 + gap;
-  const boxStartX = col3X + (colW - unitW) / 2;
+  const boxStartX = boxX + (colW - unitW) / 2;
   drawUnderline(doc, boxStartX, boxLineY, underlineW);
   doc
     .fontSize(11)

@@ -55,6 +55,7 @@ import type {
   CardWarningRule,
   CustomField,
   OrderWithRelations,
+  Role,
 } from "@/lib/types";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import {
@@ -112,6 +113,8 @@ interface OrderCardProps {
   ) => void;
   onActionError?: (message: string) => void;
   onOpen: (order: OrderWithRelations) => void;
+  /** Used to gate admin-only UI (e.g. billing globe). */
+  role?: Role;
 }
 
 export function OrderCard({
@@ -139,6 +142,7 @@ export function OrderCard({
   onActionComplete,
   onActionError,
   onOpen,
+  role,
 }: OrderCardProps) {
   const {
     attributes,
@@ -445,7 +449,8 @@ export function OrderCard({
                   )}
                 </button>
                 {summaryTrailingParts.length > 0 ||
-                hasBillingInfo(billingFromSpecs(order.specs)) ? (
+                (role === "admin" &&
+                  hasBillingInfo(billingFromSpecs(order.specs))) ? (
                   <p
                     lang="en"
                     className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
@@ -453,11 +458,13 @@ export function OrderCard({
                     {summaryTrailingParts.length > 0 ? (
                       <span>
                         · {summaryTrailingParts.join(" · ")}
-                        {hasBillingInfo(billingFromSpecs(order.specs)) ? (
+                        {role === "admin" &&
+                        hasBillingInfo(billingFromSpecs(order.specs)) ? (
                           <>
                             {" "}
                             <OrderBillingGlobe
                               specs={order.specs}
+                              role={role}
                               className="inline-flex align-middle"
                             />
                           </>
@@ -466,6 +473,7 @@ export function OrderCard({
                     ) : (
                       <OrderBillingGlobe
                         specs={order.specs}
+                        role={role}
                         className="inline-flex align-middle"
                       />
                     )}

@@ -23,6 +23,11 @@ import {
   normalizeWebhookSourceStyles,
   type WebhookSourceStyles,
 } from "@/lib/webhook-source-styles";
+import {
+  countDesignerLoads,
+  designerLoadColumnIds,
+} from "@/lib/designer-load";
+import type { Designer } from "@/lib/types";
 
 export default async function BoardPage({
   searchParams,
@@ -121,7 +126,7 @@ export default async function BoardPage({
     .filter((m) => m.role === "designer")
     .map((m) => m.user_id);
 
-  let designers: { id: string; name: string }[] = [];
+  let designers: Designer[] = [];
   if (designerIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
@@ -135,7 +140,31 @@ export default async function BoardPage({
     designers = designerIds.map((id) => ({
       id,
       name: nameById.get(id) ?? "Unnamed designer",
+      load: 0,
     }));
+
+    // Active load = jobs currently in Start + In Progress columns.
+    const loadColIds = designerLoadColumnIds(allBoardColumns);
+    if (loadColIds.length > 0) {
+      const { data: loadOrders } = await supabase
+        .from("orders")
+        .select("column_id, specs")
+        .eq("tenant_id", tenantId)
+        .is("removed_at", null)
+        .in("column_id", loadColIds);
+      const counts = countDesignerLoads(
+        designerIds,
+        (loadOrders ?? []) as {
+          column_id: string;
+          specs?: Record<string, unknown> | null;
+        }[],
+        loadColIds
+      );
+      designers = designers.map((d) => ({
+        ...d,
+        load: counts.get(d.id) ?? 0,
+      }));
+    }
   }
 
   const [owners, buttonAutomations, fastActionButtons, warningRules] =

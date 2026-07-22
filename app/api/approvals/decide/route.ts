@@ -39,11 +39,19 @@ export async function POST(request: Request) {
     );
   }
 
+  const comment = body.comment?.trim() || null;
+  if (body.decision === "rejected" && !comment) {
+    return NextResponse.json(
+      { error: "Please tell us why the proof was not approved." },
+      { status: 400 }
+    );
+  }
+
   const { error } = await admin
     .from("approvals")
     .update({
       status: body.decision,
-      comment: body.comment ?? null,
+      comment,
       decided_at: new Date().toISOString(),
     })
     .eq("id", approval.id);

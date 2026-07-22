@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { enrichActivityLog } from "@/lib/activity";
 import { logActivity } from "@/lib/automation";
-import { ACTIVITY_LOG_LIMIT, ORDER_QTY_FIELD_NAME } from "@/lib/constants";
+import { ACTIVITY_LOG_LIMIT, ORDER_QTY_FIELD_ALIASES } from "@/lib/constants";
 import { isAccountManagerOwner } from "@/lib/order-owners";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
@@ -278,12 +278,19 @@ export async function PATCH(
   }
 
   if (body.customFieldValues) {
-    const { data: orderQtyField } = await supabase
-      .from("custom_fields")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .ilike("name", ORDER_QTY_FIELD_NAME)
-      .maybeSingle();
+    let orderQtyFieldId: string | undefined;
+    for (const name of ORDER_QTY_FIELD_ALIASES) {
+      const { data: orderQtyField } = await supabase
+        .from("custom_fields")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .ilike("name", name)
+        .maybeSingle();
+      if (orderQtyField && typeof (orderQtyField as { id?: string }).id === "string") {
+        orderQtyFieldId = (orderQtyField as { id: string }).id;
+        break;
+      }
+    }
     const skusForQty =
       body.specs?.skus !== undefined
         ? normalizeSkus(body.specs.skus)
@@ -291,7 +298,7 @@ export async function PATCH(
             (existingOrder as { specs?: { skus?: unknown } }).specs?.skus
           );
     const orderQtyError = validateOrderQtyFromPayload(
-      (orderQtyField as { id: string } | null)?.id,
+      orderQtyFieldId,
       body.customFieldValues,
       skusForQty
     );

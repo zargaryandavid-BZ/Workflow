@@ -20,6 +20,13 @@ export async function GET(request: Request) {
   const filter = (searchParams.get("filter") ?? "today") as AnalyticsFilter;
   const customFrom = searchParams.get("customFrom") ?? undefined;
   const customTo = searchParams.get("customTo") ?? undefined;
+  const columnIdsParam = searchParams.get("columnIds");
+  const designerColumnIds = columnIdsParam
+    ? columnIdsParam
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : undefined;
 
   const { dateFrom, dateTo, prevFrom, prevTo } = resolveDateRange(
     filter,
@@ -35,7 +42,6 @@ export async function GET(request: Request) {
     { data: activeOrdersRaw, error: activeError },
     { data: activityRaw, error: activityError },
     { data: notificationsRaw, error: notificationsError },
-    { data: profilesRaw, error: profilesError },
     { data: membershipsRaw, error: membershipsError },
   ] = await Promise.all([
     supabase
@@ -67,11 +73,7 @@ export async function GET(request: Request) {
       .not("responded_at", "is", null),
     supabase
       .from("memberships")
-      .select("user_id")
-      .eq("tenant_id", ctx.tenant.id),
-    supabase
-      .from("memberships")
-      .select("user_id")
+      .select("user_id, role")
       .eq("tenant_id", ctx.tenant.id),
   ]);
 
@@ -81,7 +83,6 @@ export async function GET(request: Request) {
     activeError ||
     activityError ||
     notificationsError ||
-    profilesError ||
     membershipsError
   ) {
     const msg =
@@ -90,7 +91,6 @@ export async function GET(request: Request) {
       activeError?.message ??
       activityError?.message ??
       notificationsError?.message ??
-      profilesError?.message ??
       membershipsError?.message ??
       "Failed to load analytics";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -107,6 +107,18 @@ export async function GET(request: Request) {
         .in("id", memberUserIds)
     : { data: [] };
 
+  const profileNameById = new Map(
+    ((profilesData ?? []) as { id: string; full_name: string | null }[]).map(
+      (p) => [p.id, p.full_name?.trim() || "Unnamed"]
+    )
+  );
+  const designersRaw = (membershipsRaw ?? [])
+    .filter((m: { role: string }) => m.role === "designer")
+    .map((m: { user_id: string }) => ({
+      id: m.user_id,
+      name: profileNameById.get(m.user_id) ?? "Unnamed",
+    }));
+
   const stats = computeAnalyticsStats({
     filter,
     dateFrom,
@@ -119,6 +131,8 @@ export async function GET(request: Request) {
     activityRaw: activityRaw ?? [],
     notificationsRaw: notificationsRaw ?? [],
     profilesRaw: profilesData ?? [],
+    designersRaw,
+    designerColumnIds,
   });
 
   return NextResponse.json(stats);

@@ -378,9 +378,12 @@ export function GroupedOrderCard({
                             });
                             closeMenu();
                           }}
-                          className="flex w-full px-3 py-1.5 pl-8 text-left text-sm text-slate-700 hover:bg-slate-100"
+                          className="flex w-full items-center justify-between gap-2 px-3 py-1.5 pl-8 text-left text-sm text-slate-700 hover:bg-slate-100"
                         >
                           <span className="truncate">{d.name}</span>
+                          <span className="shrink-0 tabular-nums text-slate-400">
+                            {d.load ?? 0}
+                          </span>
                         </button>
                       ))}
                     </div>

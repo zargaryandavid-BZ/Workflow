@@ -45,9 +45,6 @@ export function RespondForm({
   const [doneKind, setDoneKind] = useState<
     "approved" | "rejected" | "info" | null
   >(null);
-  const [approvalStep, setApprovalStep] = useState<"choose" | "reject">(
-    "choose"
-  );
   const [error, setError] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -193,72 +190,51 @@ export function RespondForm({
           </div>
         ) : null}
 
-        {approvalStep === "choose" ? (
-          <>
-            <p className="text-sm font-medium text-slate-700">
-              Please review and confirm below:
-            </p>
-            <div className="flex gap-3">
-              <Button
-                className="flex-1"
-                onClick={() => respond("approved")}
-                disabled={loading}
-              >
-                <Check className="h-4 w-4" /> Approve
-              </Button>
-              <Button
-                variant="danger"
-                className="flex-1"
-                onClick={() => setApprovalStep("reject")}
-                disabled={loading}
-              >
-                <X className="h-4 w-4" /> Not Approved
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="text-sm font-medium text-slate-700">
-              If not approved, please tell us why:
-            </p>
-            <Textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Describe what needs to change…"
-              rows={4}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (!note.trim()) {
-                  setError("Please tell us why the proof was not approved.");
-                  return;
-                }
-                respond("changes_requested");
-              }}
-              disabled={loading}
-              className="w-full rounded-lg bg-[#1d4ed8] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? "Submitting…" : "Submit"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setApprovalStep("choose");
-                setError(null);
-              }}
-              className="w-full text-sm text-slate-500 hover:text-slate-700"
-            >
-              Back
-            </button>
-          </>
-        )}
-
+        <p className="text-sm font-medium text-slate-700">
+          Please review and confirm below:
+        </p>
+        <div>
+          <Label htmlFor="approval-comment">Comment</Label>
+          <Textarea
+            id="approval-comment"
+            className="mt-1.5"
+            value={note}
+            onChange={(e) => {
+              setNote(e.target.value);
+              setError(null);
+            }}
+            placeholder="Optional note — required if not approving"
+            rows={4}
+          />
+        </div>
         {error ? (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
           </p>
         ) : null}
+        <div className="flex gap-3">
+          <Button
+            className="flex-1"
+            onClick={() => respond("approved")}
+            disabled={loading}
+          >
+            <Check className="h-4 w-4" /> Approve
+          </Button>
+          <Button
+            variant="danger"
+            className="flex-1"
+            onClick={() => {
+              if (!note.trim()) {
+                setError("Please tell us why the proof was not approved.");
+                return;
+              }
+              respond("changes_requested");
+            }}
+            disabled={loading}
+          >
+            <X className="h-4 w-4" /> Not Approved
+          </Button>
+        </div>
       </div>
     );
   }

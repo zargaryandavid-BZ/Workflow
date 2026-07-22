@@ -32,7 +32,13 @@ import {
 import {
   PRIORITY_STYLES,
   UNASSIGNED_DESIGNER_TEXT_CLASS,
+  UNASSIGNED_OWNER_TEXT_CLASS,
 } from "@/lib/constants";
+import {
+  calendarDaysUntilDue,
+  dueDateBadgeClass,
+  dueDateStatus,
+} from "@/lib/board-due-date";
 import { orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
 import { OrderBillingGlobe } from "./order-billing-globe";
@@ -51,6 +57,8 @@ import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { sharedOrderTitle } from "@/lib/group-orders";
+
+type TableSortKey = "position" | "due_asc" | "due_desc" | "late_desc" | "column";
 
 interface ColumnOption {
   id: string;
@@ -124,6 +132,7 @@ export function BoardTable({
 }: BoardTableProps) {
   const [menuState, setMenuState] = useState<MenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [sortKey, setSortKey] = useState<TableSortKey>("position");
 
   // ── Resizable Order column ────────────────────────────────────────────────
   const STORAGE_KEY = "board-table-order-col-width";
@@ -168,10 +177,38 @@ export function BoardTable({
   }
 
   // Hiding a column also filters out rows currently in that column.
-  const visibleOrders =
+  const filteredOrders =
     hiddenColIds.size === 0
       ? orders
       : orders.filter((o) => !hiddenColIds.has(o.column_id));
+
+  const columnPosition = new Map(columns.map((c, i) => [c.id, i]));
+
+  const visibleOrders = [...filteredOrders].sort((a, b) => {
+    if (sortKey === "column") {
+      const ca = columnPosition.get(a.column_id) ?? 999;
+      const cb = columnPosition.get(b.column_id) ?? 999;
+      if (ca !== cb) return ca - cb;
+      return a.position - b.position;
+    }
+    if (sortKey === "due_asc" || sortKey === "due_desc") {
+      const da = a.due_date?.slice(0, 10) ?? "";
+      const db = b.due_date?.slice(0, 10) ?? "";
+      if (!da && !db) return a.position - b.position;
+      if (!da) return 1;
+      if (!db) return -1;
+      const cmp = da.localeCompare(db);
+      return sortKey === "due_asc" ? cmp : -cmp;
+    }
+    if (sortKey === "late_desc") {
+      const la = a.due_date ? calendarDaysUntilDue(a.due_date) : 0;
+      const lb = b.due_date ? calendarDaysUntilDue(b.due_date) : 0;
+      // More late (more negative) first
+      if (la !== lb) return la - lb;
+      return a.position - b.position;
+    }
+    return a.position - b.position;
+  });
 
   // Trigger lazy-load for all columns whenever table is shown / columns change.
   useEffect(() => {
@@ -249,8 +286,21 @@ export function BoardTable({
               style={{ width: orderColWidth, minWidth: orderColWidth, maxWidth: orderColWidth }}
               className="sticky left-0 top-0 z-20 border-b border-r border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
             >
-              <div className="relative flex items-center">
-                Order
+              <div className="relative flex items-center gap-2">
+                <span>Order</span>
+                <select
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value as TableSortKey)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600"
+                  title="Sort rows"
+                >
+                  <option value="position">Board order</option>
+                  <option value="due_asc">Due date ↑</option>
+                  <option value="due_desc">Due date ↓</option>
+                  <option value="late_desc">Most overdue</option>
+                  <option value="column">Column</option>
+                </select>
                 {/* Resize handle */}
                 <div
                   onMouseDown={onResizeMouseDown}
@@ -340,7 +390,13 @@ export function BoardTable({
               null;
             const notificationBadge = notificationBadgeByOrder[order.id];
             const ownerName = ownerNameByOrder[order.id];
+            const isOwnerUnassigned = !order.created_by;
             const shippingSign = shippingSignByOrder[order.id];
+            const columnKind =
+              columns.find((c) => c.id === order.column_id)?.kind ?? null;
+            const dueStatus = dueDateStatus(order.due_date, {
+              inDoneColumn: columnKind === "done",
+            });
 
             const customerName = customerNameFromOrder(
               order,
@@ -444,6 +500,27 @@ export function BoardTable({
                             <CalendarClock className="h-2.5 w-2.5 shrink-0" />
                             {formatDateShort(order.due_date)}
                           </span>
+                        ) : (
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                              dueDateBadgeClass(dueStatus)
+                            )}
+                          >
+                            {dueStatus.label}
+                          </span>
+                        )}
+                        {dueStatus.kind === "late" ||
+                        dueStatus.kind === "today" ||
+                        dueStatus.kind === "soon" ? (
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
+                              dueDateBadgeClass(dueStatus)
+                            )}
+                          >
+                            {dueStatus.label}
+                          </span>
                         ) : null}
                         <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
                           <Clock className="h-2.5 w-2.5 shrink-0" />
@@ -492,10 +569,25 @@ export function BoardTable({
                       <User className="h-2.5 w-2.5 shrink-0" />
                       {designerName ?? "Unassigned"}
                     </span>
-                    {ownerName ? (
-                      <span className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-500">
-                        <User className="h-2.5 w-2.5 shrink-0 text-slate-400" />
-                        {ownerName}
+                    {isOwnerUnassigned || ownerName ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold",
+                          isOwnerUnassigned
+                            ? UNASSIGNED_OWNER_TEXT_CLASS
+                            : "bg-slate-100 text-slate-500"
+                        )}
+                        title={
+                          isOwnerUnassigned ? "No owner assigned" : "Order owner"
+                        }
+                      >
+                        <User
+                          className={cn(
+                            "h-2.5 w-2.5 shrink-0",
+                            isOwnerUnassigned ? "text-amber-600" : "text-slate-400"
+                          )}
+                        />
+                        {isOwnerUnassigned ? "Unassigned" : ownerName}
                       </span>
                     ) : null}
                     {order.priority && order.priority !== "normal" ? (
@@ -531,7 +623,7 @@ export function BoardTable({
                         {shippingSign.label}
                       </span>
                     ) : null}
-                    <OrderBillingGlobe specs={order.specs} />
+                    <OrderBillingGlobe specs={order.specs} role={role} />
                   </div>
                 </td>
 

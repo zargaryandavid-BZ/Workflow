@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Copy, Mail, Phone, User } from "lucide-react";
+import { AlertTriangle, CircleHelp, Copy, Mail, Phone, User } from "lucide-react";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { CustomFieldInput } from "./custom-field-input";
+import { ProductMaterialsFields } from "./product-materials-fields";
 import { SkuEditor, type SkuItem } from "./sku-editor";
-import { OrderQtyField } from "./order-qty-field";
+import { OrderQtyField, sumSkuQty } from "./order-qty-field";
 import { PRIORITY_OPTIONS } from "@/lib/constants";
 import { normalizeCustomerContact } from "@/lib/customers";
 import {
@@ -15,8 +16,22 @@ import {
   resolveOrderFormFields,
   validateDueDate,
 } from "@/lib/order-form";
+import {
+  clearTargetsForSourceChange,
+  getFilteredOptions,
+  mappedTargetsForSource,
+  uniqueOptions,
+} from "@/lib/field-links";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
-import type { Tag, CustomField, Designer, NoteEntry, OrderSkuImageWithUrl } from "@/lib/types";
+import { formatDesignerOptionLabel } from "@/lib/designer-load";
+import type {
+  Tag,
+  CustomField,
+  Designer,
+  FieldLink,
+  NoteEntry,
+  OrderSkuImageWithUrl,
+} from "@/lib/types";
 
 export interface OrderOwner {
   id: string;
@@ -155,9 +170,76 @@ export function OrderFormBody({
     ? String(fieldValues[artworkField.id] ?? "").trim()
     : "";
 
-  const visiblePrintFields = hideEmpty
+  const [fieldLinks, setFieldLinks] = useState<FieldLink[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/field-links");
+        if (!res.ok) return;
+        const json = (await res.json()) as FieldLink[];
+        if (!cancelled) setFieldLinks(json ?? []);
+      } catch {
+        // Non-fatal: form works without link filtering.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function handleLinkedFieldChange(fieldId: string, value: unknown) {
+    onFieldValueChange(fieldId, value);
+    if (readOnly) return;
+    for (const targetId of clearTargetsForSourceChange(fieldLinks, fieldId)) {
+      if (!isEmptyFieldValue(fieldValues[targetId])) {
+        onFieldValueChange(targetId, "");
+      }
+    }
+  }
+
+  function handleSkusChange(next: SkuItem[]) {
+    onSkusChange(next);
+    if (!orderQtyField || readOnly) return;
+    onFieldValueChange(
+      orderQtyField.id,
+      next.length === 0 ? null : sumSkuQty(next)
+    );
+  }
+  const categoryField = printFields.find((f) => f.name === "Category");
+  const productField = printFields.find((f) => f.name === "Product");
+  const materialsField = printFields.find((f) => f.name === "Materials");
+  const useCascadingProductMaterials = Boolean(productField && materialsField);
+  const cascadingFieldIds = useCascadingProductMaterials
+    ? new Set(
+        [categoryField?.id, productField!.id, materialsField!.id].filter(
+          Boolean
+        ) as string[]
+      )
+    : new Set<string>();
+
+  const visiblePrintFields = (hideEmpty
     ? printFields.filter((f) => !isEmptyFieldValue(fieldValues[f.id]))
-    : printFields;
+    : printFields
+  ).filter((f) => !cascadingFieldIds.has(f.id));
+
+  /** Prefer field_links for Product→Materials when that link exists. */
+  const materialOptionsOverride = (() => {
+    if (!productField || !materialsField) return null;
+    const link = fieldLinks.find(
+      (l) =>
+        l.source_field_id === productField.id &&
+        l.target_field_id === materialsField.id
+    );
+    if (!link) return null;
+    const product = String(fieldValues[productField.id] ?? "").trim();
+    if (!product) return materialsField.options ?? [];
+    const mapped = mappedTargetsForSource(link, product);
+    if (mapped.length === 0) return materialsField.options ?? [];
+    const allowed = new Set(mapped);
+    return (materialsField.options ?? []).filter((o) => allowed.has(o));
+  })();
 
   async function copyArtworkLink() {
     if (!artworkValue) return;
@@ -467,31 +549,67 @@ export function OrderFormBody({
       ) : null}
 
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
-        {visiblePrintFields.length > 0 ? (
+        {useCascadingProductMaterials && productField && materialsField ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {visiblePrintFields.map((field) => (
-              <CustomFieldInput
-                key={field.id}
-                field={{
-                  ...field,
-                  name: orderFormFieldLabel(field.name),
-                }}
-                value={fieldValues[field.id]}
-                onChange={(v) => onFieldValueChange(field.id, v)}
-                readOnly={readOnly}
-              />
-            ))}
+            <ProductMaterialsFields
+              categoryField={categoryField}
+              productField={productField}
+              materialsField={materialsField}
+              categoryValue={
+                categoryField ? fieldValues[categoryField.id] : undefined
+              }
+              productValue={fieldValues[productField.id]}
+              materialsValue={fieldValues[materialsField.id]}
+              onCategoryChange={
+                categoryField
+                  ? (v) => handleLinkedFieldChange(categoryField.id, v)
+                  : undefined
+              }
+              onProductChange={(v) =>
+                handleLinkedFieldChange(productField.id, v)
+              }
+              onMaterialsChange={(v) =>
+                handleLinkedFieldChange(materialsField.id, v)
+              }
+              materialOptionsOverride={materialOptionsOverride}
+              readOnly={readOnly}
+              hideEmpty={hideEmpty}
+            />
           </div>
         ) : null}
 
-        <SkuEditor
-          value={skus}
-          onChange={onSkusChange}
-          orderId={orderId}
-          skuImagesBySkuId={skuImagesBySkuId}
-          ensureSkuPersisted={ensureSkuPersisted}
-          disabled={readOnly}
-        />
+        {visiblePrintFields.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {visiblePrintFields.map((field) => {
+              const filteredOptions =
+                field.field_type === "select"
+                  ? getFilteredOptions(field, fieldValues, fieldLinks)
+                  : uniqueOptions(field.options);
+              const current = fieldValues[field.id];
+              const optionsWithCurrent =
+                field.field_type === "select" &&
+                typeof current === "string" &&
+                current &&
+                !filteredOptions.includes(current)
+                  ? uniqueOptions([current, ...filteredOptions])
+                  : filteredOptions;
+
+              return (
+                <CustomFieldInput
+                  key={field.id}
+                  field={{
+                    ...field,
+                    name: orderFormFieldLabel(field.name),
+                    options: optionsWithCurrent,
+                  }}
+                  value={current}
+                  onChange={(v) => handleLinkedFieldChange(field.id, v)}
+                  readOnly={readOnly}
+                />
+              );
+            })}
+          </div>
+        ) : null}
 
         {orderQtyField ? (
           <OrderQtyField
@@ -499,8 +617,18 @@ export function OrderFormBody({
             value={(fieldValues[orderQtyField.id] as number | null) ?? null}
             onChange={(v) => onFieldValueChange(orderQtyField.id, v)}
             readOnly={readOnly}
+            label={orderFormFieldLabel(orderQtyField.name)}
           />
         ) : null}
+
+        <SkuEditor
+          value={skus}
+          onChange={handleSkusChange}
+          orderId={orderId}
+          skuImagesBySkuId={skuImagesBySkuId}
+          ensureSkuPersisted={ensureSkuPersisted}
+          disabled={readOnly}
+        />
 
         {(!hideEmpty || description.trim()) ? (
         <div>
@@ -522,7 +650,7 @@ export function OrderFormBody({
       {(!hideEmpty || designerId || designTask) ? (
       <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-400">
-          Designer
+          For Designer
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
@@ -540,28 +668,39 @@ export function OrderFormBody({
               </option>
               {designers.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.name}
+                  {formatDesignerOptionLabel(d.name, d.load)}
                 </option>
               ))}
             </Select>
           </div>
           <div>
             <Label htmlFor={`${idPrefix}-design-task`}>
-              {designTask && /^https?:\/\//i.test(designTask.trim()) ? (
-                <a
-                  href={designTask.trim()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[var(--primary)] underline hover:opacity-80"
-                  title="Job folder on Google Drive (e.g. 26-0098_Customer_1)"
+              <span className="inline-flex items-center gap-1">
+                {designTask && /^https?:\/\//i.test(designTask.trim()) ? (
+                  <a
+                    href={designTask.trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--primary)] underline hover:opacity-80"
+                  >
+                    Designer folder ↗
+                  </a>
+                ) : (
+                  <span>Designer folder</span>
+                )}
+                <span
+                  className="inline-flex cursor-help text-slate-400"
+                  title="Project files to be used by the designer"
                 >
-                  Order folder ↗
-                </a>
-              ) : (
-                <span title="Job folder on Google Drive (e.g. 26-0098_Customer_1)">
-                  Order folder
+                  <CircleHelp
+                    className="h-3.5 w-3.5"
+                    aria-hidden
+                  />
+                  <span className="sr-only">
+                    Project files to be used by the designer
+                  </span>
                 </span>
-              )}
+              </span>
             </Label>
             <Input
               id={`${idPrefix}-design-task`}
@@ -581,25 +720,33 @@ export function OrderFormBody({
           <Label htmlFor={`${idPrefix}-artwork`}>
             {(() => {
               const url = String(fieldValues[artworkField.id] ?? "").trim();
-              if (/^https?:\/\//i.test(url)) {
-                return (
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[var(--primary)] underline hover:opacity-80"
-                    title="Final for Prod folder (e.g. 26-0098_Final for Prod_1)"
-                  >
-                    {orderFormFieldLabel(artworkField.name)} ↗
-                  </a>
-                );
-              }
+              const label = orderFormFieldLabel(artworkField.name);
               return (
-                <span title="Final for Prod folder (e.g. 26-0098_Final for Prod_1)">
-                  {orderFormFieldLabel(artworkField.name)}
-                  {artworkField.required ? (
-                    <span className="ml-0.5 text-red-500">*</span>
-                  ) : null}
+                <span className="inline-flex items-center gap-1">
+                  {/^https?:\/\//i.test(url) ? (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--primary)] underline hover:opacity-80"
+                    >
+                      {label} ↗
+                    </a>
+                  ) : (
+                    <span>
+                      {label}
+                      {artworkField.required ? (
+                        <span className="ml-0.5 text-red-500">*</span>
+                      ) : null}
+                    </span>
+                  )}
+                  <span
+                    className="inline-flex cursor-help text-slate-400"
+                    title="Production-ready files"
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" aria-hidden />
+                    <span className="sr-only">Production-ready files</span>
+                  </span>
                 </span>
               );
             })()}

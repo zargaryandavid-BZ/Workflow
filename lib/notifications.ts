@@ -600,6 +600,16 @@ export async function respondToNotification(
   // Move the order / log activity before marking the notification responded so
   // Realtime subscribers see the final column when the notification event fires.
   if (notification.type === "customer_approval") {
+    if (
+      params.response === "changes_requested" &&
+      !(params.note?.trim())
+    ) {
+      return {
+        ok: false as const,
+        error: "Please tell us why the proof was not approved.",
+        status: 400,
+      };
+    }
     if (params.response === "approved") {
       await onApprovalResult(admin, {
         tenantId: notification.tenant_id,
@@ -678,7 +688,7 @@ export async function respondToNotification(
     .update({
       status: "responded",
       customer_response: params.response,
-      customer_note: params.note ?? null,
+      customer_note: params.note?.trim() || null,
       responded_at: new Date().toISOString(),
     })
     .eq("id", notification.id);

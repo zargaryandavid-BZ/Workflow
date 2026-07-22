@@ -12,12 +12,20 @@ export function ApprovalForm({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
 
   async function decide(decision: "approved" | "rejected") {
+    if (decision === "rejected" && !comment.trim()) {
+      setError("Please tell us why the proof was not approved.");
+      return;
+    }
     setError(null);
     setLoading(true);
     const res = await fetch("/api/approvals/decide", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, decision, comment }),
+      body: JSON.stringify({
+        token,
+        decision,
+        comment: comment.trim() || undefined,
+      }),
     });
     const json = await res.json();
     setLoading(false);
@@ -50,8 +58,11 @@ export function ApprovalForm({ token }: { token: string }) {
       </p>
       <Textarea
         value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="Optional comment or change requests…"
+        onChange={(e) => {
+          setComment(e.target.value);
+          setError(null);
+        }}
+        placeholder="Optional note — required if requesting changes"
       />
       {error ? (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">

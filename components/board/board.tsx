@@ -52,6 +52,12 @@ import {
   loadHiddenColumnIds,
   saveHiddenColumnIds,
 } from "@/lib/board-column-visibility";
+import {
+  loadPersonFilter,
+  savePersonFilter,
+  loadOwnerFilter,
+  saveOwnerFilter,
+} from "@/lib/board-person-filter";
 import type {
   BoardColumn,
   CardWarningRule,
@@ -70,6 +76,10 @@ import type { ColumnOrdersResponse } from "@/app/api/board/column-orders/route";
 import type { SearchOrdersResponse } from "@/app/api/board/search-orders/route";
 import type { BoardOrderEnrichment } from "@/lib/board-order-enrichment";
 import type { BoardShippingSign } from "@/lib/board-shipping";
+import {
+  countDesignerLoads,
+  designerLoadColumnIds,
+} from "@/lib/designer-load";
 
 /** Prefer pointer position so empty columns and wide boards register drops reliably. */
 const boardCollisionDetection: CollisionDetection = (args) => {
@@ -232,6 +242,31 @@ export function Board({
     [columns]
   );
 
+  // Live designer load (Start + In Progress) from loaded board orders, seeded
+  // from server counts so the assign dropdown stays accurate as cards move.
+  const designersWithLoad = useMemo(() => {
+    const loadColIds = designerLoadColumnIds(columns);
+    if (loadColIds.length === 0) {
+      return designers.map((d) => ({ ...d, load: d.load ?? 0 }));
+    }
+    const loadSet = new Set(loadColIds);
+    const loadColumnsLoaded = loadColIds.every((id) =>
+      loadedColumnsRef.current.has(id)
+    );
+    if (!loadColumnsLoaded) {
+      return designers.map((d) => ({ ...d, load: d.load ?? 0 }));
+    }
+    const counts = countDesignerLoads(
+      designers.map((d) => d.id),
+      orders,
+      loadSet
+    );
+    return designers.map((d) => ({
+      ...d,
+      load: counts.get(d.id) ?? 0,
+    }));
+  }, [designers, orders, columns, columnLoadStatus]);
+
   const boardFilters = useMemo(
     () => ({
       q: orderQuery,
@@ -299,9 +334,37 @@ export function Board({
   } | null>(null);
   const [groupedView, setGroupedView] = useState(false);
   const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
-  const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() =>
-    loadHiddenColumnIds(tenantId)
-  );
+  const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() => new Set());
+  const [persistedFiltersReady, setPersistedFiltersReady] = useState(false);
+
+  // Restore after mount so SSR HTML matches the first client render.
+  useEffect(() => {
+    const savedPerson = loadPersonFilter(tenantId);
+    if (savedPerson && designers.some((d) => d.id === savedPerson)) {
+      setPersonFilter(savedPerson);
+    }
+    const savedOwner = loadOwnerFilter(tenantId);
+    if (
+      savedOwner === UNASSIGNED_OWNER_FILTER ||
+      (savedOwner && owners.some((o) => o.id === savedOwner))
+    ) {
+      setOwnerFilter(savedOwner);
+    }
+    setHiddenColIds(loadHiddenColumnIds(tenantId));
+    setPersistedFiltersReady(true);
+    // designers/owners from initial props; re-run only if tenant changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!persistedFiltersReady) return;
+    savePersonFilter(tenantId, personFilter);
+  }, [persistedFiltersReady, tenantId, personFilter]);
+
+  useEffect(() => {
+    if (!persistedFiltersReady) return;
+    saveOwnerFilter(tenantId, ownerFilter);
+  }, [persistedFiltersReady, tenantId, ownerFilter]);
 
   const visibleColumns = useMemo(
     () => columns.filter((c) => !hiddenColIds.has(c.id)),
@@ -1816,12 +1879,13 @@ export function Board({
                 appUrl={appUrl}
                 onActionComplete={handleContextActionComplete}
                 onActionError={flashPermissionError}
-                designers={designers}
+                designers={designersWithLoad}
                 onGroupAssignDesigner={handleGroupAssignDesigner}
                 onGroupSetDueDates={handleGroupSetDueDates}
                 onMoveGroup={handleGroupMove}
                 onOpenOrder={(o) => setDetailId(o.id)}
                 onAdd={(colId) => setCreateColumn(colId)}
+                role={role}
                 loadStatus={
                   filtersActive
                     ? searchLoading
@@ -1858,6 +1922,9 @@ export function Board({
               warningWorkingDays={warningWorkingDays}
               webhookSourceStyles={webhookSourceStyles}
               columnColor={activeOrderColumnColor}
+              columnKind={
+                columns.find((c) => c.id === activeOrder.column_id)?.kind ?? null
+              }
               onOpen={() => {}}
             />
           ) : null}
@@ -1872,7 +1939,7 @@ export function Board({
         columns={columns}
         owners={owners}
         customFields={customFields}
-        designers={designers}
+        designers={designersWithLoad}
         currentUserId={currentUserId}
         onCreated={() => {
           setCreateColumn(null);
@@ -1892,7 +1959,7 @@ export function Board({
         customFields={customFields}
         owners={owners}
         columns={columns}
-        designers={designers}
+        designers={designersWithLoad}
         role={role}
         userId={currentUserId}
         currentUserName={currentUserName}

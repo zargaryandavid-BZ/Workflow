@@ -1,4 +1,4 @@
-import { MATERIALS, PRODUCTS } from "@/lib/product-data";
+import { MATERIALS, PRODUCTS, PRODUCT_CATEGORY_NAMES } from "@/lib/product-data";
 
 const COLOR_OPTIONS = ["CMYK", "CMYK+White", "Pantones"];
 const SIDES_OPTIONS = ["1 Side", "2 Sides"];
@@ -24,6 +24,7 @@ const LAMINATION_OPTIONS = [
 /** Hardcoded fallback when tenant custom_fields.options is empty. */
 export const WEBHOOK_FALLBACK_SELECT_OPTIONS: Record<string, string[]> = {
   product: [...PRODUCTS],
+  product_category: [...PRODUCT_CATEGORY_NAMES],
   materials: [...MATERIALS],
   sides: SIDES_OPTIONS,
   color: COLOR_OPTIONS,

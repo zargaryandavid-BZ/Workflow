@@ -154,26 +154,28 @@ function drawSpecRow(
   return y + 16;
 }
 
-function rowHeight(doc: PdfDoc, value: string, colW: number, minH = 18): number {
-  doc.fontSize(11).font("Helvetica-Bold");
-  const h = doc.heightOfString(value || "—", { width: colW * 0.5 });
-  return Math.max(minH, h + 6);
-}
-
 function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   const x = MARGIN;
   const w = PAGE_WIDTH - MARGIN * 2;
   const innerX = x + 10;
   const innerW = w - 20;
 
+  const PROD_READY_LINK_SIZE = 11 * 1.5; // 16.5 — bold “Link” for prod files
+
   const specRows = data.specRows.map((row) => ({
     label: row.label,
     value: yesNo(row.value),
     link: undefined as string | undefined,
+    valueFontSize: undefined as number | undefined,
   }));
 
   if (data.artworkLink) {
-    specRows.push({ label: "Artwork GDrive", value: "Link", link: data.artworkLink });
+    specRows.push({
+      label: "Prod ready files",
+      value: "Link",
+      link: data.artworkLink,
+      valueFontSize: PROD_READY_LINK_SIZE,
+    });
   }
 
   if (!specRows.length) return startY;
@@ -190,18 +192,34 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   // Pre-compute per-row heights based on actual text content
   const rowHeights: number[] = [];
   for (let i = 0; i < maxRows; i++) {
-    const lh = leftSpecs[i] ? rowHeight(doc, leftSpecs[i].value, COL_WIDTH) : 0;
-    const rh = rightSpecs[i] ? rowHeight(doc, rightSpecs[i].value, COL_WIDTH) : 0;
+    const leftSize = leftSpecs[i]?.valueFontSize ?? 11;
+    const rightSize = rightSpecs[i]?.valueFontSize ?? 11;
+    const lh = leftSpecs[i]
+      ? Math.max(
+          18,
+          (doc.fontSize(leftSize).font("Helvetica-Bold").heightOfString(
+            leftSpecs[i].value || "—",
+            { width: COL_WIDTH * 0.5 }
+          ) ?? 0) + 6
+        )
+      : 0;
+    const rh = rightSpecs[i]
+      ? Math.max(
+          18,
+          (doc.fontSize(rightSize).font("Helvetica-Bold").heightOfString(
+            rightSpecs[i].value || "—",
+            { width: COL_WIDTH * 0.5 }
+          ) ?? 0) + 6
+        )
+      : 0;
     rowHeights.push(Math.max(lh, rh, 18));
   }
   const specsH = rowHeights.reduce((s, h) => s + h, 0);
 
-  // Height for designer notes (if present)
+  // Height for designer files link row (if present)
   let notesH = 0;
   if (data.designTask) {
-    doc.fontSize(10).font("Helvetica-Bold");
-    const taskH = doc.heightOfString(data.designTask, { width: innerW * 0.65 });
-    notesH = Math.max(20, taskH + 8);
+    notesH = 20;
   }
 
   // Height for order description block (if present)
@@ -254,7 +272,7 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
         .text(leftSpecs[i].label, innerX + 6, rowY, { width: COL_WIDTH * 0.45 });
       const lv = leftSpecs[i];
       doc
-        .fontSize(11)
+        .fontSize(lv.valueFontSize ?? 11)
         .font("Helvetica-Bold")
         .fillColor(lv.link ? "#1d4ed8" : "#111827")
         .text(lv.value || "—", innerX + 6 + COL_WIDTH * 0.45, rowY, {
@@ -271,7 +289,7 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
         .text(rightSpecs[i].label, rx, rowY, { width: COL_WIDTH * 0.45 });
       const rv = rightSpecs[i];
       doc
-        .fontSize(11)
+        .fontSize(rv.valueFontSize ?? 11)
         .font("Helvetica-Bold")
         .fillColor(rv.link ? "#1d4ed8" : "#111827")
         .text(rv.value || "—", rx + COL_WIDTH * 0.45, rowY, {
@@ -289,13 +307,15 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
       .fontSize(9)
       .font("Helvetica-Bold")
       .fillColor("#78350f")
-      .text("Designer Notes", innerX + 6, y);
+      .text("Designer files", innerX + 6, y);
     doc
-      .fontSize(10)
-      .font("Helvetica-Bold")
-      .fillColor("#111827")
-      .text(data.designTask, innerX + 6 + innerW * 0.32, y, {
+      .fontSize(11)
+      .font("Helvetica")
+      .fillColor("#1d4ed8")
+      .text("link", innerX + 6 + innerW * 0.32, y, {
         width: innerW * 0.65,
+        link: data.designTask,
+        underline: true,
       });
     y += notesH;
   }

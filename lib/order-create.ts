@@ -6,10 +6,28 @@ import {
   logActivity,
   resolveColumnForNewJobByProduct,
 } from "@/lib/automation";
-import { ORDER_QTY_FIELD_NAME } from "@/lib/constants";
+import { ORDER_QTY_FIELD_ALIASES } from "@/lib/constants";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
+
+async function loadOrderQtyFieldId(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<string | undefined> {
+  for (const name of ORDER_QTY_FIELD_ALIASES) {
+    const { data } = await supabase
+      .from("custom_fields")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .ilike("name", name)
+      .maybeSingle();
+    if (data && typeof (data as { id?: string }).id === "string") {
+      return (data as { id: string }).id;
+    }
+  }
+  return undefined;
+}
 
 export type CreateOrderInput = {
   title?: string;
@@ -66,22 +84,17 @@ export async function createOrder(
 
   const tenantId = ctx.tenant.id;
 
-  const [{ data: orderQtyField }, { data: productField }] = await Promise.all([
-    supabase
-      .from("custom_fields")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .ilike("name", ORDER_QTY_FIELD_NAME)
-      .maybeSingle(),
+  const [{ data: productField }, orderQtyFieldId] = await Promise.all([
     supabase
       .from("custom_fields")
       .select("id")
       .eq("tenant_id", tenantId)
       .ilike("name", "product")
       .maybeSingle(),
+    loadOrderQtyFieldId(supabase, tenantId),
   ]);
   const orderQtyError = validateOrderQtyFromPayload(
-    (orderQtyField as { id: string } | null)?.id,
+    orderQtyFieldId,
     body.customFieldValues,
     normalizedSkus
   );

@@ -12,10 +12,13 @@ import {
   type PaymentStatus,
 } from "@/lib/order-billing";
 import { cn } from "@/lib/utils";
+import type { Role } from "@/lib/types";
 
 interface Props {
   specs: Record<string, unknown> | null | undefined;
   className?: string;
+  /** Billing globe is admin-only. */
+  role?: Role;
 }
 
 function globeTone(status: PaymentStatus | null | undefined) {
@@ -49,7 +52,7 @@ function findOverlayHost(el: HTMLElement | null): HTMLElement | null {
   );
 }
 
-export function OrderBillingGlobe({ specs, className }: Props) {
+export function OrderBillingGlobe({ specs, className, role }: Props) {
   const billing = billingFromSpecs(specs);
   const [open, setOpen] = useState(false);
   const [hostRect, setHostRect] = useState<DOMRect | null>(null);
@@ -97,7 +100,7 @@ export function OrderBillingGlobe({ specs, className }: Props) {
     };
   }, [open]);
 
-  if (!hasBillingInfo(billing) || !billing) return null;
+  if (role !== "admin" || !hasBillingInfo(billing) || !billing) return null;
 
   const tone = globeTone(billing.payment_status);
 

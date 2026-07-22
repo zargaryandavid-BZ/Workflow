@@ -4,7 +4,7 @@ import {
   CUSTOMER_NAME_FIELD_NAME,
   DESIGNER_FIELD_NAME,
 } from "@/lib/constants";
-import { PRODUCTS } from "@/lib/product-data";
+import { PRODUCTS, PRODUCT_CATEGORY_NAMES } from "@/lib/product-data";
 
 export interface DefaultFieldDef {
   name: string;
@@ -26,6 +26,11 @@ export const DEFAULT_PRINT_FIELDS: DefaultFieldDef[] = [
     field_type: "text",
     options: [],
     required: true,
+  },
+  {
+    name: "Category",
+    field_type: "select",
+    options: [...PRODUCT_CATEGORY_NAMES],
   },
   {
     name: "Product",

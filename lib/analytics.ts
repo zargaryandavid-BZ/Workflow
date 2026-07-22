@@ -21,6 +21,12 @@ export interface DesignerWorkloadRow {
   unassigned: boolean;
 }
 
+export interface AnalyticsColumnOption {
+  id: string;
+  name: string;
+  position: number;
+}
+
 export interface AnalyticsStats {
   totalJobs: number;
   completed: number;
@@ -38,6 +44,8 @@ export interface AnalyticsStats {
   };
   throughput: ThroughputBucket[];
   designerWorkload: DesignerWorkloadRow[];
+  /** Board columns for the Designer Workload filter UI. */
+  columns: AnalyticsColumnOption[];
   missingInfoResponseHours: number | null;
   approvalResponseHours: number | null;
 }
@@ -265,6 +273,10 @@ export interface ComputeInput {
   activityRaw: unknown[];
   notificationsRaw: unknown[];
   profilesRaw: unknown[];
+  /** Tenant members with role designer — always shown in workload (count may be 0). */
+  designersRaw?: { id: string; name: string }[];
+  /** When set (non-empty), designer workload counts only these columns. */
+  designerColumnIds?: string[];
 }
 
 export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
@@ -280,6 +292,8 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
     activityRaw,
     notificationsRaw,
     profilesRaw,
+    designersRaw,
+    designerColumnIds,
   } = input;
 
   const columns = columnsRaw as BoardColumn[];
@@ -380,6 +394,15 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
 
   const activeNonDone = activeOrders.filter((o) => !isDone(o.column_id));
 
+  // Designer workload: optional column filter; empty = all active (non-done) jobs.
+  const designerColumnIdSet =
+    designerColumnIds && designerColumnIds.length > 0
+      ? new Set(designerColumnIds)
+      : null;
+  const workloadOrders = designerColumnIdSet
+    ? activeNonDone.filter((o) => designerColumnIdSet.has(o.column_id))
+    : activeNonDone;
+
   let onTrack = 0;
   let dueWithin24h = 0;
   let dueOverdue = 0;
@@ -425,9 +448,18 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
     profileNames.set(p.id, p.full_name ?? "Unnamed");
   }
 
+  // Seed every tenant designer at 0 so they appear even with no jobs in scope.
   const designerCounts = new Map<string, { name: string; count: number }>();
+  for (const d of designersRaw ?? []) {
+    if (!d.id) continue;
+    designerCounts.set(d.id, {
+      name: d.name.trim() || profileNames.get(d.id) || "Unnamed",
+      count: 0,
+    });
+  }
+
   let unassignedCount = 0;
-  for (const o of activeNonDone) {
+  for (const o of workloadOrders) {
     const designerId =
       typeof o.specs?.designer_id === "string" ? o.specs.designer_id : null;
     const designerName =
@@ -443,6 +475,7 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
     const id = designerId ?? designerName!;
     const name = designerName ?? profileNames.get(designerId!) ?? "Unnamed";
     const row = designerCounts.get(id) ?? { name, count: 0 };
+    row.name = name || row.name;
     row.count += 1;
     designerCounts.set(id, row);
   }
@@ -464,7 +497,10 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
           },
         ]
       : []),
-  ].sort((a, b) => b.count - a.count);
+  ].sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.name.localeCompare(b.name);
+  });
 
   const notifications = notificationsRaw as JobNotification[];
   const moveToMissingInfo = new Map<string, string>();
@@ -530,6 +566,11 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
     },
     throughput,
     designerWorkload,
+    columns: columns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      position: c.position,
+    })),
     missingInfoResponseHours: avgHours(missingInfoHours),
     approvalResponseHours: avgHours(approvalHours),
   };
@@ -543,12 +584,16 @@ export async function fetchAnalyticsStats(
   _prevFrom: string | null,
   _prevTo: string | null,
   customFrom?: string,
-  customTo?: string
+  customTo?: string,
+  designerColumnIds?: string[]
 ): Promise<AnalyticsStats> {
   const params = new URLSearchParams({ filter });
   if (filter === "custom" && customFrom && customTo) {
     params.set("customFrom", customFrom);
     params.set("customTo", customTo);
+  }
+  if (designerColumnIds && designerColumnIds.length > 0) {
+    params.set("columnIds", designerColumnIds.join(","));
   }
   const res = await fetch(`/api/analytics?${params.toString()}`, {
     credentials: "same-origin",

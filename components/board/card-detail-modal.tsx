@@ -292,7 +292,7 @@ export function CardDetailModal({
   }, [open, orderId, load]);
 
   async function save(options?: { reload?: boolean }): Promise<boolean> {
-    if (!orderId) return false;
+    if (!orderId || saving) return false;
 
     if (!title.trim()) {
       setSaveError("Order Number is required");
@@ -353,6 +353,13 @@ export function CardDetailModal({
         designers.find((d) => d.id === designerId)?.name ?? null,
       design_task: designTask || null,
     };
+    const customFieldValues = buildCustomFieldPayload(
+      resolved,
+      fieldValues,
+      skus,
+      customerName,
+      customerContact
+    );
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -366,13 +373,7 @@ export function CardDetailModal({
           dueDate: dateInputValue(dueDate) || null,
           tagId: tagId || null,
           specs: nextSpecs,
-          customFieldValues: buildCustomFieldPayload(
-            resolved,
-            fieldValues,
-            skus,
-            customerName,
-            customerContact
-          ),
+          customFieldValues,
         }),
       });
       if (!res.ok) {
@@ -386,18 +387,70 @@ export function CardDetailModal({
       const selectedTag = tagId
         ? (tags.find((t) => t.id === tagId) ?? null)
         : null;
+      const nextTitle = title.trim();
+      const nextDue = dateInputValue(dueDate) || null;
+      const nextPriority = priority as "low" | "normal" | "high" | "urgent";
+
+      // Keep local detail in sync immediately so isDirty() clears without a
+      // second click while the silent reload finishes.
+      setData((prev) => {
+        if (!prev) return prev;
+        const valueById = new Map(
+          customFieldValues.map((row) => [row.customFieldId, row.value])
+        );
+        return {
+          ...prev,
+          order: {
+            ...prev.order,
+            title: nextTitle,
+            description: description || null,
+            internal_note: internalNoteJson,
+            priority: nextPriority,
+            due_date: nextDue,
+            created_by: ownerId || null,
+            tag_id: tagId || null,
+            tag: selectedTag,
+            specs: nextSpecs,
+          },
+          values: prev.values.map((row) =>
+            valueById.has(row.custom_field_id)
+              ? { ...row, value: valueById.get(row.custom_field_id) }
+              : row
+          ).concat(
+            customFieldValues
+              .filter(
+                (row) =>
+                  !prev.values.some((v) => v.custom_field_id === row.customFieldId)
+              )
+              .map((row) => ({
+                id: `local-${row.customFieldId}`,
+                order_id: prev.order.id,
+                custom_field_id: row.customFieldId,
+                value: row.value,
+              }))
+          ),
+        };
+      });
+      setFieldValues((prev) => {
+        const next = { ...prev };
+        for (const row of customFieldValues) {
+          next[row.customFieldId] = row.value;
+        }
+        return next;
+      });
+
       onChanged({
         tag_id: tagId || null,
         tag: selectedTag,
-        title: title.trim(),
+        title: nextTitle,
         description: description || null,
-        priority: priority as "low" | "normal" | "high" | "urgent",
-        due_date: dateInputValue(dueDate) || null,
+        priority: nextPriority,
+        due_date: nextDue,
         created_by: ownerId || null,
         specs: nextSpecs,
       });
       if (options?.reload !== false) {
-        void load({ silent: true });
+        await load({ silent: true });
       }
       return true;
     } finally {
@@ -448,6 +501,7 @@ export function CardDetailModal({
     for (const field of [
       ...formFields.printFields,
       ...(formFields.orderQtyField ? [formFields.orderQtyField] : []),
+      ...(formFields.artworkField ? [formFields.artworkField] : []),
     ]) {
       const current = fieldValues[field.id];
       const saved = savedValues[field.id];
@@ -953,6 +1007,8 @@ export function CardDetailModal({
                 Cancel
               </Button>
               <Button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => void save()}
                 disabled={saving || loading || removing}
               >
@@ -1134,7 +1190,7 @@ export function CardDetailModal({
               }}
             />
           ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="space-y-4 md:col-span-2">
             <OrderFormBody
               idPrefix="edit"
@@ -1192,8 +1248,28 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
+            {!isViewOnly && isDirty() ? (
+              <div className="flex flex-col gap-2">
+                <Button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void save()}
+                  disabled={saving || loading}
+                >
+                  {saving ? "Saving…" : "Save changes"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={revert}
+                  type="button"
+                  disabled={saving}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : null}
             {/* Priority + Due Date box */}
-            <div className="mt-4 rounded-lg border border-slate-200 p-3 space-y-3">
+            <div className="rounded-lg border border-slate-200 p-3 space-y-3">
               <div>
                 <Label htmlFor="sidebar-priority">Priority</Label>
                 <Select

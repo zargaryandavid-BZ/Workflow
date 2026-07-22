@@ -210,6 +210,22 @@ export interface CustomField {
   required: boolean;
 }
 
+export interface FieldLinkMapping {
+  id: string;
+  link_id: string;
+  source_value: string;
+  target_value: string;
+}
+
+export interface FieldLink {
+  id: string;
+  tenant_id: string;
+  source_field_id: string;
+  target_field_id: string;
+  created_at: string;
+  field_link_mappings: FieldLinkMapping[];
+}
+
 export interface CustomFieldValue {
   id: string;
   order_id: string;
@@ -486,6 +502,8 @@ export interface OrderWithRelations extends Order {
 export interface Designer {
   id: string;
   name: string;
+  /** Active jobs in Start + In Progress columns. */
+  load?: number;
 }
 
 export type ShippingRequestStatus =

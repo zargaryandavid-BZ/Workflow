@@ -90,7 +90,35 @@ export const MATERIALS = [
   "Jogger",
 ] as const;
 
-/** Valid materials per product — for future cascading dropdown logic. */
+/**
+ * Category → products for cascading order-form dropdowns.
+ * Category is also a stored custom field; this map defines the relationship.
+ */
+export const PRODUCT_CATEGORIES: Record<string, readonly string[]> = {
+  Combos: ["Pouches Combo", "Jar Combo", "Tube Combo"],
+  "Labels & Stickers": ["Labels (Roll)", "Labels (Sheet)", "Diecut Stickers"],
+  "Packaging & Boxes": ["Folding Cartons / Boxes"],
+  Print: [
+    "Business Cards",
+    "Flyers / Postcards",
+    "Booklets",
+    "Sheet Products (Boyd)",
+  ],
+  "Signage / Large Format": [
+    "Vinyl Labels / 54'' Rolls",
+    "Vinyl Signage",
+    "Banners / Large Format",
+    "Window Decals",
+    "Wallpaper",
+  ],
+  Apparel: ["Apparel"],
+  Components: ["Pouches Only", "Tube Only", "Jar Only"],
+  Other: ["Other"],
+};
+
+export const PRODUCT_CATEGORY_NAMES = Object.keys(PRODUCT_CATEGORIES);
+
+/** Valid materials per product — used for cascading Materials dropdown. */
 export const PRODUCT_MATERIALS: Record<string, string[]> = {
   "Pouches Combo": ["Pouch Double sided", "Pouche One sided"],
   "Jar Combo": [
@@ -225,3 +253,72 @@ export const PRODUCT_MATERIALS: Record<string, string[]> = {
   "Jar Only": ["Plastic", "Glass"],
   Other: [],
 };
+
+/** Category that contains a product, or null if unknown. */
+export function categoryForProduct(product: string | null | undefined): string | null {
+  const name = product?.trim();
+  if (!name) return null;
+  for (const [category, products] of Object.entries(PRODUCT_CATEGORIES)) {
+    if (products.some((p) => p.toLowerCase() === name.toLowerCase())) {
+      return category;
+    }
+  }
+  return null;
+}
+
+/**
+ * Products available in a category.
+ * When `allowed` is set (tenant custom-field options), intersect with those.
+ */
+export function productsForCategory(
+  category: string | null | undefined,
+  allowed?: string[] | null
+): string[] {
+  const cat = category?.trim();
+  if (!cat) {
+    return filterAllowed([...PRODUCTS], allowed);
+  }
+  const list = PRODUCT_CATEGORIES[cat];
+  if (!list) return filterAllowed([...PRODUCTS], allowed);
+  return filterAllowed([...list], allowed);
+}
+
+/**
+ * Materials for a product.
+ * Prefer PRODUCT_MATERIALS; fall back to tenant options / full MATERIALS list.
+ */
+export function materialsForProduct(
+  product: string | null | undefined,
+  allowed?: string[] | null
+): string[] {
+  const name = product?.trim();
+  if (!name) return filterAllowed([...MATERIALS], allowed);
+
+  const mapped = PRODUCT_MATERIALS[name];
+  if (mapped && mapped.length > 0) {
+    return filterAllowed(mapped, allowed);
+  }
+
+  // Case-insensitive product key match
+  const key = Object.keys(PRODUCT_MATERIALS).find(
+    (k) => k.toLowerCase() === name.toLowerCase()
+  );
+  if (key && PRODUCT_MATERIALS[key]?.length) {
+    return filterAllowed(PRODUCT_MATERIALS[key], allowed);
+  }
+
+  return filterAllowed([...MATERIALS], allowed);
+}
+
+function filterAllowed(
+  candidates: string[],
+  allowed?: string[] | null
+): string[] {
+  if (!allowed || allowed.length === 0) return candidates;
+  const allow = new Set(allowed.map((a) => a.toLowerCase()));
+  const filtered = candidates.filter((c) => allow.has(c.toLowerCase()));
+  // Keep tenant-only options that aren't in the static catalog when no category filter
+  if (filtered.length === 0) return [...allowed];
+  return filtered;
+}
+

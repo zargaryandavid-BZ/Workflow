@@ -127,10 +127,18 @@ function titlesMatchOrderNumber(title: string, orderNumber: string): boolean {
 
 /** Best-effort full order number from a short card title like "142" or "142-1". */
 function expandOrdFromCardTitle(cardTitle: string): string {
-  const base = cardTitle.replace(/-\d+$/, "").trim();
-  if (/^ord-/i.test(base)) return base;
-  // Unknown year — still useful for strip-compare via titlesMatchOrderNumber
-  return base;
+  const trimmed = cardTitle.trim();
+  if (/^ord-\d{4}-/i.test(trimmed)) {
+    // ORD-2026-054-1 → ORD-2026-054
+    if (/^ord-\d{4}-[^-]+-\d+$/i.test(trimmed)) {
+      return trimmed.replace(/-\d+$/, "");
+    }
+    return trimmed;
+  }
+  const base = trimmed.replace(/-\d+$/, "").trim();
+  if (!base || !/^\d/.test(base)) return base;
+  const year = new Date().getFullYear();
+  return `ORD-${year}-${base}`;
 }
 
 export interface OrderGroupSearchSuggestion {
