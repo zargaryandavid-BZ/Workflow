@@ -161,7 +161,7 @@ export function ShippingModal({
         if (!sending) onClose();
       }}
       className="max-w-xl"
-      overlayClassName="z-[60]"
+      overlayClassName="z-[110]"
       title={
         <span className="inline-flex items-center gap-2">
           <Package className="h-4 w-4 text-slate-500" />

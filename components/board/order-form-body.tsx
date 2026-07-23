@@ -146,6 +146,9 @@ export function OrderFormBody({
   const nameEditedRef = useRef(false);
   const lookupSeqRef = useRef(0);
   const lastLookupKeyRef = useRef<string | null>(null);
+  /** Avoid stale closure when deciding whether lookup may overwrite the name. */
+  const customerNameRef = useRef(customerName);
+  customerNameRef.current = customerName;
 
   interface CustomerSuggestion {
     id: string;
@@ -294,7 +297,8 @@ export function OrderFormBody({
   }
 
   useEffect(() => {
-    if (readOnly) return;
+    // Card detail hides this section; do not reset/edit name via contact lookup.
+    if (readOnly || hideCustomerSection) return;
 
     const normalized = normalizeCustomerContact(customerContact);
     const lookupKey = normalized
@@ -305,10 +309,12 @@ export function OrderFormBody({
       lastLookupKeyRef.current = lookupKey;
       if (!lookupKey) setCustomerLookupHint(null);
     }
-  }, [customerContact, readOnly]);
+  }, [customerContact, readOnly, hideCustomerSection]);
 
   useEffect(() => {
-    if (readOnly) return;
+    // Skip on card detail (customer UI is elsewhere) so opening a ticket does
+    // not overwrite the saved name and falsely mark the form dirty.
+    if (readOnly || hideCustomerSection) return;
 
     if (!isValidCustomerContact(customerContact)) {
       setCustomerLookupHint(null);
@@ -343,7 +349,12 @@ export function OrderFormBody({
           setCustomerLookupHint(null);
           return;
         }
-        if (!nameEditedRef.current && json.name) {
+        // Only fill an empty name — never replace a value already on the form.
+        const filledName =
+          !nameEditedRef.current &&
+          json.name &&
+          !customerNameRef.current.trim();
+        if (filledName && json.name) {
           onCustomerNameChange(json.name);
         }
         const extraContact =
@@ -352,11 +363,17 @@ export function OrderFormBody({
             : normalized?.kind === "email" && json.phone
               ? json.phone
               : null;
-        setCustomerLookupHint(
-          extraContact
-            ? `Existing customer found — fields auto-filled (also on file: ${extraContact})`
-            : "Existing customer found — fields auto-filled"
-        );
+        if (filledName || extraContact) {
+          setCustomerLookupHint(
+            extraContact
+              ? filledName
+                ? `Existing customer found — fields auto-filled (also on file: ${extraContact})`
+                : `Existing customer on file (also: ${extraContact})`
+              : "Existing customer found — fields auto-filled"
+          );
+        } else {
+          setCustomerLookupHint("Existing customer found");
+        }
       } catch {
         if (seq !== lookupSeqRef.current) return;
         setCustomerLookupHint(null);
@@ -364,11 +381,11 @@ export function OrderFormBody({
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [customerContact, onCustomerNameChange, readOnly]);
+  }, [customerContact, onCustomerNameChange, readOnly, hideCustomerSection]);
 
   // Name-based search: debounce and fetch matching customers (starts at 5 chars)
   useEffect(() => {
-    if (readOnly || customerName.trim().length < 5) {
+    if (readOnly || hideCustomerSection || customerName.trim().length < 5) {
       setNameSuggestions([]);
       setShowNameDropdown(false);
       return;
@@ -391,7 +408,7 @@ export function OrderFormBody({
       }
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [customerName, readOnly]);
+  }, [customerName, readOnly, hideCustomerSection]);
 
   // Close name dropdown on outside click
   useEffect(() => {
@@ -407,7 +424,7 @@ export function OrderFormBody({
 
   // Contact field search (phone/email prefix, 5+ chars)
   useEffect(() => {
-    if (readOnly || customerContact.trim().length < 5) {
+    if (readOnly || hideCustomerSection || customerContact.trim().length < 5) {
       setContactSuggestions([]);
       setShowContactDropdown(false);
       return;
@@ -430,7 +447,7 @@ export function OrderFormBody({
       }
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [customerContact, readOnly]);
+  }, [customerContact, readOnly, hideCustomerSection]);
 
   // Close contact dropdown on outside click
   useEffect(() => {

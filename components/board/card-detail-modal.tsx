@@ -121,6 +121,34 @@ function formatDuration(ms: number): string {
   return `${days}d`;
 }
 
+/** Treat empty-ish values as equal so open ticket isn't falsely dirty. */
+function fieldValuesEqual(
+  current: unknown,
+  saved: unknown,
+  fieldType: string
+): boolean {
+  if (fieldType === "checkbox") {
+    return Boolean(current) === Boolean(saved);
+  }
+  if (fieldType === "number") {
+    const a =
+      current === "" || current === undefined || current === null
+        ? null
+        : Number(current);
+    const b =
+      saved === "" || saved === undefined || saved === null
+        ? null
+        : Number(saved);
+    if (a === null && b === null) return true;
+    if (a === null || b === null) return false;
+    return a === b;
+  }
+  const a =
+    current === undefined || current === null ? "" : String(current).trim();
+  const b = saved === undefined || saved === null ? "" : String(saved).trim();
+  return a === b;
+}
+
 export function CardDetailModal({
   orderId,
   open,
@@ -184,6 +212,8 @@ export function CardDetailModal({
   const [persistedSkuIds, setPersistedSkuIds] = useState<Set<string>>(
     () => new Set()
   );
+  /** SKUs snapshot from last load — used for dirty check without re-minting ids. */
+  const baselineSkusRef = useRef<ReturnType<typeof normalizeSkus>>([]);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [copiedCustomerField, setCopiedCustomerField] = useState<string | null>(null);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
@@ -226,7 +256,9 @@ export function CardDetailModal({
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
     setTagId(json.order.tag_id ?? "");
-    setSkus(normalizeSkus(json.order.specs?.skus));
+    const normalizedSkus = normalizeSkus(json.order.specs?.skus);
+    setSkus(normalizedSkus);
+    baselineSkusRef.current = normalizedSkus;
     setDesignerId((json.order.specs?.designer_id as string) ?? "");
     setDesignTask((json.order.specs?.design_task as string) ?? "");
     const map: Record<string, unknown> = {};
@@ -288,6 +320,7 @@ export function CardDetailModal({
       setTab("details");
       setActivityOpen(false);
       setPersistedSkuIds(new Set());
+      baselineSkusRef.current = [];
     }
   }, [open, orderId, load]);
 
@@ -471,10 +504,9 @@ export function CardDetailModal({
     if ((designerId || "") !== String(order.specs?.designer_id ?? "")) return true;
     if ((designTask || "") !== String(order.specs?.design_task ?? "")) return true;
 
-    const savedSkus = prepareSkusForSave(
-      normalizeSkus(order.specs?.skus),
-      { pendingArtworkIds: [] }
-    );
+    const savedSkus = prepareSkusForSave(baselineSkusRef.current, {
+      pendingArtworkIds: [],
+    });
     const currentSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
     if (JSON.stringify(currentSkus) !== JSON.stringify(savedSkus)) return true;
 
@@ -505,7 +537,7 @@ export function CardDetailModal({
     ]) {
       const current = fieldValues[field.id];
       const saved = savedValues[field.id];
-      if (JSON.stringify(current ?? null) !== JSON.stringify(saved ?? null)) {
+      if (!fieldValuesEqual(current, saved, field.field_type)) {
         return true;
       }
     }

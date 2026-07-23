@@ -11,7 +11,7 @@ interface ModalProps {
   title?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
-  /** Extra classes for the full-screen overlay (e.g. z-[60] for nested modals). */
+  /** Extra classes for the full-screen overlay (nested modals need > z-[100]). */
   overlayClassName?: string;
   footer?: React.ReactNode;
   /** Rendered in the title bar, immediately to the left of the × close button. */

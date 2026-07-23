@@ -45,7 +45,10 @@ import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import { getGroupKey, orderGroupSearchSuggestions } from "@/lib/group-orders";
-import { orderMatchesBoardFilters } from "@/lib/board-order-filters";
+import {
+  isOrderNumberQuery,
+  orderMatchesBoardFilters,
+} from "@/lib/board-order-filters";
 import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
 import { filterButtonsForColumn } from "@/lib/button-automations";
 import {
@@ -87,6 +90,47 @@ const boardCollisionDetection: CollisionDetection = (args) => {
   if (pointerCollisions.length > 0) return pointerCollisions;
   return closestCorners(args);
 };
+
+/** Browser network blips: offline, HMR restart, aborted navigation. */
+function isTransientNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("network error") ||
+    msg.includes("load failed") ||
+    err.name === "AbortError"
+  );
+}
+
+/**
+ * Pick a card to scroll to after search.
+ * - Order-number queries: only when exactly one card matches (multi-part
+ *   groups like XXX-1 + XXX-2 stay put).
+ * - Name / text queries: first match in board column order.
+ */
+function pickSearchAutoNavTarget(
+  q: string,
+  orders: OrderWithRelations[],
+  columns: BoardColumn[]
+): { columnId: string; orderId: string } | null {
+  if (!q || orders.length === 0) return null;
+
+  if (isOrderNumberQuery(q)) {
+    if (orders.length !== 1) return null;
+    return { columnId: orders[0].column_id, orderId: orders[0].id };
+  }
+
+  const colIndex = new Map(columns.map((c, i) => [c.id, i]));
+  const sorted = [...orders].sort((a, b) => {
+    const ai = colIndex.get(a.column_id) ?? Number.MAX_SAFE_INTEGER;
+    const bi = colIndex.get(b.column_id) ?? Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.position - b.position;
+  });
+  return { columnId: sorted[0].column_id, orderId: sorted[0].id };
+}
 
 type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -210,6 +254,8 @@ export function Board({
     columnId: string;
     orderId: string;
   } | null>(null);
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
 
   const detailGroupSize = useMemo(() => {
     if (!detailId) return undefined;
@@ -418,6 +464,16 @@ export function Board({
 
   // When filters are active, search the full database instead of filtering
   // only the lazily-loaded pages already in memory.
+  // Single key keeps the useEffect deps array size stable across HMR.
+  const boardSearchKey = [
+    orderQuery,
+    personFilter,
+    ownerFilter,
+    overdueOnly ? "1" : "0",
+    dueTodayOnly ? "1" : "0",
+    tenantId,
+  ].join("\0");
+
   useEffect(() => {
     const q = orderQuery.trim();
     const filtersActive =
@@ -467,26 +523,25 @@ export function Board({
             approvalDateByOrder: data.approvalDateByOrder ?? {},
           });
 
-          // Unique text search (XXX-1, or XXX with only one part): jump to its column.
-          // Multiple hits for a base order (XXX-1 + XXX-2) stay put — no navigation.
-          if (
-            q &&
-            data.orders.length === 1 &&
-            lastAutoNavQueryRef.current !== q
-          ) {
+          // Auto-nav: unique order-number hit, or first match for name/text search.
+          // Multi-part order numbers (XXX-1 + XXX-2) intentionally stay put.
+          if (q && lastAutoNavQueryRef.current !== q) {
+            const target = pickSearchAutoNavTarget(
+              q,
+              data.orders,
+              columnsRef.current
+            );
             lastAutoNavQueryRef.current = q;
-            const columnId = data.orders[0].column_id;
-            const orderId = data.orders[0].id;
-            pendingSearchNavRef.current = { columnId, orderId };
-            setHiddenColIds((prev) => {
-              if (!prev.has(columnId)) return prev;
-              const next = new Set(prev);
-              next.delete(columnId);
-              saveHiddenColumnIds(tenantId, next);
-              return next;
-            });
-          } else if (q) {
-            if (lastAutoNavQueryRef.current !== q) {
+            if (target) {
+              pendingSearchNavRef.current = target;
+              setHiddenColIds((prev) => {
+                if (!prev.has(target.columnId)) return prev;
+                const next = new Set(prev);
+                next.delete(target.columnId);
+                saveHiddenColumnIds(tenantId, next);
+                return next;
+              });
+            } else {
               pendingSearchNavRef.current = null;
             }
           }
@@ -508,27 +563,28 @@ export function Board({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [orderQuery, personFilter, ownerFilter, overdueOnly, dueTodayOnly, tenantId]);
+    // boardSearchKey encodes all filter inputs; orderQuery/etc. are read from closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable single dep avoids HMR size churn
+  }, [boardSearchKey]);
 
-  // Scroll to the unique search hit once its column is visible in the DOM.
+  // Scroll to the search hit once its column/card is visible in the DOM.
   useEffect(() => {
     const pending = pendingSearchNavRef.current;
     if (!pending) return;
     if (hiddenColIds.has(pending.columnId)) return;
 
     const { columnId, orderId } = pending;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 30;
 
-    // Do not clear pending until scroll succeeds — Strict Mode cleanup
-    // cancels rAF; clearing early would drop the nav on the remount pass.
-    const id = window.requestAnimationFrame(() => {
-      const columnEl = document.querySelector(`[data-column-id="${columnId}"]`);
+    const tryScroll = () => {
+      if (cancelled) return;
       const orderEl = document.querySelector(`[data-order-id="${orderId}"]`);
-      if (!columnEl && !orderEl) return;
-      pendingSearchNavRef.current = null;
+      const columnEl = document.querySelector(`[data-column-id="${columnId}"]`);
 
-      // Prefer the card so horizontal (board) + vertical (column) scroll
-      // both land with the hit in the center of the viewport.
       if (orderEl) {
+        pendingSearchNavRef.current = null;
         orderEl.scrollIntoView({
           behavior: "smooth",
           block: "center",
@@ -536,13 +592,27 @@ export function Board({
         });
         return;
       }
+
+      attempts += 1;
+      if (attempts < maxAttempts) {
+        window.setTimeout(tryScroll, 50);
+        return;
+      }
+
+      // Card never appeared — fall back to the column.
+      pendingSearchNavRef.current = null;
       columnEl?.scrollIntoView({
         behavior: "smooth",
         inline: "center",
         block: "nearest",
       });
-    });
-    return () => window.cancelAnimationFrame(id);
+    };
+
+    const id = window.requestAnimationFrame(tryScroll);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(id);
+    };
   }, [hiddenColIds, searchResults, boardView]);
 
   function closeOrderDetail() {
@@ -637,9 +707,21 @@ export function Board({
       };
       setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
 
+      // Already-loaded columns are background refreshes — keep showing cards if
+      // a transient network blip fails instead of flipping the column to error.
+      const wasLoaded = loadedColumnsRef.current.has(columnId);
+
       try {
         const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`;
-        let res = await fetchWithAuth(url);
+        let res: Response;
+        try {
+          res = await fetchWithAuth(url);
+        } catch (err) {
+          // Browser "Failed to fetch" (offline, HMR restart, aborted nav).
+          if (!isTransientNetworkError(err)) throw err;
+          await new Promise((r) => setTimeout(r, 600));
+          res = await fetchWithAuth(url);
+        }
         // Retry once on transient upstream / server errors (e.g. Supabase timeouts).
         if (res.status === 500 || res.status === 503) {
           await new Promise((r) => setTimeout(r, 600));
@@ -737,12 +819,23 @@ export function Board({
         setColumnLoadStatus((s) => ({ ...s, [columnId]: "loaded" }));
         loadedColumnsRef.current.add(columnId);
       } catch (err) {
-        console.error("[Board] Failed to load column orders:", err);
-        columnLoadStatusRef.current = {
-          ...columnLoadStatusRef.current,
-          [columnId]: "error",
-        };
-        setColumnLoadStatus((s) => ({ ...s, [columnId]: "error" }));
+        const transient = isTransientNetworkError(err);
+        if (transient && wasLoaded) {
+          // Soft-fail background refresh — leave column as loaded.
+          console.warn("[Board] Column refresh skipped (network):", columnId);
+          columnLoadStatusRef.current = {
+            ...columnLoadStatusRef.current,
+            [columnId]: "loaded",
+          };
+          setColumnLoadStatus((s) => ({ ...s, [columnId]: "loaded" }));
+        } else {
+          console.error("[Board] Failed to load column orders:", err);
+          columnLoadStatusRef.current = {
+            ...columnLoadStatusRef.current,
+            [columnId]: "error",
+          };
+          setColumnLoadStatus((s) => ({ ...s, [columnId]: "error" }));
+        }
       } finally {
         if (
           page === 0 &&
