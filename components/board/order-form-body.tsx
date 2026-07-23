@@ -19,9 +19,10 @@ import {
 import {
   clearTargetsForSourceChange,
   getFilteredOptions,
-  mappedTargetsForSource,
+  linkedTargetOptions,
   uniqueOptions,
 } from "@/lib/field-links";
+import { productsForCategory } from "@/lib/product-data";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
 import { formatDesignerOptionLabel } from "@/lib/designer-load";
 import type {
@@ -207,9 +208,15 @@ export function OrderFormBody({
       next.length === 0 ? null : sumSkuQty(next)
     );
   }
-  const categoryField = printFields.find((f) => f.name === "Category");
-  const productField = printFields.find((f) => f.name === "Product");
-  const materialsField = printFields.find((f) => f.name === "Materials");
+  const categoryField =
+    printFields.find((f) => f.name === "Category") ??
+    printFields.find((f) => f.name.trim().toLowerCase() === "category");
+  const productField =
+    printFields.find((f) => f.name === "Product") ??
+    printFields.find((f) => f.name.trim().toLowerCase() === "product");
+  const materialsField =
+    printFields.find((f) => f.name === "Materials") ??
+    printFields.find((f) => f.name.trim().toLowerCase() === "materials");
   const useCascadingProductMaterials = Boolean(productField && materialsField);
   const cascadingFieldIds = useCascadingProductMaterials
     ? new Set(
@@ -224,22 +231,56 @@ export function OrderFormBody({
     : printFields
   ).filter((f) => !cascadingFieldIds.has(f.id));
 
+  /** Prefer field_links for Category→Product when that link exists. */
+  const productOptionsOverride = (() => {
+    if (!categoryField || !productField) return null;
+    const category = String(fieldValues[categoryField.id] ?? "").trim();
+    const linked = linkedTargetOptions(
+      fieldLinks,
+      categoryField.id,
+      productField,
+      category
+    );
+    if (linked === null) return null;
+    // Link exists but Category not chosen yet → no products (force pick Category).
+    if (!category) return [];
+    return linked;
+  })();
+
   /** Prefer field_links for Product→Materials when that link exists. */
   const materialOptionsOverride = (() => {
     if (!productField || !materialsField) return null;
-    const link = fieldLinks.find(
-      (l) =>
-        l.source_field_id === productField.id &&
-        l.target_field_id === materialsField.id
-    );
-    if (!link) return null;
     const product = String(fieldValues[productField.id] ?? "").trim();
-    if (!product) return materialsField.options ?? [];
-    const mapped = mappedTargetsForSource(link, product);
-    if (mapped.length === 0) return materialsField.options ?? [];
-    const allowed = new Set(mapped);
-    return (materialsField.options ?? []).filter((o) => allowed.has(o));
+    const linked = linkedTargetOptions(
+      fieldLinks,
+      productField.id,
+      materialsField,
+      product
+    );
+    if (linked === null) return null;
+    if (!product) return [];
+    return linked;
   })();
+
+  function handleCategoryLinkedChange(value: unknown) {
+    if (!categoryField) return;
+    // Stores the exact option string (including emoji prefixes).
+    handleLinkedFieldChange(categoryField.id, value);
+    if (readOnly || !productField) return;
+    const cat = String(value ?? "").trim();
+    if (!cat) return;
+    const opts =
+      linkedTargetOptions(fieldLinks, categoryField.id, productField, cat) ??
+      productsForCategory(cat, productField.options);
+    if (opts.length === 1) {
+      handleLinkedFieldChange(productField.id, opts[0]);
+    }
+  }
+
+  function handleProductLinkedChange(value: unknown) {
+    if (!productField) return;
+    handleLinkedFieldChange(productField.id, value);
+  }
 
   async function copyArtworkLink() {
     if (!artworkValue) return;
@@ -561,16 +602,13 @@ export function OrderFormBody({
               productValue={fieldValues[productField.id]}
               materialsValue={fieldValues[materialsField.id]}
               onCategoryChange={
-                categoryField
-                  ? (v) => handleLinkedFieldChange(categoryField.id, v)
-                  : undefined
+                categoryField ? handleCategoryLinkedChange : undefined
               }
-              onProductChange={(v) =>
-                handleLinkedFieldChange(productField.id, v)
-              }
+              onProductChange={handleProductLinkedChange}
               onMaterialsChange={(v) =>
                 handleLinkedFieldChange(materialsField.id, v)
               }
+              productOptionsOverride={productOptionsOverride}
               materialOptionsOverride={materialOptionsOverride}
               readOnly={readOnly}
               hideEmpty={hideEmpty}

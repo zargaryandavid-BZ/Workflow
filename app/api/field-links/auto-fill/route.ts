@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { PRODUCT_CATEGORIES } from "@/lib/product-data";
 import { findSelectFieldByName } from "@/lib/field-links";
 import type { CustomField } from "@/lib/types";
 
@@ -160,6 +161,7 @@ export async function POST() {
   }
 
   const fields = (fieldsData ?? []) as CustomField[];
+  const category = findSelectFieldByName(fields, "Category");
   const product = findSelectFieldByName(fields, "Product");
   const materials = findSelectFieldByName(fields, "Materials");
   const finishing = findSelectFieldByName(fields, "Finishing");
@@ -175,6 +177,28 @@ export async function POST() {
   const productOptions = new Set(product.options ?? []);
 
   try {
+    if (category) {
+      const linkId = await ensureLink(
+        supabase,
+        ctx.tenant.id,
+        category.id,
+        product.id
+      );
+      if (linkId) {
+        const catalog: Record<string, string[]> = {};
+        for (const [cat, products] of Object.entries(PRODUCT_CATEGORIES)) {
+          catalog[cat] = [...products];
+        }
+        inserted += await insertMissingMappings(
+          supabase,
+          linkId,
+          catalog,
+          new Set(category.options ?? []),
+          productOptions
+        );
+      }
+    }
+
     if (materials) {
       const linkId = await ensureLink(
         supabase,

@@ -47,7 +47,7 @@ export function ColumnVisibilityDropdown({
   }, [open]);
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div ref={rootRef} className="relative flex h-full shrink-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -55,7 +55,7 @@ export function ColumnVisibilityDropdown({
           "inline-flex items-center justify-center transition-colors",
           segmented
             ? cn(
-                "rounded-r-md border-l border-slate-300 px-2 py-1 text-sm",
+                "h-full min-w-9 rounded-r-md border-l border-slate-300 px-2.5",
                 open
                   ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
@@ -72,7 +72,7 @@ export function ColumnVisibilityDropdown({
         aria-label="Choose visible columns"
         title="Choose visible columns"
       >
-        <Columns3 className="h-3.5 w-3.5" />
+        <Columns3 className="h-3.5 w-3.5 shrink-0" />
         {hasHidden ? (
           <span
             className={cn(

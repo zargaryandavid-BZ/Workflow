@@ -269,6 +269,7 @@ export function categoryForProduct(product: string | null | undefined): string |
 /**
  * Products available in a category.
  * When `allowed` is set (tenant custom-field options), intersect with those.
+ * Category labels may include emoji prefixes (e.g. "👕 Apparel").
  */
 export function productsForCategory(
   category: string | null | undefined,
@@ -278,7 +279,27 @@ export function productsForCategory(
   if (!cat) {
     return filterAllowed([...PRODUCTS], allowed);
   }
-  const list = PRODUCT_CATEGORIES[cat];
+  let list = PRODUCT_CATEGORIES[cat];
+  if (!list) {
+    const key = Object.keys(PRODUCT_CATEGORIES).find(
+      (k) => k.toLowerCase() === cat.toLowerCase()
+    );
+    if (key) list = PRODUCT_CATEGORIES[key];
+  }
+  if (!list) {
+    // Match "👕 Apparel" → Apparel
+    const stripped = cat
+      .replace(
+        /^[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji}\uFE0F\u200D\s]+/u,
+        ""
+      )
+      .trim()
+      .toLowerCase();
+    const key = Object.keys(PRODUCT_CATEGORIES).find(
+      (k) => k.toLowerCase() === stripped
+    );
+    if (key) list = PRODUCT_CATEGORIES[key];
+  }
   if (!list) return filterAllowed([...PRODUCTS], allowed);
   return filterAllowed([...list], allowed);
 }

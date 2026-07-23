@@ -1531,33 +1531,33 @@ export function Board({
           <h1 className="text-lg font-semibold text-slate-800">
             Production Board
           </h1>
-          <div className="flex rounded-md border border-slate-300 text-sm">
+          <div className="flex h-9 items-stretch rounded-md border border-slate-300 text-sm">
             <button
               type="button"
               onClick={() => setBoardView("kanban")}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-l-md px-2.5 py-1 transition-colors",
+                "inline-flex items-center justify-center gap-1.5 rounded-l-md px-2.5 transition-colors",
                 boardView === "kanban"
                   ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
               )}
               title="Kanban view"
             >
-              <LayoutDashboard className="h-3.5 w-3.5" />
+              <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
               Kanban
             </button>
             <button
               type="button"
               onClick={() => setBoardView("table")}
               className={cn(
-                "inline-flex items-center gap-1.5 border-l border-slate-300 px-2.5 py-1 transition-colors",
+                "inline-flex items-center justify-center gap-1.5 border-l border-slate-300 px-2.5 transition-colors",
                 boardView === "table"
                   ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
               )}
               title="Table view"
             >
-              <Table2 className="h-3.5 w-3.5" />
+              <Table2 className="h-3.5 w-3.5 shrink-0" />
               Table
             </button>
             <ColumnVisibilityDropdown
