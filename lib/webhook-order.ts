@@ -165,10 +165,17 @@ export interface WebhookSkuPayload {
   sku_name?: string;
   quantity?: number | string;
   artwork_url?: string;
-  /** Line comment for this SKU — combined into the Notes tab as `SKU1: …`. */
+  /**
+   * Line Item Comment for this SKU — combined into Attention / Internal notes
+   * as `SKU1: …` (aliases: `comment`, `line_item_comment`).
+   */
   description?: string;
-  /** Alias for `description`. */
+  /** Alias for line item comment (`description`). */
   comment?: string;
+  /** Alias for line item comment (`description`). */
+  line_item_comment?: string;
+  /** Alias for line item comment (`description`). */
+  line_comment?: string;
 }
 
 export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
@@ -205,10 +212,19 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   order_qty?: number | string;
   artwork_url?: string;
   description?: string;
-  /** Internal staff note — creates an entry in the order's Notes tab. */
+  /**
+   * Attention / Internal notes on the card (alias: `notes`).
+   * Combined with per-SKU line comments.
+   */
   internal_note?: string;
   /** Alias for `internal_note`. */
   notes?: string;
+  /** Alias for Attention note when not nested under `skus[]`. */
+  line_item_comment?: string;
+  /** Alias for Attention note. */
+  line_comment?: string;
+  /** Alias for Attention note. */
+  comment?: string;
   category?: string;
   category_name?: string;
   skus?: WebhookSkuPayload[];
@@ -273,10 +289,15 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   artwork_url?: string;
   /** Order Description on the card (customer/production notes). */
   description?: string;
-  /** Internal staff note added to the order's Notes tab on creation. Alias: `notes`. */
+  /**
+   * Attention / Internal notes on the card (alias: `notes`).
+   * Combined with per-SKU line comments on create.
+   */
   internal_note?: string;
   /** Alias for `internal_note`. */
   notes?: string;
+  /** Alias for Attention note. */
+  line_item_comment?: string;
   skus?: WebhookSkuPayload[];
   items?: WebhookItem[];
   /** CRM / source order page URL — stored in specs.billing and shown on the card. */
@@ -316,7 +337,27 @@ function fileNameFromUrl(url: string): string {
 }
 
 function skuLineComment(item: WebhookSkuPayload): string | null {
-  for (const key of ["description", "comment"] as const) {
+  for (const key of [
+    "line_item_comment",
+    "line_comment",
+    "comment",
+    "description",
+  ] as const) {
+    const raw = item[key];
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
+/** Staff / line comments that belong in Attention (orders.internal_note). */
+function resolveItemAttentionNote(item: WebhookItem): string | null {
+  for (const key of [
+    "internal_note",
+    "notes",
+    "line_item_comment",
+    "line_comment",
+    "comment",
+  ] as const) {
     const raw = item[key];
     if (typeof raw === "string" && raw.trim()) return raw.trim();
   }
@@ -423,12 +464,12 @@ function resolveMisroutedDesignTaskText(
 
 /**
  * Build Order Description: optional order/item notes only.
- * Per-SKU comments go to the Notes tab via {@link buildWebhookNotes}.
+ * Per-SKU line comments go to Attention via {@link buildWebhookNotes}.
  */
 export function buildWebhookOrderDescription(opts: {
   orderDescription?: string | null;
   itemDescription?: string | null;
-  /** @deprecated SKU comments now go to Notes — ignored when present. */
+  /** @deprecated SKU comments now go to Attention — ignored when present. */
   skuComments?: { index: number; name: string; comment: string }[];
   /** Non-URL text wrongly sent as design_task. */
   misroutedDesignTask?: string | null;
@@ -450,7 +491,7 @@ export function buildWebhookOrderDescription(opts: {
 }
 
 /**
- * Build Notes-tab text: staff notes + labeled SKU comments.
+ * Build Attention / Internal notes text: staff notes + labeled SKU line comments.
  *
  * ```
  * Rush — confirm ship date
@@ -783,9 +824,15 @@ function mergeItemWithOrder(
     internal_note:
       item.internal_note ??
       item.notes ??
+      item.line_item_comment ??
+      item.line_comment ??
+      item.comment ??
       order.internal_note ??
       order.notes,
     notes: item.notes ?? order.notes,
+    line_item_comment: item.line_item_comment ?? order.line_item_comment,
+    line_comment: item.line_comment,
+    comment: item.comment,
     category: item.category ?? order.category,
     category_name: item.category_name ?? order.category_name,
     designer_email: item.designer_email ?? order.designer_email,
@@ -2003,6 +2050,15 @@ async function createSingleWebhookJob(
       column_id: effectiveColumnId,
       title: cardTitle,
       description: description || null,
+      internal_note: notesText
+        ? JSON.stringify([
+            {
+              author: "Webhook",
+              date: new Date().toISOString(),
+              text: notesText,
+            },
+          ])
+        : null,
       customer_id: customerId,
       tag_id: tagId,
       priority,
@@ -2096,16 +2152,6 @@ async function createSingleWebhookJob(
     const message = err instanceof Error ? err.message : "Activity log failed";
     console.error("[webhook/orders] activity log error:", message);
     warnings.push(message);
-  }
-
-  if (notesText) {
-    const { error: noteError } = await client
-      .from("order_notes")
-      .insert({ tenant_id: tenantId, order_id: orderId, created_by: null, text: notesText });
-    if (noteError) {
-      console.error("[webhook/orders] note insert error:", noteError.message);
-      warnings.push(`Internal note could not be saved: ${noteError.message}`);
-    }
   }
 
   return {
@@ -2305,12 +2351,7 @@ export async function createOrderFromWebhook(
       designNotes: resolveDesignNotes(designerInput),
       designTaskUrl: resolveDesignTaskUrl(designerInput),
       misroutedDesignTask: resolveMisroutedDesignTaskText(designerInput),
-      internalNote:
-        typeof item.internal_note === "string" && item.internal_note.trim()
-          ? item.internal_note.trim()
-          : typeof item.notes === "string" && item.notes.trim()
-            ? item.notes.trim()
-            : null,
+      internalNote: resolveItemAttentionNote(item),
       corrections: allCorrections,
       webhookSource,
       billing,

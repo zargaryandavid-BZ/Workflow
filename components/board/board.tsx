@@ -2060,13 +2060,18 @@ export function Board({
           // Apply saved fields immediately so the card footer (tag, title, etc.)
           // updates without waiting on a column refetch.
           if (detailId && patch) {
+            const applyPatch = (o: OrderWithRelations) =>
+              o.id === detailId ? { ...o, ...patch } : o;
+
             setOrders((prev) => {
-              const next = prev.map((o) =>
-                o.id === detailId ? { ...o, ...patch } : o
-              );
+              const next = prev.map(applyPatch);
               boardOrdersRef.current = next;
               return next;
             });
+            // Filtered / search view reads searchResults + searchEnrichments —
+            // keep those in sync or the board still shows the old designer/owner.
+            setSearchResults((prev) => (prev ? prev.map(applyPatch) : prev));
+
             if (patch.created_by !== undefined) {
               const ownerName =
                 owners.find((o) => o.id === patch.created_by)?.name ?? "";
@@ -2074,12 +2079,38 @@ export function Board({
                 ...prev,
                 [detailId]: ownerName,
               }));
+              setSearchEnrichments((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      ownerNameByOrder: {
+                        ...prev.ownerNameByOrder,
+                        [detailId]: ownerName,
+                      },
+                    }
+                  : prev
+              );
             }
-            if (patch.specs?.designer_name !== undefined) {
+            if (
+              patch.specs?.designer_name !== undefined ||
+              patch.specs?.designer_id !== undefined
+            ) {
+              const designerName = String(patch.specs?.designer_name ?? "");
               setDesignerNameByOrder((prev) => ({
                 ...prev,
-                [detailId]: String(patch.specs?.designer_name ?? ""),
+                [detailId]: designerName,
               }));
+              setSearchEnrichments((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      designerNameByOrder: {
+                        ...prev.designerNameByOrder,
+                        [detailId]: designerName,
+                      },
+                    }
+                  : prev
+              );
             }
           }
           // Re-fetch the column of the edited order for enrichments / field values.

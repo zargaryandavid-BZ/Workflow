@@ -145,3 +145,33 @@ export function linkedTargetOptions(
   if (mapped.length === 0) return options;
   return options.filter((opt) => mapped.some((m) => optionsMatch(opt, m)));
 }
+
+/**
+ * Reverse lookup: which Category source value maps to this Product
+ * on a Category→Product field link. Null when no link / no mapping.
+ */
+export function categoryForProductFromLinks(
+  links: FieldLink[],
+  categoryField: CustomField,
+  productField: CustomField,
+  productValue: string
+): string | null {
+  const product = productValue.trim();
+  if (!product) return null;
+  const link = links.find(
+    (l) =>
+      l.source_field_id === categoryField.id &&
+      l.target_field_id === productField.id
+  );
+  if (!link) return null;
+  const mappings = link.field_link_mappings ?? [];
+  for (const m of mappings) {
+    if (optionsMatch(m.target_value, product)) {
+      return (
+        findMatchingOption(categoryField.options, m.source_value) ??
+        m.source_value
+      );
+    }
+  }
+  return null;
+}

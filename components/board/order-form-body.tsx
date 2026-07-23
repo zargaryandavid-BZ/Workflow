@@ -17,12 +17,17 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import {
+  categoryForProductFromLinks,
   clearTargetsForSourceChange,
   getFilteredOptions,
   linkedTargetOptions,
   uniqueOptions,
 } from "@/lib/field-links";
-import { productsForCategory } from "@/lib/product-data";
+import {
+  isMultiSelectField,
+  parseMultiSelectValue,
+} from "@/lib/multi-select-fields";
+import { categoryForProduct, productsForCategory } from "@/lib/product-data";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
 import { formatDesignerOptionLabel } from "@/lib/designer-load";
 import type {
@@ -621,6 +626,22 @@ export function OrderFormBody({
               onCategoryChange={
                 categoryField ? handleCategoryLinkedChange : undefined
               }
+              onCategorySync={
+                categoryField
+                  ? (v) => onFieldValueChange(categoryField.id, v)
+                  : undefined
+              }
+              inferCategoryFromProduct={
+                categoryField && productField
+                  ? (productName) =>
+                      categoryForProductFromLinks(
+                        fieldLinks,
+                        categoryField,
+                        productField,
+                        productName
+                      ) ?? categoryForProduct(productName)
+                  : undefined
+              }
               onProductChange={handleProductLinkedChange}
               onMaterialsChange={(v) =>
                 handleLinkedFieldChange(materialsField.id, v)
@@ -641,22 +662,41 @@ export function OrderFormBody({
                   ? getFilteredOptions(field, fieldValues, fieldLinks)
                   : uniqueOptions(field.options);
               const current = fieldValues[field.id];
-              const optionsWithCurrent =
-                field.field_type === "select" &&
-                typeof current === "string" &&
-                current &&
-                !filteredOptions.includes(current)
-                  ? uniqueOptions([current, ...filteredOptions])
-                  : filteredOptions;
+              let optionsWithCurrent = filteredOptions;
+              if (field.field_type === "select" && current != null && current !== "") {
+                if (isMultiSelectField(field)) {
+                  // Keep individual webhook parts visible — never inject "X, Y" as one option.
+                  const parts = parseMultiSelectValue(current, filteredOptions);
+                  const extras = parts.filter(
+                    (p) => !filteredOptions.includes(p)
+                  );
+                  if (extras.length > 0) {
+                    optionsWithCurrent = uniqueOptions([
+                      ...filteredOptions,
+                      ...extras,
+                    ]);
+                  }
+                } else if (
+                  typeof current === "string" &&
+                  !filteredOptions.includes(current)
+                ) {
+                  optionsWithCurrent = uniqueOptions([
+                    current,
+                    ...filteredOptions,
+                  ]);
+                }
+              }
 
               return (
                 <CustomFieldInput
                   key={field.id}
                   field={{
                     ...field,
-                    name: orderFormFieldLabel(field.name),
+                    // Keep original name for multi-select detection; label is separate.
+                    name: field.name,
                     options: optionsWithCurrent,
                   }}
+                  label={orderFormFieldLabel(field.name)}
                   value={current}
                   onChange={(v) => handleLinkedFieldChange(field.id, v)}
                   readOnly={readOnly}

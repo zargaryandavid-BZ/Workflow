@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Label, Select } from "@/components/ui/input";
 import {
   PRODUCT_CATEGORY_NAMES,
@@ -22,6 +23,13 @@ interface Props {
   productValue: unknown;
   materialsValue: unknown;
   onCategoryChange?: (value: unknown) => void;
+  /**
+   * Quiet Category write used when inferring from Product — must not clear
+   * Product via linked-dropdown side effects.
+   */
+  onCategorySync?: (value: string) => void;
+  /** Prefer link/catalog inference from the parent when provided. */
+  inferCategoryFromProduct?: (productName: string) => string | null;
   onProductChange: (value: unknown) => void;
   onMaterialsChange: (value: unknown) => void;
   readOnly?: boolean;
@@ -53,6 +61,8 @@ export function ProductMaterialsFields({
   productValue,
   materialsValue,
   onCategoryChange,
+  onCategorySync,
+  inferCategoryFromProduct,
   onProductChange,
   onMaterialsChange,
   readOnly = false,
@@ -100,12 +110,25 @@ export function ProductMaterialsFields({
   );
 
   function syncCategoryFromProduct(productName: string) {
-    if (storedCategory || !onCategoryChange) return;
-    const inferred = categoryForProduct(productName);
+    const setCategory = onCategorySync ?? onCategoryChange;
+    if (!setCategory) return;
+    const inferred =
+      inferCategoryFromProduct?.(productName) ??
+      categoryForProduct(productName);
     if (!inferred) return;
     const match = findMatchingOption(categoryOptions, inferred);
-    if (match) onCategoryChange(match);
+    if (!match) return;
+    if (optionsMatch(match, storedCategory)) return;
+    setCategory(match);
   }
+
+  // Fill / correct Category when Product is already set (e.g. webhook orders).
+  useEffect(() => {
+    if (readOnly || !product) return;
+    syncCategoryFromProduct(product);
+    // Only when product/category options identity changes — not on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow sync
+  }, [product, storedCategory, readOnly]);
 
   function handleCategoryChange(next: string) {
     onCategoryChange?.(next);

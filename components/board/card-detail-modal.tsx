@@ -572,6 +572,50 @@ export function CardDetailModal({
     setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
   }
 
+  /**
+   * Persist designer immediately so the board updates when the ticket is closed
+   * — without requiring a separate "Save changes" click.
+   */
+  async function assignDesigner(nextDesignerId: string) {
+    if (!orderId || !data || isViewOnly) return;
+    const prevId = designerId;
+    const name =
+      designers.find((d) => d.id === nextDesignerId)?.name ?? null;
+    setDesignerId(nextDesignerId);
+    setSaveError(null);
+
+    const nextSpecs = {
+      ...(data.order.specs ?? {}),
+      skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
+      designer_id: nextDesignerId || null,
+      designer_name: name,
+      design_task: designTask || null,
+    };
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ specs: nextSpecs }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setDesignerId(prevId);
+        setSaveError(json.error ?? "Failed to assign designer");
+        return;
+      }
+      setData((prev) =>
+        prev
+          ? { ...prev, order: { ...prev.order, specs: nextSpecs } }
+          : prev
+      );
+      onChanged({ specs: nextSpecs });
+    } catch {
+      setDesignerId(prevId);
+      setSaveError("Failed to assign designer");
+    }
+  }
+
   const ensureSkuPersisted = useCallback(
     async (skuId: string): Promise<string | null> => {
       if (!orderId || persistedSkuIds.has(skuId)) return null;
@@ -1249,7 +1293,7 @@ export function CardDetailModal({
               customerContact={customerContact}
               onCustomerContactChange={setCustomerContact}
               designerId={designerId}
-              onDesignerIdChange={setDesignerId}
+              onDesignerIdChange={(id) => void assignDesigner(id)}
               designTask={designTask}
               onDesignTaskChange={setDesignTask}
               fieldValues={fieldValues}

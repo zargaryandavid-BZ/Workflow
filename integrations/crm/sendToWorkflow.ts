@@ -71,7 +71,7 @@ export interface CrmSku {
   sku_name: string;
   quantity: number;
   artwork_url?: string | null;
-  /** Line comment — becomes `SKU1: …` in Workflow Order Description. */
+  /** Line comment — becomes `SKU1: …` under Attention / Internal notes. */
   description?: string | null;
   comment?: string | null;
 }
