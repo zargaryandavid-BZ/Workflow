@@ -85,7 +85,7 @@ interface OrderCardProps {
   designerName?: string;
   /** Designers with live load counts — enables admin right-click assign. */
   designers?: Designer[];
-  /** Persist designer assignment immediately (admin-only from board). */
+  /** Persist designer assignment immediately (admin / account manager). */
   onAssignDesigner?: (designer: {
     id: string | null;
     name: string | null;
@@ -245,7 +245,7 @@ export function OrderCard({
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Admin right-click on designer chip
+  // Right-click on designer chip (admin / account manager)
   const [designerMenuOpen, setDesignerMenuOpen] = useState(false);
   const [designerMenuPos, setDesignerMenuPos] = useState({ x: 0, y: 0 });
   const designerMenuRef = useRef<HTMLDivElement>(null);
@@ -253,8 +253,9 @@ export function OrderCard({
   const hasMoveMenu =
     availableColumns.length > 0 && Boolean(onMoveToColumn);
   const hasActionMenu = actionButtons.length > 0;
-  const hasContextMenu = hasMoveMenu || hasActionMenu;
   const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
+  const hasContextMenu = hasMoveMenu || hasActionMenu || canAssignDesigner;
+  const [designerSubOpen, setDesignerSubOpen] = useState(false);
 
   useEffect(() => {
     if (!menuOpen && !designerMenuOpen) return;
@@ -308,8 +309,11 @@ export function OrderCard({
     menuPos.y,
     hasActionMenu,
     hasMoveMenu,
+    canAssignDesigner,
+    designerSubOpen,
     actionButtons.length,
     availableColumns.length,
+    designers.length,
   ]);
 
   useLayoutEffect(() => {
@@ -335,6 +339,7 @@ export function OrderCard({
     e.preventDefault();
     e.stopPropagation();
     setDesignerMenuOpen(false);
+    setDesignerSubOpen(false);
     setMenuPos({ x: e.clientX, y: e.clientY });
     setMenuOpen(true);
   }
@@ -784,73 +789,133 @@ export function OrderCard({
         </div>
       ) : null}
 
-      {/* Right-click admin actions / move menu */}
-      {menuOpen && hasContextMenu ? (
-        <div
-          ref={menuRef}
-          style={{
-            top: menuPos.y,
-            left: menuPos.x,
-            maxHeight: "calc(100dvh - 16px)",
-          }}
-          className="fixed z-50 flex min-w-[11rem] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {hasActionMenu ? (
-            <div className="shrink-0 border-b border-slate-100 py-1">
-              {actionButtons.map((btn) => (
-                <ActionButton
-                  key={btn.id}
-                  appearance="menu"
-                  button={btn}
-                  orderId={order.id}
-                  orderNumber={order.title}
-                  appUrl={appUrl}
-                  groupSize={groupSize}
-                  customerEmail={email ?? order.customer?.email}
-                  customerPhone={phone ?? order.customer?.phone}
-                  productLabel={productName || null}
-                  onComplete={(result) => {
-                    setMenuOpen(false);
-                    onActionComplete?.(order, result);
-                  }}
-                  onError={(message) => onActionError?.(message)}
-                />
-              ))}
-            </div>
-          ) : null}
-          {hasMoveMenu ? (
-            <>
-              <p className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                <MoveRight className="h-3 w-3" />
-                Move to
-              </p>
-              <div className="min-h-0 flex-1 overflow-y-auto py-1">
-                {availableColumns.map((col) => (
+      {/* Right-click: actions / assign designer / move (portaled — card has overflow + dnd transform) */}
+      {menuOpen && hasContextMenu
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={{
+                top: menuPos.y,
+                left: menuPos.x,
+                maxHeight: "calc(100dvh - 16px)",
+              }}
+              className="fixed z-[80] flex min-w-[12rem] max-w-[min(18rem,calc(100vw-16px))] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              {hasActionMenu ? (
+                <div className="shrink-0 border-b border-slate-100 py-1">
+                  {actionButtons.map((btn) => (
+                    <ActionButton
+                      key={btn.id}
+                      appearance="menu"
+                      button={btn}
+                      orderId={order.id}
+                      orderNumber={order.title}
+                      appUrl={appUrl}
+                      groupSize={groupSize}
+                      customerEmail={email ?? order.customer?.email}
+                      customerPhone={phone ?? order.customer?.phone}
+                      productLabel={productName || null}
+                      onComplete={(result) => {
+                        setMenuOpen(false);
+                        onActionComplete?.(order, result);
+                      }}
+                      onError={(message) => onActionError?.(message)}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {canAssignDesigner ? (
+                <div
+                  className={cn(
+                    "shrink-0 py-1",
+                    (hasMoveMenu || hasActionMenu) && "border-b border-slate-100"
+                  )}
+                >
                   <button
-                    key={col.id}
                     type="button"
-                    onClick={() => {
-                      onMoveToColumn?.(order, col.id);
-                      setMenuOpen(false);
-                    }}
+                    onClick={() => setDesignerSubOpen((v) => !v)}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                   >
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
-                      style={{ backgroundColor: col.color ?? "#e2e8f0" }}
-                    />
-                    <span className="truncate">{col.name}</span>
+                    <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="flex-1 whitespace-nowrap">
+                      Assign designer
+                    </span>
+                    {designerSubOpen ? (
+                      <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    )}
                   </button>
-                ))}
-              </div>
-            </>
-          ) : null}
-        </div>
-      ) : null}
+                  {designerSubOpen ? (
+                    <div className="max-h-48 overflow-y-auto border-t border-slate-100 bg-slate-50/80 py-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAssignDesigner?.({ id: null, name: null });
+                          setMenuOpen(false);
+                          setDesignerSubOpen(false);
+                        }}
+                        className="flex w-full px-3 py-1.5 pl-8 text-left text-sm text-slate-600 hover:bg-slate-100"
+                      >
+                        Unassigned
+                      </button>
+                      {designers.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => {
+                            onAssignDesigner?.({ id: d.id, name: d.name });
+                            setMenuOpen(false);
+                            setDesignerSubOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between gap-2 px-3 py-1.5 pl-8 text-left text-sm text-slate-700 hover:bg-slate-100"
+                        >
+                          <span className="truncate">{d.name}</span>
+                          <span className="shrink-0 tabular-nums text-slate-400">
+                            ({d.load ?? 0})
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {hasMoveMenu ? (
+                <>
+                  <p className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    <MoveRight className="h-3 w-3" />
+                    Move to
+                  </p>
+                  <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                    {availableColumns.map((col) => (
+                      <button
+                        key={col.id}
+                        type="button"
+                        onClick={() => {
+                          onMoveToColumn?.(order, col.id);
+                          setMenuOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
+                          style={{ backgroundColor: col.color ?? "#e2e8f0" }}
+                        />
+                        <span className="truncate">{col.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>,
+            document.body
+          )
+        : null}
 
-      {/* Admin right-click: assign designer */}
+      {/* Right-click designer chip: assign designer */}
       {designerMenuOpen && canAssignDesigner
         ? createPortal(
             <div

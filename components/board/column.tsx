@@ -24,6 +24,7 @@ import {
 import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
 import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
+import { canAssignDesignerOnBoard } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
@@ -390,7 +391,9 @@ export function Column({
                     designers={designers}
                     availableColumns={availableColumns}
                     onAssignDesigner={
-                      role === "admin" ? onGroupAssignDesigner : undefined
+                      role && canAssignDesignerOnBoard(role)
+                        ? onGroupAssignDesigner
+                        : undefined
                     }
                     onSetDueDates={onGroupSetDueDates}
                     onMoveGroup={onMoveGroup}
@@ -406,7 +409,9 @@ export function Column({
                     designerName={designerNameByOrder[entry.order.id]}
                     designers={designers}
                     onAssignDesigner={
-                      role === "admin" && onGroupAssignDesigner
+                      role &&
+                      canAssignDesignerOnBoard(role) &&
+                      onGroupAssignDesigner
                         ? (designer) =>
                             onGroupAssignDesigner([entry.order], designer)
                         : undefined
@@ -449,10 +454,12 @@ export function Column({
                   designerName={designerNameByOrder[order.id]}
                   designers={designers}
                   onAssignDesigner={
-                    role === "admin" && onGroupAssignDesigner
+                    role &&
+                    canAssignDesignerOnBoard(role) &&
+                    onGroupAssignDesigner
                       ? (designer) =>
                           onGroupAssignDesigner([order], designer)
-                        : undefined
+                      : undefined
                   }
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}

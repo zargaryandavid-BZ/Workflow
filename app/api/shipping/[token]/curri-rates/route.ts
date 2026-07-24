@@ -66,10 +66,20 @@ export async function POST(
     return NextResponse.json({ rates: [], paymentEnabled: false });
   }
 
-  const boxes = (shipReq.boxes ?? []) as ShippingBox[];
-  if (boxes.length === 0) {
-    return NextResponse.json({ rates: [], paymentEnabled: false });
-  }
+  const storedBoxes = (shipReq.boxes ?? []) as ShippingBox[];
+  const boxes: ShippingBox[] =
+    storedBoxes.length > 0
+      ? storedBoxes
+      : [
+          {
+            length: 12,
+            width: 10,
+            height: 6,
+            weight: 5,
+            dimUnit: "in",
+            weightUnit: "lbs",
+          },
+        ];
 
   const config = resolveFedExConfig(settings);
   const deliveryAddress = {

@@ -38,6 +38,7 @@ import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 import { filterButtonsForColumn } from "@/lib/button-automations";
+import { canUseBoardActionButtons } from "@/lib/permissions";
 import type {
   BoardColumn,
   ButtonAutomation,
@@ -247,7 +248,7 @@ export function BoardTable({
   }, [menuState]);
 
   const menuActionCount =
-    menuState && role === "admin"
+    menuState && canUseBoardActionButtons(role)
       ? filterButtonsForColumn(
           buttonAutomations,
           menuState.order.column_id
@@ -701,7 +702,7 @@ export function BoardTable({
         >
           {(() => {
             const actionButtons =
-              role === "admin"
+              canUseBoardActionButtons(role)
                 ? filterButtonsForColumn(
                     buttonAutomations,
                     menuState.order.column_id

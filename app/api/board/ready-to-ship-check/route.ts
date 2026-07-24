@@ -62,21 +62,42 @@ export async function GET(request: Request) {
   const groupLabel = formatReadyToShipGroupLabel(members);
 
   const memberIds = members.map((m) => m.id);
-  const { data: previousNotif } = await supabase
-    .from("job_notifications")
-    .select("created_at")
-    .in("order_id", memberIds)
-    .eq("type", "ready_to_ship")
-    .in("status", ["sent", "responded", "pending"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const [{ data: previousNotif }, { data: previousShip }] = await Promise.all([
+    supabase
+      .from("job_notifications")
+      .select("created_at")
+      .in("order_id", memberIds)
+      .eq("type", "ready_to_ship")
+      .in("status", ["sent", "responded", "pending"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("shipping_requests")
+      .select("sent_at")
+      .in("order_id", memberIds)
+      .not("sent_at", "is", null)
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const notifAt = previousNotif?.created_at
+    ? new Date(previousNotif.created_at as string).getTime()
+    : 0;
+  const shipAt = previousShip?.sent_at
+    ? new Date(previousShip.sent_at as string).getTime()
+    : 0;
+  const latest =
+    notifAt || shipAt
+      ? new Date(Math.max(notifAt, shipAt)).toISOString()
+      : null;
 
   return NextResponse.json({
     siblingCount,
     siblingsInColumn,
     siblingTitles,
     groupLabel,
-    previousNotificationDate: previousNotif?.created_at ?? null,
+    previousNotificationDate: latest,
   });
 }

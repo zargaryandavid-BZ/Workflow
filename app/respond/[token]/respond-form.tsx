@@ -283,8 +283,9 @@ export function RespondForm({
 
         <p className="text-sm leading-relaxed text-slate-600">
           Pickup is available at 306 Boyd St, LA — Mon–Fri 9:30 AM–5:30 PM,
-          Saturday until 4:00 PM. Please contact us to arrange pickup or
-          delivery.
+          Saturday until 4:00 PM. To choose delivery or pickup online, ask us to
+          resend your shipping link (new notifications include pickup and
+          delivery options).
         </p>
 
         {error ? (

@@ -29,7 +29,10 @@ create policy "shipping_requests_member_all" on public.shipping_requests
   with check (public.is_tenant_member(tenant_id));
 
 -- Public portal reads via security-definer RPC (anon cannot SELECT the table directly).
-create or replace function public.get_shipping_request_by_token(p_token uuid)
+-- Must DROP first: CREATE OR REPLACE cannot change OUT/return row type (42P13).
+drop function if exists public.get_shipping_request_by_token(uuid);
+
+create function public.get_shipping_request_by_token(p_token uuid)
 returns table (
   shipping_request_id uuid,
   status              text,

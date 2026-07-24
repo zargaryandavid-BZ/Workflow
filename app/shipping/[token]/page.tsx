@@ -3,6 +3,7 @@ import {
   thumbnailUrlsByOrder,
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
+import { buildRespondOrderRows } from "@/lib/respond-order";
 import { defaultDeliveryAddress } from "@/lib/shipping-address";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -138,7 +139,9 @@ function PortalShell({
             </span>
           </div>
           {orderTitle ? (
-            <span className="text-sm text-white/90">Order {orderTitle}</span>
+            <span className="text-sm text-white/90">
+              Order <strong className="font-bold text-white">{orderTitle}</strong>
+            </span>
           ) : null}
         </div>
         <div className="p-6">{children}</div>
@@ -196,6 +199,12 @@ export default async function ShippingPortalPage({
 
   const mainImageUrl = await mainImageUrlForOrder(row.order_id);
 
+  const orderDetailRows = buildRespondOrderRows(
+    null,
+    row.order_fields ?? {},
+    {}
+  ).map((r) => ({ label: r.label, value: r.value }));
+
   const portalData: ShippingPortalData = {
     token,
     status: row.status,
@@ -210,6 +219,7 @@ export default async function ShippingPortalPage({
     expiresAt: row.expires_at,
     orderTitle: row.order_title,
     productLabel: productFromFields(row.order_fields),
+    orderDetailRows,
     tenantName: row.tenant_name,
     expiredWarning,
     paymentEnabled: Boolean(row.payment_enabled),

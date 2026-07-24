@@ -47,3 +47,13 @@ export function canMove(role: Role, from: DropColumn, to: DropColumn): boolean {
   if (from.id === to.id) return canDropIn(role, to);
   return canDropOut(role, from) && canDropIn(role, to);
 }
+
+/** Board card: assign designer via right-click (admin + account manager). */
+export function canAssignDesignerOnBoard(role: Role): boolean {
+  return role === "admin" || role === "account_manager";
+}
+
+/** Board card: column action buttons in the right-click menu. */
+export function canUseBoardActionButtons(role: Role): boolean {
+  return role === "admin" || role === "account_manager";
+}

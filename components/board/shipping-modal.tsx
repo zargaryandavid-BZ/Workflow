@@ -59,12 +59,15 @@ export function ShippingModal({
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
   const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
   const [weightUnit, setWeightUnit] = useState<ShippingWeightUnit>("lbs");
+  const [fulfillment, setFulfillment] = useState<"choose" | "pickup">("choose");
   const [sending, setSending] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  const boxesRequired = fulfillment === "choose";
   const allBoxesFilled = boxes.every(isBoxComplete);
   const hasContact = Boolean(customerEmail || customerPhone);
-  const canSend = allBoxesFilled && hasContact && !sending;
+  const canSend =
+    hasContact && !sending && (!boxesRequired || allBoxesFilled);
 
   useEffect(() => {
     if (!open) return;
@@ -72,6 +75,7 @@ export function ShippingModal({
     setBoxes([emptyBox()]);
     setDimUnit("in");
     setWeightUnit("lbs");
+    setFulfillment("choose");
     setSending(false);
     setLocalError(null);
   }, [open, orderId]);
@@ -99,16 +103,18 @@ export function ShippingModal({
 
   async function handleSend() {
     setLocalError(null);
-    for (let i = 0; i < boxes.length; i++) {
-      const b = boxes[i];
-      const nums = [b.length, b.width, b.height, b.weight].map((v) =>
-        Number.parseFloat(v)
-      );
-      if (!nums.every((n) => Number.isFinite(n) && n > 0)) {
-        setLocalError(
-          `Box ${i + 1}: enter length, width, height, and weight greater than 0.`
+    if (boxesRequired) {
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i];
+        const nums = [b.length, b.width, b.height, b.weight].map((v) =>
+          Number.parseFloat(v)
         );
-        return;
+        if (!nums.every((n) => Number.isFinite(n) && n > 0)) {
+          setLocalError(
+            `Box ${i + 1}: enter length, width, height, and weight greater than 0.`
+          );
+          return;
+        }
       }
     }
     if (!customerEmail && !customerPhone) {
@@ -123,9 +129,10 @@ export function ShippingModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           button_id: buttonId,
-          boxes,
+          boxes: boxesRequired ? boxes : [],
           dimUnit,
           weightUnit,
+          fulfillment,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -136,8 +143,10 @@ export function ShippingModal({
       }
       const baseMessage =
         typeof json.taggedCount === "number" && json.taggedCount > 1
-          ? `Link sent — ${json.taggedCount} parts tagged Texted.`
-          : "Shipment link sent to client";
+          ? `${fulfillment === "pickup" ? "Pickup notice" : "Link"} sent — ${json.taggedCount} parts tagged Texted.`
+          : fulfillment === "pickup"
+            ? "Pickup-ready notice sent to client"
+            : "Shipment link sent to client";
       const message = json.replacedResponse
         ? `New link sent — previous client response was replaced.`
         : json.resent
@@ -183,7 +192,7 @@ export function ShippingModal({
             onClick={() => void handleSend()}
             disabled={!canSend}
             title={
-              !allBoxesFilled
+              boxesRequired && !allBoxesFilled
                 ? "Fill length, width, height, and weight for every box"
                 : !hasContact
                   ? "No email or phone on file for this customer"
@@ -192,7 +201,11 @@ export function ShippingModal({
             className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            {sending ? "Sending…" : "Send to Client →"}
+            {sending
+              ? "Sending…"
+              : fulfillment === "pickup"
+                ? "Notify Ready for Pickup →"
+                : "Send to Client →"}
           </button>
         </>
       }
@@ -202,109 +215,175 @@ export function ShippingModal({
           <p className="-mt-1 text-sm text-slate-500">{productLabel}</p>
         ) : null}
 
-        <label className="block text-sm text-slate-700">
-          How many boxes?
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={boxCount}
-            onChange={(e) => updateBoxCount(Number(e.target.value))}
-            className="ml-3 w-16 rounded-md border border-slate-300 px-2 py-1 text-sm"
-          />
-        </label>
+        <fieldset className="space-y-2">
+          <legend className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            How is this order going out?
+          </legend>
+          <label
+            className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm ${
+              fulfillment === "choose"
+                ? "border-slate-800 bg-slate-50"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
+            <input
+              type="radio"
+              className="mt-0.5"
+              checked={fulfillment === "choose"}
+              onChange={() => setFulfillment("choose")}
+            />
+            <span>
+              <span className="block font-medium text-slate-800">
+                Let the customer choose
+              </span>
+              <span className="block text-xs text-slate-500">
+                Sends a link to view the order and pick pickup or delivery.
+              </span>
+            </span>
+          </label>
+          <label
+            className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm ${
+              fulfillment === "pickup"
+                ? "border-slate-800 bg-slate-50"
+                : "border-slate-200 hover:border-slate-300"
+            }`}
+          >
+            <input
+              type="radio"
+              className="mt-0.5"
+              checked={fulfillment === "pickup"}
+              onChange={() => setFulfillment("pickup")}
+            />
+            <span>
+              <span className="block font-medium text-slate-800">
+                Pickup — notify it&apos;s ready
+              </span>
+              <span className="block text-xs text-slate-500">
+                Tells the customer the order is ready for pickup. No choice needed.
+              </span>
+            </span>
+          </label>
+        </fieldset>
 
-        <div className="space-y-3">
-          {boxes.map((box, index) => (
-            <div
-              key={index}
-              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
-            >
-              <p className="mb-2 text-sm font-medium text-slate-800">
-                Box {index + 1}
-              </p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {(
-                  [
-                    ["length", "Length"],
-                    ["width", "Width"],
-                    ["height", "Height"],
-                  ] as const
-                ).map(([field, label]) => (
-                  <label key={field} className="block text-xs text-slate-500">
-                    {label} ({dimUnit}) *
-                    <input
-                      type="number"
-                      min={0.01}
-                      step="any"
-                      required
-                      value={box[field]}
-                      onChange={(e) => updateBox(index, field, e.target.value)}
-                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
-                    />
-                  </label>
-                ))}
-                <label className="block text-xs text-slate-500">
-                  Weight ({weightUnit}) *
-                  <input
-                    type="number"
-                    min={0.01}
-                    step="any"
-                    required
-                    value={box.weight}
-                    onChange={(e) => updateBox(index, "weight", e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
-                  />
-                </label>
-              </div>
+        {boxesRequired ? (
+          <>
+            <label className="block text-sm text-slate-700">
+              How many boxes?
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={boxCount}
+                onChange={(e) => updateBoxCount(Number(e.target.value))}
+                className="ml-3 w-16 rounded-md border border-slate-300 px-2 py-1 text-sm"
+              />
+            </label>
+
+            <div className="space-y-3">
+              {boxes.map((box, index) => (
+                <div
+                  key={index}
+                  className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+                >
+                  <p className="mb-2 text-sm font-medium text-slate-800">
+                    Box {index + 1}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {(
+                      [
+                        ["length", "Length"],
+                        ["width", "Width"],
+                        ["height", "Height"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <label
+                        key={field}
+                        className="block text-xs text-slate-500"
+                      >
+                        {label} ({dimUnit}) *
+                        <input
+                          type="number"
+                          min={0.01}
+                          step="any"
+                          required
+                          value={box[field]}
+                          onChange={(e) =>
+                            updateBox(index, field, e.target.value)
+                          }
+                          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+                        />
+                      </label>
+                    ))}
+                    <label className="block text-xs text-slate-500">
+                      Weight ({weightUnit}) *
+                      <input
+                        type="number"
+                        min={0.01}
+                        step="any"
+                        required
+                        value={box.weight}
+                        onChange={(e) =>
+                          updateBox(index, "weight", e.target.value)
+                        }
+                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div className="flex flex-wrap gap-6 text-sm text-slate-700">
-          <fieldset className="space-y-1">
-            <legend className="text-xs font-medium text-slate-500">
-              Dimensions unit
-            </legend>
-            <label className="mr-3 inline-flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={dimUnit === "in"}
-                onChange={() => setDimUnit("in")}
-              />
-              inches
-            </label>
-            <label className="inline-flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={dimUnit === "cm"}
-                onChange={() => setDimUnit("cm")}
-              />
-              cm
-            </label>
-          </fieldset>
-          <fieldset className="space-y-1">
-            <legend className="text-xs font-medium text-slate-500">
-              Weight unit
-            </legend>
-            <label className="mr-3 inline-flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={weightUnit === "lbs"}
-                onChange={() => setWeightUnit("lbs")}
-              />
-              lbs
-            </label>
-            <label className="inline-flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={weightUnit === "kg"}
-                onChange={() => setWeightUnit("kg")}
-              />
-              kg
-            </label>
-          </fieldset>
-        </div>
+            <div className="flex flex-wrap gap-6 text-sm text-slate-700">
+              <fieldset className="space-y-1">
+                <legend className="text-xs font-medium text-slate-500">
+                  Dimensions unit
+                </legend>
+                <label className="mr-3 inline-flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    checked={dimUnit === "in"}
+                    onChange={() => setDimUnit("in")}
+                  />
+                  inches
+                </label>
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    checked={dimUnit === "cm"}
+                    onChange={() => setDimUnit("cm")}
+                  />
+                  cm
+                </label>
+              </fieldset>
+              <fieldset className="space-y-1">
+                <legend className="text-xs font-medium text-slate-500">
+                  Weight unit
+                </legend>
+                <label className="mr-3 inline-flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    checked={weightUnit === "lbs"}
+                    onChange={() => setWeightUnit("lbs")}
+                  />
+                  lbs
+                </label>
+                <label className="inline-flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    checked={weightUnit === "kg"}
+                    onChange={() => setWeightUnit("kg")}
+                  />
+                  kg
+                </label>
+              </fieldset>
+            </div>
+          </>
+        ) : (
+          <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            Box sizes not needed for pickup. Switch to “Let the customer choose”
+            if you need delivery rates.
+          </p>
+        )}
 
         <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">

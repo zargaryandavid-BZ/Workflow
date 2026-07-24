@@ -83,7 +83,7 @@ export function NotificationPopup({
         customFields={customFields}
         fieldValues={fieldValues}
         smsConfigured={smsConfigured}
-        onClose={dismissAsManual}
+        onClose={onClose}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
       />

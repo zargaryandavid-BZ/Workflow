@@ -539,16 +539,37 @@ export function readyToShipSubject(
 }
 
 const ORDER_LINK_PLACEHOLDER = "[order link added on send]";
+const LINK_ADDED_ON_SEND_PLACEHOLDER = "[link added on send]";
 
 /** Ensures a ready-to-ship message includes the public order link. */
 export function ensureReadyToShipOrderLink(message: string, orderUrl: string) {
   const injected = injectReplyLink(message, orderUrl)
     .replaceAll(ORDER_LINK_PLACEHOLDER, orderUrl)
+    .replaceAll(LINK_ADDED_ON_SEND_PLACEHOLDER, orderUrl)
     .replaceAll("[reply link added on send]", orderUrl);
   if (injected.includes(orderUrl) || /\/respond\//.test(injected)) {
     return injected;
   }
   return `${injected.trim()}\n\nView your order: ${orderUrl}\nThis link expires in 7 days.`;
+}
+
+/**
+ * Injects the shipping portal URL into a staff-edited email/SMS body.
+ * Replaces preview placeholders used by ReadyToShipPopup.
+ */
+export function ensureShippingPortalLink(message: string, portalUrl: string) {
+  const injected = injectReplyLink(message, portalUrl)
+    .replaceAll(ORDER_LINK_PLACEHOLDER, portalUrl)
+    .replaceAll(LINK_ADDED_ON_SEND_PLACEHOLDER, portalUrl)
+    .replaceAll("[reply link added on send]", portalUrl);
+  if (
+    injected.includes(portalUrl) ||
+    /\/shipping\//.test(injected) ||
+    /\/respond\//.test(injected)
+  ) {
+    return injected;
+  }
+  return `${injected.trim()}\n\n${portalUrl}`;
 }
 
 /** Plain-text "ready to ship/pickup" email body. */
@@ -685,6 +706,94 @@ export function buildShippingPortalSmsBody(params: {
     customer_name: params.customerName?.trim() || "there",
     order_number: params.orderNumber,
     portal_url: params.portalUrl,
+  });
+}
+
+export type PickupReadySubjectVars = {
+  customer_name?: string;
+  portal_url?: string;
+  pickup_location?: string;
+  pickup_hours?: string;
+  team_name?: string;
+};
+
+export function pickupReadySubject(
+  orderNumber: string,
+  templates?: MessageTemplateMap | null,
+  vars?: PickupReadySubjectVars | null
+) {
+  const map = templatesOrDefault(templates);
+  return renderMessageTemplate(map.pickup_ready_email_subject, {
+    order_number: orderNumber,
+    customer_name: vars?.customer_name ?? "",
+    portal_url: vars?.portal_url ?? "",
+    pickup_location: vars?.pickup_location ?? "",
+    pickup_hours: vars?.pickup_hours ?? "",
+    team_name: vars?.team_name ?? "",
+  });
+}
+
+/** Plain-text "ready for pickup" email (no choice needed). */
+export function buildPickupReadyEmailBody(params: {
+  customerName: string;
+  orderNumber: string;
+  portalUrl: string;
+  pickupLocation: string;
+  pickupHours: string;
+  teamName?: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const map = templatesOrDefault(params.templates);
+  return renderMessageTemplate(map.pickup_ready_email_body, {
+    customer_name: params.customerName,
+    order_number: params.orderNumber,
+    portal_url: params.portalUrl,
+    pickup_location: params.pickupLocation,
+    pickup_hours: params.pickupHours,
+    team_name: params.teamName ?? "BazaarPrinting Team",
+  });
+}
+
+/** HTML "ready for pickup" email. */
+export function buildPickupReadyEmailHtml(params: {
+  customerName: string;
+  orderNumber: string;
+  portalUrl: string;
+  pickupLocation: string;
+  pickupHours: string;
+  teamName?: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const text = buildPickupReadyEmailBody(params);
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${params.orderNumber}`,
+    bodyHtml: plainTextToEmailParagraphs(text),
+    emailTitle: pickupReadySubject(params.orderNumber, params.templates, {
+      customer_name: params.customerName,
+      portal_url: params.portalUrl,
+      pickup_location: params.pickupLocation,
+      pickup_hours: params.pickupHours,
+      team_name: params.teamName ?? "BazaarPrinting Team",
+    }),
+  });
+}
+
+/** SMS telling the customer the order is ready for pickup (no choice needed). */
+export function buildPickupReadySmsBody(params: {
+  customerName?: string | null;
+  orderNumber: string;
+  portalUrl: string;
+  pickupLocation: string;
+  pickupHours: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const map = templatesOrDefault(params.templates);
+  return renderMessageTemplate(map.pickup_ready_sms, {
+    customer_name: params.customerName?.trim() || "there",
+    order_number: params.orderNumber,
+    portal_url: params.portalUrl,
+    pickup_location: params.pickupLocation,
+    pickup_hours: params.pickupHours,
   });
 }
 

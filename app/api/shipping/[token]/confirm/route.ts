@@ -68,18 +68,23 @@ export async function POST(
   }
   const paymentRequired =
     (body.choice === "delivery" || body.choice === "curri") &&
+    Boolean(body.fedexSelection?.serviceType) &&
     (settings?.payment_enabled ?? false);
 
   if (body.choice === "delivery" || body.choice === "curri") {
-    if (!body.fedexSelection?.serviceType) {
+    const hasRate = Boolean(body.fedexSelection?.serviceType);
+    // Unquoted delivery is allowed when staff did not enter box sizes —
+    // customer submits an address and the shop follows up with a quote.
+    if (!hasRate && body.choice === "curri") {
       return NextResponse.json(
-        { error: "Select a delivery option." },
+        { error: "Select a Curri delivery option." },
         { status: 422 }
       );
     }
     if (
+      hasRate &&
       body.choice === "curri" &&
-      body.fedexSelection.provider != null &&
+      body.fedexSelection?.provider != null &&
       body.fedexSelection.provider !== "curri"
     ) {
       return NextResponse.json(

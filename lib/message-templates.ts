@@ -16,6 +16,9 @@ export const MESSAGE_TEMPLATE_KEYS = [
   "shipping_portal_email_subject",
   "shipping_portal_email_body",
   "shipping_portal_sms",
+  "pickup_ready_email_subject",
+  "pickup_ready_email_body",
+  "pickup_ready_sms",
   "team_invite_email_subject",
   "team_invite_email_body",
   "password_reset_email_subject",
@@ -80,7 +83,8 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
   {
     id: "ready_to_ship",
     title: "Ready to ship / pickup",
-    description: "Sent when the order is ready for pickup or delivery.",
+    description:
+      "Sent when the order is ready — one link to view the order and choose pickup or delivery (box sizes required).",
     keys: [
       {
         key: "ready_to_ship_email_subject",
@@ -102,7 +106,8 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
   {
     id: "shipping_portal",
     title: "Shipping portal",
-    description: "Sent with a link for the customer to choose pickup or delivery.",
+    description:
+      "Same customer link as Ready to ship — view order and choose pickup or delivery.",
     keys: [
       {
         key: "shipping_portal_email_subject",
@@ -119,6 +124,33 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
     variables: [
       "{{customer_name}}",
       "{{order_number}}",
+      "{{portal_url}}",
+      "{{team_name}}",
+    ],
+  },
+  {
+    id: "pickup_ready",
+    title: "Ready for pickup",
+    description:
+      "Sent when staff already know the order is being picked up — tells the customer it's ready, no pickup/delivery choice needed.",
+    keys: [
+      {
+        key: "pickup_ready_email_subject",
+        label: "Email subject",
+        kind: "subject",
+      },
+      {
+        key: "pickup_ready_email_body",
+        label: "Email body",
+        kind: "email",
+      },
+      { key: "pickup_ready_sms", label: "SMS", kind: "sms" },
+    ],
+    variables: [
+      "{{customer_name}}",
+      "{{order_number}}",
+      "{{pickup_location}}",
+      "{{pickup_hours}}",
       "{{portal_url}}",
       "{{team_name}}",
     ],
@@ -193,22 +225,21 @@ Approve here: {{approval_link}}
   ready_to_ship_email_subject: "Your order is ready — #{{order_number}}",
   ready_to_ship_email_body: `Hi {{customer_name}},
 Great news! Your order #{{order_number}} is ready.{{staff_note_block}}
-View your order details here:
+View your order and choose pickup or delivery here:
 {{order_link}}
 This link expires in 7 days.
-Please contact us to arrange pickup or delivery.
 Thank you,
 {{team_name}}`,
   ready_to_ship_sms:
-    "Hi, this is Bazaar Printing. Your order {{order_number}} is ready at 306 Boyd St, LA. Available for pickup: Mon-Fri 9:30 AM - 5:30 PM, and Sat until 4:00 PM. View order: {{order_link}} (No-Reply Automated Text)",
+    "Hi, this is Bazaar Printing. Your order {{order_number}} is ready. View order and choose pickup or delivery: {{order_link}}",
 
   shipping_portal_email_subject:
     "Your order {{order_number}} is ready — choose delivery or pickup",
   shipping_portal_email_body: `Hi {{customer_name}},
 
-Your order {{order_number}} is ready to ship!
+Your order {{order_number}} is ready!
 
-Please open this link to choose self pickup or delivery:
+Please open this link to view your order and choose self pickup or delivery:
 
 {{portal_url}}
 
@@ -216,7 +247,25 @@ This link expires in 7 days.
 
 — {{team_name}}`,
   shipping_portal_sms:
-    "Hi {{customer_name}}, your order {{order_number}} is ready! Choose pickup or delivery: {{portal_url}}",
+    "Hi, this is Bazaar Printing. Your order {{order_number}} is ready. View order and choose pickup or delivery: {{portal_url}}",
+
+  pickup_ready_email_subject:
+    "Your order {{order_number}} is ready for pickup",
+  pickup_ready_email_body: `Hi {{customer_name}},
+
+Great news! Your order {{order_number}} is ready for pickup.
+
+Pickup location:
+{{pickup_location}}
+{{pickup_hours}}
+
+View your order details here:
+{{portal_url}}
+
+Thank you,
+{{team_name}}`,
+  pickup_ready_sms:
+    "Hi, this is Bazaar Printing. Your order {{order_number}} is ready for pickup at {{pickup_location}}. {{pickup_hours}} View order: {{portal_url}}",
 
   team_invite_email_subject:
     "You've been invited to join {{tenant_name}} on Workflow",

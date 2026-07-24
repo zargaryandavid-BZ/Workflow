@@ -1,9 +1,15 @@
 import "server-only";
 
 import {
+  buildPickupReadyEmailBody,
+  buildPickupReadyEmailHtml,
+  buildPickupReadySmsBody,
   buildShippingPortalEmailBody,
   buildShippingPortalEmailHtml,
   buildShippingPortalSmsBody,
+  ensureShippingPortalLink,
+  messageToEmailHtml,
+  pickupReadySubject,
   shippingPortalSubject,
 } from "@/lib/notification-messages";
 import { sendTransactionalEmail } from "@/lib/email";
@@ -72,34 +78,60 @@ export async function sendShippingPortalNotifications(args: {
   portalUrl: string;
   tenantName: string;
   templates?: MessageTemplateMap | null;
+  /** Staff-edited subject from Ready-to-Ship popup (email only). */
+  emailSubject?: string | null;
+  /** Staff-edited plain-text body from Ready-to-Ship popup (email only). */
+  emailBody?: string | null;
 }): Promise<{ emailSent: boolean; smsSent: boolean; errors: string[] }> {
   const errors: string[] = [];
   let emailSent = false;
   let smsSent = false;
   const templates = args.templates;
+  const customSubject = args.emailSubject?.trim() || null;
+  const customBody = args.emailBody?.trim() || null;
 
   if (args.email?.trim()) {
-    const html = buildShippingPortalEmailHtml({
-      customerName: args.customerName,
-      orderNumber: args.orderNumber,
-      portalUrl: args.portalUrl,
-      teamName: `${args.tenantName} Team`,
-      templates,
-    });
-    const text = buildShippingPortalEmailBody({
-      customerName: args.customerName,
-      orderNumber: args.orderNumber,
-      portalUrl: args.portalUrl,
-      teamName: `${args.tenantName} Team`,
-      templates,
-    });
+    let html: string;
+    let text: string;
+    let subject: string;
+
+    if (customBody) {
+      text = ensureShippingPortalLink(customBody, args.portalUrl);
+      html = messageToEmailHtml(text);
+      subject =
+        customSubject ||
+        shippingPortalSubject(args.orderNumber, templates, {
+          customer_name: args.customerName,
+          portal_url: args.portalUrl,
+          team_name: `${args.tenantName} Team`,
+        });
+    } else {
+      html = buildShippingPortalEmailHtml({
+        customerName: args.customerName,
+        orderNumber: args.orderNumber,
+        portalUrl: args.portalUrl,
+        teamName: `${args.tenantName} Team`,
+        templates,
+      });
+      text = buildShippingPortalEmailBody({
+        customerName: args.customerName,
+        orderNumber: args.orderNumber,
+        portalUrl: args.portalUrl,
+        teamName: `${args.tenantName} Team`,
+        templates,
+      });
+      subject =
+        customSubject ||
+        shippingPortalSubject(args.orderNumber, templates, {
+          customer_name: args.customerName,
+          portal_url: args.portalUrl,
+          team_name: `${args.tenantName} Team`,
+        });
+    }
+
     const result = await sendTransactionalEmail({
       to: args.email.trim(),
-      subject: shippingPortalSubject(args.orderNumber, templates, {
-        customer_name: args.customerName,
-        portal_url: args.portalUrl,
-        team_name: `${args.tenantName} Team`,
-      }),
+      subject,
       html,
       text,
     });
@@ -112,6 +144,107 @@ export async function sendShippingPortalNotifications(args: {
       customerName: args.customerName,
       orderNumber: args.orderNumber,
       portalUrl: args.portalUrl,
+      templates,
+    });
+    const result = await sendSms({ to: args.phone.trim(), body });
+    smsSent = result.sent;
+    if (!result.sent && result.error) errors.push(result.error);
+  }
+
+  return { emailSent, smsSent, errors };
+}
+
+/**
+ * Notify the customer their order is ready for pickup — used when staff already
+ * know it's a pickup, so no pickup/delivery choice is presented.
+ */
+export async function sendPickupReadyNotifications(args: {
+  email: string | null;
+  phone: string | null;
+  customerName: string;
+  orderNumber: string;
+  portalUrl: string;
+  pickupLocation: string;
+  pickupHours: string;
+  tenantName: string;
+  templates?: MessageTemplateMap | null;
+  /** Staff-edited subject from Ready-to-Ship popup (email only). */
+  emailSubject?: string | null;
+  /** Staff-edited plain-text body from Ready-to-Ship popup (email only). */
+  emailBody?: string | null;
+}): Promise<{ emailSent: boolean; smsSent: boolean; errors: string[] }> {
+  const errors: string[] = [];
+  let emailSent = false;
+  let smsSent = false;
+  const templates = args.templates;
+  const teamName = `${args.tenantName} Team`;
+  const customSubject = args.emailSubject?.trim() || null;
+  const customBody = args.emailBody?.trim() || null;
+
+  if (args.email?.trim()) {
+    let html: string;
+    let text: string;
+    let subject: string;
+
+    if (customBody) {
+      text = ensureShippingPortalLink(customBody, args.portalUrl);
+      html = messageToEmailHtml(text);
+      subject =
+        customSubject ||
+        pickupReadySubject(args.orderNumber, templates, {
+          customer_name: args.customerName,
+          portal_url: args.portalUrl,
+          pickup_location: args.pickupLocation,
+          pickup_hours: args.pickupHours,
+          team_name: teamName,
+        });
+    } else {
+      html = buildPickupReadyEmailHtml({
+        customerName: args.customerName,
+        orderNumber: args.orderNumber,
+        portalUrl: args.portalUrl,
+        pickupLocation: args.pickupLocation,
+        pickupHours: args.pickupHours,
+        teamName,
+        templates,
+      });
+      text = buildPickupReadyEmailBody({
+        customerName: args.customerName,
+        orderNumber: args.orderNumber,
+        portalUrl: args.portalUrl,
+        pickupLocation: args.pickupLocation,
+        pickupHours: args.pickupHours,
+        teamName,
+        templates,
+      });
+      subject =
+        customSubject ||
+        pickupReadySubject(args.orderNumber, templates, {
+          customer_name: args.customerName,
+          portal_url: args.portalUrl,
+          pickup_location: args.pickupLocation,
+          pickup_hours: args.pickupHours,
+          team_name: teamName,
+        });
+    }
+
+    const result = await sendTransactionalEmail({
+      to: args.email.trim(),
+      subject,
+      html,
+      text,
+    });
+    emailSent = result.sent;
+    if (!result.sent && result.error) errors.push(result.error);
+  }
+
+  if (args.phone?.trim()) {
+    const body = buildPickupReadySmsBody({
+      customerName: args.customerName,
+      orderNumber: args.orderNumber,
+      portalUrl: args.portalUrl,
+      pickupLocation: args.pickupLocation,
+      pickupHours: args.pickupHours,
       templates,
     });
     const result = await sendSms({ to: args.phone.trim(), body });

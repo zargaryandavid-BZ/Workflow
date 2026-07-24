@@ -28,6 +28,8 @@ export interface ShippingPortalData {
   expiresAt: string | null;
   orderTitle: string;
   productLabel: string;
+  /** Key order fields for the customer (same idea as /respond). */
+  orderDetailRows?: { label: string; value: string }[];
   tenantName: string;
   expiredWarning: boolean;
   paymentEnabled: boolean;
@@ -152,7 +154,9 @@ function isSameRate(a: FedExRateOption | null, b: FedExRateOption) {
 }
 
 export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
-  const offerDelivery = data.offerFedex || data.offerCurri;
+  const hasBoxes = data.boxes.length > 0;
+  // FedEx / Curri need box sizes — hide that option entirely when qty is 0.
+  const offerDelivery = hasBoxes && (data.offerFedex || data.offerCurri);
   const [step, setStep] = useState<
     "choose" | "pickup" | "delivery" | "uber" | "done"
   >(
@@ -201,6 +205,14 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     void finalizePaidDelivery(data.paymentReturnSessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on return from Stripe
   }, [data.paymentReturnSessionId]);
+
+  // If FedEx/Curri isn't offered (no boxes), never stay on the delivery step.
+  useEffect(() => {
+    if (step === "delivery" && !offerDelivery) {
+      setStep("choose");
+      setError(null);
+    }
+  }, [step, offerDelivery]);
 
   async function finalizePaidDelivery(checkoutSessionId: string) {
     setConfirming(true);
@@ -251,6 +263,17 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       )
       .join(" · ");
   }, [data.boxes]);
+
+  // Delivery quoting needs box dimensions; without them rates can never load.
+  const boxCountLabel = hasBoxes
+    ? `${data.boxes.length} ${data.boxes.length === 1 ? "box" : "boxes"}`
+    : "0 boxes";
+
+  /** Editing the address invalidates any prior rate error/quote. */
+  function editAddress(patch: Partial<ShippingDeliveryAddress>) {
+    setAddress((a) => ({ ...a, ...patch }));
+    setError(null);
+  }
 
   async function confirmPickup() {
     setConfirming(true);
@@ -487,11 +510,19 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
 
       <div>
         <h1 className="text-xl font-semibold text-slate-900">
-          Your order #{data.orderTitle} is ready!
+          Your order #<strong className="font-bold">{data.orderTitle}</strong> is
+          ready!
         </h1>
         {data.productLabel ? (
           <p className="mt-1 text-sm text-slate-500">{data.productLabel}</p>
         ) : null}
+        <p className="mt-2 text-sm text-slate-600">
+          {step === "done"
+            ? doneChoice === "pickup"
+              ? "Your order is ready for pickup — details are below."
+              : "Your order details are below."
+            : "View your order below, then choose pickup or delivery."}
+        </p>
       </div>
 
       {data.mainImageUrl ? (
@@ -504,13 +535,32 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         </div>
       ) : null}
 
+      {data.orderDetailRows && data.orderDetailRows.length > 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-white">
+          <p className="border-b border-slate-100 px-4 py-2.5 text-sm font-medium text-slate-800">
+            Order details
+          </p>
+          <dl className="divide-y divide-slate-100">
+            {data.orderDetailRows.map((row) => (
+              <div
+                key={row.label}
+                className="grid grid-cols-[40%_1fr] gap-3 px-4 py-2.5 text-sm"
+              >
+                <dt className="text-slate-500">{row.label}</dt>
+                <dd className="font-medium text-slate-800">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <p className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-800">
           <Package className="h-4 w-4 text-slate-500" />
           Shipment summary
         </p>
         <p className="text-sm text-slate-600">
-          {data.boxes.length} {data.boxes.length === 1 ? "box" : "boxes"}
+          {boxCountLabel}
           {boxSummary ? ` · ${boxSummary}` : null}
         </p>
       </div>
@@ -646,9 +696,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               Street
               <input
                 value={address.street}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, street: e.target.value }))
-                }
+                onChange={(e) => editAddress({ street: e.target.value })}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
@@ -656,9 +704,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               City
               <input
                 value={address.city}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, city: e.target.value }))
-                }
+                onChange={(e) => editAddress({ city: e.target.value })}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
@@ -667,9 +713,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 State
                 <select
                   value={address.state}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, state: e.target.value }))
-                  }
+                  onChange={(e) => editAddress({ state: e.target.value })}
                   className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
                   <option value="">Select</option>
@@ -684,9 +728,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 ZIP
                 <input
                   value={address.zip}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, zip: e.target.value }))
-                  }
+                  onChange={(e) => editAddress({ zip: e.target.value })}
                   className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 />
               </label>
@@ -727,6 +769,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               setStep("choose");
               setRates([]);
               setSelectedRate(null);
+              setError(null);
             }}
             className="text-sm text-slate-500 hover:text-slate-700"
           >
@@ -738,9 +781,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               Street
               <input
                 value={address.street}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, street: e.target.value }))
-                }
+                onChange={(e) => editAddress({ street: e.target.value })}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
@@ -748,9 +789,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               City
               <input
                 value={address.city}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, city: e.target.value }))
-                }
+                onChange={(e) => editAddress({ city: e.target.value })}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
@@ -759,9 +798,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 State
                 <select
                   value={address.state}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, state: e.target.value }))
-                  }
+                  onChange={(e) => editAddress({ state: e.target.value })}
                   className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
                 >
                   <option value="">Select</option>
@@ -776,9 +813,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 ZIP
                 <input
                   value={address.zip}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, zip: e.target.value }))
-                  }
+                  onChange={(e) => editAddress({ zip: e.target.value })}
                   className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 />
               </label>
@@ -796,11 +831,13 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             ) : null}
             {loadingRates
               ? "Getting rates…"
-              : data.offerFedex && data.offerCurri
-                ? "Get delivery rates"
-                : data.offerCurri
-                  ? "Get Curri rates"
-                  : "Get FedEx rates"}
+              : rates.length > 0
+                ? "Refresh rates"
+                : data.offerFedex && data.offerCurri
+                  ? "Get delivery rates"
+                  : data.offerCurri
+                    ? "Get Curri rates"
+                    : "Get FedEx rates"}
           </button>
 
           {rates.length > 0 ? (

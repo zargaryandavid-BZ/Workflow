@@ -40,7 +40,7 @@ import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import { canDragInColumn, canDropIn, canDropOut } from "@/lib/permissions";
+import { canDragInColumn, canDropIn, canDropOut, canUseBoardActionButtons } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
@@ -2049,7 +2049,7 @@ export function Board({
                 availableColumns={getMoveableColumns(column.id)}
                 onMoveToColumn={handleContextMove}
                 actionButtons={
-                  role === "admin"
+                  canUseBoardActionButtons(role)
                     ? filterButtonsForColumn(buttonAutomations, column.id)
                     : []
                 }
