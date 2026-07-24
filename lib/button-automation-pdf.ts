@@ -510,38 +510,43 @@ function drawArtworkPage(
   totalPages: number,
   imageBuffer: Buffer | null
 ) {
-  doc.rect(0, 0, PAGE_WIDTH, 44).fill("#1a1a2e");
+  doc.rect(0, 0, PAGE_WIDTH, 72).fill("#1a1a2e");
   doc
     .fillColor("#ffffff")
     .fontSize(11)
     .font("Helvetica-Bold")
-    .text(data.tenantName.toUpperCase(), MARGIN, 14);
+    .text(data.tenantName.toUpperCase(), MARGIN, 12);
   doc
     .fontSize(9)
     .font("Helvetica")
-    .text("JOB TICKET", PAGE_WIDTH - MARGIN - 60, 14, {
+    .text("JOB TICKET", PAGE_WIDTH - MARGIN - 60, 12, {
       width: 60,
       align: "right",
     });
-  doc.fontSize(9).text(data.orderNumberDisplay, MARGIN, 28);
+  // 200% of previous sizes (9→18, 8→16) so order + SKU caption read clearly on press.
+  doc.fontSize(18).font("Helvetica-Bold").text(data.orderNumberDisplay, MARGIN, 36);
 
   const skuLabel =
     totalImagesForSku > 1
       ? `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}  ·  Image ${imageIndex + 1}/${totalImagesForSku}  ·  Qty: ${fmtQty(skuQty)}`
       : `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}  ·  Qty: ${fmtQty(skuQty)}`;
 
+  const orderLabelWidth = Math.min(
+    160,
+    doc.widthOfString(data.orderNumberDisplay) + 12
+  );
   doc
-    .fontSize(8)
+    .fontSize(16)
     .font("Helvetica")
     .fillColor("#d1d5db")
-    .text(skuLabel, MARGIN + 100, 28, {
-      width: PAGE_WIDTH - MARGIN * 2 - 100,
+    .text(skuLabel, MARGIN + orderLabelWidth, 38, {
+      width: PAGE_WIDTH - MARGIN * 2 - orderLabelWidth,
       align: "right",
     });
 
   doc.fillColor("#000000");
 
-  const imageTop = 52;
+  const imageTop = 80;
   const imageBottom = PAGE_HEIGHT - 24;
   const imageAreaH = imageBottom - imageTop;
   const imageAreaW = PAGE_WIDTH;

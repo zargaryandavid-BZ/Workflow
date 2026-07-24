@@ -737,7 +737,9 @@ export function OrderFormBody({
 
         {(!hideEmpty || description.trim()) ? (
         <div>
-          <Label htmlFor={`${idPrefix}-desc`}>Order Description</Label>
+          <Label htmlFor={`${idPrefix}-desc`}>
+            Order Description (Customer Note)
+          </Label>
           <Textarea
             id={`${idPrefix}-desc`}
             readOnly={readOnly}
