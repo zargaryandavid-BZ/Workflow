@@ -6,7 +6,10 @@ import { enrichActivityLog } from "@/lib/activity";
 import { ORDER_ASSETS_BUCKET, safeAssetFileName } from "@/lib/order-assets";
 import { listSkuImagesForOrder } from "@/lib/sku-images";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
+import { COLUMN_ARCHIVE_MAX_ORDERS } from "@/lib/order-archive-constants";
 import type { ActivityLog, Asset, Order } from "@/lib/types";
+
+export { COLUMN_ARCHIVE_MAX_ORDERS };
 
 /** Full history for archives (UI list stays capped separately). */
 const ARCHIVE_ACTIVITY_LIMIT = 5000;
@@ -90,18 +93,22 @@ function guessFileNameFromUrl(url: string, fallback: string): string {
 }
 
 /**
- * Builds a ZIP archive for one order: JSON snapshot (fields, history, dates)
- * plus all Storage and reachable external artwork files.
+ * Writes one order's archive contents into an existing ZIP folder
+ * (used by single-order and column archives).
  */
-export async function buildOrderArchiveZip(
+export async function writeOrderArchiveIntoFolder(
   client: Client,
+  folder: JSZip,
   params: { tenantId: string; orderId: string }
-): Promise<OrderArchiveResult | { error: string; status: number }> {
+): Promise<
+  | { ok: true; orderTitle: string; failures: OrderArchiveFileFailure[] }
+  | { ok: false; error: string; status: number }
+> {
   const { tenantId, orderId } = params;
 
   const order = await loadOrderWithRelations(client, orderId, tenantId);
   if (!order) {
-    return { error: "Order not found", status: 404 };
+    return { ok: false, error: "Order not found", status: 404 };
   }
 
   const [
@@ -195,15 +202,10 @@ export async function buildOrderArchiveZip(
   const assets = (assetsRes.data ?? []) as Asset[];
   const failures: OrderArchiveFileFailure[] = [];
   const usedPaths = new Set<string>();
-  const zip = new JSZip();
-  const root = archiveFolderName(order.title, orderId);
-  const folder = zip.folder(root);
-  if (!folder) {
-    return { error: "Failed to create archive", status: 500 };
-  }
+  const exportedAt = new Date().toISOString();
 
   const snapshot = {
-    exported_at: new Date().toISOString(),
+    exported_at: exportedAt,
     order: {
       id: order.id,
       title: order.title,
@@ -260,7 +262,7 @@ export async function buildOrderArchiveZip(
     "history.json",
     JSON.stringify(
       {
-        exported_at: snapshot.exported_at,
+        exported_at: exportedAt,
         order_created_at: order.created_at,
         order_updated_at: order.updated_at,
         due_date: order.due_date,
@@ -271,7 +273,6 @@ export async function buildOrderArchiveZip(
     )
   );
 
-  // Order-level + SKU artwork assets
   for (const asset of assets) {
     const subDir = asset.sku_key
       ? `assets/sku-${safeAssetFileName(asset.sku_key)}`
@@ -310,7 +311,6 @@ export async function buildOrderArchiveZip(
     }
   }
 
-  // SKU gallery images
   for (const img of skuImages) {
     const bytes = await downloadStorageFile(client, img.storage_path);
     if (!bytes) {
@@ -331,7 +331,7 @@ export async function buildOrderArchiveZip(
   const manifestLines = [
     `Order archive: ${order.title}`,
     `Order ID: ${order.id}`,
-    `Exported: ${snapshot.exported_at}`,
+    `Exported: ${exportedAt}`,
     `Created: ${order.created_at}`,
     `Updated: ${order.updated_at}`,
     `Due: ${order.due_date ?? "—"}`,
@@ -350,6 +350,38 @@ export async function buildOrderArchiveZip(
   }
   folder.file("manifest.txt", manifestLines.join("\n"));
 
+  return { ok: true, orderTitle: order.title, failures };
+}
+
+/**
+ * Builds a ZIP archive for one order: JSON snapshot (fields, history, dates)
+ * plus all Storage and reachable external artwork files.
+ */
+export async function buildOrderArchiveZip(
+  client: Client,
+  params: { tenantId: string; orderId: string }
+): Promise<OrderArchiveResult | { error: string; status: number }> {
+  const zip = new JSZip();
+  // Placeholder root — replaced after we know the title
+  const probe = await loadOrderWithRelations(
+    client,
+    params.orderId,
+    params.tenantId
+  );
+  if (!probe) {
+    return { error: "Order not found", status: 404 };
+  }
+  const root = archiveFolderName(probe.title, params.orderId);
+  const folder = zip.folder(root);
+  if (!folder) {
+    return { error: "Failed to create archive", status: 500 };
+  }
+
+  const written = await writeOrderArchiveIntoFolder(client, folder, params);
+  if (!written.ok) {
+    return { error: written.error, status: written.status };
+  }
+
   const zipBytes = await zip.generateAsync({
     type: "uint8array",
     compression: "DEFLATE",
@@ -359,6 +391,125 @@ export async function buildOrderArchiveZip(
   return {
     zip: Buffer.from(zipBytes),
     fileName: `${root}-archive.zip`,
+    failures: written.failures,
+  };
+}
+
+/** Soft cap so a single request stays within serverless limits — see order-archive-constants. */
+
+export const ORDER_ARCHIVES_BUCKET = "order-archives";
+
+export interface ColumnArchiveZipResult {
+  zip: Buffer;
+  fileName: string;
+  orderCount: number;
+  failures: OrderArchiveFileFailure[];
+  skippedOverLimit: number;
+}
+
+/**
+ * Builds one ZIP containing every (non-removed) order currently in a column.
+ */
+export async function buildColumnArchiveZip(
+  client: Client,
+  params: { tenantId: string; columnId: string; columnName: string }
+): Promise<ColumnArchiveZipResult | { error: string; status: number }> {
+  const { tenantId, columnId, columnName } = params;
+
+  const { data: orderRows, error } = await client
+    .from("orders")
+    .select("id, title, position")
+    .eq("tenant_id", tenantId)
+    .eq("column_id", columnId)
+    .is("removed_at", null)
+    .order("position", { ascending: true });
+
+  if (error) {
+    return { error: error.message, status: 400 };
+  }
+
+  const all = (orderRows ?? []) as { id: string; title: string }[];
+  if (all.length === 0) {
+    return { error: "This column has no orders to archive", status: 400 };
+  }
+
+  const skippedOverLimit = Math.max(0, all.length - COLUMN_ARCHIVE_MAX_ORDERS);
+  const orders = all.slice(0, COLUMN_ARCHIVE_MAX_ORDERS);
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const colSafe = archiveFolderName(columnName, columnId);
+  const root = `${colSafe}-${stamp}`;
+  const zip = new JSZip();
+  const rootFolder = zip.folder(root);
+  if (!rootFolder) {
+    return { error: "Failed to create archive", status: 500 };
+  }
+
+  const failures: OrderArchiveFileFailure[] = [];
+  const included: { id: string; title: string }[] = [];
+
+  for (const row of orders) {
+    const subName = archiveFolderName(row.title, row.id);
+    const orderFolder = rootFolder.folder(subName);
+    if (!orderFolder) {
+      failures.push({
+        source: row.id,
+        reason: "Could not create folder in ZIP",
+      });
+      continue;
+    }
+    const written = await writeOrderArchiveIntoFolder(client, orderFolder, {
+      tenantId,
+      orderId: row.id,
+    });
+    if (!written.ok) {
+      failures.push({ source: row.id, reason: written.error });
+      continue;
+    }
+    included.push({ id: row.id, title: written.orderTitle });
+    for (const f of written.failures) {
+      failures.push({
+        source: `${row.title}: ${f.source}`,
+        reason: f.reason,
+      });
+    }
+  }
+
+  if (included.length === 0) {
+    return { error: "Could not archive any orders in this column", status: 500 };
+  }
+
+  const manifest = [
+    `Column archive: ${columnName}`,
+    `Column ID: ${columnId}`,
+    `Exported: ${new Date().toISOString()}`,
+    `Orders included: ${included.length}`,
+    `Orders skipped (over limit of ${COLUMN_ARCHIVE_MAX_ORDERS}): ${skippedOverLimit}`,
+    `File failures: ${failures.length}`,
+    "",
+    "Orders:",
+    ...included.map((o) => `- ${o.title} (${o.id})`),
+    "",
+  ];
+  if (failures.length > 0) {
+    manifest.push("Failures:");
+    for (const f of failures) {
+      manifest.push(`- ${f.source}: ${f.reason}`);
+    }
+  }
+  rootFolder.file("manifest.txt", manifest.join("\n"));
+
+  const zipBytes = await zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+
+  return {
+    zip: Buffer.from(zipBytes),
+    fileName: `${root}.zip`,
+    orderCount: included.length,
     failures,
+    skippedOverLimit,
   };
 }

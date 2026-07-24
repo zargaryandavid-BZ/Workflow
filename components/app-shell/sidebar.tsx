@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Archive,
   BarChart3,
   Clock,
   LayoutGrid,
@@ -89,6 +90,12 @@ const nav = [
     href: "/settings/gdrive",
     label: "GDrive",
     icon: HardDrive,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/archive",
+    label: "Archive",
+    icon: Archive,
     adminOnly: true,
   },
   {
