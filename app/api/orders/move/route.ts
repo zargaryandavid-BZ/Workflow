@@ -5,6 +5,11 @@ import { logActivity, onEnterColumn } from "@/lib/automation";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { canMove } from "@/lib/permissions";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
+import {
+  chipsToStampOnEnter,
+  withTimeChipStamp,
+} from "@/lib/time-chips";
+import type { TimeChip } from "@/lib/time-chips";
 import type { BoardColumn, CustomField, Customer, Order, OrderWithRelations } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -145,12 +150,37 @@ export async function POST(request: Request) {
 
   const isColumnChange = fromColumnId !== body.toColumnId;
 
+  let nextSpecs = (typedOrder.specs ?? {}) as Record<string, unknown>;
+  if (isColumnChange) {
+    const { data: chipRows } = await supabase
+      .from("time_chips")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("enabled", true)
+      .eq("stamp_on_column_id", body.toColumnId);
+    const toStamp = chipsToStampOnEnter(
+      (chipRows ?? []) as TimeChip[],
+      body.toColumnId
+    );
+    if (toStamp.length > 0) {
+      const now = new Date().toISOString();
+      for (const chip of toStamp) {
+        nextSpecs = withTimeChipStamp(nextSpecs, chip.id, now);
+      }
+    }
+  }
+
+  const specsChanged =
+    isColumnChange &&
+    JSON.stringify(nextSpecs) !== JSON.stringify(typedOrder.specs ?? {});
+
   const { data: updated, error } = await supabase
     .from("orders")
     .update({
       column_id: body.toColumnId,
       position: newPosition,
       ...(isColumnChange ? { last_moved_at: new Date().toISOString() } : {}),
+      ...(specsChanged ? { specs: nextSpecs } : {}),
     })
     .eq("id", body.orderId)
     .eq("tenant_id", tenantId)

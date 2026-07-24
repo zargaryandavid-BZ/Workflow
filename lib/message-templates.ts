@@ -226,6 +226,7 @@ You've been invited to join {{tenant_name}} on Workflow.
 Use the link below to create your account and set your password:
 
 {{invite_url}}
+
 This link expires in 24 hours.
 Thank you,
 {{tenant_name}} Team`,
@@ -238,6 +239,7 @@ An admin at {{tenant_name}} has sent you a password reset link.
 Use the link below to set a new password:
 
 {{reset_url}}
+
 This link expires in 24 hours.
 Thank you,
 {{tenant_name}} Team`,

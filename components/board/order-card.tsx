@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
-  CalendarClock,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -15,7 +14,6 @@ import {
   Car,
   MapPin,
   MoveRight,
-  Timer,
   Truck,
   User,
 } from "lucide-react";
@@ -26,12 +24,10 @@ import {
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import {
-  PRIORITY_STYLES,
   UNASSIGNED_DESIGNER_CARD_CLASS,
   UNASSIGNED_DESIGNER_TEXT_CLASS,
   UNASSIGNED_OWNER_TEXT_CLASS,
 } from "@/lib/constants";
-import { dueDateBadgeClass, dueDateStatus } from "@/lib/board-due-date";
 import type { ColumnKind } from "@/lib/types";
 import {
   cardOrderQty,
@@ -43,17 +39,17 @@ import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
-import { cn, formatDate, formatDateShort } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import {
   getActiveWarning,
-  formatTimeInColumn,
   CARD_WARNING_BORDER_COLORS,
 } from "@/lib/card-warning-rules";
 import type {
   ButtonAutomation,
   CardWarningRule,
   CustomField,
+  Designer,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
@@ -68,6 +64,8 @@ import { sharedOrderTitle } from "@/lib/group-orders";
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
+import { OrderCardTimeChips } from "./order-card-time-chips";
+import type { TimeChip } from "@/lib/time-chips";
 
 interface ColumnOption {
   id: string;
@@ -85,6 +83,13 @@ interface OrderCardProps {
   thumbnails?: string[];
   /** Resolved designer display name (from specs or team list). */
   designerName?: string;
+  /** Designers with live load counts — enables admin right-click assign. */
+  designers?: Designer[];
+  /** Persist designer assignment immediately (admin-only from board). */
+  onAssignDesigner?: (designer: {
+    id: string | null;
+    name: string | null;
+  }) => void;
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
   /** ISO timestamp when the customer last approved artwork. */
@@ -100,6 +105,16 @@ interface OrderCardProps {
   columnColor?: string | null;
   /** Used to skip overdue badges in terminal (done) columns. */
   columnKind?: ColumnKind | null;
+  /** Current board column name — used for column-specific card chrome. */
+  columnName?: string | null;
+  /**
+   * When true, show van + date the card entered this column.
+   * Prefer passing from Column; falls back to columnName matching.
+   * Ignored when `timeChips` config is loaded.
+   */
+  showShippedEnteredDate?: boolean;
+  /** Configurable time chips from Settings → Tags. */
+  timeChips?: TimeChip[] | null;
   /** Columns the user is allowed to move this card to (pre-filtered by board). */
   availableColumns?: ColumnOption[];
   /** Called when the user selects a column from the right-click menu. */
@@ -124,6 +139,8 @@ export function OrderCard({
   fieldValues = {},
   thumbnails,
   designerName: designerNameProp,
+  designers = [],
+  onAssignDesigner,
   notificationBadge,
   ownerName,
   approvalDate = null,
@@ -135,6 +152,9 @@ export function OrderCard({
   webhookSourceStyles,
   columnColor,
   columnKind = null,
+  columnName = null,
+  showShippedEnteredDate,
+  timeChips = null,
   availableColumns = [],
   onMoveToColumn,
   actionButtons = [],
@@ -187,18 +207,10 @@ export function OrderCard({
     null;
 
   const isOwnerUnassigned = !order.created_by;
-  const dueStatus = dueDateStatus(order.due_date, {
-    inDoneColumn: columnKind === "done",
-  });
 
   const orderTags = orderTagsFromSpecs(order.specs);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
-  const timeHere = formatTimeInColumn(
-    order.last_moved_at,
-    Date.now(),
-    warningWorkingDays
-  );
   const shippingBorderColor =
     !activeWarning ? shippingCardBorderColor(shippingSign) : null;
 
@@ -228,25 +240,41 @@ export function OrderCard({
   const [copied, setCopied] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
-  // Right-click context menu
+  // Right-click context menu (move / actions)
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Admin right-click on designer chip
+  const [designerMenuOpen, setDesignerMenuOpen] = useState(false);
+  const [designerMenuPos, setDesignerMenuPos] = useState({ x: 0, y: 0 });
+  const designerMenuRef = useRef<HTMLDivElement>(null);
 
   const hasMoveMenu =
     availableColumns.length > 0 && Boolean(onMoveToColumn);
   const hasActionMenu = actionButtons.length > 0;
   const hasContextMenu = hasMoveMenu || hasActionMenu;
+  const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !designerMenuOpen) return;
     function handleClose(e: MouseEvent | KeyboardEvent) {
       if (e instanceof KeyboardEvent) {
-        if (e.key === "Escape") setMenuOpen(false);
+        if (e.key === "Escape") {
+          setMenuOpen(false);
+          setDesignerMenuOpen(false);
+        }
         return;
       }
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (menuRef.current && !menuRef.current.contains(target)) {
         setMenuOpen(false);
+      }
+      if (
+        designerMenuRef.current &&
+        !designerMenuRef.current.contains(target)
+      ) {
+        setDesignerMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClose);
@@ -255,9 +283,9 @@ export function OrderCard({
       document.removeEventListener("mousedown", handleClose);
       document.removeEventListener("keydown", handleClose);
     };
-  }, [menuOpen]);
+  }, [menuOpen, designerMenuOpen]);
 
-  // Keep the menu fully on-screen (flip up / shift left when near edges).
+  // Keep menus fully on-screen (flip up / shift left when near edges).
   useLayoutEffect(() => {
     if (!menuOpen || !menuRef.current) return;
     const el = menuRef.current;
@@ -284,12 +312,40 @@ export function OrderCard({
     availableColumns.length,
   ]);
 
+  useLayoutEffect(() => {
+    if (!designerMenuOpen || !designerMenuRef.current) return;
+    const el = designerMenuRef.current;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let x = designerMenuPos.x;
+    let y = designerMenuPos.y;
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad);
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad);
+    }
+    if (x !== designerMenuPos.x || y !== designerMenuPos.y) {
+      setDesignerMenuPos({ x, y });
+    }
+  }, [designerMenuOpen, designerMenuPos.x, designerMenuPos.y, designers.length]);
+
   function handleContextMenu(e: React.MouseEvent) {
     if (!hasContextMenu) return;
     e.preventDefault();
     e.stopPropagation();
+    setDesignerMenuOpen(false);
     setMenuPos({ x: e.clientX, y: e.clientY });
     setMenuOpen(true);
+  }
+
+  function handleDesignerContextMenu(e: React.MouseEvent) {
+    if (!canAssignDesigner) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(false);
+    setDesignerMenuPos({ x: e.clientX, y: e.clientY });
+    setDesignerMenuOpen(true);
   }
 
   async function copyText(e: React.MouseEvent, text: string, key: string) {
@@ -529,77 +585,17 @@ export function OrderCard({
       {/* Divider — full card width */}
       <div className="mt-2.5 border-t border-slate-100" />
 
-      {/* Dates + priority — below separator, above footer tags */}
-      <div className="mt-2 flex w-full items-center gap-2">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] leading-none text-slate-500">
-          <span
-            className="inline-flex items-center gap-0.5"
-            title={`Created ${formatDate(order.created_at)}`}
-          >
-            <Clock className="h-3 w-3 shrink-0 text-slate-400" />
-            {formatDateShort(order.created_at)}
-          </span>
-          {order.due_date ? (
-            <span
-              className="inline-flex items-center gap-0.5 font-medium text-slate-600"
-              title={`Due ${formatDate(order.due_date)}`}
-            >
-              <CalendarClock className="h-3 w-3 shrink-0" />
-              {formatDateShort(order.due_date)}
-            </span>
-          ) : (
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
-                dueDateBadgeClass(dueStatus)
-              )}
-            >
-              {dueStatus.label}
-            </span>
-          )}
-          {dueStatus.kind === "late" ||
-          dueStatus.kind === "today" ||
-          dueStatus.kind === "soon" ? (
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
-                dueDateBadgeClass(dueStatus)
-              )}
-              title={
-                order.due_date ? `Due ${formatDate(order.due_date)}` : undefined
-              }
-            >
-              {dueStatus.label}
-            </span>
-          ) : null}
-          {timeHere ? (
-            <span
-              className="inline-flex items-center gap-0.5"
-              title={timeHere.title}
-            >
-              <Timer className="h-3 w-3 shrink-0 text-slate-400" />
-              {timeHere.label}
-            </span>
-          ) : null}
-          {approvalDate ? (
-            <span
-              className="inline-flex items-center gap-0.5 text-green-700"
-              title={`Approved ${formatDate(approvalDate)}`}
-            >
-              <CheckCircle2 className="h-3 w-3 shrink-0" />
-              {formatDateShort(approvalDate)}
-            </span>
-          ) : null}
-        </div>
-        <span
-          className={cn(
-            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-            PRIORITY_STYLES[order.priority]
-          )}
-        >
-          {order.priority}
-        </span>
-      </div>
+      {/* Dates + priority — configurable time chips */}
+      <OrderCardTimeChips
+        order={order}
+        columnId={order.column_id}
+        columnName={columnName}
+        columnKind={columnKind}
+        chips={timeChips}
+        approvalDate={approvalDate}
+        warningWorkingDays={warningWorkingDays}
+        showShippedEnteredDate={showShippedEnteredDate}
+      />
 
       {/* Footer — full-width row; each chip gets flex-1 so all chips together = 100% card width */}
       <div className="mt-2 flex w-full items-stretch overflow-hidden rounded-full text-[clamp(9px,3.1cqi,11px)]">
@@ -630,9 +626,18 @@ export function OrderCard({
             "flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold",
             isDesignerUnassigned
               ? UNASSIGNED_DESIGNER_TEXT_CLASS
-              : "bg-[var(--primary)]/10 text-[var(--primary)]"
+              : "bg-[var(--primary)]/10 text-[var(--primary)]",
+            canAssignDesigner && "cursor-context-menu"
           )}
-          title="Assigned designer"
+          title={
+            canAssignDesigner
+              ? "Right-click to assign designer"
+              : "Assigned designer"
+          }
+          onContextMenu={handleDesignerContextMenu}
+          onPointerDown={(e) => {
+            if (canAssignDesigner) e.stopPropagation();
+          }}
         >
           <User
             className={cn(
@@ -844,6 +849,52 @@ export function OrderCard({
           ) : null}
         </div>
       ) : null}
+
+      {/* Admin right-click: assign designer */}
+      {designerMenuOpen && canAssignDesigner
+        ? createPortal(
+            <div
+              ref={designerMenuRef}
+              style={{ top: designerMenuPos.y, left: designerMenuPos.x }}
+              className="fixed z-[80] max-h-[min(20rem,calc(100dvh-16px))] w-max min-w-[12rem] max-w-[min(18rem,calc(100vw-16px))] overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <p className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <User className="h-3 w-3" />
+                Assign designer
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  onAssignDesigner?.({ id: null, name: null });
+                  setDesignerMenuOpen(false);
+                }}
+                className="flex w-full px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Unassigned
+              </button>
+              {designers.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => {
+                    onAssignDesigner?.({ id: d.id, name: d.name });
+                    setDesignerMenuOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <span className="truncate">{d.name}</span>
+                  <span className="shrink-0 tabular-nums text-slate-400">
+                    ({d.load ?? 0})
+                  </span>
+                </button>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
 
     </div>
   );

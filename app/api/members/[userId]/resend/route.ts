@@ -86,8 +86,9 @@ export async function POST(
     });
   }
 
-  // Active — send a password-reset (recovery) link.
-  const redirectTo = `${appUrl}/login`;
+  // Active — password reset via recovery link.
+  // Exchange the code on /auth/callback (public), then send them to set a password.
+  const redirectTo = `${appUrl}/auth/callback?next=${encodeURIComponent("/set-password")}`;
   const { data: linkData, error: linkError } =
     await admin.auth.admin.generateLink({
       type: "recovery",
@@ -102,7 +103,14 @@ export async function POST(
     );
   }
 
-  const resetUrl = linkData.properties.action_link;
+  let resetUrl = linkData.properties.action_link;
+  try {
+    const url = new URL(resetUrl);
+    url.searchParams.set("redirect_to", redirectTo);
+    resetUrl = url.toString();
+  } catch {
+    // keep generateLink action_link as-is
+  }
   const fullName =
     (user.user_metadata?.full_name as string | undefined) ?? null;
 

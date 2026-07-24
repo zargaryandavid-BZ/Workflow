@@ -119,19 +119,33 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Escape plain text and turn URLs into anchors.
+ * Linkify before inserting <br/> so escaped entities cannot glue onto hrefs
+ * (e.g. `…/login<br/>This` → broken verify URL / 404).
+ */
+function linkifyEscapedPlainText(text: string): string {
+  return text
+    .split(/(https?:\/\/[^\s]+)/g)
+    .map((part, index) => {
+      if (index % 2 === 1) {
+        const href = escapeHtml(part);
+        return `<a href="${href}" style="color:#2563EB;word-break:break-all;">${href}</a>`;
+      }
+      return escapeHtml(part).replace(/\n/g, "<br/>");
+    })
+    .join("");
+}
+
 function plainTextToParagraphs(text: string): string {
   return text
     .trim()
     .split(/\n{2,}/)
-    .map((block) => block.replace(/\n/g, "<br/>"))
     .filter(Boolean)
     .map(
       (block) =>
-        `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">${escapeHtml(
+        `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">${linkifyEscapedPlainText(
           block
-        ).replace(
-          /(https?:\/\/[^\s<]+)/g,
-          '<a href="$1" style="color:#2563EB;word-break:break-all;">$1</a>'
         )}</p>`
     )
     .join("");

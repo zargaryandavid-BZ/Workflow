@@ -19,7 +19,19 @@ import {
   filterValidCustomFieldValues,
   staleCustomFieldsMessage,
 } from "@/lib/custom-field-values.server";
-import type { ActivityLog, CustomField, Order, OrderNote, ShippingRequest } from "@/lib/types";
+import {
+  loadOrderFieldValueMap,
+  sendTagNotifications,
+} from "@/lib/tag-notifications";
+import type {
+  ActivityLog,
+  CustomField,
+  Order,
+  OrderNote,
+  OrderWithRelations,
+  ShippingRequest,
+  Tag,
+} from "@/lib/types";
 
 export async function GET(
   _request: Request,
@@ -479,7 +491,56 @@ export async function PATCH(
 
   const order = await loadOrderWithRelations(supabase, id, tenantId);
 
-  return NextResponse.json({ order });
+  let tagNotifyWarning: string | null = null;
+  // Fire when the order's tag is newly set or changed to a different tag.
+  const previousTagId =
+    (existingOrder as { tag_id?: string | null }).tag_id ?? null;
+  const nextTagId =
+    body.tagId !== undefined ? body.tagId || null : previousTagId;
+  if (nextTagId && nextTagId !== previousTagId) {
+    try {
+      const { data: tagRow } = await supabase
+        .from("tags")
+        .select("*")
+        .eq("id", nextTagId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+
+      if (tagRow && (tagRow as Tag).notify_enabled && order) {
+        const { data: customFields } = await supabase
+          .from("custom_fields")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .order("position", { ascending: true });
+
+        const fieldValues = await loadOrderFieldValueMap(supabase, id);
+        const result = await sendTagNotifications({
+          client: supabase,
+          tenantId,
+          orderId: id,
+          tag: tagRow as Tag,
+          order: order as OrderWithRelations,
+          customFields: (customFields ?? []) as CustomField[],
+          fieldValues,
+        });
+
+        if (result.warnings.length > 0) {
+          tagNotifyWarning = result.warnings.join(" ");
+        }
+      }
+    } catch (err) {
+      console.error("[tag-notify]", err);
+      tagNotifyWarning =
+        err instanceof Error
+          ? err.message
+          : "Tag notification failed.";
+    }
+  }
+
+  return NextResponse.json({
+    order,
+    ...(tagNotifyWarning ? { tagNotifyWarning } : {}),
+  });
 }
 
 export async function DELETE(

@@ -1,7 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/approve", "/respond", "/shipping", "/auth"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/set-password",
+  "/approve",
+  "/respond",
+  "/shipping",
+  "/auth",
+];
 
 /** Token/webhook API routes — no session required; must not redirect to /login. */
 const PUBLIC_API_PREFIXES = [

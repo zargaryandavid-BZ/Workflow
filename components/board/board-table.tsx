@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
-  CalendarClock,
   Clock,
   CreditCard,
   Car,
@@ -14,7 +13,7 @@ import {
   Truck,
   User,
 } from "lucide-react";
-import { cn, formatDateShort } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   cardOrderQty,
   cardSkuCount,
@@ -34,11 +33,6 @@ import {
   UNASSIGNED_DESIGNER_TEXT_CLASS,
   UNASSIGNED_OWNER_TEXT_CLASS,
 } from "@/lib/constants";
-import {
-  calendarDaysUntilDue,
-  dueDateBadgeClass,
-  dueDateStatus,
-} from "@/lib/board-due-date";
 import { orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
 import { OrderBillingGlobe } from "./order-billing-globe";
@@ -56,9 +50,17 @@ import type { BoardShippingSign } from "@/lib/board-shipping";
 import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
+import { OrderCardTimeChips } from "./order-card-time-chips";
 import { sharedOrderTitle } from "@/lib/group-orders";
-
-type TableSortKey = "position" | "due_asc" | "due_desc" | "late_desc" | "column";
+import {
+  COLUMN_SORT_OPTIONS,
+  DEFAULT_COLUMN_SORT,
+  getColumnSortMode,
+  sortOrdersForColumn,
+  type ColumnSortMap,
+  type ColumnSortMode,
+} from "@/lib/board-column-sort";
+import type { TimeChip } from "@/lib/time-chips";
 
 interface ColumnOption {
   id: string;
@@ -71,6 +73,8 @@ interface BoardTableProps {
   hiddenColIds: Set<string>;
   onToggleColumnVisibility: (columnId: string) => void;
   orders: OrderWithRelations[];
+  columnSortById: ColumnSortMap;
+  onApplySortToAllColumns: (mode: ColumnSortMode) => void;
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string[]>;
@@ -78,11 +82,13 @@ interface BoardTableProps {
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   shippingSignByOrder?: Record<string, BoardShippingSign>;
+  approvalDateByOrder?: Record<string, string>;
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
   warningWorkingDays?: number[];
   webhookSourceStyles?: WebhookSourceStyles;
+  timeChips?: TimeChip[];
   role: Role;
   getMoveableColumns: (fromColumnId: string) => ColumnOption[];
   onMoveToColumn: (order: OrderWithRelations, toColumnId: string) => void;
@@ -108,6 +114,8 @@ export function BoardTable({
   hiddenColIds,
   onToggleColumnVisibility,
   orders,
+  columnSortById,
+  onApplySortToAllColumns,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
@@ -115,11 +123,13 @@ export function BoardTable({
   notificationBadgeByOrder,
   ownerNameByOrder,
   shippingSignByOrder = {},
+  approvalDateByOrder = {},
   groupSizeByOrder = {},
   warningRules = [],
   animateWarnings = true,
   warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles,
+  timeChips = [],
   role,
   getMoveableColumns,
   onMoveToColumn,
@@ -132,7 +142,6 @@ export function BoardTable({
 }: BoardTableProps) {
   const [menuState, setMenuState] = useState<MenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [sortKey, setSortKey] = useState<TableSortKey>("position");
 
   // ── Resizable Order column ────────────────────────────────────────────────
   const STORAGE_KEY = "board-table-order-col-width";
@@ -184,32 +193,32 @@ export function BoardTable({
 
   const columnPosition = new Map(columns.map((c, i) => [c.id, i]));
 
-  const visibleOrders = [...filteredOrders].sort((a, b) => {
-    if (sortKey === "column") {
-      const ca = columnPosition.get(a.column_id) ?? 999;
-      const cb = columnPosition.get(b.column_id) ?? 999;
-      if (ca !== cb) return ca - cb;
-      return a.position - b.position;
-    }
-    if (sortKey === "due_asc" || sortKey === "due_desc") {
-      const da = a.due_date?.slice(0, 10) ?? "";
-      const db = b.due_date?.slice(0, 10) ?? "";
-      if (!da && !db) return a.position - b.position;
-      if (!da) return 1;
-      if (!db) return -1;
-      const cmp = da.localeCompare(db);
-      return sortKey === "due_asc" ? cmp : -cmp;
-    }
-    if (sortKey === "late_desc") {
-      const la = a.due_date ? calendarDaysUntilDue(a.due_date) : 0;
-      const lb = b.due_date ? calendarDaysUntilDue(b.due_date) : 0;
-      // More late (more negative) first
-      if (la !== lb) return la - lb;
-      return a.position - b.position;
-    }
-    return a.position - b.position;
-  });
+  // Group by board column order, then apply each column's sort mode within.
+  const visibleOrders: OrderWithRelations[] = [];
+  const byColumn = new Map<string, OrderWithRelations[]>();
+  for (const order of filteredOrders) {
+    const list = byColumn.get(order.column_id) ?? [];
+    list.push(order);
+    byColumn.set(order.column_id, list);
+  }
+  const columnIds = [
+    ...columns.map((c) => c.id),
+    ...[...byColumn.keys()].filter((id) => !columnPosition.has(id)),
+  ];
+  for (const columnId of columnIds) {
+    const list = byColumn.get(columnId);
+    if (!list?.length) continue;
+    visibleOrders.push(
+      ...sortOrdersForColumn(list, getColumnSortMode(columnSortById, columnId))
+    );
+  }
 
+  const sharedSortMode = (() => {
+    const modes = columns.map((c) => getColumnSortMode(columnSortById, c.id));
+    if (modes.length === 0) return DEFAULT_COLUMN_SORT;
+    const first = modes[0];
+    return modes.every((m) => m === first) ? first : "";
+  })();
   // Trigger lazy-load for all columns whenever table is shown / columns change.
   useEffect(() => {
     for (const col of columns) {
@@ -289,17 +298,26 @@ export function BoardTable({
               <div className="relative flex items-center gap-2">
                 <span>Order</span>
                 <select
-                  value={sortKey}
-                  onChange={(e) => setSortKey(e.target.value as TableSortKey)}
+                  value={sharedSortMode}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (!value) return;
+                    onApplySortToAllColumns(value as ColumnSortMode);
+                  }}
                   onClick={(e) => e.stopPropagation()}
                   className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600"
-                  title="Sort rows"
+                  title="Apply sort to all stages (same as Kanban column sorts)"
                 >
-                  <option value="position">Board order</option>
-                  <option value="due_asc">Due date ↑</option>
-                  <option value="due_desc">Due date ↓</option>
-                  <option value="late_desc">Most overdue</option>
-                  <option value="column">Column</option>
+                  {sharedSortMode === "" ? (
+                    <option value="" disabled>
+                      Mixed per stage…
+                    </option>
+                  ) : null}
+                  {COLUMN_SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
                 {/* Resize handle */}
                 <div
@@ -392,11 +410,10 @@ export function BoardTable({
             const ownerName = ownerNameByOrder[order.id];
             const isOwnerUnassigned = !order.created_by;
             const shippingSign = shippingSignByOrder[order.id];
-            const columnKind =
-              columns.find((c) => c.id === order.column_id)?.kind ?? null;
-            const dueStatus = dueDateStatus(order.due_date, {
-              inDoneColumn: columnKind === "done",
-            });
+            const column = columns.find((c) => c.id === order.column_id);
+            const columnKind = column?.kind ?? null;
+            const columnName = column?.name ?? null;
+            const approvalDate = approvalDateByOrder[order.id] ?? null;
 
             const customerName = customerNameFromOrder(
               order,
@@ -495,37 +512,17 @@ export function BoardTable({
 
                       {/* Dates + spec summary */}
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        {order.due_date ? (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-500">
-                            <CalendarClock className="h-2.5 w-2.5 shrink-0" />
-                            {formatDateShort(order.due_date)}
-                          </span>
-                        ) : (
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
-                              dueDateBadgeClass(dueStatus)
-                            )}
-                          >
-                            {dueStatus.label}
-                          </span>
-                        )}
-                        {dueStatus.kind === "late" ||
-                        dueStatus.kind === "today" ||
-                        dueStatus.kind === "soon" ? (
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
-                              dueDateBadgeClass(dueStatus)
-                            )}
-                          >
-                            {dueStatus.label}
-                          </span>
-                        ) : null}
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
-                          <Clock className="h-2.5 w-2.5 shrink-0" />
-                          {formatDateShort(order.created_at)}
-                        </span>
+                        <OrderCardTimeChips
+                          order={order}
+                          columnId={order.column_id}
+                          columnName={columnName}
+                          columnKind={columnKind}
+                          chips={timeChips}
+                          approvalDate={approvalDate}
+                          warningWorkingDays={warningWorkingDays}
+                          className="!mt-0 w-auto flex-none"
+                          showPriority={false}
+                        />
                         {summaryParts.length > 0 ? (
                           <span className="text-[10px] text-slate-500">
                             {summaryParts.join(" · ")}

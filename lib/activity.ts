@@ -86,6 +86,12 @@ export function describeActivity(log: ActivityLog): string {
     }
     case "customer_merged":
       return "Customer records merged";
+    case "archived_downloaded": {
+      const fileName = meta.fileName as string | undefined;
+      return fileName
+        ? `Archive downloaded (${fileName})`
+        : "Archive downloaded";
+    }
     default:
       return log.action.replace(/_/g, " ");
   }

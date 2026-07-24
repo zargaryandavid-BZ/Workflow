@@ -1,11 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+
+/** Recovery / invite tokens that used to land on /login must continue on /set-password. */
+function hasPasswordSetupToken() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("code") || params.get("token_hash")) return true;
+  const hash = window.location.hash;
+  return (
+    hash.includes("access_token") &&
+    (hash.includes("type=recovery") || hash.includes("type=invite"))
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,18 +25,32 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (!hasPasswordSetupToken()) return;
+    const qs = window.location.search;
+    const hash = window.location.hash;
+    router.replace(`/set-password${qs}${hash}`);
+  }, [router]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password,
     });
     setLoading(false);
     if (error) {
-      setError(error.message);
+      const msg = error.message.toLowerCase();
+      if (msg.includes("invalid login") || msg.includes("invalid credentials")) {
+        setError(
+          "Email or password is incorrect. If you were invited or received a reset email, open that link to set your password — or ask an admin to send a new one."
+        );
+      } else {
+        setError(error.message);
+      }
       return;
     }
     router.push("/");

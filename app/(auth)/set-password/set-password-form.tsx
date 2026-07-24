@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import {
+  INVITE_COMPLETED_META,
+  INVITE_PENDING_META,
+} from "@/lib/team-invite-metadata";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
@@ -26,7 +30,13 @@ export function SetPasswordForm() {
     }
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await supabase.auth.updateUser({
+      password,
+      data: {
+        [INVITE_PENDING_META]: false,
+        [INVITE_COMPLETED_META]: true,
+      },
+    });
     setLoading(false);
     if (error) {
       setError(error.message);

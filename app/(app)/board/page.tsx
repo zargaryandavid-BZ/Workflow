@@ -28,6 +28,8 @@ import {
   designerLoadColumnIds,
 } from "@/lib/designer-load";
 import type { Designer } from "@/lib/types";
+import { listTimeChips } from "@/lib/time-chips.server";
+import type { TimeChip } from "@/lib/time-chips";
 
 export default async function BoardPage({
   searchParams,
@@ -175,6 +177,14 @@ export default async function BoardPage({
       loadEnabledCardWarningRules(supabase, tenantId),
     ]);
 
+  let timeChips: TimeChip[] = [];
+  try {
+    timeChips = await listTimeChips(supabase, tenantId);
+  } catch {
+    // Migration 0060 may not be applied yet — cards fall back to legacy chips.
+    timeChips = [];
+  }
+
   const tenant = ctx.tenant;
 
   return (
@@ -200,6 +210,7 @@ export default async function BoardPage({
       fastActionButtons={fastActionButtons}
       warningRules={warningRules as CardWarningRule[]}
       webhookSourceStyles={webhookSourceStyles}
+      timeChips={timeChips}
       initialOrderId={initialOrderId ?? null}
       appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
     />

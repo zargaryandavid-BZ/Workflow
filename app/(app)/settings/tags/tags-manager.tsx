@@ -20,8 +20,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Textarea } from "@/components/ui/input";
 import { TAG_COLORS } from "@/lib/tags";
+import { TAG_NOTIFY_RECIPIENTS } from "@/lib/tag-notify-config";
 import { cn } from "@/lib/utils";
 import type { Tag } from "@/lib/types";
 
@@ -166,7 +167,14 @@ function SortableTagRow({
         aria-hidden
       />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-slate-800">{tag.name}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-slate-800">{tag.name}</p>
+          {tag.notify_enabled ? (
+            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+              Notify
+            </span>
+          ) : null}
+        </div>
         {tag.description ? (
           <p className="truncate text-xs text-slate-500">{tag.description}</p>
         ) : null}
@@ -204,13 +212,56 @@ function TagEditor({
   const [name, setName] = useState(tag?.name ?? "");
   const [color, setColor] = useState(tag?.color ?? TAG_COLORS[0]);
   const [description, setDescription] = useState(tag?.description ?? "");
+  const [notifyEnabled, setNotifyEnabled] = useState(
+    Boolean(tag?.notify_enabled)
+  );
+  const [notifySendEmail, setNotifySendEmail] = useState(
+    Boolean(tag?.notify_send_email)
+  );
+  const [notifySendSms, setNotifySendSms] = useState(
+    Boolean(tag?.notify_send_sms)
+  );
+  const [notifyRecipients, setNotifyRecipients] = useState<string[]>(
+    Array.isArray(tag?.notify_recipients) ? [...tag.notify_recipients] : []
+  );
+  const [notifyCustomEmail, setNotifyCustomEmail] = useState(
+    tag?.notify_custom_email ?? ""
+  );
+  const [notifyCustomPhone, setNotifyCustomPhone] = useState(
+    tag?.notify_custom_phone ?? ""
+  );
+  const [notifyEmailSubject, setNotifyEmailSubject] = useState(
+    tag?.notify_email_subject ?? "Tag update: {{tag_name}} — #{{order_number}}"
+  );
+  const [notifyEmailBody, setNotifyEmailBody] = useState(
+    tag?.notify_email_body ??
+      `Hi {{customer_name}},\n\nOrder #{{order_number}} was tagged "{{tag_name}}".\n\n— {{brand}}`
+  );
+  const [notifySmsBody, setNotifySmsBody] = useState(
+    tag?.notify_sms_body ??
+      `Bazaar Printing: order {{order_number}} tagged "{{tag_name}}".`
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function toggleRecipient(value: string) {
+    setNotifyRecipients((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+    );
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
       setError("Name is required");
+      return;
+    }
+    if (notifyEnabled && !notifySendEmail && !notifySendSms) {
+      setError("Choose Email and/or SMS when notifications are enabled.");
+      return;
+    }
+    if (notifyEnabled && notifyRecipients.length === 0) {
+      setError("Select at least one recipient.");
       return;
     }
     setError(null);
@@ -220,6 +271,15 @@ function TagEditor({
       name: name.trim(),
       color,
       description: description.trim() || null,
+      notify_enabled: notifyEnabled,
+      notify_send_email: notifySendEmail,
+      notify_send_sms: notifySendSms,
+      notify_recipients: notifyRecipients,
+      notify_custom_email: notifyCustomEmail.trim() || null,
+      notify_custom_phone: notifyCustomPhone.trim() || null,
+      notify_email_subject: notifyEmailSubject.trim() || null,
+      notify_email_body: notifyEmailBody.trim() || null,
+      notify_sms_body: notifySmsBody.trim() || null,
     };
 
     const res = await fetch(
@@ -298,6 +358,136 @@ function TagEditor({
             placeholder="Rush / urgent production jobs"
           />
         </div>
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              checked={notifyEnabled}
+              onChange={(e) => setNotifyEnabled(e.target.checked)}
+              className="rounded border-slate-300"
+            />
+            Notify when this tag is set on an order
+          </label>
+
+          {notifyEnabled ? (
+            <>
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-slate-600">
+                  Channel
+                </p>
+                <div className="flex flex-wrap gap-3 text-sm text-slate-700">
+                  <label className="inline-flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={notifySendEmail}
+                      onChange={(e) => setNotifySendEmail(e.target.checked)}
+                    />
+                    Email
+                  </label>
+                  <label className="inline-flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={notifySendSms}
+                      onChange={(e) => setNotifySendSms(e.target.checked)}
+                    />
+                    SMS
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-slate-600">
+                  Recipients
+                </p>
+                <div className="flex flex-wrap gap-3 text-sm text-slate-700">
+                  {TAG_NOTIFY_RECIPIENTS.map((r) => (
+                    <label
+                      key={r.value}
+                      className="inline-flex items-center gap-1.5"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={notifyRecipients.includes(r.value)}
+                        onChange={() => toggleRecipient(r.value)}
+                      />
+                      {r.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {notifyRecipients.includes("custom") ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="tag-custom-email">Custom email</Label>
+                    <Input
+                      id="tag-custom-email"
+                      type="email"
+                      value={notifyCustomEmail}
+                      onChange={(e) => setNotifyCustomEmail(e.target.value)}
+                      placeholder="ops@example.com"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="tag-custom-phone">Custom phone</Label>
+                    <Input
+                      id="tag-custom-phone"
+                      type="tel"
+                      value={notifyCustomPhone}
+                      onChange={(e) => setNotifyCustomPhone(e.target.value)}
+                      placeholder="+1 555 123 4567"
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {notifySendEmail ? (
+                <>
+                  <div>
+                    <Label htmlFor="tag-email-subject">Email subject</Label>
+                    <Input
+                      id="tag-email-subject"
+                      value={notifyEmailSubject}
+                      onChange={(e) => setNotifyEmailSubject(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="tag-email-body">Email body</Label>
+                    <Textarea
+                      id="tag-email-body"
+                      value={notifyEmailBody}
+                      onChange={(e) => setNotifyEmailBody(e.target.value)}
+                      rows={5}
+                      className="mt-1 font-sans text-sm"
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              {notifySendSms ? (
+                <div>
+                  <Label htmlFor="tag-sms-body">SMS body</Label>
+                  <Textarea
+                    id="tag-sms-body"
+                    value={notifySmsBody}
+                    onChange={(e) => setNotifySmsBody(e.target.value)}
+                    rows={3}
+                    className="mt-1 font-sans text-sm"
+                  />
+                </div>
+              ) : null}
+
+              <p className="text-[11px] text-slate-500">
+                Placeholders: {"{{order_number}}"}, {"{{tag_name}}"},{" "}
+                {"{{customer_name}}"}, {"{{designer_name}}"}, {"{{brand}}"}.
+                Missing contacts are skipped with a warning — the tag still
+                saves.
+              </p>
+            </>
+          ) : null}
+        </div>
+
         {error ? (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}

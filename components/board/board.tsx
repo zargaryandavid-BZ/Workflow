@@ -61,6 +61,15 @@ import {
   loadOwnerFilter,
   saveOwnerFilter,
 } from "@/lib/board-person-filter";
+import {
+  DEFAULT_COLUMN_SORT,
+  getColumnSortMode,
+  loadColumnSortMap,
+  saveColumnSortMap,
+  sortOrdersForColumn,
+  type ColumnSortMap,
+  type ColumnSortMode,
+} from "@/lib/board-column-sort";
 import type {
   BoardColumn,
   CardWarningRule,
@@ -83,6 +92,12 @@ import {
   countDesignerLoads,
   designerLoadColumnIds,
 } from "@/lib/designer-load";
+import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
+import {
+  chipsToStampOnEnter,
+  withTimeChipStamp,
+  type TimeChip,
+} from "@/lib/time-chips";
 
 /** Prefer pointer position so empty columns and wide boards register drops reliably. */
 const boardCollisionDetection: CollisionDetection = (args) => {
@@ -157,6 +172,7 @@ interface BoardProps {
   /** Weekdays that count toward stale warnings (Date.getDay: 0–6). */
   warningWorkingDays?: number[];
   webhookSourceStyles?: WebhookSourceStyles;
+  timeChips?: TimeChip[];
   initialOrderId?: string | null;
   appUrl: string;
 }
@@ -183,6 +199,7 @@ export function Board({
   warningAnimationSpreadPx = 3,
   warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles = undefined,
+  timeChips = [],
   initialOrderId = null,
   appUrl,
 }: BoardProps) {
@@ -381,6 +398,7 @@ export function Board({
   const [groupedView, setGroupedView] = useState(false);
   const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
   const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() => new Set());
+  const [columnSortById, setColumnSortById] = useState<ColumnSortMap>({});
   const [persistedFiltersReady, setPersistedFiltersReady] = useState(false);
 
   // Restore after mount so SSR HTML matches the first client render.
@@ -397,6 +415,7 @@ export function Board({
       setOwnerFilter(savedOwner);
     }
     setHiddenColIds(loadHiddenColumnIds(tenantId));
+    setColumnSortById(loadColumnSortMap(tenantId));
     setPersistedFiltersReady(true);
     // designers/owners from initial props; re-run only if tenant changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -412,6 +431,31 @@ export function Board({
     saveOwnerFilter(tenantId, ownerFilter);
   }, [persistedFiltersReady, tenantId, ownerFilter]);
 
+  useEffect(() => {
+    if (!persistedFiltersReady) return;
+    saveColumnSortMap(tenantId, columnSortById);
+  }, [persistedFiltersReady, tenantId, columnSortById]);
+
+  function setColumnSortMode(columnId: string, mode: ColumnSortMode) {
+    setColumnSortById((prev) => {
+      if (mode === DEFAULT_COLUMN_SORT) {
+        if (!(columnId in prev)) return prev;
+        const next = { ...prev };
+        delete next[columnId];
+        return next;
+      }
+      if (prev[columnId] === mode) return prev;
+      return { ...prev, [columnId]: mode };
+    });
+  }
+
+  function setAllColumnsSortMode(mode: ColumnSortMode) {
+    const next: ColumnSortMap = {};
+    for (const col of columns) {
+      if (mode !== DEFAULT_COLUMN_SORT) next[col.id] = mode;
+    }
+    setColumnSortById(next);
+  }
   const visibleColumns = useMemo(
     () => columns.filter((c) => !hiddenColIds.has(c.id)),
     [columns, hiddenColIds]
@@ -644,7 +688,9 @@ export function Board({
    */
   function patchOrderPlacement(
     orderId: string,
-    patch: { column_id: string; position?: number }
+    patch: Partial<
+      Pick<OrderWithRelations, "column_id" | "position" | "last_moved_at" | "specs">
+    > & { column_id: string }
   ) {
     setOrders((prev) => {
       const next = prev.map((o) =>
@@ -660,6 +706,21 @@ export function Board({
       );
       return next;
     });
+  }
+
+  /** Optimistic stamps for custom time chips when entering a column. */
+  function columnEnterPatch(
+    order: OrderWithRelations,
+    toColumnId: string
+  ): Partial<Pick<OrderWithRelations, "last_moved_at" | "specs">> {
+    const now = new Date().toISOString();
+    const toStamp = chipsToStampOnEnter(timeChips, toColumnId);
+    if (toStamp.length === 0) return { last_moved_at: now };
+    let specs = { ...(order.specs ?? {}) } as OrderWithRelations["specs"];
+    for (const chip of toStamp) {
+      specs = withTimeChipStamp(specs, chip.id, now) as OrderWithRelations["specs"];
+    }
+    return { last_moved_at: now, specs };
   }
 
   function restoreOrdersSnapshot(snapshot: OrderWithRelations[]) {
@@ -1113,6 +1174,7 @@ export function Board({
     patchOrderPlacement(order.id, {
       column_id: toColumnId,
       position: newPosition,
+      ...columnEnterPatch(order, toColumnId),
     });
 
     const result = await requestOrderMove(
@@ -1291,6 +1353,7 @@ export function Board({
       patchOrderPlacement(order.id, {
         column_id: toColumnId,
         position: lastPos,
+        ...columnEnterPatch(order, toColumnId),
       });
     }
 
@@ -1431,9 +1494,11 @@ export function Board({
       dueTodayOnly
         ? (searchResults ?? orders)
         : orders;
-    const columnOrders = placementSource
-      .filter((o) => o.column_id === overColumn)
-      .sort((a, b) => a.position - b.position);
+    const sortMode = getColumnSortMode(columnSortById, overColumn);
+    const columnOrders = sortOrdersForColumn(
+      placementSource.filter((o) => o.column_id === overColumn),
+      sortMode
+    );
     const oldIndex = columnOrders.findIndex((o) => o.id === active.id);
     let newIndex = columnOrders.findIndex((o) => o.id === over.id);
     if (newIndex === -1) newIndex = columnOrders.length - 1;
@@ -1449,9 +1514,21 @@ export function Board({
     const newPosition =
       next === undefined ? prev + 1000 : (prev + next) / 2;
 
+    // Same-column drag: keep the card where it was dropped (manual order).
+    if (!crossing) {
+      setColumnSortMode(overColumn, "manual");
+    }
+
+    const activeOrderForPatch =
+      boardOrdersRef.current.find((o) => o.id === active.id) ??
+      orders.find((o) => o.id === active.id);
+
     patchOrderPlacement(String(active.id), {
       column_id: overColumn,
       position: newPosition,
+      ...(crossing && activeOrderForPatch
+        ? columnEnterPatch(activeOrderForPatch, overColumn)
+        : {}),
     });
 
     try {
@@ -1904,6 +1981,8 @@ export function Board({
           hiddenColIds={hiddenColIds}
           onToggleColumnVisibility={toggleColumnVisibility}
           orders={displayOrders}
+          columnSortById={columnSortById}
+          onApplySortToAllColumns={setAllColumnsSortMode}
           customFields={customFields}
           fieldValuesByOrder={displayFieldValuesByOrder}
           thumbnailByOrder={displayThumbnailByOrder}
@@ -1911,11 +1990,13 @@ export function Board({
           notificationBadgeByOrder={displayNotificationBadgeByOrder}
           ownerNameByOrder={displayOwnerNameByOrder}
           shippingSignByOrder={displayShippingSignByOrder}
+          approvalDateByOrder={displayApprovalDateByOrder}
           groupSizeByOrder={groupSizeByOrder}
           warningRules={warningRules}
           animateWarnings={animateWarnings}
           warningWorkingDays={warningWorkingDays}
           webhookSourceStyles={webhookSourceStyles}
+          timeChips={timeChips}
           role={role}
           getMoveableColumns={getMoveableColumns}
           onMoveToColumn={handleContextMove}
@@ -1948,6 +2029,8 @@ export function Board({
                 isDragActive={activeId !== null}
                 groupedView={groupedView}
                 orders={columnOrders}
+                sortMode={getColumnSortMode(columnSortById, column.id)}
+                onSortModeChange={(mode) => setColumnSortMode(column.id, mode)}
                 customFields={customFields}
                 fieldValuesByOrder={displayFieldValuesByOrder}
                 thumbnailByOrder={displayThumbnailByOrder}
@@ -1961,6 +2044,7 @@ export function Board({
                 animateWarnings={animateWarnings}
                 warningWorkingDays={warningWorkingDays}
                 webhookSourceStyles={webhookSourceStyles}
+                timeChips={timeChips}
                 isFirst={index === 0}
                 availableColumns={getMoveableColumns(column.id)}
                 onMoveToColumn={handleContextMove}
@@ -2018,6 +2102,13 @@ export function Board({
               columnKind={
                 columns.find((c) => c.id === activeOrder.column_id)?.kind ?? null
               }
+              columnName={
+                columns.find((c) => c.id === activeOrder.column_id)?.name ?? null
+              }
+              showShippedEnteredDate={isShippedCustomerColumn(
+                columns.find((c) => c.id === activeOrder.column_id)?.name
+              )}
+              timeChips={timeChips}
               onOpen={() => {}}
             />
           ) : null}

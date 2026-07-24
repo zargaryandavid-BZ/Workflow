@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -8,9 +8,7 @@ import {
 } from "@dnd-kit/sortable";
 import Image from "next/image";
 import {
-  ArrowDownAZ,
   ArrowDownToLine,
-  ArrowUpAZ,
   ArrowUpFromLine,
   Plus,
   RefreshCw,
@@ -18,6 +16,12 @@ import {
 import { OrderCard } from "./order-card";
 import { GroupedOrderCard } from "./grouped-order-card";
 import { groupOrdersForColumn } from "@/lib/group-orders";
+import {
+  COLUMN_SORT_OPTIONS,
+  sortOrdersForColumn,
+  type ColumnSortMode,
+} from "@/lib/board-column-sort";
+import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
 import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -34,9 +38,9 @@ import type {
 } from "@/lib/types";
 import type { GroupDueDateUpdate } from "./group-due-dates-modal";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import type { TimeChip } from "@/lib/time-chips";
 import type { ActionButtonResult } from "./action-button";
 
-type DateSort = "default" | "asc" | "desc";
 type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
 
 interface ColumnOption {
@@ -52,6 +56,8 @@ interface ColumnProps {
   isDragActive: boolean;
   groupedView: boolean;
   orders: OrderWithRelations[];
+  sortMode: ColumnSortMode;
+  onSortModeChange: (mode: ColumnSortMode) => void;
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, string[]>;
@@ -65,6 +71,7 @@ interface ColumnProps {
   animateWarnings?: boolean;
   warningWorkingDays?: number[];
   webhookSourceStyles?: WebhookSourceStyles;
+  timeChips?: TimeChip[];
   isFirst: boolean;
   /** Columns this card can be moved to via right-click (pre-filtered by board). */
   availableColumns?: ColumnOption[];
@@ -131,6 +138,8 @@ export function Column({
   isDragActive,
   groupedView,
   orders,
+  sortMode,
+  onSortModeChange,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
@@ -144,6 +153,7 @@ export function Column({
   animateWarnings = true,
   warningWorkingDays = [1, 2, 3, 4, 5],
   webhookSourceStyles,
+  timeChips = [],
   isFirst,
   availableColumns,
   onMoveToColumn,
@@ -164,8 +174,6 @@ export function Column({
   onLoadMore,
   role,
 }: ColumnProps) {
-  const [dateSort, setDateSort] = useState<DateSort>("default");
-
   const dropDisabled = isDragActive && !canAcceptDrop;
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -211,25 +219,17 @@ export function Column({
 
   const showDropTarget = isDragActive && isOver && canAcceptDrop;
 
-  const sortedOrders =
-    dateSort === "default"
-      ? orders
-      : [...orders].sort((a, b) => {
-          const ta = new Date(a.created_at).getTime();
-          const tb = new Date(b.created_at).getTime();
-          return dateSort === "asc" ? ta - tb : tb - ta;
-        });
+  const sortedOrders = useMemo(
+    () => sortOrdersForColumn(orders, sortMode),
+    [orders, sortMode]
+  );
+
+  const showShippedEnteredDate = isShippedCustomerColumn(column.name);
 
   const columnEntries = useMemo(
     () => (groupedView ? groupOrdersForColumn(sortedOrders) : null),
     [groupedView, sortedOrders]
   );
-
-  function cycleDateSort() {
-    setDateSort((prev) =>
-      prev === "default" ? "asc" : prev === "asc" ? "desc" : "default"
-    );
-  }
 
   // Count badge: show total from DB when available, otherwise fall back to
   // loaded cards length.  Before any load the badge shows 0 briefly; total
@@ -274,28 +274,27 @@ export function Column({
             </span>
           </div>
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={cycleDateSort}
-              className={cn(
-                "rounded p-1 transition-colors",
-                dateSort === "default"
-                  ? "text-slate-400 hover:bg-white hover:text-slate-600"
-                  : "bg-blue-100 text-blue-600 hover:bg-blue-200"
-              )}
-              title={
-                dateSort === "default"
-                  ? "Sort by date created (oldest first)"
-                  : dateSort === "asc"
-                    ? "Sorted: oldest first — click for newest first"
-                    : "Sorted: newest first — click to reset"
+            <label className="sr-only" htmlFor={`col-sort-${column.id}`}>
+              Sort {column.name}
+            </label>
+            <select
+              id={`col-sort-${column.id}`}
+              value={sortMode}
+              onChange={(e) =>
+                onSortModeChange(e.target.value as ColumnSortMode)
               }
-            >
-              {dateSort === "desc" ? (
-                <ArrowDownAZ className="h-4 w-4" />
-              ) : (
-                <ArrowUpAZ className="h-4 w-4" />
+              className={cn(
+                "max-w-[7.5rem] truncate rounded border border-slate-200 bg-white py-0.5 pl-1 pr-0 text-[10px] font-medium text-slate-600",
+                sortMode !== "manual" && "border-blue-200 bg-blue-50 text-blue-700"
               )}
-            </button>
+              title="Sort cards in this column"
+            >
+              {COLUMN_SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             {isFirst ? (
               <button
                 onClick={() => onAdd(column.id)}
@@ -390,7 +389,9 @@ export function Column({
                     webhookSourceStyles={webhookSourceStyles}
                     designers={designers}
                     availableColumns={availableColumns}
-                    onAssignDesigner={onGroupAssignDesigner}
+                    onAssignDesigner={
+                      role === "admin" ? onGroupAssignDesigner : undefined
+                    }
                     onSetDueDates={onGroupSetDueDates}
                     onMoveGroup={onMoveGroup}
                   />
@@ -403,6 +404,13 @@ export function Column({
                     fieldValues={fieldValuesByOrder[entry.order.id]}
                     thumbnails={thumbnailByOrder[entry.order.id]}
                     designerName={designerNameByOrder[entry.order.id]}
+                    designers={designers}
+                    onAssignDesigner={
+                      role === "admin" && onGroupAssignDesigner
+                        ? (designer) =>
+                            onGroupAssignDesigner([entry.order], designer)
+                        : undefined
+                    }
                     notificationBadge={
                       notificationBadgeByOrder[entry.order.id]
                     }
@@ -416,6 +424,9 @@ export function Column({
                     webhookSourceStyles={webhookSourceStyles}
                     columnColor={column.color}
                     columnKind={column.kind}
+                    columnName={column.name}
+                    showShippedEnteredDate={showShippedEnteredDate}
+                    timeChips={timeChips}
                     availableColumns={availableColumns}
                     onMoveToColumn={onMoveToColumn}
                     actionButtons={actionButtons}
@@ -436,6 +447,13 @@ export function Column({
                   fieldValues={fieldValuesByOrder[order.id]}
                   thumbnails={thumbnailByOrder[order.id]}
                   designerName={designerNameByOrder[order.id]}
+                  designers={designers}
+                  onAssignDesigner={
+                    role === "admin" && onGroupAssignDesigner
+                      ? (designer) =>
+                          onGroupAssignDesigner([order], designer)
+                        : undefined
+                  }
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}
                   shippingSign={shippingSignByOrder[order.id]}
@@ -447,6 +465,9 @@ export function Column({
                   webhookSourceStyles={webhookSourceStyles}
                   columnColor={column.color}
                   columnKind={column.kind}
+                  columnName={column.name}
+                  showShippedEnteredDate={showShippedEnteredDate}
+                  timeChips={timeChips}
                   availableColumns={availableColumns}
                   onMoveToColumn={onMoveToColumn}
                   actionButtons={actionButtons}

@@ -218,6 +218,23 @@ async function mergeCustomers(
   if (name && !winner.name?.trim()) updates.name = name;
   if (company && !winner.company) updates.company = company;
 
+  // Free unique contact keys on the loser BEFORE applying them to the winner,
+  // otherwise Postgres rejects the update with customers_tenant_phone/email_unique.
+  const clearLoser: Record<string, null> = {};
+  if (updates.email && loser.email && loser.email === updates.email) {
+    clearLoser.email = null;
+  }
+  if (updates.phone && loser.phone && loser.phone === updates.phone) {
+    clearLoser.phone = null;
+  }
+  if (Object.keys(clearLoser).length > 0) {
+    const { error: clearError } = await client
+      .from("customers")
+      .update(clearLoser)
+      .eq("id", loser.id);
+    if (clearError) throw new Error(clearError.message);
+  }
+
   if (Object.keys(updates).length > 0) {
     const { error } = await client
       .from("customers")
@@ -254,6 +271,73 @@ async function mergeCustomers(
 
   const refreshed = await loadCustomerById(client, winner.id);
   return refreshed ?? { ...winner, ...updates };
+}
+
+/** If an update hits a unique contact conflict, merge with the other row. */
+async function updateCustomerHandlingUnique(
+  client: Client,
+  tenantId: string,
+  existing: Customer,
+  input: {
+    name?: string;
+    email?: string | null;
+    phone?: string | null;
+    company?: string | null;
+  },
+  orderId?: string | null
+): Promise<{ customerId: string; action: UpsertCustomerAction }> {
+  const updates = buildCustomerUpdates(existing, input);
+  if (Object.keys(updates).length === 0) {
+    return { customerId: existing.id, action: "updated" };
+  }
+
+  const { error } = await client
+    .from("customers")
+    .update(updates)
+    .eq("id", existing.id);
+
+  if (!error) {
+    return { customerId: existing.id, action: "updated" };
+  }
+
+  if (!isUniqueViolation(error)) {
+    throw new Error(error.message);
+  }
+
+  // Look up the other row that still owns the contact (do not auto-merge here).
+  let conflict: Customer | null = null;
+  if (typeof updates.phone === "string" && updates.phone) {
+    conflict = await findCustomerByPhone(client, tenantId, updates.phone);
+  }
+  if (!conflict && typeof updates.email === "string" && updates.email) {
+    conflict = await findCustomerByEmail(client, tenantId, updates.email);
+  }
+
+  if (!conflict || conflict.id === existing.id) {
+    throw new Error(error.message);
+  }
+
+  const orderCounts = await orderCountByCustomer(client, tenantId, [
+    existing.id,
+    conflict.id,
+  ]);
+  const winner = pickCanonicalCustomer([existing, conflict], orderCounts);
+  const loser = winner.id === existing.id ? conflict : existing;
+  const merged = await mergeCustomers(
+    client,
+    tenantId,
+    winner,
+    loser,
+    {
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      company: input.company,
+    },
+    orderId
+  );
+
+  return { customerId: merged.id, action: "merged" };
 }
 
 function buildCustomerUpdates(
@@ -377,42 +461,29 @@ export async function upsertCustomer(
       );
     }
 
-    const updates = buildCustomerUpdates(winner, {
-      name,
-      email,
-      phone,
-      company: input.company,
-    });
-    if (Object.keys(updates).length > 0) {
-      const { error } = await client
-        .from("customers")
-        .update(updates)
-        .eq("id", winner.id);
-      if (error) throw new Error(error.message);
-    }
-
-    return { customerId: winner.id, action: "merged" };
+    const afterMerge = await updateCustomerHandlingUnique(
+      client,
+      tenantId,
+      winner,
+      { name, email, phone, company: input.company },
+      orderId
+    );
+    return {
+      customerId: afterMerge.customerId,
+      action: "merged",
+    };
   }
 
   const existing = matches[0] ?? null;
 
   if (existing) {
-    const updates = buildCustomerUpdates(existing, {
-      name,
-      email,
-      phone,
-      company: input.company,
-    });
-
-    if (Object.keys(updates).length > 0) {
-      const { error } = await client
-        .from("customers")
-        .update(updates)
-        .eq("id", existing.id);
-      if (error) throw new Error(error.message);
-    }
-
-    return { customerId: existing.id, action: "updated" };
+    return updateCustomerHandlingUnique(
+      client,
+      tenantId,
+      existing,
+      { name, email, phone, company: input.company },
+      orderId
+    );
   }
 
   const { data: created, error: insertError } = await client
@@ -440,21 +511,13 @@ export async function upsertCustomer(
       throw new Error(insertError?.message ?? "Failed to save customer");
     }
 
-    const updates = buildCustomerUpdates(afterConflict, {
-      name,
-      email,
-      phone,
-      company: input.company,
-    });
-    if (Object.keys(updates).length > 0) {
-      const { error } = await client
-        .from("customers")
-        .update(updates)
-        .eq("id", afterConflict.id);
-      if (error) throw new Error(error.message);
-    }
-
-    return { customerId: afterConflict.id, action: "updated" };
+    return updateCustomerHandlingUnique(
+      client,
+      tenantId,
+      afterConflict,
+      { name, email, phone, company: input.company },
+      orderId
+    );
   }
 
   throw new Error(insertError?.message ?? "Failed to save customer");

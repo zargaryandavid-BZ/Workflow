@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  Archive,
   CalendarClock,
   ChevronDown,
   ChevronRight,
@@ -208,6 +209,8 @@ export function CardDetailModal({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [orderNumberCopied, setOrderNumberCopied] = useState(false);
   const [persistedSkuIds, setPersistedSkuIds] = useState<Set<string>>(
     () => new Set()
@@ -409,10 +412,17 @@ export function CardDetailModal({
           customFieldValues,
         }),
       });
+      const savedJson = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        tagNotifyWarning?: string;
+      };
       if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: string };
-        setSaveError(json.error ?? "Failed to save order");
+        setSaveError(savedJson.error ?? "Failed to save order");
         return false;
+      }
+
+      if (savedJson.tagNotifyWarning) {
+        onLinkCopied?.(savedJson.tagNotifyWarning);
       }
 
       setNoteHistory(updatedHistory);
@@ -565,6 +575,36 @@ export function CardDetailModal({
       onClose();
     } finally {
       setRemoving(false);
+    }
+  }
+
+  async function downloadArchive() {
+    if (!orderId) return;
+    setArchiving(true);
+    setArchiveError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/archive`);
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setArchiveError(json.error ?? "Failed to build archive");
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const fileName = match?.[1] ?? `${title || orderId}-archive.zip`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setArchiveError("Failed to download archive");
+    } finally {
+      setArchiving(false);
     }
   }
 
@@ -1064,12 +1104,30 @@ export function CardDetailModal({
                 setRemoveError(null);
                 setConfirmRemove(true);
               }}
-              disabled={loading || saving || removing}
+              disabled={loading || saving || removing || archiving}
               className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
               title="Remove order"
             >
               <Trash2 className="h-4 w-4" />
               Delete Order
+            </button>
+          ) : (
+            <span className="mr-auto" />
+          )}
+          {orderId && data ? (
+            <button
+              type="button"
+              onClick={() => void downloadArchive()}
+              disabled={loading || saving || removing || archiving}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Download ZIP with order data, history, and files"
+            >
+              {archiving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Archive className="h-4 w-4" />
+              )}
+              {archiving ? "Preparing…" : "Download archive"}
             </button>
           ) : null}
           {!isViewOnly && isDirty() ? (
@@ -1078,7 +1136,7 @@ export function CardDetailModal({
                 variant="outline"
                 onClick={revert}
                 type="button"
-                disabled={saving || removing}
+                disabled={saving || removing || archiving}
               >
                 Cancel
               </Button>
@@ -1086,7 +1144,7 @@ export function CardDetailModal({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => void save()}
-                disabled={saving || loading || removing}
+                disabled={saving || loading || removing || archiving}
               >
                 {saving ? "Saving…" : "Save changes"}
               </Button>
@@ -1096,7 +1154,7 @@ export function CardDetailModal({
               variant="outline"
               onClick={handleClose}
               type="button"
-              disabled={saving || removing}
+              disabled={saving || removing || archiving}
             >
               Close
             </Button>
@@ -1319,6 +1377,11 @@ export function CardDetailModal({
             {saveError ? (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
                 {saveError}
+              </p>
+            ) : null}
+            {archiveError ? (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+                {archiveError}
               </p>
             ) : null}
           </div>

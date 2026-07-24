@@ -166,20 +166,26 @@ function emailParagraph(html: string) {
   return `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">${html}</p>`;
 }
 
+/** Linkify URLs before inserting <br/> so hrefs are not polluted by escaped markup. */
+function linkifyEscapedPlainText(text: string): string {
+  return text
+    .split(/(https?:\/\/[^\s]+)/g)
+    .map((part, index) => {
+      if (index % 2 === 1) {
+        const href = escapeHtml(part);
+        return `<a href="${href}" style="color:#2563EB;word-break:break-all;">${href}</a>`;
+      }
+      return escapeHtml(part).replace(/\n/g, "<br/>");
+    })
+    .join("");
+}
+
 function plainTextToEmailParagraphs(text: string): string {
   return text
     .trim()
     .split(/\n{2,}/)
-    .map((block) => block.replace(/\n/g, "<br/>"))
     .filter(Boolean)
-    .map((block) =>
-      emailParagraph(
-        escapeHtml(block).replace(
-          /(https?:\/\/[^\s<]+)/g,
-          '<a href="$1" style="color:#2563EB;word-break:break-all;">$1</a>'
-        )
-      )
-    )
+    .map((block) => emailParagraph(linkifyEscapedPlainText(block)))
     .join("");
 }
 
@@ -449,15 +455,12 @@ export function buildNotificationRuleEmailHtml(text: string, orderNumber: string
 
   function flushPending() {
     if (!pendingLines.length) return;
-    const block = pendingLines.join("<br/>").trim();
+    const block = pendingLines.join("\n").trim();
     if (block) {
       sections.push(
-        `<p style="margin:0 0 16px; font-size:14px; color:#374151; line-height:1.7;">${
-          escapeHtml(block).replace(
-            /(https?:\/\/[^\s]+)/g,
-            '<a href="$1" style="color:#2563EB;word-break:break-all;">$1</a>'
-          )
-        }</p>`
+        `<p style="margin:0 0 16px; font-size:14px; color:#374151; line-height:1.7;">${linkifyEscapedPlainText(
+          block
+        )}</p>`
       );
     }
     pendingLines.length = 0;

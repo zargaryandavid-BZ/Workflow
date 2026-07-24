@@ -116,6 +116,17 @@ export interface Tag {
   position: number;
   created_at: string;
   updated_at: string;
+  /** When true, setting/changing an order to this tag sends configured notifications. */
+  notify_enabled?: boolean;
+  notify_send_email?: boolean;
+  notify_send_sms?: boolean;
+  /** customer | designer | owner | custom */
+  notify_recipients?: string[];
+  notify_custom_email?: string | null;
+  notify_custom_phone?: string | null;
+  notify_email_subject?: string | null;
+  notify_email_body?: string | null;
+  notify_sms_body?: string | null;
 }
 
 export interface Customer {
