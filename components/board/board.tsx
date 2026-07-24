@@ -1695,7 +1695,7 @@ export function Board({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div className="flex h-full w-full max-w-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
         <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 sm:gap-3">
           <h1 className="text-lg font-semibold text-slate-800">
@@ -2016,7 +2016,7 @@ export function Board({
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="board-scroll min-h-0 min-w-0 flex-1 overflow-x-scroll overflow-y-hidden">
+        <div className="board-scroll min-h-0 min-w-0 w-full max-w-full flex-1 overflow-x-scroll overflow-y-hidden overscroll-x-none">
           <div className="flex h-full min-w-max gap-3 px-4 pb-4">
             {visibleColumns.map((column, index) => {
               const columnOrders = ordersByColumn.get(column.id) ?? [];

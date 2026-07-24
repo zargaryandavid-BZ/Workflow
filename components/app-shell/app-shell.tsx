@@ -37,7 +37,7 @@ export function AppShell({
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen w-full max-w-full overflow-hidden overscroll-none">
       {sidebarOpen ? (
         <button
           type="button"
