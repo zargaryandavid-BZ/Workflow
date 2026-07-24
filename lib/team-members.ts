@@ -109,7 +109,7 @@ export async function loadTeamMembers(tenantId: string): Promise<{
   if (userIds.length > 0) {
     const { data: profiles, error: profileError } = await supabase
       .from("profiles")
-      .select("id, full_name, avatar_url, created_at")
+      .select("id, full_name, avatar_url, phone, created_at")
       .in("id", userIds);
     if (profileError) {
       return { members: [], error: profileError.message, authConfigured: false };

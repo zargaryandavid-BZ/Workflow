@@ -47,6 +47,7 @@ export function TeamManager({
   // ── Invite form state ────────────────────────────────────────────────────
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [role, setRole] = useState<Role>("designer");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +67,7 @@ export function TeamManager({
   // ── Inline edit state ────────────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -119,7 +121,7 @@ export function TeamManager({
     const res = await fetch("/api/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fullName, email, role }),
+      body: JSON.stringify({ fullName, email, phone: phone.trim() || null, role }),
     });
     const json = await res.json();
     setLoading(false);
@@ -130,6 +132,7 @@ export function TeamManager({
     applyInviteResult(json, fullName ? `${fullName} (${email})` : email);
     setFullName("");
     setEmail("");
+    setPhone("");
     await afterMembershipChange();
   }
 
@@ -165,16 +168,18 @@ export function TeamManager({
     await afterMembershipChange();
   }
 
-  // ── Inline name edit ──────────────────────────────────────────────────────
+  // ── Inline name / phone edit ──────────────────────────────────────────────
   function startEdit(member: MemberRow) {
     setEditingId(member.user_id);
     setEditName(member.profile?.full_name ?? "");
+    setEditPhone(member.profile?.phone ?? "");
     setTimeout(() => editInputRef.current?.focus(), 50);
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditName("");
+    setEditPhone("");
   }
 
   async function saveEdit(userId: string) {
@@ -182,12 +187,15 @@ export function TeamManager({
     const res = await fetch(`/api/members/${userId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fullName: editName }),
+      body: JSON.stringify({
+        fullName: editName,
+        phone: editPhone.trim() || null,
+      }),
     });
     setEditSaving(false);
     if (!res.ok) {
       const json = await res.json();
-      setError(json.error ?? "Failed to update name");
+      setError(json.error ?? "Failed to update member");
       return;
     }
     cancelEdit();
@@ -267,6 +275,16 @@ export function TeamManager({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="teammate@printhouse.com"
+            />
+          </div>
+          <div>
+            <Label htmlFor="t-phone">Phone</Label>
+            <Input
+              id="t-phone"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 818 555 1234"
             />
           </div>
           <div>
@@ -355,35 +373,48 @@ export function TeamManager({
                       </span>
                       <div className="min-w-0">
                         {editingId === m.user_id ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                ref={editInputRef}
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveEdit(m.user_id);
+                                  if (e.key === "Escape") cancelEdit();
+                                }}
+                                className="h-7 w-44 text-sm"
+                                placeholder="Full name"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(m.user_id)}
+                                disabled={editSaving}
+                                className="rounded p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                                title="Save"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                                title="Cancel"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                             <Input
-                              ref={editInputRef}
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
+                              type="tel"
+                              value={editPhone}
+                              onChange={(e) => setEditPhone(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") saveEdit(m.user_id);
                                 if (e.key === "Escape") cancelEdit();
                               }}
                               className="h-7 w-44 text-sm"
-                              placeholder="Full name"
+                              placeholder="Phone (+1 …)"
                             />
-                            <button
-                              type="button"
-                              onClick={() => saveEdit(m.user_id)}
-                              disabled={editSaving}
-                              className="rounded p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-                              title="Save"
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelEdit}
-                              className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                              title="Cancel"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1">
@@ -397,7 +428,7 @@ export function TeamManager({
                               type="button"
                               onClick={() => startEdit(m)}
                               className="ml-0.5 rounded p-0.5 text-slate-300 hover:text-slate-500"
-                              title="Edit name"
+                              title="Edit name and phone"
                             >
                               <Pencil className="h-3 w-3" />
                             </button>
@@ -405,6 +436,9 @@ export function TeamManager({
                         )}
                         {m.email ? (
                           <p className="text-xs text-slate-400">{m.email}</p>
+                        ) : null}
+                        {editingId !== m.user_id && m.profile?.phone ? (
+                          <p className="text-xs text-slate-400">{m.profile.phone}</p>
                         ) : null}
                       </div>
                     </div>
@@ -510,35 +544,48 @@ export function TeamManager({
                       </span>
                       <div className="min-w-0">
                         {editingId === m.user_id ? (
-                          <div className="flex items-center gap-1.5">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                ref={editingId === m.user_id ? editInputRef : undefined}
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveEdit(m.user_id);
+                                  if (e.key === "Escape") cancelEdit();
+                                }}
+                                className="h-7 w-44 text-sm"
+                                placeholder="Full name"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(m.user_id)}
+                                disabled={editSaving}
+                                className="rounded p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                                title="Save"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                                title="Cancel"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                             <Input
-                              ref={editingId === m.user_id ? editInputRef : undefined}
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
+                              type="tel"
+                              value={editPhone}
+                              onChange={(e) => setEditPhone(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") saveEdit(m.user_id);
                                 if (e.key === "Escape") cancelEdit();
                               }}
                               className="h-7 w-44 text-sm"
-                              placeholder="Full name"
+                              placeholder="Phone (+1 …)"
                             />
-                            <button
-                              type="button"
-                              onClick={() => saveEdit(m.user_id)}
-                              disabled={editSaving}
-                              className="rounded p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-                              title="Save"
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelEdit}
-                              className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                              title="Cancel"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1">
@@ -549,7 +596,7 @@ export function TeamManager({
                               type="button"
                               onClick={() => startEdit(m)}
                               className="ml-0.5 shrink-0 rounded p-0.5 text-slate-300 hover:text-slate-500"
-                              title="Edit name"
+                              title="Edit name and phone"
                             >
                               <Pencil className="h-3 w-3" />
                             </button>
@@ -558,6 +605,9 @@ export function TeamManager({
                         <p className="text-xs text-slate-400">
                           {ROLE_LABELS[m.role] ?? m.role} · invited{" "}
                           {formatDate(m.created_at)}
+                          {editingId !== m.user_id && m.profile?.phone
+                            ? ` · ${m.profile.phone}`
+                            : ""}
                         </p>
                       </div>
                     </div>

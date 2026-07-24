@@ -34,6 +34,20 @@ async function authEmail(
   }
 }
 
+async function profilePhone(
+  client: SupabaseClient,
+  userId: string | null | undefined
+): Promise<string | null> {
+  if (!userId) return null;
+  const { data } = await client
+    .from("profiles")
+    .select("phone")
+    .eq("id", userId)
+    .maybeSingle();
+  const phone = (data as { phone: string | null } | null)?.phone?.trim();
+  return phone || null;
+}
+
 export type TagNotifyResult = {
   sentEmail: number;
   sentSms: number;
@@ -53,7 +67,7 @@ export async function sendTagNotifications(params: {
   customFields: CustomField[];
   fieldValues: Record<string, unknown>;
 }): Promise<TagNotifyResult> {
-  const { tag, order, customFields, fieldValues } = params;
+  const { client, tag, order, customFields, fieldValues } = params;
   const warnings: string[] = [];
   let sentEmail = 0;
   let sentSms = 0;
@@ -95,6 +109,14 @@ export async function sendTagNotifications(params: {
   const ownerEmail = recipients.includes("owner")
     ? await authEmail(admin, ownerId)
     : null;
+  const designerPhone =
+    recipients.includes("designer") && sendSmsFlag
+      ? await profilePhone(client, designerId)
+      : null;
+  const ownerPhone =
+    recipients.includes("owner") && sendSmsFlag
+      ? await profilePhone(client, ownerId)
+      : null;
 
   const emails: string[] = [];
   const phones: string[] = [];
@@ -117,9 +139,12 @@ export async function sendTagNotifications(params: {
       else warnings.push("Designer has no email — skipped.");
     }
     if (sendSmsFlag) {
-      warnings.push(
-        "Designer SMS is not available (no phone on file) — skipped."
-      );
+      if (designerPhone) phones.push(designerPhone);
+      else if (!designerId) {
+        /* already warned above when no designer */
+      } else {
+        warnings.push("Designer has no phone on file — skipped.");
+      }
     }
   }
 
@@ -130,9 +155,12 @@ export async function sendTagNotifications(params: {
       else warnings.push("Owner has no email — skipped.");
     }
     if (sendSmsFlag) {
-      warnings.push(
-        "Owner SMS is not available (no phone on file) — skipped."
-      );
+      if (ownerPhone) phones.push(ownerPhone);
+      else if (!ownerId) {
+        /* already warned above when no owner */
+      } else {
+        warnings.push("Owner has no phone on file — skipped.");
+      }
     }
   }
 

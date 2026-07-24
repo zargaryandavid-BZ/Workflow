@@ -63,6 +63,8 @@ export interface Profile {
   id: string;
   full_name: string | null;
   avatar_url: string | null;
+  /** Staff SMS / contact number (E.164 preferred). */
+  phone?: string | null;
   created_at?: string;
 }
 

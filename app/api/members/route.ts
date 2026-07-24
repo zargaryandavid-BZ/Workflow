@@ -8,6 +8,7 @@ import {
   isFullyActiveTeamMember,
 } from "@/lib/team-invite-metadata";
 import { isAssignableRole } from "@/lib/constants";
+import { normalizeSmsPhone, validateSmsRecipient } from "@/lib/sms";
 import type { Role } from "@/lib/types";
 
 /** List all members for the active tenant (memberships + profiles + auth email). */
@@ -38,12 +39,22 @@ export async function POST(request: Request) {
     email?: string;
     role?: string;
     fullName?: string;
+    phone?: string | null;
   };
   const email = body.email?.trim().toLowerCase();
   const fullName = body.fullName?.trim() || null;
+  let phone = body.phone?.trim() || null;
   const role: Role = isAssignableRole(body.role) ? body.role : "designer";
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
+  }
+
+  if (phone) {
+    const phoneError = validateSmsRecipient(phone);
+    if (phoneError) {
+      return NextResponse.json({ error: phoneError }, { status: 400 });
+    }
+    phone = normalizeSmsPhone(phone);
   }
 
   const admin = (() => {
@@ -126,10 +137,25 @@ export async function POST(request: Request) {
     });
   }
 
-  if (fullName) {
-    await admin
+  if (fullName || phone) {
+    const { data: existingProfile } = await admin
       .from("profiles")
-      .upsert({ id: userId, full_name: fullName }, { onConflict: "id" });
+      .select("full_name, phone")
+      .eq("id", userId)
+      .maybeSingle();
+    await admin.from("profiles").upsert(
+      {
+        id: userId,
+        full_name:
+          fullName ??
+          ((existingProfile as { full_name: string | null } | null)?.full_name ??
+            null),
+        phone:
+          phone ??
+          ((existingProfile as { phone: string | null } | null)?.phone ?? null),
+      },
+      { onConflict: "id" }
+    );
   }
 
   return NextResponse.json({

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import { removeTeamMemberFromTenant } from "@/lib/team-members";
 import { isAssignableRole } from "@/lib/constants";
+import { normalizeSmsPhone, validateSmsRecipient } from "@/lib/sms";
 import type { Role } from "@/lib/types";
 
 export async function PATCH(
@@ -20,9 +21,21 @@ export async function PATCH(
   const body = (await request.json().catch(() => ({}))) as {
     role?: string;
     fullName?: string;
+    phone?: string | null;
   };
 
   const supabase = await createClient();
+
+  // Confirm the target belongs to this tenant before profile edits.
+  const { data: membership } = await supabase
+    .from("memberships")
+    .select("user_id")
+    .eq("tenant_id", ctx.tenant.id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!membership) {
+    return NextResponse.json({ error: "Member not found." }, { status: 404 });
+  }
 
   if (body.role !== undefined) {
     if (!isAssignableRole(body.role)) {
@@ -63,8 +76,9 @@ export async function PATCH(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  if (body.fullName !== undefined) {
-    const fullName = body.fullName.trim() || null;
+  const updatingProfile =
+    body.fullName !== undefined || body.phone !== undefined;
+  if (updatingProfile) {
     let admin;
     try {
       admin = createAdminClient();
@@ -75,20 +89,51 @@ export async function PATCH(
       );
     }
 
-    const { data: existing } = await admin.auth.admin.getUserById(userId);
-    if (existing?.user) {
-      await admin.auth.admin.updateUserById(userId, {
-        user_metadata: {
-          ...(existing.user.user_metadata as Record<string, unknown> | undefined),
-          full_name: fullName,
-        },
-      });
+    const { data: existingProfile } = await admin
+      .from("profiles")
+      .select("full_name, phone")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const fullName =
+      body.fullName !== undefined
+        ? body.fullName.trim() || null
+        : ((existingProfile as { full_name: string | null } | null)?.full_name ??
+          null);
+
+    let phone =
+      body.phone !== undefined
+        ? body.phone?.trim() || null
+        : ((existingProfile as { phone: string | null } | null)?.phone ?? null);
+
+    if (phone) {
+      const phoneError = validateSmsRecipient(phone);
+      if (phoneError) {
+        return NextResponse.json({ error: phoneError }, { status: 400 });
+      }
+      phone = normalizeSmsPhone(phone);
     }
 
-    if (fullName) {
-      await supabase
-        .from("profiles")
-        .upsert({ id: userId, full_name: fullName }, { onConflict: "id" });
+    if (body.fullName !== undefined) {
+      const { data: existing } = await admin.auth.admin.getUserById(userId);
+      if (existing?.user) {
+        await admin.auth.admin.updateUserById(userId, {
+          user_metadata: {
+            ...(existing.user.user_metadata as
+              | Record<string, unknown>
+              | undefined),
+            full_name: fullName,
+          },
+        });
+      }
+    }
+
+    const { error: profileError } = await admin.from("profiles").upsert(
+      { id: userId, full_name: fullName, phone },
+      { onConflict: "id" }
+    );
+    if (profileError) {
+      return NextResponse.json({ error: profileError.message }, { status: 400 });
     }
   }
 

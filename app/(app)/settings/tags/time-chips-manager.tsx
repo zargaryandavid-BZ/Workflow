@@ -7,30 +7,14 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import {
-  TIME_CHIP_ICONS,
-  type TimeChip,
-  type TimeChipIcon,
-} from "@/lib/time-chips";
+import { TIME_CHIP_ICONS, type TimeChip } from "@/lib/time-chips";
 import type { BoardColumn } from "@/lib/types";
+import { TimeChipIconView } from "@/components/board/order-card-time-chips";
 
 interface Props {
   initialChips: TimeChip[];
   columns: BoardColumn[];
 }
-
-const ICON_LABELS: Record<TimeChipIcon, string> = {
-  clock: "Clock",
-  calendar: "Calendar",
-  timer: "Timer",
-  truck: "Truck",
-  check: "Check",
-  package: "Package",
-  flag: "Flag",
-  star: "Star",
-  alert: "Alert",
-  mail: "Mail",
-};
 
 export function TimeChipsManager({ initialChips, columns }: Props) {
   const router = useRouter();
@@ -65,8 +49,8 @@ export function TimeChipsManager({ initialChips, columns }: Props) {
               key={chip.id}
               className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-xs font-medium text-slate-600">
-                {chip.icon}
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-600">
+                <TimeChipIconView icon={chip.icon} className="h-4 w-4" />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -230,7 +214,7 @@ function TimeChipEditor({
     <Modal
       open
       onClose={onClose}
-      title={isNew ? "Add time chip" : isSystem ? "Edit system chip" : "Edit time chip"}
+      title={isNew ? "Add time chip" : `Edit ${chip.name}`}
       footer={
         <>
           <Button variant="ghost" type="button" onClick={onClose}>
@@ -270,15 +254,17 @@ function TimeChipEditor({
               <button
                 key={ic}
                 type="button"
+                title={ic}
+                aria-label={ic}
                 onClick={() => setIcon(ic)}
                 className={cn(
-                  "rounded border px-2 py-1 text-[11px] font-medium",
+                  "flex h-9 w-9 items-center justify-center rounded-md border",
                   icon === ic
                     ? "border-blue-500 bg-blue-50 text-blue-700"
                     : "border-slate-200 text-slate-600 hover:bg-slate-50"
                 )}
               >
-                {ICON_LABELS[ic]}
+                <TimeChipIconView icon={ic} className="h-4 w-4" />
               </button>
             ))}
           </div>
