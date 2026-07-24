@@ -129,29 +129,26 @@ function drawSectionTitle(doc: PdfDoc, title: string, y: number): number {
   return y + 24;
 }
 
-function drawSpecRow(
+/** Compact label/value cell used by the 2-column order summary block. */
+function drawSummaryCell(
   doc: PdfDoc,
   label: string,
   value: string,
   x: number,
   y: number,
-  width: number,
-  options?: {
-    valueFontSize?: number;
-    valueFont?: "Helvetica" | "Helvetica-Bold";
-  }
-): number {
+  width: number
+) {
+  const labelW = 92;
   doc
     .fontSize(9)
     .font("Helvetica-Bold")
     .fillColor("#6b7280")
-    .text(label, x, y, { width: width * 0.28 });
+    .text(label, x, y, { width: labelW });
   doc
-    .fontSize(options?.valueFontSize ?? 9)
-    .font(options?.valueFont ?? "Helvetica")
+    .fontSize(9)
+    .font("Helvetica-Bold")
     .fillColor("#111827")
-    .text(value || "—", x + width * 0.28, y, { width: width * 0.72 });
-  return y + 16;
+    .text(value || "—", x + labelW, y, { width: Math.max(0, width - labelW) });
 }
 
 function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
@@ -159,22 +156,38 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   const w = PAGE_WIDTH - MARGIN * 2;
   const innerX = x + 10;
   const innerW = w - 20;
+  const padX = 6;
+  const padY = 4;
+  const labelW = Math.floor(COL_WIDTH * 0.42);
+  const valueW = COL_WIDTH - labelW - padX * 2;
 
-  const PROD_READY_LINK_SIZE = 11 * 1.5; // 16.5 — bold “Link” for prod files
+  type SpecCell = {
+    label: string;
+    value: string;
+    link?: string;
+  };
 
-  const specRows = data.specRows.map((row) => ({
+  const VALUE_SIZE = 10;
+  const LABEL_SIZE = 9;
+
+  const specRows: SpecCell[] = data.specRows.map((row) => ({
     label: row.label,
     value: yesNo(row.value),
-    link: undefined as string | undefined,
-    valueFontSize: undefined as number | undefined,
   }));
+
+  if (data.designTask) {
+    specRows.push({
+      label: "Designer files",
+      value: "Link",
+      link: data.designTask,
+    });
+  }
 
   if (data.artworkLink) {
     specRows.push({
       label: "Prod ready files",
       value: "Link",
       link: data.artworkLink,
-      valueFontSize: PROD_READY_LINK_SIZE,
     });
   }
 
@@ -189,38 +202,28 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   const rightSpecs = specRows.slice(midpoint);
   const maxRows = Math.max(leftSpecs.length, rightSpecs.length);
 
+  const cellHeight = (cell: SpecCell | undefined): number => {
+    if (!cell) return 0;
+    const labelH =
+      doc.fontSize(LABEL_SIZE).font("Helvetica-Bold").heightOfString(cell.label, {
+        width: labelW,
+      }) ?? 0;
+    const valueH =
+      doc
+        .fontSize(VALUE_SIZE)
+        .font("Helvetica-Bold")
+        .heightOfString(cell.value || "—", { width: valueW }) ?? 0;
+    return Math.max(20, Math.max(labelH, valueH) + padY * 2);
+  };
+
   // Pre-compute per-row heights based on actual text content
   const rowHeights: number[] = [];
   for (let i = 0; i < maxRows; i++) {
-    const leftSize = leftSpecs[i]?.valueFontSize ?? 11;
-    const rightSize = rightSpecs[i]?.valueFontSize ?? 11;
-    const lh = leftSpecs[i]
-      ? Math.max(
-          18,
-          (doc.fontSize(leftSize).font("Helvetica-Bold").heightOfString(
-            leftSpecs[i].value || "—",
-            { width: COL_WIDTH * 0.5 }
-          ) ?? 0) + 6
-        )
-      : 0;
-    const rh = rightSpecs[i]
-      ? Math.max(
-          18,
-          (doc.fontSize(rightSize).font("Helvetica-Bold").heightOfString(
-            rightSpecs[i].value || "—",
-            { width: COL_WIDTH * 0.5 }
-          ) ?? 0) + 6
-        )
-      : 0;
-    rowHeights.push(Math.max(lh, rh, 18));
+    rowHeights.push(
+      Math.max(cellHeight(leftSpecs[i]), cellHeight(rightSpecs[i]), 20)
+    );
   }
   const specsH = rowHeights.reduce((s, h) => s + h, 0);
-
-  // Height for designer files link row (if present)
-  let notesH = 0;
-  if (data.designTask) {
-    notesH = 20;
-  }
 
   // Height for order description block (if present)
   let descH = 0;
@@ -231,27 +234,23 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
     descH += 18 + textH + 4;
   }
 
-  const boxH = headerH + specsH + notesH + descH + 10;
+  const boxH = headerH + specsH + descH + 10;
 
   // Attention box (separate, below specs) — clear text only
   const attentionInnerW = w - 24;
   let attentionBoxH = 0;
   if (attentionText) {
-    doc.fontSize(10).font("Helvetica-Bold");
-    const labelH = 14;
     doc.fontSize(10).font("Helvetica");
     const textH = doc.heightOfString(attentionText, { width: attentionInnerW });
-    attentionBoxH = 10 + labelH + textH + 10;
+    attentionBoxH = 10 + 14 + textH + 10;
   }
 
-  // Highlighted background box
+  // Highlighted background box (same cream + amber accent)
   doc.rect(x, startY, w, boxH).fill("#fff7ed");
-  // Amber left accent bar
   doc.rect(x, startY, 4, boxH).fill("#f59e0b");
-  // Border
   doc.rect(x, startY, w, boxH).strokeColor("#fcd34d").lineWidth(0.5).stroke();
 
-  // Section title inside box
+  // Section title
   doc
     .fillColor("#92400e")
     .fontSize(9)
@@ -259,69 +258,63 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
     .text("PRODUCT SPECIFICATIONS", innerX + 6, startY + 8);
   doc.fillColor("#000000").font("Helvetica");
 
+  const tableX = x + 4;
+  const tableW = w - 4;
+  const halfW = tableW / 2;
   let y = startY + headerH;
 
-  // Two-column spec rows with dynamic heights
-  for (let i = 0; i < maxRows; i++) {
-    const rowY = y;
-    if (leftSpecs[i]) {
-      doc
-        .fontSize(9)
-        .font("Helvetica-Bold")
-        .fillColor("#78350f")
-        .text(leftSpecs[i].label, innerX + 6, rowY, { width: COL_WIDTH * 0.45 });
-      const lv = leftSpecs[i];
-      doc
-        .fontSize(lv.valueFontSize ?? 11)
-        .font("Helvetica-Bold")
-        .fillColor(lv.link ? "#1d4ed8" : "#111827")
-        .text(lv.value || "—", innerX + 6 + COL_WIDTH * 0.45, rowY, {
-          width: COL_WIDTH * 0.5,
-          ...(lv.link ? { link: lv.link, underline: true } : {}),
-        });
-    }
-    if (rightSpecs[i]) {
-      const rx = innerX + COL_WIDTH + 6;
-      doc
-        .fontSize(9)
-        .font("Helvetica-Bold")
-        .fillColor("#78350f")
-        .text(rightSpecs[i].label, rx, rowY, { width: COL_WIDTH * 0.45 });
-      const rv = rightSpecs[i];
-      doc
-        .fontSize(rv.valueFontSize ?? 11)
-        .font("Helvetica-Bold")
-        .fillColor(rv.link ? "#1d4ed8" : "#111827")
-        .text(rv.value || "—", rx + COL_WIDTH * 0.45, rowY, {
-          width: COL_WIDTH * 0.5,
-          ...(rv.link ? { link: rv.link, underline: true } : {}),
-        });
-    }
-    y += rowHeights[i];
-  }
+  // Table grid outline
+  doc
+    .rect(tableX, y, tableW, specsH)
+    .strokeColor("#fcd34d")
+    .lineWidth(0.6)
+    .stroke();
+  // Vertical mid divider between left/right columns
+  doc
+    .moveTo(tableX + halfW, y)
+    .lineTo(tableX + halfW, y + specsH)
+    .strokeColor("#fcd34d")
+    .lineWidth(0.5)
+    .stroke();
 
-  y += 4;
-
-  if (data.designTask) {
+  const drawCell = (cell: SpecCell | undefined, cellX: number, rowY: number) => {
+    if (!cell) return;
+    const textY = rowY + padY;
     doc
-      .fontSize(9)
+      .fontSize(LABEL_SIZE)
       .font("Helvetica-Bold")
       .fillColor("#78350f")
-      .text("Designer files", innerX + 6, y);
+      .text(cell.label, cellX + padX, textY, { width: labelW });
     doc
-      .fontSize(11)
-      .font("Helvetica")
-      .fillColor("#1d4ed8")
-      .text("link", innerX + 6 + innerW * 0.32, y, {
-        width: innerW * 0.65,
-        link: data.designTask,
-        underline: true,
+      .fontSize(VALUE_SIZE)
+      .font("Helvetica-Bold")
+      .fillColor(cell.link ? "#1d4ed8" : "#111827")
+      .text(cell.value || "—", cellX + padX + labelW, textY, {
+        width: valueW,
+        ...(cell.link ? { link: cell.link, underline: true } : {}),
       });
-    y += notesH;
+  };
+
+  for (let i = 0; i < maxRows; i++) {
+    const rowY = y;
+    const rowH = rowHeights[i];
+
+    // Horizontal rule under each row (except last — outer border covers it)
+    if (i < maxRows - 1) {
+      doc
+        .moveTo(tableX, rowY + rowH)
+        .lineTo(tableX + tableW, rowY + rowH)
+        .strokeColor("#fde68a")
+        .lineWidth(0.4)
+        .stroke();
+    }
+
+    drawCell(leftSpecs[i], tableX, rowY);
+    drawCell(rightSpecs[i], tableX + halfW, rowY);
+    y += rowH;
   }
 
   if (description) {
-    // Thin divider
     doc
       .moveTo(innerX + 6, y + 2)
       .lineTo(x + w - 10, y + 2)
@@ -418,33 +411,31 @@ function drawPage1(
   let y = 56;
   const w = PAGE_WIDTH - MARGIN * 2 - 12;
 
-  y = drawSectionTitle(doc, "CUSTOMER", y);
-  y = drawSpecRow(
-    doc,
-    "Name",
-    data.customerName,
-    MARGIN + 6,
-    y,
-    PAGE_WIDTH - MARGIN * 2 - 12,
-    { valueFontSize: 11, valueFont: "Helvetica-Bold" }
-  );
-  y += 8;
-
   y = drawSectionTitle(doc, "ORDER", y);
   const x = MARGIN + 6;
-  y = drawSpecRow(doc, "Due Date", data.dueDateFormatted, x, y, COL_WIDTH - 6);
-  drawSpecRow(
-    doc,
-    "Priority",
-    capitalize(data.priority),
-    x + COL_WIDTH,
-    y - 14,
-    COL_WIDTH - 6
-  );
-  y = drawSpecRow(doc, "Assigned To", data.assignedToName, x, y, COL_WIDTH - 6);
-  drawSpecRow(doc, "Stage", data.columnName, x + COL_WIDTH, y - 14, COL_WIDTH - 6);
-  y = drawSpecRow(doc, "Total QTY", fmtQty(data.totalQty), x, y, COL_WIDTH - 6);
-  y += 8;
+  const colW = COL_WIDTH - 6;
+  const leftCol: Array<[string, string]> = [
+    ["Customer", data.customerName],
+    ["Due Date", data.dueDateFormatted],
+    ["Priority", capitalize(data.priority)],
+  ];
+  const rightCol: Array<[string, string]> = [
+    ["Account Manager", data.ownerName || "—"],
+    ["Designer", data.designerName || "—"],
+    ["TTL Qty", fmtQty(data.totalQty)],
+  ];
+  const summaryRows = Math.max(leftCol.length, rightCol.length);
+  let rowY = y;
+  for (let i = 0; i < summaryRows; i++) {
+    if (leftCol[i]) {
+      drawSummaryCell(doc, leftCol[i][0], leftCol[i][1], x, rowY, colW);
+    }
+    if (rightCol[i]) {
+      drawSummaryCell(doc, rightCol[i][0], rightCol[i][1], x + COL_WIDTH, rowY, colW);
+    }
+    rowY += 16;
+  }
+  y = rowY + 8;
 
   y = drawSpecs(doc, data, y);
 
@@ -510,43 +501,49 @@ function drawArtworkPage(
   totalPages: number,
   imageBuffer: Buffer | null
 ) {
-  doc.rect(0, 0, PAGE_WIDTH, 72).fill("#1a1a2e");
+  doc.rect(0, 0, PAGE_WIDTH, 78).fill("#1a1a2e");
   doc
     .fillColor("#ffffff")
     .fontSize(11)
     .font("Helvetica-Bold")
-    .text(data.tenantName.toUpperCase(), MARGIN, 12);
+    .text(data.tenantName.toUpperCase(), MARGIN, 10);
   doc
-    .fontSize(9)
+    .fontSize(10)
     .font("Helvetica")
-    .text("JOB TICKET", PAGE_WIDTH - MARGIN - 60, 12, {
-      width: 60,
+    .text("JOB TICKET", PAGE_WIDTH - MARGIN - 70, 10, {
+      width: 70,
       align: "right",
     });
-  // 200% of previous sizes (9→18, 8→16) so order + SKU caption read clearly on press.
-  doc.fontSize(18).font("Helvetica-Bold").text(data.orderNumberDisplay, MARGIN, 36);
+
+  // Order number (left) + Qty (right) — balanced, press-readable sizes
+  doc
+    .fontSize(13)
+    .font("Helvetica-Bold")
+    .text(data.orderNumberDisplay, MARGIN, 30);
+  doc
+    .fontSize(11)
+    .font("Helvetica-Bold")
+    .text(`Qty: ${fmtQty(skuQty)}`, PAGE_WIDTH - MARGIN - 90, 32, {
+      width: 90,
+      align: "right",
+    });
 
   const skuLabel =
     totalImagesForSku > 1
-      ? `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}  ·  Image ${imageIndex + 1}/${totalImagesForSku}  ·  Qty: ${fmtQty(skuQty)}`
-      : `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}  ·  Qty: ${fmtQty(skuQty)}`;
+      ? `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}  ·  Image ${imageIndex + 1}/${totalImagesForSku}`
+      : `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}`;
 
-  const orderLabelWidth = Math.min(
-    160,
-    doc.widthOfString(data.orderNumberDisplay) + 12
-  );
   doc
-    .fontSize(16)
+    .fontSize(10)
     .font("Helvetica")
     .fillColor("#d1d5db")
-    .text(skuLabel, MARGIN + orderLabelWidth, 38, {
-      width: PAGE_WIDTH - MARGIN * 2 - orderLabelWidth,
-      align: "right",
+    .text(skuLabel, MARGIN, 52, {
+      width: PAGE_WIDTH - MARGIN * 2,
     });
 
   doc.fillColor("#000000");
 
-  const imageTop = 80;
+  const imageTop = 86;
   const imageBottom = PAGE_HEIGHT - 24;
   const imageAreaH = imageBottom - imageTop;
   const imageAreaW = PAGE_WIDTH;

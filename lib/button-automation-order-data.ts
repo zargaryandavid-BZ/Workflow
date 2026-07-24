@@ -151,11 +151,35 @@ function buildSpecRows(
       ARTWORK_FIELD_NAME,
       DESIGNER_FIELD_NAME,
       "designer",
+      "Unit Price",
+      "Unit Price ($)",
     ].map((n) => n.toLowerCase())
   );
 
+  const textForName = (name: string): string => {
+    const field = byName.get(name.toLowerCase());
+    const raw = field ? fieldValues[field.id] : undefined;
+    return raw === null || raw === undefined ? "" : String(raw).trim();
+  };
+  const widthText = textForName("Width");
+  const heightText = textForName("Height");
+  // Combine Width/Height (or fall back to a typed Finished Size) into one row.
+  const sizeValue =
+    widthText && heightText
+      ? `${widthText}x${heightText}`
+      : widthText || heightText || textForName("Finished Size");
+  const sizeHandledNames = new Set(["width", "height", "finished size"]);
+
   const rows: OrderExportSpecRow[] = [];
+  let sizeRowEmitted = false;
   for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
+    if (sizeHandledNames.has(name.toLowerCase())) {
+      if (!sizeRowEmitted && sizeValue) {
+        rows.push({ label: "Size (W, H)", value: sizeValue });
+        sizeRowEmitted = true;
+      }
+      continue;
+    }
     const field = byName.get(name.toLowerCase());
     if (!field) continue;
     const raw = fieldValues[field.id];

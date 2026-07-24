@@ -61,7 +61,9 @@ export function buildRespondOrderRows(
     if (
       name === CUSTOMER_NAME_FIELD_NAME ||
       name === CUSTOMER_CONTACT_FIELD_NAME ||
-      name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase()
+      name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase() ||
+      key === "unit price" ||
+      key === "unit price ($)"
     ) {
       continue;
     }
