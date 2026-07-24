@@ -9,11 +9,25 @@ import {
   buildApprovalSmsBody,
   buildMissingInfoEmailHtml,
   buildMissingInfoSmsBody,
+  buildReadyToShipEmailHtml,
+  buildReadyToShipSmsBody,
+  ensureReadyToShipOrderLink,
   injectApprovalLink,
   injectReplyLink,
   messageToEmailHtml,
   missingInfoSubject,
+  readyToShipSubject,
 } from "@/lib/notification-messages";
+import { getMessageTemplates } from "@/lib/message-templates.server";
+import {
+  formatOrderProductLabel,
+  staffNoteBlock,
+  type MessageTemplateMap,
+} from "@/lib/message-templates";
+import {
+  formatReadyToShipGroupLabel,
+  listOrderGroupMembers,
+} from "@/lib/ready-to-ship-group";
 import { syncCustomerFromNotification } from "@/lib/customers";
 import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
@@ -94,6 +108,16 @@ async function deliverNotification(
       params.toPhone
     );
 
+  let readyToShipOrderLabel = params.order.title;
+  if (params.notification.type === "ready_to_ship") {
+    const members = await listOrderGroupMembers(
+      client,
+      params.order.tenant_id,
+      params.order
+    );
+    readyToShipOrderLabel = formatReadyToShipGroupLabel(members);
+  }
+
   const syncedCustomerId = await syncCustomerFromNotification(client, {
     tenantId: params.order.tenant_id,
     orderId: params.order.id,
@@ -114,6 +138,13 @@ async function deliverNotification(
   const sentParts: Array<"email" | "sms"> = [];
   const errors: string[] = [];
 
+  let templates: MessageTemplateMap | null = null;
+  try {
+    templates = await getMessageTemplates(client, params.order.tenant_id);
+  } catch {
+    templates = null;
+  }
+
   if (wantEmail) {
     if (!customerEmail?.trim()) {
       errors.push("Customer email is required to send.");
@@ -128,6 +159,7 @@ async function deliverNotification(
           replyLink: actionUrl,
           staffNote,
           teamName: `${params.tenantName} Team`,
+          templates,
         });
       } else if (params.notification.type === "customer_approval") {
         if (params.messageBody) {
@@ -140,6 +172,22 @@ async function deliverNotification(
             approvalLink: actionUrl,
             internalNote: staffNote,
             teamName: `${params.tenantName} Team`,
+            templates,
+          });
+        }
+      } else if (params.notification.type === "ready_to_ship") {
+        if (params.messageBody) {
+          htmlBody = messageToEmailHtml(
+            ensureReadyToShipOrderLink(params.messageBody, actionUrl)
+          );
+        } else {
+          htmlBody = buildReadyToShipEmailHtml({
+            customerName: customerName ?? "there",
+            orderNumber: readyToShipOrderLabel,
+            orderLink: actionUrl,
+            staffNote,
+            teamName: `${params.tenantName} Team`,
+            templates,
           });
         }
       } else if (params.messageBody) {
@@ -148,6 +196,20 @@ async function deliverNotification(
         );
       }
 
+      const productType = productFromOrder(params.order);
+      const productLabel = formatOrderProductLabel(productType);
+      const teamName = `${params.tenantName} Team`;
+      const noteBlock = staffNoteBlock(staffNote);
+      const subjectVars = {
+        customer_name: customerName?.trim() || "there",
+        product: productLabel,
+        reply_link: actionUrl,
+        approval_link: actionUrl,
+        order_link: actionUrl,
+        staff_note_block: noteBlock,
+        team_name: teamName,
+        brand: params.tenantName,
+      };
       const emailResult = await sendNotificationEmail({
         to: customerEmail,
         type: params.notification.type,
@@ -156,19 +218,24 @@ async function deliverNotification(
         actionUrl,
         staffNote,
         customerName,
-        productType: productFromOrder(params.order),
+        productType,
         subject:
           params.subject ??
           (params.notification.type === "missing_info"
-            ? missingInfoSubject(params.order.title)
+            ? missingInfoSubject(params.order.title, templates, subjectVars)
             : params.notification.type === "customer_approval"
-              ? approvalSubject(params.order.title)
-              : undefined),
+              ? approvalSubject(params.order.title, templates, subjectVars)
+              : params.notification.type === "ready_to_ship"
+                ? readyToShipSubject(readyToShipOrderLabel, templates, subjectVars)
+                : undefined),
         htmlBody,
         textBody:
           params.notification.type === "customer_approval" && params.messageBody
             ? params.messageBody
-            : undefined,
+            : params.notification.type === "ready_to_ship" && params.messageBody
+              ? ensureReadyToShipOrderLink(params.messageBody, actionUrl)
+              : undefined,
+        templates,
       });
       if (emailResult.sent) {
         sentParts.push("email");
@@ -190,6 +257,7 @@ async function deliverNotification(
               orderNumber: params.order.title,
               replyLink: actionUrl,
               brandName: params.tenantName,
+              templates,
             })
           : params.notification.type === "customer_approval"
             ? buildApprovalSmsBody({
@@ -198,10 +266,19 @@ async function deliverNotification(
                 orderNumber: params.order.title,
                 approvalLink: actionUrl,
                 brandName: params.tenantName,
+                templates,
               })
-            : params.messageBody
-              ? injectReplyLink(params.messageBody, actionUrl)
-              : `${greeting}we need more info for "${params.order.title}". Please respond: ${actionUrl}`;
+            : params.notification.type === "ready_to_ship"
+              ? buildReadyToShipSmsBody({
+                  customerName,
+                  orderNumber: readyToShipOrderLabel,
+                  orderLink: actionUrl,
+                  brandName: params.tenantName,
+                  templates,
+                })
+              : params.messageBody
+                ? injectReplyLink(params.messageBody, actionUrl)
+                : `${greeting}we need more info for "${params.order.title}". Please respond: ${actionUrl}`;
       const smsResult = await sendSms({ to: customerPhone, body });
       if (smsResult.sent) {
         sentParts.push("sms");
@@ -628,6 +705,19 @@ export async function respondToNotification(
         },
       });
     }
+  } else if (notification.type === "ready_to_ship") {
+    // View/acknowledge only — do not move the order off Ready to Ship.
+    await logActivity(admin, {
+      tenantId: notification.tenant_id,
+      orderId: notification.order_id,
+      actor: null,
+      action: "customer_replied",
+      metadata: {
+        via: "customer",
+        type: "ready_to_ship",
+        note: params.note?.trim() || null,
+      },
+    });
   } else {
     const { data: order } = await admin
       .from("orders")

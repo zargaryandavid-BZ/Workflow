@@ -12,6 +12,7 @@ export interface WebhookFieldOptionSet {
 }
 
 const SELECT_KEYS_FOR_PROMPT = [
+  "product_category",
   "product",
   "materials",
   "sides",
@@ -140,8 +141,10 @@ Order level:
 - priority: normal|high|low|urgent
 - due_date
 - description (order description)
-- notes (staff notes / Notes tab; alias internal_note)
-- category
+- notes (CRM Attention / Internal Notes → every sub-card; alias internal_note)
+- items[].line_item_comment (CRM Line Item Comment → that sub-order Notes only)
+- category (board TAG name — optional)
+- product_category (dropdown Category — Apparel, Labels & Stickers, …; inferred from product if omitted)
 - source_url (CRM order page URL)  ← required for globe Source link
 - payment_status: partial|full     ← required for payment globe
 - deposit
@@ -152,7 +155,8 @@ Order level:
 
 Each items[] entry:
 - title (line title)
-- category
+- category (board TAG — optional)
+- product_category (Category dropdown; omit to infer from product)
 - product
 - materials
 - finished_size  OR width + height (Workflow builds "W x H" if finished_size omitted)
@@ -194,6 +198,7 @@ TEMPLATE (fill from CRM order data)
   "description": "",
   "notes": "",
   "category": "",
+  "product_category": "",
   "source_url": "",
   "payment_status": "partial",
   "deposit": 0,
@@ -207,6 +212,7 @@ TEMPLATE (fill from CRM order data)
     {
       "title": "",
       "category": "",
+      "product_category": "",
       "product": "",
       "width": 0,
       "height": 0,

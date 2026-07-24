@@ -13,6 +13,7 @@ import {
   parseShippingBoxes,
   sendShippingPortalNotifications,
 } from "@/lib/shipping";
+import { getMessageTemplates } from "@/lib/message-templates.server";
 import type { ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
 
 export async function POST(
@@ -124,6 +125,7 @@ export async function POST(
   }
 
   const portalUrl = `${appBaseUrl()}/shipping/${shippingReq.token}`;
+  const templates = await getMessageTemplates(supabase, ctx.tenant.id);
   const notify = await sendShippingPortalNotifications({
     email,
     phone,
@@ -131,6 +133,7 @@ export async function POST(
     orderNumber: exportData.orderNumberDisplay || exportData.orderNumber,
     portalUrl,
     tenantName: ctx.tenant.name,
+    templates,
   });
 
   if (!notify.emailSent && !notify.smsSent) {

@@ -87,8 +87,9 @@ export function itemLabel(order: OrderWithRelations): string {
 }
 
 /**
- * CRM order reference shown after the source label (`CRM | ORD-2026-0298`).
- * Always the webhook `order_number` — never a product/line description.
+ * Human-readable title after the source label (`CRM | …`).
+ * Uses `specs.webhook_order_title` from the webhook `title` field.
+ * Never shows the order number (ORD-…) — omit/empty leaves the label blank.
  */
 export function sharedOrderTitle(
   order: {
@@ -97,48 +98,12 @@ export function sharedOrderTitle(
   }
 ): string | null {
   const t = order.specs?.webhook_order_title;
-  if (typeof t === "string" && t.trim()) return t.trim();
-
-  // Legacy cards: prefer multi-item group key, then expand short card titles.
-  const webhookNumber =
-    typeof order.specs?.webhook_order_number === "string"
-      ? order.specs.webhook_order_number.trim()
-      : "";
-  if (webhookNumber) return webhookNumber;
-
-  const orderTitle = typeof order.title === "string" ? order.title.trim() : "";
-  if (!orderTitle) return null;
-  const expanded = expandOrdFromCardTitle(orderTitle);
-  return expanded || null;
-}
-
-function titlesMatchOrderNumber(title: string, orderNumber: string): boolean {
-  const t = title.trim().toLowerCase();
-  const o = orderNumber.trim().toLowerCase();
-  if (!t || !o) return false;
-  if (t === o) return true;
-
-  const strip = (s: string) =>
-    s.replace(/^ord-\d{4}-/i, "").replace(/^0+(\d)/, "$1");
-  if (strip(t) && strip(t) === strip(o)) return true;
-
-  return false;
-}
-
-/** Best-effort full order number from a short card title like "142" or "142-1". */
-function expandOrdFromCardTitle(cardTitle: string): string {
-  const trimmed = cardTitle.trim();
-  if (/^ord-\d{4}-/i.test(trimmed)) {
-    // ORD-2026-054-1 → ORD-2026-054
-    if (/^ord-\d{4}-[^-]+-\d+$/i.test(trimmed)) {
-      return trimmed.replace(/-\d+$/, "");
-    }
-    return trimmed;
-  }
-  const base = trimmed.replace(/-\d+$/, "").trim();
-  if (!base || !/^\d/.test(base)) return base;
-  const year = new Date().getFullYear();
-  return `ORD-${year}-${base}`;
+  if (typeof t !== "string") return null;
+  const title = t.trim();
+  if (!title) return null;
+  // Legacy backfill stored ORD-YYYY-#### here — hide those from the label.
+  if (/^ord-\d{4}-\S+$/i.test(title)) return null;
+  return title;
 }
 
 export interface OrderGroupSearchSuggestion {

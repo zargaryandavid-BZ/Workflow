@@ -1,15 +1,22 @@
 import { Printer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildRespondOrderRows,
   fetchRespondOrderAssets,
   fetchRespondSkuImages,
   skusForRespond,
   type RespondOrderAsset,
+  type RespondOrderRow,
   type RespondSkuImage,
 } from "@/lib/respond-order";
 import { OrderReview } from "@/components/respond/order-review";
 import { orderMetaChips } from "@/lib/respond-page";
+import {
+  formatReadyToShipGroupLabel,
+  listOrderGroupMembers,
+  type GroupOrderMember,
+} from "@/lib/ready-to-ship-group";
 import { RespondForm } from "./respond-form";
 import type {
   CustomerResponse,
@@ -17,6 +24,7 @@ import type {
   NotificationType,
   OrderSpecs,
 } from "@/lib/types";
+import type { SkuItem } from "@/lib/skus";
 
 interface NotificationRow {
   notification_id: string;
@@ -35,9 +43,79 @@ interface NotificationRow {
   responded_at: string | null;
 }
 
+type RespondPart = {
+  id: string;
+  title: string;
+  rows: RespondOrderRow[];
+  skus: SkuItem[];
+  assets: RespondOrderAsset[];
+  skuImages: Record<string, RespondSkuImage[]>;
+};
+
 function productFromFields(fields: Record<string, unknown>): string {
   const product = fields["Product"] ?? fields["product"];
   return product ? String(product) : "order";
+}
+
+async function loadOrderFields(
+  admin: ReturnType<typeof createAdminClient>,
+  orderId: string
+): Promise<Record<string, unknown>> {
+  const { data } = await admin
+    .from("custom_field_values")
+    .select("value, custom_fields(name)")
+    .eq("order_id", orderId);
+
+  const fields: Record<string, unknown> = {};
+  for (const row of data ?? []) {
+    const cf = row.custom_fields as { name?: string } | { name?: string }[] | null;
+    const name = Array.isArray(cf) ? cf[0]?.name : cf?.name;
+    if (name) fields[name] = row.value;
+  }
+  return fields;
+}
+
+async function buildRespondParts(
+  members: GroupOrderMember[],
+  primary: NotificationRow
+): Promise<RespondPart[]> {
+  const admin = createAdminClient();
+  const parts: RespondPart[] = [];
+
+  for (const member of members) {
+    const isPrimary = member.id === primary.order_id;
+    const fields = isPrimary
+      ? primary.order_fields ?? {}
+      : await loadOrderFields(admin, member.id);
+    const description = isPrimary
+      ? primary.order_description
+      : member.description;
+    const specs = isPrimary
+      ? (primary.order_specs ?? {})
+      : (member.specs ?? {});
+
+    let assets: RespondOrderAsset[] = [];
+    let skuImages: Record<string, RespondSkuImage[]> = {};
+    try {
+      [assets, skuImages] = await Promise.all([
+        fetchRespondOrderAssets(member.id),
+        fetchRespondSkuImages(member.id),
+      ]);
+    } catch {
+      // non-critical
+    }
+
+    parts.push({
+      id: member.id,
+      title: member.title,
+      rows: buildRespondOrderRows(description, fields, specs),
+      skus: skusForRespond(specs),
+      assets,
+      skuImages,
+    });
+  }
+
+  return parts;
 }
 
 function RespondCard({
@@ -83,7 +161,7 @@ export default async function RespondPage({
 }) {
   const { token } = await params;
   const supabase = await createClient();
-  const { data, error: rpcError } = await supabase.rpc("get_notification_by_token", {
+  const { data } = await supabase.rpc("get_notification_by_token", {
     p_token: token,
   });
 
@@ -119,28 +197,82 @@ export default async function RespondPage({
   const orderFields = notification.order_fields ?? {};
   const productLabel = productFromFields(orderFields);
   const metaChips = orderMetaChips(orderFields, notification.order_specs ?? {});
-  const orderRows = buildRespondOrderRows(
-    notification.order_description,
-    orderFields,
-    notification.order_specs ?? {}
-  );
-  const skus = skusForRespond(notification.order_specs ?? {});
-  let assets: RespondOrderAsset[] = [];
-  let skuImages: Record<string, RespondSkuImage[]> = {};
-  try {
-    [assets, skuImages] = await Promise.all([
-      fetchRespondOrderAssets(notification.order_id),
-      fetchRespondSkuImages(notification.order_id),
-    ]);
-  } catch {
-    // non-critical; proceed without assets
+
+  let headerTitle = notification.order_title;
+  let orderReview: React.ReactNode = null;
+
+  if (notification.type === "ready_to_ship") {
+    const admin = createAdminClient();
+    const { data: primaryOrder } = await admin
+      .from("orders")
+      .select("id, title, tenant_id, column_id, description, specs")
+      .eq("id", notification.order_id)
+      .maybeSingle();
+
+    const members = primaryOrder
+      ? await listOrderGroupMembers(admin, primaryOrder.tenant_id as string, {
+          id: primaryOrder.id as string,
+          title: primaryOrder.title as string,
+          column_id: primaryOrder.column_id as string | null,
+          description: primaryOrder.description as string | null,
+          specs: (primaryOrder.specs ?? {}) as Record<string, unknown>,
+        })
+      : [];
+
+    if (members.length > 1) {
+      headerTitle = formatReadyToShipGroupLabel(members);
+      const parts = await buildRespondParts(members, notification);
+      orderReview = (
+        <div className="space-y-4">
+          {parts.map((part) => (
+            <OrderReview
+              key={part.id}
+              token={token}
+              heading={part.title}
+              rows={part.rows}
+              skus={part.skus}
+              assets={part.assets}
+              skuImages={part.skuImages}
+            />
+          ))}
+        </div>
+      );
+    }
+  }
+
+  if (!orderReview) {
+    const orderRows = buildRespondOrderRows(
+      notification.order_description,
+      orderFields,
+      notification.order_specs ?? {}
+    );
+    const skus = skusForRespond(notification.order_specs ?? {});
+    let assets: RespondOrderAsset[] = [];
+    let skuImages: Record<string, RespondSkuImage[]> = {};
+    try {
+      [assets, skuImages] = await Promise.all([
+        fetchRespondOrderAssets(notification.order_id),
+        fetchRespondSkuImages(notification.order_id),
+      ]);
+    } catch {
+      // non-critical; proceed without assets
+    }
+    orderReview = (
+      <OrderReview
+        token={token}
+        rows={orderRows}
+        skus={skus}
+        assets={assets}
+        skuImages={skuImages}
+      />
+    );
   }
 
   if (expired && !alreadyDone) {
     return (
       <RespondCard
         tenantName={notification.tenant_name}
-        orderTitle={notification.order_title}
+        orderTitle={headerTitle}
         footer={footer}
       >
         <div className="text-center">
@@ -157,7 +289,7 @@ export default async function RespondPage({
     return (
       <RespondCard
         tenantName={notification.tenant_name}
-        orderTitle={notification.order_title}
+        orderTitle={headerTitle}
         footer={footer}
       >
         <div className="text-center">
@@ -173,26 +305,18 @@ export default async function RespondPage({
   return (
     <RespondCard
       tenantName={notification.tenant_name}
-      orderTitle={notification.order_title}
+      orderTitle={headerTitle}
       footer={footer}
     >
       <RespondForm
         token={token}
         type={notification.type}
         productLabel={productLabel}
-        orderNumber={notification.order_title}
+        orderNumber={headerTitle}
         staffNote={notification.staff_note}
         metaChips={metaChips}
         tenantName={notification.tenant_name}
-        orderReview={
-          <OrderReview
-            token={token}
-            rows={orderRows}
-            skus={skus}
-            assets={assets}
-            skuImages={skuImages}
-          />
-        }
+        orderReview={orderReview}
       />
     </RespondCard>
   );

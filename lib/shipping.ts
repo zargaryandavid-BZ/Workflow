@@ -8,6 +8,7 @@ import {
 } from "@/lib/notification-messages";
 import { sendTransactionalEmail } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
+import type { MessageTemplateMap } from "@/lib/message-templates";
 import type { ShippingBox, ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
 
 export function parseShippingBoxes(
@@ -70,10 +71,12 @@ export async function sendShippingPortalNotifications(args: {
   orderNumber: string;
   portalUrl: string;
   tenantName: string;
+  templates?: MessageTemplateMap | null;
 }): Promise<{ emailSent: boolean; smsSent: boolean; errors: string[] }> {
   const errors: string[] = [];
   let emailSent = false;
   let smsSent = false;
+  const templates = args.templates;
 
   if (args.email?.trim()) {
     const html = buildShippingPortalEmailHtml({
@@ -81,16 +84,22 @@ export async function sendShippingPortalNotifications(args: {
       orderNumber: args.orderNumber,
       portalUrl: args.portalUrl,
       teamName: `${args.tenantName} Team`,
+      templates,
     });
     const text = buildShippingPortalEmailBody({
       customerName: args.customerName,
       orderNumber: args.orderNumber,
       portalUrl: args.portalUrl,
       teamName: `${args.tenantName} Team`,
+      templates,
     });
     const result = await sendTransactionalEmail({
       to: args.email.trim(),
-      subject: shippingPortalSubject(args.orderNumber),
+      subject: shippingPortalSubject(args.orderNumber, templates, {
+        customer_name: args.customerName,
+        portal_url: args.portalUrl,
+        team_name: `${args.tenantName} Team`,
+      }),
       html,
       text,
     });
@@ -103,6 +112,7 @@ export async function sendShippingPortalNotifications(args: {
       customerName: args.customerName,
       orderNumber: args.orderNumber,
       portalUrl: args.portalUrl,
+      templates,
     });
     const result = await sendSms({ to: args.phone.trim(), body });
     smsSent = result.sent;

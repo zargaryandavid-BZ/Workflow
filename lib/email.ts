@@ -9,13 +9,22 @@ import {
   resolveInstantlyEaccount,
 } from "@/lib/instantly";
 import {
+  approvalSubject,
   buildApprovalEmailBody,
   buildApprovalEmailHtml,
   buildMissingInfoEmailBody,
   buildMissingInfoEmailHtml,
+  buildReadyToShipEmailBody,
+  buildReadyToShipEmailHtml,
   missingInfoSubject,
   messageToEmailHtml,
+  readyToShipSubject,
 } from "@/lib/notification-messages";
+import {
+  formatOrderProductLabel,
+  staffNoteBlock,
+  type MessageTemplateMap,
+} from "@/lib/message-templates";
 import {
   buildTeamInviteEmailBody,
   buildTeamInviteEmailHtml,
@@ -46,6 +55,7 @@ interface NotificationEmailArgs {
   subject?: string;
   htmlBody?: string;
   textBody?: string;
+  templates?: MessageTemplateMap | null;
 }
 
 export type EmailSendResult = { sent: boolean; error?: string };
@@ -231,11 +241,24 @@ export async function sendNotificationEmail(
   args: NotificationEmailArgs
 ): Promise<EmailSendResult & { url?: string }> {
   const isApproval = args.type === "customer_approval";
+  const templates = args.templates;
+  const subjectVars = {
+    customer_name: args.customerName?.trim() || "there",
+    product: formatOrderProductLabel(args.productType ?? "order"),
+    reply_link: args.actionUrl,
+    approval_link: args.actionUrl,
+    order_link: args.actionUrl,
+    staff_note_block: staffNoteBlock(args.staffNote),
+    team_name: `${args.tenantName} Team`,
+    brand: args.tenantName,
+  };
   const subject =
     args.subject ??
     (isApproval
-      ? `Action required: please approve your proof — ${args.orderTitle}`
-      : missingInfoSubject(args.orderTitle));
+      ? approvalSubject(args.orderTitle, templates, subjectVars)
+      : args.type === "ready_to_ship"
+        ? readyToShipSubject(args.orderTitle, templates, subjectVars)
+        : missingInfoSubject(args.orderTitle, templates, subjectVars));
 
   let html: string;
   let text: string | undefined;
@@ -252,6 +275,7 @@ export async function sendNotificationEmail(
       replyLink: args.actionUrl,
       staffNote: args.staffNote,
       teamName: `${args.tenantName} Team`,
+      templates,
     });
   } else if (args.type === "customer_approval") {
     html = buildApprovalEmailHtml({
@@ -261,6 +285,16 @@ export async function sendNotificationEmail(
       approvalLink: args.actionUrl,
       internalNote: args.staffNote,
       teamName: `${args.tenantName} Team`,
+      templates,
+    });
+  } else if (args.type === "ready_to_ship") {
+    html = buildReadyToShipEmailHtml({
+      customerName: args.customerName?.trim() || "there",
+      orderNumber: args.orderTitle,
+      orderLink: args.actionUrl,
+      staffNote: args.staffNote,
+      teamName: `${args.tenantName} Team`,
+      templates,
     });
   } else {
     html = messageToEmailHtml(args.htmlBody ?? "");
@@ -274,6 +308,7 @@ export async function sendNotificationEmail(
       replyLink: args.actionUrl,
       staffNote: args.staffNote,
       teamName: `${args.tenantName} Team`,
+      templates,
     });
   } else if (args.type === "customer_approval") {
     text =
@@ -285,6 +320,18 @@ export async function sendNotificationEmail(
         approvalLink: args.actionUrl,
         internalNote: args.staffNote,
         teamName: `${args.tenantName} Team`,
+        templates,
+      });
+  } else if (args.type === "ready_to_ship") {
+    text =
+      args.textBody ??
+      buildReadyToShipEmailBody({
+        customerName: args.customerName?.trim() || "there",
+        orderNumber: args.orderTitle,
+        orderLink: args.actionUrl,
+        staffNote: args.staffNote,
+        teamName: `${args.tenantName} Team`,
+        templates,
       });
   }
 
@@ -311,21 +358,27 @@ export async function sendTeamInviteEmail(args: {
   tenantName: string;
   inviteUrl: string;
   fullName?: string | null;
+  templates?: MessageTemplateMap | null;
 }): Promise<EmailSendResult> {
   const html = buildTeamInviteEmailHtml({
     tenantName: args.tenantName,
     inviteUrl: args.inviteUrl,
     fullName: args.fullName,
+    templates: args.templates,
   });
   const text = buildTeamInviteEmailBody({
     tenantName: args.tenantName,
     inviteUrl: args.inviteUrl,
     fullName: args.fullName,
+    templates: args.templates,
   });
 
   const result = await sendCustomerEmail({
     to: args.to,
-    subject: teamInviteSubject(args.tenantName),
+    subject: teamInviteSubject(args.tenantName, args.templates, {
+      invitee_name: args.fullName?.trim() || "there",
+      invite_url: args.inviteUrl,
+    }),
     html,
     text,
   });
@@ -345,21 +398,27 @@ export async function sendPasswordResetEmail(args: {
   tenantName: string;
   resetUrl: string;
   fullName?: string | null;
+  templates?: MessageTemplateMap | null;
 }): Promise<EmailSendResult> {
   const html = buildPasswordResetEmailHtml({
     tenantName: args.tenantName,
     resetUrl: args.resetUrl,
     fullName: args.fullName,
+    templates: args.templates,
   });
   const text = buildPasswordResetEmailBody({
     tenantName: args.tenantName,
     resetUrl: args.resetUrl,
     fullName: args.fullName,
+    templates: args.templates,
   });
 
   return sendCustomerEmail({
     to: args.to,
-    subject: passwordResetSubject(args.tenantName),
+    subject: passwordResetSubject(args.tenantName, args.templates, {
+      invitee_name: args.fullName?.trim() || "there",
+      reset_url: args.resetUrl,
+    }),
     html,
     text,
   });

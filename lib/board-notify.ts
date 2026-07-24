@@ -1,14 +1,7 @@
 import {
-  approvalSubject,
-  buildApprovalEmailBody,
-  buildApprovalSmsBody,
   customerContactFromOrder,
   customerNameFromOrder,
-  missingInfoSubject,
   productFromOrder,
-  buildReadyToShipEmailBody,
-  buildReadyToShipSmsBody,
-  readyToShipSubject,
 } from "@/lib/notification-messages";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
 import { resolvePreferredNotifyChannel } from "@/lib/preferred-channel";
@@ -36,21 +29,19 @@ function buildSendBody(params: {
   customerName: string;
   product: string;
 }) {
-  const { order, type, channel, tenantName, contact, customerName, product } =
-    params;
-  const teamName = `${tenantName} Team`;
+  const { order, type, channel, contact } = params;
 
   if (channel === "manual") {
     return { orderId: order.id, type, channel: "manual" as const };
   }
 
+  // Omit subject/messageBody so the server renders tenant custom templates.
   if (type === "missing_info") {
     return {
       orderId: order.id,
       type,
       channel,
       staffNote: "We need additional information to complete your order.",
-      subject: channel === "email" ? missingInfoSubject(order.title) : undefined,
       toEmail: channel === "email" ? contact.email : undefined,
       toPhone: channel === "sms" ? contact.phone : undefined,
     };
@@ -61,13 +52,6 @@ function buildSendBody(params: {
       orderId: order.id,
       type,
       channel,
-      subject: channel === "email" ? readyToShipSubject(order.title) : undefined,
-      messageBody:
-        channel === "email"
-          ? buildReadyToShipEmailBody({ customerName, orderNumber: order.title, teamName })
-          : channel === "sms"
-            ? buildReadyToShipSmsBody({ customerName, orderNumber: order.title, brandName: tenantName })
-            : undefined,
       toEmail: channel === "email" ? contact.email : undefined,
       toPhone: channel === "sms" ? contact.phone : undefined,
     };
@@ -78,13 +62,6 @@ function buildSendBody(params: {
       orderId: order.id,
       type,
       channel,
-      messageBody: buildApprovalSmsBody({
-        customerName,
-        productType: product,
-        orderNumber: order.title,
-        approvalLink: "[reply link added on send]",
-        brandName: tenantName,
-      }),
       toPhone: contact.phone,
     };
   }
@@ -93,14 +70,6 @@ function buildSendBody(params: {
     orderId: order.id,
     type,
     channel,
-    subject: approvalSubject(order.title),
-    messageBody: buildApprovalEmailBody({
-      customerName,
-      productType: product,
-      orderNumber: order.title,
-      approvalLink: "[reply link added on send]",
-      teamName,
-    }),
     toEmail: contact.email,
   };
 }

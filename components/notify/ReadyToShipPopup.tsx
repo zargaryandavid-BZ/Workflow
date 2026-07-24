@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import {
   buildReadyToShipEmailBody,
-  buildReadyToShipEmailHtml,
   buildReadyToShipSmsBody,
   customerContactFromOrder,
   customerNameFromOrder,
@@ -26,6 +25,8 @@ type Channel = "email" | "sms" | "manual";
 interface CheckResult {
   siblingCount: number;
   siblingsInColumn: number;
+  siblingTitles?: string[];
+  groupLabel?: string;
   previousNotificationDate: string | null;
 }
 
@@ -80,15 +81,17 @@ export function ReadyToShipPopup({
   });
   const [subject, setSubject] = useState(() => readyToShipSubject(order.title));
   const [emailMessage, setEmailMessage] = useState(() =>
-    buildReadyToShipEmailBody({ customerName, orderNumber: order.title, teamName })
-  );
-  const [smsMessage, setSmsMessage] = useState(() =>
-    buildReadyToShipSmsBody({ customerName, orderNumber: order.title, brandName: tenantName })
+    buildReadyToShipEmailBody({
+      customerName,
+      orderNumber: order.title,
+      orderLink: "[order link added on send]",
+      teamName,
+    })
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [allowPartial, setAllowPartial] = useState(false);
 
-  // Group / prior-notification data loaded from the check API.
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
 
   useEffect(() => {
@@ -97,25 +100,54 @@ export function ReadyToShipPopup({
     )
       .then((r) => r.json())
       .then((data: CheckResult) => setCheckResult(data))
-      .catch(() => {/* non-critical */});
+      .catch(() => {
+        /* non-critical */
+      });
   }, [order.id, columnId]);
+
+  const orderLabel = checkResult?.groupLabel?.trim() || order.title;
+
+  useEffect(() => {
+    if (!checkResult?.groupLabel) return;
+    setSubject(readyToShipSubject(checkResult.groupLabel));
+    setEmailMessage(
+      buildReadyToShipEmailBody({
+        customerName,
+        orderNumber: checkResult.groupLabel,
+        orderLink: "[order link added on send]",
+        teamName,
+      })
+    );
+  }, [checkResult?.groupLabel, customerName, teamName]);
 
   const notAllReady =
     checkResult !== null &&
     checkResult.siblingCount > 1 &&
     checkResult.siblingsInColumn < checkResult.siblingCount;
 
+  const waitingForGroup = notAllReady && !allowPartial && channel !== "manual";
+
   const alreadySent = Boolean(checkResult?.previousNotificationDate);
   const alreadySentDate = checkResult?.previousNotificationDate
-    ? new Date(checkResult.previousNotificationDate).toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })
+    ? new Date(checkResult.previousNotificationDate).toLocaleDateString(
+        undefined,
+        {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }
+      )
     : null;
 
   async function saveAndSend() {
     setError(null);
+
+    if (waitingForGroup) {
+      setError(
+        "Wait until all parts are in Ready to Ship, or choose “Notify partial anyway”."
+      );
+      return;
+    }
 
     if (channel !== "manual") {
       const destination = to.trim();
@@ -138,15 +170,6 @@ export function ReadyToShipPopup({
 
     setLoading(true);
     try {
-      const htmlBody =
-        channel === "email"
-          ? buildReadyToShipEmailHtml({
-              customerName,
-              orderNumber: order.title,
-              teamName,
-            })
-          : undefined;
-
       const { ok, data } = await postJsonWithTimeout<{ error?: string }>(
         "/api/notifications/send",
         {
@@ -154,13 +177,7 @@ export function ReadyToShipPopup({
           type: "ready_to_ship",
           channel,
           subject: channel === "email" ? subject.trim() : undefined,
-          messageBody:
-            channel === "email"
-              ? emailMessage
-              : channel === "sms"
-                ? smsMessage
-                : undefined,
-          htmlBody,
+          messageBody: channel === "email" ? emailMessage : undefined,
           toEmail: channel === "email" ? to.trim() || undefined : undefined,
           toPhone: channel === "sms" ? to.trim() || undefined : undefined,
         }
@@ -214,7 +231,6 @@ export function ReadyToShipPopup({
         role="dialog"
         aria-labelledby="rts-popup-title"
       >
-        {/* Header */}
         <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
@@ -228,7 +244,7 @@ export function ReadyToShipPopup({
                 Order is ready — notify customer
               </h2>
               <p className="mt-0.5 text-sm text-slate-500">
-                {order.title}
+                {orderLabel}
                 {customerName !== "there" ? ` · ${customerName}` : ""}
               </p>
             </div>
@@ -245,7 +261,6 @@ export function ReadyToShipPopup({
         </div>
 
         <div className="space-y-4 overflow-y-auto px-5 py-4">
-          {/* Group sub-item status */}
           {checkResult && checkResult.siblingCount > 1 ? (
             <div
               className={cn(
@@ -260,15 +275,39 @@ export function ReadyToShipPopup({
               ) : (
                 <Package className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
               )}
-              <span>
-                {notAllReady
-                  ? `This order has ${checkResult.siblingCount} parts — only ${checkResult.siblingsInColumn} of ${checkResult.siblingCount} are in Ready to Ship. You can still notify, but the others aren't ready yet.`
-                  : `All ${checkResult.siblingCount} parts of this order are in Ready to Ship.`}
-              </span>
+              <div className="space-y-1">
+                <span>
+                  {notAllReady
+                    ? `Waiting for all parts — ${checkResult.siblingsInColumn} of ${checkResult.siblingCount} are in Ready to Ship. One SMS will list every part when you send.`
+                    : `All ${checkResult.siblingCount} parts are ready. One notification link will show all parts for the customer.`}
+                </span>
+                {checkResult.siblingTitles?.length ? (
+                  <p className="text-xs opacity-80">
+                    {checkResult.siblingTitles.join(" · ")}
+                  </p>
+                ) : null}
+                {notAllReady ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAllowPartial(true);
+                      setError(null);
+                    }}
+                    className="mt-1 text-xs font-medium underline underline-offset-2"
+                  >
+                    Notify partial anyway
+                  </button>
+                ) : null}
+                {allowPartial && notAllReady ? (
+                  <p className="text-xs font-medium">
+                    Partial notify enabled — customer will still see all group
+                    parts on the link.
+                  </p>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
-          {/* Already sent warning */}
           {alreadySent ? (
             <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
@@ -280,7 +319,6 @@ export function ReadyToShipPopup({
             </div>
           ) : null}
 
-          {/* Channel selector */}
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700">
               How would you like to notify the customer?
@@ -372,21 +410,22 @@ export function ReadyToShipPopup({
                       id="rts-message"
                       value={emailMessage}
                       onChange={(e) => setEmailMessage(e.target.value)}
-                      rows={8}
+                      rows={10}
                       className="mt-1 font-sans text-sm leading-relaxed"
                     />
                   </div>
                 </>
               ) : (
                 <div>
-                  <Label htmlFor="rts-sms">SMS message</Label>
-                  <Textarea
-                    id="rts-sms"
-                    value={smsMessage}
-                    onChange={(e) => setSmsMessage(e.target.value)}
-                    rows={3}
-                    className="mt-1 font-sans text-sm leading-relaxed"
-                  />
+                  <Label>Message preview (SMS)</Label>
+                  <p className="mt-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    {buildReadyToShipSmsBody({
+                      customerName,
+                      orderNumber: orderLabel,
+                      orderLink: "[order link added on send]",
+                      brandName: tenantName,
+                    })}
+                  </p>
                 </div>
               )}
             </>
@@ -399,21 +438,22 @@ export function ReadyToShipPopup({
           ) : null}
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
           <Button variant="ghost" onClick={onClose} disabled={loading || dismissing}>
             Cancel
           </Button>
           <Button
             onClick={saveAndSend}
-            disabled={loading || dismissing}
+            disabled={loading || dismissing || waitingForGroup}
             className="bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             {loading
               ? "Saving…"
               : isManual
                 ? "Save"
-                : "Send notification"}
+                : waitingForGroup
+                  ? "Waiting for all parts"
+                  : "Send notification"}
           </Button>
         </div>
       </div>

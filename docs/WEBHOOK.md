@@ -155,11 +155,11 @@ When you pass `items[]`, each item becomes a separate board card numbered `ORD-0
 | `customer_contact` | string | Customer **email** — saved on the customer record |
 | `customer_phone` | string | Customer **phone** — when both are sent, phone is the primary Customer Contact |
 | `order_number` | string | Your reference e.g. `"ORD-2026-001"` — auto-generated if omitted |
-| `title` | string | Label after source (`CRM \| …`) — **omit/empty for blank** (order # still shows) |
+| `title` | string | Label after source (`CRM \| …`) — **omit/empty for blank** (does not fall back to order #) |
 | `priority` | string | `normal` · `high` · `low` · `urgent` (default: `normal`) |
 | `due_date` | string | `"YYYY-MM-DD"` — must be today or a future date |
 | `description` | string | **Order Description** on the card |
-| `notes` | string | **Notes** tab (alias: `internal_note`). Combined with SKU comments |
+| `notes` | string | **Attention / Internal Notes** — copied onto **every** sub-product card (alias: `internal_note`). Combined with each item's Line Item Comment |
 | `category` | string | Category name (also accepts `category_name`) |
 | `source_url` | string | CRM / source order page URL — shown as **Source** on the card globe popover (aliases: `source_link`, `order_url`) |
 | `payment_status` | string | `partial` or `full` (also `paid` / `complete` → full). Alias: `payment` |
@@ -213,7 +213,8 @@ Each item object can override any order-level field. Fields not set on the item 
 | `order_qty` | number | Auto-calculated from SKU quantities when omitted |
 | `artwork_url` | string | **Public URL** to the artwork file — stored as an external asset |
 | `description` | string | Item-level **Order Description** |
-| `notes` | string | Item-level **Notes** tab (alias: `internal_note`) |
+| `notes` | string | Extra item-only Notes (alias: `internal_note`) — added on top of order-level Attention |
+| `line_item_comment` | string | **CRM Line Item Comment** → Notes on this sub-order only (aliases: `line_comment`, `comment`) |
 | `designer_information` | string | Designer Information custom field for this item |
 | `design_task` | string | http(s) URL → Design files; non-URL → Order Description |
 | `designer_email` | string | Overrides order-level assigned designer |
@@ -467,12 +468,10 @@ An optional `warning` string is included when:
 - Billing fields (`source_url`, `payment_status`, `deposit`, `balance`) are stored in `orders.specs.billing` and shown via a **globe** icon next to the priority chip. If none are sent, no globe appears.
 - `designer_information` / `designer_notes` fill the **Designer Information** custom field only.
 - `design_task` must be an **http(s) URL** for **Design files** (GDrive job folder). Non-URL text is treated as Order Description content.
-- `notes` / `internal_note` land on the card **Notes** tab.
-- Per-SKU `description` / `comment` values are combined into the **Notes** tab as:
-  ```
-  SKU1: first line comment
-  SKU2: second line comment
-  ```
+- `notes` / `internal_note` at order level = CRM **Attention / Internal Notes** → Notes tab on **every** sub-product card.
+- `items[].line_item_comment` (aliases: `line_comment`, `comment`) = CRM **Line Item Comment** → Notes on that sub-order only.
+- When both are present, both appear in that card's Notes (Attention first, then line comment, then SKU comments).
+- Per-SKU `description` / `comment` values are also combined into the **Notes** tab (plain lines, no `SKU1:` prefix).
 - `title` after the source label — omit or send empty to leave blank; do not fall back to `order_number`.
 - **Owner** fields (`owner_*` / `request_owner_*`) set the card Owner dropdown only when the user is an **account manager** on your team. Free-text `request_owner_name`, `request_owner_contact`, and `request_owner_phone` are always saved on the card.
 - New cards always land in the **first board column**.

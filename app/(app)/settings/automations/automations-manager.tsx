@@ -448,6 +448,8 @@ function NotifyColumnRow({
           <p className="text-xs text-slate-500">
             When a job is dropped here, a confirmation popup will appear so you
             can notify the customer via email or SMS that their order is ready.
+            For multi-part orders, sending waits until all parts are in this
+            column — one link shows every part.
           </p>
         </div>
       ) : null}

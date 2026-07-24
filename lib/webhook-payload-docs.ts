@@ -307,7 +307,7 @@ const NOTES_MD = `
 - \`designer_information\` / \`designer_notes\` fill the **Designer Information** custom field only.
 - \`design_task\` must be an **http(s) URL** for Design files; non-URL text goes into Order Description.
 - \`notes\` / \`internal_note\` land on the card **Notes** tab.
-- Per-SKU \`description\` / \`comment\` values are combined into the **Notes** tab as \`SKU1: …\`, \`SKU2: …\` (together with \`notes\`).
+- Per-SKU \`description\` / \`comment\` values are combined into the **Notes** tab (together with \`notes\`).
 - \`description\` (order or item) fills **Order Description** only — not Notes.
 - Billing fields (\`source_url\`, \`payment_status\`, \`deposit\`, \`balance\`) power the card globe popover.
 - \`title\` is the label after the source (\`CRM | …\`). **Omit or send empty** to leave it blank — do not fall back to \`order_number\`.
@@ -416,7 +416,7 @@ Legacy flat format: put these fields at the top level instead of inside \`items[
 | \`sku_name\` | No | string | Variant display name |
 | \`quantity\` | No | number | Number of pieces |
 | \`artwork_url\` | No | string | Per-SKU artwork URL |
-| \`description\` | No | string | Line comment → **Notes** tab as \`SKU1: …\` (alias: \`comment\`) |
+| \`description\` | No | string | Line comment → **Notes** tab (alias: \`comment\`) |
 
 ---
 
@@ -805,7 +805,7 @@ export function buildWebhookPayloadDocsHtml(
       "description",
       "No",
       "string",
-      "Line comment → <strong>Notes</strong> tab as <code>SKU1: …</code> (alias: <code>comment</code>)",
+      "Line comment → <strong>Notes</strong> tab (alias: <code>comment</code>)",
     ],
   ];
 
@@ -1013,7 +1013,7 @@ export function buildWebhookPayloadDocsHtml(
       <li><code>designer_information</code> fills the <strong>Designer Information</strong> custom field only.</li>
       <li><code>design_task</code> must be an http(s) URL for <strong>Design files</strong>; non-URL text goes into Order Description.</li>
       <li><code>notes</code> / <code>internal_note</code> land on the card <strong>Notes</strong> tab.</li>
-      <li>Per-SKU <code>description</code> / <code>comment</code> values are combined into the <strong>Notes</strong> tab as <code>SKU1: …</code>, <code>SKU2: …</code>.</li>
+      <li>Per-SKU <code>description</code> / <code>comment</code> values are combined into the <strong>Notes</strong> tab.</li>
       <li><code>title</code> after the source label (<code>CRM | …</code>) — omit or send empty to leave blank; do not fall back to <code>order_number</code>.</li>
       <li><strong>Not set via webhook:</strong> Artwork GDrive link — staff fill this in the app.</li>
       <li>Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.</li>

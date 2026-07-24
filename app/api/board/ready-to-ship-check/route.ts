@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
+import {
+  formatReadyToShipGroupLabel,
+  listOrderGroupMembers,
+} from "@/lib/ready-to-ship-group";
 
 /**
  * GET /api/board/ready-to-ship-check?orderId=...&columnId=...
@@ -8,8 +12,10 @@ import { getTenantContext } from "@/lib/auth";
  * Returns:
  *  - siblingCount: total number of parts in the group (including this order)
  *  - siblingsInColumn: how many of those parts are currently in columnId
+ *  - siblingTitles: titles of all group parts
+ *  - groupLabel: customer-facing label (includes all parts when grouped)
  *  - previousNotificationDate: ISO string of the last ready_to_ship notification
- *    sent for this order, or null
+ *    sent for any part of this group, or null
  */
 export async function GET(request: Request) {
   const ctx = await getTenantContext();
@@ -31,10 +37,9 @@ export async function GET(request: Request) {
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
-  // Load the order to find its group key.
   const { data: order } = await supabase
     .from("orders")
-    .select("id, title, specs, column_id")
+    .select("id, title, specs, column_id, description")
     .eq("id", orderId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -43,48 +48,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  // Determine group key — same logic as fireNotificationRules.
-  const webhookKey =
-    typeof order.specs?.webhook_order_number === "string"
-      ? order.specs.webhook_order_number.trim()
-      : null;
-  const titleMatch = (order.title as string).match(/^(.+)-(\d+)$/);
-  const groupKey = webhookKey || (titleMatch ? titleMatch[1] : null);
+  const members = await listOrderGroupMembers(supabase, tenantId, {
+    id: order.id as string,
+    title: order.title as string,
+    column_id: order.column_id as string | null,
+    description: order.description as string | null,
+    specs: (order.specs ?? {}) as Record<string, unknown>,
+  });
 
-  let siblingCount = 1;
-  let siblingsInColumn = order.column_id === columnId ? 1 : 0;
+  const siblingCount = members.length;
+  const siblingsInColumn = members.filter((m) => m.column_id === columnId).length;
+  const siblingTitles = members.map((m) => m.title);
+  const groupLabel = formatReadyToShipGroupLabel(members);
 
-  if (groupKey) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let q: any = supabase
-      .from("orders")
-      .select("id, column_id")
-      .eq("tenant_id", tenantId)
-      .is("removed_at", null)
-      .neq("id", orderId);
-
-    if (webhookKey) {
-      q = q.filter("specs->>'webhook_order_number'", "eq", webhookKey);
-    } else {
-      q = q.ilike("title", `${groupKey}-%`);
-    }
-
-    const { data: siblings } = await q;
-    const sibs = (siblings ?? []) as { id: string; column_id: string }[];
-
-    // +1 to include the current order itself.
-    siblingCount = sibs.length + 1;
-    siblingsInColumn =
-      sibs.filter((s) => s.column_id === columnId).length +
-      (order.column_id === columnId ? 1 : 0);
-  }
-
-  // Check for a previous ready_to_ship notification on this order.
+  const memberIds = members.map((m) => m.id);
   const { data: previousNotif } = await supabase
-    .from("notifications")
+    .from("job_notifications")
     .select("created_at")
-    .eq("order_id", orderId)
+    .in("order_id", memberIds)
     .eq("type", "ready_to_ship")
+    .in("status", ["sent", "responded", "pending"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -92,6 +75,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     siblingCount,
     siblingsInColumn,
+    siblingTitles,
+    groupLabel,
     previousNotificationDate: previousNotif?.created_at ?? null,
   });
 }

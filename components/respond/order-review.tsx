@@ -17,6 +17,8 @@ interface OrderReviewProps {
   assets: RespondOrderAsset[];
   /** Gallery images from order_sku_images, keyed by sku_id. */
   skuImages?: Record<string, RespondSkuImage[]>;
+  /** Optional part heading for multi-item ready-to-ship groups. */
+  heading?: string;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -92,6 +94,7 @@ export function OrderReview({
   skus,
   assets,
   skuImages = {},
+  heading,
 }: OrderReviewProps) {
   const assetsBySku = new Map<string, RespondOrderAsset>();
   const orderAssets: RespondOrderAsset[] = [];
@@ -109,7 +112,7 @@ export function OrderReview({
   return (
     <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-        Order details
+        {heading?.trim() || "Order details"}
       </p>
 
       {hasRows ? (

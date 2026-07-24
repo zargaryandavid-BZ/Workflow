@@ -41,6 +41,31 @@ export const PRODUCT_NAME_MAP: Record<string, string> = {
   Other: "Other",
 };
 
+/** Product → Category dropdown (keep in sync with Workflow product-data). */
+const PRODUCT_CATEGORY_MAP: Record<string, string> = {
+  "Pouches Combo": "Combos",
+  "Jar Combo": "Combos",
+  "Tube Combo": "Combos",
+  "Labels (Roll)": "Labels & Stickers",
+  "Labels (Sheet)": "Labels & Stickers",
+  "Diecut Stickers": "Labels & Stickers",
+  "Folding Cartons / Boxes": "Packaging & Boxes",
+  "Business Cards": "Print",
+  "Flyers / Postcards": "Print",
+  Booklets: "Print",
+  "Sheet Products (Boyd)": "Print",
+  "Vinyl Labels / 54'' Rolls": "Signage / Large Format",
+  "Vinyl Signage": "Signage / Large Format",
+  "Banners / Large Format": "Signage / Large Format",
+  "Window Decals": "Signage / Large Format",
+  Wallpaper: "Signage / Large Format",
+  Apparel: "Apparel",
+  "Pouches Only": "Components",
+  "Tube Only": "Components",
+  "Jar Only": "Components",
+  Other: "Other",
+};
+
 export interface CrmOrder {
   id: string;
   order_number?: string;
@@ -71,7 +96,7 @@ export interface CrmSku {
   sku_name: string;
   quantity: number;
   artwork_url?: string | null;
-  /** Line comment — becomes `SKU1: …` under Attention / Internal notes. */
+  /** Line comment — stored under Attention / Internal notes. */
   description?: string | null;
   comment?: string | null;
 }
@@ -118,6 +143,9 @@ export async function sendToWorkflow(
     priority: order.priority ?? "normal",
     due_date: order.due_date ?? getFallbackDueDate(),
     product: mappedProduct,
+    product_category: mappedProduct
+      ? (PRODUCT_CATEGORY_MAP[mappedProduct] ?? undefined)
+      : undefined,
     materials: order.material ?? undefined,
     finished_size: finishedSize ?? undefined,
     color_mode: sanitizeNone(order.color_mode),

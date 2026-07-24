@@ -112,23 +112,28 @@ export function ProductMaterialsFields({
   function syncCategoryFromProduct(productName: string) {
     const setCategory = onCategorySync ?? onCategoryChange;
     if (!setCategory) return;
-    const inferred =
-      inferCategoryFromProduct?.(productName) ??
-      categoryForProduct(productName);
+    // Catalog map is the source of truth (Apparel → Apparel, etc.).
+    // Field-link reverse lookup may refine the label; ignore if not in options.
+    const fromCatalog = categoryForProduct(productName);
+    const fromLinks = inferCategoryFromProduct?.(productName)?.trim() || null;
+    const inferred = fromLinks || fromCatalog;
     if (!inferred) return;
-    const match = findMatchingOption(categoryOptions, inferred);
+    const match =
+      findMatchingOption(categoryOptions, inferred) ||
+      (fromCatalog
+        ? findMatchingOption(categoryOptions, fromCatalog)
+        : undefined);
     if (!match) return;
     if (optionsMatch(match, storedCategory)) return;
     setCategory(match);
   }
 
-  // Fill / correct Category when Product is already set (e.g. webhook orders).
+  // Fill Category whenever Product is set (webhook orders, Apparel → Apparel, …).
   useEffect(() => {
-    if (readOnly || !product) return;
+    if (readOnly || !product.trim()) return;
     syncCategoryFromProduct(product);
-    // Only when product/category options identity changes — not on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow sync
-  }, [product, storedCategory, readOnly]);
+  }, [product, storedCategory, readOnly, categoryOptions.join("\0")]);
 
   function handleCategoryChange(next: string) {
     onCategoryChange?.(next);

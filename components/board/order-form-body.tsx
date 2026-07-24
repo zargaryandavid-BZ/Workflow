@@ -19,6 +19,7 @@ import {
 import {
   categoryForProductFromLinks,
   clearTargetsForSourceChange,
+  findMatchingOption,
   getFilteredOptions,
   linkedTargetOptions,
   uniqueOptions,
@@ -633,13 +634,22 @@ export function OrderFormBody({
               }
               inferCategoryFromProduct={
                 categoryField && productField
-                  ? (productName) =>
-                      categoryForProductFromLinks(
+                  ? (productName) => {
+                      const fromLinks = categoryForProductFromLinks(
                         fieldLinks,
                         categoryField,
                         productField,
                         productName
-                      ) ?? categoryForProduct(productName)
+                      );
+                      // Prefer link label only when it matches a Category option.
+                      if (
+                        fromLinks &&
+                        findMatchingOption(categoryField.options, fromLinks)
+                      ) {
+                        return fromLinks;
+                      }
+                      return categoryForProduct(productName);
+                    }
                   : undefined
               }
               onProductChange={handleProductLinkedChange}

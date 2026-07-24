@@ -26,6 +26,7 @@ import {
 } from "@/lib/order-billing";
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import { categoryForProduct } from "@/lib/product-data";
+import { findMatchingOption } from "@/lib/field-links";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -167,7 +168,8 @@ export interface WebhookSkuPayload {
   artwork_url?: string;
   /**
    * Line Item Comment for this SKU — combined into Attention / Internal notes
-   * as `SKU1: …` (aliases: `comment`, `line_item_comment`).
+   * Line comment — stored under Attention / Internal notes
+   * (aliases: `comment`, `line_item_comment`).
    */
   description?: string;
   /** Alias for line item comment (`description`). */
@@ -213,17 +215,20 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   artwork_url?: string;
   description?: string;
   /**
-   * Attention / Internal notes on the card (alias: `notes`).
-   * Combined with per-SKU line comments.
+   * Attention / Internal notes on this line only (alias: `notes`).
+   * Combined with order-level Attention and SKU comments on create.
    */
   internal_note?: string;
   /** Alias for `internal_note`. */
   notes?: string;
-  /** Alias for Attention note when not nested under `skus[]`. */
+  /**
+   * CRM Line Item Comment for this sub-order only → Notes tab on that card.
+   * Combined with order-level Attention when both are present.
+   */
   line_item_comment?: string;
-  /** Alias for Attention note. */
+  /** Alias for `line_item_comment`. */
   line_comment?: string;
-  /** Alias for Attention note. */
+  /** Alias for `line_item_comment`. */
   comment?: string;
   category?: string;
   category_name?: string;
@@ -251,7 +256,7 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   order_number?: string;
   /**
    * Human-readable title after the source label (`CRM | …`).
-   * Omit or send empty to leave the card title blank (order # still shows).
+   * Omit or send empty to leave blank — never falls back to `order_number`.
    */
   title?: string;
   priority?: string;
@@ -290,13 +295,16 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   /** Order Description on the card (customer/production notes). */
   description?: string;
   /**
-   * Attention / Internal notes on the card (alias: `notes`).
-   * Combined with per-SKU line comments on create.
+   * CRM Attention / Internal Notes — applied to every sub-product card
+   * (alias: `notes`). Combined with each item's Line Item Comment + SKU comments.
    */
   internal_note?: string;
   /** Alias for `internal_note`. */
   notes?: string;
-  /** Alias for Attention note. */
+  /**
+   * Flat single-item Line Item Comment (prefer `items[].line_item_comment`
+   * for multi-item orders).
+   */
   line_item_comment?: string;
   skus?: WebhookSkuPayload[];
   items?: WebhookItem[];
@@ -350,18 +358,63 @@ function skuLineComment(item: WebhookSkuPayload): string | null {
 }
 
 /** Staff / line comments that belong in Attention (orders.internal_note). */
-function resolveItemAttentionNote(item: WebhookItem): string | null {
-  for (const key of [
-    "internal_note",
-    "notes",
-    "line_item_comment",
-    "line_comment",
-    "comment",
-  ] as const) {
-    const raw = item[key];
-    if (typeof raw === "string" && raw.trim()) return raw.trim();
+function pickTrimmedNote(
+  ...vals: (string | null | undefined)[]
+): string | null {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
   }
   return null;
+}
+
+/**
+ * CRM Attention / Internal Notes — order-level, applied to every sub-product card.
+ * Does not include line-item comments.
+ */
+export function resolveSharedAttentionNote(
+  order: WebhookOrderPayload
+): string | null {
+  return pickTrimmedNote(order.internal_note, order.notes);
+}
+
+/**
+ * CRM Line Item Comment (+ optional item-only notes) for one sub-order.
+ * Reads the raw item payload only — never inherits order-level Attention.
+ */
+export function resolveItemLineAttentionNote(
+  rawItem: WebhookItem,
+  sharedNote: string | null = null
+): string | null {
+  const parts: string[] = [];
+  const itemStaff = pickTrimmedNote(rawItem.internal_note, rawItem.notes);
+  // Skip when flat normalizeItems copied order notes onto the synthetic item.
+  if (itemStaff && itemStaff !== sharedNote) {
+    parts.push(itemStaff);
+  }
+  const lineComment = pickTrimmedNote(
+    rawItem.line_item_comment,
+    rawItem.line_comment,
+    rawItem.comment
+  );
+  if (
+    lineComment &&
+    lineComment !== itemStaff &&
+    lineComment !== sharedNote
+  ) {
+    parts.push(lineComment);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+/** Combine shared Attention + per-item line comment for one card. */
+export function combineCardAttentionNotes(
+  sharedNote: string | null,
+  itemLineNote: string | null
+): string | null {
+  const parts = [sharedNote?.trim(), itemLineNote?.trim()].filter(
+    (p): p is string => Boolean(p)
+  );
+  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 function normalizeWebhookSkus(
@@ -491,13 +544,14 @@ export function buildWebhookOrderDescription(opts: {
 }
 
 /**
- * Build Attention / Internal notes text: staff notes + labeled SKU line comments.
+ * Build Attention / Internal notes text: staff notes + SKU line comments
+ * (plain comment text — no `SKU1:` prefix).
  *
  * ```
  * Rush — confirm ship date
  *
- * SKU1: 1 sku- 200 boxes- (matte finish)
- * SKU2: 2 sided lb bag- (sample)
+ * 1 sku- 200 boxes- (matte finish)
+ * 2 sided lb bag- (sample)
  * ```
  */
 export function buildWebhookNotes(opts: {
@@ -510,7 +564,7 @@ export function buildWebhookNotes(opts: {
 
   const skuLines = (opts.skuComments ?? [])
     .filter((s) => s.comment.trim())
-    .map((s) => `SKU${s.index}: ${s.comment.trim()}`);
+    .map((s) => s.comment.trim());
   if (skuLines.length > 0) {
     parts.push(skuLines.join("\n"));
   }
@@ -697,6 +751,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       description: body.description,
       internal_note: body.internal_note ?? body.notes,
       notes: body.notes,
+      line_item_comment: body.line_item_comment,
       skus: body.skus,
       designer_email: body.designer_email,
       designer_id: body.designer_id,
@@ -732,14 +787,19 @@ export function resolveItemTitle(
 }
 
 /**
- * CRM order reference stored on every card (`specs.webhook_order_title`).
- * Always `order_number` (e.g. ORD-2026-0298) — never product/line `title`.
+ * Human-readable label after the source (`CRM | …`), stored as
+ * `specs.webhook_order_title`. Prefer payload `title`; never fall back to
+ * `order_number` (omit/empty → blank on the board).
  */
 function resolveOrderLevelTitle(
-  _body: WebhookOrderPayload,
+  body: WebhookOrderPayload,
   orderNumber: string
 ): string {
-  return orderNumber.trim();
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (title && !isOrderNumberLikeTitle(title, orderNumber)) {
+    return title;
+  }
+  return "";
 }
 
 /** True when a "title" is really just the order number (or a short form of it). */
@@ -789,24 +849,52 @@ type WebhookSpecFields = {
   perforation?: boolean;
 };
 
+/** Prefer non-empty trimmed strings (AI templates often send `""`). */
+function firstNonEmpty(
+  ...vals: (string | null | undefined)[]
+): string | undefined {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
 function mergeItemWithOrder(
   order: WebhookOrderPayload,
   item: WebhookItem
 ): WebhookItem {
   return {
     ...item,
-    product: item.product ?? order.product,
-    product_category: item.product_category ?? order.product_category,
-    finished_size: item.finished_size ?? order.finished_size,
-    die: item.die ?? order.die,
-    materials: item.materials ?? order.materials,
-    finishing: item.finishing ?? item.lamination ?? order.finishing ?? order.lamination,
-    lamination: item.lamination ?? item.finishing ?? order.lamination ?? order.finishing,
-    sides: item.sides ?? order.sides,
-    color: item.color ?? order.color,
-    color_mode: item.color_mode ?? item.color ?? order.color_mode ?? order.color,
-    position: item.position ?? order.position,
-    roll_direction: item.roll_direction ?? order.roll_direction,
+    product: firstNonEmpty(item.product, order.product),
+    product_category: firstNonEmpty(
+      item.product_category,
+      order.product_category
+    ),
+    finished_size: firstNonEmpty(item.finished_size, order.finished_size),
+    die: firstNonEmpty(item.die, order.die),
+    materials: firstNonEmpty(item.materials, order.materials),
+    finishing: firstNonEmpty(
+      item.finishing,
+      item.lamination,
+      order.finishing,
+      order.lamination
+    ),
+    lamination: firstNonEmpty(
+      item.lamination,
+      item.finishing,
+      order.lamination,
+      order.finishing
+    ),
+    sides: firstNonEmpty(item.sides, order.sides),
+    color: firstNonEmpty(item.color, order.color),
+    color_mode: firstNonEmpty(
+      item.color_mode,
+      item.color,
+      order.color_mode,
+      order.color
+    ),
+    position: firstNonEmpty(item.position, order.position),
+    roll_direction: firstNonEmpty(item.roll_direction, order.roll_direction),
     width: item.width ?? order.width,
     height: item.height ?? order.height,
     unit_price: item.unit_price ?? order.unit_price,
@@ -819,39 +907,50 @@ function mergeItemWithOrder(
     need_a_design: item.need_a_design ?? order.need_a_design,
     perforation: item.perforation ?? order.perforation,
     order_qty: item.order_qty ?? order.order_qty,
-    artwork_url: item.artwork_url ?? order.artwork_url,
-    description: item.description ?? order.description,
-    internal_note:
-      item.internal_note ??
-      item.notes ??
-      item.line_item_comment ??
-      item.line_comment ??
-      item.comment ??
-      order.internal_note ??
-      order.notes,
-    notes: item.notes ?? order.notes,
-    line_item_comment: item.line_item_comment ?? order.line_item_comment,
+    artwork_url: firstNonEmpty(item.artwork_url, order.artwork_url),
+    description: firstNonEmpty(item.description, order.description),
+    // Keep Attention (notes) separate from Line Item Comment — combined at create.
+    internal_note: firstNonEmpty(item.internal_note, item.notes, order.internal_note, order.notes),
+    notes: firstNonEmpty(item.notes, order.notes),
+    line_item_comment: item.line_item_comment,
     line_comment: item.line_comment,
     comment: item.comment,
-    category: item.category ?? order.category,
-    category_name: item.category_name ?? order.category_name,
-    designer_email: item.designer_email ?? order.designer_email,
-    designer_id: item.designer_id ?? order.designer_id,
-    designer: item.designer ?? order.designer,
-    designer_information: item.designer_information ?? order.designer_information,
-    designer_notes: item.designer_notes ?? order.designer_notes,
-    design_task: item.design_task ?? order.design_task,
-    owner_email: item.owner_email ?? order.owner_email,
-    owner_id: item.owner_id ?? order.owner_id,
-    owner_name: item.owner_name ?? order.owner_name,
-    owner: item.owner ?? order.owner,
-    request_owner_email: item.request_owner_email ?? order.request_owner_email,
-    request_owner_id: item.request_owner_id ?? order.request_owner_id,
-    request_owner: item.request_owner ?? order.request_owner,
-    request_owner_name: item.request_owner_name ?? order.request_owner_name,
-    request_owner_contact:
-      item.request_owner_contact ?? order.request_owner_contact,
-    request_owner_phone: item.request_owner_phone ?? order.request_owner_phone,
+    category: firstNonEmpty(item.category, order.category),
+    category_name: firstNonEmpty(item.category_name, order.category_name),
+    designer_email: firstNonEmpty(item.designer_email, order.designer_email),
+    designer_id: firstNonEmpty(item.designer_id, order.designer_id),
+    designer: firstNonEmpty(item.designer, order.designer),
+    designer_information: firstNonEmpty(
+      item.designer_information,
+      order.designer_information
+    ),
+    designer_notes: firstNonEmpty(item.designer_notes, order.designer_notes),
+    design_task: firstNonEmpty(item.design_task, order.design_task),
+    owner_email: firstNonEmpty(item.owner_email, order.owner_email),
+    owner_id: firstNonEmpty(item.owner_id, order.owner_id),
+    owner_name: firstNonEmpty(item.owner_name, order.owner_name),
+    owner: firstNonEmpty(item.owner, order.owner),
+    request_owner_email: firstNonEmpty(
+      item.request_owner_email,
+      order.request_owner_email
+    ),
+    request_owner_id: firstNonEmpty(
+      item.request_owner_id,
+      order.request_owner_id
+    ),
+    request_owner: firstNonEmpty(item.request_owner, order.request_owner),
+    request_owner_name: firstNonEmpty(
+      item.request_owner_name,
+      order.request_owner_name
+    ),
+    request_owner_contact: firstNonEmpty(
+      item.request_owner_contact,
+      order.request_owner_contact
+    ),
+    request_owner_phone: firstNonEmpty(
+      item.request_owner_phone,
+      order.request_owner_phone
+    ),
   };
 }
 
@@ -1308,7 +1407,7 @@ function buildCustomFieldValues(
     }
   }
 
-  // Infer Category from Product when product_category was not sent.
+  // Infer Category from Product when product_category was not sent / matched.
   const categoryFieldDef = fields.get("product_category");
   const productFieldDef = fields.get("product");
   if (categoryFieldDef && !byFieldId.has(categoryFieldDef.id)) {
@@ -1317,9 +1416,13 @@ function buildCustomFieldValues(
       : undefined;
     const productStr =
       (typeof productVal === "string" && productVal.trim()) ||
-      (typeof specFields.product === "string" ? specFields.product : "");
+      (typeof specFields.product === "string" ? specFields.product.trim() : "");
     const inferred = categoryForProduct(productStr);
-    if (inferred) byFieldId.set(categoryFieldDef.id, inferred);
+    if (inferred) {
+      const matched =
+        findMatchingOption(categoryFieldDef.options, inferred) ?? inferred;
+      byFieldId.set(categoryFieldDef.id, matched);
+    }
   }
 
   return [...byFieldId.entries()].map(([customFieldId, value]) => ({
@@ -2264,7 +2367,8 @@ export async function createOrderFromWebhook(
   });
 
   for (let i = 0; i < items.length; i++) {
-    const item = mergeItemWithOrder(body, items[i]);
+    const rawItem = items[i];
+    const item = mergeItemWithOrder(body, rawItem);
     const jobTitle = resolveItemTitle(item, itemParentLabel, i, items.length);
     const cardTitle = isMultiItem
       ? `${shortBaseOrderNumber}-${i + 1}`
@@ -2323,6 +2427,16 @@ export async function createOrderFromWebhook(
         : null;
     const billing = hasBillingInfo(mergedBilling) ? mergedBilling : null;
 
+    const sharedAttention = resolveSharedAttentionNote(body);
+    const itemLineAttention = resolveItemLineAttentionNote(
+      rawItem,
+      sharedAttention
+    );
+    const combinedAttention = combineCardAttentionNotes(
+      sharedAttention,
+      itemLineAttention
+    );
+
     const result = await createSingleWebhookJob({
       client,
       tenantId,
@@ -2351,7 +2465,7 @@ export async function createOrderFromWebhook(
       designNotes: resolveDesignNotes(designerInput),
       designTaskUrl: resolveDesignTaskUrl(designerInput),
       misroutedDesignTask: resolveMisroutedDesignTaskText(designerInput),
-      internalNote: resolveItemAttentionNote(item),
+      internalNote: combinedAttention,
       corrections: allCorrections,
       webhookSource,
       billing,

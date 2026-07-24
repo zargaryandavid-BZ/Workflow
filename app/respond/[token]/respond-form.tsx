@@ -139,14 +139,18 @@ export function RespondForm({
             ? "Thank you!"
             : rejectionDone
               ? "Feedback received"
-              : "Response received!"}
+              : type === "ready_to_ship"
+                ? "Got it!"
+                : "Response received!"}
         </h2>
         <p className="mt-2 text-sm text-emerald-800">
           {approvalDone
             ? "Your approval has been recorded. We'll get started right away."
             : rejectionDone
               ? "Thank you for your feedback. Our team will be in touch shortly."
-              : `Thank you — the ${tenantName ?? "team"} has been notified and will review your response shortly. You can close this page.`}
+              : type === "ready_to_ship"
+                ? "You're all set. Contact us anytime to arrange pickup or delivery. You can close this page."
+                : `Thank you — the ${tenantName ?? "team"} has been notified and will review your response shortly. You can close this page.`}
         </p>
       </div>
     );
@@ -235,6 +239,67 @@ export function RespondForm({
             <X className="h-4 w-4" /> Not Approved
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (type === "ready_to_ship") {
+    return (
+      <div className="space-y-5">
+        <p className="text-sm leading-relaxed text-slate-600">
+          Great news — your order is ready for pickup or delivery.
+        </p>
+
+        {orderReview}
+
+        {!orderReview && metaChips.length > 0 ? (
+          <div className="grid grid-cols-2 gap-2">
+            {metaChips.map((chip) => (
+              <div
+                key={chip.label}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  {chip.label}
+                </p>
+                <p className="mt-0.5 text-sm font-medium text-slate-800">
+                  {chip.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {staffNote?.trim() ? (
+          <div className="rounded-r-lg border-l-[3px] border-emerald-600 bg-emerald-50 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              Note from our team
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+              {staffNote.trim()}
+            </p>
+          </div>
+        ) : null}
+
+        <p className="text-sm leading-relaxed text-slate-600">
+          Pickup is available at 306 Boyd St, LA — Mon–Fri 9:30 AM–5:30 PM,
+          Saturday until 4:00 PM. Please contact us to arrange pickup or
+          delivery.
+        </p>
+
+        {error ? (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+            {error}
+          </p>
+        ) : null}
+
+        <Button
+          className="w-full"
+          onClick={() => respond("info_submitted")}
+          disabled={loading}
+        >
+          <Check className="h-4 w-4" /> Got it
+        </Button>
       </div>
     );
   }

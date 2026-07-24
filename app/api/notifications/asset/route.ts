@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { orderIdsForReadyToShipToken } from "@/lib/ready-to-ship-group";
 
 const BUCKET = "order-assets";
 
-/** Resolve the order_id for a token (notification or approval). */
-async function resolveTokenOrderId(
+/** Resolve allowed order IDs for a token (notification or approval). */
+async function resolveTokenOrderIds(
   admin: ReturnType<typeof createAdminClient>,
   token: string
-): Promise<{ orderId: string | null; expired: boolean }> {
+): Promise<{ orderIds: string[]; expired: boolean }> {
   const [{ data: notification }, { data: approval }] = await Promise.all([
     admin
       .from("job_notifications")
-      .select("order_id, status, token_expires_at")
+      .select("order_id, status, token_expires_at, type")
       .eq("token", token)
       .maybeSingle(),
     admin
@@ -28,14 +29,24 @@ async function resolveTokenOrderId(
     const expired =
       notification.status === "expired" ||
       (expiredByDate && notification.status !== "responded");
-    return { orderId: notification.order_id as string, expired };
+
+    if (notification.type === "ready_to_ship") {
+      const orderIds = await orderIdsForReadyToShipToken(admin, token);
+      return {
+        orderIds:
+          orderIds.length > 0 ? orderIds : [notification.order_id as string],
+        expired,
+      };
+    }
+
+    return { orderIds: [notification.order_id as string], expired };
   }
 
   if (approval) {
-    return { orderId: approval.order_id as string, expired: false };
+    return { orderIds: [approval.order_id as string], expired: false };
   }
 
-  return { orderId: null, expired: false };
+  return { orderIds: [], expired: false };
 }
 
 /**
@@ -70,8 +81,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const { orderId, expired } = await resolveTokenOrderId(admin, token);
-    if (!orderId || orderId !== skuImage.order_id) {
+    const { orderIds, expired } = await resolveTokenOrderIds(admin, token);
+    if (!orderIds.includes(skuImage.order_id as string)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     if (expired) {
@@ -109,8 +120,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { orderId, expired } = await resolveTokenOrderId(admin, token);
-  if (!orderId || orderId !== asset.order_id) {
+  const { orderIds, expired } = await resolveTokenOrderIds(admin, token);
+  if (!orderIds.includes(asset.order_id as string)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (expired) {

@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   UserCog,
   Columns3,
+  Mail,
   Printer,
   Users,
   X,
@@ -58,6 +59,12 @@ const nav = [
     href: "/settings/button-automation",
     label: "Button Automation",
     icon: MousePointerClick,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/message-templates",
+    label: "SMS / Email templates",
+    icon: Mail,
     adminOnly: true,
   },
   {
