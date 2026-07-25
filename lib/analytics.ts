@@ -17,7 +17,10 @@ export interface ThroughputBucket {
 export interface DesignerWorkloadRow {
   id: string;
   name: string;
+  /** Active jobs (cards) in the workload selection. */
   count: number;
+  /** Total SKU line items across those jobs. */
+  skuCount: number;
   unassigned: boolean;
 }
 
@@ -448,18 +451,29 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
     profileNames.set(p.id, p.full_name ?? "Unnamed");
   }
 
+  function skuRowCount(specs: Record<string, unknown> | null | undefined): number {
+    const raw = specs && typeof specs === "object" ? specs.skus : null;
+    return Array.isArray(raw) ? raw.length : 0;
+  }
+
   // Seed every tenant designer at 0 so they appear even with no jobs in scope.
-  const designerCounts = new Map<string, { name: string; count: number }>();
+  const designerCounts = new Map<
+    string,
+    { name: string; count: number; skuCount: number }
+  >();
   for (const d of designersRaw ?? []) {
     if (!d.id) continue;
     designerCounts.set(d.id, {
       name: d.name.trim() || profileNames.get(d.id) || "Unnamed",
       count: 0,
+      skuCount: 0,
     });
   }
 
   let unassignedCount = 0;
+  let unassignedSkuCount = 0;
   for (const o of workloadOrders) {
+    const skus = skuRowCount(o.specs);
     const designerId =
       typeof o.specs?.designer_id === "string" ? o.specs.designer_id : null;
     const designerName =
@@ -470,13 +484,15 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
           : null;
     if (!designerId && !designerName) {
       unassignedCount += 1;
+      unassignedSkuCount += skus;
       continue;
     }
     const id = designerId ?? designerName!;
     const name = designerName ?? profileNames.get(designerId!) ?? "Unnamed";
-    const row = designerCounts.get(id) ?? { name, count: 0 };
+    const row = designerCounts.get(id) ?? { name, count: 0, skuCount: 0 };
     row.name = name || row.name;
     row.count += 1;
+    row.skuCount += skus;
     designerCounts.set(id, row);
   }
 
@@ -485,6 +501,7 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
       id,
       name: row.name,
       count: row.count,
+      skuCount: row.skuCount,
       unassigned: false,
     })),
     ...(unassignedCount > 0
@@ -493,12 +510,14 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
             id: "__unassigned__",
             name: "Unassigned",
             count: unassignedCount,
+            skuCount: unassignedSkuCount,
             unassigned: true,
           },
         ]
       : []),
   ].sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count;
+    if (b.skuCount !== a.skuCount) return b.skuCount - a.skuCount;
     return a.name.localeCompare(b.name);
   });
 

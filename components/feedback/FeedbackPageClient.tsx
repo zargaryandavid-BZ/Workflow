@@ -1,22 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Lightbulb, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FeedbackCard } from "@/components/feedback/FeedbackCard";
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
-import type { FeedbackItem, FeedbackType } from "@/lib/feedback";
-import { cn } from "@/lib/utils";
-
-type FilterTab = "all" | FeedbackType | "mine";
-
-const TABS: { id: FilterTab; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "improvement", label: "Improvements" },
-  { id: "bug", label: "Bugs" },
-  { id: "feature_request", label: "Features" },
-  { id: "mine", label: "Mine" },
-];
+import { FeedbackTable } from "@/components/feedback/FeedbackTable";
+import type { FeedbackItem } from "@/lib/feedback";
 
 interface FeedbackPageClientProps {
   isAdmin: boolean;
@@ -26,7 +15,6 @@ export function FeedbackPageClient({ isAdmin }: FeedbackPageClientProps) {
   const [items, setItems] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<FilterTab>("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FeedbackItem | null>(null);
 
@@ -51,12 +39,6 @@ export function FeedbackPageClient({ isAdmin }: FeedbackPageClientProps) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const filtered = useMemo(() => {
-    if (tab === "all") return items;
-    if (tab === "mine") return items.filter((i) => i.is_own);
-    return items.filter((i) => i.type === tab);
-  }, [items, tab]);
 
   function handleSaved(item: FeedbackItem) {
     setItems((prev) => {
@@ -96,24 +78,6 @@ export function FeedbackPageClient({ isAdmin }: FeedbackPageClientProps) {
             Submit
           </Button>
         </div>
-
-        <div className="mt-4 flex flex-wrap gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                tab === t.id
-                  ? "bg-[var(--primary)] text-white"
-                  : "text-slate-600 hover:bg-slate-100"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
@@ -130,36 +94,17 @@ export function FeedbackPageClient({ isAdmin }: FeedbackPageClientProps) {
               Retry
             </button>
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-50">
-              <Lightbulb className="h-8 w-8 text-amber-400" />
-            </div>
-            <p className="mt-4 text-sm font-medium text-slate-700">
-              {tab === "mine"
-                ? "You haven’t submitted any feedback yet"
-                : "No feedback yet — be the first to share an idea!"}
-            </p>
-            <Button type="button" className="mt-4" onClick={openCreate}>
-              <Plus className="h-4 w-4" />
-              Submit Feedback
-            </Button>
-          </div>
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-3">
-            {filtered.map((item) => (
-              <FeedbackCard
-                key={item.id}
-                item={item}
-                isAdmin={isAdmin}
-                onEdit={openEdit}
-                onUpdated={handleSaved}
-                onDeleted={(id) =>
-                  setItems((prev) => prev.filter((i) => i.id !== id))
-                }
-              />
-            ))}
-          </div>
+          <FeedbackTable
+            items={items}
+            isAdmin={isAdmin}
+            onEdit={openEdit}
+            onUpdated={handleSaved}
+            onDeleted={(id) =>
+              setItems((prev) => prev.filter((i) => i.id !== id))
+            }
+            emptyMessage="No feedback yet — be the first to share an idea!"
+          />
         )}
       </div>
 

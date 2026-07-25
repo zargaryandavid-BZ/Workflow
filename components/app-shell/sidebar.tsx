@@ -28,11 +28,26 @@ import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
 import { TimerWidget } from "@/components/time/TimerWidget";
 
-const nav = [
-  { href: "/board", label: "Board", icon: LayoutGrid, adminOnly: false },
-  { href: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
-  { href: "/time", label: "Time (beta)", icon: Clock, adminOnly: false },
-  { href: "/customers", label: "Customers", icon: Users, adminOnly: false },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutGrid;
+  /** When true, only admins see the item (unless `visibleTo` is set). */
+  adminOnly?: boolean;
+  /** If set, item is shown only when the role is in this list. */
+  visibleTo?: Role[];
+};
+
+const nav: NavItem[] = [
+  { href: "/board", label: "Board", icon: LayoutGrid },
+  {
+    href: "/analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    visibleTo: ["admin", "account_manager"],
+  },
+  { href: "/time", label: "Time (beta)", icon: Clock },
+  { href: "/customers", label: "Customers", icon: Users },
   {
     href: "/settings/columns",
     label: "Columns",
@@ -108,6 +123,12 @@ const nav = [
   { href: "/settings/team", label: "Team", icon: UserCog, adminOnly: true },
 ];
 
+function navItemVisible(item: NavItem, role: Role): boolean {
+  if (item.visibleTo) return item.visibleTo.includes(role);
+  if (item.adminOnly) return role === "admin";
+  return true;
+}
+
 const feedbackNav = {
   href: "/feedback",
   label: "Feedback",
@@ -174,7 +195,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {nav
-          .filter((item) => !item.adminOnly || role === "admin")
+          .filter((item) => navItemVisible(item, role))
           .map((item) => {
             const Icon = item.icon;
             return (

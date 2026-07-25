@@ -23,7 +23,14 @@ const FILTERS: { id: AnalyticsFilter; label: string }[] = [
 function HorizontalBars({
   rows,
 }: {
-  rows: { label: string; count: number; color: string; muted?: boolean }[];
+  rows: {
+    label: string;
+    count: number;
+    color: string;
+    muted?: boolean;
+    /** Optional right-side label override (e.g. jobs/SKUs). */
+    valueLabel?: string;
+  }[];
 }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
@@ -45,11 +52,16 @@ function HorizontalBars({
             </span>
             <span
               className={cn(
-                "ml-2 shrink-0",
+                "ml-2 shrink-0 tabular-nums",
                 row.count === 0 ? "text-slate-400" : "text-slate-500"
               )}
+              title={
+                row.valueLabel
+                  ? "Jobs / SKU lines"
+                  : undefined
+              }
             >
-              {row.count}
+              {row.valueLabel ?? row.count}
             </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-slate-100">
@@ -124,7 +136,14 @@ function DesignerWorkloadSection({
           "1 column")
         : `${selectedColumnIds.size} columns selected`;
 
-  const totalJobs = stats.designerWorkload.reduce((sum, row) => sum + row.count, 0);
+  const totalJobs = stats.designerWorkload.reduce(
+    (sum, row) => sum + row.count,
+    0
+  );
+  const totalSkus = stats.designerWorkload.reduce(
+    (sum, row) => sum + (row.skuCount ?? 0),
+    0
+  );
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -247,6 +266,7 @@ function DesignerWorkloadSection({
               count: row.count,
               color: row.unassigned ? "#EF9F27" : "#378ADD",
               muted: row.unassigned,
+              valueLabel: `${row.count}/${row.skuCount ?? 0}`,
             }))}
           />
         )}
@@ -254,9 +274,11 @@ function DesignerWorkloadSection({
 
       <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
         <span className="text-xs text-slate-400">
-          {selectedColumnIds.size === 0 ? "Total jobs" : "Jobs in selection"}
+          {selectedColumnIds.size === 0 ? "Total jobs / SKUs" : "Jobs / SKUs in selection"}
         </span>
-        <span className="text-xs font-medium text-slate-600">{totalJobs}</span>
+        <span className="text-xs font-medium tabular-nums text-slate-600">
+          {totalJobs}/{totalSkus}
+        </span>
       </div>
     </div>
   );

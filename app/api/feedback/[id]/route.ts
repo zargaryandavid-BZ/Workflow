@@ -3,11 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
   isFeedbackStatus,
-  isFeedbackType,
+  isFeedbackSubmitType,
   type FeedbackItem,
   type FeedbackStatus,
   type FeedbackType,
 } from "@/lib/feedback";
+import {
+  deleteFeedbackImageFiles,
+  loadFeedbackImagesByFeedbackIds,
+  type FeedbackImageRow,
+} from "@/lib/feedback-images";
 
 type RawFeedback = {
   id: string;
@@ -27,10 +32,19 @@ type RawFeedback = {
 const SELECT =
   "id, tenant_id, user_id, display_name, type, page, title, comment, status, admin_note, created_at, updated_at";
 
-function mapItem(row: RawFeedback, userId: string): FeedbackItem {
+async function mapItemWithImages(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  row: RawFeedback,
+  userId: string,
+  tenantId: string
+): Promise<FeedbackItem> {
+  const imagesById = await loadFeedbackImagesByFeedbackIds(supabase, tenantId, [
+    row.id,
+  ]);
   return {
     ...row,
     is_own: row.user_id === userId,
+    images: imagesById[row.id] ?? [],
   };
 }
 
@@ -79,7 +93,7 @@ export async function PATCH(
 
   if (isAuthor) {
     if (body.type !== undefined) {
-      if (!isFeedbackType(body.type)) {
+      if (!isFeedbackSubmitType(body.type)) {
         return NextResponse.json({ error: "Invalid type" }, { status: 400 });
       }
       patch.type = body.type;
@@ -127,8 +141,6 @@ export async function PATCH(
           ? body.admin_note.trim()
           : null;
     }
-    // Admins who are also the author already handled content fields above.
-    // Admins who are not the author should not change content fields.
   }
 
   if (Object.keys(patch).length === 0) {
@@ -147,7 +159,13 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ item: mapItem(data as RawFeedback, ctx.userId) });
+  const item = await mapItemWithImages(
+    supabase,
+    data as RawFeedback,
+    ctx.userId,
+    ctx.tenant.id
+  );
+  return NextResponse.json({ item });
 }
 
 export async function DELETE(
@@ -180,6 +198,16 @@ export async function DELETE(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const { data: imageRows } = await supabase
+    .from("feedback_images")
+    .select("storage_path")
+    .eq("feedback_id", id)
+    .eq("tenant_id", ctx.tenant.id);
+
+  const paths = ((imageRows ?? []) as Pick<FeedbackImageRow, "storage_path">[])
+    .map((r) => r.storage_path)
+    .filter(Boolean);
+
   const { error } = await supabase
     .from("feedback")
     .delete()
@@ -189,6 +217,8 @@ export async function DELETE(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  await deleteFeedbackImageFiles(supabase, paths);
 
   return NextResponse.json({ ok: true });
 }

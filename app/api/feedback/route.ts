@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
-  isFeedbackType,
+  isFeedbackSubmitType,
   type FeedbackItem,
   type FeedbackStatus,
   type FeedbackType,
 } from "@/lib/feedback";
+import { loadFeedbackImagesByFeedbackIds } from "@/lib/feedback-images";
 
 type RawFeedback = {
   id: string;
@@ -26,10 +27,15 @@ type RawFeedback = {
 const SELECT =
   "id, tenant_id, user_id, display_name, type, page, title, comment, status, admin_note, created_at, updated_at";
 
-function mapItem(row: RawFeedback, userId: string): FeedbackItem {
+function mapItem(
+  row: RawFeedback,
+  userId: string,
+  images: FeedbackItem["images"] = []
+): FeedbackItem {
   return {
     ...row,
     is_own: row.user_id === userId,
+    images,
   };
 }
 
@@ -50,8 +56,15 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const items = ((data ?? []) as RawFeedback[]).map((row) =>
-    mapItem(row, ctx.userId)
+  const rows = (data ?? []) as RawFeedback[];
+  const imagesById = await loadFeedbackImagesByFeedbackIds(
+    supabase,
+    ctx.tenant.id,
+    rows.map((r) => r.id)
+  );
+
+  const items = rows.map((row) =>
+    mapItem(row, ctx.userId, imagesById[row.id] ?? [])
   );
 
   return NextResponse.json({ items });
@@ -70,7 +83,7 @@ export async function POST(request: Request) {
     comment?: string;
   };
 
-  if (!isFeedbackType(body.type)) {
+  if (!isFeedbackSubmitType(body.type)) {
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });
   }
 
@@ -114,7 +127,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(
-    { item: mapItem(data as RawFeedback, ctx.userId) },
+    { item: mapItem(data as RawFeedback, ctx.userId, []) },
     { status: 201 }
   );
 }

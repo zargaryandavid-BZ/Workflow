@@ -57,3 +57,8 @@ export function canAssignDesignerOnBoard(role: Role): boolean {
 export function canUseBoardActionButtons(role: Role): boolean {
   return role === "admin" || role === "account_manager";
 }
+
+/** Analytics dashboard (admin + account manager). */
+export function canViewAnalytics(role: Role): boolean {
+  return role === "admin" || role === "account_manager";
+}

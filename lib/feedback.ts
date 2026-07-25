@@ -1,12 +1,18 @@
-export const FEEDBACK_TYPES = [
-  "improvement",
+/** Types shown in the submit form (legacy `improvement` may still exist in DB). */
+export const FEEDBACK_SUBMIT_TYPES = [
   "bug",
   "feature_request",
   "question",
   "other",
 ] as const;
 
+export const FEEDBACK_TYPES = [
+  "improvement",
+  ...FEEDBACK_SUBMIT_TYPES,
+] as const;
+
 export type FeedbackType = (typeof FEEDBACK_TYPES)[number];
+export type FeedbackSubmitType = (typeof FEEDBACK_SUBMIT_TYPES)[number];
 
 export const FEEDBACK_STATUSES = [
   "open",
@@ -36,6 +42,13 @@ export const FEEDBACK_PAGES = [
 
 export type FeedbackPage = (typeof FEEDBACK_PAGES)[number];
 
+export interface FeedbackImage {
+  id: string;
+  file_name: string;
+  mime_type: string | null;
+  url: string | null;
+}
+
 export interface FeedbackItem {
   id: string;
   tenant_id: string;
@@ -50,12 +63,22 @@ export interface FeedbackItem {
   created_at: string;
   updated_at: string;
   is_own: boolean;
+  images: FeedbackImage[];
 }
 
 export function isFeedbackType(value: unknown): value is FeedbackType {
   return (
     typeof value === "string" &&
     (FEEDBACK_TYPES as readonly string[]).includes(value)
+  );
+}
+
+export function isFeedbackSubmitType(
+  value: unknown
+): value is FeedbackSubmitType {
+  return (
+    typeof value === "string" &&
+    (FEEDBACK_SUBMIT_TYPES as readonly string[]).includes(value)
   );
 }
 
@@ -67,9 +90,9 @@ export function isFeedbackStatus(value: unknown): value is FeedbackStatus {
 }
 
 export const FEEDBACK_TYPE_LABELS: Record<FeedbackType, string> = {
-  improvement: "Improvement",
+  improvement: "New Feature/Idea",
   bug: "Bug",
-  feature_request: "Feature Request",
+  feature_request: "New Feature/Idea",
   question: "Question",
   other: "Other",
 };

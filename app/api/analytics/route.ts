@@ -6,14 +6,15 @@ import {
   computeAnalyticsStats,
   type AnalyticsFilter,
 } from "@/lib/analytics";
+import { canViewAnalytics } from "@/lib/permissions";
 
 export async function GET(request: Request) {
   const ctx = await getTenantContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (ctx.role !== "admin") {
-    return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  if (!canViewAnalytics(ctx.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
