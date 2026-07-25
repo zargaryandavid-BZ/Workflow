@@ -376,7 +376,12 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`order_number\` | No | string | Your reference e.g. \`"ORD-${year}-001"\` — auto-generated (\`WH-…\`) if omitted |
 | \`title\` | No | string | Order title after source label — **leave empty/omit for blank** (order # still shows) |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
-| \`due_date\` | No | string | \`"YYYY-MM-DD"\` — must be today or a future date when provided |
+| \`due_date\` | No | string | \`"YYYY-MM-DD"\` absolute due when known; \`""\` if not materialized yet |
+| \`due_date_mode\` | No | string | \`"fixed"\` \\| \`"after_approval"\` |
+| \`due_processing_days\` | No | number | Working days (Mon–Fri) when after approval |
+| \`due_anchor_at\` | No | string | ISO timestamptz when CRM materialized the due |
+| \`due_date_label\` | No | string | Human label e.g. \`"5 working days after approval"\` |
+| \`due_date_status\` | No | string | \`"set"\` \\| \`"pending_approval"\` \\| \`"none"\` |
 | \`description\` | No | string | **Order Description** on the card |
 | \`notes\` | No | string | **Notes** tab (alias: \`internal_note\`). Combined with SKU comments |
 | \`owner_email\` | No | string | Account manager email — sets **Owner** on the card |
@@ -590,7 +595,31 @@ export function buildWebhookPayloadDocsHtml(
       "due_date",
       "No",
       "string",
-      '<code>"YYYY-MM-DD"</code> — must be today or a future date when provided',
+      '<code>"YYYY-MM-DD"</code> absolute due when known; empty if pending approval',
+    ],
+    [
+      "due_date_mode",
+      "No",
+      "string",
+      "<code>fixed</code> | <code>after_approval</code>",
+    ],
+    [
+      "due_processing_days",
+      "No",
+      "number",
+      "Working days (Mon–Fri) when after approval",
+    ],
+    [
+      "due_date_label",
+      "No",
+      "string",
+      "Human label from quote/PDF",
+    ],
+    [
+      "due_date_status",
+      "No",
+      "string",
+      "<code>set</code> | <code>pending_approval</code> | <code>none</code>",
     ],
     ["description", "No", "string", "<strong>Order Description</strong> on the card"],
     [

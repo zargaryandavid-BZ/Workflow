@@ -66,14 +66,21 @@ export async function GET(req: NextRequest) {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    const { data: rawOrders, error: ordersError, count } = await supabase
+    let query = supabase
       .from("orders")
       .select("*, customer:customers(*), tag:tags(id, name, color)", {
         count: "exact",
       })
       .eq("tenant_id", tenantId)
       .eq("column_id", columnId)
-      .is("removed_at", null)
+      .is("removed_at", null);
+
+    // Designers only see cards assigned to them.
+    if (ctx.role === "designer") {
+      query = query.eq("specs->>designer_id", ctx.userId);
+    }
+
+    const { data: rawOrders, error: ordersError, count } = await query
       .order("position", { ascending: true })
       .range(from, to);
 

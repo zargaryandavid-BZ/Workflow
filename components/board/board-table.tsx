@@ -588,7 +588,7 @@ export function BoardTable({
                         {isOwnerUnassigned ? "Unassigned" : ownerName}
                       </span>
                     ) : null}
-                    {order.priority && order.priority !== "normal" ? (
+                    {order.priority === "high" || order.priority === "urgent" ? (
                       <span
                         className={cn(
                           "inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-medium capitalize",

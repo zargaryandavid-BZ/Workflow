@@ -85,6 +85,7 @@ export function OrderCardTimeChips({
 }: RenderArgs) {
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: columnKind === "done",
+    specs: order.specs,
   });
   const timeHere = formatTimeInColumn(
     order.last_moved_at,
@@ -119,7 +120,12 @@ export function OrderCardTimeChips({
 
   for (const chip of visible) {
     if (chip.kind === "system" && chip.system_key === "priority") {
-      if (!showPriority) continue;
+      if (
+        !showPriority ||
+        (order.priority !== "high" && order.priority !== "urgent")
+      ) {
+        continue;
+      }
       priorityNode = (
         <span
           key={chip.id}
@@ -217,6 +223,20 @@ function renderSystemOrCustomChip(args: {
         </span>
       );
     }
+    if (dueStatus.kind === "pending_approval") {
+      return (
+        <span
+          key={chip.id}
+          className={cn(
+            "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+            dueDateBadgeClass(dueStatus)
+          )}
+          title={dueStatus.label}
+        >
+          {dueStatus.label}
+        </span>
+      );
+    }
     return (
       <span
         key={chip.id}
@@ -234,7 +254,8 @@ function renderSystemOrCustomChip(args: {
     if (
       dueStatus.kind !== "late" &&
       dueStatus.kind !== "today" &&
-      dueStatus.kind !== "soon"
+      dueStatus.kind !== "soon" &&
+      dueStatus.kind !== "pending_approval"
     ) {
       return null;
     }
@@ -242,11 +263,15 @@ function renderSystemOrCustomChip(args: {
       <span
         key={chip.id}
         className={cn(
-          "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
+          "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
           dueDateBadgeClass(dueStatus)
         )}
         title={
-          order.due_date ? `Due ${formatDate(order.due_date)}` : undefined
+          order.due_date
+            ? `Due ${formatDate(order.due_date)}`
+            : dueStatus.kind === "pending_approval"
+              ? dueStatus.label
+              : undefined
         }
       >
         {dueStatus.label}
@@ -356,19 +381,21 @@ function LegacyTimeChips({
         ) : (
           <span
             className={cn(
-              "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+              "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
               dueDateBadgeClass(dueStatus)
             )}
+            title={dueStatus.label}
           >
             {dueStatus.label}
           </span>
         )}
         {dueStatus.kind === "late" ||
         dueStatus.kind === "today" ||
-        dueStatus.kind === "soon" ? (
+        dueStatus.kind === "soon" ||
+        (dueStatus.kind === "pending_approval" && order.due_date) ? (
           <span
             className={cn(
-              "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
+              "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
               dueDateBadgeClass(dueStatus)
             )}
             title={
@@ -408,7 +435,8 @@ function LegacyTimeChips({
           </span>
         ) : null}
       </div>
-      {showPriority ? (
+      {showPriority &&
+      (order.priority === "high" || order.priority === "urgent") ? (
         <span
           className={cn(
             "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",

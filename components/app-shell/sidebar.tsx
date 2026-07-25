@@ -11,6 +11,7 @@ import {
   Plug,
   Package,
   HardDrive,
+  MessageSquarePlus,
   Tag,
   Trash2,
   Workflow,
@@ -107,6 +108,12 @@ const nav = [
   { href: "/settings/team", label: "Team", icon: UserCog, adminOnly: true },
 ];
 
+const feedbackNav = {
+  href: "/feedback",
+  label: "Feedback",
+  icon: MessageSquarePlus,
+};
+
 interface SidebarProps {
   role: Role;
   open: boolean;
@@ -121,6 +128,18 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
       onClose();
     }
   }
+
+  function navLinkClass(href: string) {
+    const active = pathname === href || pathname.startsWith(`${href}/`);
+    return cn(
+      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+      active
+        ? "bg-blue-50 text-[var(--primary)]"
+        : "text-slate-600 hover:bg-slate-100"
+    );
+  }
+
+  const FeedbackIcon = feedbackNav.icon;
 
   return (
     <aside
@@ -157,23 +176,14 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
         {nav
           .filter((item) => !item.adminOnly || role === "admin")
           .map((item) => {
-            const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 prefetch={false}
-                onClick={() => {
-                  handleNavClick();
-                }}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-blue-50 text-[var(--primary)]"
-                    : "text-slate-600 hover:bg-slate-100"
-                )}
+                onClick={handleNavClick}
+                className={navLinkClass(item.href)}
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {item.label}
@@ -181,6 +191,18 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
             );
           })}
       </nav>
+      <div className="border-t border-slate-200 p-3">
+        <Link
+          href={feedbackNav.href}
+          prefetch={false}
+          onClick={handleNavClick}
+          className={navLinkClass(feedbackNav.href)}
+          title={feedbackNav.label}
+        >
+          <FeedbackIcon className="h-4 w-4 shrink-0" />
+          <span className="truncate">{feedbackNav.label}</span>
+        </Link>
+      </div>
       <TimerWidget />
       <div className="border-t border-slate-200 p-3 text-xs text-slate-400">
         {role === "admin" ? "Admin" : "Member"}

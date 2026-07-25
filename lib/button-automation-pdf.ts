@@ -129,6 +129,117 @@ function drawSectionTitle(doc: PdfDoc, title: string, y: number): number {
   return y + 24;
 }
 
+type SummaryIcon =
+  | "customer"
+  | "calendar"
+  | "priority"
+  | "manager"
+  | "designer"
+  | "qty";
+
+/** Tiny line icons for the ORDER summary (no external font needed). */
+function drawSummaryIcon(
+  doc: PdfDoc,
+  kind: SummaryIcon,
+  x: number,
+  y: number,
+  color = "#6b7280"
+) {
+  const s = 8;
+  doc.save();
+  doc.strokeColor(color).lineWidth(0.9).lineCap("round").lineJoin("round");
+
+  switch (kind) {
+    case "customer": {
+      // person: head + shoulders
+      doc.circle(x + s / 2, y + 2.2, 1.8).stroke();
+      doc
+        .moveTo(x + 1.2, y + s - 0.5)
+        .bezierCurveTo(x + 1.2, y + 4.2, x + s - 1.2, y + 4.2, x + s - 1.2, y + s - 0.5)
+        .stroke();
+      break;
+    }
+    case "calendar": {
+      doc.roundedRect(x + 0.5, y + 1.5, s - 1, s - 2, 0.8).stroke();
+      doc
+        .moveTo(x + 0.5, y + 3.6)
+        .lineTo(x + s - 0.5, y + 3.6)
+        .stroke();
+      doc
+        .moveTo(x + 2.2, y + 0.6)
+        .lineTo(x + 2.2, y + 2.4)
+        .stroke();
+      doc
+        .moveTo(x + s - 2.2, y + 0.6)
+        .lineTo(x + s - 2.2, y + 2.4)
+        .stroke();
+      break;
+    }
+    case "priority": {
+      // flag
+      doc
+        .moveTo(x + 2, y + 0.5)
+        .lineTo(x + 2, y + s - 0.3)
+        .stroke();
+      doc
+        .moveTo(x + 2, y + 0.5)
+        .lineTo(x + s - 1, y + 2.4)
+        .lineTo(x + 2, y + 4.3)
+        .closePath()
+        .fillAndStroke(color, color);
+      break;
+    }
+    case "manager": {
+      // briefcase
+      doc.roundedRect(x + 0.8, y + 2.5, s - 1.6, s - 3.2, 0.6).stroke();
+      doc
+        .moveTo(x + 2.8, y + 2.5)
+        .lineTo(x + 2.8, y + 1.4)
+        .lineTo(x + s - 2.8, y + 1.4)
+        .lineTo(x + s - 2.8, y + 2.5)
+        .stroke();
+      doc
+        .moveTo(x + 0.8, y + 4.8)
+        .lineTo(x + s - 0.8, y + 4.8)
+        .stroke();
+      break;
+    }
+    case "designer": {
+      // pencil
+      doc
+        .moveTo(x + 1.2, y + s - 1.5)
+        .lineTo(x + s - 2.2, y + 1.8)
+        .lineTo(x + s - 1, y + 3)
+        .lineTo(x + 2.4, y + s - 0.3)
+        .closePath()
+        .stroke();
+      doc
+        .moveTo(x + 1.2, y + s - 1.5)
+        .lineTo(x + 0.6, y + s - 0.4)
+        .lineTo(x + 2.4, y + s - 0.3)
+        .stroke();
+      break;
+    }
+    case "qty": {
+      // stacked boxes / hash-like package
+      doc.rect(x + 1.2, y + 2.8, 4.2, 4.2).stroke();
+      doc.rect(x + 2.8, y + 1.2, 4.2, 4.2).stroke();
+      break;
+    }
+  }
+
+  doc.restore();
+}
+
+const SUMMARY_ICONS: Record<string, SummaryIcon> = {
+  Customer: "customer",
+  "Due Date": "calendar",
+  Priority: "priority",
+  "Account Manager": "manager",
+  Designer: "designer",
+  "TTL Qty": "qty",
+};
+
 /** Compact label/value cell used by the 2-column order summary block. */
 function drawSummaryCell(
   doc: PdfDoc,
@@ -138,17 +249,99 @@ function drawSummaryCell(
   y: number,
   width: number
 ) {
-  const labelW = 92;
+  const iconKind = SUMMARY_ICONS[label];
+  const iconSize = 8;
+  const iconGap = 4;
+  const gutter = iconKind ? iconSize + iconGap : 0;
+  const labelW = 88;
+  if (iconKind) {
+    drawSummaryIcon(doc, iconKind, x, y + 1);
+  }
+  const textX = x + gutter;
   doc
     .fontSize(9)
     .font("Helvetica-Bold")
     .fillColor("#6b7280")
-    .text(label, x, y, { width: labelW });
+    .text(label, textX, y, { width: labelW });
   doc
     .fontSize(9)
     .font("Helvetica-Bold")
     .fillColor("#111827")
-    .text(value || "—", x + labelW, y, { width: Math.max(0, width - labelW) });
+    .text(value || "—", textX + labelW, y, {
+      width: Math.max(0, width - gutter - labelW),
+    });
+}
+
+/** ATTENTION blocks (production notes + internal notes), drawn below the specs. */
+function drawAttentionBlocks(
+  doc: PdfDoc,
+  data: OrderExportData,
+  startY: number
+): number {
+  const x = MARGIN;
+  const w = PAGE_WIDTH - MARGIN * 2;
+  const innerW = w - 24;
+  const titleH = 28; // ATTENTION + subtitle
+
+  const productionNotesText =
+    typeof data.order.specs?.production_notes === "string"
+      ? data.order.specs.production_notes.trim()
+      : "";
+  const internalNotesText = formatInternalNoteText(data.order.internal_note);
+
+  const measure = (text: string) => {
+    if (!text) return 0;
+    doc.fontSize(10).font("Helvetica");
+    return 10 + titleH + doc.heightOfString(text, { width: innerW }) + 10;
+  };
+
+  let nextY = startY;
+
+  const drawBox = (
+    subtitle: string,
+    text: string,
+    fill: string,
+    accent: string,
+    titleColor: string
+  ) => {
+    const boxH = measure(text);
+    if (!text || boxH <= 0) return;
+    const ay = nextY;
+    doc.rect(x, ay, w, boxH).fill(fill);
+    doc.rect(x, ay, 4, boxH).fill(accent);
+    doc.rect(x, ay, w, boxH).strokeColor(accent).lineWidth(1.25).stroke();
+
+    doc
+      .fillColor(titleColor)
+      .fontSize(10)
+      .font("Helvetica-Bold")
+      .text("ATTENTION", x + 12, ay + 10, { width: innerW });
+    doc
+      .fillColor(titleColor)
+      .fontSize(9)
+      .font("Helvetica")
+      .text(subtitle, x + 12, ay + 22, { width: innerW });
+
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor("#111827")
+      .text(text, x + 12, ay + 10 + titleH, { width: innerW });
+
+    doc.fillColor("#000000").font("Helvetica");
+    nextY = ay + boxH + 8;
+  };
+
+  drawBox(
+    "production notes",
+    productionNotesText,
+    "#fff7ed",
+    "#ea580c",
+    "#9a3412"
+  );
+  drawBox("internal notes", internalNotesText, "#fef2f2", "#dc2626", "#991b1b");
+
+  return nextY;
 }
 
 function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
@@ -191,10 +384,10 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
     });
   }
 
-  if (!specRows.length) return startY;
+  // No spec table to draw, but notes must still print.
+  if (!specRows.length) return drawAttentionBlocks(doc, data, startY);
 
   const description = data.order.description?.trim() ?? "";
-  const attentionText = formatInternalNoteText(data.order.internal_note);
 
   const headerH = 26;
   const midpoint = Math.ceil(specRows.length / 2);
@@ -235,15 +428,6 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   }
 
   const boxH = headerH + specsH + descH + 10;
-
-  // Attention box (separate, below specs) — clear text only
-  const attentionInnerW = w - 24;
-  let attentionBoxH = 0;
-  if (attentionText) {
-    doc.fontSize(10).font("Helvetica");
-    const textH = doc.heightOfString(attentionText, { width: attentionInnerW });
-    attentionBoxH = 10 + 14 + textH + 10;
-  }
 
   // Highlighted background box (same cream + amber accent)
   doc.rect(x, startY, w, boxH).fill("#fff7ed");
@@ -337,37 +521,7 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
 
   doc.fillColor("#000000").font("Helvetica");
 
-  let nextY = startY + boxH + 8;
-
-  if (attentionText) {
-    const ax = x;
-    const aw = w;
-    const ay = nextY;
-    doc.rect(ax, ay, aw, attentionBoxH).fill("#fef2f2");
-    doc.rect(ax, ay, 4, attentionBoxH).fill("#dc2626");
-    doc
-      .rect(ax, ay, aw, attentionBoxH)
-      .strokeColor("#dc2626")
-      .lineWidth(1.25)
-      .stroke();
-
-    doc
-      .fillColor("#991b1b")
-      .fontSize(10)
-      .font("Helvetica-Bold")
-      .text("ATTENTION :", ax + 12, ay + 10, { width: attentionInnerW });
-
-    doc
-      .fontSize(10)
-      .font("Helvetica")
-      .fillColor("#111827")
-      .text(attentionText, ax + 12, ay + 24, { width: attentionInnerW });
-
-    doc.fillColor("#000000").font("Helvetica");
-    nextY = ay + attentionBoxH + 8;
-  }
-
-  return nextY;
+  return drawAttentionBlocks(doc, data, startY + boxH + 8);
 }
 
 function drawDescription(doc: PdfDoc, description: string, startY: number): number {
@@ -433,7 +587,7 @@ function drawPage1(
     if (rightCol[i]) {
       drawSummaryCell(doc, rightCol[i][0], rightCol[i][1], x + COL_WIDTH, rowY, colW);
     }
-    rowY += 16;
+    rowY += 18;
   }
   y = rowY + 8;
 

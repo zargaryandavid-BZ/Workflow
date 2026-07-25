@@ -18,6 +18,7 @@ import { customerNameFromOrder } from "@/lib/notification-messages";
 import { cn, formatDateShort } from "@/lib/utils";
 import type { CustomField, Designer, OrderWithRelations } from "@/lib/types";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import {
   GroupDueDatesModal,
@@ -205,7 +206,7 @@ export function GroupedOrderCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {priority && priority !== "normal" ? (
+            {priority === "high" || priority === "urgent" ? (
               <Badge
                 className={cn("px-2 py-0 text-[11px]", PRIORITY_STYLES[priority])}
               >
@@ -382,7 +383,7 @@ export function GroupedOrderCard({
                         >
                           <span className="truncate">{d.name}</span>
                           <span className="shrink-0 tabular-nums text-slate-400">
-                            {d.load ?? 0}
+                            {formatDesignerLoadSuffix(d.load, d.skuCount)}
                           </span>
                         </button>
                       ))}

@@ -52,12 +52,15 @@ export default async function GdriveSettingsPage() {
       <p className="mb-6 text-sm text-slate-500">
         Auto-create{" "}
         <code className="rounded bg-slate-100 px-1 text-xs">
-          26-0098_Customer Name / 26-0098_Final for Prod
+          26-0098_Customer / 26-0098_Customer_1 / FinalProd_1
         </code>{" "}
-        when jobs are created (multi-item:{" "}
-        <code className="rounded bg-slate-100 px-1 text-xs">…_1</code>,{" "}
-        <code className="rounded bg-slate-100 px-1 text-xs">…_2</code>
-        ), and save each card’s own Design files / Artwork link.
+        when jobs are created. Designer folder ={" "}
+        <code className="rounded bg-slate-100 px-1 text-xs">
+          ordernumber_customername
+        </code>
+        ; Final production ={" "}
+        <code className="rounded bg-slate-100 px-1 text-xs">FinalProd_Y</code>{" "}
+        (Y = item index).
       </p>
       <GdriveSettingsManager initialSettings={settings} loadError={loadError} />
     </div>

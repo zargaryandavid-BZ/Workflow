@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ACTIVITY_LOG_LIMIT } from "@/lib/constants";
+import {
+  materializeAfterApprovalDue,
+  mergeDueSpecsIntoOrderSpecs,
+} from "@/lib/due-date";
 import { sendApprovalEmail } from "@/lib/email";
 import type { ApprovalStatus, BoardColumn, Order } from "@/lib/types";
 
@@ -287,11 +291,28 @@ export async function onApprovalResult(
     ? await approvalTargetColumn(client, order as Order, params.result)
     : null;
 
+  const updates: Record<string, unknown> = {};
   if (target) {
-    await client
-      .from("orders")
-      .update({ column_id: target })
-      .eq("id", params.orderId);
+    updates.column_id = target;
+  }
+
+  if (params.result === "approved" && order) {
+    const materialized = materializeAfterApprovalDue(
+      (order as Order).specs,
+      (order as Order).due_date,
+      new Date()
+    );
+    if (materialized) {
+      updates.due_date = materialized.dueDate;
+      updates.specs = mergeDueSpecsIntoOrderSpecs(
+        (order as Order).specs,
+        materialized.specs
+      );
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await client.from("orders").update(updates).eq("id", params.orderId);
   }
 
   await logActivity(client, {
@@ -299,7 +320,13 @@ export async function onApprovalResult(
     orderId: params.orderId,
     actor: null,
     action: params.result === "approved" ? "approved" : "rejected",
-    metadata: { via: "customer", movedTo: target },
+    metadata: {
+      via: "customer",
+      movedTo: target,
+      ...(updates.due_date
+        ? { due_date_materialized: updates.due_date }
+        : {}),
+    },
   });
 
   return target;

@@ -35,6 +35,14 @@ import {
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
+import { DueDateFields } from "./due-date-fields";
+import {
+  DEFAULT_PROCESSING_DAYS,
+  formatOrderDueDisplay,
+  isPendingAfterApprovalDue,
+  readOrderDueSpecs,
+  type DueDateMode,
+} from "@/lib/due-date";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
@@ -192,9 +200,14 @@ export function CardDetailModal({
   const [description, setDescription] = useState("");
   const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
   const [newNote, setNewNote] = useState("");
+  const [productionNotes, setProductionNotes] = useState("");
   const [priority, setPriority] = useState("normal");
   const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [dueDateMode, setDueDateMode] = useState<DueDateMode>("fixed");
+  const [dueProcessingDays, setDueProcessingDays] = useState(
+    DEFAULT_PROCESSING_DAYS
+  );
   const [tagId, setTagId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
@@ -255,9 +268,25 @@ export function CardDetailModal({
     }
     setNoteHistory(parsedHistory);
     setNewNote("");
+    setProductionNotes(
+      typeof json.order.specs?.production_notes === "string"
+        ? json.order.specs.production_notes
+        : ""
+    );
     setPriority(json.order.priority);
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
+    {
+      const dueSpecs = readOrderDueSpecs(json.order.specs);
+      setDueDateMode(
+        dueSpecs.due_date_mode === "after_approval"
+          ? "after_approval"
+          : "fixed"
+      );
+      setDueProcessingDays(
+        dueSpecs.due_processing_days ?? DEFAULT_PROCESSING_DAYS
+      );
+    }
     setTagId(json.order.tag_id ?? "");
     const normalizedSkus = normalizeSkus(json.order.specs?.skus);
     setSkus(normalizedSkus);
@@ -348,9 +377,14 @@ export function CardDetailModal({
       return false;
     }
 
-    const dueDateError = validateDueDate(dueDate, data?.order.due_date);
-    if (dueDateError) {
-      setSaveError(dueDateError);
+    if (dueDateMode === "fixed") {
+      const dueDateError = validateDueDate(dueDate, data?.order.due_date);
+      if (dueDateError) {
+        setSaveError(dueDateError);
+        return false;
+      }
+    } else if (!Number.isFinite(dueProcessingDays) || dueProcessingDays < 1) {
+      setSaveError("Working days after approval must be at least 1.");
       return false;
     }
 
@@ -388,6 +422,7 @@ export function CardDetailModal({
       designer_name:
         designers.find((d) => d.id === designerId)?.name ?? null,
       design_task: designTask || null,
+      production_notes: productionNotes.trim() || null,
     };
     const customFieldValues = buildCustomFieldPayload(
       resolved,
@@ -407,6 +442,9 @@ export function CardDetailModal({
           priority,
           ownerId: ownerId || null,
           dueDate: dateInputValue(dueDate) || null,
+          dueDateMode,
+          dueProcessingDays:
+            dueDateMode === "after_approval" ? dueProcessingDays : null,
           tagId: tagId || null,
           specs: nextSpecs,
           customFieldValues,
@@ -510,9 +548,30 @@ export function CardDetailModal({
     if (priority !== order.priority) return true;
     if ((ownerId || "") !== (order.created_by ?? "")) return true;
     if (dateInputValue(dueDate) !== dateInputValue(order.due_date)) return true;
+    {
+      const dueSpecs = readOrderDueSpecs(order.specs);
+      const prevMode =
+        dueSpecs.due_date_mode === "after_approval"
+          ? "after_approval"
+          : "fixed";
+      if (dueDateMode !== prevMode) return true;
+      if (
+        dueDateMode === "after_approval" &&
+        dueProcessingDays !==
+          (dueSpecs.due_processing_days ?? DEFAULT_PROCESSING_DAYS)
+      ) {
+        return true;
+      }
+    }
     if ((tagId || "") !== (order.tag_id ?? "")) return true;
     if ((designerId || "") !== String(order.specs?.designer_id ?? "")) return true;
     if ((designTask || "") !== String(order.specs?.design_task ?? "")) return true;
+    if (
+      (productionNotes || "").trim() !==
+      String(order.specs?.production_notes ?? "").trim()
+    ) {
+      return true;
+    }
 
     const savedSkus = prepareSkusForSave(baselineSkusRef.current, {
       pendingArtworkIds: [],
@@ -711,6 +770,15 @@ export function CardDetailModal({
     () => groupSkuImagesBySkuId(data?.skuImages ?? []),
     [data?.skuImages]
   );
+
+  const dueDateHint = useMemo(() => {
+    if (!data?.order) return null;
+    if (!isPendingAfterApprovalDue(data.order.due_date, data.order.specs)) {
+      return null;
+    }
+    const label = formatOrderDueDisplay(null, data.order.specs, formatDate);
+    return label === "—" ? null : label;
+  }, [data?.order]);
 
   const ownersForForm = useMemo(() => {
     if (!ownerId || owners.some((o) => o.id === ownerId)) return owners;
@@ -1053,7 +1121,7 @@ export function CardDetailModal({
         </>
       ) : null}
       {/* Priority */}
-      {priority && priority !== "normal" ? (
+      {priority === "high" || priority === "urgent" ? (
         <>
           <span className="text-slate-300">|</span>
           <span
@@ -1346,6 +1414,8 @@ export function CardDetailModal({
               noteHistory={noteHistory}
               internalNote={newNote}
               onInternalNoteChange={setNewNote}
+              productionNotes={productionNotes}
+              onProductionNotesChange={setProductionNotes}
               customerName={customerName}
               onCustomerNameChange={setCustomerName}
               customerContact={customerContact}
@@ -1363,12 +1433,23 @@ export function CardDetailModal({
                 setDueDate(value);
                 setSaveError(null);
               }}
+              dueDateMode={dueDateMode}
+              onDueDateModeChange={(mode) => {
+                setDueDateMode(mode);
+                if (mode === "after_approval") setDueDate("");
+                setSaveError(null);
+              }}
+              dueProcessingDays={dueProcessingDays}
+              onDueProcessingDaysChange={(days) => {
+                setDueProcessingDays(days);
+                setSaveError(null);
+              }}
               previousDueDate={data.order.due_date}
+              dueDateHint={dueDateHint}
               orderId={orderId ?? undefined}
               skuImagesBySkuId={skuImagesBySkuId}
               ensureSkuPersisted={ensureSkuPersisted}
               readOnly={isViewOnly}
-              hideEmpty={false}
               tags={tags}
               tagId={tagId}
               onTagIdChange={isViewOnly ? undefined : setTagId}
@@ -1424,21 +1505,39 @@ export function CardDetailModal({
                   ))}
                 </Select>
               </div>
-              <div>
-                <Label htmlFor="sidebar-due">Due date</Label>
-                <Input
-                  id="sidebar-due"
-                  type="date"
-                  min={isViewOnly ? undefined : localDateInputValue()}
-                  readOnly={isViewOnly}
-                  value={dateInputValue(dueDate)}
-                  onChange={(e) => {
-                    setDueDate(e.target.value);
-                    setSaveError(null);
-                  }}
-                  className={isViewOnly ? "bg-slate-50" : undefined}
-                />
-              </div>
+              <DueDateFields
+                idPrefix="sidebar"
+                mode={dueDateMode}
+                onModeChange={(mode) => {
+                  setDueDateMode(mode);
+                  if (mode === "after_approval") setDueDate("");
+                  setSaveError(null);
+                }}
+                dueDate={dateInputValue(dueDate)}
+                onDueDateChange={(value) => {
+                  setDueDate(value);
+                  setSaveError(null);
+                }}
+                processingDays={dueProcessingDays}
+                onProcessingDaysChange={(days) => {
+                  setDueProcessingDays(days);
+                  setSaveError(null);
+                }}
+                materializedDueDate={
+                  dueDateMode === "after_approval"
+                    ? dateInputValue(dueDate) || null
+                    : null
+                }
+                minDueDate={localDateInputValue()}
+                readOnly={isViewOnly}
+                hint={
+                  dueDateHint &&
+                  dueDateMode === "after_approval" &&
+                  !dateInputValue(dueDate)
+                    ? dueDateHint
+                    : null
+                }
+              />
             </div>
             {tags.length > 0 ? (
               <div className="rounded-lg border border-slate-200 p-3">

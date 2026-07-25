@@ -1,8 +1,14 @@
 import { localDateString } from "@/lib/board-order-filters";
+import {
+  formatPendingDueChipLabel,
+  isPendingAfterApprovalDue,
+  readOrderDueSpecs,
+} from "@/lib/due-date";
 
 export type DueDateStatus =
   | { kind: "none"; label: string }
   | { kind: "no_date"; label: string }
+  | { kind: "pending_approval"; label: string }
   | { kind: "late"; days: number; label: string; severe: boolean }
   | { kind: "today"; label: string }
   | { kind: "soon"; days: number; label: string };
@@ -38,6 +44,8 @@ export function dueDateStatus(
     today?: string;
     soonWithinDays?: number;
     severeAfterDays?: number;
+    /** Order specs — used for CRM after-approval relative due. */
+    specs?: unknown;
   }
 ): DueDateStatus {
   const today = opts?.today ?? localDateString();
@@ -45,6 +53,19 @@ export function dueDateStatus(
   const severeAfter = opts?.severeAfterDays ?? 7;
 
   if (!dueDate?.trim()) {
+    if (isPendingAfterApprovalDue(dueDate, opts?.specs)) {
+      return {
+        kind: "pending_approval",
+        label: formatPendingDueChipLabel(opts?.specs),
+      };
+    }
+    const due = readOrderDueSpecs(opts?.specs);
+    if (due.due_date_label && due.due_date_status !== "none") {
+      return {
+        kind: "pending_approval",
+        label: formatPendingDueChipLabel(opts?.specs),
+      };
+    }
     return { kind: "no_date", label: "No due date" };
   }
   if (opts?.inDoneColumn) {
@@ -84,6 +105,8 @@ export function dueDateBadgeClass(status: DueDateStatus): string {
       return "border-amber-300 bg-amber-50 text-amber-800";
     case "soon":
       return "border-amber-200 bg-amber-50/80 text-amber-700";
+    case "pending_approval":
+      return "border-sky-200 bg-sky-50 text-sky-800";
     case "no_date":
       return "border-slate-200 bg-slate-50 text-slate-500";
     default:

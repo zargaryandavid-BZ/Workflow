@@ -45,7 +45,7 @@ export function WebhookSourceLabel({
       {title ? (
         <>
           <span className="shrink-0 font-normal text-slate-400">|</span>
-          <span className="min-w-0 truncate font-medium normal-case tracking-normal text-slate-500">
+          <span className="min-w-0 truncate text-[13px] font-semibold normal-case tracking-normal text-slate-700">
             {title}
           </span>
         </>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Sidebar } from "@/components/app-shell/sidebar";
 import { Topbar } from "@/components/app-shell/topbar";
 import type { Role } from "@/lib/types";
@@ -22,19 +22,8 @@ export function AppShell({
   fullName,
   children,
 }: AppShellProps) {
+  // Closed by default on all screen sizes; open via the topbar menu button.
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)");
-    setSidebarOpen(mq.matches);
-
-    function onChange(e: MediaQueryListEvent) {
-      setSidebarOpen(e.matches);
-    }
-
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
 
   return (
     <div className="flex h-screen w-full max-w-full overflow-hidden overscroll-none">

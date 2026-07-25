@@ -16,6 +16,7 @@ import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
   attachSignedUrlsToSkuImages,
   listSkuImagesForOrder,
+  mergeSkuImagesWithAssets,
 } from "@/lib/sku-images";
 import { normalizeSkus, type SkuItem } from "@/lib/skus";
 import {
@@ -24,8 +25,10 @@ import {
   productFromOrder,
 } from "@/lib/notification-messages";
 import { formatDate } from "@/lib/utils";
+import { formatOrderDueDisplay } from "@/lib/due-date";
 import { getGroupKey } from "@/lib/group-orders";
 import type {
+  Asset,
   BoardColumn,
   CustomField,
   CustomFieldValue,
@@ -313,6 +316,7 @@ export async function loadOrderExportData(
     { data: fields },
     { data: column },
     skuImagesRaw,
+    { data: assets },
     groupSize,
   ] = await Promise.all([
     supabase.from("custom_field_values").select("*").eq("order_id", orderId),
@@ -327,22 +331,32 @@ export async function loadOrderExportData(
       .eq("id", order.column_id)
       .maybeSingle(),
     listSkuImagesForOrder(supabase, orderId).catch(() => []),
+    supabase
+      .from("assets")
+      .select("*")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true }),
     countOrderGroupSize(supabase, tenantId, order),
   ]);
 
   const customFields = (fields ?? []) as CustomField[];
   const fieldValues = valuesByFieldId((values ?? []) as CustomFieldValue[]);
-  const skuImages = await attachSignedUrlsToSkuImages(
+  const galleryImages = await attachSignedUrlsToSkuImages(
     supabase,
     skuImagesRaw
   ).catch(() => [] as OrderSkuImageWithUrl[]);
+  const skus = normalizeSkus(order.specs?.skus);
+  const skuImages = mergeSkuImagesWithAssets(
+    galleryImages,
+    (assets ?? []) as Asset[],
+    { soleSkuId: skus.length === 1 ? skus[0].id : null }
+  );
 
   const imagesBySkuId: Record<string, OrderSkuImageWithUrl[]> = {};
   for (const img of skuImages) {
     (imagesBySkuId[img.sku_id] ??= []).push(img);
   }
 
-  const skus = normalizeSkus(order.specs?.skus);
   const skuRows = buildSkuRows(skus, imagesBySkuId);
   const totalQty =
     skus.length > 0
@@ -417,7 +431,11 @@ export async function loadOrderExportData(
     orderNumber: order.title,
     orderNumberDisplay: formatOrderNumberDisplay(order.title, groupSize),
     groupSize,
-    dueDateFormatted: order.due_date ? formatDate(order.due_date) : "—",
+    dueDateFormatted: formatOrderDueDisplay(
+      order.due_date,
+      order.specs,
+      formatDate
+    ),
     priority: order.priority,
     tenantName,
   };

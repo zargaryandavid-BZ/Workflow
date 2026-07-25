@@ -5,9 +5,11 @@ import { ORDER_ASSETS_BUCKET, SKU_IMAGE_MAX_BYTES, uploadSizeError } from "@/lib
 import {
   attachSignedUrlsToSkuImages,
   MAX_SKU_IMAGES,
+  mergeSkuImagesWithAssets,
   skuImageStoragePath,
 } from "@/lib/sku-images";
-import type { OrderSkuImage } from "@/lib/types";
+import { normalizeSkus } from "@/lib/skus";
+import type { Asset, OrderSkuImage } from "@/lib/types";
 
 async function verifySkuOnOrder(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -35,13 +37,28 @@ export async function GET(
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = await createClient();
-  const { data: images, error } = await supabase
-    .from("order_sku_images")
-    .select("*")
-    .eq("order_id", orderId)
-    .eq("sku_id", skuId)
-    .eq("tenant_id", ctx.tenant.id)
-    .order("position", { ascending: true });
+  const [{ data: images, error }, { data: assets }, { data: order }] =
+    await Promise.all([
+      supabase
+        .from("order_sku_images")
+        .select("*")
+        .eq("order_id", orderId)
+        .eq("sku_id", skuId)
+        .eq("tenant_id", ctx.tenant.id)
+        .order("position", { ascending: true }),
+      supabase
+        .from("assets")
+        .select("*")
+        .eq("order_id", orderId)
+        .eq("tenant_id", ctx.tenant.id)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("orders")
+        .select("specs")
+        .eq("id", orderId)
+        .eq("tenant_id", ctx.tenant.id)
+        .maybeSingle(),
+    ]);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -49,7 +66,14 @@ export async function GET(
     supabase,
     (images ?? []) as OrderSkuImage[]
   );
-  return NextResponse.json({ images: withUrls });
+  const orderSkus = normalizeSkus(
+    (order?.specs as { skus?: unknown } | null)?.skus
+  );
+  const merged = mergeSkuImagesWithAssets(withUrls, (assets ?? []) as Asset[], {
+    soleSkuId: orderSkus.length === 1 ? orderSkus[0].id : null,
+  }).filter((img) => img.sku_id === skuId);
+
+  return NextResponse.json({ images: merged });
 }
 
 /** PATCH — reorder images by accepting a new ordered array of IDs */

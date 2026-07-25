@@ -534,11 +534,27 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `description` | `text` | Free text |
 | `specs` | `jsonb` | Structured data (SKUs in `specs.skus[]`) |
 | `priority` | `order_priority` | Priority badge |
-| `due_date` | `date` | Due date |
+| `due_date` | `date` | Absolute due date (nullable until CRM materializes after-approval dues) |
 | `position` | `double precision` | Sort within column |
 | `created_by` | `uuid` | Creator user |
 | `created_at` | `timestamptz` | Created |
 | `updated_at` | `timestamptz` | Auto-updated on change |
+
+**Due-date specs (CRM webhook):** relative / mode metadata is stored on `orders.specs` (not separate columns):
+
+| Spec key | Meaning |
+| --- | --- |
+| `due_date_mode` | `"fixed"` \| `"after_approval"` |
+| `due_processing_days` | Working days (Mon–Fri) when after approval |
+| `due_anchor_at` | When CRM computed the calendar due |
+| `due_date_label` | Human label for board/PDF |
+| `due_date_status` | `"set"` \| `"pending_approval"` \| `"none"` |
+
+**Mapping:** if `due_date` is set → use it; else if mode is `after_approval` → show “N working days after approval”. On customer/staff approval, Workflow materializes `due_date = local_approval_day + N weekdays` (Mon–Fri). A later CRM webhook with a concrete `due_date` still overwrites. See `lib/due-date.ts` and [WEBHOOK.md](WEBHOOK.md).
+
+**UI:** Create/edit order due control supports **Fixed date** or **Working days after approval** (default 5).
+
+**CRM still required:** CRM should send `due_date_mode`, `due_processing_days`, `due_anchor_at`, `due_date_label`, `due_date_status`, and re-fire the webhook when an after-approval due materializes.
 
 **FKs:** `tenant_id` → `tenants`; `column_id` → `board_columns`; `customer_id` → `customers`; `created_by` → `auth.users`.
 
@@ -554,9 +570,15 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
   "customer_id": "customer-uuid",
   "title": "PO-1042",
   "description": "Business cards",
-  "specs": { "skus": [{ "id": "sku-1", "name": "4x6", "qty": 500 }] },
+  "specs": {
+    "skus": [{ "id": "sku-1", "name": "4x6", "qty": 500 }],
+    "due_date_mode": "after_approval",
+    "due_processing_days": 5,
+    "due_date_status": "pending_approval",
+    "due_date_label": "5 working days after approval"
+  },
   "priority": "normal",
-  "due_date": "2026-06-15",
+  "due_date": null,
   "position": 2000,
   "created_by": "user-uuid",
   "created_at": "2026-06-01T09:00:00Z",

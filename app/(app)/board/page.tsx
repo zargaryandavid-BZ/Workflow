@@ -143,6 +143,7 @@ export default async function BoardPage({
       id,
       name: nameById.get(id) ?? "Unnamed designer",
       load: 0,
+      skuCount: 0,
     }));
 
     // Active load = jobs currently in Start + In Progress columns.
@@ -162,10 +163,14 @@ export default async function BoardPage({
         }[],
         loadColIds
       );
-      designers = designers.map((d) => ({
-        ...d,
-        load: counts.get(d.id) ?? 0,
-      }));
+      designers = designers.map((d) => {
+        const stats = counts.get(d.id);
+        return {
+          ...d,
+          load: stats?.load ?? 0,
+          skuCount: stats?.skuCount ?? 0,
+        };
+      });
     }
   }
 

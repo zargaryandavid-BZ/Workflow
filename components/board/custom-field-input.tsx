@@ -140,10 +140,12 @@ function MultiSelectField({
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    document.addEventListener("mousedown", onDoc);
+    // Capture phase: Modal stops mousedown bubbling on its content, so bubble
+    // listeners on document never see clicks inside the dialog.
+    document.addEventListener("mousedown", onDoc, true);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("mousedown", onDoc, true);
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);

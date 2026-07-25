@@ -5,7 +5,7 @@ import {
   safeAssetFileName,
 } from "@/lib/order-assets";
 import { skuIds, type SkuItem } from "@/lib/skus";
-import type { OrderSkuImage, OrderSkuImageWithUrl } from "@/lib/types";
+import type { Asset, OrderSkuImage, OrderSkuImageWithUrl } from "@/lib/types";
 
 export const MAX_SKU_IMAGES = 10;
 
@@ -49,6 +49,58 @@ export async function attachSignedUrlsToSkuImages(
       return { ...img, signed_url: signed?.signedUrl ?? null };
     })
   );
+}
+
+/**
+ * Webhook artwork is stored on `assets` (often with `external_url` + `sku_key`).
+ * The card SKU gallery only reads `order_sku_images`, so merge those assets in.
+ */
+export function skuImagesFromAssets(
+  assets: Asset[],
+  opts?: { soleSkuId?: string | null }
+): OrderSkuImageWithUrl[] {
+  const soleSkuId = opts?.soleSkuId?.trim() || null;
+  const out: OrderSkuImageWithUrl[] = [];
+  let position = 10_000;
+
+  for (const asset of assets) {
+    if (asset.notification_id) continue;
+    const skuId = (asset.sku_key?.trim() || soleSkuId) ?? "";
+    if (!skuId) continue;
+
+    const external = asset.external_url?.trim() || null;
+    out.push({
+      id: asset.id,
+      tenant_id: asset.tenant_id,
+      order_id: asset.order_id,
+      sku_id: skuId,
+      file_name: asset.file_name,
+      file_size: asset.size,
+      mime_type: asset.mime_type,
+      storage_path: asset.storage_path ?? "",
+      position: position++,
+      created_at: asset.created_at,
+      signed_url: external || `/api/assets/${asset.id}`,
+      from_asset: true,
+    });
+  }
+
+  return out;
+}
+
+/** Gallery rows first, then webhook/asset artwork for the same SKUs. */
+export function mergeSkuImagesWithAssets(
+  gallery: OrderSkuImageWithUrl[],
+  assets: Asset[],
+  opts?: { soleSkuId?: string | null }
+): OrderSkuImageWithUrl[] {
+  const fromAssets = skuImagesFromAssets(assets, opts);
+  if (fromAssets.length === 0) return gallery;
+  const galleryIds = new Set(gallery.map((g) => g.id));
+  return [
+    ...gallery,
+    ...fromAssets.filter((a) => !galleryIds.has(a.id)),
+  ];
 }
 
 export function groupSkuImagesBySkuId(

@@ -140,12 +140,14 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
         <p className="mt-2 text-xs text-slate-500">
           Folder layout:{" "}
           <code className="rounded bg-white px-1">
-            26-0098_Customer / 26-0098_{finalFolderName || "Final for Prod"}
-          </code>
-          . Multi-item orders get{" "}
-          <code className="rounded bg-white px-1">_1</code>,{" "}
-          <code className="rounded bg-white px-1">_2</code>, … on each card’s
-          folders. Status:{" "}
+            XXXX / XXXX_Y / {finalFolderName || "Final for Prod"}_Y
+          </code>{" "}
+          where{" "}
+          <code className="rounded bg-white px-1">XXXX</code> ={" "}
+          <code className="rounded bg-white px-1">
+            ordernumber_customername
+          </code>{" "}
+          (Designer folder) and Y is the item index. Status:{" "}
           {settings.configured ? (
             <span className="text-emerald-700">credentials saved</span>
           ) : (
@@ -217,7 +219,7 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
       </label>
 
       <label className="block text-sm text-slate-600">
-        Production subfolder name
+        Production subfolder name (saved as Name_Y, e.g. FinalProd_1)
         <input
           value={finalFolderName}
           onChange={(e) => setFinalFolderName(e.target.value)}
@@ -233,10 +235,10 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
           className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
         >
           <option value="final">
-            Production subfolder (26-0098_Final for Prod / …_1 for multi-item)
+            Final production ({finalFolderName || "Final for Prod"}_Y)
           </option>
-          <option value="order">Job folder (26-0098_Customer Name / …_1)</option>
-          <option value="customer">Job folder (26-0098_Customer Name / …_1)</option>
+          <option value="order">Designer folder (XXXX)</option>
+          <option value="customer">Designer folder (XXXX)</option>
         </select>
       </label>
 

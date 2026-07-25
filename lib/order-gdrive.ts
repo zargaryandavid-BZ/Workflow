@@ -168,10 +168,14 @@ async function upsertDesignTaskLink(
 
 /**
  * Create Drive folders and save links on each card.
- * - Single-item: `{code}_{Customer}` / `{code}_Final for Prod`
- * - Multi-item: `{code}_{Customer}_1` / `{code}_Final for Prod_1`, etc.
- * - Artwork (GDrive link) ← link_target (default Final for Prod)
- * - Design files (`specs.design_task`) ← that card’s job folder
+ *
+ * Layout:
+ *   `{code}_{Customer}/`              ← Designer folder (shared)
+ *     `{code}_{Customer}_Y/`          ← item folder
+ *       `{FinalProd}_Y/`              ← Final production
+ *
+ * - Artwork (GDrive link) ← link_target (default Final production)
+ * - Design files (`specs.design_task`) ← Designer folder (XXXX)
  * No-ops when GDrive is disabled or not configured.
  */
 export async function attachGdriveFoldersToOrders(
@@ -201,9 +205,10 @@ export async function attachGdriveFoldersToOrders(
     return null;
   }
 
-  const multiItem = orders.length > 1;
   const primary = orders[0];
   const customerName = await resolveCustomerName(client, tenantId, primary);
+  // Shared parent uses the order key (not per-part title), so all items
+  // land under the same Designer folder.
   const orderKey = orderKeyFromOrder(primary);
 
   try {
@@ -213,12 +218,12 @@ export async function attachGdriveFoldersToOrders(
 
     for (let i = 0; i < orders.length; i++) {
       const order = orders[i];
-      const itemIndex = multiItem ? partIndexFromOrder(order, i + 1) : null;
+      const itemIndex = partIndexFromOrder(order, i + 1);
       try {
         const refs = await ensureOrderDriveFolders(
           settings,
           customerName,
-          orderKeyFromOrder(order) || orderKey,
+          orderKey,
           itemIndex
         );
         if (!firstLinkUrl) firstLinkUrl = refs.linkUrl;
@@ -232,7 +237,7 @@ export async function attachGdriveFoldersToOrders(
           message
         );
         warnings.push(
-          `Part ${itemIndex ?? i + 1}: ${message}`
+          `Part ${itemIndex}: ${message}`
         );
       }
     }

@@ -7,11 +7,18 @@ import { ACTIVITY_LOG_LIMIT, ORDER_QTY_FIELD_ALIASES } from "@/lib/constants";
 import { isAccountManagerOwner } from "@/lib/order-owners";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
+import {
+  buildStaffDueSpecs,
+  mergeDueSpecsIntoOrderSpecs,
+  readOrderDueSpecs,
+  type DueDateMode,
+} from "@/lib/due-date";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { pruneOrphanedSkuAssets } from "@/lib/sku-assets";
 import {
   attachSignedUrlsToSkuImages,
   listSkuImagesForOrder,
+  mergeSkuImagesWithAssets,
   pruneOrphanedSkuImages,
 } from "@/lib/sku-images";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
@@ -25,6 +32,7 @@ import {
 } from "@/lib/tag-notifications";
 import type {
   ActivityLog,
+  Asset,
   CustomField,
   Order,
   OrderNote,
@@ -169,6 +177,16 @@ export async function GET(
     skuImages = [];
   }
 
+  // Webhook artwork lands in `assets`; surface it in the SKU gallery slots.
+  const orderSkus = normalizeSkus(
+    (order.specs as { skus?: unknown } | null)?.skus
+  );
+  skuImages = mergeSkuImagesWithAssets(
+    skuImages,
+    (assets ?? []) as Asset[],
+    { soleSkuId: orderSkus.length === 1 ? orderSkus[0].id : null }
+  );
+
   const { data: customFields } = await supabase
     .from("custom_fields")
     .select("*")
@@ -219,6 +237,8 @@ export async function PATCH(
     priority?: string;
     ownerId?: string | null;
     dueDate?: string | null;
+    dueDateMode?: DueDateMode | null;
+    dueProcessingDays?: number | null;
     tagId?: string | null;
     specs?: Record<string, unknown>;
     customFieldValues?: { customFieldId: string; value: unknown }[];
@@ -237,7 +257,54 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (body.dueDate !== undefined) {
+  const existingSpecs =
+    ((existingOrder as { specs?: Record<string, unknown> }).specs ??
+      {}) as Record<string, unknown>;
+  const existingDue = readOrderDueSpecs(existingSpecs);
+  const dueFieldsTouched =
+    body.dueDate !== undefined ||
+    body.dueDateMode !== undefined ||
+    body.dueProcessingDays !== undefined;
+
+  let staffDue: ReturnType<typeof buildStaffDueSpecs> | null = null;
+  if (dueFieldsTouched) {
+    const mode: DueDateMode =
+      body.dueDateMode === "after_approval" ||
+      body.dueDateMode === "fixed"
+        ? body.dueDateMode
+        : existingDue.due_date_mode === "after_approval"
+          ? "after_approval"
+          : "fixed";
+    staffDue = buildStaffDueSpecs({
+      mode,
+      dueDate:
+        body.dueDate !== undefined
+          ? body.dueDate
+          : (existingOrder as { due_date?: string | null }).due_date,
+      processingDays:
+        body.dueProcessingDays !== undefined
+          ? body.dueProcessingDays
+          : existingDue.due_processing_days,
+      previousSpecs: existingSpecs,
+    });
+    if (mode === "fixed") {
+      const dueDateError = validateDueDate(
+        staffDue.dueDate,
+        (existingOrder as { due_date?: string | null }).due_date
+      );
+      if (dueDateError) {
+        return NextResponse.json({ error: dueDateError }, { status: 400 });
+      }
+    } else if (
+      staffDue.specs.due_processing_days == null ||
+      staffDue.specs.due_processing_days < 1
+    ) {
+      return NextResponse.json(
+        { error: "Working days after approval must be at least 1." },
+        { status: 400 }
+      );
+    }
+  } else if (body.dueDate !== undefined) {
     const dueDateError = validateDueDate(
       body.dueDate,
       (existingOrder as { due_date?: string | null }).due_date
@@ -271,22 +338,32 @@ export async function PATCH(
       updates.created_by = null;
     }
   }
-  if (body.dueDate !== undefined) updates.due_date = body.dueDate || null;
+  if (staffDue) {
+    updates.due_date = staffDue.dueDate;
+  } else if (body.dueDate !== undefined) {
+    updates.due_date = body.dueDate || null;
+  }
   if (body.specs !== undefined) {
     const rawSkus = body.specs.skus;
+    let nextSpecs: Record<string, unknown>;
     if (rawSkus !== undefined) {
       const normalizedSkus = normalizeSkus(rawSkus);
       const skuError = validateSkus(normalizedSkus);
       if (skuError) {
         return NextResponse.json({ error: skuError }, { status: 400 });
       }
-      updates.specs = {
+      nextSpecs = {
         ...body.specs,
         skus: prepareSkusForSave(normalizedSkus),
       };
     } else {
-      updates.specs = body.specs;
+      nextSpecs = body.specs;
     }
+    updates.specs = staffDue
+      ? mergeDueSpecsIntoOrderSpecs(nextSpecs, staffDue.specs)
+      : nextSpecs;
+  } else if (staffDue) {
+    updates.specs = mergeDueSpecsIntoOrderSpecs(existingSpecs, staffDue.specs);
   }
 
   if (body.customFieldValues) {

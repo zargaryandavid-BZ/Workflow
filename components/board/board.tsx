@@ -56,12 +56,6 @@ import {
   saveHiddenColumnIds,
 } from "@/lib/board-column-visibility";
 import {
-  loadPersonFilter,
-  savePersonFilter,
-  loadOwnerFilter,
-  saveOwnerFilter,
-} from "@/lib/board-person-filter";
-import {
   DEFAULT_COLUMN_SORT,
   getColumnSortMode,
   loadColumnSortMap,
@@ -271,6 +265,7 @@ export function Board({
     columnId: string;
     orderId: string;
   } | null>(null);
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
 
@@ -307,27 +302,40 @@ export function Board({
 
   // Live designer load (Start + In Progress) from loaded board orders, seeded
   // from server counts so the assign dropdown stays accurate as cards move.
+  // Shown as Name (cards)/skuRows — e.g. Manny (3)/8.
   const designersWithLoad = useMemo(() => {
     const loadColIds = designerLoadColumnIds(columns);
     if (loadColIds.length === 0) {
-      return designers.map((d) => ({ ...d, load: d.load ?? 0 }));
+      return designers.map((d) => ({
+        ...d,
+        load: d.load ?? 0,
+        skuCount: d.skuCount ?? 0,
+      }));
     }
     const loadSet = new Set(loadColIds);
     const loadColumnsLoaded = loadColIds.every((id) =>
       loadedColumnsRef.current.has(id)
     );
     if (!loadColumnsLoaded) {
-      return designers.map((d) => ({ ...d, load: d.load ?? 0 }));
+      return designers.map((d) => ({
+        ...d,
+        load: d.load ?? 0,
+        skuCount: d.skuCount ?? 0,
+      }));
     }
     const counts = countDesignerLoads(
       designers.map((d) => d.id),
       orders,
       loadSet
     );
-    return designers.map((d) => ({
-      ...d,
-      load: counts.get(d.id) ?? 0,
-    }));
+    return designers.map((d) => {
+      const stats = counts.get(d.id);
+      return {
+        ...d,
+        load: stats?.load ?? 0,
+        skuCount: stats?.skuCount ?? 0,
+      };
+    });
   }, [designers, orders, columns, columnLoadStatus]);
 
   const boardFilters = useMemo(
@@ -399,42 +407,21 @@ export function Board({
   const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
   const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() => new Set());
   const [columnSortById, setColumnSortById] = useState<ColumnSortMap>({});
-  const [persistedFiltersReady, setPersistedFiltersReady] = useState(false);
+  const [persistedUiReady, setPersistedUiReady] = useState(false);
+  const isDesignerRole = role === "designer";
 
-  // Restore after mount so SSR HTML matches the first client render.
+  // Restore column UI prefs after mount so SSR HTML matches the first client render.
+  // Person/owner filters intentionally reset on refresh (not restored from storage).
   useEffect(() => {
-    const savedPerson = loadPersonFilter(tenantId);
-    if (savedPerson && designers.some((d) => d.id === savedPerson)) {
-      setPersonFilter(savedPerson);
-    }
-    const savedOwner = loadOwnerFilter(tenantId);
-    if (
-      savedOwner === UNASSIGNED_OWNER_FILTER ||
-      (savedOwner && owners.some((o) => o.id === savedOwner))
-    ) {
-      setOwnerFilter(savedOwner);
-    }
     setHiddenColIds(loadHiddenColumnIds(tenantId));
     setColumnSortById(loadColumnSortMap(tenantId));
-    setPersistedFiltersReady(true);
-    // designers/owners from initial props; re-run only if tenant changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setPersistedUiReady(true);
   }, [tenantId]);
 
   useEffect(() => {
-    if (!persistedFiltersReady) return;
-    savePersonFilter(tenantId, personFilter);
-  }, [persistedFiltersReady, tenantId, personFilter]);
-
-  useEffect(() => {
-    if (!persistedFiltersReady) return;
-    saveOwnerFilter(tenantId, ownerFilter);
-  }, [persistedFiltersReady, tenantId, ownerFilter]);
-
-  useEffect(() => {
-    if (!persistedFiltersReady) return;
+    if (!persistedUiReady) return;
     saveColumnSortMap(tenantId, columnSortById);
-  }, [persistedFiltersReady, tenantId, columnSortById]);
+  }, [persistedUiReady, tenantId, columnSortById]);
 
   function setColumnSortMode(columnId: string, mode: ColumnSortMode) {
     setColumnSortById((prev) => {
@@ -622,6 +609,25 @@ export function Board({
     let attempts = 0;
     const maxAttempts = 30;
 
+    /** Scroll horizontally inside the board scroller only — never the window. */
+    const scrollBoardTo = (el: Element) => {
+      const scroller = boardScrollRef.current;
+      const target = el as HTMLElement;
+      if (scroller) {
+        const sRect = scroller.getBoundingClientRect();
+        const eRect = target.getBoundingClientRect();
+        const delta =
+          eRect.left + eRect.width / 2 - (sRect.left + sRect.width / 2);
+        scroller.scrollTo({
+          left: scroller.scrollLeft + delta,
+          behavior: "smooth",
+        });
+      }
+      // Vertical only; inline nearest avoids shifting the document sideways.
+      target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
+    };
+
     const tryScroll = () => {
       if (cancelled) return;
       const orderEl = document.querySelector(`[data-order-id="${orderId}"]`);
@@ -629,11 +635,7 @@ export function Board({
 
       if (orderEl) {
         pendingSearchNavRef.current = null;
-        orderEl.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-          inline: "center",
-        });
+        scrollBoardTo(orderEl);
         return;
       }
 
@@ -645,11 +647,7 @@ export function Board({
 
       // Card never appeared — fall back to the column.
       pendingSearchNavRef.current = null;
-      columnEl?.scrollIntoView({
-        behavior: "smooth",
-        inline: "center",
-        block: "nearest",
-      });
+      if (columnEl) scrollBoardTo(columnEl);
     };
 
     const id = window.requestAnimationFrame(tryScroll);
@@ -658,6 +656,17 @@ export function Board({
       window.cancelAnimationFrame(id);
     };
   }, [hiddenColIds, searchResults, boardView]);
+
+  // Safety net: the wide column strip must never shift the document sideways.
+  // Pin window horizontal scroll back to 0 if any nested scroll leaks upward.
+  useEffect(() => {
+    const pinWindowX = () => {
+      if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
+    };
+    pinWindowX();
+    window.addEventListener("scroll", pinWindowX, true);
+    return () => window.removeEventListener("scroll", pinWindowX, true);
+  }, []);
 
   function closeOrderDetail() {
     setDetailId(null);
@@ -1619,9 +1628,23 @@ export function Board({
     customFields,
   ]);
 
-  const displayOrders = filtersActive
-    ? (searchResults ?? localFilteredOrders)
-    : orders;
+  const displayOrders = useMemo(() => {
+    const base = filtersActive
+      ? (searchResults ?? localFilteredOrders)
+      : orders;
+    if (!isDesignerRole) return base;
+    return base.filter(
+      (order) =>
+        String(order.specs?.designer_id ?? "") === currentUserId
+    );
+  }, [
+    filtersActive,
+    searchResults,
+    localFilteredOrders,
+    orders,
+    isDesignerRole,
+    currentUserId,
+  ]);
 
   /** e.g. typing "XXX" → suggest "XXX-(3)" with part titles to continue filtering. */
   const orderGroupSuggestions = useMemo(
@@ -1796,21 +1819,23 @@ export function Board({
               </div>
             ) : null}
           </div>
-          <Select
-            value={personFilter}
-            onChange={(e) => setPersonFilter(e.target.value)}
-            style={{ width: adaptiveSelectWidth(selectedPersonLabel) }}
-            className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
-            aria-label="Filter by person"
-            title={selectedPersonLabel}
-          >
-            <option value="">All people</option>
-            {designers.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
+          {!isDesignerRole ? (
+            <Select
+              value={personFilter}
+              onChange={(e) => setPersonFilter(e.target.value)}
+              style={{ width: adaptiveSelectWidth(selectedPersonLabel) }}
+              className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
+              aria-label="Filter by person"
+              title={selectedPersonLabel}
+            >
+              <option value="">All people</option>
+              {designers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+          ) : null}
           <Select
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}
@@ -2016,8 +2041,12 @@ export function Board({
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="board-scroll min-h-0 min-w-0 w-full max-w-full flex-1 overflow-x-scroll overflow-y-hidden overscroll-x-none">
-          <div className="flex h-full min-w-max gap-3 px-4 pb-4">
+        <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-hidden">
+        <div
+          ref={boardScrollRef}
+          className="board-scroll h-full min-h-0 min-w-0 w-full max-w-full overflow-x-auto overflow-y-hidden overscroll-x-none"
+        >
+          <div className="flex h-full w-max min-w-full gap-3 px-4 pb-4">
             {visibleColumns.map((column, index) => {
               const columnOrders = ordersByColumn.get(column.id) ?? [];
               return (
@@ -2080,6 +2109,7 @@ export function Board({
             );
             })}
           </div>
+        </div>
         </div>
 
         <DragOverlay>

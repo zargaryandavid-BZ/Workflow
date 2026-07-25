@@ -23,21 +23,46 @@ export async function DELETE(
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
 
-  if (!img) {
+  if (img) {
+    if (img.storage_path) {
+      await supabase.storage
+        .from(ORDER_ASSETS_BUCKET)
+        .remove([img.storage_path as string]);
+    }
+
+    const { error } = await supabase
+      .from("order_sku_images")
+      .delete()
+      .eq("id", imageId);
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  }
+
+  // Webhook artwork is stored on `assets` and merged into the gallery UI.
+  const { data: asset } = await supabase
+    .from("assets")
+    .select("id, storage_path, sku_key")
+    .eq("id", imageId)
+    .eq("order_id", orderId)
+    .eq("tenant_id", ctx.tenant.id)
+    .maybeSingle();
+
+  if (!asset) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (img.storage_path) {
-    await supabase.storage
-      .from(ORDER_ASSETS_BUCKET)
-      .remove([img.storage_path as string]);
+  if (asset.sku_key && asset.sku_key !== skuId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { error } = await supabase
-    .from("order_sku_images")
-    .delete()
-    .eq("id", imageId);
+  if (asset.storage_path) {
+    await supabase.storage
+      .from(ORDER_ASSETS_BUCKET)
+      .remove([asset.storage_path as string]);
+  }
 
+  const { error } = await supabase.from("assets").delete().eq("id", imageId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
 }

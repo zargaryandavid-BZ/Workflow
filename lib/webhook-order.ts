@@ -27,6 +27,12 @@ import {
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import { categoryForProduct } from "@/lib/product-data";
 import { findMatchingOption } from "@/lib/field-links";
+import {
+  mergeDueSpecsIntoOrderSpecs,
+  recomputeDueFromProcessingDays,
+  resolveWebhookDue,
+  type OrderDueSpecs,
+} from "@/lib/due-date";
 import type { WebhookConfig } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -261,6 +267,16 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   title?: string;
   priority?: string;
   due_date?: string | null;
+  /** `"fixed"` | `"after_approval"` — CRM due mode (see lib/due-date.ts). */
+  due_date_mode?: string | null;
+  /** Working days when mode is after_approval. */
+  due_processing_days?: number | string | null;
+  /** When CRM materialized the calendar due. */
+  due_anchor_at?: string | null;
+  /** Human label from CRM quote/PDF. */
+  due_date_label?: string | null;
+  /** `"set"` | `"pending_approval"` | `"none"`. */
+  due_date_status?: string | null;
   category?: string;
   category_name?: string;
   product?: string;
@@ -677,17 +693,25 @@ function shortOrderCardBase(orderNumber: string): string {
   return short ? short : trimmed;
 }
 
-function resolveDueDate(body: WebhookOrderPayload): string | null {
-  const dueDate =
-    typeof body.due_date === "string" && body.due_date.trim()
-      ? body.due_date.trim().slice(0, 10)
-      : null;
-  if (!dueDate) return null;
-  const dueDateError = validateDueDate(dueDate);
-  if (dueDateError) {
-    throw new WebhookValidationError(dueDateError);
+function resolveDueDate(body: WebhookOrderPayload): {
+  dueDate: string | null;
+  dueSpecs: OrderDueSpecs;
+} {
+  const resolved = resolveWebhookDue({
+    due_date: body.due_date,
+    due_date_mode: body.due_date_mode,
+    due_processing_days: body.due_processing_days,
+    due_anchor_at: body.due_anchor_at,
+    due_date_label: body.due_date_label,
+    due_date_status: body.due_date_status,
+  });
+  if (resolved.dueDate) {
+    const dueDateError = validateDueDate(resolved.dueDate);
+    if (dueDateError) {
+      throw new WebhookValidationError(dueDateError);
+    }
   }
-  return dueDate;
+  return { dueDate: resolved.dueDate, dueSpecs: resolved.specs };
 }
 
 function parseContactEmail(raw: string): string | null {
@@ -1987,6 +2011,115 @@ export interface WebhookMultiOrderResult {
 
 export type WebhookCreateResult = WebhookOrderResult | WebhookMultiOrderResult;
 
+async function findExistingWebhookOrders(
+  client: Client,
+  tenantId: string,
+  webhookOrderNumber: string,
+  shortBase: string,
+  itemCount: number
+): Promise<{ id: string; title: string; specs: Record<string, unknown> }[]> {
+  const titles =
+    itemCount > 1
+      ? Array.from({ length: itemCount }, (_, i) => `${shortBase}-${i + 1}`)
+      : [shortBase];
+
+  const [{ data: bySpec }, { data: byTitle }] = await Promise.all([
+    client
+      .from("orders")
+      .select("id, title, specs")
+      .eq("tenant_id", tenantId)
+      .is("removed_at", null)
+      .filter("specs->>webhook_order_number", "eq", webhookOrderNumber),
+    client
+      .from("orders")
+      .select("id, title, specs")
+      .eq("tenant_id", tenantId)
+      .is("removed_at", null)
+      .in("title", titles),
+  ]);
+
+  const byId = new Map<
+    string,
+    { id: string; title: string; specs: Record<string, unknown> }
+  >();
+  for (const row of [...(bySpec ?? []), ...(byTitle ?? [])]) {
+    const id = row.id as string;
+    if (byId.has(id)) continue;
+    byId.set(id, {
+      id,
+      title: (row.title as string) ?? "",
+      specs: ((row.specs as Record<string, unknown> | null) ?? {}) as Record<
+        string,
+        unknown
+      >,
+    });
+  }
+  return [...byId.values()];
+}
+
+/**
+ * When CRM re-fires a webhook (e.g. after-approval due materializes), update
+ * existing cards instead of creating duplicates.
+ */
+async function updateExistingOrdersDue(
+  client: Client,
+  tenantId: string,
+  existing: { id: string; title: string; specs: Record<string, unknown> }[],
+  dueDate: string | null,
+  dueSpecs: OrderDueSpecs
+): Promise<void> {
+  await Promise.all(
+    existing.map(async (order) => {
+      let nextDueDate = dueDate;
+      let nextDueSpecs = dueSpecs;
+
+      // CRM sent new processing days + anchor after materialization → recompute.
+      if (
+        dueSpecs.due_date_mode === "after_approval" &&
+        dueSpecs.due_processing_days != null &&
+        dueSpecs.due_anchor_at &&
+        dueSpecs.due_date_status === "set" &&
+        !dueDate
+      ) {
+        const recomputed = recomputeDueFromProcessingDays(
+          { ...order.specs, ...dueSpecs },
+          null,
+          dueSpecs.due_processing_days
+        );
+        if (recomputed) {
+          nextDueDate = recomputed.dueDate;
+          nextDueSpecs = recomputed.specs;
+        }
+      }
+
+      // Absolute date from CRM wins; merge/replace due keys cleanly.
+      const nextSpecs = mergeDueSpecsIntoOrderSpecs(order.specs, nextDueSpecs);
+      if (nextDueDate && nextDueSpecs.due_date_status === "set") {
+        // Keep prior human label only when CRM omitted one.
+        if (!nextDueSpecs.due_date_label && order.specs.due_date_label) {
+          nextSpecs.due_date_label = order.specs.due_date_label;
+        }
+      }
+
+      const { error } = await client
+        .from("orders")
+        .update({
+          due_date: nextDueDate,
+          specs: nextSpecs,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order.id)
+        .eq("tenant_id", tenantId);
+      if (error) {
+        console.error("[webhook/orders] due-date update error:", {
+          order_id: order.id,
+          message: error.message,
+        });
+      }
+    })
+  );
+}
+
 interface CreateSingleJobParams {
   client: Client;
   tenantId: string;
@@ -2000,6 +2133,7 @@ interface CreateSingleJobParams {
   item: WebhookItem;
   priority: string;
   dueDate: string | null;
+  dueSpecs: OrderDueSpecs;
   orderDescription: string | null;
   cardTitle: string;
   jobTitle: string;
@@ -2043,6 +2177,7 @@ async function createSingleWebhookJob(
     item,
     priority,
     dueDate,
+    dueSpecs,
     orderDescription,
     cardTitle,
     jobTitle,
@@ -2131,7 +2266,7 @@ async function createSingleWebhookJob(
     skuComments,
   });
 
-  const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs };
+  const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs, ...dueSpecs };
   if (designerId) specs.designer_id = designerId;
   if (designerName) specs.designer_name = designerName;
   if (designTaskUrl) specs.design_task = designTaskUrl;
@@ -2140,8 +2275,9 @@ async function createSingleWebhookJob(
   if (sharedTitle) {
     specs.webhook_order_title = sharedTitle;
   }
+  // Always stamp for idempotent due-date updates on later CRM webhooks.
+  specs.webhook_order_number = webhookOrderNumber;
   if (totalItems > 1) {
-    specs.webhook_order_number = webhookOrderNumber;
     specs.webhook_item_index = itemIndex;
     specs.webhook_item_title = jobTitle;
   }
@@ -2272,7 +2408,7 @@ export async function createOrderFromWebhook(
   const customerInfo = parseWebhookCustomerInfo(body);
   validateItemsArray(body.items);
   const baseOrderNumber = resolveOrderNumber(body);
-  const dueDate = resolveDueDate(body);
+  const { dueDate, dueSpecs } = resolveDueDate(body);
 
   const priority =
     typeof body.priority === "string" && PRIORITIES.has(body.priority)
@@ -2299,6 +2435,51 @@ export async function createOrderFromWebhook(
     webhookSource = "crm";
   }
   assertCrmOrderNumber(baseOrderNumber, webhookSource);
+
+  // Idempotent due-date / CRM re-fire: update existing cards when found.
+  const existingOrders = await findExistingWebhookOrders(
+    client,
+    tenantId,
+    baseOrderNumber,
+    shortBaseOrderNumber,
+    items.length
+  );
+  if (existingOrders.length > 0) {
+    await updateExistingOrdersDue(
+      client,
+      tenantId,
+      existingOrders,
+      dueDate,
+      dueSpecs
+    );
+    const sorted = [...existingOrders].sort((a, b) =>
+      a.title.localeCompare(b.title, undefined, { numeric: true })
+    );
+    const warning =
+      "Updated due date on existing order(s); no new cards created.";
+    if (sorted.length === 1 && items.length <= 1) {
+      return {
+        isMultiItem: false,
+        orderId: sorted[0].id,
+        orderNumber: baseOrderNumber,
+        ownerId: null,
+        ownerName: null,
+        warning,
+      };
+    }
+    return {
+      isMultiItem: true,
+      orderNumber: baseOrderNumber,
+      jobs: sorted.map((o, index) => ({
+        order_id: o.id,
+        item_index: index,
+        title: o.title,
+      })),
+      ownerId: null,
+      ownerName: null,
+      warning,
+    };
+  }
 
   const { data: firstCol } = await client
     .from("board_columns")
@@ -2450,6 +2631,7 @@ export async function createOrderFromWebhook(
       item,
       priority,
       dueDate,
+      dueSpecs,
       orderDescription,
       cardTitle,
       jobTitle,

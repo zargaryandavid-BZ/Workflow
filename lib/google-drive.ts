@@ -7,10 +7,10 @@ import { isGdriveConfigured } from "@/lib/gdrive-settings";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 export type DriveFolderRefs = {
-  /** Job folder: e.g. 26-0098_Acme Corp */
+  /** Designer folder: e.g. 26-0098_Acme Corp */
   jobId: string;
   jobUrl: string;
-  /** Subfolder: e.g. 26-0098_Final for Prod */
+  /** Final production folder: e.g. FinalProd_1 */
   finalId: string;
   finalUrl: string;
   linkUrl: string;
@@ -130,7 +130,7 @@ function pickLink(
   target: GdriveLinkTarget,
   refs: Omit<DriveFolderRefs, "linkUrl">
 ): string {
-  // "customer" / "order" both point at the job folder in the 2-level layout.
+  // Designer folder (XXXX) for "customer" / "order"; Final production for "final".
   if (target === "final") return refs.finalUrl;
   return refs.jobUrl;
 }
@@ -150,14 +150,14 @@ function resolveSharedDriveId(settings: GdriveSettings): string | null {
 
 /**
  * Shared Drive root
- *   └── {code}_{Customer Name}/              (single-item)
- *         └── {code}_{Final for Prod}/
- *   └── {code}_{Customer Name}_1/            (multi-item part 1)
- *         └── {code}_{Final for Prod}_1/
- *   └── {code}_{Customer Name}_2/            (multi-item part 2)
- *         └── {code}_{Final for Prod}_2/
+ *   └── {code}_{Customer Name}/                 ← Designer folder (XXXX)
+ *         └── {code}_{Customer Name}_Y/         ← item folder (XXXX_Y)
+ *               └── {FinalProd}_Y/              ← Final production
  *
- * @param itemIndex 1-based part number for multi-item orders; omit for single-item.
+ * XXXX = ordernumber_customername (e.g. 26-0098_Acme Corp).
+ * Y is the 1-based item index (defaults to 1).
+ *
+ * @param itemIndex 1-based part number; defaults to 1 when omitted.
  */
 export async function ensureOrderDriveFolders(
   settings: GdriveSettings,
@@ -178,32 +178,43 @@ export async function ensureOrderDriveFolders(
     settings.final_folder_name || "Final for Prod"
   );
 
-  const suffix =
-    typeof itemIndex === "number" && itemIndex >= 1 ? `_${itemIndex}` : "";
+  const y =
+    typeof itemIndex === "number" && itemIndex >= 1
+      ? Math.floor(itemIndex)
+      : 1;
+  const suffix = `_${y}`;
 
-  const jobFolderName = sanitizeDriveFolderName(
+  // XXXX — Designer folder (shared across items on the same order)
+  const designerFolderName = sanitizeDriveFolderName(`${code}_${customer}`);
+  // XXXX_Y — per-item working folder
+  const itemFolderName = sanitizeDriveFolderName(
     `${code}_${customer}${suffix}`
   );
-  const finalFolderName = sanitizeDriveFolderName(
-    `${code}_${finalLabel}${suffix}`
-  );
+  // FinalProd_Y — Final production
+  const finalFolderName = sanitizeDriveFolderName(`${finalLabel}${suffix}`);
 
-  const jobFolder = await findOrCreateFolder(
+  const designerFolder = await findOrCreateFolder(
     drive,
     rootId,
-    jobFolderName,
+    designerFolderName,
+    sharedDriveId
+  );
+  const itemFolder = await findOrCreateFolder(
+    drive,
+    designerFolder.id,
+    itemFolderName,
     sharedDriveId
   );
   const finalFolder = await findOrCreateFolder(
     drive,
-    jobFolder.id,
+    itemFolder.id,
     finalFolderName,
     sharedDriveId
   );
 
   const refs = {
-    jobId: jobFolder.id,
-    jobUrl: jobFolder.webViewLink,
+    jobId: designerFolder.id,
+    jobUrl: designerFolder.webViewLink,
     finalId: finalFolder.id,
     finalUrl: finalFolder.webViewLink,
   };

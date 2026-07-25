@@ -7,6 +7,11 @@ import {
   resolveColumnForNewJobByProduct,
 } from "@/lib/automation";
 import { ORDER_QTY_FIELD_ALIASES } from "@/lib/constants";
+import {
+  buildStaffDueSpecs,
+  mergeDueSpecsIntoOrderSpecs,
+  type DueDateMode,
+} from "@/lib/due-date";
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
@@ -37,6 +42,9 @@ export type CreateOrderInput = {
   ownerId?: string | null;
   priority?: string;
   dueDate?: string | null;
+  /** `"fixed"` | `"after_approval"` — defaults to fixed when omitted. */
+  dueDateMode?: DueDateMode | null;
+  dueProcessingDays?: number | null;
   specs?: Record<string, unknown>;
   customFieldValues?: { customFieldId: string; value: unknown }[];
 };
@@ -71,9 +79,26 @@ export async function createOrder(
     return { error: "Title is required", status: 400 };
   }
 
-  const dueDateError = validateDueDate(body.dueDate);
-  if (dueDateError) {
-    return { error: dueDateError, status: 400 };
+  const dueMode: DueDateMode =
+    body.dueDateMode === "after_approval" ? "after_approval" : "fixed";
+  const staffDue = buildStaffDueSpecs({
+    mode: dueMode,
+    dueDate: body.dueDate,
+    processingDays: body.dueProcessingDays,
+  });
+  if (dueMode === "fixed") {
+    const dueDateError = validateDueDate(staffDue.dueDate);
+    if (dueDateError) {
+      return { error: dueDateError, status: 400 };
+    }
+  } else if (
+    staffDue.specs.due_processing_days == null ||
+    staffDue.specs.due_processing_days < 1
+  ) {
+    return {
+      error: "Working days after approval must be at least 1.",
+      status: 400,
+    };
   }
 
   const normalizedSkus = normalizeSkus(body.specs?.skus);
@@ -205,11 +230,14 @@ export async function createOrder(
         : null,
       customer_id: customerId,
       priority: body.priority ?? "normal",
-      due_date: body.dueDate || null,
-      specs: {
-        ...(body.specs ?? {}),
-        skus: prepareSkusForSave(normalizedSkus),
-      },
+      due_date: staffDue.dueDate,
+      specs: mergeDueSpecsIntoOrderSpecs(
+        {
+          ...(body.specs ?? {}),
+          skus: prepareSkusForSave(normalizedSkus),
+        },
+        staffDue.specs
+      ),
       position,
       created_by: createdBy,
       last_moved_at: new Date().toISOString(),

@@ -162,6 +162,8 @@ export interface OrderSpecs {
   stock?: string;
   finish?: string;
   color?: string;
+  /** Floor / press notes printed on the Job Ticket. */
+  production_notes?: string | null;
   /** Webhook billing / payment info shown on the card globe popover. */
   billing?: {
     source_url?: string | null;
@@ -169,6 +171,16 @@ export interface OrderSpecs {
     deposit?: number | null;
     balance?: number | null;
   };
+  /** CRM due mode: fixed calendar date vs N working days after approval. */
+  due_date_mode?: "fixed" | "after_approval" | null;
+  /** Working days (Mon–Fri) when mode is after_approval. */
+  due_processing_days?: number | null;
+  /** When CRM materialized the calendar due date. */
+  due_anchor_at?: string | null;
+  /** Human label from CRM quote/PDF (e.g. "5 working days after approval"). */
+  due_date_label?: string | null;
+  /** Easy branching: set | pending_approval | none. */
+  due_date_status?: "set" | "pending_approval" | "none" | null;
   [key: string]: unknown;
 }
 
@@ -278,6 +290,8 @@ export interface OrderSkuImage {
 
 export interface OrderSkuImageWithUrl extends OrderSkuImage {
   signed_url: string | null;
+  /** True when this preview is backed by `assets` (e.g. webhook artwork_url). */
+  from_asset?: boolean;
 }
 
 export interface WebhookConfig {
@@ -515,8 +529,10 @@ export interface OrderWithRelations extends Order {
 export interface Designer {
   id: string;
   name: string;
-  /** Active jobs in Start + In Progress columns. */
+  /** Active jobs (cards) in Start + In Progress columns. */
   load?: number;
+  /** Total SKU line items across those active cards. */
+  skuCount?: number;
 }
 
 export type ShippingRequestStatus =

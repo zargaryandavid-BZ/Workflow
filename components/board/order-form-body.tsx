@@ -1,12 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CircleHelp, Copy, Mail, Phone, User } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleHelp,
+  Contact,
+  Copy,
+  Eye,
+  EyeOff,
+  Mail,
+  Phone,
+  User,
+} from "lucide-react";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { CustomFieldInput } from "./custom-field-input";
 import { ProductMaterialsFields } from "./product-materials-fields";
-import { SkuEditor, type SkuItem } from "./sku-editor";
+import { SkuEditor, type SkuItem, type PendingSkuImage } from "./sku-editor";
+import { DueDateFields } from "./due-date-fields";
 import { OrderQtyField, sumSkuQty } from "./order-qty-field";
+import { DEFAULT_PROCESSING_DAYS, type DueDateMode } from "@/lib/due-date";
 import { PRIORITY_OPTIONS } from "@/lib/constants";
 import { normalizeCustomerContact } from "@/lib/customers";
 import {
@@ -70,20 +82,32 @@ export interface OrderFormBodyProps {
   noteHistory?: NoteEntry[];
   internalNote: string;
   onInternalNoteChange: (value: string) => void;
+  /** Printed on the Job Ticket as ATTENTION PRODUCTION NOTES. */
+  productionNotes: string;
+  onProductionNotesChange: (value: string) => void;
   fieldValues: Record<string, unknown>;
   onFieldValueChange: (fieldId: string, value: unknown) => void;
   skus: SkuItem[];
   onSkusChange: (value: SkuItem[]) => void;
   dueDate: string;
   onDueDateChange: (value: string) => void;
+  dueDateMode?: DueDateMode;
+  onDueDateModeChange?: (mode: DueDateMode) => void;
+  dueProcessingDays?: number;
+  onDueProcessingDaysChange?: (days: number) => void;
   /** Original due date when editing — allows saving unchanged legacy past dates. */
   previousDueDate?: string | null;
+  /** CRM relative due hint when calendar date is not set yet. */
+  dueDateHint?: string | null;
   orderId?: string;
   skuImagesBySkuId?: Record<string, OrderSkuImageWithUrl[]>;
+  /** Local pending images while creating an order (no orderId yet). */
+  pendingImagesBySkuId?: Record<string, PendingSkuImage[]>;
+  onPendingImagesChange?: (skuId: string, next: PendingSkuImage[]) => void;
   /** Saves a newly added SKU row before gallery uploads can attach to it. */
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   readOnly?: boolean;
-  /** When true, fields with no value are hidden (view mode). */
+  /** When true, fields with no value are hidden. Defaults to true (eye closed). */
   hideEmpty?: boolean;
   /** Hide order number field (shown in modal title when editing existing orders). */
   hideOrderNumberField?: boolean;
@@ -122,18 +146,27 @@ export function OrderFormBody({
   noteHistory,
   internalNote,
   onInternalNoteChange,
+  productionNotes,
+  onProductionNotesChange,
   fieldValues,
   onFieldValueChange,
   skus,
   onSkusChange,
   dueDate,
   onDueDateChange,
+  dueDateMode = "fixed",
+  onDueDateModeChange,
+  dueProcessingDays = DEFAULT_PROCESSING_DAYS,
+  onDueProcessingDaysChange,
   previousDueDate,
+  dueDateHint = null,
   orderId,
   skuImagesBySkuId,
+  pendingImagesBySkuId,
+  onPendingImagesChange,
   ensureSkuPersisted,
   readOnly = false,
-  hideEmpty = false,
+  hideEmpty: hideEmptyProp = true,
   hideOrderNumberField = false,
   hidePriorityAndDueDateFields = false,
   hideOwnerField = false,
@@ -144,6 +177,7 @@ export function OrderFormBody({
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, orderQtyField, printFields } = resolved;
+  const [hideEmpty, setHideEmpty] = useState(hideEmptyProp);
   const [artworkCopied, setArtworkCopied] = useState(false);
   const [dueDateError, setDueDateError] = useState<string | null>(null);
   const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
@@ -586,33 +620,57 @@ export function OrderFormBody({
         </div>
         ) : null}
         {!hidePriorityAndDueDateFields ? (
-        <div>
-          <Label htmlFor={`${idPrefix}-due`}>Due date</Label>
-          <Input
-            id={`${idPrefix}-due`}
-            type="date"
-            min={readOnly ? undefined : minDueDate}
-            readOnly={readOnly}
-            value={normalizedDueDate}
-            onChange={(e) => handleDueDateChange(e.target.value)}
-            aria-invalid={dueDateError ? true : undefined}
-            className={
-              dueDateError
-                ? "border-red-400 focus:border-red-500 focus:ring-red-500/30"
-                : readOnly
-                  ? "bg-slate-50"
-                  : undefined
-            }
-          />
-          {dueDateError ? (
-            <p className="mt-1 text-xs text-red-600">{dueDateError}</p>
-          ) : null}
-        </div>
+        <DueDateFields
+          idPrefix={idPrefix}
+          mode={dueDateMode}
+          onModeChange={(mode) => {
+            setDueDateError(null);
+            onDueDateModeChange?.(mode);
+            if (mode === "after_approval") onDueDateChange("");
+          }}
+          dueDate={normalizedDueDate}
+          onDueDateChange={handleDueDateChange}
+          processingDays={dueProcessingDays}
+          onProcessingDaysChange={(days) => {
+            setDueDateError(null);
+            onDueProcessingDaysChange?.(days);
+          }}
+          materializedDueDate={
+            dueDateMode === "after_approval" ? normalizedDueDate || null : null
+          }
+          minDueDate={minDueDate}
+          readOnly={readOnly || !onDueDateModeChange}
+          error={dueDateError}
+          hint={
+            dueDateHint &&
+            dueDateMode === "after_approval" &&
+            !normalizedDueDate
+              ? dueDateHint
+              : null
+          }
+        />
         ) : null}
       </div>
       ) : null}
 
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+        <div className="-mb-1 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setHideEmpty((v) => !v)}
+            title={hideEmpty ? "Show all fields" : "Hide empty fields"}
+            aria-label={hideEmpty ? "Show all fields" : "Hide empty fields"}
+            aria-pressed={hideEmpty}
+            className="-mr-1 -mt-1 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-white hover:text-slate-700"
+          >
+            {hideEmpty ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+
         {useCascadingProductMaterials && productField && materialsField ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ProductMaterialsFields
@@ -731,6 +789,8 @@ export function OrderFormBody({
           onChange={handleSkusChange}
           orderId={orderId}
           skuImagesBySkuId={skuImagesBySkuId}
+          pendingImagesBySkuId={pendingImagesBySkuId}
+          onPendingImagesChange={onPendingImagesChange}
           ensureSkuPersisted={ensureSkuPersisted}
           disabled={readOnly}
         />
@@ -775,7 +835,7 @@ export function OrderFormBody({
               </option>
               {designers.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {formatDesignerOptionLabel(d.name, d.load)}
+                  {formatDesignerOptionLabel(d.name, d.load, d.skuCount)}
                 </option>
               ))}
             </Select>
@@ -814,7 +874,7 @@ export function OrderFormBody({
               readOnly={readOnly}
               value={designTask}
               onChange={(e) => onDesignTaskChange(e.target.value)}
-              placeholder="e.g. …/26-0098_Customer_1"
+              placeholder="e.g. …/26-0098_Customer"
               className={readOnly ? "bg-slate-50" : undefined}
             />
           </div>
@@ -822,72 +882,111 @@ export function OrderFormBody({
       </div>
       ) : null}
 
-      {artworkField && (!hideEmpty || artworkValue) ? (
-        <div>
-          <Label htmlFor={`${idPrefix}-artwork`}>
-            {(() => {
-              const url = String(fieldValues[artworkField.id] ?? "").trim();
-              const label = orderFormFieldLabel(artworkField.name);
-              return (
-                <span className="inline-flex items-center gap-1">
-                  {/^https?:\/\//i.test(url) ? (
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--primary)] underline hover:opacity-80"
-                    >
-                      {label} ↗
-                    </a>
-                  ) : (
-                    <span>
-                      {label}
-                      {artworkField.required ? (
-                        <span className="ml-0.5 text-red-500">*</span>
-                      ) : null}
-                    </span>
-                  )}
-                  <span
-                    className="inline-flex cursor-help text-slate-400"
-                    title="Production-ready files"
-                  >
-                    <CircleHelp className="h-3.5 w-3.5" aria-hidden />
-                    <span className="sr-only">Production-ready files</span>
-                  </span>
+      {(!hideEmpty ||
+        productionNotes.trim() ||
+        (artworkField && artworkValue) ||
+        !readOnly) ? (
+        <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-400">
+            For Production
+          </p>
+
+          {(!hideEmpty || productionNotes.trim() || !readOnly) ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle
+                  className="h-4 w-4 shrink-0 text-orange-600"
+                  aria-hidden
+                />
+                <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">
+                  Attention
+                </p>
+                <span className="text-[11px] font-normal text-orange-600/90">
+                  Production notes
                 </span>
-              );
-            })()}
-          </Label>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={copyArtworkLink}
-              disabled={!artworkValue}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Copy Final production GDrive link"
-            >
-              <Copy className="h-4 w-4" />
-              {artworkCopied ? "Copied" : "Copy Link"}
-            </button>
-            <Input
-              id={`${idPrefix}-artwork`}
-              readOnly={readOnly}
-              value={(fieldValues[artworkField.id] as string) ?? ""}
-              onChange={(e) =>
-                onFieldValueChange(artworkField.id, e.target.value)
-              }
-              placeholder="e.g. …/26-0098_Final for Prod_1"
-              className={cn(
-                "min-w-0 flex-1",
-                readOnly ? "bg-slate-50" : undefined
-              )}
-            />
-          </div>
+              </div>
+              <Textarea
+                id={`${idPrefix}-production-notes`}
+                readOnly={readOnly}
+                value={productionNotes}
+                onChange={(e) => onProductionNotesChange(e.target.value)}
+                placeholder="Production notes for the Job Ticket…"
+                className={cn(
+                  "border-blue-200 bg-white focus-visible:ring-blue-400",
+                  readOnly ? "bg-slate-50" : undefined
+                )}
+              />
+            </div>
+          ) : null}
+
+          {artworkField && (!hideEmpty || artworkValue) ? (
+            <div>
+              <Label htmlFor={`${idPrefix}-artwork`}>
+                {(() => {
+                  const url = String(fieldValues[artworkField.id] ?? "").trim();
+                  const label = orderFormFieldLabel(artworkField.name);
+                  return (
+                    <span className="inline-flex items-center gap-1">
+                      {/^https?:\/\//i.test(url) ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[var(--primary)] underline hover:opacity-80"
+                        >
+                          {label} ↗
+                        </a>
+                      ) : (
+                        <span>
+                          {label}
+                          {artworkField.required ? (
+                            <span className="ml-0.5 text-red-500">*</span>
+                          ) : null}
+                        </span>
+                      )}
+                      <span
+                        className="inline-flex cursor-help text-slate-400"
+                        title="Production-ready files"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" aria-hidden />
+                        <span className="sr-only">Production-ready files</span>
+                      </span>
+                    </span>
+                  );
+                })()}
+              </Label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyArtworkLink}
+                  disabled={!artworkValue}
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Copy Final production GDrive link"
+                >
+                  <Copy className="h-4 w-4" />
+                  {artworkCopied ? "Copied" : "Copy Link"}
+                </button>
+                <Input
+                  id={`${idPrefix}-artwork`}
+                  readOnly={readOnly}
+                  value={(fieldValues[artworkField.id] as string) ?? ""}
+                  onChange={(e) =>
+                    onFieldValueChange(artworkField.id, e.target.value)
+                  }
+                  placeholder="e.g. …/FinalProd_1"
+                  className={cn(
+                    "min-w-0 flex-1 bg-white",
+                    readOnly ? "bg-slate-50" : undefined
+                  )}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {(!hideEmpty || (noteHistory && noteHistory.length > 0) || !readOnly) ? (
-        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+        <div className="min-w-0 space-y-3 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 p-4">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
@@ -899,9 +998,9 @@ export function OrderFormBody({
           </div>
 
           {noteHistory && noteHistory.length > 0 ? (
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               {noteHistory.map((entry, i) => (
-                <div key={i}>
+                <div key={i} className="min-w-0">
                   {i > 0 && <hr className="mb-2 border-amber-200/80" />}
                   <p className="mb-1 text-[11px] font-semibold text-amber-800/70">
                     {entry.author}
@@ -914,7 +1013,7 @@ export function OrderFormBody({
                       minute: "2-digit",
                     })}
                   </p>
-                  <p className="whitespace-pre-wrap text-sm text-amber-950">
+                  <p className="min-w-0 break-all whitespace-pre-wrap text-sm text-amber-950">
                     {entry.text}
                   </p>
                 </div>
@@ -946,9 +1045,89 @@ export function OrderFormBody({
           <div className="border-t border-slate-200" />
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {/* ── Name field with ghost-text autocomplete ── */}
+            <div ref={nameWrapperRef} className="relative">
+              <Label
+                htmlFor={`${idPrefix}-customer-name`}
+                className="inline-flex items-center gap-1.5"
+              >
+                <User className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+                Customer Name<span className="ml-0.5 text-red-500">*</span>
+              </Label>
+              {(() => {
+                const typed = customerName;
+                const ghost = nameSuggestions[0]?.name ?? "";
+                const ghostSuffix =
+                  ghost.toLowerCase().startsWith(typed.toLowerCase()) && typed.length > 0
+                    ? ghost.slice(typed.length)
+                    : "";
+                return ghostSuffix ? (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute bottom-0 left-0 right-0 flex items-center overflow-hidden rounded-md border border-transparent px-3 text-sm"
+                    style={{ top: "calc(1.5rem + 2px)", height: "2.5rem" }}
+                  >
+                    <span className="invisible whitespace-pre font-[inherit]">{typed}</span>
+                    <span className="text-slate-300">{ghostSuffix}</span>
+                  </div>
+                ) : null;
+              })()}
+              <Input
+                ref={nameInputRef}
+                id={`${idPrefix}-customer-name`}
+                required
+                readOnly={readOnly}
+                value={customerName}
+                onChange={(e) => handleCustomerNameChange(e.target.value)}
+                onFocus={() => nameSuggestions.length > 0 && setShowNameDropdown(true)}
+                onKeyDown={(e) => {
+                  const ghost = nameSuggestions[0]?.name ?? "";
+                  const ghostSuffix =
+                    ghost.toLowerCase().startsWith(customerName.toLowerCase()) && customerName.length > 0
+                      ? ghost.slice(customerName.length)
+                      : "";
+                  if ((e.key === "Tab" || e.key === "ArrowRight") && ghostSuffix) {
+                    e.preventDefault();
+                    applyNameSuggestion(nameSuggestions[0]);
+                  } else if (e.key === "Escape") {
+                    setShowNameDropdown(false);
+                    setNameSuggestions([]);
+                  }
+                }}
+                autoComplete="off"
+                style={readOnly ? undefined : { background: "transparent" }}
+                className={readOnly ? "bg-slate-50" : undefined}
+              />
+              {showNameDropdown && nameSuggestions.length > 1 ? (
+                <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                  {nameSuggestions.map((s) => (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); applyNameSuggestion(s); }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                      >
+                        <User className="h-4 w-4 shrink-0 text-slate-400" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-slate-800">{s.name}</p>
+                          {(s.email ?? s.phone) ? (
+                            <p className="truncate text-xs text-slate-400">{s.email ?? s.phone}</p>
+                          ) : null}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+
             {/* ── Contact field with ghost-text autocomplete ── */}
             <div ref={contactWrapperRef} className="relative">
-              <Label htmlFor={`${idPrefix}-customer-contact`}>
+              <Label
+                htmlFor={`${idPrefix}-customer-contact`}
+                className="inline-flex items-center gap-1.5"
+              >
+                <Contact className="h-3.5 w-3.5 text-slate-400" aria-hidden />
                 Customer Contact<span className="ml-0.5 text-red-500">*</span>
               </Label>
               {(() => {
@@ -1036,78 +1215,6 @@ export function OrderFormBody({
                       </li>
                     );
                   })}
-                </ul>
-              ) : null}
-            </div>
-
-            {/* ── Name field with ghost-text autocomplete ── */}
-            <div ref={nameWrapperRef} className="relative">
-              <Label htmlFor={`${idPrefix}-customer-name`}>
-                Customer Name<span className="ml-0.5 text-red-500">*</span>
-              </Label>
-              {(() => {
-                const typed = customerName;
-                const ghost = nameSuggestions[0]?.name ?? "";
-                const ghostSuffix =
-                  ghost.toLowerCase().startsWith(typed.toLowerCase()) && typed.length > 0
-                    ? ghost.slice(typed.length)
-                    : "";
-                return ghostSuffix ? (
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute bottom-0 left-0 right-0 flex items-center overflow-hidden rounded-md border border-transparent px-3 text-sm"
-                    style={{ top: "calc(1.5rem + 2px)", height: "2.5rem" }}
-                  >
-                    <span className="invisible whitespace-pre font-[inherit]">{typed}</span>
-                    <span className="text-slate-300">{ghostSuffix}</span>
-                  </div>
-                ) : null;
-              })()}
-              <Input
-                ref={nameInputRef}
-                id={`${idPrefix}-customer-name`}
-                required
-                readOnly={readOnly}
-                value={customerName}
-                onChange={(e) => handleCustomerNameChange(e.target.value)}
-                onFocus={() => nameSuggestions.length > 0 && setShowNameDropdown(true)}
-                onKeyDown={(e) => {
-                  const ghost = nameSuggestions[0]?.name ?? "";
-                  const ghostSuffix =
-                    ghost.toLowerCase().startsWith(customerName.toLowerCase()) && customerName.length > 0
-                      ? ghost.slice(customerName.length)
-                      : "";
-                  if ((e.key === "Tab" || e.key === "ArrowRight") && ghostSuffix) {
-                    e.preventDefault();
-                    applyNameSuggestion(nameSuggestions[0]);
-                  } else if (e.key === "Escape") {
-                    setShowNameDropdown(false);
-                    setNameSuggestions([]);
-                  }
-                }}
-                autoComplete="off"
-                style={readOnly ? undefined : { background: "transparent" }}
-                className={readOnly ? "bg-slate-50" : undefined}
-              />
-              {showNameDropdown && nameSuggestions.length > 1 ? (
-                <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-                  {nameSuggestions.map((s) => (
-                    <li key={s.id}>
-                      <button
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); applyNameSuggestion(s); }}
-                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-slate-50"
-                      >
-                        <User className="h-4 w-4 shrink-0 text-slate-400" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-slate-800">{s.name}</p>
-                          {(s.email ?? s.phone) ? (
-                            <p className="truncate text-xs text-slate-400">{s.email ?? s.phone}</p>
-                          ) : null}
-                        </div>
-                      </button>
-                    </li>
-                  ))}
                 </ul>
               ) : null}
             </div>

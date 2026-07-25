@@ -12,8 +12,10 @@ import {
   Copy,
   CreditCard,
   Car,
+  Mail,
   MapPin,
   MoveRight,
+  Phone,
   Truck,
   User,
 } from "lucide-react";
@@ -32,7 +34,6 @@ import type { ColumnKind } from "@/lib/types";
 import {
   cardOrderQty,
   cardSkuCount,
-  cardSpecFieldsForDisplay,
   findOrderFormField,
 } from "@/lib/order-form";
 import {
@@ -66,6 +67,7 @@ import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import type { TimeChip } from "@/lib/time-chips";
+import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 
 interface ColumnOption {
   id: string;
@@ -173,7 +175,6 @@ export function OrderCard({
     isDragging,
   } = useSortable({ id: order.id, disabled: !canDrag });
 
-  const specFields = cardSpecFieldsForDisplay(customFields, fieldValues);
   const orderQty = cardOrderQty(customFields, fieldValues, order.specs);
   const skuCount = cardSkuCount(order.specs);
   const customerName = customerNameFromOrder(
@@ -197,6 +198,19 @@ export function OrderCard({
   const materialsField = findOrderFormField(customFields, "Materials");
   const materialsName = materialsField
     ? String(fieldValues[materialsField.id] ?? "").trim()
+    : "";
+
+  const finishingField = findOrderFormField(customFields, "Finishing");
+  const finishingName = finishingField
+    ? String(fieldValues[finishingField.id] ?? "").trim()
+    : "";
+
+  const specialEffectsField = findOrderFormField(
+    customFields,
+    "Special effects"
+  );
+  const specialEffectsName = specialEffectsField
+    ? String(fieldValues[specialEffectsField.id] ?? "").trim()
     : "";
 
   const designerName =
@@ -238,7 +252,6 @@ export function OrderCard({
   })();
 
   const [copied, setCopied] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
 
   // Right-click context menu (move / actions)
   const [menuOpen, setMenuOpen] = useState(false);
@@ -250,20 +263,27 @@ export function OrderCard({
   const [designerMenuPos, setDesignerMenuPos] = useState({ x: 0, y: 0 });
   const designerMenuRef = useRef<HTMLDivElement>(null);
 
+  // Right-click on customer name: email / phone copy menu
+  const [contactMenuOpen, setContactMenuOpen] = useState(false);
+  const [contactMenuPos, setContactMenuPos] = useState({ x: 0, y: 0 });
+  const contactMenuRef = useRef<HTMLDivElement>(null);
+
   const hasMoveMenu =
     availableColumns.length > 0 && Boolean(onMoveToColumn);
   const hasActionMenu = actionButtons.length > 0;
   const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
   const hasContextMenu = hasMoveMenu || hasActionMenu || canAssignDesigner;
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
+  const hasCustomerContact = Boolean(email || phone);
 
   useEffect(() => {
-    if (!menuOpen && !designerMenuOpen) return;
+    if (!menuOpen && !designerMenuOpen && !contactMenuOpen) return;
     function handleClose(e: MouseEvent | KeyboardEvent) {
       if (e instanceof KeyboardEvent) {
         if (e.key === "Escape") {
           setMenuOpen(false);
           setDesignerMenuOpen(false);
+          setContactMenuOpen(false);
         }
         return;
       }
@@ -277,6 +297,12 @@ export function OrderCard({
       ) {
         setDesignerMenuOpen(false);
       }
+      if (
+        contactMenuRef.current &&
+        !contactMenuRef.current.contains(target)
+      ) {
+        setContactMenuOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClose);
     document.addEventListener("keydown", handleClose);
@@ -284,7 +310,7 @@ export function OrderCard({
       document.removeEventListener("mousedown", handleClose);
       document.removeEventListener("keydown", handleClose);
     };
-  }, [menuOpen, designerMenuOpen]);
+  }, [menuOpen, designerMenuOpen, contactMenuOpen]);
 
   // Keep menus fully on-screen (flip up / shift left when near edges).
   useLayoutEffect(() => {
@@ -334,11 +360,30 @@ export function OrderCard({
     }
   }, [designerMenuOpen, designerMenuPos.x, designerMenuPos.y, designers.length]);
 
+  useLayoutEffect(() => {
+    if (!contactMenuOpen || !contactMenuRef.current) return;
+    const el = contactMenuRef.current;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let x = contactMenuPos.x;
+    let y = contactMenuPos.y;
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad);
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad);
+    }
+    if (x !== contactMenuPos.x || y !== contactMenuPos.y) {
+      setContactMenuPos({ x, y });
+    }
+  }, [contactMenuOpen, contactMenuPos.x, contactMenuPos.y, email, phone]);
+
   function handleContextMenu(e: React.MouseEvent) {
     if (!hasContextMenu) return;
     e.preventDefault();
     e.stopPropagation();
     setDesignerMenuOpen(false);
+    setContactMenuOpen(false);
     setDesignerSubOpen(false);
     setMenuPos({ x: e.clientX, y: e.clientY });
     setMenuOpen(true);
@@ -349,8 +394,19 @@ export function OrderCard({
     e.preventDefault();
     e.stopPropagation();
     setMenuOpen(false);
+    setContactMenuOpen(false);
     setDesignerMenuPos({ x: e.clientX, y: e.clientY });
     setDesignerMenuOpen(true);
+  }
+
+  function handleCustomerContextMenu(e: React.MouseEvent) {
+    if (!hasCustomerContact) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(false);
+    setDesignerMenuOpen(false);
+    setContactMenuPos({ x: e.clientX, y: e.clientY });
+    setContactMenuOpen(true);
   }
 
   async function copyText(e: React.MouseEvent, text: string, key: string) {
@@ -364,48 +420,11 @@ export function OrderCard({
     }
   }
 
-  function toggleExpanded(e: React.MouseEvent) {
-    e.stopPropagation();
-    setExpanded((v) => !v);
-  }
-
-  function CopyableText({
-    text,
-    copyKey,
-    title,
-    className,
-  }: {
-    text: string;
-    copyKey: string;
-    title: string;
-    className?: string;
-  }) {
-    return (
-      <button
-        type="button"
-        onClick={(e) => copyText(e, text, copyKey)}
-        onPointerDown={(e) => e.stopPropagation()}
-        title={title}
-        className={cn(
-          "group/copy inline-flex max-w-full items-center gap-1 text-left text-[13px] font-medium text-slate-700 hover:text-[var(--primary)]",
-          className
-        )}
-      >
-        <span className="min-w-0 truncate">
-          {copied === copyKey ? "Copied" : text}
-        </span>
-        <span className="inline-flex shrink-0 items-center text-[11px] font-normal text-slate-400 group-hover/copy:text-[var(--primary)]">
-          {copied === copyKey ? null : (
-            <Copy className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-          )}
-        </span>
-      </button>
-    );
-  }
-
   const summaryTrailingParts = [
     productName || null,
     materialsName || null,
+    finishingName || null,
+    specialEffectsName || null,
     orderQty != null ? `qty ${orderQty}` : null,
     skuCount > 0 ? `${skuCount} SKU` : null,
   ].filter(Boolean);
@@ -434,10 +453,10 @@ export function OrderCard({
       data-order-id={order.id}
     >
       {/* padded content wrapper */}
-      <div className={expanded ? "px-3.5 py-4" : "px-3 py-3.5"}>
+      <div className="px-3 py-3.5">
       {activeWarning ? (
         <span
-          className={`warning-dot-${activeWarning.rule.color} absolute right-9 top-2 z-10 h-2.5 w-2.5 rounded-full`}
+          className={`warning-dot-${activeWarning.rule.color} absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full`}
           title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
         />
       ) : null}
@@ -455,135 +474,123 @@ export function OrderCard({
         ) : null}
 
         <div className="min-w-0 flex-1">
-          {/* Compact header — always visible */}
-          <div className="flex items-start gap-1.5">
-            <div className="min-w-0 flex-1">
-              {/* Customer name on first line, order number on second — each truncates with … */}
-              <div className="min-w-0 flex-1">
-                <WebhookSourceLabel
-                  webhookSource={order.webhook_source}
-                  sourceStyles={webhookSourceStyles}
-                  orderTitle={sharedOrderTitle(order)}
-                />
-                {displayCustomerName ? (
-                  <button
-                    type="button"
-                    onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    title="Copy customer name"
-                    className="group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
-                  >
-                    <span className="min-w-0 truncate">
-                      {copied === "customer-name" ? "Copied!" : displayCustomerName}
-                    </span>
-                    {copied === "customer-name" ? null : (
-                      <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-                    )}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={(e) => copyText(e, order.title, "order")}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  title={`Copy order number (${order.title})`}
-                  className="group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
-                >
-                  <span className="min-w-0 truncate">
-                    {copied === "order" ? (
-                      "Copied!"
-                    ) : (
-                      <>
-                        {order.title
-                          .replace(/^ORD-\d{4}-/, "")
-                          .replace(/^0+(\d)/, "$1")}
-                        {groupSize != null && groupSize >= 2 ? (
-                          <span className="font-normal text-slate-400">
-                            {" "}
-                            ({groupSize})
-                          </span>
-                        ) : null}
-                      </>
-                    )}
-                  </span>
-                  {copied === "order" ? null : (
-                    <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-                  )}
-                </button>
-                {summaryTrailingParts.length > 0 ||
-                (role === "admin" &&
-                  hasBillingInfo(billingFromSpecs(order.specs))) ? (
-                  <p
-                    lang="en"
-                    className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
-                  >
-                    {summaryTrailingParts.length > 0 ? (
-                      <span>
-                        · {summaryTrailingParts.join(" · ")}
-                        {role === "admin" &&
-                        hasBillingInfo(billingFromSpecs(order.specs)) ? (
-                          <>
-                            {" "}
-                            <OrderBillingGlobe
-                              specs={order.specs}
-                              role={role}
-                              className="inline-flex align-middle"
-                            />
-                          </>
-                        ) : null}
-                      </span>
-                    ) : (
-                      <OrderBillingGlobe
-                        specs={order.specs}
-                        role={role}
-                        className="inline-flex align-middle"
-                      />
-                    )}
-                  </p>
-                ) : null}
-              </div>
-
-              {shippingSign ? (
-              <div className="mt-1.5 flex items-center gap-2">
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                    shippingTagClass(shippingSign)
-                  )}
-                  title={shippingSign.title}
-                >
-                  {shippingSign.kind === "awaiting" ? (
-                    <Clock className="h-3 w-3" />
-                  ) : shippingSign.kind === "payment_pending" ? (
-                    <CreditCard className="h-3 w-3" />
-                  ) : shippingSign.kind === "pickup" ? (
-                    <MapPin className="h-3 w-3" />
-                  ) : shippingSign.kind === "uber" ||
-                    shippingSign.kind === "curri" ? (
-                    <Car className="h-3 w-3" />
-                  ) : (
-                    <Truck className="h-3 w-3" />
-                  )}
-                  {shippingSign.label}
+          {/* Customer name on first line, order number on second — each truncates with … */}
+          <div className="min-w-0">
+            <WebhookSourceLabel
+              webhookSource={order.webhook_source}
+              sourceStyles={webhookSourceStyles}
+              orderTitle={sharedOrderTitle(order)}
+            />
+            {displayCustomerName ? (
+              <button
+                type="button"
+                onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
+                onContextMenu={handleCustomerContextMenu}
+                onPointerDown={(e) => e.stopPropagation()}
+                title={
+                  hasCustomerContact
+                    ? "Click to copy name · Right-click for email / phone"
+                    : "Copy customer name"
+                }
+                className={cn(
+                  "group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]",
+                  hasCustomerContact && "cursor-context-menu"
+                )}
+              >
+                <span className="min-w-0 truncate">
+                  {copied === "customer-name" ? "Copied!" : displayCustomerName}
                 </span>
-              </div>
-              ) : null}
-            </div>
-
+                {copied === "customer-name" ? null : (
+                  <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                )}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={toggleExpanded}
+              onClick={(e) => copyText(e, order.title, "order")}
               onPointerDown={(e) => e.stopPropagation()}
-              title={expanded ? "Show less" : "Show more"}
-              aria-expanded={expanded}
-              className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              title={`Copy order number (${order.title})`}
+              className="group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
             >
-              {expanded ? (
-                <ChevronUp className="h-5 w-5" />
-              ) : (
-                <ChevronDown className="h-5 w-5" />
+              <span className="min-w-0 truncate">
+                {copied === "order" ? (
+                  "Copied!"
+                ) : (
+                  <>
+                    {order.title
+                      .replace(/^ORD-\d{4}-/, "")
+                      .replace(/^0+(\d)/, "$1")}
+                    {groupSize != null && groupSize >= 2 ? (
+                      <span className="font-normal text-slate-400">
+                        {" "}
+                        ({groupSize})
+                      </span>
+                    ) : null}
+                  </>
+                )}
+              </span>
+              {copied === "order" ? null : (
+                <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
               )}
             </button>
+            {summaryTrailingParts.length > 0 ||
+            (role === "admin" &&
+              hasBillingInfo(billingFromSpecs(order.specs))) ? (
+              <p
+                lang="en"
+                className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
+              >
+                {summaryTrailingParts.length > 0 ? (
+                  <span>
+                    · {summaryTrailingParts.join(" · ")}
+                    {role === "admin" &&
+                    hasBillingInfo(billingFromSpecs(order.specs)) ? (
+                      <>
+                        {" "}
+                        <OrderBillingGlobe
+                          specs={order.specs}
+                          role={role}
+                          className="inline-flex align-middle"
+                        />
+                      </>
+                    ) : null}
+                  </span>
+                ) : (
+                  <OrderBillingGlobe
+                    specs={order.specs}
+                    role={role}
+                    className="inline-flex align-middle"
+                  />
+                )}
+              </p>
+            ) : null}
           </div>
+
+          {shippingSign ? (
+            <div className="mt-1.5 flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  shippingTagClass(shippingSign)
+                )}
+                title={shippingSign.title}
+              >
+                {shippingSign.kind === "awaiting" ? (
+                  <Clock className="h-3 w-3" />
+                ) : shippingSign.kind === "payment_pending" ? (
+                  <CreditCard className="h-3 w-3" />
+                ) : shippingSign.kind === "pickup" ? (
+                  <MapPin className="h-3 w-3" />
+                ) : shippingSign.kind === "uber" ||
+                  shippingSign.kind === "curri" ? (
+                  <Car className="h-3 w-3" />
+                ) : (
+                  <Truck className="h-3 w-3" />
+                )}
+                {shippingSign.label}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -675,108 +682,6 @@ export function OrderCard({
         ) : null}
       </div>
 
-      {/* Expanded details */}
-      {expanded ? (
-        <div
-          className="mt-2.5 space-y-2.5 border-t border-slate-100 pt-2.5"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] leading-snug">
-            <div className="min-w-0">
-              <span className="text-slate-400">Assigned: </span>
-              <span
-                className={cn(
-                  "inline-flex items-center gap-0.5 font-medium",
-                  isDesignerUnassigned
-                    ? UNASSIGNED_DESIGNER_TEXT_CLASS
-                    : "text-slate-700"
-                )}
-              >
-                <User
-                  className={cn(
-                    "h-3.5 w-3.5 shrink-0",
-                    isDesignerUnassigned
-                      ? "text-amber-600"
-                      : "text-[var(--primary)]"
-                  )}
-                />
-                <span className="truncate">
-                  {designerName ?? "Unassigned"}
-                </span>
-              </span>
-            </div>
-            <div className="min-w-0">
-              <span className="text-slate-400">Owner: </span>
-              <span className="font-medium text-slate-700">
-                {ownerName ?? "—"}
-              </span>
-            </div>
-          </div>
-
-          {displayCustomerName || email || phone ? (
-            <div className="space-y-1">
-              <WebhookSourceLabel
-                webhookSource={order.webhook_source}
-                sourceStyles={webhookSourceStyles}
-                orderTitle={sharedOrderTitle(order)}
-              />
-              {displayCustomerName ? (
-                <div className="flex items-center gap-1.5">
-                  <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <CopyableText
-                    text={displayCustomerName}
-                    copyKey="customer-name-exp"
-                    title="Copy customer name"
-                  />
-                </div>
-              ) : null}
-              {email ? (
-                <CopyableText
-                  text={email}
-                  copyKey="contact-email"
-                  title="Copy email"
-                  className={displayCustomerName ? "ml-5" : undefined}
-                />
-              ) : null}
-              {phone ? (
-                <CopyableText
-                  text={phone}
-                  copyKey="contact-phone"
-                  title="Copy phone"
-                  className={displayCustomerName ? "ml-5" : undefined}
-                />
-              ) : null}
-            </div>
-          ) : null}
-
-          {specFields.length > 0 || orderQty != null || skuCount > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {specFields.map(({ field, label, display }) => (
-                <span
-                  key={field.id}
-                  className="inline-flex max-w-full items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
-                >
-                  <span className="shrink-0 font-medium text-slate-500">
-                    {label}:
-                  </span>
-                  <span className="truncate">{display}</span>
-                </span>
-              ))}
-              {orderQty != null ? (
-                <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
-                  qty {orderQty}
-                </span>
-              ) : null}
-              {skuCount > 0 ? (
-                <span className="inline-flex items-center rounded border border-blue-200/80 bg-[#dbeafe] px-1.5 py-0.5 text-[11px] text-[#1e40af]">
-                  SKU: {skuCount}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
       </div>{/* end padded content wrapper */}
 
       {/* Full-width tag footer bar — bar height fixed; font −20% from 13px */}
@@ -875,7 +780,7 @@ export function OrderCard({
                         >
                           <span className="truncate">{d.name}</span>
                           <span className="shrink-0 tabular-nums text-slate-400">
-                            ({d.load ?? 0})
+                            {formatDesignerLoadSuffix(d.load, d.skuCount)}
                           </span>
                         </button>
                       ))}
@@ -952,10 +857,60 @@ export function OrderCard({
                 >
                   <span className="truncate">{d.name}</span>
                   <span className="shrink-0 tabular-nums text-slate-400">
-                    ({d.load ?? 0})
+                    {formatDesignerLoadSuffix(d.load, d.skuCount)}
                   </span>
                 </button>
               ))}
+            </div>,
+            document.body
+          )
+        : null}
+
+      {/* Right-click customer name: copy email / phone */}
+      {contactMenuOpen && hasCustomerContact
+        ? createPortal(
+            <div
+              ref={contactMenuRef}
+              style={{ top: contactMenuPos.y, left: contactMenuPos.x }}
+              className="fixed z-[80] w-max min-w-[12rem] max-w-[min(20rem,calc(100vw-16px))] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <p className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <User className="h-3 w-3" />
+                Customer contact
+              </p>
+              {email ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    void copyText(e, email, "customer-email");
+                    setContactMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  title="Copy email"
+                >
+                  <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{email}</span>
+                  <Copy className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+                </button>
+              ) : null}
+              {phone ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    void copyText(e, phone, "customer-phone");
+                    setContactMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  title="Copy phone"
+                >
+                  <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{phone}</span>
+                  <Copy className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+                </button>
+              ) : null}
             </div>,
             document.body
           )

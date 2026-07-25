@@ -4,8 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
-import { prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
+import {
+  prepareSkusForSave,
+  validateSkus,
+  type PendingSkuImage,
+  type SkuItem,
+} from "./sku-editor";
 import { createOrderAction } from "@/lib/actions/create-order";
+import {
+  DEFAULT_PROCESSING_DAYS,
+  type DueDateMode,
+} from "@/lib/due-date";
 import {
   buildCustomFieldPayload,
   resolveOrderFormFields,
@@ -26,6 +35,35 @@ interface CreateOrderModalProps {
   onCreated: () => void;
 }
 
+function revokeAllPending(
+  pending: Record<string, PendingSkuImage[]>
+) {
+  for (const list of Object.values(pending)) {
+    for (const img of list) URL.revokeObjectURL(img.previewUrl);
+  }
+}
+
+async function uploadPendingSkuImages(
+  orderId: string,
+  pending: Record<string, PendingSkuImage[]>
+): Promise<string | null> {
+  for (const [skuId, images] of Object.entries(pending)) {
+    for (const img of images) {
+      const fd = new FormData();
+      fd.append("file", img.file);
+      const res = await fetch(`/api/orders/${orderId}/skus/${skuId}/images`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        return json.error ?? `Failed to upload image for SKU ${skuId}`;
+      }
+    }
+  }
+  return null;
+}
+
 export function CreateOrderModal({
   open,
   onClose,
@@ -40,6 +78,7 @@ export function CreateOrderModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [internalNote, setInternalNote] = useState("");
+  const [productionNotes, setProductionNotes] = useState("");
   const [priority, setPriority] = useState("normal");
   const defaultOwnerId = useMemo(
     () => (owners.some((o) => o.id === currentUserId) ? currentUserId : ""),
@@ -47,12 +86,19 @@ export function CreateOrderModal({
   );
   const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [dueDateMode, setDueDateMode] = useState<DueDateMode>("fixed");
+  const [dueProcessingDays, setDueProcessingDays] = useState(
+    DEFAULT_PROCESSING_DAYS
+  );
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
   const [skus, setSkus] = useState<SkuItem[]>([]);
+  const [pendingImagesBySkuId, setPendingImagesBySkuId] = useState<
+    Record<string, PendingSkuImage[]>
+  >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,22 +112,37 @@ export function CreateOrderModal({
   }, [open, defaultOwnerId]);
 
   function reset() {
+    revokeAllPending(pendingImagesBySkuId);
     setTitle("");
     setDescription("");
+    setInternalNote("");
+    setProductionNotes("");
     setPriority("normal");
     setOwnerId(defaultOwnerId);
     setDueDate("");
+    setDueDateMode("fixed");
+    setDueProcessingDays(DEFAULT_PROCESSING_DAYS);
     setCustomerName("");
     setCustomerContact("");
     setDesignerId("");
     setDesignTask("");
     setFieldValues({});
     setSkus([]);
+    setPendingImagesBySkuId({});
     setError(null);
   }
 
   function setFieldValue(fieldId: string, value: unknown) {
     setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
+  }
+
+  function handlePendingImagesChange(skuId: string, next: PendingSkuImage[]) {
+    setPendingImagesBySkuId((prev) => {
+      const copy = { ...prev };
+      if (next.length === 0) delete copy[skuId];
+      else copy[skuId] = next;
+      return copy;
+    });
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -106,9 +167,14 @@ export function CreateOrderModal({
       return;
     }
 
-    const dueDateError = validateDueDate(dueDate);
-    if (dueDateError) {
-      setError(dueDateError);
+    if (dueDateMode === "fixed") {
+      const dueDateError = validateDueDate(dueDate);
+      if (dueDateError) {
+        setError(dueDateError);
+        return;
+      }
+    } else if (!Number.isFinite(dueProcessingDays) || dueProcessingDays < 1) {
+      setError("Working days after approval must be at least 1.");
       return;
     }
 
@@ -126,13 +192,18 @@ export function CreateOrderModal({
       columnId,
       ownerId: ownerId || null,
       priority,
-      dueDate: dueDate ? dueDate.slice(0, 10) : null,
+      dueDate:
+        dueDateMode === "fixed" && dueDate ? dueDate.slice(0, 10) : null,
+      dueDateMode,
+      dueProcessingDays:
+        dueDateMode === "after_approval" ? dueProcessingDays : null,
       specs: {
         skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
         designer_id: designerId || null,
         designer_name:
           designers.find((d) => d.id === designerId)?.name ?? null,
         design_task: designTask || null,
+        production_notes: productionNotes.trim() || null,
       },
       customFieldValues: buildCustomFieldPayload(
         resolved,
@@ -142,11 +213,33 @@ export function CreateOrderModal({
         customerContact
       ),
     });
-    setLoading(false);
+
     if (json.error) {
+      setLoading(false);
       setError(json.error);
       return;
     }
+
+    const orderId = json.order?.id as string | undefined;
+    if (orderId && Object.keys(pendingImagesBySkuId).length > 0) {
+      const uploadError = await uploadPendingSkuImages(
+        orderId,
+        pendingImagesBySkuId
+      );
+      if (uploadError) {
+        setLoading(false);
+        setError(
+          `Order created, but some SKU images failed: ${uploadError}. Open the card to retry uploads.`
+        );
+        // Still close after a successful create — images can be re-added on the card.
+        revokeAllPending(pendingImagesBySkuId);
+        setPendingImagesBySkuId({});
+        onCreated();
+        return;
+      }
+    }
+
+    setLoading(false);
     if (json.gdriveFolderUrl && json.gdriveOpenOnCreate) {
       window.open(json.gdriveFolderUrl, "_blank", "noopener,noreferrer");
     }
@@ -187,8 +280,10 @@ export function CreateOrderModal({
           onOwnerIdChange={setOwnerId}
           description={description}
           onDescriptionChange={setDescription}
-              internalNote={internalNote}
-              onInternalNoteChange={setInternalNote}
+          internalNote={internalNote}
+          onInternalNoteChange={setInternalNote}
+          productionNotes={productionNotes}
+          onProductionNotesChange={setProductionNotes}
           customerName={customerName}
           onCustomerNameChange={setCustomerName}
           customerContact={customerContact}
@@ -201,8 +296,15 @@ export function CreateOrderModal({
           onFieldValueChange={setFieldValue}
           skus={skus}
           onSkusChange={setSkus}
+          pendingImagesBySkuId={pendingImagesBySkuId}
+          onPendingImagesChange={handlePendingImagesChange}
           dueDate={dueDate}
           onDueDateChange={setDueDate}
+          dueDateMode={dueDateMode}
+          onDueDateModeChange={setDueDateMode}
+          dueProcessingDays={dueProcessingDays}
+          onDueProcessingDaysChange={setDueProcessingDays}
+          hideEmpty={false}
         />
 
         {error ? (

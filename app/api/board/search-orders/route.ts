@@ -53,7 +53,11 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const q = (searchParams.get("q") ?? "").trim();
-  const designerId = searchParams.get("designerId") ?? "";
+  // Designers are locked to their own assignments (ignore client designerId).
+  const designerId =
+    ctx.role === "designer"
+      ? ctx.userId
+      : (searchParams.get("designerId") ?? "");
   const ownerId = searchParams.get("ownerId") ?? "";
   const overdueOnly =
     searchParams.get("overdueOnly") === "1" ||

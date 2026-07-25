@@ -1,6 +1,14 @@
 /**
  * Designer "load" = active jobs in Start + In Progress board columns.
+ * Shown as Name (Y)/Z where Y = cards and Z = SKU rows on those cards.
  */
+
+export interface DesignerLoadStats {
+  /** Active cards (orders) assigned to the designer. */
+  load: number;
+  /** Total SKU line items across those cards. */
+  skuCount: number;
+}
 
 export function isDesignerLoadColumn(name: string): boolean {
   const n = name.trim().toLowerCase();
@@ -17,7 +25,12 @@ export function designerLoadColumnIds(
   return columns.filter((c) => isDesignerLoadColumn(c.name)).map((c) => c.id);
 }
 
-/** Count jobs per designer_id among orders in the given column ids. */
+function skuRowCountFromSpecs(specs: Record<string, unknown> | null | undefined): number {
+  const raw = specs && typeof specs === "object" ? specs.skus : null;
+  return Array.isArray(raw) ? raw.length : 0;
+}
+
+/** Count cards + SKU rows per designer_id among orders in the given column ids. */
 export function countDesignerLoads(
   designerIds: string[],
   orders: {
@@ -25,12 +38,11 @@ export function countDesignerLoads(
     specs?: Record<string, unknown> | null;
   }[],
   loadColumnIds: Iterable<string>
-): Map<string, number> {
-  const loadSet = loadColumnIds instanceof Set
-    ? loadColumnIds
-    : new Set(loadColumnIds);
-  const counts = new Map<string, number>();
-  for (const id of designerIds) counts.set(id, 0);
+): Map<string, DesignerLoadStats> {
+  const loadSet =
+    loadColumnIds instanceof Set ? loadColumnIds : new Set(loadColumnIds);
+  const counts = new Map<string, DesignerLoadStats>();
+  for (const id of designerIds) counts.set(id, { load: 0, skuCount: 0 });
   if (loadSet.size === 0) return counts;
 
   for (const order of orders) {
@@ -40,15 +52,32 @@ export function countDesignerLoads(
         ? order.specs.designer_id.trim()
         : "";
     if (!designerId || !counts.has(designerId)) continue;
-    counts.set(designerId, (counts.get(designerId) ?? 0) + 1);
+    const current = counts.get(designerId)!;
+    counts.set(designerId, {
+      load: current.load + 1,
+      skuCount: current.skuCount + skuRowCountFromSpecs(order.specs),
+    });
   }
   return counts;
 }
 
+/** Format for selects/menus: `Manny (3)/8` */
 export function formatDesignerOptionLabel(
   name: string,
-  load: number | undefined
+  load: number | undefined,
+  skuCount: number | undefined = 0
 ): string {
-  const n = typeof load === "number" ? load : 0;
-  return `${name} ${n}`;
+  const cards = typeof load === "number" ? load : 0;
+  const skus = typeof skuCount === "number" ? skuCount : 0;
+  return `${name} (${cards})/${skus}`;
+}
+
+/** Compact load suffix used next to a name: `(3)/8` */
+export function formatDesignerLoadSuffix(
+  load: number | undefined,
+  skuCount: number | undefined = 0
+): string {
+  const cards = typeof load === "number" ? load : 0;
+  const skus = typeof skuCount === "number" ? skuCount : 0;
+  return `(${cards})/${skus}`;
 }

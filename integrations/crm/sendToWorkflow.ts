@@ -84,6 +84,12 @@ export interface CrmOrder {
   application?: boolean;
   quantity?: number | null;
   due_date?: string | null;
+  /** `"fixed"` | `"after_approval"` */
+  due_date_mode?: "fixed" | "after_approval" | null;
+  due_processing_days?: number | null;
+  due_anchor_at?: string | null;
+  due_date_label?: string | null;
+  due_date_status?: "set" | "pending_approval" | "none" | null;
   priority?: string | null;
   description?: string | null;
   designer_id?: string | null;
@@ -118,6 +124,36 @@ function getFallbackDueDate(): string {
   return d.toISOString().split("T")[0];
 }
 
+/** Prefer CRM due fields; never invent a date for after-approval pending. */
+function buildDueFieldsForWebhook(order: CrmOrder): Record<string, unknown> {
+  const mode = order.due_date_mode ?? null;
+  const status = order.due_date_status ?? null;
+  const absolute =
+    typeof order.due_date === "string" && order.due_date.trim()
+      ? order.due_date.trim().slice(0, 10)
+      : "";
+
+  const fields: Record<string, unknown> = {
+    due_date: absolute,
+  };
+
+  if (mode) fields.due_date_mode = mode;
+  if (order.due_processing_days != null) {
+    fields.due_processing_days = order.due_processing_days;
+  }
+  if (order.due_anchor_at) fields.due_anchor_at = order.due_anchor_at;
+  if (order.due_date_label) fields.due_date_label = order.due_date_label;
+  if (status) fields.due_date_status = status;
+
+  // Legacy CRM payloads without mode: keep previous +30d fallback only when
+  // there is truly no due info at all (not after-approval pending).
+  if (!absolute && !mode && status !== "pending_approval") {
+    fields.due_date = getFallbackDueDate();
+  }
+
+  return fields;
+}
+
 export async function sendToWorkflow(
   order: CrmOrder,
   customer: CrmCustomer
@@ -141,7 +177,7 @@ export async function sendToWorkflow(
     customer_phone: customer.phone ?? undefined,
     order_number: order.order_number ?? order.id,
     priority: order.priority ?? "normal",
-    due_date: order.due_date ?? getFallbackDueDate(),
+    ...buildDueFieldsForWebhook(order),
     product: mappedProduct,
     product_category: mappedProduct
       ? (PRODUCT_CATEGORY_MAP[mappedProduct] ?? undefined)
