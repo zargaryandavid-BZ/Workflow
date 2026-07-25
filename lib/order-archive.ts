@@ -7,9 +7,12 @@ import { ORDER_ASSETS_BUCKET, safeAssetFileName } from "@/lib/order-assets";
 import { listSkuImagesForOrder } from "@/lib/sku-images";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import { COLUMN_ARCHIVE_MAX_ORDERS } from "@/lib/order-archive-constants";
+import type { StoredArchiveRow } from "@/lib/order-archive-types";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { ActivityLog, Asset, Order } from "@/lib/types";
 
 export { COLUMN_ARCHIVE_MAX_ORDERS };
+export type { StoredArchiveRow } from "@/lib/order-archive-types";
 
 /** Full history for archives (UI list stays capped separately). */
 const ARCHIVE_ACTIVITY_LIMIT = 5000;
@@ -512,4 +515,219 @@ export async function buildColumnArchiveZip(
     failures,
     skippedOverLimit,
   };
+}
+
+export interface PersistOrderArchiveParams {
+  tenantId: string;
+  orderId: string;
+  columnId: string | null;
+  columnName: string;
+  orderTitle?: string | null;
+  createdBy: string | null;
+}
+
+/**
+ * Build one order ZIP, upload to Supabase Storage, and record it in
+ * `column_archives` so it appears under Settings → Archive → Stored archives.
+ */
+export async function persistOrderArchive(
+  client: Client,
+  params: PersistOrderArchiveParams
+): Promise<
+  | { archive: StoredArchiveRow; failures: OrderArchiveFileFailure[] }
+  | { error: string; status: number }
+> {
+  const orderTitle = params.orderTitle?.trim() || null;
+
+  const { data: pending, error: insertError } = await client
+    .from("column_archives")
+    .insert({
+      tenant_id: params.tenantId,
+      column_id: params.columnId,
+      column_name: params.columnName,
+      order_id: params.orderId,
+      order_title: orderTitle,
+      status: "pending",
+      created_by: params.createdBy,
+    })
+    .select("*")
+    .single();
+
+  if (insertError || !pending) {
+    return {
+      error:
+        insertError?.message?.includes("column_archives") ||
+        insertError?.message?.includes("order_id")
+          ? "Archive storage is not set up yet. Apply migration 0065_order_archives.sql."
+          : (insertError?.message ?? "Failed to start archive"),
+      status: 400,
+    };
+  }
+
+  const archiveId = (pending as StoredArchiveRow).id;
+
+  try {
+    const built = await buildOrderArchiveZip(client, {
+      tenantId: params.tenantId,
+      orderId: params.orderId,
+    });
+
+    if ("error" in built) {
+      await client
+        .from("column_archives")
+        .update({
+          status: "failed",
+          error: built.error,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", archiveId);
+      return { error: built.error, status: built.status };
+    }
+
+    const resolvedTitle =
+      orderTitle ||
+      built.fileName.replace(/-archive\.zip$/i, "") ||
+      params.orderId;
+
+    const storagePath = `${params.tenantId}/${archiveId}/${built.fileName}`;
+    const admin = createAdminClient();
+    const { error: uploadError } = await admin.storage
+      .from(ORDER_ARCHIVES_BUCKET)
+      .upload(storagePath, built.zip, {
+        contentType: "application/zip",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      await client
+        .from("column_archives")
+        .update({
+          status: "failed",
+          error: uploadError.message,
+          order_title: resolvedTitle,
+          order_count: 1,
+          failure_count: built.failures.length,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", archiveId);
+      return {
+        error: `Upload failed: ${uploadError.message}`,
+        status: 500,
+      };
+    }
+
+    const { data: ready, error: updateError } = await client
+      .from("column_archives")
+      .update({
+        status: "ready",
+        storage_path: storagePath,
+        file_name: built.fileName,
+        file_size: built.zip.byteLength,
+        order_title: resolvedTitle,
+        order_count: 1,
+        failure_count: built.failures.length,
+        completed_at: new Date().toISOString(),
+        error: null,
+      })
+      .eq("id", archiveId)
+      .select("*")
+      .single();
+
+    if (updateError || !ready) {
+      return {
+        error: updateError?.message ?? "Failed to finalize archive",
+        status: 500,
+      };
+    }
+
+    return {
+      archive: ready as StoredArchiveRow,
+      failures: built.failures,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Archive failed";
+    await client
+      .from("column_archives")
+      .update({
+        status: "failed",
+        error: message,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", archiveId);
+    return { error: message, status: 500 };
+  }
+}
+
+/**
+ * Archive every (non-removed) order in a column as its own Stored archive ZIP.
+ */
+export async function persistColumnOrdersAsArchives(
+  client: Client,
+  params: {
+    tenantId: string;
+    columnId: string;
+    columnName: string;
+    createdBy: string | null;
+  }
+): Promise<
+  | {
+      archives: StoredArchiveRow[];
+      failed: { orderId: string; title: string; error: string }[];
+      skippedOverLimit: number;
+    }
+  | { error: string; status: number }
+> {
+  const { tenantId, columnId, columnName, createdBy } = params;
+
+  const { data: orderRows, error } = await client
+    .from("orders")
+    .select("id, title, position")
+    .eq("tenant_id", tenantId)
+    .eq("column_id", columnId)
+    .is("removed_at", null)
+    .order("position", { ascending: true });
+
+  if (error) {
+    return { error: error.message, status: 400 };
+  }
+
+  const all = (orderRows ?? []) as { id: string; title: string }[];
+  if (all.length === 0) {
+    return { error: "This column has no orders to archive", status: 400 };
+  }
+
+  const skippedOverLimit = Math.max(0, all.length - COLUMN_ARCHIVE_MAX_ORDERS);
+  const orders = all.slice(0, COLUMN_ARCHIVE_MAX_ORDERS);
+
+  const archives: StoredArchiveRow[] = [];
+  const failed: { orderId: string; title: string; error: string }[] = [];
+
+  for (const row of orders) {
+    const result = await persistOrderArchive(client, {
+      tenantId,
+      orderId: row.id,
+      columnId,
+      columnName,
+      orderTitle: row.title,
+      createdBy,
+    });
+    if ("error" in result) {
+      failed.push({
+        orderId: row.id,
+        title: row.title,
+        error: result.error,
+      });
+      continue;
+    }
+    archives.push(result.archive);
+  }
+
+  if (archives.length === 0) {
+    return {
+      error: failed[0]?.error ?? "Could not archive any orders in this column",
+      status: 500,
+    };
+  }
+
+  return { archives, failed, skippedOverLimit };
 }

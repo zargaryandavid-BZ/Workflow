@@ -7,11 +7,11 @@ import { Label, Select } from "@/components/ui/input";
 import { formatDateTime } from "@/lib/utils";
 import { COLUMN_ARCHIVE_MAX_ORDERS } from "@/lib/order-archive-constants";
 import type { BoardColumn } from "@/lib/types";
-import type { ColumnArchiveRow } from "@/app/api/archives/route";
+import type { StoredArchiveRow } from "@/lib/order-archive-types";
 
 interface Props {
   columns: BoardColumn[];
-  initialArchives: ColumnArchiveRow[];
+  initialArchives: StoredArchiveRow[];
   migrationRequired: boolean;
 }
 
@@ -22,14 +22,20 @@ function formatBytes(n: number | null): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function archiveLabel(a: StoredArchiveRow): string {
+  if (a.order_title) return a.order_title;
+  if (a.order_id) return a.order_id.slice(0, 8);
+  return a.column_name;
+}
+
 export function ArchiveSettingsManager({
   columns,
   initialArchives,
   migrationRequired,
 }: Props) {
-  const donePreferred =
-    columns.find((c) => c.kind === "done")?.id ?? columns[0]?.id ?? "";
-  const [columnId, setColumnId] = useState(donePreferred);
+  const [columnId, setColumnId] = useState(
+    () => columns[columns.length - 1]?.id ?? ""
+  );
   const [archives, setArchives] = useState(initialArchives);
   const [archiving, setArchiving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +45,7 @@ export function ArchiveSettingsManager({
   async function refresh() {
     const res = await fetch("/api/archives");
     const json = (await res.json()) as {
-      archives?: ColumnArchiveRow[];
+      archives?: StoredArchiveRow[];
       error?: string;
     };
     if (res.ok && json.archives) setArchives(json.archives);
@@ -58,9 +64,9 @@ export function ArchiveSettingsManager({
       });
       const json = (await res.json()) as {
         error?: string;
-        archive?: ColumnArchiveRow;
+        archivedCount?: number;
+        failedCount?: number;
         skippedOverLimit?: number;
-        failureCount?: number;
       };
       if (!res.ok) {
         setError(json.error ?? "Archive failed");
@@ -68,15 +74,15 @@ export function ArchiveSettingsManager({
         return;
       }
       const parts = [
-        `Saved ${json.archive?.order_count ?? 0} order(s) to Supabase Storage.`,
+        `Saved ${json.archivedCount ?? 0} order archive(s) to Supabase Storage.`,
       ];
       if (json.skippedOverLimit) {
         parts.push(
           `${json.skippedOverLimit} order(s) skipped (limit ${COLUMN_ARCHIVE_MAX_ORDERS}).`
         );
       }
-      if (json.failureCount) {
-        parts.push(`${json.failureCount} file(s) could not be included.`);
+      if (json.failedCount) {
+        parts.push(`${json.failedCount} order(s) failed.`);
       }
       setMessage(parts.join(" "));
       await refresh();
@@ -101,7 +107,7 @@ export function ArchiveSettingsManager({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = fileName ?? "column-archive.zip";
+      a.download = fileName ?? "order-archive.zip";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -135,8 +141,9 @@ export function ArchiveSettingsManager({
   if (migrationRequired) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Apply migration <code>0062_column_archives.sql</code> (
-        <code>supabase db push</code>) to enable column archives.
+        Apply migrations <code>0062_column_archives.sql</code> and{" "}
+        <code>0065_order_archives.sql</code> (
+        <code>supabase db push</code>) to enable archives.
       </div>
     );
   }
@@ -148,9 +155,9 @@ export function ArchiveSettingsManager({
           Archive a column
         </h2>
         <p className="text-sm text-slate-500">
-          Creates a ZIP of every order in the column (data, history dates, and
-          files) and stores it in Supabase. Up to {COLUMN_ARCHIVE_MAX_ORDERS}{" "}
-          orders per run. Cards stay on the board.
+          Creates a ZIP for every order in the column (data, history dates, and
+          files) and stores each one in Supabase under Stored archives. Up to{" "}
+          {COLUMN_ARCHIVE_MAX_ORDERS} orders per run. Cards stay on the board.
         </p>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="min-w-0 flex-1">
@@ -206,9 +213,9 @@ export function ArchiveSettingsManager({
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
+                  <th className="px-3 py-2 font-medium">Order</th>
                   <th className="px-3 py-2 font-medium">Column</th>
                   <th className="px-3 py-2 font-medium">When</th>
-                  <th className="px-3 py-2 font-medium">Orders</th>
                   <th className="px-3 py-2 font-medium">Size</th>
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium" />
@@ -218,13 +225,13 @@ export function ArchiveSettingsManager({
                 {archives.map((a) => (
                   <tr key={a.id} className="border-t border-slate-100">
                     <td className="px-3 py-2.5 font-medium text-slate-800">
+                      {archiveLabel(a)}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-600">
                       {a.column_name}
                     </td>
                     <td className="px-3 py-2.5 text-slate-600">
                       {formatDateTime(a.created_at)}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600">
-                      {a.order_count}
                     </td>
                     <td className="px-3 py-2.5 text-slate-600">
                       {formatBytes(a.file_size)}

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import { ORDER_ARCHIVES_BUCKET } from "@/lib/order-archive";
-import type { ColumnArchiveRow } from "@/app/api/archives/route";
+import type { StoredArchiveRow } from "@/lib/order-archive-types";
 
 /** Download a stored column archive ZIP. */
 export async function GET(
@@ -31,7 +31,7 @@ export async function GET(
     return NextResponse.json({ error: "Archive not found" }, { status: 404 });
   }
 
-  const row = data as ColumnArchiveRow;
+  const row = data as StoredArchiveRow;
   if (row.status !== "ready" || !row.storage_path || !row.file_name) {
     return NextResponse.json(
       { error: row.error ?? "Archive is not ready" },
@@ -88,7 +88,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Archive not found" }, { status: 404 });
   }
 
-  const row = data as ColumnArchiveRow;
+  const row = data as StoredArchiveRow;
   if (row.storage_path) {
     const admin = createAdminClient();
     await admin.storage.from(ORDER_ARCHIVES_BUCKET).remove([row.storage_path]);

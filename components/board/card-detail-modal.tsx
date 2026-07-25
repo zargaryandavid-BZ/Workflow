@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Download,
   Loader2,
   MessageSquare,
   Trash2,
@@ -220,10 +221,13 @@ export function CardDetailModal({
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [downloadingArchive, setDownloadingArchive] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiveMessage, setArchiveMessage] = useState<string | null>(null);
   const [orderNumberCopied, setOrderNumberCopied] = useState(false);
   const [persistedSkuIds, setPersistedSkuIds] = useState<Set<string>>(
     () => new Set()
@@ -637,9 +641,39 @@ export function CardDetailModal({
     }
   }
 
-  async function downloadArchive() {
+  async function archiveToSupabase() {
     if (!orderId) return;
     setArchiving(true);
+    setArchiveError(null);
+    setArchiveMessage(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/archive`, {
+        method: "POST",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        failureCount?: number;
+      };
+      if (!res.ok) {
+        setArchiveError(json.error ?? "Failed to archive order");
+        return;
+      }
+      setConfirmArchive(false);
+      const parts = ["Saved to Settings → Archive → Stored archives."];
+      if (json.failureCount) {
+        parts.push(`${json.failureCount} file(s) could not be included.`);
+      }
+      setArchiveMessage(parts.join(" "));
+    } catch {
+      setArchiveError("Failed to archive order");
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  async function downloadArchive() {
+    if (!orderId) return;
+    setDownloadingArchive(true);
     setArchiveError(null);
     try {
       const res = await fetch(`/api/orders/${orderId}/archive`);
@@ -663,7 +697,7 @@ export function CardDetailModal({
     } catch {
       setArchiveError("Failed to download archive");
     } finally {
-      setArchiving(false);
+      setDownloadingArchive(false);
     }
   }
 
@@ -845,19 +879,7 @@ export function CardDetailModal({
 
   async function handleClose() {
     if (saving || removing) return;
-    if (isViewOnly || !data || !orderId) {
-      onClose();
-      return;
-    }
-    if (isDirty()) {
-      if (
-        !window.confirm(
-          "You have unsaved changes. Close without saving?"
-        )
-      ) {
-        return;
-      }
-    }
+    // No browser confirm — Save / Cancel in the ticket already cover unsaved edits.
     onClose();
   }
 
@@ -887,12 +909,18 @@ export function CardDetailModal({
   useEffect(() => {
     if (!customerDropdownOpen) return;
     function handleClickOutside(e: MouseEvent) {
-      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
+      if (
+        customerDropdownRef.current &&
+        !customerDropdownRef.current.contains(e.target as Node)
+      ) {
         setCustomerDropdownOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    // Capture phase: Modal stops mousedown bubbling on the panel, so bubble
+    // listeners on document never see clicks inside the ticket.
+    document.addEventListener("mousedown", handleClickOutside, true);
+    return () =>
+      document.removeEventListener("mousedown", handleClickOutside, true);
   }, [customerDropdownOpen]);
 
   useEffect(() => {
@@ -902,8 +930,9 @@ export function CardDetailModal({
         setSmsOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside, true);
+    return () =>
+      document.removeEventListener("mousedown", handleClickOutside, true);
   }, [smsOpen]);
 
   async function sendQuickSms() {
@@ -1172,7 +1201,9 @@ export function CardDetailModal({
                 setRemoveError(null);
                 setConfirmRemove(true);
               }}
-              disabled={loading || saving || removing || archiving}
+              disabled={
+                loading || saving || removing || archiving || downloadingArchive
+              }
               className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
               title="Remove order"
             >
@@ -1182,20 +1213,43 @@ export function CardDetailModal({
           ) : (
             <span className="mr-auto" />
           )}
-          {orderId && data ? (
+          {orderId && data && isAdmin ? (
             <button
               type="button"
-              onClick={() => void downloadArchive()}
-              disabled={loading || saving || removing || archiving}
+              onClick={() => {
+                setArchiveError(null);
+                setConfirmArchive(true);
+              }}
+              disabled={
+                loading || saving || removing || archiving || downloadingArchive
+              }
               className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Download ZIP with order data, history, and files"
+              title="Save ZIP to Supabase (Settings → Archive)"
             >
               {archiving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Archive className="h-4 w-4" />
               )}
-              {archiving ? "Preparing…" : "Download archive"}
+              {archiving ? "Archiving…" : "Archive"}
+            </button>
+          ) : null}
+          {orderId && data ? (
+            <button
+              type="button"
+              onClick={() => void downloadArchive()}
+              disabled={
+                loading || saving || removing || archiving || downloadingArchive
+              }
+              className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Download ZIP with order data, history, and files"
+            >
+              {downloadingArchive ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              {downloadingArchive ? "Preparing…" : "Download"}
             </button>
           ) : null}
           {!isViewOnly && isDirty() ? (
@@ -1204,7 +1258,7 @@ export function CardDetailModal({
                 variant="outline"
                 onClick={revert}
                 type="button"
-                disabled={saving || removing || archiving}
+                disabled={saving || removing || archiving || downloadingArchive}
               >
                 Cancel
               </Button>
@@ -1212,7 +1266,13 @@ export function CardDetailModal({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => void save()}
-                disabled={saving || loading || removing || archiving}
+                disabled={
+                  saving ||
+                  loading ||
+                  removing ||
+                  archiving ||
+                  downloadingArchive
+                }
               >
                 {saving ? "Saving…" : "Save changes"}
               </Button>
@@ -1222,7 +1282,7 @@ export function CardDetailModal({
               variant="outline"
               onClick={handleClose}
               type="button"
-              disabled={saving || removing || archiving}
+              disabled={saving || removing || archiving || downloadingArchive}
             >
               Close
             </Button>
@@ -1463,6 +1523,11 @@ export function CardDetailModal({
             {archiveError ? (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
                 {archiveError}
+              </p>
+            ) : null}
+            {archiveMessage ? (
+              <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                {archiveMessage}
               </p>
             ) : null}
           </div>
@@ -1780,6 +1845,46 @@ export function CardDetailModal({
         {removeError ? (
           <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
             {removeError}
+          </p>
+        ) : null}
+      </Modal>
+    ) : null}
+
+    {confirmArchive ? (
+      <Modal
+        open
+        onClose={() => {
+          if (!archiving) setConfirmArchive(false);
+        }}
+        title="Archive to Supabase"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setConfirmArchive(false)}
+              disabled={archiving}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void archiveToSupabase()}
+              disabled={archiving}
+            >
+              {archiving ? "Archiving…" : "Archive order"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Save a ZIP of <strong>{title || data?.order.title}</strong> (data,
+          history, and files) to Supabase Storage? It will appear under Settings
+          → Archive → Stored archives. The card stays on the board.
+        </p>
+        {archiveError ? (
+          <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+            {archiveError}
           </p>
         ) : null}
       </Modal>

@@ -1655,6 +1655,25 @@ export function Board({
       ),
     [orderQuery, searchResults, localFilteredOrders]
   );
+  const [groupSuggestionsOpen, setGroupSuggestionsOpen] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the multi-part order dropdown on outside click.
+  useEffect(() => {
+    if (!groupSuggestionsOpen || orderGroupSuggestions.length === 0) return;
+    function onPointerDown(e: MouseEvent | PointerEvent) {
+      const el = searchBoxRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && !el.contains(e.target)) {
+        setGroupSuggestionsOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [groupSuggestionsOpen, orderGroupSuggestions.length]);
+
+  const showGroupSuggestions =
+    groupSuggestionsOpen && orderGroupSuggestions.length > 0;
 
   const displayFieldValuesByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.fieldValuesByOrder
@@ -1763,13 +1782,26 @@ export function Board({
           </div>
         </div>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-          <div className="relative min-w-[10rem] max-w-md flex-1 basis-[12rem]">
+          <div
+            ref={searchBoxRef}
+            className="relative min-w-[10rem] max-w-md flex-1 basis-[12rem]"
+          >
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={orderQuery}
-              onChange={(e) => setOrderQuery(e.target.value)}
+              onChange={(e) => {
+                setOrderQuery(e.target.value);
+                setGroupSuggestionsOpen(true);
+              }}
+              onFocus={() => {
+                if (orderGroupSuggestions.length > 0) {
+                  setGroupSuggestionsOpen(true);
+                }
+              }}
               onKeyDown={(e) => {
-                if (e.key === "Escape" && orderGroupSuggestions.length > 0) {
+                if (e.key === "Escape" && showGroupSuggestions) {
+                  e.preventDefault();
+                  setGroupSuggestionsOpen(false);
                   e.currentTarget.blur();
                 }
               }}
@@ -1777,9 +1809,9 @@ export function Board({
               className="h-9 w-full pl-8"
               aria-label="Filter by order number, customer name, email or phone"
               aria-autocomplete="list"
-              aria-expanded={orderGroupSuggestions.length > 0}
+              aria-expanded={showGroupSuggestions}
             />
-            {orderGroupSuggestions.length > 0 ? (
+            {showGroupSuggestions ? (
               <div
                 role="listbox"
                 aria-label="Matching multi-part orders"
@@ -1792,7 +1824,10 @@ export function Board({
                       role="option"
                       className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => setOrderQuery(`${suggestion.key}-`)}
+                      onClick={() => {
+                        setOrderQuery(`${suggestion.key}-`);
+                        setGroupSuggestionsOpen(true);
+                      }}
                       title="Continue typing the part number"
                     >
                       <span>{suggestion.label}</span>
@@ -1808,7 +1843,10 @@ export function Board({
                           role="option"
                           className="flex w-full px-3 py-1 pl-5 text-left text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                           onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => setOrderQuery(part.title)}
+                          onClick={() => {
+                            setOrderQuery(part.title);
+                            setGroupSuggestionsOpen(false);
+                          }}
                         >
                           {part.title}
                         </button>

@@ -3,7 +3,7 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ArchiveSettingsManager } from "./archive-settings-manager";
 import type { BoardColumn } from "@/lib/types";
-import type { ColumnArchiveRow } from "@/app/api/archives/route";
+import type { StoredArchiveRow } from "@/lib/order-archive-types";
 
 export default async function ArchiveSettingsPage() {
   const ctx = await getTenantContext();
@@ -34,13 +34,13 @@ export default async function ArchiveSettingsPage() {
     <div>
       <h1 className="text-lg font-semibold text-slate-800">Archive</h1>
       <p className="mb-5 text-sm text-slate-500">
-        Snapshot a board column (orders, history, and files) into Supabase
-        Storage. Archives stay available here for download later.
+        Snapshot orders (data, history, and files) into Supabase Storage.
+        Each archived order appears below for download later.
       </p>
       <ArchiveSettingsManager
         columns={(columns ?? []) as BoardColumn[]}
         initialArchives={
-          migrationRequired ? [] : ((archives ?? []) as ColumnArchiveRow[])
+          migrationRequired ? [] : ((archives ?? []) as StoredArchiveRow[])
         }
         migrationRequired={migrationRequired}
       />
