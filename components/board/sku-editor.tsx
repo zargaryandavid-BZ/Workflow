@@ -2,11 +2,16 @@
 
 import { Plus, Trash2 } from "lucide-react";
 import { Input, Label } from "@/components/ui/input";
-import { SkuImageUpload } from "./sku-image-upload";
+import {
+  SkuImageUpload,
+  SkuPendingImagePicker,
+  type PendingSkuImage,
+} from "./sku-image-upload";
 import type { SkuItem } from "@/lib/skus";
 import type { OrderSkuImageWithUrl } from "@/lib/types";
 
 export type { SkuItem } from "@/lib/skus";
+export type { PendingSkuImage } from "./sku-image-upload";
 export { normalizeSkus, prepareSkusForSave, validateSkus, mergeSkusWithAssets } from "@/lib/skus";
 
 interface SkuEditorProps {
@@ -15,6 +20,9 @@ interface SkuEditorProps {
   /** When set, artwork uploads go to Supabase immediately */
   orderId?: string;
   skuImagesBySkuId?: Record<string, OrderSkuImageWithUrl[]>;
+  /** Local files held until the order exists (create flow). */
+  pendingImagesBySkuId?: Record<string, PendingSkuImage[]>;
+  onPendingImagesChange?: (skuId: string, next: PendingSkuImage[]) => void;
   /** Saves a newly added SKU row before gallery uploads can attach to it. */
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   disabled?: boolean;
@@ -25,6 +33,8 @@ export function SkuEditor({
   onChange,
   orderId,
   skuImagesBySkuId = {},
+  pendingImagesBySkuId = {},
+  onPendingImagesChange,
   ensureSkuPersisted,
   disabled = false,
 }: SkuEditorProps) {
@@ -40,6 +50,12 @@ export function SkuEditor({
   }
 
   function remove(index: number) {
+    const removed = value[index];
+    if (removed && onPendingImagesChange) {
+      const pending = pendingImagesBySkuId[removed.id] ?? [];
+      for (const img of pending) URL.revokeObjectURL(img.previewUrl);
+      onPendingImagesChange(removed.id, []);
+    }
     onChange(value.filter((_, i) => i !== index));
   }
 
@@ -116,6 +132,12 @@ export function SkuEditor({
                   skuId={sku.id}
                   initialImages={skuImagesBySkuId[sku.id] ?? []}
                   ensureSkuPersisted={ensureSkuPersisted}
+                  disabled={disabled}
+                />
+              ) : onPendingImagesChange ? (
+                <SkuPendingImagePicker
+                  files={pendingImagesBySkuId[sku.id] ?? []}
+                  onChange={(next) => onPendingImagesChange(sku.id, next)}
                   disabled={disabled}
                 />
               ) : null}
