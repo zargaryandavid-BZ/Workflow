@@ -16,6 +16,7 @@ import {
   MapPin,
   MoveRight,
   Phone,
+  RefreshCw,
   Truck,
   User,
 } from "lucide-react";
@@ -130,6 +131,8 @@ interface OrderCardProps {
   ) => void;
   onActionError?: (message: string) => void;
   onOpen: (order: OrderWithRelations) => void;
+  /** When badge is rejected — open approval resend flow. */
+  onResendApproval?: (order: OrderWithRelations) => void;
   /** Used to gate admin-only UI (e.g. billing globe). */
   role?: Role;
 }
@@ -164,6 +167,7 @@ export function OrderCard({
   onActionComplete,
   onActionError,
   onOpen,
+  onResendApproval,
   role,
 }: OrderCardProps) {
   const {
@@ -272,7 +276,10 @@ export function OrderCard({
     availableColumns.length > 0 && Boolean(onMoveToColumn);
   const hasActionMenu = actionButtons.length > 0;
   const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
-  const hasContextMenu = hasMoveMenu || hasActionMenu || canAssignDesigner;
+  const canResendApproval =
+    notificationBadge === "rejected" && Boolean(onResendApproval);
+  const hasContextMenu =
+    hasMoveMenu || hasActionMenu || canAssignDesigner || canResendApproval;
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
   const hasCustomerContact = Boolean(email || phone);
 
@@ -336,6 +343,7 @@ export function OrderCard({
     hasActionMenu,
     hasMoveMenu,
     canAssignDesigner,
+    canResendApproval,
     designerSubOpen,
     actionButtons.length,
     availableColumns.length,
@@ -709,6 +717,29 @@ export function OrderCard({
               onPointerDown={(e) => e.stopPropagation()}
               onContextMenu={(e) => e.preventDefault()}
             >
+              {canResendApproval ? (
+                <div
+                  className={cn(
+                    "shrink-0 py-1",
+                    (hasActionMenu || hasMoveMenu || canAssignDesigner) &&
+                      "border-b border-slate-100"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResendApproval?.(order);
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="flex-1 whitespace-nowrap">
+                      Resend Approve Request
+                    </span>
+                  </button>
+                </div>
+              ) : null}
               {hasActionMenu ? (
                 <div className="shrink-0 border-b border-slate-100 py-1">
                   {actionButtons.map((btn) => (

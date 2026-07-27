@@ -8,4 +8,4 @@ alter table public.column_archives
 
 create index if not exists column_archives_tenant_order_idx
   on public.column_archives (tenant_id, order_id)
-  where order_id is not null;
+  where order_id is not null;3000

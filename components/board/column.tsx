@@ -85,6 +85,7 @@ interface ColumnProps {
     result: ActionButtonResult
   ) => void;
   onActionError?: (message: string) => void;
+  onResendApproval?: (order: OrderWithRelations) => void;
   designers?: Designer[];
   onGroupAssignDesigner?: (
     orders: OrderWithRelations[],
@@ -162,6 +163,7 @@ export function Column({
   appUrl = "",
   onActionComplete,
   onActionError,
+  onResendApproval,
   designers = [],
   onGroupAssignDesigner,
   onGroupSetDueDates,
@@ -438,6 +440,7 @@ export function Column({
                     appUrl={appUrl}
                     onActionComplete={onActionComplete}
                     onActionError={onActionError}
+                    onResendApproval={onResendApproval}
                     onOpen={onOpenOrder}
                     role={role}
                   />
@@ -481,6 +484,7 @@ export function Column({
                   appUrl={appUrl}
                   onActionComplete={onActionComplete}
                   onActionError={onActionError}
+                  onResendApproval={onResendApproval}
                   onOpen={onOpenOrder}
                   role={role}
                 />

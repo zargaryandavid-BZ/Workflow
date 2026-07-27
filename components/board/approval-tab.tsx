@@ -66,12 +66,16 @@ function NotifyRow({
   contactEmail,
   contactPhone,
   onSent,
+  title = "Resend notification",
+  sendLabel = "Resend",
 }: {
   note: ApprovalNote;
   customer: Customer | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
   onSent: () => void;
+  title?: string;
+  sendLabel?: string;
 }) {
   const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
     defaultSendChannels(
@@ -177,7 +181,7 @@ function NotifyRow({
 
   return (
     <div className="space-y-2 border-t border-slate-100 pt-3">
-      <p className="text-sm font-medium text-slate-700">Resend notification</p>
+      <p className="text-sm font-medium text-slate-700">{title}</p>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex shrink-0 gap-2">
           <button
@@ -227,7 +231,7 @@ function NotifyRow({
               onClick={send}
               className="shrink-0"
             >
-              {sending ? "Sending…" : "Resend"}
+              {sending ? "Sending…" : sendLabel}
             </Button>
           </div>
         ) : null}
@@ -255,7 +259,7 @@ function NotifyRow({
             onClick={send}
             className="shrink-0"
           >
-            {sending ? "Sending…" : "Resend"}
+            {sending ? "Sending…" : sendLabel}
           </Button>
         </div>
       ) : null}
@@ -390,16 +394,29 @@ export function ApprovalTab({
       latest.status === "responded" &&
       latest.customer_response === "changes_requested"
     ) {
-      return returningColumn ? (
-        <MoveButton
-          orderId={orderId}
-          columnId={returningColumn.id}
-          sourceColumnId={sourceColumnId}
-          columns={columns}
-          label="Move to Returning Tickets"
-          onMoved={onChanged}
-        />
-      ) : null;
+      return (
+        <div className="space-y-3">
+          <NotifyRow
+            note={latest}
+            customer={customer}
+            contactEmail={contactEmail}
+            contactPhone={contactPhone}
+            onSent={onChanged}
+            title="Resend Approve Request"
+            sendLabel="Send"
+          />
+          {returningColumn ? (
+            <MoveButton
+              orderId={orderId}
+              columnId={returningColumn.id}
+              sourceColumnId={sourceColumnId}
+              columns={columns}
+              label="Move to Returning Tickets"
+              onMoved={onChanged}
+            />
+          ) : null}
+        </div>
+      );
     }
 
     if (
@@ -522,7 +539,9 @@ export function ApprovalTab({
 
       {latest.status === "responded" && latest.customer_note ? (
         <div>
-          <p className="text-sm font-medium text-slate-700">Customer note:</p>
+          <p className="text-sm font-medium text-slate-700">
+            Customer last response:
+          </p>
           <blockquote className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
             &ldquo;{latest.customer_note}&rdquo;
           </blockquote>
@@ -551,6 +570,7 @@ export function ApprovalTab({
             {[...history].reverse().map((note) => {
               const status = entryStatus(note);
               const isLatest = note.id === latest.id;
+              const hasCustomerReply = note.status === "responded";
               return (
                 <div
                   key={note.id}
@@ -561,23 +581,55 @@ export function ApprovalTab({
                       : "border-slate-200"
                   )}
                 >
+                  {/* Our Sent */}
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="text-xs text-slate-500">
-                      {formatDateTime(note.created_at)}
-                      {note.creator_name ? ` · ${note.creator_name}` : ""}
-                      {isLatest ? " · Latest" : ""}
-                    </p>
-                    <span className={cn("font-medium", status.className)}>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Our Sent
+                        {isLatest ? " · Latest" : ""}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {formatDateTime(note.created_at)}
+                        {note.creator_name ? ` · ${note.creator_name}` : ""}
+                        {note.channel !== "manual" && note.channel !== "none"
+                          ? ` · via ${channelLabel(note.channel)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <span className={cn("text-sm font-medium", status.className)}>
                       {status.label}
                     </span>
                   </div>
+
                   {note.staff_note ? (
-                    <p className="mt-2 text-slate-600">{note.staff_note}</p>
-                  ) : null}
-                  {note.customer_note ? (
-                    <p className="mt-2 text-slate-600">
-                      &ldquo;{note.customer_note}&rdquo;
+                    <p className="mt-3 whitespace-pre-wrap text-slate-700">
+                      {note.staff_note}
                     </p>
+                  ) : note.channel === "manual" ? (
+                    <p className="mt-3 text-slate-500">
+                      Manual follow-up — no message sent.
+                    </p>
+                  ) : null}
+
+                  {/* Customer Response */}
+                  {hasCustomerReply ? (
+                    <div className="mt-4 border-t border-slate-200/80 pt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Customer Response
+                        {note.responded_at
+                          ? ` · ${formatDateTime(note.responded_at)}`
+                          : ""}
+                      </p>
+                      {note.customer_note ? (
+                        <blockquote className="mt-2 rounded-md bg-white/80 px-3 py-2 text-slate-700">
+                          &ldquo;{note.customer_note}&rdquo;
+                        </blockquote>
+                      ) : (
+                        <p className="mt-2 text-slate-500">
+                          No note from customer.
+                        </p>
+                      )}
+                    </div>
                   ) : null}
                 </div>
               );

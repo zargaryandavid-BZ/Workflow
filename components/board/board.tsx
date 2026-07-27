@@ -29,6 +29,7 @@ import {
 import { Column } from "./column";
 import { BoardTable } from "./board-table";
 import { ColumnVisibilityDropdown } from "./column-visibility-dropdown";
+import { DesignerLeaderboardButton } from "./designer-leaderboard";
 import { OrderCard } from "./order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
@@ -1965,6 +1966,7 @@ export function Board({
               </button>
             </div>
           </details>
+          <DesignerLeaderboardButton />
           <details className="relative shrink-0">
             <summary
               className={cn(
@@ -2067,6 +2069,18 @@ export function Board({
           appUrl={appUrl}
           onActionComplete={handleContextActionComplete}
           onActionError={flashPermissionError}
+          onResendApproval={(order) => {
+            const col = columns.find((c) => c.id === order.column_id);
+            setNotifyPopup({
+              order,
+              notifyColumn: {
+                column_id: order.column_id,
+                notify_type: "customer_approval",
+                automation_enabled: true,
+              },
+              columnName: col?.name ?? "Approval",
+            });
+          }}
           onOpenOrder={(o) => setDetailId(o.id)}
           onVisible={onColumnVisible}
         />
@@ -2123,6 +2137,18 @@ export function Board({
                 appUrl={appUrl}
                 onActionComplete={handleContextActionComplete}
                 onActionError={flashPermissionError}
+                onResendApproval={(order) => {
+                  const col = columns.find((c) => c.id === order.column_id);
+                  setNotifyPopup({
+                    order,
+                    notifyColumn: {
+                      column_id: order.column_id,
+                      notify_type: "customer_approval",
+                      automation_enabled: true,
+                    },
+                    columnName: col?.name ?? "Approval",
+                  });
+                }}
                 designers={designersWithLoad}
                 onGroupAssignDesigner={handleGroupAssignDesigner}
                 onGroupSetDueDates={handleGroupSetDueDates}

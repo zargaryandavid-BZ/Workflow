@@ -44,15 +44,12 @@ export async function POST(
   }
 
   const typed = notification as JobNotification;
-  if (typed.status === "responded") {
-    return NextResponse.json(
-      { error: "This notification was already answered by the customer." },
-      { status: 400 }
-    );
-  }
   if (typed.status === "expired") {
     return NextResponse.json(
-      { error: "This notification was replaced by a newer send. Refresh and try again." },
+      {
+        error:
+          "This notification was replaced by a newer send. Refresh and try again.",
+      },
       { status: 400 }
     );
   }
@@ -67,8 +64,10 @@ export async function POST(
   }
 
   try {
-    // Already sent once → create a new history row (resend) and retire the old link.
-    if (typed.status === "sent") {
+    // Already sent or customer already answered → create a new history row
+    // (resend). Expire old "sent" links so they stop working; keep "responded"
+    // rows intact for Communication history.
+    if (typed.status === "sent" || typed.status === "responded") {
       const { notification: neu, actionUrl, warning } = await createNotification(
         supabase,
         {
@@ -83,14 +82,16 @@ export async function POST(
         }
       );
 
-      await supabase
-        .from("job_notifications")
-        .update({
-          status: "expired",
-          token_expires_at: new Date().toISOString(),
-        })
-        .eq("id", typed.id)
-        .eq("tenant_id", ctx.tenant.id);
+      if (typed.status === "sent") {
+        await supabase
+          .from("job_notifications")
+          .update({
+            status: "expired",
+            token_expires_at: new Date().toISOString(),
+          })
+          .eq("id", typed.id)
+          .eq("tenant_id", ctx.tenant.id);
+      }
 
       return NextResponse.json({
         ok: true,
