@@ -68,6 +68,7 @@ import type {
   ButtonAutomation,
   Role,
   ShippingRequest,
+  JobNotification,
 } from "@/lib/types";
 
 interface CardDetailModalProps {
@@ -118,6 +119,7 @@ interface DetailResponse {
   missingInfo: MissingInfoNote[];
   approvalNotes: ApprovalNote[];
   notes: OrderNote[];
+  notifications?: JobNotification[];
   shippingRequest?: ShippingRequest | null;
 }
 
@@ -333,9 +335,29 @@ export function CardDetailModal({
     if (!options?.silent) setLoading(true);
     try {
       const res = await fetch(`/api/orders/${orderId}`);
-      const json: DetailResponse = await res.json();
-      if (!res.ok) return;
+      const text = await res.text();
+      if (!text) {
+        if (!res.ok) setSaveError("Failed to load order");
+        return;
+      }
+      let json: DetailResponse;
+      try {
+        json = JSON.parse(text) as DetailResponse;
+      } catch {
+        setSaveError("Failed to load order");
+        return;
+      }
+      if (!res.ok) {
+        setSaveError(
+          typeof (json as { error?: unknown }).error === "string"
+            ? (json as { error: string }).error
+            : "Failed to load order"
+        );
+        return;
+      }
       applyDetail(json);
+    } catch {
+      setSaveError("Failed to load order");
     } finally {
       if (!options?.silent) setLoading(false);
     }
@@ -1379,7 +1401,7 @@ export function CardDetailModal({
                     : "border-transparent text-slate-500 hover:text-slate-700"
                 )}
               >
-                History
+                Com. History
                 {sentMessageCount > 0 ? (
                   <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                     {sentMessageCount}
@@ -1477,7 +1499,22 @@ export function CardDetailModal({
               }}
             />
           ) : tab === "history" ? (
-            <HistoryTab activity={data.activity} />
+            <HistoryTab
+              activity={data.activity}
+              orderNumber={data.order.title}
+              customerName={
+                customerName.trim() || data.order.customer?.name || null
+              }
+              productLabel={productFromOrder(fieldValues, modalCustomFields)}
+              contactEmail={orderContact.email}
+              contactPhone={orderContact.phone}
+              appUrl={appUrl}
+              notifications={data.notifications ?? [
+                ...data.approvalNotes,
+                ...data.missingInfo,
+              ]}
+              shippingRequest={data.shippingRequest}
+            />
           ) : (
         <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="space-y-4 md:col-span-2">

@@ -59,7 +59,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const [{ data: assets }, { data: values }, { data: activity }, { data: approvals }, { data: missingInfoRows }, { data: approvalRows }, { data: notesRows }, shippingResult] =
+  const [{ data: assets }, { data: values }, { data: activity }, { data: approvals }, { data: notificationRows }, { data: notesRows }, shippingResult] =
     await Promise.all([
       supabase
         .from("assets")
@@ -82,13 +82,6 @@ export async function GET(
         .from("job_notifications")
         .select("*")
         .eq("order_id", id)
-        .eq("type", "missing_info")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("job_notifications")
-        .select("*")
-        .eq("order_id", id)
-        .eq("type", "customer_approval")
         .order("created_at", { ascending: false }),
       supabase
         .from("order_notes")
@@ -109,12 +102,17 @@ export async function GET(
       ? null
       : (shippingResult.data[0] as ShippingRequest);
 
-  const missingInfoList = missingInfoRows ?? [];
-  const approvalList = approvalRows ?? [];
+  const allNotifications = notificationRows ?? [];
+  const missingInfoList = allNotifications.filter(
+    (n) => n.type === "missing_info"
+  );
+  const approvalList = allNotifications.filter(
+    (n) => n.type === "customer_approval"
+  );
   const notesList = (notesRows ?? []) as { id: string; tenant_id: string; order_id: string; created_by: string | null; text: string; created_at: string }[];
   const creatorIds = [
     ...new Set(
-      [...missingInfoList, ...approvalList, ...notesList]
+      [...allNotifications, ...notesList]
         .map((n) => n.created_by as string | null)
         .filter(Boolean) as string[]
     ),
@@ -157,6 +155,13 @@ export async function GET(
   }));
 
   const approvalNotes = approvalList.map((n) => ({
+    ...n,
+    creator_name: n.created_by
+      ? (creatorNameById.get(n.created_by as string) ?? null)
+      : null,
+  }));
+
+  const notifications = allNotifications.map((n) => ({
     ...n,
     creator_name: n.created_by
       ? (creatorNameById.get(n.created_by as string) ?? null)
@@ -215,6 +220,7 @@ export async function GET(
     approvals: approvals ?? [],
     missingInfo,
     approvalNotes,
+    notifications,
     notes,
     shippingRequest,
   });
