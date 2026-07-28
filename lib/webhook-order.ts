@@ -192,6 +192,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   /**
    * Product taxonomy category (custom field "Category").
    * Distinct from `category` / `category_name`, which map to board tags.
+   * If `product_category` is omitted, `category` / `category_name` also fill
+   * the Category dropdown (CRM often sends taxonomy in `category`).
    */
   product_category?: string;
   finished_size?: string;
@@ -283,6 +285,8 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   /**
    * Product taxonomy category (custom field "Category").
    * Distinct from `category` / `category_name`, which map to board tags.
+   * If `product_category` is omitted, `category` / `category_name` also fill
+   * the Category dropdown (CRM often sends taxonomy in `category`).
    */
   product_category?: string;
   finished_size?: string;
@@ -890,9 +894,15 @@ function mergeItemWithOrder(
   return {
     ...item,
     product: firstNonEmpty(item.product, order.product),
+    // CRM often sends product taxonomy as `category` (also used for board tags).
+    // Prefer explicit product_category; fall back so Category dropdown is filled.
     product_category: firstNonEmpty(
       item.product_category,
-      order.product_category
+      order.product_category,
+      item.category,
+      order.category,
+      item.category_name,
+      order.category_name
     ),
     finished_size: firstNonEmpty(item.finished_size, order.finished_size),
     die: firstNonEmpty(item.die, order.die),
@@ -1127,7 +1137,8 @@ function resolveSelectField(
   value: string,
   options: string[],
   fieldName: string,
-  corrections: string[]
+  corrections: string[],
+  keepUnmatched = false
 ): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -1164,6 +1175,13 @@ function resolveSelectField(
       );
     }
     return match.matched;
+  }
+
+  if (keepUnmatched) {
+    corrections.push(
+      `"${fieldName}": "${trimmed}" — not in options, stored as-is`
+    );
+    return trimmed;
   }
 
   corrections.push(`"${fieldName}": "${trimmed}" — no match found, left blank`);
@@ -1366,7 +1384,13 @@ function resolveWebhookFieldValue(
   ) {
     const options = selectOptionsForWebhookField(webhookKey, field.options);
     if (options.length > 0) {
-      return resolveSelectField(text, options, webhookKey, corrections);
+      return resolveSelectField(
+        text,
+        options,
+        webhookKey,
+        corrections,
+        webhookKey === "product_category"
+      );
     }
   }
 

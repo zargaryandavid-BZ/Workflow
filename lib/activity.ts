@@ -5,12 +5,113 @@ export interface ActivityLogEntry extends ActivityLog {
   actor_name: string | null;
 }
 
+export interface SentMessageEntry {
+  id: string;
+  created_at: string;
+  actor_name: string | null;
+  channel: "email" | "sms" | "both" | "unknown";
+  title: string;
+  to: string | null;
+  subject: string | null;
+  messageBody: string | null;
+  action: string;
+}
+
 const CUSTOMER_ACTIONS = new Set([
   "approved",
   "rejected",
   "info_submitted",
   "customer_replied",
 ]);
+
+const MESSAGE_ACTIONS = new Set([
+  "emailed",
+  "texted",
+  "customer_notified",
+  "shipping_link_sent",
+]);
+
+function metaString(
+  meta: Record<string, unknown>,
+  key: string
+): string | null {
+  const value = meta[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function isSentMessageActivity(log: ActivityLog): boolean {
+  return MESSAGE_ACTIONS.has(log.action);
+}
+
+export function sentMessagesFromActivity(
+  activity: ActivityLogEntry[]
+): SentMessageEntry[] {
+  return activity.filter(isSentMessageActivity).map((log) => {
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
+    const buttonName = metaString(meta, "buttonName");
+    const subject = metaString(meta, "subject");
+    const messageBody =
+      metaString(meta, "messageBody") ??
+      metaString(meta, "smsBody") ??
+      metaString(meta, "emailBody");
+    const phone = metaString(meta, "phone");
+    const recipients = Array.isArray(meta.recipients)
+      ? (meta.recipients as unknown[]).filter(
+          (r): r is string => typeof r === "string" && r.trim().length > 0
+        )
+      : [];
+    const channelRaw = metaString(meta, "channel");
+    const channel: SentMessageEntry["channel"] =
+      channelRaw === "email" ||
+      channelRaw === "sms" ||
+      channelRaw === "both"
+        ? channelRaw
+        : log.action === "emailed"
+          ? "email"
+          : log.action === "texted"
+            ? "sms"
+            : meta.emailSent && meta.smsSent
+              ? "both"
+              : meta.emailSent
+                ? "email"
+                : meta.smsSent
+                  ? "sms"
+                  : "unknown";
+
+    const type = metaString(meta, "type");
+    let title = describeActivity(log);
+    if (buttonName) {
+      title = buttonName;
+    } else if (type === "customer_approval") {
+      title = "Approval request";
+    } else if (type === "missing_info") {
+      title = "Missing info request";
+    } else if (type === "ready_to_ship") {
+      title = "Ready to ship";
+    } else if (log.action === "shipping_link_sent") {
+      title = buttonName ?? "Shipping link";
+    }
+
+    const to =
+      recipients.length > 0
+        ? recipients.join(", ")
+        : phone
+          ? phone
+          : null;
+
+    return {
+      id: log.id,
+      created_at: log.created_at,
+      actor_name: log.actor_name,
+      channel,
+      title,
+      to,
+      subject,
+      messageBody,
+      action: log.action,
+    };
+  });
+}
 
 export function describeActivity(log: ActivityLog): string {
   const meta = log.metadata ?? {};
@@ -83,6 +184,14 @@ export function describeActivity(log: ActivityLog): string {
       if (buttonName) return `SMS sent (${buttonName})${phone ? ` to ${phone}` : ""}`;
       if (phone) return `SMS sent to ${phone}`;
       return "SMS sent";
+    }
+    case "shipping_link_sent": {
+      const buttonName = meta.buttonName as string | undefined;
+      const portalUrl = meta.portalUrl as string | undefined;
+      if (buttonName && portalUrl) {
+        return `Shipping link sent (${buttonName})`;
+      }
+      return "Shipping link sent";
     }
     case "customer_merged":
       return "Customer records merged";

@@ -17,6 +17,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
+import { HistoryTab } from "./history-tab";
 import { MissingInfoTab } from "./missing-info-tab";
 import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
@@ -25,7 +26,7 @@ import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
-import { describeActivity, type ActivityLogEntry } from "@/lib/activity";
+import { describeActivity, sentMessagesFromActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder, productFromOrder } from "@/lib/notification-messages";
 import { groupSkuImagesBySkuId } from "@/lib/sku-images";
 import {
@@ -216,7 +217,7 @@ export function CardDetailModal({
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
-  const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping">(
+  const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "history">(
     "details"
   );
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -835,8 +836,9 @@ export function CardDetailModal({
       : [];
   const hasApproval = (data?.approvalNotes.length ?? 0) > 0;
   const hasShipping = Boolean(data?.shippingRequest);
-  const hasExtraTabs =
-    !isViewOnly && (showMissingInfoTab || hasApproval || hasShipping);
+  const sentMessageCount = data
+    ? sentMessagesFromActivity(data.activity).length
+    : 0;
   const orderContact = data
     ? customerContactFromOrder(data.order, fieldValues, modalCustomFields)
     : { email: null, phone: null };
@@ -1367,6 +1369,25 @@ export function CardDetailModal({
                   />
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => setTab("history")}
+                className={cn(
+                  "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                  tab === "history"
+                    ? "border-[var(--primary)] text-[var(--primary)]"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                )}
+              >
+                History
+                {sentMessageCount > 0 ? (
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                    {sentMessageCount}
+                  </span>
+                ) : (
+                  <span className="h-2 w-2 rounded-full bg-slate-300" />
+                )}
+              </button>
             </div>
           ) : null}
 
@@ -1392,6 +1413,10 @@ export function CardDetailModal({
                       /shipment link|link sent/i.test(message)
                     ) {
                       setTab("shipping");
+                    } else if (
+                      /email sent|sms sent|texted|review/i.test(message)
+                    ) {
+                      setTab("history");
                     }
                   });
                   onChanged();
@@ -1451,6 +1476,8 @@ export function CardDetailModal({
                 );
               }}
             />
+          ) : tab === "history" ? (
+            <HistoryTab activity={data.activity} />
           ) : (
         <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="space-y-4 md:col-span-2">

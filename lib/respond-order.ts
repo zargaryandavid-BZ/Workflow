@@ -1,4 +1,5 @@
 import {
+  ARTWORK_FIELD_NAME,
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
   DESIGNER_FIELD_NAME,
@@ -62,6 +63,7 @@ export function buildRespondOrderRows(
       name === CUSTOMER_NAME_FIELD_NAME ||
       name === CUSTOMER_CONTACT_FIELD_NAME ||
       name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase() ||
+      name.toLowerCase() === ARTWORK_FIELD_NAME.toLowerCase() ||
       key === "unit price" ||
       key === "unit price ($)"
     ) {

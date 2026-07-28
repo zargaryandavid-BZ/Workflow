@@ -13,7 +13,7 @@ import {
 } from "@/lib/button-automations";
 import { logActivity } from "@/lib/automation";
 import { sendSms, isSmsConfigured } from "@/lib/sms";
-import { addOrderTag } from "@/lib/order-tags";
+import { actionTagForButton, addOrderTag } from "@/lib/order-tags";
 
 export async function POST(
   request: Request,
@@ -96,8 +96,9 @@ export async function POST(
     );
   }
 
-  // Multi-part orders: if every sibling is in this column, tag all of them
-  // Texted. Otherwise only tag the card the SMS was sent from.
+  // Multi-part orders: if every sibling is in this column, tag all of them.
+  // Otherwise only tag the card the SMS was sent from.
+  // "Review Request" (and similarly named) buttons tag Review instead of Texted.
   const siblings = await fetchOrderGroupSiblings(
     supabase,
     ctx.tenant.id,
@@ -115,13 +116,14 @@ export async function POST(
           specs: exportData.order.specs,
         },
       ];
+  const tag = actionTagForButton(button.name, "Texted");
 
   for (const target of tagTargets) {
     await addOrderTag(
       supabase,
       target.id,
       ctx.tenant.id,
-      "Texted",
+      tag,
       (target.specs ?? {}) as Record<string, unknown>
     );
   }
@@ -135,6 +137,8 @@ export async function POST(
       buttonId: button.id,
       buttonName: button.name,
       phone,
+      channel: "sms",
+      messageBody,
       taggedOrderIds: tagTargets.map((t) => t.id),
       groupFullyInColumn: allReady,
     },

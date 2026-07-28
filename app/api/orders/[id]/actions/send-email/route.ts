@@ -8,12 +8,13 @@ import {
 import {
   buildButtonAutomationEmailHtml,
   buildButtonAutomationEmailSubject,
+  buildButtonAutomationEmailText,
   resolveEmailRecipients,
 } from "@/lib/button-automation-messages";
 import { parseEmailConfig } from "@/lib/button-automations";
 import { logActivity } from "@/lib/automation";
 import { sendTransactionalEmail } from "@/lib/email";
-import { addOrderTag } from "@/lib/order-tags";
+import { actionTagForButton, addOrderTag } from "@/lib/order-tags";
 import type { ButtonAutomationEmailConfig } from "@/lib/types";
 
 export async function POST(
@@ -74,6 +75,7 @@ export async function POST(
 
   const subject = buildButtonAutomationEmailSubject(exportData, config);
   const html = buildButtonAutomationEmailHtml(exportData);
+  const messageBody = buildButtonAutomationEmailText(exportData);
 
   const results = await Promise.all(
     recipients.map((to) =>
@@ -93,7 +95,7 @@ export async function POST(
     supabase,
     orderId,
     ctx.tenant.id,
-    "Emailed",
+    actionTagForButton(button.name, "Emailed"),
     (exportData.order.specs ?? {}) as Record<string, unknown>
   );
 
@@ -106,6 +108,9 @@ export async function POST(
       buttonId: button.id,
       buttonName: button.name,
       recipients,
+      channel: "email",
+      subject,
+      messageBody,
     },
   });
 

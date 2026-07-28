@@ -3,7 +3,18 @@ import type { OrderSpecs } from "@/lib/types";
 
 export const ORDER_TAG_STYLES: Record<string, string> = {
   Emailed: "bg-green-100 text-green-700 border border-green-200",
+  Texted: "bg-sky-100 text-sky-700 border border-sky-200",
+  Review: "bg-violet-100 text-violet-700 border border-violet-200",
 };
+
+/** Card tag for a button automation: "Review Request" → Review; otherwise fallback. */
+export function actionTagForButton(
+  buttonName: string,
+  fallback: "Emailed" | "Texted"
+): string {
+  if (/review/i.test(buttonName)) return "Review";
+  return fallback;
+}
 
 export function orderTagsFromSpecs(
   specs: OrderSpecs | null | undefined

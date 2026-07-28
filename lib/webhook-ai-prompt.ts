@@ -143,8 +143,8 @@ Order level:
 - description (order description)
 - notes (CRM Attention / Internal Notes → every sub-card; alias internal_note)
 - items[].line_item_comment (CRM Line Item Comment → that sub-order Notes only)
-- category (board TAG name — optional)
-- product_category (dropdown Category — Apparel, Labels & Stickers, …; inferred from product if omitted)
+- category (board TAG name when it matches a tag; also fills Category dropdown if product_category omitted)
+- product_category (dropdown Category — Apparel, Labels & Stickers, …; prefer this over category)
 - source_url (CRM order page URL)  ← required for globe Source link
 - payment_status: partial|full     ← required for payment globe
 - deposit
@@ -155,8 +155,8 @@ Order level:
 
 Each items[] entry:
 - title (line title)
-- category (board TAG — optional)
-- product_category (Category dropdown; omit to infer from product)
+- category (board TAG when it matches a tag; also fills Category if product_category omitted)
+- product_category (Category dropdown; prefer this over category)
 - product
 - materials
 - finished_size  OR width + height (Workflow builds "W x H" if finished_size omitted)

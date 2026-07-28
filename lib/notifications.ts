@@ -137,6 +137,11 @@ async function deliverNotification(
   const wantSms = params.channel === "sms" || params.channel === "both";
   const sentParts: Array<"email" | "sms"> = [];
   const errors: string[] = [];
+  let sentSubject: string | null = null;
+  let sentEmailBody: string | null = null;
+  let sentSmsBody: string | null = null;
+  let sentToEmail: string | null = null;
+  let sentToPhone: string | null = null;
 
   let templates: MessageTemplateMap | null = null;
   try {
@@ -210,6 +215,21 @@ async function deliverNotification(
         team_name: teamName,
         brand: params.tenantName,
       };
+      const resolvedSubject =
+        params.subject ??
+        (params.notification.type === "missing_info"
+          ? missingInfoSubject(params.order.title, templates, subjectVars)
+          : params.notification.type === "customer_approval"
+            ? approvalSubject(params.order.title, templates, subjectVars)
+            : params.notification.type === "ready_to_ship"
+              ? readyToShipSubject(readyToShipOrderLabel, templates, subjectVars)
+              : undefined);
+      const textBody =
+        params.notification.type === "customer_approval" && params.messageBody
+          ? params.messageBody
+          : params.notification.type === "ready_to_ship" && params.messageBody
+            ? ensureReadyToShipOrderLink(params.messageBody, actionUrl)
+            : undefined;
       const emailResult = await sendNotificationEmail({
         to: customerEmail,
         type: params.notification.type,
@@ -219,26 +239,16 @@ async function deliverNotification(
         staffNote,
         customerName,
         productType,
-        subject:
-          params.subject ??
-          (params.notification.type === "missing_info"
-            ? missingInfoSubject(params.order.title, templates, subjectVars)
-            : params.notification.type === "customer_approval"
-              ? approvalSubject(params.order.title, templates, subjectVars)
-              : params.notification.type === "ready_to_ship"
-                ? readyToShipSubject(readyToShipOrderLabel, templates, subjectVars)
-                : undefined),
+        subject: resolvedSubject,
         htmlBody,
-        textBody:
-          params.notification.type === "customer_approval" && params.messageBody
-            ? params.messageBody
-            : params.notification.type === "ready_to_ship" && params.messageBody
-              ? ensureReadyToShipOrderLink(params.messageBody, actionUrl)
-              : undefined,
+        textBody,
         templates,
       });
       if (emailResult.sent) {
         sentParts.push("email");
+        sentToEmail = customerEmail;
+        sentSubject = resolvedSubject ?? null;
+        sentEmailBody = textBody ?? params.messageBody ?? null;
       } else {
         errors.push(emailResult.error ?? deliveryErrorMessage("email"));
       }
@@ -282,6 +292,8 @@ async function deliverNotification(
       const smsResult = await sendSms({ to: customerPhone, body });
       if (smsResult.sent) {
         sentParts.push("sms");
+        sentToPhone = customerPhone;
+        sentSmsBody = body;
       } else {
         errors.push(smsResult.error ?? deliveryErrorMessage("sms"));
       }
@@ -317,6 +329,12 @@ async function deliverNotification(
       type: params.notification.type,
       channel: storedChannel,
       notificationId: params.notification.id,
+      subject: sentSubject,
+      messageBody: sentSmsBody ?? sentEmailBody,
+      emailBody: sentEmailBody,
+      smsBody: sentSmsBody,
+      recipients: sentToEmail ? [sentToEmail] : undefined,
+      phone: sentToPhone,
     },
   });
 
