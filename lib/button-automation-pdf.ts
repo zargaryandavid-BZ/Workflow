@@ -12,6 +12,24 @@ const MARGIN = 40;
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
 const COL_WIDTH = (PAGE_WIDTH - MARGIN * 2) / 2;
+/** Leave room for footer; never let PDFKit auto-paginate absolute text. */
+const CONTENT_BOTTOM = PAGE_HEIGHT - 32;
+
+/** Absolute-positioned text that must not trigger PDFKit page breaks. */
+function textAt(
+  doc: PdfDoc,
+  str: string,
+  x: number,
+  y: number,
+  options: {
+    width?: number;
+    align?: "left" | "center" | "right" | "justify";
+    link?: string;
+    underline?: boolean;
+  } = {}
+) {
+  doc.text(str, x, y, { ...options, lineBreak: false });
+}
 
 function yesNo(value: string): string {
   const lower = value.trim().toLowerCase();
@@ -79,52 +97,43 @@ function drawHeader(
   orderNumber: string
 ) {
   doc.rect(0, 0, PAGE_WIDTH, 44).fill("#1a1a2e");
-  doc
-    .fillColor("#ffffff")
-    .fontSize(11)
-    .font("Helvetica-Bold")
-    .text(tenantName.toUpperCase(), MARGIN, 14);
-  doc
-    .fontSize(9)
-    .font("Helvetica")
-    .text("JOB TICKET", PAGE_WIDTH - MARGIN - 60, 14, {
-      width: 60,
-      align: "right",
-    });
-  doc
-    .fontSize(9)
-    .text(orderNumber, MARGIN, 28)
-    .text(
-      new Date().toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
-      PAGE_WIDTH - MARGIN - 100,
-      28,
-      { width: 100, align: "right" }
-    );
+  doc.fillColor("#ffffff").fontSize(11).font("Helvetica-Bold");
+  textAt(doc, tenantName.toUpperCase(), MARGIN, 14);
+  doc.fontSize(9).font("Helvetica");
+  textAt(doc, "JOB TICKET", PAGE_WIDTH - MARGIN - 60, 14, {
+    width: 60,
+    align: "right",
+  });
+  textAt(doc, orderNumber, MARGIN, 28);
+  textAt(
+    doc,
+    new Date().toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }),
+    PAGE_WIDTH - MARGIN - 100,
+    28,
+    { width: 100, align: "right" }
+  );
   doc.fillColor("#000000");
 }
 
 function drawFooter(doc: PdfDoc, pageNum: number, totalPages: number) {
-  doc
-    .fontSize(8)
-    .fillColor("#888888")
-    .text(`Page ${pageNum} of ${totalPages}`, MARGIN, PAGE_HEIGHT - 24, {
-      width: PAGE_WIDTH - MARGIN * 2,
-      align: "center",
-    });
+  doc.fontSize(8).fillColor("#888888");
+  textAt(doc, `Page ${pageNum} of ${totalPages}`, MARGIN, PAGE_HEIGHT - 24, {
+    width: PAGE_WIDTH - MARGIN * 2,
+    align: "center",
+  });
   doc.fillColor("#000000");
 }
 
 function drawSectionTitle(doc: PdfDoc, title: string, y: number): number {
   doc.rect(MARGIN, y, PAGE_WIDTH - MARGIN * 2, 20).fill("#f3f4f6");
-  doc
-    .fillColor("#374151")
-    .fontSize(9)
-    .font("Helvetica-Bold")
-    .text(title, MARGIN + 6, y + 6);
+  doc.fillColor("#374151").fontSize(9).font("Helvetica-Bold");
+  textAt(doc, title, MARGIN + 6, y + 6, {
+    width: PAGE_WIDTH - MARGIN * 2 - 12,
+  });
   doc.fillColor("#000000").font("Helvetica");
   return y + 24;
 }
@@ -261,15 +270,15 @@ function drawSummaryCell(
   doc
     .fontSize(9)
     .font("Helvetica-Bold")
-    .fillColor("#6b7280")
-    .text(label, textX, y, { width: labelW });
+    .fillColor("#6b7280");
+  textAt(doc, label, textX, y, { width: labelW });
   doc
     .fontSize(9)
     .font("Helvetica-Bold")
-    .fillColor("#111827")
-    .text(value || "—", textX + labelW, y, {
-      width: Math.max(0, width - gutter - labelW),
-    });
+    .fillColor("#111827");
+  textAt(doc, value || "—", textX + labelW, y, {
+    width: Math.max(0, width - gutter - labelW),
+  });
 }
 
 /** ATTENTION blocks (production notes + internal notes), drawn below the specs. */
@@ -304,29 +313,34 @@ function drawAttentionBlocks(
     accent: string,
     titleColor: string
   ) => {
-    const boxH = measure(text);
-    if (!text || boxH <= 0) return;
+    if (!text) return;
+    const measured = measure(text);
+    if (measured <= 0) return;
+
+    // Never start a notes box past the footer — that was creating orphan pages
+    // with fragments like "Letters are gold Foil".
+    const spaceLeft = CONTENT_BOTTOM - nextY;
+    if (spaceLeft < 44) return;
+
+    const boxH = Math.min(measured, spaceLeft);
     const ay = nextY;
     doc.rect(x, ay, w, boxH).fill(fill);
     doc.rect(x, ay, 4, boxH).fill(accent);
     doc.rect(x, ay, w, boxH).strokeColor(accent).lineWidth(1.25).stroke();
 
-    doc
-      .fillColor(titleColor)
-      .fontSize(10)
-      .font("Helvetica-Bold")
-      .text("ATTENTION", x + 12, ay + 10, { width: innerW });
-    doc
-      .fillColor(titleColor)
-      .fontSize(9)
-      .font("Helvetica")
-      .text(subtitle, x + 12, ay + 22, { width: innerW });
+    doc.fillColor(titleColor).fontSize(10).font("Helvetica-Bold");
+    textAt(doc, "ATTENTION", x + 12, ay + 10, { width: innerW });
+    doc.fillColor(titleColor).fontSize(9).font("Helvetica");
+    textAt(doc, subtitle, x + 12, ay + 22, { width: innerW });
 
-    doc
-      .fontSize(10)
-      .font("Helvetica")
-      .fillColor("#111827")
-      .text(text, x + 12, ay + 10 + titleH, { width: innerW });
+    const bodyTop = ay + 10 + titleH;
+    const bodyH = Math.max(12, boxH - (bodyTop - ay) - 8);
+    doc.fontSize(10).font("Helvetica").fillColor("#111827");
+    doc.text(text, x + 12, bodyTop, {
+      width: innerW,
+      height: bodyH,
+      ellipsis: true,
+    });
 
     doc.fillColor("#000000").font("Helvetica");
     nextY = ay + boxH + 8;
@@ -435,11 +449,8 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   doc.rect(x, startY, w, boxH).strokeColor("#fcd34d").lineWidth(0.5).stroke();
 
   // Section title
-  doc
-    .fillColor("#92400e")
-    .fontSize(9)
-    .font("Helvetica-Bold")
-    .text("PRODUCT SPECIFICATIONS", innerX + 6, startY + 8);
+  doc.fillColor("#92400e").fontSize(9).font("Helvetica-Bold");
+  textAt(doc, "PRODUCT SPECIFICATIONS", innerX + 6, startY + 8);
   doc.fillColor("#000000").font("Helvetica");
 
   const tableX = x + 4;
@@ -467,16 +478,16 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
     doc
       .fontSize(LABEL_SIZE)
       .font("Helvetica-Bold")
-      .fillColor("#78350f")
-      .text(cell.label, cellX + padX, textY, { width: labelW });
+      .fillColor("#78350f");
+    textAt(doc, cell.label, cellX + padX, textY, { width: labelW });
     doc
       .fontSize(VALUE_SIZE)
       .font("Helvetica-Bold")
-      .fillColor(cell.link ? "#1d4ed8" : "#111827")
-      .text(cell.value || "—", cellX + padX + labelW, textY, {
-        width: valueW,
-        ...(cell.link ? { link: cell.link, underline: true } : {}),
-      });
+      .fillColor(cell.link ? "#1d4ed8" : "#111827");
+    textAt(doc, cell.value || "—", cellX + padX + labelW, textY, {
+      width: valueW,
+      ...(cell.link ? { link: cell.link, underline: true } : {}),
+    });
   };
 
   for (let i = 0; i < maxRows; i++) {
@@ -506,17 +517,15 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
       .lineWidth(0.5)
       .stroke();
     y += 10;
-    doc
-      .fontSize(9)
-      .font("Helvetica-Bold")
-      .fillColor("#78350f")
-      .text("Order Description", innerX + 6, y);
+    doc.fontSize(9).font("Helvetica-Bold").fillColor("#78350f");
+    textAt(doc, "Order Description", innerX + 6, y);
     y += 14;
-    doc
-      .fontSize(10)
-      .font("Helvetica")
-      .fillColor("#111827")
-      .text(description, innerX + 6, y, { width: innerW - 12 });
+    doc.fontSize(10).font("Helvetica").fillColor("#111827");
+    doc.text(description, innerX + 6, y, {
+      width: innerW - 12,
+      height: Math.max(12, descH - 28),
+      ellipsis: true,
+    });
   }
 
   doc.fillColor("#000000").font("Helvetica");
@@ -557,13 +566,21 @@ function drawDescription(doc: PdfDoc, description: string, startY: number): numb
 
 function drawPage1(
   doc: PdfDoc,
-  data: OrderExportData,
-  totalPages: number
-) {
+  data: OrderExportData
+): number {
   drawHeader(doc, data.tenantName, data.orderNumberDisplay);
 
   let y = 56;
   const w = PAGE_WIDTH - MARGIN * 2 - 12;
+  let contentPages = 1;
+
+  const ensureSkuSpace = (needed: number) => {
+    if (y + needed <= CONTENT_BOTTOM) return;
+    doc.addPage();
+    contentPages += 1;
+    drawHeader(doc, data.tenantName, data.orderNumberDisplay);
+    y = 56;
+  };
 
   y = drawSectionTitle(doc, "ORDER", y);
   const x = MARGIN + 6;
@@ -593,31 +610,36 @@ function drawPage1(
 
   y = drawSpecs(doc, data, y);
 
+  // If specs/notes pushed past the page, continue SKUs on a fresh page.
+  if (y > CONTENT_BOTTOM - 40) {
+    doc.addPage();
+    contentPages += 1;
+    drawHeader(doc, data.tenantName, data.orderNumberDisplay);
+    y = 56;
+  }
+
   const skuCount = data.skuRows.length;
   const skuHeader = `SKUs — ${skuCount} SKU${skuCount !== 1 ? "s" : ""} · ${fmtQty(data.totalQty)} pcs`;
+  ensureSkuSpace(24);
   y = drawSectionTitle(doc, skuHeader, y);
 
   for (const sku of data.skuRows) {
+    ensureSkuSpace(18);
     const rowX = MARGIN + 6;
-    doc
-      .fontSize(10)
-      .font("Helvetica-Bold")
-      .fillColor("#9ca3af")
-      .text(`${sku.index}`, rowX, y, { width: 20 });
-    doc
-      .fontSize(10)
-      .font("Helvetica")
-      .fillColor("#111827")
-      .text(sku.name, rowX + 24, y, { width: w - 90 });
-    doc
-      .fontSize(10)
-      .font("Helvetica-Bold")
-      .fillColor("#374151")
-      .text(fmtQty(sku.qty), rowX + w - 60, y, { width: 60, align: "right" });
+    doc.fontSize(10).font("Helvetica-Bold").fillColor("#9ca3af");
+    textAt(doc, `${sku.index}`, rowX, y, { width: 20 });
+    doc.fontSize(10).font("Helvetica").fillColor("#111827");
+    textAt(doc, sku.name, rowX + 24, y, { width: w - 90 });
+    doc.fontSize(10).font("Helvetica-Bold").fillColor("#374151");
+    textAt(doc, fmtQty(sku.qty), rowX + w - 60, y, {
+      width: 60,
+      align: "right",
+    });
     y += 18;
   }
 
-  drawFooter(doc, 1, totalPages);
+  doc.fillColor("#000000").font("Helvetica");
+  return contentPages;
 }
 
 function drawNoArtworkPlaceholder(
@@ -633,13 +655,11 @@ function drawNoArtworkPlaceholder(
     .dash(4, { space: 4 })
     .stroke();
   doc.undash();
-  doc
-    .fontSize(11)
-    .fillColor("#9ca3af")
-    .text(message, MARGIN, top + height / 2 - 8, {
-      width: PAGE_WIDTH - MARGIN * 2,
-      align: "center",
-    });
+  doc.fontSize(11).fillColor("#9ca3af");
+  textAt(doc, message, MARGIN, top + height / 2 - 8, {
+    width: PAGE_WIDTH - MARGIN * 2,
+    align: "center",
+  });
 }
 
 function drawArtworkPage(
@@ -651,49 +671,38 @@ function drawArtworkPage(
   skuQty: number | null,
   imageIndex: number,
   totalImagesForSku: number,
-  pageNum: number,
-  totalPages: number,
   imageBuffer: Buffer | null
 ) {
   doc.rect(0, 0, PAGE_WIDTH, 78).fill("#1a1a2e");
   doc
     .fillColor("#ffffff")
     .fontSize(11)
-    .font("Helvetica-Bold")
-    .text(data.tenantName.toUpperCase(), MARGIN, 10);
-  doc
-    .fontSize(10)
-    .font("Helvetica")
-    .text("JOB TICKET", PAGE_WIDTH - MARGIN - 70, 10, {
-      width: 70,
-      align: "right",
-    });
+    .font("Helvetica-Bold");
+  textAt(doc, data.tenantName.toUpperCase(), MARGIN, 10);
+  doc.fontSize(10).font("Helvetica");
+  textAt(doc, "JOB TICKET", PAGE_WIDTH - MARGIN - 70, 10, {
+    width: 70,
+    align: "right",
+  });
 
   // Order number (left) + Qty (right) — balanced, press-readable sizes
-  doc
-    .fontSize(13)
-    .font("Helvetica-Bold")
-    .text(data.orderNumberDisplay, MARGIN, 30);
-  doc
-    .fontSize(11)
-    .font("Helvetica-Bold")
-    .text(`Qty: ${fmtQty(skuQty)}`, PAGE_WIDTH - MARGIN - 90, 32, {
-      width: 90,
-      align: "right",
-    });
+  doc.fontSize(13).font("Helvetica-Bold");
+  textAt(doc, data.orderNumberDisplay, MARGIN, 30);
+  doc.fontSize(11).font("Helvetica-Bold");
+  textAt(doc, `Qty: ${fmtQty(skuQty)}`, PAGE_WIDTH - MARGIN - 90, 32, {
+    width: 90,
+    align: "right",
+  });
 
   const skuLabel =
     totalImagesForSku > 1
       ? `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}  ·  Image ${imageIndex + 1}/${totalImagesForSku}`
       : `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}`;
 
-  doc
-    .fontSize(10)
-    .font("Helvetica")
-    .fillColor("#d1d5db")
-    .text(skuLabel, MARGIN, 52, {
-      width: PAGE_WIDTH - MARGIN * 2,
-    });
+  doc.fontSize(10).font("Helvetica").fillColor("#d1d5db");
+  textAt(doc, skuLabel, MARGIN, 52, {
+    width: PAGE_WIDTH - MARGIN * 2,
+  });
 
   doc.fillColor("#000000");
 
@@ -717,8 +726,6 @@ function drawArtworkPage(
   } else {
     drawNoArtworkPlaceholder(doc, imageTop, imageAreaH, "No artwork uploaded");
   }
-
-  drawFooter(doc, pageNum, totalPages);
 }
 
 function totalArtworkPages(data: OrderExportData): number {
@@ -732,7 +739,6 @@ export async function generateJobTicketPdf(
   data: OrderExportData
 ): Promise<Buffer> {
   const artworkPages = totalArtworkPages(data);
-  const totalPages = 1 + artworkPages;
 
   const doc = new PDFDocument({
     size: "A4",
@@ -745,9 +751,10 @@ export async function generateJobTicketPdf(
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
 
   doc.addPage();
-  drawPage1(doc, data, totalPages);
+  drawPage1(doc, data);
 
-  let pageNum = 2;
+  // One artwork page per SKU image (or a placeholder page when none).
+  let drawnArtwork = 0;
   for (let skuIdx = 0; skuIdx < data.skuRows.length; skuIdx++) {
     const sku = data.skuRows[skuIdx];
     const images = sku.imageLinks;
@@ -763,11 +770,9 @@ export async function generateJobTicketPdf(
         sku.qty,
         0,
         0,
-        pageNum,
-        totalPages,
         null
       );
-      pageNum++;
+      drawnArtwork += 1;
     } else {
       for (let imgIdx = 0; imgIdx < images.length; imgIdx++) {
         const buf = await fetchImageBuffer(images[imgIdx]);
@@ -781,13 +786,26 @@ export async function generateJobTicketPdf(
           sku.qty,
           imgIdx,
           images.length,
-          pageNum,
-          totalPages,
           buf
         );
-        pageNum++;
+        drawnArtwork += 1;
       }
     }
+  }
+
+  // Stamp correct footers after all pages exist.
+  const range = doc.bufferedPageRange();
+  const totalPages = range.count;
+  for (let i = 0; i < range.count; i++) {
+    doc.switchToPage(range.start + i);
+    drawFooter(doc, i + 1, totalPages);
+  }
+
+  if (drawnArtwork !== artworkPages) {
+    console.warn(
+      "[generateJobTicketPdf] artwork page count mismatch",
+      { drawnArtwork, artworkPages }
+    );
   }
 
   doc.end();
