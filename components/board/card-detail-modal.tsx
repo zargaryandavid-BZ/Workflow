@@ -340,22 +340,25 @@ export function CardDetailModal({
         if (!res.ok) setSaveError("Failed to load order");
         return;
       }
-      let json: DetailResponse;
+      let parsed: unknown;
       try {
-        json = JSON.parse(text) as DetailResponse;
+        parsed = JSON.parse(text);
       } catch {
         setSaveError("Failed to load order");
         return;
       }
       if (!res.ok) {
-        setSaveError(
-          typeof (json as { error?: unknown }).error === "string"
-            ? (json as { error: string }).error
-            : "Failed to load order"
-        );
+        const err =
+          parsed &&
+          typeof parsed === "object" &&
+          "error" in parsed &&
+          typeof (parsed as { error: unknown }).error === "string"
+            ? (parsed as { error: string }).error
+            : "Failed to load order";
+        setSaveError(err);
         return;
       }
-      applyDetail(json);
+      applyDetail(parsed as DetailResponse);
     } catch {
       setSaveError("Failed to load order");
     } finally {
