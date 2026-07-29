@@ -349,7 +349,8 @@ export type ButtonAutomationActionType =
   | "send_email"
   | "send_sms"
   | "generate_pdf"
-  | "generate_packing_slip";
+  | "generate_packing_slip"
+  | "request_approval";
 
 export type ButtonAutomationEmailRecipient =
   | "customer"

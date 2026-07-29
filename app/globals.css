@@ -144,3 +144,25 @@ body {
 .warning-dot-purple { background: rgb(168, 85, 247); }
 .warning-dot-blue   { background: rgb(59, 130, 246); }
 .warning-dot-pink   { background: rgb(236, 72, 153); }
+
+/* Flash the card that was just closed from the job ticket. */
+@keyframes card-just-closed-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.55);
+    border-color: rgb(37, 99, 235);
+  }
+  40% {
+    box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.2);
+    border-color: rgb(59, 130, 246);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+.card-just-closed {
+  position: relative;
+  z-index: 1;
+  border-color: rgb(37, 99, 235) !important;
+  animation: card-just-closed-pulse 1.6s ease-out 2;
+}

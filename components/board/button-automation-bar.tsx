@@ -20,6 +20,7 @@ interface ButtonAutomationBarProps {
   customerEmail?: string | null;
   customerPhone?: string | null;
   productLabel?: string | null;
+  onRequestApproval?: () => void;
   onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
@@ -36,6 +37,7 @@ export function ButtonAutomationBar({
   customerEmail,
   customerPhone,
   productLabel,
+  onRequestApproval,
   onComplete,
   onError,
 }: ButtonAutomationBarProps) {
@@ -57,6 +59,7 @@ export function ButtonAutomationBar({
           customerEmail={customerEmail}
           customerPhone={customerPhone}
           productLabel={productLabel}
+          onRequestApproval={onRequestApproval}
           onComplete={onComplete}
           onError={onError}
         />

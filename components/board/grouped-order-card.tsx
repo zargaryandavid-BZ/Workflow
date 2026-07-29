@@ -45,6 +45,8 @@ interface GroupedOrderCardProps {
   ) => void;
   onSetDueDates?: (updates: GroupDueDateUpdate[]) => Promise<void>;
   onMoveGroup?: (orders: OrderWithRelations[], targetColumnId: string) => void;
+  /** When set and this group contains the order, expand + highlight. */
+  highlightedOrderId?: string | null;
 }
 
 export function GroupedOrderCard({
@@ -58,17 +60,25 @@ export function GroupedOrderCard({
   onAssignDesigner,
   onSetDueDates,
   onMoveGroup,
+  highlightedOrderId = null,
 }: GroupedOrderCardProps) {
   const { key, orders } = entry;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
   const [moveSubOpen, setMoveSubOpen] = useState(false);
   const [dueDatesOpen, setDueDatesOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const containsHighlight = Boolean(
+    highlightedOrderId && orders.some((o) => o.id === highlightedOrderId)
+  );
+
+  useEffect(() => {
+    if (containsHighlight) setOpen(true);
+  }, [containsHighlight, highlightedOrderId]);
 
   const hasGroupActions =
     Boolean(onAssignDesigner) ||
@@ -174,13 +184,18 @@ export function GroupedOrderCard({
   }
 
   return (
-    <div ref={ref} className="relative shrink-0">
+    <div
+      ref={ref}
+      className="relative shrink-0"
+      data-order-ids={orders.map((o) => o.id).join(",")}
+    >
       <div
         onClick={() => setOpen((v) => !v)}
         onContextMenu={handleContextMenu}
         className={cn(
           "cursor-pointer rounded-md border-2 border-blue-200 bg-blue-50 px-3 py-3.5 shadow-sm transition-shadow hover:shadow-md",
-          open && "ring-2 ring-blue-400 ring-offset-1"
+          open && "ring-2 ring-blue-400 ring-offset-1",
+          containsHighlight && "card-just-closed"
         )}
       >
         <div className="flex items-start justify-between gap-1.5">
@@ -278,12 +293,16 @@ export function GroupedOrderCard({
                 <button
                   key={order.id}
                   type="button"
+                  data-order-id={order.id}
                   onClick={(e) => {
                     e.stopPropagation();
                     setOpen(false);
                     onOpen(order);
                   }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
+                  className={cn(
+                    "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-slate-50",
+                    highlightedOrderId === order.id && "bg-blue-50"
+                  )}
                 >
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-blue-600">
                     {idx + 1}

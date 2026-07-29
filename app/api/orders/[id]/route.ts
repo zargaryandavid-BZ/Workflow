@@ -109,41 +109,86 @@ export async function GET(
   const approvalList = allNotifications.filter(
     (n) => n.type === "customer_approval"
   );
-  const notesList = (notesRows ?? []) as { id: string; tenant_id: string; order_id: string; created_by: string | null; text: string; created_at: string }[];
-  const creatorIds = [
-    ...new Set(
-      [...allNotifications, ...notesList]
-        .map((n) => n.created_by as string | null)
-        .filter(Boolean) as string[]
-    ),
-  ];
+  const notesList = (notesRows ?? []) as {
+    id: string;
+    tenant_id: string;
+    order_id: string;
+    created_by: string | null;
+    text: string;
+    created_at: string;
+  }[];
   const notificationIds = missingInfoList.map((n) => n.id as string);
 
-  let creatorNameById = new Map<string, string>();
-  if (creatorIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", creatorIds);
-    creatorNameById = new Map(
-      ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
-        (p) => [p.id, p.full_name ?? "Staff member"]
-      )
-    );
+  const activityRows = (activity ?? []) as ActivityLog[];
+  const profileIds = new Set<string>();
+  const columnIds = new Set<string>();
+  for (const n of [...allNotifications, ...notesList]) {
+    if (n.created_by) profileIds.add(n.created_by as string);
+  }
+  if (order.created_by) profileIds.add(order.created_by);
+  for (const log of activityRows) {
+    if (log.actor) profileIds.add(log.actor);
+    if (log.action === "moved") {
+      const meta = log.metadata ?? {};
+      if (typeof meta.from === "string") columnIds.add(meta.from);
+      if (typeof meta.to === "string") columnIds.add(meta.to);
+    }
   }
 
-  let assetsByNotification = new Map<string, typeof assets>();
-  if (notificationIds.length > 0) {
-    const { data: responseAssets } = await supabase
-      .from("assets")
+  const [
+    { data: profiles },
+    { data: responseAssets },
+    customFieldsResult,
+    columnsResult,
+    skuImagesRaw,
+  ] = await Promise.all([
+    profileIds.size > 0
+      ? supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", [...profileIds])
+      : Promise.resolve({
+          data: [] as { id: string; full_name: string | null }[],
+        }),
+    notificationIds.length > 0
+      ? supabase
+          .from("assets")
+          .select("*")
+          .in("notification_id", notificationIds)
+      : Promise.resolve({ data: [] as Asset[] }),
+    supabase
+      .from("custom_fields")
       .select("*")
-      .in("notification_id", notificationIds);
-    for (const asset of responseAssets ?? []) {
-      const nid = asset.notification_id as string;
-      const list = assetsByNotification.get(nid) ?? [];
-      list.push(asset);
-      assetsByNotification.set(nid, list);
-    }
+      .eq("tenant_id", tenantId)
+      .order("position", { ascending: true }),
+    columnIds.size > 0
+      ? supabase
+          .from("board_columns")
+          .select("id, name")
+          .in("id", [...columnIds])
+      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    listSkuImagesForOrder(supabase, id).catch(() => []),
+  ]);
+
+  const creatorNameById = new Map(
+    ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
+      (p) => [p.id, p.full_name?.trim() || "Staff member"]
+    )
+  );
+  const columnNameById = new Map(
+    ((columnsResult.data ?? []) as { id: string; name: string }[]).map((c) => [
+      c.id,
+      c.name,
+    ])
+  );
+
+  const assetsByNotification = new Map<string, Asset[]>();
+  for (const asset of (responseAssets ?? []) as Asset[]) {
+    const nid = asset.notification_id as string | null;
+    if (!nid) continue;
+    const list = assetsByNotification.get(nid) ?? [];
+    list.push(asset);
+    assetsByNotification.set(nid, list);
   }
 
   const missingInfo = missingInfoList.map((n) => ({
@@ -168,35 +213,23 @@ export async function GET(
       : null,
   }));
 
-  const enrichedActivity = await enrichActivityLog(
-    supabase,
-    (activity ?? []) as ActivityLog[],
-    order as Order
-  );
-
-  let skuImages: Awaited<ReturnType<typeof attachSignedUrlsToSkuImages>> = [];
-  try {
-    const raw = await listSkuImagesForOrder(supabase, id);
-    skuImages = await attachSignedUrlsToSkuImages(supabase, raw);
-  } catch {
-    skuImages = [];
-  }
+  const [enrichedActivity, skuImagesSigned] = await Promise.all([
+    enrichActivityLog(supabase, activityRows, order as Order, {
+      nameById: creatorNameById,
+      columnNameById,
+    }),
+    attachSignedUrlsToSkuImages(supabase, skuImagesRaw).catch(() => []),
+  ]);
 
   // Webhook artwork lands in `assets`; surface it in the SKU gallery slots.
   const orderSkus = normalizeSkus(
     (order.specs as { skus?: unknown } | null)?.skus
   );
-  skuImages = mergeSkuImagesWithAssets(
-    skuImages,
+  const skuImages = mergeSkuImagesWithAssets(
+    skuImagesSigned,
     (assets ?? []) as Asset[],
     { soleSkuId: orderSkus.length === 1 ? orderSkus[0].id : null }
   );
-
-  const { data: customFields } = await supabase
-    .from("custom_fields")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .order("position", { ascending: true });
 
   const notes: OrderNote[] = notesList.map((n) => ({
     id: n.id,
@@ -215,7 +248,7 @@ export async function GET(
     assets: assets ?? [],
     skuImages,
     values: values ?? [],
-    customFields: (customFields ?? []) as CustomField[],
+    customFields: (customFieldsResult.data ?? []) as CustomField[],
     activity: enrichedActivity,
     approvals: approvals ?? [],
     missingInfo,

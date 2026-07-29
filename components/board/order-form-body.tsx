@@ -28,7 +28,8 @@ import {
   resolveOrderFormFields,
   validateDueDate,
 } from "@/lib/order-form";
-import { refreshGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
+import { getFieldLinksCached } from "@/lib/field-links-cache";
+import { refreshGdriveFolderHasFiles, useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
 import {
   categoryForProductFromLinks,
   clearTargetsForSourceChange,
@@ -180,7 +181,6 @@ export function OrderFormBody({
   const { artworkField, orderQtyField, printFields } = resolved;
   const [hideEmpty, setHideEmpty] = useState(hideEmptyProp);
   const [artworkCopied, setArtworkCopied] = useState(false);
-  const [finalProdHasFiles, setFinalProdHasFiles] = useState(false);
   const [dueDateError, setDueDateError] = useState<string | null>(null);
   const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
     null
@@ -215,50 +215,19 @@ export function OrderFormBody({
   const artworkValue = artworkField
     ? String(fieldValues[artworkField.id] ?? "").trim()
     : "";
+  const finalProdHasFiles = useGdriveFolderHasFiles(orderId, artworkValue);
 
   const [fieldLinks, setFieldLinks] = useState<FieldLink[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/field-links");
-        if (!res.ok) return;
-        const json = (await res.json()) as FieldLink[];
-        if (!cancelled) setFieldLinks(json ?? []);
-      } catch {
-        // Non-fatal: form works without link filtering.
-      }
-    })();
+    void getFieldLinksCached().then((links) => {
+      if (!cancelled) setFieldLinks(links);
+    });
     return () => {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!orderId || !artworkValue || !/^https?:\/\//i.test(artworkValue)) {
-      setFinalProdHasFiles(false);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/orders/${orderId}/gdrive-status`);
-        if (!res.ok) {
-          if (!cancelled) setFinalProdHasFiles(false);
-          return;
-        }
-        const json = (await res.json()) as { hasFiles?: boolean };
-        if (!cancelled) setFinalProdHasFiles(Boolean(json.hasFiles));
-      } catch {
-        if (!cancelled) setFinalProdHasFiles(false);
-      }
-    }, 400);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [orderId, artworkValue]);
 
   function handleLinkedFieldChange(fieldId: string, value: unknown) {
     onFieldValueChange(fieldId, value);
@@ -362,14 +331,13 @@ export function OrderFormBody({
       // ignore clipboard failures
     }
     if (orderId) {
-      void refreshGdriveFolderHasFiles(orderId).then(setFinalProdHasFiles);
+      void refreshGdriveFolderHasFiles(orderId);
     }
   }
 
   function openArtworkFolder() {
     if (orderId) {
-      // Don't block navigation; refresh green state in the background.
-      void refreshGdriveFolderHasFiles(orderId).then(setFinalProdHasFiles);
+      void refreshGdriveFolderHasFiles(orderId);
     }
   }
 

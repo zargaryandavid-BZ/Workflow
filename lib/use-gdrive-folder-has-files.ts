@@ -34,7 +34,7 @@ async function fetchHasFiles(orderId: string): Promise<boolean> {
   return Boolean(json.hasFiles);
 }
 
-/** Drop cached status so the next hook render / refresh re-checks Drive. */
+/** Drop cached status so subscribers re-check Drive. */
 export function clearGdriveFolderHasFilesCache(orderId?: string) {
   if (orderId) {
     hasFilesCache.delete(orderId);
@@ -46,7 +46,7 @@ export function clearGdriveFolderHasFilesCache(orderId?: string) {
 }
 
 /**
- * Re-check Drive now (e.g. after Copy Link, Final production click, or column move).
+ * Re-check Drive now (Copy Link, Final production click, column move).
  * Updates cache and notifies mounted cards/forms.
  */
 export async function refreshGdriveFolderHasFiles(
@@ -66,8 +66,9 @@ export async function refreshGdriveFolderHasFiles(
 }
 
 /**
- * Whether the order's Artwork / Final production Google Drive folder has files.
- * Fetches once when artwork URL exists; refreshes when cache is invalidated.
+ * Green order # state from cache + explicit refreshes.
+ * Does **not** auto-call Drive on every card mount (that was flooding the API).
+ * Checks run on move / Copy Link / Final production open via refreshGdriveFolderHasFiles.
  */
 export function useGdriveFolderHasFiles(
   orderId: string | null | undefined,
@@ -98,6 +99,12 @@ export function useGdriveFolderHasFiles(
       return;
     }
 
+    // Cache miss after invalidate (not initial mount): re-fetch once.
+    if (epoch === 0) {
+      setHasFiles(false);
+      return;
+    }
+
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
@@ -107,7 +114,7 @@ export function useGdriveFolderHasFiles(
       } catch {
         if (!cancelled) setHasFiles(false);
       }
-    }, 400);
+    }, 200);
 
     return () => {
       cancelled = true;

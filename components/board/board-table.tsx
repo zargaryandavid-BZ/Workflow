@@ -106,6 +106,8 @@ interface BoardTableProps {
   onResendApproval?: (order: OrderWithRelations) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
   onVisible: (columnId: string) => void;
+  /** Order id to briefly highlight after closing the job ticket. */
+  highlightedOrderId?: string | null;
 }
 
 interface MenuState {
@@ -145,6 +147,7 @@ export function BoardTable({
   onResendApproval,
   onOpenOrder,
   onVisible,
+  highlightedOrderId = null,
 }: BoardTableProps) {
   const [menuState, setMenuState] = useState<MenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -466,7 +469,10 @@ export function BoardTable({
               <tr
                 key={order.id}
                 data-order-id={order.id}
-                className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/60"
+                className={cn(
+                  "cursor-pointer border-b border-slate-100 hover:bg-slate-50/60",
+                  highlightedOrderId === order.id && "card-just-closed bg-blue-50/80"
+                )}
                 onClick={() => onOpenOrder(order)}
                 onContextMenu={(e) => {
                   if (!moveableColumns.length) return;
@@ -772,6 +778,14 @@ export function BoardTable({
                           contact.phone ?? menuState.order.customer?.phone
                         }
                         productLabel={productLabel || null}
+                        onRequestApproval={
+                          onResendApproval
+                            ? () => {
+                                onResendApproval(menuState.order);
+                                setMenuState(null);
+                              }
+                            : undefined
+                        }
                         onComplete={(result) => {
                           onActionComplete?.(menuState.order, result);
                           setMenuState(null);

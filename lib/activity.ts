@@ -209,7 +209,13 @@ export function describeActivity(log: ActivityLog): string {
 export async function enrichActivityLog(
   client: SupabaseClient,
   activity: ActivityLog[],
-  order?: Pick<Order, "created_at" | "created_by"> | null
+  order?: Pick<Order, "created_at" | "created_by"> | null,
+  options?: {
+    /** Prefetched profile id → display name (skips a profiles query when complete). */
+    nameById?: Map<string, string>;
+    /** Prefetched column id → name. */
+    columnNameById?: Map<string, string>;
+  }
 ): Promise<ActivityLogEntry[]> {
   const entries = [...(activity ?? [])];
 
@@ -237,31 +243,35 @@ export async function enrichActivityLog(
     }
   }
 
-  let nameById = new Map<string, string>();
-  if (actorIds.size > 0) {
+  let nameById = options?.nameById ?? new Map<string, string>();
+  const missingActors = [...actorIds].filter((id) => !nameById.has(id));
+  if (missingActors.length > 0) {
     const { data: profiles } = await client
       .from("profiles")
       .select("id, full_name")
-      .in("id", [...actorIds]);
-    nameById = new Map(
+      .in("id", missingActors);
+    const fetched = new Map(
       ((profiles ?? []) as { id: string; full_name: string | null }[]).map(
         (p) => [p.id, p.full_name?.trim() || "Team member"]
       )
     );
+    nameById = new Map([...nameById, ...fetched]);
   }
 
-  let columnNameById = new Map<string, string>();
-  if (columnIds.size > 0) {
+  let columnNameById = options?.columnNameById ?? new Map<string, string>();
+  const missingColumns = [...columnIds].filter((id) => !columnNameById.has(id));
+  if (missingColumns.length > 0) {
     const { data: columns } = await client
       .from("board_columns")
       .select("id, name")
-      .in("id", [...columnIds]);
-    columnNameById = new Map(
+      .in("id", missingColumns);
+    const fetched = new Map(
       ((columns ?? []) as { id: string; name: string }[]).map((c) => [
         c.id,
         c.name,
       ])
     );
+    columnNameById = new Map([...columnNameById, ...fetched]);
   }
 
   return entries

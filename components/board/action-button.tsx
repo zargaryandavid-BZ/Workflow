@@ -28,6 +28,8 @@ interface ActionButtonProps {
   customerEmail?: string | null;
   customerPhone?: string | null;
   productLabel?: string | null;
+  /** Opens the same approval request popup as dropping into Waiting Approval. */
+  onRequestApproval?: () => void;
   onComplete: (result: ActionButtonResult) => void;
   onError: (message: string) => void;
 }
@@ -44,6 +46,7 @@ export function ActionButton({
   customerEmail,
   customerPhone,
   productLabel,
+  onRequestApproval,
   onComplete,
   onError,
 }: ActionButtonProps) {
@@ -144,6 +147,14 @@ export function ActionButton({
       if (button.action_type === "generate_packing_slip") {
         setLoading(false);
         setPackingOpen(true);
+        return;
+      }
+
+      if (button.action_type === "request_approval") {
+        if (!onRequestApproval) {
+          throw new Error("Approval request is not available here");
+        }
+        onRequestApproval();
         return;
       }
     } catch (err) {

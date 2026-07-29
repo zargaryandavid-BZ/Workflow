@@ -385,7 +385,14 @@ function ButtonEditor({
             <option value="send_sms">Send SMS</option>
             <option value="generate_pdf">Generate PDF (Job Ticket)</option>
             <option value="generate_packing_slip">Generate Packing Slip</option>
+            <option value="request_approval">Request Approval</option>
           </Select>
+          {actionType === "request_approval" ? (
+            <p className="mt-1.5 text-xs text-slate-500">
+              Opens the same proof-approval popup as dropping a card into Waiting
+              Approval (email / SMS with approve &amp; reject link).
+            </p>
+          ) : null}
         </div>
 
         <div>

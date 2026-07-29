@@ -13,6 +13,7 @@ export const BUTTON_ACTION_LABELS: Record<ButtonAutomationActionType, string> = 
   send_sms: "Send SMS",
   generate_pdf: "Generate PDF",
   generate_packing_slip: "Generate Packing Slip",
+  request_approval: "Request Approval",
 };
 
 export const EMAIL_RECIPIENT_LABELS: Record<
@@ -147,6 +148,7 @@ export function validateButtonAutomationInput(body: {
       "send_sms",
       "generate_pdf",
       "generate_packing_slip",
+      "request_approval",
     ].includes(body.action_type)
   ) {
     return "Invalid action type";

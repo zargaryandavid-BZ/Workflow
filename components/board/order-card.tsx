@@ -109,6 +109,8 @@ interface OrderCardProps {
     dueDate?: string | null;
     processingDays?: number | null;
   }) => void;
+  /** Briefly emphasize this card after the detail modal closes. */
+  highlighted?: boolean;
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
   /** ISO timestamp when the customer last approved artwork. */
@@ -163,6 +165,7 @@ export function OrderCard({
   designers = [],
   onAssignDesigner,
   onSetDueDate,
+  highlighted = false,
   notificationBadge,
   ownerName,
   approvalDate = null,
@@ -301,6 +304,7 @@ export function OrderCard({
   const [dueExactOpen, setDueExactOpen] = useState(false);
   const [dueExactValue, setDueExactValue] = useState("");
   const dueMenuRef = useRef<HTMLDivElement>(null);
+  const dueExactChangedAtRef = useRef(0);
 
   const hasMoveMenu =
     availableColumns.length > 0 && Boolean(onMoveToColumn);
@@ -314,17 +318,30 @@ export function OrderCard({
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
   const hasCustomerContact = Boolean(email || phone);
 
+  const dueExactOpenRef = useRef(false);
+  dueExactOpenRef.current = dueExactOpen;
+
   useEffect(() => {
     if (!menuOpen && !designerMenuOpen && !contactMenuOpen && !dueMenuOpen)
       return;
+    function closeDueMenu() {
+      setDueMenuOpen(false);
+      setDueExactOpen(false);
+    }
+    function isOutsideDueMenu(target: EventTarget | null) {
+      return (
+        Boolean(dueMenuRef.current) &&
+        target instanceof Node &&
+        !dueMenuRef.current!.contains(target)
+      );
+    }
     function handleClose(e: MouseEvent | KeyboardEvent) {
       if (e instanceof KeyboardEvent) {
         if (e.key === "Escape") {
           setMenuOpen(false);
           setDesignerMenuOpen(false);
           setContactMenuOpen(false);
-          setDueMenuOpen(false);
-          setDueExactOpen(false);
+          closeDueMenu();
         }
         return;
       }
@@ -344,16 +361,29 @@ export function OrderCard({
       ) {
         setContactMenuOpen(false);
       }
-      if (dueMenuRef.current && !dueMenuRef.current.contains(target)) {
-        setDueMenuOpen(false);
-        setDueExactOpen(false);
+      if (isOutsideDueMenu(target)) {
+        // While Exact date is open, ignore mousedown — the native date
+        // calendar is outside the menu DOM and would dismiss the picker.
+        // Real "click away" is handled on click below.
+        if (dueExactOpenRef.current) return;
+        closeDueMenu();
       }
+    }
+    function handleDueClickAway(e: MouseEvent) {
+      if (!dueExactOpenRef.current || !isOutsideDueMenu(e.target)) return;
+      // Picking a day in the native calendar can synthesize a document click;
+      // ignore those that land right after the input's onChange.
+      if (Date.now() - dueExactChangedAtRef.current < 500) return;
+      closeDueMenu();
     }
     document.addEventListener("mousedown", handleClose);
     document.addEventListener("keydown", handleClose);
+    // click (not mousedown) so native date-picker day selection can finish
+    document.addEventListener("click", handleDueClickAway, true);
     return () => {
       document.removeEventListener("mousedown", handleClose);
       document.removeEventListener("keydown", handleClose);
+      document.removeEventListener("click", handleDueClickAway, true);
     };
   }, [menuOpen, designerMenuOpen, contactMenuOpen, dueMenuOpen]);
 
@@ -515,9 +545,10 @@ export function OrderCard({
     }
   }
 
+  const productMaterialParts = [productName || null, materialsName || null].filter(
+    Boolean
+  );
   const summaryTrailingParts = [
-    productName || null,
-    materialsName || null,
     finishingName || null,
     specialEffectsName || null,
     orderQty != null ? `qty ${orderQty}` : null,
@@ -542,7 +573,8 @@ export function OrderCard({
           : "bg-white",
         !shippingBorderColor && !activeWarning ? "border-slate-200" : "",
         canDrag ? "cursor-pointer" : "cursor-default",
-        activeWarning && animateWarnings ? `warning-${activeWarning.rule.color}` : ""
+        activeWarning && animateWarnings ? `warning-${activeWarning.rule.color}` : "",
+        highlighted && "card-just-closed"
       )}
       data-order-card=""
       data-order-id={order.id}
@@ -569,12 +601,65 @@ export function OrderCard({
         ) : null}
 
         <div className="min-w-0 flex-1">
-          {/* Customer name on first line, order number on second — each truncates with … */}
-          <div className="min-w-0">
+          {/* 1) Order # | Product · Material  2) Source title  3) Customer */}
+          <div className="min-w-0 w-full text-left">
+            <div className="flex w-full min-w-0 items-baseline justify-start gap-1 text-left">
+              <button
+                type="button"
+                onClick={(e) => copyText(e, order.title, "order")}
+                onPointerDown={(e) => e.stopPropagation()}
+                title={
+                  folderHasFiles
+                    ? `Final production folder has files — copy order number (${order.title})`
+                    : `Copy order number (${order.title})`
+                }
+                className={cn(
+                  "group/copy relative inline-flex shrink-0 items-center justify-start text-left text-[15px] font-bold leading-snug hover:opacity-80",
+                  folderHasFiles
+                    ? "text-emerald-600"
+                    : "text-slate-900 hover:text-[var(--primary)]"
+                )}
+              >
+                <span className="truncate">
+                  {copied === "order" ? (
+                    "Copied!"
+                  ) : (
+                    <>
+                      {formatShortOrderNumber(order.title)}
+                      {groupSize != null && groupSize >= 2 ? (
+                        <span
+                          className={cn(
+                            "font-normal",
+                            folderHasFiles
+                              ? "text-emerald-500/80"
+                              : "text-slate-400"
+                          )}
+                        >
+                          {" "}
+                          ({groupSize})
+                        </span>
+                      ) : null}
+                    </>
+                  )}
+                </span>
+                {copied === "order" ? null : (
+                  <Copy className="pointer-events-none absolute left-full top-1/2 ml-0.5 h-3.5 w-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/copy:opacity-100" />
+                )}
+              </button>
+              {productMaterialParts.length > 0 ? (
+                <>
+                  <span className="shrink-0 text-slate-300">|</span>
+                  <span className="min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-snug text-slate-600">
+                    {productMaterialParts.join(" · ")}
+                  </span>
+                </>
+              ) : null}
+            </div>
             <WebhookSourceLabel
               webhookSource={order.webhook_source}
               sourceStyles={webhookSourceStyles}
               orderTitle={sharedOrderTitle(order)}
+              className="mb-0.5 flex w-full min-w-0 items-baseline justify-start gap-1 text-left text-[10px] font-semibold leading-tight tracking-wide"
             />
             {displayCustomerName ? (
               <button
@@ -588,7 +673,7 @@ export function OrderCard({
                     : "Copy customer name"
                 }
                 className={cn(
-                  "group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]",
+                  "group/copy flex w-full max-w-full items-center justify-start gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]",
                   hasCustomerContact && "cursor-context-menu"
                 )}
               >
@@ -600,52 +685,12 @@ export function OrderCard({
                 )}
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={(e) => copyText(e, order.title, "order")}
-              onPointerDown={(e) => e.stopPropagation()}
-              title={
-                folderHasFiles
-                  ? `Final production folder has files — copy order number (${order.title})`
-                  : `Copy order number (${order.title})`
-              }
-              className={cn(
-                "group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug hover:opacity-80",
-                folderHasFiles
-                  ? "text-emerald-600"
-                  : "text-slate-900 hover:text-[var(--primary)]"
-              )}
-            >
-              <span className="min-w-0 truncate">
-                {copied === "order" ? (
-                  "Copied!"
-                ) : (
-                  <>
-                    {formatShortOrderNumber(order.title)}
-                    {groupSize != null && groupSize >= 2 ? (
-                      <span
-                        className={cn(
-                          "font-normal",
-                          folderHasFiles ? "text-emerald-500/80" : "text-slate-400"
-                        )}
-                      >
-                        {" "}
-                        ({groupSize})
-                      </span>
-                    ) : null}
-                  </>
-                )}
-              </span>
-              {copied === "order" ? null : (
-                <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-              )}
-            </button>
             {summaryTrailingParts.length > 0 ||
             (role === "admin" &&
               hasBillingInfo(billingFromSpecs(order.specs))) ? (
               <p
                 lang="en"
-                className="mt-1 w-full pr-1 text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
+                className="mt-1 w-full pr-1 text-left text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
               >
                 {summaryTrailingParts.length > 0 ? (
                   <span>
@@ -854,6 +899,14 @@ export function OrderCard({
                       customerEmail={email ?? order.customer?.email}
                       customerPhone={phone ?? order.customer?.phone}
                       productLabel={productName || null}
+                      onRequestApproval={
+                        onResendApproval
+                          ? () => {
+                              onResendApproval(order);
+                              setMenuOpen(false);
+                            }
+                          : undefined
+                      }
                       onComplete={(result) => {
                         setMenuOpen(false);
                         onActionComplete?.(order, result);
@@ -1073,7 +1126,7 @@ export function OrderCard({
                 }
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
               >
-                Fixed after approval
+                Fixed {DEFAULT_PROCESSING_DAYS} days after approval
               </button>
               {!dueExactOpen ? (
                 <button
@@ -1089,7 +1142,12 @@ export function OrderCard({
                     type="date"
                     value={dueExactValue}
                     min={localDateInputValue()}
-                    onChange={(e) => setDueExactValue(e.target.value)}
+                    onChange={(e) => {
+                      dueExactChangedAtRef.current = Date.now();
+                      setDueExactValue(e.target.value);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
                     className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-slate-400"
                     autoFocus
                   />

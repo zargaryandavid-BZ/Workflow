@@ -100,6 +100,8 @@ interface ColumnProps {
       processingDays?: number | null;
     }
   ) => void;
+  /** Order id to briefly highlight after closing the job ticket. */
+  highlightedOrderId?: string | null;
   onMoveGroup?: (orders: OrderWithRelations[], targetColumnId: string) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
   onAdd: (columnId: string) => void;
@@ -176,6 +178,7 @@ export function Column({
   onGroupAssignDesigner,
   onGroupSetDueDates,
   onSetDueDate,
+  highlightedOrderId = null,
   onMoveGroup,
   onOpenOrder,
   onAdd,
@@ -408,6 +411,7 @@ export function Column({
                     }
                     onSetDueDates={onGroupSetDueDates}
                     onMoveGroup={onMoveGroup}
+                    highlightedOrderId={highlightedOrderId}
                   />
                 ) : (
                   <OrderCard
@@ -432,6 +436,7 @@ export function Column({
                         ? (update) => onSetDueDate(entry.order, update)
                         : undefined
                     }
+                    highlighted={highlightedOrderId === entry.order.id}
                     notificationBadge={
                       notificationBadgeByOrder[entry.order.id]
                     }
@@ -483,6 +488,7 @@ export function Column({
                       ? (update) => onSetDueDate(order, update)
                       : undefined
                   }
+                  highlighted={highlightedOrderId === order.id}
                   notificationBadge={notificationBadgeByOrder[order.id]}
                   ownerName={ownerNameByOrder[order.id]}
                   shippingSign={shippingSignByOrder[order.id]}

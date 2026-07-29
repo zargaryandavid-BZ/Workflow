@@ -254,6 +254,10 @@ export function Board({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [createColumn, setCreateColumn] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(
+    null
+  );
+  const highlightClearTimerRef = useRef<number | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -676,10 +680,59 @@ export function Board({
   }, []);
 
   function closeOrderDetail() {
+    const closedId = detailId;
     setDetailId(null);
     if (initialOrderId) {
       router.replace("/board", { scroll: false });
     }
+    if (!closedId) return;
+
+    if (highlightClearTimerRef.current != null) {
+      window.clearTimeout(highlightClearTimerRef.current);
+    }
+    setHighlightedOrderId(closedId);
+
+    const scrollBoardTo = (el: Element) => {
+      const scroller = boardScrollRef.current;
+      const target = el as HTMLElement;
+      if (scroller) {
+        const sRect = scroller.getBoundingClientRect();
+        const eRect = target.getBoundingClientRect();
+        const delta =
+          eRect.left + eRect.width / 2 - (sRect.left + sRect.width / 2);
+        scroller.scrollTo({
+          left: scroller.scrollLeft + delta,
+          behavior: "smooth",
+        });
+      }
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+      if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
+    };
+
+    let attempts = 0;
+    const tryScroll = () => {
+      const orderEl = document.querySelector(`[data-order-id="${closedId}"]`);
+      const groupEl = document.querySelector(
+        `[data-order-ids*="${closedId}"]`
+      );
+      const el = orderEl ?? groupEl;
+      if (el) {
+        scrollBoardTo(el);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 20) window.setTimeout(tryScroll, 40);
+    };
+    window.requestAnimationFrame(tryScroll);
+
+    highlightClearTimerRef.current = window.setTimeout(() => {
+      setHighlightedOrderId((cur) => (cur === closedId ? null : cur));
+      highlightClearTimerRef.current = null;
+    }, 3200);
   }
 
   function flashToast(message: string) {
@@ -2134,6 +2187,7 @@ export function Board({
           }}
           onOpenOrder={(o) => setDetailId(o.id)}
           onVisible={onColumnVisible}
+          highlightedOrderId={highlightedOrderId}
         />
       ) : (
       <DndContext
@@ -2204,6 +2258,7 @@ export function Board({
                 onGroupAssignDesigner={handleGroupAssignDesigner}
                 onGroupSetDueDates={handleGroupSetDueDates}
                 onSetDueDate={handleSetDueDate}
+                highlightedOrderId={highlightedOrderId}
                 onMoveGroup={handleGroupMove}
                 onOpenOrder={(o) => setDetailId(o.id)}
                 onAdd={(colId) => setCreateColumn(colId)}
