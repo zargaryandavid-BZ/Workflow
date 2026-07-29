@@ -28,6 +28,7 @@ import {
   resolveOrderFormFields,
   validateDueDate,
 } from "@/lib/order-form";
+import { refreshGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
 import {
   categoryForProductFromLinks,
   clearTargetsForSourceChange,
@@ -359,6 +360,16 @@ export function OrderFormBody({
       setTimeout(() => setArtworkCopied(false), 1500);
     } catch {
       // ignore clipboard failures
+    }
+    if (orderId) {
+      void refreshGdriveFolderHasFiles(orderId).then(setFinalProdHasFiles);
+    }
+  }
+
+  function openArtworkFolder() {
+    if (orderId) {
+      // Don't block navigation; refresh green state in the background.
+      void refreshGdriveFolderHasFiles(orderId).then(setFinalProdHasFiles);
     }
   }
 
@@ -958,6 +969,7 @@ export function OrderFormBody({
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={openArtworkFolder}
                           className="text-[var(--primary)] underline hover:opacity-80"
                         >
                           {label} ↗

@@ -3,6 +3,7 @@ import {
   type MissingField,
 } from "@/lib/orders/validate-ready-to-move";
 import { maybeSaveArtworkOnLeaveStart } from "@/lib/orders/save-order-artwork-client";
+import { refreshGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
 import type { BoardColumn } from "@/lib/types";
 
 export type MoveOrderResult =
@@ -39,6 +40,8 @@ export async function requestOrderMove(
         columns: options.columns,
       });
     }
+    // Re-check Final production Drive folder so green order # stays current.
+    void refreshGdriveFolderHasFiles(body.orderId);
     return { ok: true };
   }
 

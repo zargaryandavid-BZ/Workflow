@@ -5,9 +5,69 @@ import { useEffect, useState } from "react";
 /** Avoid re-hitting Drive for the same order while browsing the board. */
 const hasFilesCache = new Map<string, boolean>();
 
+/** Subscribers notified when an order's cached status is invalidated/refreshed. */
+const listeners = new Map<string, Set<() => void>>();
+const globalListeners = new Set<() => void>();
+
+function notify(orderId: string) {
+  listeners.get(orderId)?.forEach((fn) => fn());
+  globalListeners.forEach((fn) => fn());
+}
+
+function subscribe(orderId: string, fn: () => void) {
+  let set = listeners.get(orderId);
+  if (!set) {
+    set = new Set();
+    listeners.set(orderId, set);
+  }
+  set.add(fn);
+  return () => {
+    set!.delete(fn);
+    if (set!.size === 0) listeners.delete(orderId);
+  };
+}
+
+async function fetchHasFiles(orderId: string): Promise<boolean> {
+  const res = await fetch(`/api/orders/${orderId}/gdrive-status`);
+  if (!res.ok) return false;
+  const json = (await res.json()) as { hasFiles?: boolean };
+  return Boolean(json.hasFiles);
+}
+
+/** Drop cached status so the next hook render / refresh re-checks Drive. */
+export function clearGdriveFolderHasFilesCache(orderId?: string) {
+  if (orderId) {
+    hasFilesCache.delete(orderId);
+    notify(orderId);
+  } else {
+    hasFilesCache.clear();
+    globalListeners.forEach((fn) => fn());
+  }
+}
+
+/**
+ * Re-check Drive now (e.g. after Copy Link, Final production click, or column move).
+ * Updates cache and notifies mounted cards/forms.
+ */
+export async function refreshGdriveFolderHasFiles(
+  orderId: string
+): Promise<boolean> {
+  hasFilesCache.delete(orderId);
+  try {
+    const next = await fetchHasFiles(orderId);
+    hasFilesCache.set(orderId, next);
+    notify(orderId);
+    return next;
+  } catch {
+    hasFilesCache.set(orderId, false);
+    notify(orderId);
+    return false;
+  }
+}
+
 /**
  * Whether the order's Artwork / Final production Google Drive folder has files.
- * Only fetches when `artworkUrl` looks like an http(s) link.
+ * Fetches once when artwork URL exists; refreshes when cache is invalidated.
  */
 export function useGdriveFolderHasFiles(
   orderId: string | null | undefined,
@@ -19,6 +79,12 @@ export function useGdriveFolderHasFiles(
     if (!orderId || !hasUrl) return false;
     return hasFilesCache.get(orderId) ?? false;
   });
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    if (!orderId) return;
+    return subscribe(orderId, () => setEpoch((n) => n + 1));
+  }, [orderId]);
 
   useEffect(() => {
     if (!orderId || !hasUrl) {
@@ -35,13 +101,7 @@ export function useGdriveFolderHasFiles(
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const res = await fetch(`/api/orders/${orderId}/gdrive-status`);
-        if (!res.ok) {
-          if (!cancelled) setHasFiles(false);
-          return;
-        }
-        const json = (await res.json()) as { hasFiles?: boolean };
-        const next = Boolean(json.hasFiles);
+        const next = await fetchHasFiles(orderId);
         hasFilesCache.set(orderId, next);
         if (!cancelled) setHasFiles(next);
       } catch {
@@ -53,13 +113,7 @@ export function useGdriveFolderHasFiles(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [orderId, hasUrl, url]);
+  }, [orderId, hasUrl, url, epoch]);
 
   return hasFiles;
-}
-
-/** Clear cached status after uploads / folder changes (optional). */
-export function clearGdriveFolderHasFilesCache(orderId?: string) {
-  if (orderId) hasFilesCache.delete(orderId);
-  else hasFilesCache.clear();
 }
