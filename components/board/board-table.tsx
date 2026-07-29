@@ -33,10 +33,12 @@ import {
   PRIORITY_STYLES,
   UNASSIGNED_DESIGNER_TEXT_CLASS,
   UNASSIGNED_OWNER_TEXT_CLASS,
+  ARTWORK_FIELD_NAME,
 } from "@/lib/constants";
 import { orderTagsFromSpecs } from "@/lib/order-tags";
 import { getActiveWarning, CARD_WARNING_BORDER_COLORS } from "@/lib/card-warning-rules";
 import { OrderBillingGlobe } from "./order-billing-globe";
+import { OrderNumberLabel } from "./order-number-label";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 import { filterButtonsForColumn } from "@/lib/button-automations";
 import { canUseBoardActionButtons } from "@/lib/permissions";
@@ -286,6 +288,7 @@ export function BoardTable({
 
   const productField = findOrderFormField(customFields, "Product");
   const materialsField = findOrderFormField(customFields, "Materials");
+  const artworkField = findOrderFormField(customFields, ARTWORK_FIELD_NAME);
 
   return (
     <div className="board-scroll min-h-0 flex-1 overflow-auto px-4 pb-4">
@@ -505,12 +508,16 @@ export function BoardTable({
                           </span>
                         ) : null}
                         <span className="shrink-0 text-sm font-semibold leading-tight text-slate-700">
-                          {order.title
-                            .replace(/^ORD-\d{4}-/, "")
-                            .replace(/^0+(\d)/, "$1")}
-                          {(groupSizeByOrder[order.id] ?? 0) >= 2 ? (
-                            <span className="font-normal text-slate-400"> ({groupSizeByOrder[order.id]})</span>
-                          ) : null}
+                          <OrderNumberLabel
+                            orderId={order.id}
+                            title={order.title}
+                            groupSize={groupSizeByOrder[order.id]}
+                            artworkUrl={
+                              artworkField
+                                ? String(fieldValues[artworkField.id] ?? "").trim()
+                                : ""
+                            }
+                          />
                         </span>
                       </div>
 

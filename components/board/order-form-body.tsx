@@ -179,6 +179,7 @@ export function OrderFormBody({
   const { artworkField, orderQtyField, printFields } = resolved;
   const [hideEmpty, setHideEmpty] = useState(hideEmptyProp);
   const [artworkCopied, setArtworkCopied] = useState(false);
+  const [finalProdHasFiles, setFinalProdHasFiles] = useState(false);
   const [dueDateError, setDueDateError] = useState<string | null>(null);
   const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
     null
@@ -232,6 +233,31 @@ export function OrderFormBody({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!orderId || !artworkValue || !/^https?:\/\//i.test(artworkValue)) {
+      setFinalProdHasFiles(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/orders/${orderId}/gdrive-status`);
+        if (!res.ok) {
+          if (!cancelled) setFinalProdHasFiles(false);
+          return;
+        }
+        const json = (await res.json()) as { hasFiles?: boolean };
+        if (!cancelled) setFinalProdHasFiles(Boolean(json.hasFiles));
+      } catch {
+        if (!cancelled) setFinalProdHasFiles(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [orderId, artworkValue]);
 
   function handleLinkedFieldChange(fieldId: string, value: unknown) {
     onFieldValueChange(fieldId, value);
@@ -960,8 +986,17 @@ export function OrderFormBody({
                   type="button"
                   onClick={copyArtworkLink}
                   disabled={!artworkValue}
-                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  title="Copy Final production GDrive link"
+                  className={cn(
+                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                    finalProdHasFiles
+                      ? "border-green-300 bg-green-50 text-green-800 hover:bg-green-100"
+                      : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                  )}
+                  title={
+                    finalProdHasFiles
+                      ? "Final production folder has files — copy GDrive link"
+                      : "Copy Final production GDrive link"
+                  }
                 >
                   <Copy className="h-4 w-4" />
                   {artworkCopied ? "Copied" : "Copy Link"}

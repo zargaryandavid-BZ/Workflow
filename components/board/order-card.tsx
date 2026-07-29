@@ -30,6 +30,7 @@ import {
   UNASSIGNED_DESIGNER_CARD_CLASS,
   UNASSIGNED_DESIGNER_TEXT_CLASS,
   UNASSIGNED_OWNER_TEXT_CLASS,
+  ARTWORK_FIELD_NAME,
 } from "@/lib/constants";
 import type { ColumnKind } from "@/lib/types";
 import {
@@ -43,6 +44,10 @@ import {
 } from "@/lib/notification-messages";
 import { cn } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
+import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
+import {
+  formatShortOrderNumber,
+} from "./order-number-label";
 import {
   getActiveWarning,
   CARD_WARNING_BORDER_COLORS,
@@ -216,6 +221,12 @@ export function OrderCard({
   const specialEffectsName = specialEffectsField
     ? String(fieldValues[specialEffectsField.id] ?? "").trim()
     : "";
+
+  const artworkField = findOrderFormField(customFields, ARTWORK_FIELD_NAME);
+  const artworkUrl = artworkField
+    ? String(fieldValues[artworkField.id] ?? "").trim()
+    : "";
+  const folderHasFiles = useGdriveFolderHasFiles(order.id, artworkUrl);
 
   const designerName =
     designerNameProp?.trim() ||
@@ -517,19 +528,31 @@ export function OrderCard({
               type="button"
               onClick={(e) => copyText(e, order.title, "order")}
               onPointerDown={(e) => e.stopPropagation()}
-              title={`Copy order number (${order.title})`}
-              className="group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]"
+              title={
+                folderHasFiles
+                  ? `Final production folder has files — copy order number (${order.title})`
+                  : `Copy order number (${order.title})`
+              }
+              className={cn(
+                "group/copy inline-flex max-w-full items-center gap-0.5 text-left text-[15px] font-bold leading-snug hover:opacity-80",
+                folderHasFiles
+                  ? "text-emerald-600"
+                  : "text-slate-900 hover:text-[var(--primary)]"
+              )}
             >
               <span className="min-w-0 truncate">
                 {copied === "order" ? (
                   "Copied!"
                 ) : (
                   <>
-                    {order.title
-                      .replace(/^ORD-\d{4}-/, "")
-                      .replace(/^0+(\d)/, "$1")}
+                    {formatShortOrderNumber(order.title)}
                     {groupSize != null && groupSize >= 2 ? (
-                      <span className="font-normal text-slate-400">
+                      <span
+                        className={cn(
+                          "font-normal",
+                          folderHasFiles ? "text-emerald-500/80" : "text-slate-400"
+                        )}
+                      >
                         {" "}
                         ({groupSize})
                       </span>

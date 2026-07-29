@@ -225,6 +225,63 @@ export async function ensureOrderDriveFolders(
   };
 }
 
+/** Extract a Drive file/folder id from a Google Drive URL or raw id. */
+export function parseDriveIdFromUrl(urlOrId: string): string | null {
+  const raw = urlOrId.trim();
+  if (!raw) return null;
+  // Already a bare id (folder/file ids are typically 25–60+ chars).
+  if (/^[A-Za-z0-9_-]{10,}$/.test(raw) && !raw.includes("/") && !raw.includes("?")) {
+    return raw;
+  }
+  try {
+    const u = new URL(raw);
+    const folders = /\/folders\/([A-Za-z0-9_-]+)/.exec(u.pathname);
+    if (folders?.[1]) return folders[1];
+    const file = /\/file\/d\/([A-Za-z0-9_-]+)/.exec(u.pathname);
+    if (file?.[1]) return file[1];
+    const id = u.searchParams.get("id");
+    if (id && /^[A-Za-z0-9_-]+$/.test(id)) return id;
+  } catch {
+    // not a URL
+  }
+  return null;
+}
+
+/**
+ * True when the Drive folder has at least one non-folder, non-trashed item
+ * directly inside it (does not recurse into subfolders).
+ */
+export async function folderHasFiles(
+  settings: GdriveSettings,
+  folderId: string
+): Promise<{ hasFiles: boolean; fileCount: number }> {
+  if (!isGdriveConfigured(settings)) {
+    return { hasFiles: false, fileCount: 0 };
+  }
+
+  const drive = driveClient(settings);
+  const sharedDriveId = resolveSharedDriveId(settings);
+  const q = [
+    `'${folderId}' in parents`,
+    `mimeType!='${FOLDER_MIME}'`,
+    "trashed=false",
+  ].join(" and ");
+
+  const res = await drive.files.list({
+    q,
+    fields: "files(id)",
+    pageSize: 10,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+    ...(sharedDriveId
+      ? { corpora: "drive" as const, driveId: sharedDriveId }
+      : { corpora: "allDrives" as const }),
+  });
+
+  const count = res.data.files?.length ?? 0;
+  return { hasFiles: count > 0, fileCount: count };
+}
+
 /** Lightweight check used by Settings → Test connection. */
 export async function testGdriveConnection(
   settings: GdriveSettings
