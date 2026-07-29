@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -257,7 +257,6 @@ export function Board({
   const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(
     null
   );
-  const highlightClearTimerRef = useRef<number | null>(null);
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
@@ -500,9 +499,34 @@ export function Board({
   useEffect(() => {
     const source = searchResults ?? orders;
     if (initialOrderId && source.some((o) => o.id === initialOrderId)) {
+      setHighlightedOrderId(null);
       setDetailId(initialOrderId);
     }
   }, [initialOrderId, orders, searchResults]);
+
+  function openOrderDetail(orderId: string) {
+    setHighlightedOrderId(null);
+    setDetailId(orderId);
+  }
+
+  function clearCardHighlight() {
+    setHighlightedOrderId(null);
+  }
+
+  /** Keep last-closed card ring until another card opens or empty board is clicked. */
+  function handleBoardPointerDown(e: PointerEvent<HTMLDivElement>) {
+    if (!highlightedOrderId) return;
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (
+      target.closest("[data-order-card]") ||
+      target.closest("[data-order-id]") ||
+      target.closest("[data-order-ids]")
+    ) {
+      return;
+    }
+    clearCardHighlight();
+  }
 
   // When filters are active, search the full database instead of filtering
   // only the lazily-loaded pages already in memory.
@@ -687,9 +711,6 @@ export function Board({
     }
     if (!closedId) return;
 
-    if (highlightClearTimerRef.current != null) {
-      window.clearTimeout(highlightClearTimerRef.current);
-    }
     setHighlightedOrderId(closedId);
 
     const scrollBoardTo = (el: Element) => {
@@ -728,11 +749,6 @@ export function Board({
       if (attempts < 20) window.setTimeout(tryScroll, 40);
     };
     window.requestAnimationFrame(tryScroll);
-
-    highlightClearTimerRef.current = window.setTimeout(() => {
-      setHighlightedOrderId((cur) => (cur === closedId ? null : cur));
-      highlightClearTimerRef.current = null;
-    }, 3200);
   }
 
   function flashToast(message: string) {
@@ -808,12 +824,38 @@ export function Board({
   }
 
   // Tracks recent successful cross-column moves so we can detect stale merges.
-  const recentMoveRef = useRef<{
-    orderId: string;
-    fromColumnId: string;
-    toColumnId: string;
-    at: number;
-  } | null>(null);
+  // Map so multi-card group moves all stay protected during column refetches.
+  const recentMovesRef = useRef<
+    Map<
+      string,
+      { fromColumnId: string; toColumnId: string; at: number }
+    >
+  >(new Map());
+
+  function rememberMove(
+    orderId: string,
+    fromColumnId: string,
+    toColumnId: string
+  ) {
+    recentMovesRef.current.set(orderId, {
+      fromColumnId,
+      toColumnId,
+      at: Date.now(),
+    });
+    // Drop stale entries (keep map small).
+    const cutoff = Date.now() - 60_000;
+    for (const [id, move] of recentMovesRef.current) {
+      if (move.at < cutoff) recentMovesRef.current.delete(id);
+    }
+  }
+
+  /** After a move: refresh only the two columns involved — not the whole board. */
+  function refreshMoveColumns(fromColumnId: string, toColumnId: string) {
+    void fetchColumnOrders(fromColumnId, 0);
+    if (toColumnId !== fromColumnId) {
+      void fetchColumnOrders(toColumnId, 0);
+    }
+  }
 
   // When a page-0 fetch is requested while one is already in flight, queue a
   // follow-up so post-save / post-move refreshes are not dropped.
@@ -828,18 +870,23 @@ export function Board({
         columnLoadStatusRef.current[columnId] === "loading"
       ) {
         pendingColumnRefetchRef.current.add(columnId);
+        // #region agent log
+        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'C',location:'board.tsx:fetch:queued',message:'column fetch queued',data:{columnId:columnId.slice(0,8),pending:pendingColumnRefetchRef.current.size},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         return;
       }
 
+      const wasLoaded = loadedColumnsRef.current.has(columnId);
       columnLoadStatusRef.current = {
         ...columnLoadStatusRef.current,
         [columnId]: "loading",
       };
       setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
-
-      // Already-loaded columns are background refreshes — keep showing cards if
-      // a transient network blip fails instead of flipping the column to error.
-      const wasLoaded = loadedColumnsRef.current.has(columnId);
+      const t0 = Date.now();
+      // #region agent log
+      const loadingCount = Object.values(columnLoadStatusRef.current).filter((s) => s === "loading").length;
+      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'A',location:'board.tsx:fetch:start',message:'column fetch start shows Loading UI',data:{columnId:columnId.slice(0,8),page,wasLoaded,loadingCount,loadedCols:loadedColumnsRef.current.size},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
       try {
         const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`;
@@ -878,12 +925,11 @@ export function Board({
               (o) => o.column_id === columnId && !fetchedIds.has(o.id)
             );
             // Prefer recent optimistic move placement over a stale fetch row.
-            const rm = recentMoveRef.current;
             const mergedFetched = data.orders.map((o) => {
+              const rm = recentMovesRef.current.get(o.id);
               if (
                 rm &&
-                o.id === rm.orderId &&
-                Date.now() - rm.at < 15_000 &&
+                Date.now() - rm.at < 60_000 &&
                 o.column_id !== rm.toColumnId
               ) {
                 return { ...o, column_id: rm.toColumnId };
@@ -948,6 +994,9 @@ export function Board({
         };
         setColumnLoadStatus((s) => ({ ...s, [columnId]: "loaded" }));
         loadedColumnsRef.current.add(columnId);
+        // #region agent log
+        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'A',location:'board.tsx:fetch:ok',message:'column fetch ok',data:{columnId:columnId.slice(0,8),page,wasLoaded,ms:Date.now()-t0,orders:data.orders.length},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
       } catch (err) {
         const transient = isTransientNetworkError(err);
         if (transient && wasLoaded) {
@@ -1032,10 +1081,13 @@ export function Board({
    * and page 0 of every already-loaded column to pick up badge changes,
    * new orders created by webhooks, etc.
    */
-  const scheduleRefresh = useCallback(() => {
+  const scheduleRefresh = useCallback((reason = "unknown") => {
     if (draggingRef.current) return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
+      // #region agent log
+      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'B',location:'board.tsx:scheduleRefresh:fire',message:'scheduleRefresh fired',data:{reason,loadedCols:loadedColumnsRef.current.size},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       // Refresh server-rendered metadata (columns, custom fields, tags, etc.)
       router.refresh();
       // Refresh orders + enrichments for every visible column.
@@ -1132,7 +1184,9 @@ export function Board({
           };
           return next;
         });
-        scheduleRefresh();
+        // Do not scheduleRefresh() here — a full board refetch after every
+        // realtime UPDATE makes moves feel stuck/laggy. Local state + light
+        // column refresh on intentional moves is enough.
       }
     }
 
@@ -1166,7 +1220,7 @@ export function Board({
             table: "job_notifications",
             filter: `tenant_id=eq.${tenantId}`,
           },
-          () => scheduleRefresh()
+          () => scheduleRefresh("job_notifications")
         )
         .subscribe();
     }
@@ -1192,7 +1246,7 @@ export function Board({
   // 20-second polling fallback for missed realtime events (column configs, etc.)
   useEffect(() => {
     const id = setInterval(() => {
-      if (!draggingRef.current) scheduleRefresh();
+      if (!draggingRef.current) scheduleRefresh("poll-20s");
     }, 20_000);
     return () => clearInterval(id);
   }, [scheduleRefresh]);
@@ -1267,18 +1321,8 @@ export function Board({
       return;
     }
 
-    recentMoveRef.current = {
-      orderId: order.id,
-      fromColumnId,
-      toColumnId,
-      at: Date.now(),
-    };
-
-    // If the destination column hasn't been loaded yet, load it now so the
-    // moved card appears there.
-    if (!loadedColumnsRef.current.has(toColumnId)) {
-      void fetchColumnOrders(toColumnId, 0);
-    }
+    rememberMove(order.id, fromColumnId, toColumnId);
+    refreshMoveColumns(fromColumnId, toColumnId);
 
     const notifyColumn = notifyColumns.find((c) => c.column_id === toColumnId);
     if (notifyColumn && notifyColumn.automation_enabled) {
@@ -1491,9 +1535,10 @@ export function Board({
       }
     }
 
-    if (!loadedColumnsRef.current.has(toColumnId)) {
-      void fetchColumnOrders(toColumnId, 0);
+    for (const order of groupOrders) {
+      rememberMove(order.id, fromColumnId, toColumnId);
     }
+    refreshMoveColumns(fromColumnId, toColumnId);
 
     const notifyColumn = notifyColumns.find((c) => c.column_id === toColumnId);
     if (notifyColumn && notifyColumn.automation_enabled) {
@@ -1535,12 +1580,14 @@ export function Board({
     if (!canDropOut(role, source) || !canDropIn(role, target)) return;
 
     // Visual-only during drag: update React state for both orders + searchResults,
-    // but keep boardOrdersRef / dragSnapshotRef as the pre-drag rollback point.
-    setOrders((prev) =>
-      prev.map((o) =>
+    // and keep boardOrdersRef in sync so drop placement uses the live column.
+    setOrders((prev) => {
+      const next = prev.map((o) =>
         o.id === active.id ? { ...o, column_id: overColumn } : o
-      )
-    );
+      );
+      boardOrdersRef.current = next;
+      return next;
+    });
     setSearchResults((prev) => {
       if (!prev) return prev;
       return prev.map((o) =>
@@ -1671,16 +1718,8 @@ export function Board({
         }
         scheduleRefresh();
       } else if (crossing) {
-        recentMoveRef.current = {
-          orderId: String(active.id),
-          fromColumnId: activeColumn,
-          toColumnId: overColumn,
-          at: Date.now(),
-        };
-        // Load the destination column if it hasn't been loaded yet.
-        if (!loadedColumnsRef.current.has(overColumn)) {
-          void fetchColumnOrders(overColumn, 0);
-        }
+        rememberMove(String(active.id), activeColumn, overColumn);
+        refreshMoveColumns(activeColumn, overColumn);
         const notifyColumn = notifyColumns.find(
           (c) => c.column_id === overColumn
         );
@@ -1694,7 +1733,6 @@ export function Board({
             columnName: columnsById.get(overColumn)?.name ?? "",
           });
         }
-        scheduleRefresh();
       }
     } finally {
       draggingRef.current = false;
@@ -2145,6 +2183,10 @@ export function Board({
       ) : null}
 
       {boardView === "table" ? (
+        <div
+          className="min-h-0 min-w-0 flex-1 overflow-hidden"
+          onPointerDown={handleBoardPointerDown}
+        >
         <BoardTable
           columns={columns}
           hiddenColIds={hiddenColIds}
@@ -2185,10 +2227,11 @@ export function Board({
               columnName: col?.name ?? "Approval",
             });
           }}
-          onOpenOrder={(o) => setDetailId(o.id)}
+          onOpenOrder={(o) => openOrderDetail(o.id)}
           onVisible={onColumnVisible}
           highlightedOrderId={highlightedOrderId}
         />
+        </div>
       ) : (
       <DndContext
         id="production-board"
@@ -2201,6 +2244,7 @@ export function Board({
         <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-hidden">
         <div
           ref={boardScrollRef}
+          onPointerDown={handleBoardPointerDown}
           className="board-scroll h-full min-h-0 min-w-0 w-full max-w-full overflow-x-auto overflow-y-hidden overscroll-x-none"
         >
           <div className="flex h-full w-max min-w-full gap-3 px-4 pb-4">
@@ -2260,7 +2304,7 @@ export function Board({
                 onSetDueDate={handleSetDueDate}
                 highlightedOrderId={highlightedOrderId}
                 onMoveGroup={handleGroupMove}
-                onOpenOrder={(o) => setDetailId(o.id)}
+                onOpenOrder={(o) => openOrderDetail(o.id)}
                 onAdd={(colId) => setCreateColumn(colId)}
                 role={role}
                 loadStatus={
@@ -2352,6 +2396,35 @@ export function Board({
           // Apply saved fields immediately so the card footer (tag, title, etc.)
           // updates without waiting on a column refetch.
           if (detailId && patch) {
+            // Fast Action / move: update column instantly on the board.
+            if (
+              typeof patch.column_id === "string" &&
+              patch.column_id.trim()
+            ) {
+              const existing = boardOrdersRef.current.find(
+                (o) => o.id === detailId
+              );
+              const fromColumnId = existing?.column_id;
+              const toColumnId = patch.column_id;
+              if (fromColumnId && fromColumnId !== toColumnId) {
+                const destOrders = boardOrdersRef.current
+                  .filter((o) => o.column_id === toColumnId)
+                  .sort((a, b) => a.position - b.position);
+                const lastPos =
+                  destOrders[destOrders.length - 1]?.position ?? 0;
+                patchOrderPlacement(detailId, {
+                  column_id: toColumnId,
+                  position: lastPos + 1000,
+                  ...(existing
+                    ? columnEnterPatch(existing, toColumnId)
+                    : { last_moved_at: new Date().toISOString() }),
+                });
+                rememberMove(detailId, fromColumnId, toColumnId);
+                refreshMoveColumns(fromColumnId, toColumnId);
+                return;
+              }
+            }
+
             const applyPatch = (o: OrderWithRelations) =>
               o.id === detailId ? { ...o, ...patch } : o;
 
@@ -2449,7 +2522,7 @@ export function Board({
         <MoveBlockedModal
           missingFields={moveBlockedState.missingFields}
           onOpenCard={() => {
-            setDetailId(moveBlockedState.orderId);
+            openOrderDetail(moveBlockedState.orderId);
             setMoveBlockedState(null);
           }}
           onClose={() => setMoveBlockedState(null)}

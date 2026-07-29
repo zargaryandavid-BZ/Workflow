@@ -39,16 +39,31 @@ export async function attachSignedUrlsToSkuImages(
   supabase: SupabaseClient,
   images: OrderSkuImage[]
 ): Promise<OrderSkuImageWithUrl[]> {
-  return Promise.all(
-    images.map(async (img) => {
-      const { data: signed } = await supabase.storage
-        .from(ORDER_ASSETS_BUCKET)
-        .createSignedUrl(img.storage_path, ORDER_ASSET_SIGNED_URL_TTL_SEC, {
-          download: img.file_name,
-        });
-      return { ...img, signed_url: signed?.signedUrl ?? null };
-    })
-  );
+  if (images.length === 0) return [];
+
+  const paths = images
+    .map((img) => img.storage_path)
+    .filter((p): p is string => Boolean(p?.trim()));
+
+  // One storage round-trip instead of N createSignedUrl calls.
+  const urlByPath = new Map<string, string>();
+  if (paths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from(ORDER_ASSETS_BUCKET)
+      .createSignedUrls(paths, ORDER_ASSET_SIGNED_URL_TTL_SEC);
+    for (const row of signed ?? []) {
+      if (row.path && row.signedUrl && !row.error) {
+        urlByPath.set(row.path, row.signedUrl);
+      }
+    }
+  }
+
+  return images.map((img) => ({
+    ...img,
+    signed_url: img.storage_path
+      ? (urlByPath.get(img.storage_path) ?? null)
+      : null,
+  }));
 }
 
 /**

@@ -121,6 +121,61 @@ interface DetailResponse {
   notes: OrderNote[];
   notifications?: JobNotification[];
   shippingRequest?: ShippingRequest | null;
+  /** True until /timeline finishes filling activity + notification tabs. */
+  timelinePending?: boolean;
+  tabHints?: { hasMissingInfo?: boolean; hasApproval?: boolean };
+}
+
+type TimelineResponse = {
+  activity: ActivityLogEntry[];
+  approvals: Approval[];
+  missingInfo: MissingInfoNote[];
+  approvalNotes: ApprovalNote[];
+  notifications: JobNotification[];
+  notes: OrderNote[];
+  timelinePending?: boolean;
+  tabHints?: { hasMissingInfo?: boolean; hasApproval?: boolean };
+};
+
+/**
+ * On silent reload, keep already-fetched timeline/tab data so the UI
+ * doesn't flash empty while the lightweight order payload returns.
+ */
+function mergeSilentDetail(
+  core: DetailResponse,
+  prev: DetailResponse | null,
+  orderId: string,
+  silent: boolean | undefined
+): DetailResponse {
+  if (!silent || !prev || prev.order.id !== orderId) {
+    return core;
+  }
+  return {
+    ...core,
+    activity: prev.activity.length ? prev.activity : core.activity,
+    approvals: prev.approvals.length ? prev.approvals : core.approvals,
+    missingInfo: prev.missingInfo.length
+      ? prev.missingInfo
+      : core.missingInfo,
+    approvalNotes: prev.approvalNotes.length
+      ? prev.approvalNotes
+      : core.approvalNotes,
+    notifications: prev.notifications?.length
+      ? prev.notifications
+      : core.notifications,
+    notes: prev.notes.length ? prev.notes : core.notes,
+    timelinePending: false,
+    tabHints: {
+      hasMissingInfo:
+        Boolean(core.tabHints?.hasMissingInfo) ||
+        prev.missingInfo.length > 0 ||
+        Boolean(prev.tabHints?.hasMissingInfo),
+      hasApproval:
+        Boolean(core.tabHints?.hasApproval) ||
+        prev.approvalNotes.length > 0 ||
+        Boolean(prev.tabHints?.hasApproval),
+    },
+  };
 }
 
 type ActivityChangeEntry = { field?: unknown; from?: unknown; to?: unknown };
@@ -195,6 +250,8 @@ export function CardDetailModal({
     [modalCustomFields]
   );
   const [data, setData] = useState<DetailResponse | null>(null);
+  const dataRef = useRef<DetailResponse | null>(null);
+  dataRef.current = data;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -358,7 +415,43 @@ export function CardDetailModal({
         setSaveError(err);
         return;
       }
-      applyDetail(parsed as DetailResponse);
+      const core = parsed as DetailResponse;
+      const merged = mergeSilentDetail(
+        core,
+        dataRef.current,
+        orderId,
+        options?.silent
+      );
+      applyDetail(merged);
+      if (!options?.silent) setLoading(false);
+
+      if (!options?.silent && core.timelinePending !== false) {
+        void fetch(`/api/orders/${orderId}/timeline`)
+          .then(async (timelineRes) => {
+            if (!timelineRes.ok) return;
+            const side = (await timelineRes.json()) as TimelineResponse;
+            setData((current) => {
+              if (!current || current.order.id !== orderId) return current;
+              return {
+                ...current,
+                activity: side.activity ?? [],
+                approvals: side.approvals ?? [],
+                missingInfo: side.missingInfo ?? [],
+                approvalNotes: side.approvalNotes ?? [],
+                notifications: side.notifications ?? [],
+                notes: side.notes ?? [],
+                timelinePending: false,
+                tabHints: side.tabHints ?? current.tabHints,
+              };
+            });
+          })
+          .catch(() => {
+            setData((current) => {
+              if (!current || current.order.id !== orderId) return current;
+              return { ...current, timelinePending: false };
+            });
+          });
+      }
     } catch {
       setSaveError("Failed to load order");
     } finally {
@@ -854,13 +947,17 @@ export function CardDetailModal({
     ? columns.find((c) => c.id === data.order.column_id)
     : undefined;
   const isInExceptionColumn = orderColumn?.kind === "exception";
-  const hasMissingInfoNotes = (data?.missingInfo.length ?? 0) > 0;
+  const hasMissingInfoNotes =
+    (data?.missingInfo.length ?? 0) > 0 ||
+    Boolean(data?.tabHints?.hasMissingInfo);
   const showMissingInfoTab = hasMissingInfoNotes || Boolean(isInExceptionColumn);
   const missingFieldsOnOrder =
     data && !isViewOnly
       ? getMissingFields(data.order, fieldValues, modalCustomFields)
       : [];
-  const hasApproval = (data?.approvalNotes.length ?? 0) > 0;
+  const hasApproval =
+    (data?.approvalNotes.length ?? 0) > 0 ||
+    Boolean(data?.tabHints?.hasApproval);
   const hasShipping = Boolean(data?.shippingRequest);
   const sentMessageCount = data
     ? sentMessagesFromActivity(data.activity).length
@@ -1471,6 +1568,9 @@ export function CardDetailModal({
           ) : null}
 
           {tab === "missing-info" && showMissingInfoTab ? (
+            data.timelinePending && data.missingInfo.length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
+            ) : (
             <MissingInfoTab
               notes={data.missingInfo}
               customer={data.order.customer}
@@ -1486,8 +1586,23 @@ export function CardDetailModal({
                 load();
                 onChanged();
               }}
+              onMoved={(columnId) => {
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        order: { ...prev.order, column_id: columnId },
+                      }
+                    : prev
+                );
+                onChanged({ column_id: columnId });
+              }}
             />
+            )
           ) : tab === "approval" && hasApproval ? (
+            data.timelinePending && data.approvalNotes.length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
+            ) : (
             <ApprovalTab
               notes={data.approvalNotes}
               customer={data.order.customer}
@@ -1496,11 +1611,27 @@ export function CardDetailModal({
               columns={columns}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
-              onChanged={() => {
+              onChanged={(patch) => {
+                if (patch?.column_id) {
+                  setData((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          order: {
+                            ...prev.order,
+                            column_id: patch.column_id!,
+                          },
+                        }
+                      : prev
+                  );
+                  onChanged({ column_id: patch.column_id });
+                  return;
+                }
                 load();
                 onChanged();
               }}
             />
+            )
           ) : tab === "shipping" && data.shippingRequest ? (
             <ShippingTab
               shippingRequest={data.shippingRequest}
@@ -1521,6 +1652,9 @@ export function CardDetailModal({
               }}
             />
           ) : tab === "history" ? (
+            data.timelinePending && data.activity.length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
+            ) : (
             <HistoryTab
               activity={data.activity}
               orderNumber={data.order.title}
@@ -1537,6 +1671,7 @@ export function CardDetailModal({
               ]}
               shippingRequest={data.shippingRequest}
             />
+            )
           ) : (
         <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="space-y-4 md:col-span-2">
@@ -1743,14 +1878,33 @@ export function CardDetailModal({
                 userId={userId}
                 onSuccess={({ destinationColumnId, destinationName }) => {
                   onLinkCopied?.(`Moved to ${destinationName}`);
-                  void load({ silent: true });
-                  onChanged();
-                  if (data && onNotifyColumn) {
+                  if (destinationColumnId) {
+                    setData((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            order: {
+                              ...prev.order,
+                              column_id: destinationColumnId,
+                            },
+                          }
+                        : prev
+                    );
+                    onChanged({ column_id: destinationColumnId });
+                  } else {
+                    void load({ silent: true });
+                    onChanged();
+                  }
+                  if (data && onNotifyColumn && destinationColumnId) {
                     const notifyCol = notifyColumns.find(
-                      (c) => c.column_id === destinationColumnId && c.automation_enabled
+                      (c) =>
+                        c.column_id === destinationColumnId &&
+                        c.automation_enabled
                     );
                     if (notifyCol) {
-                      const destColumn = columns.find((c) => c.id === destinationColumnId);
+                      const destColumn = columns.find(
+                        (c) => c.id === destinationColumnId
+                      );
                       onNotifyColumn(
                         { ...data.order, column_id: destinationColumnId },
                         notifyCol,

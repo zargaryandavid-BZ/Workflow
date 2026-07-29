@@ -28,6 +28,8 @@ interface MissingInfoTabProps {
   contactPhone?: string | null;
   role?: Role;
   onSent: () => void;
+  /** When the card is moved to In Progress from this tab. */
+  onMoved?: (toColumnId: string) => void;
 }
 
 function showCustomerLink(note: MissingInfoNote) {
@@ -344,7 +346,7 @@ function MoveToInProgressButton({
   orderId: string;
   sourceColumnId: string;
   columns: BoardColumn[];
-  onMoved: () => void;
+  onMoved: (toColumnId: string) => void;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -368,7 +370,7 @@ function MoveToInProgressButton({
     );
     setLoading(false);
     if (result.ok) {
-      onMoved();
+      onMoved(inProgress.id);
       router.refresh();
       return;
     }
@@ -598,6 +600,7 @@ export function MissingInfoTab({
   contactPhone,
   role,
   onSent,
+  onMoved,
 }: MissingInfoTabProps) {
   const canSend = role !== "designer";
 
@@ -716,7 +719,10 @@ export function MissingInfoTab({
           orderId={orderId}
           sourceColumnId={sourceColumnId}
           columns={columns}
-          onMoved={onSent}
+          onMoved={(toColumnId) => {
+            if (onMoved) onMoved(toColumnId);
+            else onSent();
+          }}
         />
       ) : null}
     </div>

@@ -227,6 +227,7 @@ function renderSystemOrCustomChip(args: {
         title={`${chip.name} ${formatDate(stamped)}`}
       >
         <TimeChipIconView icon={chip.icon} className={cn(iconCls, "text-sky-700")} />
+        <span className="font-medium">{chip.name}</span>
         {formatDateShort(stamped)}
       </span>
     );
@@ -245,6 +246,7 @@ function renderSystemOrCustomChip(args: {
           icon={chip.icon}
           className={cn(iconCls, "text-slate-400")}
         />
+        <span className="font-medium text-slate-500">Created</span>
         {formatDateShort(order.created_at)}
       </span>
     );
@@ -263,6 +265,7 @@ function renderSystemOrCustomChip(args: {
           )}
         >
           <TimeChipIconView icon={chip.icon} className={iconCls} />
+          <span>Due</span>
           {formatDateShort(order.due_date)}
         </span>
       );
@@ -341,6 +344,7 @@ function renderSystemOrCustomChip(args: {
           icon={chip.icon}
           className={cn(iconCls, "text-slate-400")}
         />
+        <span className="font-medium text-slate-500">In col</span>
         {timeHere.label}
       </span>
     );
@@ -363,6 +367,7 @@ function renderSystemOrCustomChip(args: {
           icon={chip.icon}
           className={cn(iconCls, "text-sky-700")}
         />
+        <span className="font-medium">Entered</span>
         {formatDateShort(date)}
       </span>
     );
@@ -377,6 +382,7 @@ function renderSystemOrCustomChip(args: {
         title={`Approved ${formatDate(approvalDate)}`}
       >
         <TimeChipIconView icon={chip.icon} className={iconCls} />
+        <span className="font-medium">Approved</span>
         {formatDateShort(approvalDate)}
       </span>
     );
@@ -422,6 +428,7 @@ function LegacyTimeChips({
           title={`Created ${formatDate(order.created_at)}`}
         >
           <Clock className="h-3 w-3 shrink-0 text-slate-400" />
+          <span className="font-medium text-slate-500">Created</span>
           {formatDateShort(order.created_at)}
         </span>
         {order.due_date ? (
@@ -436,6 +443,7 @@ function LegacyTimeChips({
                 )}
               >
                 <CalendarClock className="h-3 w-3 shrink-0" />
+                <span>Due</span>
                 {formatDateShort(order.due_date)}
               </span>
             );
@@ -485,6 +493,7 @@ function LegacyTimeChips({
             title={timeHere.title}
           >
             <Timer className="h-3 w-3 shrink-0 text-slate-400" />
+            <span className="font-medium text-slate-500">In col</span>
             {timeHere.label}
           </span>
         ) : null}
@@ -496,6 +505,7 @@ function LegacyTimeChips({
             }`}
           >
             <Truck className="h-3 w-3 shrink-0 text-sky-700" />
+            <span className="font-medium">Entered</span>
             {shippedEnteredAt ? formatDateShort(shippedEnteredAt) : "—"}
           </span>
         ) : null}
@@ -505,6 +515,7 @@ function LegacyTimeChips({
             title={`Approved ${formatDate(approvalDate)}`}
           >
             <CheckCircle2 className="h-3 w-3 shrink-0" />
+            <span className="font-medium">Approved</span>
             {formatDateShort(approvalDate)}
           </span>
         ) : null}

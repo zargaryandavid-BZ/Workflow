@@ -23,7 +23,7 @@ interface ApprovalTabProps {
   columns: BoardColumn[];
   contactEmail?: string | null;
   contactPhone?: string | null;
-  onChanged: () => void;
+  onChanged: (patch?: { column_id?: string }) => void;
 }
 
 function showCustomerLink(note: ApprovalNote) {
@@ -281,7 +281,7 @@ function MoveButton({
   sourceColumnId: string;
   columns: BoardColumn[];
   label: string;
-  onMoved: () => void;
+  onMoved: (toColumnId: string) => void;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -301,7 +301,7 @@ function MoveButton({
     );
     setLoading(false);
     if (result.ok) {
-      onMoved();
+      onMoved(columnId);
       router.refresh();
       return;
     }
@@ -385,7 +385,7 @@ export function ApprovalTab({
           sourceColumnId={sourceColumnId}
           columns={columns}
           label="Move to production →"
-          onMoved={onChanged}
+          onMoved={(toColumnId) => onChanged({ column_id: toColumnId })}
         />
       ) : null;
     }
@@ -412,7 +412,7 @@ export function ApprovalTab({
               sourceColumnId={sourceColumnId}
               columns={columns}
               label="Move to Returning Tickets"
-              onMoved={onChanged}
+              onMoved={(toColumnId) => onChanged({ column_id: toColumnId })}
             />
           ) : null}
         </div>

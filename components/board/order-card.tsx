@@ -501,12 +501,25 @@ export function OrderCard({
     if (!hasCustomerContact) return;
     e.preventDefault();
     e.stopPropagation();
+    openCustomerContactMenu(e.clientX, e.clientY);
+  }
+
+  function openCustomerContactMenu(x: number, y: number) {
     setMenuOpen(false);
     setDesignerMenuOpen(false);
     setDueMenuOpen(false);
     setDueExactOpen(false);
-    setContactMenuPos({ x: e.clientX, y: e.clientY });
+    setContactMenuPos({ x, y });
     setContactMenuOpen(true);
+  }
+
+  function handleCustomerNameClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (hasCustomerContact) {
+      openCustomerContactMenu(e.clientX, e.clientY);
+      return;
+    }
+    void copyText(e, displayCustomerName ?? "", "customer-name");
   }
 
   function handleDueContextMenu(e: React.MouseEvent) {
@@ -565,7 +578,7 @@ export function OrderCard({
       onContextMenu={handleContextMenu}
       className={cn(
         "group relative @container shrink-0 overflow-hidden rounded-md border-2",
-        activeWarning && animateWarnings
+        activeWarning && animateWarnings && !highlighted
           ? ""
           : "shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
@@ -573,7 +586,9 @@ export function OrderCard({
           : "bg-white",
         !shippingBorderColor && !activeWarning ? "border-slate-200" : "",
         canDrag ? "cursor-pointer" : "cursor-default",
-        activeWarning && animateWarnings ? `warning-${activeWarning.rule.color}` : "",
+        activeWarning && animateWarnings && !highlighted
+          ? `warning-${activeWarning.rule.color}`
+          : "",
         highlighted && "card-just-closed"
       )}
       data-order-card=""
@@ -664,17 +679,17 @@ export function OrderCard({
             {displayCustomerName ? (
               <button
                 type="button"
-                onClick={(e) => copyText(e, displayCustomerName, "customer-name")}
+                onClick={handleCustomerNameClick}
                 onContextMenu={handleCustomerContextMenu}
                 onPointerDown={(e) => e.stopPropagation()}
                 title={
                   hasCustomerContact
-                    ? "Click to copy name · Right-click for email / phone"
+                    ? "Click for email / phone"
                     : "Copy customer name"
                 }
                 className={cn(
-                  "group/copy flex w-full max-w-full items-center justify-start gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]",
-                  hasCustomerContact && "cursor-context-menu"
+                  "group/copy inline-flex max-w-full items-center justify-start gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]",
+                  hasCustomerContact && "cursor-pointer"
                 )}
               >
                 <span className="min-w-0 truncate">
