@@ -12,7 +12,8 @@ import {
 } from "@/lib/google-drive";
 
 /**
- * GET — whether the order's Artwork / Final production Drive folder has files.
+ * GET — whether the order's Artwork / Final production Drive folder has files
+ * (directly, or one level down in a child folder such as Final production).
  * Uses the URL saved on the Artwork (GDrive link) custom field.
  */
 export async function GET(

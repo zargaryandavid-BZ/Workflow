@@ -1650,12 +1650,23 @@ export function CardDetailModal({
                     : prev
                 );
               }}
+              onShippingRequestUpdated={(next) => {
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        shippingRequest: next,
+                      }
+                    : prev
+                );
+              }}
             />
           ) : tab === "history" ? (
             data.timelinePending && data.activity.length === 0 ? (
               <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
             ) : (
             <HistoryTab
+              orderId={data.order.id}
               activity={data.activity}
               orderNumber={data.order.title}
               customerName={

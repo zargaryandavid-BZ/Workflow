@@ -234,3 +234,207 @@ export function pickupLocationLines(settings?: ShippingSettings | null): string[
     config.pickupHoursNote,
   ];
 }
+
+export interface FedExContact {
+  personName: string;
+  phoneNumber: string;
+  companyName?: string | null;
+}
+
+export interface FedExCreatedShipment {
+  trackingNumber: string;
+  labelPdfs: Buffer[];
+}
+
+function digitsOnlyPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+  return digits;
+}
+
+function todayShipDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Create a FedEx shipment and return tracking + PDF label bytes (one per package).
+ */
+export async function createFedExShipment(args: {
+  boxes: ShippingBox[];
+  deliveryAddress: ShippingDeliveryAddress;
+  serviceType: string;
+  settings?: ShippingSettings | null;
+  shipperContact: FedExContact;
+  recipientContact: FedExContact;
+}): Promise<FedExCreatedShipment> {
+  const config = resolveFedExConfig(args.settings ?? null);
+
+  if (!isFedExConfigured(config)) {
+    throw new Error(
+      "FedEx is not configured. Add credentials in Settings → Shipping."
+    );
+  }
+  if (!args.boxes.length) {
+    throw new Error("At least one box is required to create a FedEx label.");
+  }
+
+  const shipperPhone = digitsOnlyPhone(args.shipperContact.phoneNumber);
+  const recipientPhone = digitsOnlyPhone(args.recipientContact.phoneNumber);
+  if (shipperPhone.length < 10) {
+    throw new Error(
+      "Shipper phone is required for FedEx labels. Add it in Settings → Shipping."
+    );
+  }
+  if (recipientPhone.length < 10) {
+    throw new Error(
+      "Customer phone is required for FedEx labels. Add a phone on the order customer."
+    );
+  }
+
+  const accessToken = await getFedExAccessToken(config);
+  const accountNumber = config.accountNumber!.trim();
+  const country =
+    (args.deliveryAddress.country ?? "US").trim().toUpperCase() || "US";
+
+  const shipPayload = {
+    labelResponseOptions: "LABEL",
+    accountNumber: { value: accountNumber },
+    requestedShipment: {
+      shipDatestamp: todayShipDate(),
+      pickupType: "DROPOFF_AT_FEDEX_LOCATION",
+      serviceType: args.serviceType,
+      packagingType: "YOUR_PACKAGING",
+      blockInsightVisibility: false,
+      shipper: {
+        contact: {
+          personName: args.shipperContact.personName.slice(0, 70),
+          phoneNumber: shipperPhone,
+          ...(args.shipperContact.companyName
+            ? { companyName: args.shipperContact.companyName.slice(0, 35) }
+            : {}),
+        },
+        address: shipperAddress(config),
+      },
+      recipients: [
+        {
+          contact: {
+            personName: args.recipientContact.personName.slice(0, 70),
+            phoneNumber: recipientPhone,
+            ...(args.recipientContact.companyName
+              ? {
+                  companyName: args.recipientContact.companyName.slice(0, 35),
+                }
+              : {}),
+          },
+          address: {
+            streetLines: [args.deliveryAddress.street],
+            city: args.deliveryAddress.city,
+            stateOrProvinceCode: args.deliveryAddress.state,
+            postalCode: args.deliveryAddress.zip,
+            countryCode: country,
+            residential: true,
+          },
+        },
+      ],
+      shippingChargesPayment: {
+        paymentType: "SENDER",
+      },
+      labelSpecification: {
+        imageType: "PDF",
+        labelStockType: "PAPER_4X6",
+      },
+      requestedPackageLineItems: args.boxes.map((box, i) => ({
+        sequenceNumber: i + 1,
+        weight: {
+          units: box.weightUnit === "kg" ? "KG" : "LB",
+          value: box.weight,
+        },
+        dimensions: {
+          length: Math.round(box.length),
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+          units: box.dimUnit === "cm" ? "CM" : "IN",
+        },
+      })),
+    },
+  };
+
+  const shipUrl = `${fedexBaseUrl(config)}/ship/v1/shipments`;
+  const shipRes = await fetchWithTimeout(shipUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "X-locale": "en_US",
+    },
+    body: JSON.stringify(shipPayload),
+  });
+
+  const shipData = (await shipRes.json().catch(() => ({}))) as {
+    output?: {
+      transactionShipments?: Array<{
+        masterTrackingNumber?: string;
+        pieceResponses?: Array<{
+          trackingNumber?: string;
+          packageDocuments?: Array<{
+            contentType?: string;
+            docType?: string;
+            encodedLabel?: string;
+          }>;
+        }>;
+        shipmentDocuments?: Array<{
+          contentType?: string;
+          docType?: string;
+          encodedLabel?: string;
+        }>;
+      }>;
+    };
+    errors?: Array<{ message?: string; code?: string }>;
+  };
+
+  if (!shipRes.ok) {
+    const msg =
+      shipData.errors?.[0]?.message ?? "FedEx create shipment failed.";
+    throw new Error(msg);
+  }
+
+  const txn = shipData.output?.transactionShipments?.[0];
+  if (!txn) {
+    throw new Error("FedEx returned no shipment details.");
+  }
+
+  const trackingNumber =
+    txn.masterTrackingNumber?.trim() ||
+    txn.pieceResponses?.[0]?.trackingNumber?.trim() ||
+    "";
+
+  if (!trackingNumber) {
+    throw new Error("FedEx returned no tracking number.");
+  }
+
+  const labelPdfs: Buffer[] = [];
+  for (const piece of txn.pieceResponses ?? []) {
+    for (const doc of piece.packageDocuments ?? []) {
+      if (!doc.encodedLabel) continue;
+      const isPdf =
+        !doc.docType ||
+        doc.docType.toUpperCase() === "PDF" ||
+        doc.contentType?.toUpperCase() === "LABEL";
+      if (!isPdf) continue;
+      labelPdfs.push(Buffer.from(doc.encodedLabel, "base64"));
+    }
+  }
+
+  if (labelPdfs.length === 0) {
+    for (const doc of txn.shipmentDocuments ?? []) {
+      if (!doc.encodedLabel) continue;
+      labelPdfs.push(Buffer.from(doc.encodedLabel, "base64"));
+    }
+  }
+
+  if (labelPdfs.length === 0) {
+    throw new Error("FedEx returned no PDF label.");
+  }
+
+  return { trackingNumber, labelPdfs };
+}

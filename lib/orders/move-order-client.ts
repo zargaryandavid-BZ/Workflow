@@ -41,7 +41,19 @@ export async function requestOrderMove(
       });
     }
     // Re-check Final production Drive folder so green order # stays current.
-    void refreshGdriveFolderHasFiles(body.orderId);
+    // Defer so the move UI stays snappy (Drive is ~1–3s).
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      window.requestIdleCallback(
+        () => {
+          void refreshGdriveFolderHasFiles(body.orderId);
+        },
+        { timeout: 4000 }
+      );
+    } else {
+      window.setTimeout(() => {
+        void refreshGdriveFolderHasFiles(body.orderId);
+      }, 1500);
+    }
     return { ok: true };
   }
 

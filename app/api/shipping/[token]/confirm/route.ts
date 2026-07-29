@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureFedExLabel } from "@/lib/fedex-label";
 import { completeShippingResponse } from "@/lib/shipping-confirm";
 import { dollarsToCents } from "@/lib/shipping-markup";
 import {
@@ -206,6 +207,16 @@ export async function POST(
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  const isFedExDelivery =
+    body.choice === "delivery" &&
+    body.fedexSelection?.provider !== "curri" &&
+    Boolean(body.fedexSelection?.serviceType);
+
+  if (isFedExDelivery) {
+    // Failures are stored on the shipping request; do not fail confirm.
+    await ensureFedExLabel(admin, result.shippingRequestId);
   }
 
   return NextResponse.json({ ok: true });

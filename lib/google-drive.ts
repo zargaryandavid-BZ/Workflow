@@ -249,7 +249,9 @@ export function parseDriveIdFromUrl(urlOrId: string): string | null {
 
 /**
  * True when the Drive folder has at least one non-folder, non-trashed item
- * directly inside it (does not recurse into subfolders).
+ * directly inside it, or inside an immediate child folder (one level deep).
+ * That way a parent job folder still counts as "has files" when Final production
+ * (or another subfolder) contains artwork.
  */
 export async function folderHasFiles(
   settings: GdriveSettings,
@@ -261,25 +263,54 @@ export async function folderHasFiles(
 
   const drive = driveClient(settings);
   const sharedDriveId = resolveSharedDriveId(settings);
-  const q = [
-    `'${folderId}' in parents`,
-    `mimeType!='${FOLDER_MIME}'`,
-    "trashed=false",
-  ].join(" and ");
-
-  const res = await drive.files.list({
-    q,
-    fields: "files(id)",
-    pageSize: 10,
+  const listOpts = {
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
     ...(sharedDriveId
       ? { corpora: "drive" as const, driveId: sharedDriveId }
       : { corpora: "allDrives" as const }),
+  };
+
+  // One list for files + folders (cheaper than two sequential queries).
+  const listing = await drive.files.list({
+    q: [`'${folderId}' in parents`, "trashed=false"].join(" and "),
+    fields: "files(id,mimeType)",
+    pageSize: 50,
+    ...listOpts,
   });
 
-  const count = res.data.files?.length ?? 0;
-  return { hasFiles: count > 0, fileCount: count };
+  const entries = listing.data.files ?? [];
+  const directFiles = entries.filter((f) => f.mimeType !== FOLDER_MIME);
+  if (directFiles.length > 0) {
+    return { hasFiles: true, fileCount: directFiles.length };
+  }
+
+  const childFolders = entries.filter(
+    (f) => f.mimeType === FOLDER_MIME && Boolean(f.id)
+  );
+  if (childFolders.length === 0) {
+    return { hasFiles: false, fileCount: 0 };
+  }
+
+  // Probe child folders in parallel; stop as soon as any has a file.
+  const results = await Promise.all(
+    childFolders.map(async (child) => {
+      const nestedRes = await drive.files.list({
+        q: [
+          `'${child.id}' in parents`,
+          `mimeType!='${FOLDER_MIME}'`,
+          "trashed=false",
+        ].join(" and "),
+        fields: "files(id)",
+        pageSize: 1,
+        ...listOpts,
+      });
+      return nestedRes.data.files?.length ?? 0;
+    })
+  );
+
+  const nestedCount = results.reduce((sum, n) => sum + n, 0);
+  return { hasFiles: nestedCount > 0, fileCount: nestedCount };
 }
 
 /** Lightweight check used by Settings → Test connection. */

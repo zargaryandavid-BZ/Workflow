@@ -9,14 +9,11 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
-  Copy,
   CreditCard,
   Car,
   CalendarClock,
-  Mail,
   MapPin,
   MoveRight,
-  Phone,
   RefreshCw,
   Truck,
   User,
@@ -281,8 +278,6 @@ export function OrderCard({
     return `rgba(${r},${g},${b},0.7)`;
   })();
 
-  const [copied, setCopied] = useState<string | null>(null);
-
   // Right-click context menu (move / actions)
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
@@ -292,11 +287,6 @@ export function OrderCard({
   const [designerMenuOpen, setDesignerMenuOpen] = useState(false);
   const [designerMenuPos, setDesignerMenuPos] = useState({ x: 0, y: 0 });
   const designerMenuRef = useRef<HTMLDivElement>(null);
-
-  // Right-click on customer name: email / phone copy menu
-  const [contactMenuOpen, setContactMenuOpen] = useState(false);
-  const [contactMenuPos, setContactMenuPos] = useState({ x: 0, y: 0 });
-  const contactMenuRef = useRef<HTMLDivElement>(null);
 
   // Right-click on due date chip
   const [dueMenuOpen, setDueMenuOpen] = useState(false);
@@ -316,13 +306,12 @@ export function OrderCard({
   const hasContextMenu =
     hasMoveMenu || hasActionMenu || canAssignDesigner || canResendApproval;
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
-  const hasCustomerContact = Boolean(email || phone);
 
   const dueExactOpenRef = useRef(false);
   dueExactOpenRef.current = dueExactOpen;
 
   useEffect(() => {
-    if (!menuOpen && !designerMenuOpen && !contactMenuOpen && !dueMenuOpen)
+    if (!menuOpen && !designerMenuOpen && !dueMenuOpen)
       return;
     function closeDueMenu() {
       setDueMenuOpen(false);
@@ -340,7 +329,6 @@ export function OrderCard({
         if (e.key === "Escape") {
           setMenuOpen(false);
           setDesignerMenuOpen(false);
-          setContactMenuOpen(false);
           closeDueMenu();
         }
         return;
@@ -354,12 +342,6 @@ export function OrderCard({
         !designerMenuRef.current.contains(target)
       ) {
         setDesignerMenuOpen(false);
-      }
-      if (
-        contactMenuRef.current &&
-        !contactMenuRef.current.contains(target)
-      ) {
-        setContactMenuOpen(false);
       }
       if (isOutsideDueMenu(target)) {
         // While Exact date is open, ignore mousedown — the native date
@@ -385,7 +367,7 @@ export function OrderCard({
       document.removeEventListener("keydown", handleClose);
       document.removeEventListener("click", handleDueClickAway, true);
     };
-  }, [menuOpen, designerMenuOpen, contactMenuOpen, dueMenuOpen]);
+  }, [menuOpen, designerMenuOpen, dueMenuOpen]);
 
   // Keep menus fully on-screen (flip up / shift left when near edges).
   useLayoutEffect(() => {
@@ -437,24 +419,6 @@ export function OrderCard({
   }, [designerMenuOpen, designerMenuPos.x, designerMenuPos.y, designers.length]);
 
   useLayoutEffect(() => {
-    if (!contactMenuOpen || !contactMenuRef.current) return;
-    const el = contactMenuRef.current;
-    const rect = el.getBoundingClientRect();
-    const pad = 8;
-    let x = contactMenuPos.x;
-    let y = contactMenuPos.y;
-    if (x + rect.width > window.innerWidth - pad) {
-      x = Math.max(pad, window.innerWidth - rect.width - pad);
-    }
-    if (y + rect.height > window.innerHeight - pad) {
-      y = Math.max(pad, window.innerHeight - rect.height - pad);
-    }
-    if (x !== contactMenuPos.x || y !== contactMenuPos.y) {
-      setContactMenuPos({ x, y });
-    }
-  }, [contactMenuOpen, contactMenuPos.x, contactMenuPos.y, email, phone]);
-
-  useLayoutEffect(() => {
     if (!dueMenuOpen || !dueMenuRef.current) return;
     const el = dueMenuRef.current;
     const rect = el.getBoundingClientRect();
@@ -477,7 +441,6 @@ export function OrderCard({
     e.preventDefault();
     e.stopPropagation();
     setDesignerMenuOpen(false);
-    setContactMenuOpen(false);
     setDueMenuOpen(false);
     setDueExactOpen(false);
     setDesignerSubOpen(false);
@@ -490,36 +453,10 @@ export function OrderCard({
     e.preventDefault();
     e.stopPropagation();
     setMenuOpen(false);
-    setContactMenuOpen(false);
     setDueMenuOpen(false);
     setDueExactOpen(false);
     setDesignerMenuPos({ x: e.clientX, y: e.clientY });
     setDesignerMenuOpen(true);
-  }
-
-  function handleCustomerContextMenu(e: React.MouseEvent) {
-    if (!hasCustomerContact) return;
-    e.preventDefault();
-    e.stopPropagation();
-    openCustomerContactMenu(e.clientX, e.clientY);
-  }
-
-  function openCustomerContactMenu(x: number, y: number) {
-    setMenuOpen(false);
-    setDesignerMenuOpen(false);
-    setDueMenuOpen(false);
-    setDueExactOpen(false);
-    setContactMenuPos({ x, y });
-    setContactMenuOpen(true);
-  }
-
-  function handleCustomerNameClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (hasCustomerContact) {
-      openCustomerContactMenu(e.clientX, e.clientY);
-      return;
-    }
-    void copyText(e, displayCustomerName ?? "", "customer-name");
   }
 
   function handleDueContextMenu(e: React.MouseEvent) {
@@ -528,7 +465,6 @@ export function OrderCard({
     e.stopPropagation();
     setMenuOpen(false);
     setDesignerMenuOpen(false);
-    setContactMenuOpen(false);
     setDueExactOpen(false);
     setDueExactValue(
       dateInputValue(order.due_date) || localDateInputValue()
@@ -545,17 +481,6 @@ export function OrderCard({
     onSetDueDate?.(update);
     setDueMenuOpen(false);
     setDueExactOpen(false);
-  }
-
-  async function copyText(e: React.MouseEvent, text: string, key: string) {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-      setTimeout(() => setCopied(null), 1500);
-    } catch {
-      // ignore clipboard failures
-    }
   }
 
   const productMaterialParts = [productName || null, materialsName || null].filter(
@@ -619,48 +544,34 @@ export function OrderCard({
           {/* 1) Order # | Product · Material  2) Source title  3) Customer */}
           <div className="min-w-0 w-full text-left">
             <div className="flex w-full min-w-0 items-baseline justify-start gap-1 text-left">
-              <button
-                type="button"
-                onClick={(e) => copyText(e, order.title, "order")}
-                onPointerDown={(e) => e.stopPropagation()}
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center justify-start text-left text-[15px] font-bold leading-snug",
+                  folderHasFiles ? "text-emerald-600" : "text-slate-900"
+                )}
                 title={
                   folderHasFiles
-                    ? `Final production folder has files — copy order number (${order.title})`
-                    : `Copy order number (${order.title})`
+                    ? `Final production folder has files (${order.title})`
+                    : order.title
                 }
-                className={cn(
-                  "group/copy relative inline-flex shrink-0 items-center justify-start text-left text-[15px] font-bold leading-snug hover:opacity-80",
-                  folderHasFiles
-                    ? "text-emerald-600"
-                    : "text-slate-900 hover:text-[var(--primary)]"
-                )}
               >
                 <span className="truncate">
-                  {copied === "order" ? (
-                    "Copied!"
-                  ) : (
-                    <>
-                      {formatShortOrderNumber(order.title)}
-                      {groupSize != null && groupSize >= 2 ? (
-                        <span
-                          className={cn(
-                            "font-normal",
-                            folderHasFiles
-                              ? "text-emerald-500/80"
-                              : "text-slate-400"
-                          )}
-                        >
-                          {" "}
-                          ({groupSize})
-                        </span>
-                      ) : null}
-                    </>
-                  )}
+                  {formatShortOrderNumber(order.title)}
+                  {groupSize != null && groupSize >= 2 ? (
+                    <span
+                      className={cn(
+                        "font-normal",
+                        folderHasFiles
+                          ? "text-emerald-500/80"
+                          : "text-slate-400"
+                      )}
+                    >
+                      {" "}
+                      ({groupSize})
+                    </span>
+                  ) : null}
                 </span>
-                {copied === "order" ? null : (
-                  <Copy className="pointer-events-none absolute left-full top-1/2 ml-0.5 h-3.5 w-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-                )}
-              </button>
+              </span>
               {productMaterialParts.length > 0 ? (
                 <>
                   <span className="shrink-0 text-slate-300">|</span>
@@ -677,28 +588,9 @@ export function OrderCard({
               className="mb-0.5 flex w-full min-w-0 items-baseline justify-start gap-1 text-left text-[10px] font-semibold leading-tight tracking-wide"
             />
             {displayCustomerName ? (
-              <button
-                type="button"
-                onClick={handleCustomerNameClick}
-                onContextMenu={handleCustomerContextMenu}
-                onPointerDown={(e) => e.stopPropagation()}
-                title={
-                  hasCustomerContact
-                    ? "Click for email / phone"
-                    : "Copy customer name"
-                }
-                className={cn(
-                  "group/copy inline-flex max-w-full items-center justify-start gap-0.5 text-left text-[15px] font-bold leading-snug text-slate-900 hover:text-[var(--primary)]",
-                  hasCustomerContact && "cursor-pointer"
-                )}
-              >
-                <span className="min-w-0 truncate">
-                  {copied === "customer-name" ? "Copied!" : displayCustomerName}
-                </span>
-                {copied === "customer-name" ? null : (
-                  <Copy className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />
-                )}
-              </button>
+              <span className="inline-flex max-w-full items-center justify-start text-left text-[15px] font-bold leading-snug text-slate-900">
+                <span className="min-w-0 truncate">{displayCustomerName}</span>
+              </span>
             ) : null}
             {summaryTrailingParts.length > 0 ||
             (role === "admin" &&
@@ -1060,56 +952,6 @@ export function OrderCard({
                   </span>
                 </button>
               ))}
-            </div>,
-            document.body
-          )
-        : null}
-
-      {/* Right-click customer name: copy email / phone */}
-      {contactMenuOpen && hasCustomerContact
-        ? createPortal(
-            <div
-              ref={contactMenuRef}
-              style={{ top: contactMenuPos.y, left: contactMenuPos.x }}
-              className="fixed z-[80] w-max min-w-[12rem] max-w-[min(20rem,calc(100vw-16px))] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-              onContextMenu={(e) => e.preventDefault()}
-            >
-              <p className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                <User className="h-3 w-3" />
-                Customer contact
-              </p>
-              {email ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    void copyText(e, email, "customer-email");
-                    setContactMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                  title="Copy email"
-                >
-                  <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <span className="min-w-0 flex-1 truncate">{email}</span>
-                  <Copy className="h-3.5 w-3.5 shrink-0 text-slate-300" />
-                </button>
-              ) : null}
-              {phone ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    void copyText(e, phone, "customer-phone");
-                    setContactMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                  title="Copy phone"
-                >
-                  <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <span className="min-w-0 flex-1 truncate">{phone}</span>
-                  <Copy className="h-3.5 w-3.5 shrink-0 text-slate-300" />
-                </button>
-              ) : null}
             </div>,
             document.body
           )

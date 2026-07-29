@@ -6,9 +6,12 @@ import {
   CheckCircle2,
   Clock,
   Copy,
+  Download,
+  ExternalLink,
   Loader2,
   MapPin,
   Package,
+  Printer,
   Truck,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
@@ -19,6 +22,7 @@ interface ShippingTabProps {
   orderId: string;
   appUrl?: string;
   onStaffNotesSaved?: (notes: string | null) => void;
+  onShippingRequestUpdated?: (next: ShippingRequest) => void;
 }
 
 function formatMoney(amount: number | null | undefined, currency?: string) {
@@ -126,15 +130,19 @@ export function ShippingTab({
   orderId,
   appUrl,
   onStaffNotesSaved,
+  onShippingRequestUpdated,
 }: ShippingTabProps) {
   const [addressCopied, setAddressCopied] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
+  const [trackingCopied, setTrackingCopied] = useState(false);
   const [staffNotes, setStaffNotes] = useState(
     shippingRequest.staff_notes ?? ""
   );
   const [savingStaffNotes, setSavingStaffNotes] = useState(false);
   const [staffNotesError, setStaffNotesError] = useState<string | null>(null);
   const [staffNotesSaved, setStaffNotesSaved] = useState(false);
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelError, setLabelError] = useState<string | null>(null);
 
   const boxes = Array.isArray(shippingRequest.boxes)
     ? shippingRequest.boxes
@@ -209,6 +217,85 @@ export function ShippingTab({
       setSavingStaffNotes(false);
     }
   }
+
+  async function createOrRetryLabel() {
+    setLabelBusy(true);
+    setLabelError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/shipping-label`, {
+        method: "POST",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        shipping_request?: ShippingRequest;
+      };
+      if (json.shipping_request) {
+        onShippingRequestUpdated?.(json.shipping_request);
+      }
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to create FedEx label");
+      }
+    } catch (err) {
+      setLabelError(
+        err instanceof Error ? err.message : "Failed to create FedEx label"
+      );
+    } finally {
+      setLabelBusy(false);
+    }
+  }
+
+  async function downloadLabel() {
+    setLabelBusy(true);
+    setLabelError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/shipping-label`);
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error ?? "Failed to download label");
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(cd);
+      const filename = match?.[1] ?? "fedex-label.pdf";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setLabelError(
+        err instanceof Error ? err.message : "Failed to download label"
+      );
+    } finally {
+      setLabelBusy(false);
+    }
+  }
+
+  async function copyTracking() {
+    const tracking = shippingRequest.fedex_tracking_number;
+    if (!tracking) return;
+    try {
+      await navigator.clipboard.writeText(tracking);
+      setTrackingCopied(true);
+      window.setTimeout(() => setTrackingCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const hasLabel =
+    shippingRequest.fedex_shipment_status === "created" &&
+    Boolean(shippingRequest.fedex_label_storage_path);
+  const labelPending = shippingRequest.fedex_shipment_status === "pending";
+  const labelFailed = shippingRequest.fedex_shipment_status === "failed";
+  const trackingUrl = shippingRequest.fedex_tracking_number
+    ? `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(
+        shippingRequest.fedex_tracking_number
+      )}`
+    : null;
 
   return (
     <div className="space-y-4 py-1">
@@ -440,6 +527,102 @@ export function ShippingTab({
                 Confirmed {formatDateTime(shippingRequest.responded_at)}
               </p>
             ) : null}
+
+            <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-3">
+              <div className="mb-2 flex items-center gap-2">
+                <Printer className="h-4 w-4 text-sky-600" />
+                <h4 className="text-sm font-semibold text-sky-950">
+                  FedEx label
+                </h4>
+              </div>
+
+              {shippingRequest.fedex_tracking_number ? (
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-sky-700/80">
+                      Tracking
+                    </p>
+                    <p className="font-mono text-sm text-sky-950">
+                      {shippingRequest.fedex_tracking_number}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void copyTracking()}
+                      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-sky-700 transition-colors hover:bg-white"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      {trackingCopied ? "Copied" : "Copy"}
+                    </button>
+                    {trackingUrl ? (
+                      <a
+                        href={trackingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-sky-700 transition-colors hover:bg-white"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Track
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {labelPending ? (
+                <p className="mb-2 flex items-center gap-1.5 text-sm text-sky-800">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Creating FedEx label…
+                </p>
+              ) : null}
+
+              {(labelFailed || shippingRequest.fedex_label_error) &&
+              !hasLabel ? (
+                <p className="mb-2 text-sm text-red-700">
+                  {shippingRequest.fedex_label_error ||
+                    "Label creation failed."}
+                </p>
+              ) : null}
+
+              {labelError ? (
+                <p className="mb-2 text-sm text-red-700">{labelError}</p>
+              ) : null}
+
+              <div className="flex flex-wrap items-center gap-2">
+                {hasLabel ? (
+                  <button
+                    type="button"
+                    disabled={labelBusy}
+                    onClick={() => void downloadLabel()}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    {labelBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    Download FedEx label
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={labelBusy || labelPending}
+                    onClick={() => void createOrRetryLabel()}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    {labelBusy || labelPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Printer className="h-3.5 w-3.5" />
+                    )}
+                    {labelFailed || shippingRequest.fedex_label_error
+                      ? "Retry FedEx label"
+                      : "Create FedEx label"}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-slate-500">Client responded with no choice recorded.</p>

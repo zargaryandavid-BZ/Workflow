@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureFedExLabel } from "@/lib/fedex-label";
 import { completeShippingResponse } from "@/lib/shipping-confirm";
 import { loadShippingSettings } from "@/lib/shipping-settings";
 import { checkoutSessionPaid } from "@/lib/stripe-shipping";
@@ -106,8 +107,10 @@ export async function POST(request: Request) {
       })
       .eq("token", token);
 
+    let shippingRequestId: string | null = null;
+
     if (fedexSelection && deliveryAddress) {
-      await completeShippingResponse(admin, token, {
+      const result = await completeShippingResponse(admin, token, {
         choice: fedexSelection.provider === "curri" ? "curri" : "delivery",
         fedexSelection,
         deliveryAddress,
@@ -117,6 +120,26 @@ export async function POST(request: Request) {
         paymentAmount: session.amount_total ?? null,
         paymentCurrency: session.currency ?? "usd",
       });
+      if (result.ok) {
+        shippingRequestId = result.shippingRequestId;
+      }
+    }
+
+    if (!shippingRequestId) {
+      const { data: shipReq } = await admin
+        .from("shipping_requests")
+        .select("id")
+        .eq("token", token)
+        .maybeSingle();
+      shippingRequestId = shipReq?.id ?? null;
+    }
+
+    if (
+      shippingRequestId &&
+      fedexSelection &&
+      fedexSelection.provider !== "curri"
+    ) {
+      await ensureFedExLabel(admin, shippingRequestId);
     }
   }
 

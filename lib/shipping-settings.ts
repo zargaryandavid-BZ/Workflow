@@ -33,6 +33,8 @@ function rowToSettings(row: Record<string, unknown>): ShippingSettings {
     shipper_state: (row.shipper_state as string | null) ?? null,
     shipper_zip: (row.shipper_zip as string | null) ?? null,
     shipper_country: (row.shipper_country as string | null) ?? "US",
+    shipper_contact_name: (row.shipper_contact_name as string | null) ?? null,
+    shipper_phone: (row.shipper_phone as string | null) ?? null,
     pickup_hours_note: (row.pickup_hours_note as string | null) ?? null,
     offer_pickup: row.offer_pickup !== false,
     offer_fedex: row.offer_fedex !== false,
@@ -70,6 +72,8 @@ export function toPublicShippingSettings(
     shipper_state: settings.shipper_state,
     shipper_zip: settings.shipper_zip,
     shipper_country: settings.shipper_country,
+    shipper_contact_name: settings.shipper_contact_name,
+    shipper_phone: settings.shipper_phone,
     pickup_hours_note: settings.pickup_hours_note,
     offer_pickup: settings.offer_pickup,
     offer_fedex: settings.offer_fedex,
@@ -183,6 +187,14 @@ export function resolveFedExConfig(settings: ShippingSettings | null): FedExConf
       zip: settings?.shipper_zip?.trim() || shipper.zip,
       country: settings?.shipper_country?.trim() || shipper.country,
     },
+    shipperContactName:
+      settings?.shipper_contact_name?.trim() ||
+      process.env.FEDEX_SHIPPER_CONTACT_NAME?.trim() ||
+      null,
+    shipperPhone:
+      settings?.shipper_phone?.trim() ||
+      process.env.FEDEX_SHIPPER_PHONE?.trim() ||
+      null,
     pickupHoursNote:
       settings?.pickup_hours_note?.trim() || defaultPickupHoursNote(),
   };
@@ -251,6 +263,8 @@ export type ShippingSettingsPatch = Partial<{
   shipper_state: string | null;
   shipper_zip: string | null;
   shipper_country: string | null;
+  shipper_contact_name: string | null;
+  shipper_phone: string | null;
   pickup_hours_note: string | null;
   offer_pickup: boolean;
   offer_fedex: boolean;
@@ -282,6 +296,8 @@ export function buildShippingSettingsUpdate(
   copyIfDefined("shipper_state");
   copyIfDefined("shipper_zip");
   copyIfDefined("shipper_country");
+  copyIfDefined("shipper_contact_name");
+  copyIfDefined("shipper_phone");
   copyIfDefined("pickup_hours_note");
   copyIfDefined("offer_pickup");
   copyIfDefined("offer_fedex");

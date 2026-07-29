@@ -14,6 +14,7 @@ import {
 import { logActivity } from "@/lib/automation";
 import { sendSms, isSmsConfigured } from "@/lib/sms";
 import { actionTagForButton, addOrderTag } from "@/lib/order-tags";
+import { insertOrderSmsMessage } from "@/lib/order-sms";
 
 export async function POST(
   request: Request,
@@ -96,6 +97,16 @@ export async function POST(
     );
   }
 
+  await insertOrderSmsMessage(supabase, {
+    tenantId: ctx.tenant.id,
+    orderId,
+    direction: "outbound",
+    phone,
+    body: messageBody,
+    twilioSid: result.sid ?? null,
+    actorUserId: ctx.userId,
+  });
+
   // Multi-part orders: if every sibling is in this column, tag all of them.
   // Otherwise only tag the card the SMS was sent from.
   // "Review Request" (and similarly named) buttons tag Review instead of Texted.
@@ -139,6 +150,7 @@ export async function POST(
       phone,
       channel: "sms",
       messageBody,
+      twilioSid: result.sid ?? null,
       taggedOrderIds: tagTargets.map((t) => t.id),
       groupFullyInColumn: allReady,
     },

@@ -2,15 +2,54 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
-  sendSms,
   isSmsConfigured,
   normalizeSmsPhone,
+  sendSms,
   validateSmsRecipient,
 } from "@/lib/sms";
 import { addOrderTag } from "@/lib/order-tags";
 import { logActivity } from "@/lib/automation";
-import { insertOrderSmsMessage } from "@/lib/order-sms";
+import {
+  insertOrderSmsMessage,
+  listOrderSmsMessages,
+} from "@/lib/order-sms";
 
+/** GET — SMS thread for this order. */
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: orderId } = await params;
+  const ctx = await getTenantContext();
+  if (!ctx) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = await createClient();
+  const { data: order } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("id", orderId)
+    .eq("tenant_id", ctx.tenant.id)
+    .maybeSingle();
+
+  if (!order) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  const messages = await listOrderSmsMessages(
+    supabase,
+    orderId,
+    ctx.tenant.id
+  );
+
+  return NextResponse.json({
+    messages,
+    smsConfigured: isSmsConfigured(),
+  });
+}
+
+/** POST — send a manual SMS and append to the thread. */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -25,7 +64,7 @@ export async function POST(
     return NextResponse.json(
       {
         error:
-          "SMS is not configured on this account. Add Twilio credentials in your environment.",
+          "SMS is not configured. Add Twilio credentials in your environment.",
       },
       { status: 503 }
     );
@@ -55,7 +94,6 @@ export async function POST(
   }
 
   const supabase = await createClient();
-
   const { data: order } = await supabase
     .from("orders")
     .select("id, tenant_id, specs")
@@ -79,7 +117,7 @@ export async function POST(
     );
   }
 
-  await insertOrderSmsMessage(supabase, {
+  const message = await insertOrderSmsMessage(supabase, {
     tenantId: ctx.tenant.id,
     orderId,
     direction: "outbound",
@@ -105,10 +143,10 @@ export async function POST(
     metadata: {
       phone,
       messageBody,
-      source: "quick_sms",
+      source: "manual_sms",
       twilioSid: result.sid ?? null,
     },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, message });
 }

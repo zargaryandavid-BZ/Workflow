@@ -67,6 +67,12 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
   const [shipperCountry, setShipperCountry] = useState(
     settings.shipper_country ?? "US"
   );
+  const [shipperContactName, setShipperContactName] = useState(
+    settings.shipper_contact_name ?? ""
+  );
+  const [shipperPhone, setShipperPhone] = useState(
+    settings.shipper_phone ?? ""
+  );
   const [pickupHoursNote, setPickupHoursNote] = useState(
     settings.pickup_hours_note ?? ""
   );
@@ -100,6 +106,8 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
       shipper_state: shipperState.trim() || null,
       shipper_zip: shipperZip.trim() || null,
       shipper_country: shipperCountry.trim() || "US",
+      shipper_contact_name: shipperContactName.trim() || null,
+      shipper_phone: shipperPhone.trim() || null,
       pickup_hours_note: pickupHoursNote.trim() || null,
       offer_pickup: offerPickup,
       offer_fedex: offerFedex,
@@ -137,6 +145,8 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
     setOfferFedex(next.offer_fedex);
     setOfferUber(next.offer_uber);
     setOfferCurri(next.offer_curri);
+    setShipperContactName(next.shipper_contact_name ?? "");
+    setShipperPhone(next.shipper_phone ?? "");
     setFedexApiKey("");
     setFedexSecretKey("");
     setStripeSecretKey("");
@@ -295,9 +305,28 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-800">Ship-from / pickup</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Shown to clients who choose self pickup.
+          Shown to clients who choose self pickup. Contact name and phone are
+          required to print FedEx shipping labels.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm text-slate-600">
+            Contact name
+            <input
+              value={shipperContactName}
+              onChange={(e) => setShipperContactName(e.target.value)}
+              placeholder="Shop contact for FedEx labels"
+              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-sm text-slate-600">
+            Phone
+            <input
+              value={shipperPhone}
+              onChange={(e) => setShipperPhone(e.target.value)}
+              placeholder="10-digit phone"
+              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
           <label className="block text-sm text-slate-600 sm:col-span-2">
             Street
             <input

@@ -33,7 +33,10 @@ export async function completeShippingResponse(
     paymentAmount?: number | null;
     paymentCurrency?: string | null;
   }
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+): Promise<
+  | { ok: true; shippingRequestId: string }
+  | { ok: false; status: number; error: string }
+> {
   const { data: existing, error: findError } = await admin
     .from("shipping_requests")
     .select("id, status")
@@ -93,5 +96,5 @@ export async function completeShippingResponse(
     };
   }
 
-  return { ok: true };
+  return { ok: true, shippingRequestId: existing.id };
 }

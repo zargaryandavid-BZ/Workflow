@@ -30,6 +30,7 @@ import {
 } from "@/lib/ready-to-ship-group";
 import { syncCustomerFromNotification } from "@/lib/customers";
 import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
+import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
 import type {
   CustomerResponse,
@@ -294,6 +295,15 @@ async function deliverNotification(
         sentParts.push("sms");
         sentToPhone = customerPhone;
         sentSmsBody = body;
+        await insertOrderSmsMessage(client, {
+          tenantId: params.order.tenant_id,
+          orderId: params.order.id,
+          direction: "outbound",
+          phone: customerPhone,
+          body,
+          twilioSid: smsResult.sid ?? null,
+          actorUserId: null,
+        });
       } else {
         errors.push(smsResult.error ?? deliveryErrorMessage("sms"));
       }

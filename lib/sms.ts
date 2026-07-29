@@ -5,7 +5,7 @@ interface SmsArgs {
   body: string;
 }
 
-export type SmsSendResult = { sent: boolean; error?: string };
+export type SmsSendResult = { sent: boolean; error?: string; sid?: string };
 
 export function isSmsConfigured(): boolean {
   return Boolean(
@@ -78,12 +78,12 @@ export async function sendSms(args: SmsArgs): Promise<SmsSendResult> {
     return { sent: false, error: validationError };
   }
 
-  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const token = process.env.TWILIO_AUTH_TOKEN?.trim();
   const from = process.env.TWILIO_PHONE_NUMBER?.trim();
   const to = normalizeSmsPhone(args.to);
 
-  if (!sid || !token || !from) {
+  if (!accountSid || !token || !from) {
     console.info(`[sms] -> ${to}: ${args.body}`);
     return {
       sent: false,
@@ -93,11 +93,11 @@ export async function sendSms(args: SmsArgs): Promise<SmsSendResult> {
 
   try {
     const res = await fetchWithTimeout(
-      `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
       {
         method: "POST",
         headers: {
-          Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString(
+          Authorization: `Basic ${Buffer.from(`${accountSid}:${token}`).toString(
             "base64"
           )}`,
           "Content-Type": "application/x-www-form-urlencoded",
@@ -111,11 +111,21 @@ export async function sendSms(args: SmsArgs): Promise<SmsSendResult> {
       console.error("[twilio] failed to send SMS", text);
       return {
         sent: false,
-        error: "SMS failed to send. Please check Twilio config.",
+        error: twilioErrorMessage(text),
       };
     }
 
-    return { sent: true };
+    let messageSid: string | undefined;
+    try {
+      const json = (await res.json()) as { sid?: string };
+      if (typeof json.sid === "string" && json.sid.trim()) {
+        messageSid = json.sid.trim();
+      }
+    } catch {
+      /* ignore */
+    }
+
+    return { sent: true, sid: messageSid };
   } catch (err) {
     const message = err instanceof Error ? err.message : "SMS failed to send.";
     console.error("[twilio] send error", message);

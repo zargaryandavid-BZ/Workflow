@@ -598,8 +598,12 @@ export interface FedExConfig {
     zip: string;
     country: string;
   };
+  shipperContactName: string | null;
+  shipperPhone: string | null;
   pickupHoursNote: string;
 }
+
+export type FedExShipmentStatus = "pending" | "created" | "failed";
 
 export interface ShippingSettings {
   tenant_id: string;
@@ -612,6 +616,8 @@ export interface ShippingSettings {
   shipper_state: string | null;
   shipper_zip: string | null;
   shipper_country: string | null;
+  shipper_contact_name: string | null;
+  shipper_phone: string | null;
   pickup_hours_note: string | null;
   /** Methods shown on the client shipping portal. */
   offer_pickup: boolean;
@@ -679,6 +685,8 @@ export interface ShippingSettingsPublic {
   shipper_state: string | null;
   shipper_zip: string | null;
   shipper_country: string | null;
+  shipper_contact_name: string | null;
+  shipper_phone: string | null;
   pickup_hours_note: string | null;
   offer_pickup: boolean;
   offer_fedex: boolean;
@@ -712,6 +720,11 @@ export interface ShippingRequest {
   payment_status: ShippingPaymentStatus | null;
   payment_amount: number | null;
   payment_currency: string | null;
+  fedex_tracking_number: string | null;
+  fedex_label_storage_path: string | null;
+  fedex_shipment_status: FedExShipmentStatus | null;
+  fedex_label_error: string | null;
+  fedex_shipped_at: string | null;
   sent_at: string | null;
   responded_at: string | null;
   expires_at: string | null;

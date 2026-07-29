@@ -5,13 +5,14 @@ import { useEffect, useState } from "react";
 /** Avoid re-hitting Drive for the same order while browsing the board. */
 const hasFilesCache = new Map<string, boolean>();
 
+/** One in-flight request per order so remounts share a single call. */
+const inFlight = new Map<string, Promise<boolean>>();
+
 /** Subscribers notified when an order's cached status is invalidated/refreshed. */
 const listeners = new Map<string, Set<() => void>>();
-const globalListeners = new Set<() => void>();
 
 function notify(orderId: string) {
   listeners.get(orderId)?.forEach((fn) => fn());
-  globalListeners.forEach((fn) => fn());
 }
 
 function subscribe(orderId: string, fn: () => void) {
@@ -34,14 +35,36 @@ async function fetchHasFiles(orderId: string): Promise<boolean> {
   return Boolean(json.hasFiles);
 }
 
+function fetchHasFilesDeduped(orderId: string): Promise<boolean> {
+  const existing = inFlight.get(orderId);
+  if (existing) return existing;
+
+  const promise = fetchHasFiles(orderId)
+    .then((next) => {
+      hasFilesCache.set(orderId, next);
+      return next;
+    })
+    .catch(() => {
+      hasFilesCache.set(orderId, false);
+      return false;
+    })
+    .finally(() => {
+      inFlight.delete(orderId);
+    });
+
+  inFlight.set(orderId, promise);
+  return promise;
+}
+
 /** Drop cached status so subscribers re-check Drive. */
 export function clearGdriveFolderHasFilesCache(orderId?: string) {
   if (orderId) {
     hasFilesCache.delete(orderId);
+    inFlight.delete(orderId);
     notify(orderId);
   } else {
     hasFilesCache.clear();
-    globalListeners.forEach((fn) => fn());
+    inFlight.clear();
   }
 }
 
@@ -53,9 +76,9 @@ export async function refreshGdriveFolderHasFiles(
   orderId: string
 ): Promise<boolean> {
   hasFilesCache.delete(orderId);
+  inFlight.delete(orderId);
   try {
-    const next = await fetchHasFiles(orderId);
-    hasFilesCache.set(orderId, next);
+    const next = await fetchHasFilesDeduped(orderId);
     notify(orderId);
     return next;
   } catch {
@@ -66,16 +89,16 @@ export async function refreshGdriveFolderHasFiles(
 }
 
 /**
- * Green order # state from cache + explicit refreshes.
- * Does **not** auto-call Drive on every card mount (that was flooding the API).
- * Checks run on move / Copy Link / Final production open via refreshGdriveFolderHasFiles.
+ * Green order # / Copy Link from cache only.
+ * Does **not** call Drive on mount (that made the board / cards feel stuck).
+ * Checks run on move / Copy Link / Final production via refreshGdriveFolderHasFiles.
  */
 export function useGdriveFolderHasFiles(
   orderId: string | null | undefined,
   artworkUrl: string | null | undefined
 ): boolean {
   const url = artworkUrl?.trim() ?? "";
-  const hasUrl = /^https?:\/\//i.test(url);
+  const hasUrl = Boolean(url && /^https?:\/\//i.test(url));
   const [hasFiles, setHasFiles] = useState(() => {
     if (!orderId || !hasUrl) return false;
     return hasFilesCache.get(orderId) ?? false;
@@ -99,7 +122,7 @@ export function useGdriveFolderHasFiles(
       return;
     }
 
-    // Cache miss after invalidate (not initial mount): re-fetch once.
+    // Cache miss: only fetch after an explicit refresh bumped epoch.
     if (epoch === 0) {
       setHasFiles(false);
       return;
@@ -108,13 +131,12 @@ export function useGdriveFolderHasFiles(
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const next = await fetchHasFiles(orderId);
-        hasFilesCache.set(orderId, next);
+        const next = await fetchHasFilesDeduped(orderId);
         if (!cancelled) setHasFiles(next);
       } catch {
         if (!cancelled) setHasFiles(false);
       }
-    }, 200);
+    }, 100);
 
     return () => {
       cancelled = true;
