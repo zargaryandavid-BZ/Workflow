@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Archive,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
+import { FEEDBACK_COUNT_CHANGED_EVENT } from "@/lib/feedback";
 import { TimerWidget } from "@/components/time/TimerWidget";
 
 type NavItem = {
@@ -143,6 +145,43 @@ interface SidebarProps {
 
 export function Sidebar({ role, open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const [feedbackCount, setFeedbackCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCount() {
+      try {
+        const res = await fetch("/api/feedback/count");
+        if (!res.ok) return;
+        const json = (await res.json()) as { count?: number };
+        if (!cancelled && typeof json.count === "number") {
+          setFeedbackCount(json.count);
+        }
+      } catch {
+        // Non-fatal — nav still works without the badge.
+      }
+    }
+
+    void loadCount();
+
+    function onFocus() {
+      void loadCount();
+    }
+    function onCountChanged(e: Event) {
+      const detail = (e as CustomEvent<{ count?: number }>).detail;
+      if (typeof detail?.count === "number") {
+        setFeedbackCount(detail.count);
+      }
+    }
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(FEEDBACK_COUNT_CHANGED_EVENT, onCountChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(FEEDBACK_COUNT_CHANGED_EVENT, onCountChanged);
+    };
+  }, [pathname]);
 
   function handleNavClick() {
     if (window.matchMedia("(max-width: 767px)").matches) {
@@ -161,6 +200,10 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
   }
 
   const FeedbackIcon = feedbackNav.icon;
+  const feedbackLabel =
+    feedbackCount != null
+      ? `${feedbackNav.label} (${feedbackCount})`
+      : feedbackNav.label;
 
   return (
     <aside
@@ -218,10 +261,19 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
           prefetch={false}
           onClick={handleNavClick}
           className={navLinkClass(feedbackNav.href)}
-          title={feedbackNav.label}
+          title={feedbackLabel}
+          aria-label={feedbackLabel}
         >
           <FeedbackIcon className="h-4 w-4 shrink-0" />
-          <span className="truncate">{feedbackNav.label}</span>
+          <span className="min-w-0 flex-1 truncate">{feedbackNav.label}</span>
+          {feedbackCount != null ? (
+            <span
+              className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-semibold tabular-nums text-slate-600"
+              aria-hidden
+            >
+              {feedbackCount}
+            </span>
+          ) : null}
         </Link>
       </div>
       <TimerWidget />

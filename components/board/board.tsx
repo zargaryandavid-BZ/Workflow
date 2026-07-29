@@ -65,6 +65,12 @@ import {
   type ColumnSortMap,
   type ColumnSortMode,
 } from "@/lib/board-column-sort";
+import {
+  buildStaffDueSpecs,
+  DEFAULT_PROCESSING_DAYS,
+  mergeDueSpecsIntoOrderSpecs,
+  type DueDateMode,
+} from "@/lib/due-date";
 import type {
   BoardColumn,
   CardWarningRule,
@@ -1327,6 +1333,51 @@ export function Board({
     }
   }
 
+  async function handleSetDueDate(
+    order: OrderWithRelations,
+    update: {
+      mode: DueDateMode;
+      dueDate?: string | null;
+      processingDays?: number | null;
+    }
+  ) {
+    const snapshot = boardOrdersRef.current;
+    const built = buildStaffDueSpecs({
+      mode: update.mode,
+      dueDate: update.dueDate,
+      processingDays: update.processingDays,
+      previousSpecs: order.specs,
+    });
+    const nextSpecs = mergeDueSpecsIntoOrderSpecs(order.specs, built.specs);
+    patchOrderFields(order.id, {
+      due_date: built.dueDate,
+      specs: nextSpecs,
+    });
+
+    try {
+      await patchOrderApi(order.id, {
+        dueDate: built.dueDate,
+        dueDateMode: update.mode,
+        dueProcessingDays:
+          update.mode === "after_approval"
+            ? (update.processingDays ?? DEFAULT_PROCESSING_DAYS)
+            : null,
+      });
+      flashToast(
+        update.mode === "after_approval"
+          ? "Due set to after approval"
+          : built.dueDate
+            ? `Due date set to ${built.dueDate}`
+            : "Due date updated"
+      );
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update due date"
+      );
+    }
+  }
+
   async function handleGroupMove(
     groupOrders: OrderWithRelations[],
     toColumnId: string
@@ -2152,6 +2203,7 @@ export function Board({
                 designers={designersWithLoad}
                 onGroupAssignDesigner={handleGroupAssignDesigner}
                 onGroupSetDueDates={handleGroupSetDueDates}
+                onSetDueDate={handleSetDueDate}
                 onMoveGroup={handleGroupMove}
                 onOpenOrder={(o) => setDetailId(o.id)}
                 onAdd={(colId) => setCreateColumn(colId)}

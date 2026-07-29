@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { FeedbackModal } from "@/components/feedback/FeedbackModal";
 import { FeedbackTable } from "@/components/feedback/FeedbackTable";
 import type { FeedbackItem } from "@/lib/feedback";
+import { dispatchFeedbackCountChanged } from "@/lib/feedback";
 
 interface FeedbackPageClientProps {
   isAdmin: boolean;
@@ -39,6 +40,11 @@ export function FeedbackPageClient({ isAdmin }: FeedbackPageClientProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (loading) return;
+    dispatchFeedbackCountChanged(items.length);
+  }, [items.length, loading]);
 
   function handleSaved(item: FeedbackItem) {
     setItems((prev) => {

@@ -92,6 +92,14 @@ interface ColumnProps {
     designer: { id: string | null; name: string | null }
   ) => void;
   onGroupSetDueDates?: (updates: GroupDueDateUpdate[]) => Promise<void>;
+  onSetDueDate?: (
+    order: OrderWithRelations,
+    update: {
+      mode: "fixed" | "after_approval";
+      dueDate?: string | null;
+      processingDays?: number | null;
+    }
+  ) => void;
   onMoveGroup?: (orders: OrderWithRelations[], targetColumnId: string) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
   onAdd: (columnId: string) => void;
@@ -167,6 +175,7 @@ export function Column({
   designers = [],
   onGroupAssignDesigner,
   onGroupSetDueDates,
+  onSetDueDate,
   onMoveGroup,
   onOpenOrder,
   onAdd,
@@ -418,6 +427,11 @@ export function Column({
                             onGroupAssignDesigner([entry.order], designer)
                         : undefined
                     }
+                    onSetDueDate={
+                      onSetDueDate
+                        ? (update) => onSetDueDate(entry.order, update)
+                        : undefined
+                    }
                     notificationBadge={
                       notificationBadgeByOrder[entry.order.id]
                     }
@@ -462,6 +476,11 @@ export function Column({
                     onGroupAssignDesigner
                       ? (designer) =>
                           onGroupAssignDesigner([order], designer)
+                      : undefined
+                  }
+                  onSetDueDate={
+                    onSetDueDate
+                      ? (update) => onSetDueDate(order, update)
                       : undefined
                   }
                   notificationBadge={notificationBadgeByOrder[order.id]}

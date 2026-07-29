@@ -12,6 +12,7 @@ import {
   Copy,
   CreditCard,
   Car,
+  CalendarClock,
   Mail,
   MapPin,
   MoveRight,
@@ -42,9 +43,13 @@ import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
-import { cn } from "@/lib/utils";
+import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
+import {
+  DEFAULT_PROCESSING_DAYS,
+  type DueDateMode,
+} from "@/lib/due-date";
 import {
   formatShortOrderNumber,
 } from "./order-number-label";
@@ -97,6 +102,12 @@ interface OrderCardProps {
   onAssignDesigner?: (designer: {
     id: string | null;
     name: string | null;
+  }) => void;
+  /** Persist due date from right-click on the due chip. */
+  onSetDueDate?: (update: {
+    mode: DueDateMode;
+    dueDate?: string | null;
+    processingDays?: number | null;
   }) => void;
   notificationBadge?: CardNotificationBadge;
   ownerName?: string;
@@ -151,6 +162,7 @@ export function OrderCard({
   designerName: designerNameProp,
   designers = [],
   onAssignDesigner,
+  onSetDueDate,
   notificationBadge,
   ownerName,
   approvalDate = null,
@@ -283,10 +295,18 @@ export function OrderCard({
   const [contactMenuPos, setContactMenuPos] = useState({ x: 0, y: 0 });
   const contactMenuRef = useRef<HTMLDivElement>(null);
 
+  // Right-click on due date chip
+  const [dueMenuOpen, setDueMenuOpen] = useState(false);
+  const [dueMenuPos, setDueMenuPos] = useState({ x: 0, y: 0 });
+  const [dueExactOpen, setDueExactOpen] = useState(false);
+  const [dueExactValue, setDueExactValue] = useState("");
+  const dueMenuRef = useRef<HTMLDivElement>(null);
+
   const hasMoveMenu =
     availableColumns.length > 0 && Boolean(onMoveToColumn);
   const hasActionMenu = actionButtons.length > 0;
   const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
+  const canSetDueDate = Boolean(onSetDueDate);
   const canResendApproval =
     notificationBadge === "rejected" && Boolean(onResendApproval);
   const hasContextMenu =
@@ -295,13 +315,16 @@ export function OrderCard({
   const hasCustomerContact = Boolean(email || phone);
 
   useEffect(() => {
-    if (!menuOpen && !designerMenuOpen && !contactMenuOpen) return;
+    if (!menuOpen && !designerMenuOpen && !contactMenuOpen && !dueMenuOpen)
+      return;
     function handleClose(e: MouseEvent | KeyboardEvent) {
       if (e instanceof KeyboardEvent) {
         if (e.key === "Escape") {
           setMenuOpen(false);
           setDesignerMenuOpen(false);
           setContactMenuOpen(false);
+          setDueMenuOpen(false);
+          setDueExactOpen(false);
         }
         return;
       }
@@ -321,6 +344,10 @@ export function OrderCard({
       ) {
         setContactMenuOpen(false);
       }
+      if (dueMenuRef.current && !dueMenuRef.current.contains(target)) {
+        setDueMenuOpen(false);
+        setDueExactOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClose);
     document.addEventListener("keydown", handleClose);
@@ -328,7 +355,7 @@ export function OrderCard({
       document.removeEventListener("mousedown", handleClose);
       document.removeEventListener("keydown", handleClose);
     };
-  }, [menuOpen, designerMenuOpen, contactMenuOpen]);
+  }, [menuOpen, designerMenuOpen, contactMenuOpen, dueMenuOpen]);
 
   // Keep menus fully on-screen (flip up / shift left when near edges).
   useLayoutEffect(() => {
@@ -397,12 +424,32 @@ export function OrderCard({
     }
   }, [contactMenuOpen, contactMenuPos.x, contactMenuPos.y, email, phone]);
 
+  useLayoutEffect(() => {
+    if (!dueMenuOpen || !dueMenuRef.current) return;
+    const el = dueMenuRef.current;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let x = dueMenuPos.x;
+    let y = dueMenuPos.y;
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad);
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad);
+    }
+    if (x !== dueMenuPos.x || y !== dueMenuPos.y) {
+      setDueMenuPos({ x, y });
+    }
+  }, [dueMenuOpen, dueExactOpen, dueMenuPos.x, dueMenuPos.y]);
+
   function handleContextMenu(e: React.MouseEvent) {
     if (!hasContextMenu) return;
     e.preventDefault();
     e.stopPropagation();
     setDesignerMenuOpen(false);
     setContactMenuOpen(false);
+    setDueMenuOpen(false);
+    setDueExactOpen(false);
     setDesignerSubOpen(false);
     setMenuPos({ x: e.clientX, y: e.clientY });
     setMenuOpen(true);
@@ -414,6 +461,8 @@ export function OrderCard({
     e.stopPropagation();
     setMenuOpen(false);
     setContactMenuOpen(false);
+    setDueMenuOpen(false);
+    setDueExactOpen(false);
     setDesignerMenuPos({ x: e.clientX, y: e.clientY });
     setDesignerMenuOpen(true);
   }
@@ -424,8 +473,35 @@ export function OrderCard({
     e.stopPropagation();
     setMenuOpen(false);
     setDesignerMenuOpen(false);
+    setDueMenuOpen(false);
+    setDueExactOpen(false);
     setContactMenuPos({ x: e.clientX, y: e.clientY });
     setContactMenuOpen(true);
+  }
+
+  function handleDueContextMenu(e: React.MouseEvent) {
+    if (!canSetDueDate) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(false);
+    setDesignerMenuOpen(false);
+    setContactMenuOpen(false);
+    setDueExactOpen(false);
+    setDueExactValue(
+      dateInputValue(order.due_date) || localDateInputValue()
+    );
+    setDueMenuPos({ x: e.clientX, y: e.clientY });
+    setDueMenuOpen(true);
+  }
+
+  function applyDueUpdate(update: {
+    mode: DueDateMode;
+    dueDate?: string | null;
+    processingDays?: number | null;
+  }) {
+    onSetDueDate?.(update);
+    setDueMenuOpen(false);
+    setDueExactOpen(false);
   }
 
   async function copyText(e: React.MouseEvent, text: string, key: string) {
@@ -638,6 +714,7 @@ export function OrderCard({
         approvalDate={approvalDate}
         warningWorkingDays={warningWorkingDays}
         showShippedEnteredDate={showShippedEnteredDate}
+        onDueContextMenu={canSetDueDate ? handleDueContextMenu : undefined}
       />
 
       {/* Footer — full-width row; each chip gets flex-1 so all chips together = 100% card width */}
@@ -970,6 +1047,72 @@ export function OrderCard({
           )
         : null}
 
+      {/* Right-click due chip: Fixed after approval / Exact date */}
+      {dueMenuOpen && canSetDueDate
+        ? createPortal(
+            <div
+              ref={dueMenuRef}
+              style={{ top: dueMenuPos.y, left: dueMenuPos.x }}
+              className="fixed z-[80] w-max min-w-[12rem] max-w-[min(18rem,calc(100vw-16px))] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <p className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <CalendarClock className="h-3 w-3" />
+                Due date
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  applyDueUpdate({
+                    mode: "after_approval",
+                    dueDate: null,
+                    processingDays: DEFAULT_PROCESSING_DAYS,
+                  })
+                }
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Fixed after approval
+              </button>
+              {!dueExactOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setDueExactOpen(true)}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  Exact date…
+                </button>
+              ) : (
+                <div className="space-y-2 border-t border-slate-100 px-3 py-2">
+                  <input
+                    type="date"
+                    value={dueExactValue}
+                    min={localDateInputValue()}
+                    onChange={(e) => setDueExactValue(e.target.value)}
+                    className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-slate-400"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    disabled={!dueExactValue.trim()}
+                    onClick={() => {
+                      if (!dueExactValue.trim()) return;
+                      applyDueUpdate({
+                        mode: "fixed",
+                        dueDate: dueExactValue.trim(),
+                      });
+                    }}
+                    className="w-full rounded-md bg-slate-800 px-2 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Set date
+                  </button>
+                </div>
+              )}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

@@ -24,6 +24,16 @@ export const FEEDBACK_STATUSES = [
 
 export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
 
+/** Dispatched when feedback list length changes (sidebar badge). */
+export const FEEDBACK_COUNT_CHANGED_EVENT = "workflow:feedback-count-changed";
+
+export function dispatchFeedbackCountChanged(count: number) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(FEEDBACK_COUNT_CHANGED_EVENT, { detail: { count } })
+  );
+}
+
 export const FEEDBACK_PAGES = [
   "Board",
   "Job Card",

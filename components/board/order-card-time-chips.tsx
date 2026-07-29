@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { MouseEvent, PointerEvent, ReactNode } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -26,6 +26,30 @@ import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
 import { PRIORITY_STYLES } from "@/lib/constants";
 import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import type { OrderWithRelations } from "@/lib/types";
+
+type DueContextMenuHandler = (e: MouseEvent) => void;
+
+function dueInteractiveProps(
+  onDueContextMenu: DueContextMenuHandler | undefined,
+  title?: string
+) {
+  if (!onDueContextMenu) {
+    return title ? { title } : {};
+  }
+  return {
+    title: title
+      ? `${title} — Right-click to set due date`
+      : "Right-click to set due date",
+    className: "cursor-context-menu",
+    onContextMenu: (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onDueContextMenu(e);
+    },
+    onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+    onClick: (e: MouseEvent) => e.stopPropagation(),
+  };
+}
 
 const ICON_MAP: Record<string, LucideIcon> = {
   clock: Clock,
@@ -65,6 +89,8 @@ interface RenderArgs {
   className?: string;
   /** When false, skip the priority chip (e.g. table view renders it elsewhere). */
   showPriority?: boolean;
+  /** Right-click on due / “No due date” chip to set due date. */
+  onDueContextMenu?: DueContextMenuHandler;
 }
 
 /**
@@ -82,6 +108,7 @@ export function OrderCardTimeChips({
   showShippedEnteredDate,
   className,
   showPriority = true,
+  onDueContextMenu,
 }: RenderArgs) {
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: columnKind === "done",
@@ -107,6 +134,7 @@ export function OrderCardTimeChips({
         showShippedEnteredDate={showShippedEnteredDate}
         className={className}
         showPriority={showPriority}
+        onDueContextMenu={onDueContextMenu}
       />
     );
   }
@@ -149,6 +177,7 @@ export function OrderCardTimeChips({
       stamps,
       columnName,
       columnId,
+      onDueContextMenu,
     });
     if (node) left.push(node);
   }
@@ -172,10 +201,21 @@ function renderSystemOrCustomChip(args: {
   stamps: Record<string, string>;
   columnName: string | null;
   columnId: string | null;
+  onDueContextMenu?: DueContextMenuHandler;
 }): ReactNode {
-  const { chip, order, dueStatus, timeHere, approvalDate, stamps, columnName } =
-    args;
+  const {
+    chip,
+    order,
+    dueStatus,
+    timeHere,
+    approvalDate,
+    stamps,
+    columnName,
+    onDueContextMenu,
+  } = args;
   const iconCls = "h-3 w-3 shrink-0";
+  const dueProps = (title?: string) =>
+    dueInteractiveProps(onDueContextMenu, title);
 
   if (chip.kind === "custom") {
     const stamped = stamps[chip.id];
@@ -212,11 +252,15 @@ function renderSystemOrCustomChip(args: {
 
   if (key === "due") {
     if (order.due_date) {
+      const props = dueProps(`Due ${formatDate(order.due_date)}`);
       return (
         <span
           key={chip.id}
-          className="inline-flex items-center gap-0.5 font-medium text-slate-600"
-          title={`Due ${formatDate(order.due_date)}`}
+          {...props}
+          className={cn(
+            "inline-flex items-center gap-0.5 font-medium text-slate-600",
+            props.className
+          )}
         >
           <TimeChipIconView icon={chip.icon} className={iconCls} />
           {formatDateShort(order.due_date)}
@@ -224,25 +268,30 @@ function renderSystemOrCustomChip(args: {
       );
     }
     if (dueStatus.kind === "pending_approval") {
+      const props = dueProps(dueStatus.label);
       return (
         <span
           key={chip.id}
+          {...props}
           className={cn(
             "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
-            dueDateBadgeClass(dueStatus)
+            dueDateBadgeClass(dueStatus),
+            props.className
           )}
-          title={dueStatus.label}
         >
           {dueStatus.label}
         </span>
       );
     }
+    const props = dueProps(dueStatus.label);
     return (
       <span
         key={chip.id}
+        {...props}
         className={cn(
           "inline-flex items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
-          dueDateBadgeClass(dueStatus)
+          dueDateBadgeClass(dueStatus),
+          props.className
         )}
       >
         {dueStatus.label}
@@ -259,20 +308,21 @@ function renderSystemOrCustomChip(args: {
     ) {
       return null;
     }
+    const lateTitle = order.due_date
+      ? `Due ${formatDate(order.due_date)}`
+      : dueStatus.kind === "pending_approval"
+        ? dueStatus.label
+        : undefined;
+    const props = dueProps(lateTitle);
     return (
       <span
         key={chip.id}
+        {...props}
         className={cn(
           "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
-          dueDateBadgeClass(dueStatus)
+          dueDateBadgeClass(dueStatus),
+          props.className
         )}
-        title={
-          order.due_date
-            ? `Due ${formatDate(order.due_date)}`
-            : dueStatus.kind === "pending_approval"
-              ? dueStatus.label
-              : undefined
-        }
       >
         {dueStatus.label}
       </span>
@@ -344,6 +394,7 @@ function LegacyTimeChips({
   showShippedEnteredDate,
   className,
   showPriority = true,
+  onDueContextMenu,
 }: {
   order: OrderWithRelations;
   columnName: string | null;
@@ -353,12 +404,15 @@ function LegacyTimeChips({
   showShippedEnteredDate?: boolean;
   className?: string;
   showPriority?: boolean;
+  onDueContextMenu?: DueContextMenuHandler;
 }) {
   const showShipped =
     showShippedEnteredDate ?? isShippedCustomerColumn(columnName);
   const shippedEnteredAt = showShipped
     ? order.last_moved_at || order.created_at || null
     : null;
+  const dueProps = (title?: string) =>
+    dueInteractiveProps(onDueContextMenu, title);
 
   return (
     <div className={cn("mt-2 flex w-full items-center gap-2", className)}>
@@ -371,39 +425,59 @@ function LegacyTimeChips({
           {formatDateShort(order.created_at)}
         </span>
         {order.due_date ? (
-          <span
-            className="inline-flex items-center gap-0.5 font-medium text-slate-600"
-            title={`Due ${formatDate(order.due_date)}`}
-          >
-            <CalendarClock className="h-3 w-3 shrink-0" />
-            {formatDateShort(order.due_date)}
-          </span>
+          (() => {
+            const props = dueProps(`Due ${formatDate(order.due_date)}`);
+            return (
+              <span
+                {...props}
+                className={cn(
+                  "inline-flex items-center gap-0.5 font-medium text-slate-600",
+                  props.className
+                )}
+              >
+                <CalendarClock className="h-3 w-3 shrink-0" />
+                {formatDateShort(order.due_date)}
+              </span>
+            );
+          })()
         ) : (
-          <span
-            className={cn(
-              "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
-              dueDateBadgeClass(dueStatus)
-            )}
-            title={dueStatus.label}
-          >
-            {dueStatus.label}
-          </span>
+          (() => {
+            const props = dueProps(dueStatus.label);
+            return (
+              <span
+                {...props}
+                className={cn(
+                  "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-medium",
+                  dueDateBadgeClass(dueStatus),
+                  props.className
+                )}
+              >
+                {dueStatus.label}
+              </span>
+            );
+          })()
         )}
         {dueStatus.kind === "late" ||
         dueStatus.kind === "today" ||
         dueStatus.kind === "soon" ||
         (dueStatus.kind === "pending_approval" && order.due_date) ? (
-          <span
-            className={cn(
-              "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
-              dueDateBadgeClass(dueStatus)
-            )}
-            title={
+          (() => {
+            const props = dueProps(
               order.due_date ? `Due ${formatDate(order.due_date)}` : undefined
-            }
-          >
-            {dueStatus.label}
-          </span>
+            );
+            return (
+              <span
+                {...props}
+                className={cn(
+                  "inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] font-semibold",
+                  dueDateBadgeClass(dueStatus),
+                  props.className
+                )}
+              >
+                {dueStatus.label}
+              </span>
+            );
+          })()
         ) : null}
         {timeHere ? (
           <span
