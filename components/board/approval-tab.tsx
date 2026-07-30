@@ -27,9 +27,11 @@ interface ApprovalTabProps {
 }
 
 function showCustomerLink(note: ApprovalNote) {
+  // Show for waiting, approved, and rejected — staff need the same link that was sent.
   return (
     note.channel !== "manual" &&
-    (note.status === "sent" || note.status === "pending")
+    note.channel !== "none" &&
+    Boolean(note.token?.trim())
   );
 }
 
@@ -623,6 +625,12 @@ export function ApprovalTab({
                     <p className="mt-3 text-slate-500">
                       Manual follow-up — no message sent.
                     </p>
+                  ) : null}
+
+                  {showCustomerLink(note) ? (
+                    <div className="mt-3">
+                      <CustomerLinkRow token={note.token} />
+                    </div>
                   ) : null}
 
                   {/* Customer Response */}

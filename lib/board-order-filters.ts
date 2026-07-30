@@ -58,7 +58,8 @@ export function orderMatchesBoardFilters(
   customFields: CustomField[],
   filters: BoardOrderFilters
 ): boolean {
-  const q = filters.q.trim().toLowerCase();
+  // Normalize: strip leading # so "#213" and "213" both work as order number searches
+  const q = filters.q.trim().replace(/^#/, "").toLowerCase();
   if (q) {
     if (isOrderNumberQuery(q)) {
       if (!order.title.toLowerCase().includes(q)) return false;
@@ -73,10 +74,30 @@ export function orderMatchesBoardFilters(
         fieldValues,
         customFields
       );
-      const searchable = [order.title, customerName, email ?? "", phone ?? ""]
+      // Include all custom field values so searches like "shirt" or "rush" match
+      // product type, notes, or any other custom field.
+      const allFieldStrings = Object.values(fieldValues)
+        .map((v) => {
+          if (v === null || v === undefined) return "";
+          if (typeof v === "string") return v;
+          if (typeof v === "number" || typeof v === "boolean") return String(v);
+          if (Array.isArray(v)) return v.join(" ");
+          return "";
+        })
+        .filter(Boolean);
+
+      const searchable = [
+        order.title,
+        customerName,
+        email ?? "",
+        phone ?? "",
+        order.description ?? "",
+        ...allFieldStrings,
+      ]
         .join(" ")
         .toLowerCase();
-      if (!searchable.includes(q)) return false;
+      const terms = q.split(/\s+/).filter(Boolean);
+      if (!terms.every((term) => searchable.includes(term))) return false;
     }
   }
   if (filters.personFilter) {

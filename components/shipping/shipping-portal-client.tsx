@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Car,
+  ChevronDown,
   Loader2,
   MapPin,
   Package,
@@ -16,6 +17,7 @@ import type {
   ShippingClientChoice,
   ShippingDeliveryAddress,
 } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export interface ShippingPortalData {
   token: string;
@@ -191,6 +193,14 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   const [doneAddress, setDoneAddress] =
     useState<ShippingDeliveryAddress | null>(data.deliveryAddress);
   const [doneNotes, setDoneNotes] = useState(data.deliveryNotes ?? "");
+  // Highlight Self Pickup by default so customers notice the recommended option.
+  const [selectedChoice, setSelectedChoice] = useState<
+    "pickup" | "delivery" | "uber"
+  >(data.offerPickup ? "pickup" : offerDelivery ? "delivery" : "uber");
+  const shippingOptionsRef = useRef<HTMLDivElement | null>(null);
+  const ratesPanelRef = useRef<HTMLDivElement | null>(null);
+  const [optionsEl, setOptionsEl] = useState<HTMLDivElement | null>(null);
+  const [optionsInView, setOptionsInView] = useState(false);
 
   const pickupLines = useMemo(
     () =>
@@ -199,6 +209,52 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         : ["306 Boyd St", "Los Angeles, CA 90013"],
     [data.pickupLines]
   );
+
+  useEffect(() => {
+    if (step !== "choose" || !optionsEl) {
+      if (step !== "choose") setOptionsInView(false);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setOptionsInView(entry.isIntersecting);
+      },
+      {
+        // Treat options as "in view" once they enter the main viewport
+        // (bottom inset = sticky bar height so it can hide cleanly).
+        threshold: [0, 0.05, 0.2],
+        rootMargin: "0px 0px -140px 0px",
+      }
+    );
+    observer.observe(optionsEl);
+    return () => observer.disconnect();
+  }, [step, optionsEl]);
+
+  function scrollToShippingOptions() {
+    // Hide sticky immediately so it doesn't cover the anchor during scroll.
+    setOptionsInView(true);
+    shippingOptionsRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }
+
+  useEffect(() => {
+    if (step !== "delivery" || rates.length === 0) return;
+    const timer = window.setTimeout(() => {
+      ratesPanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [step, rates]);
+
+  function setShippingOptionsNode(node: HTMLDivElement | null) {
+    shippingOptionsRef.current = node;
+    setOptionsEl(node);
+  }
 
   useEffect(() => {
     if (!data.paymentReturnSessionId) return;
@@ -521,7 +577,14 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             ? doneChoice === "pickup"
               ? "Your order is ready for pickup — details are below."
               : "Your order details are below."
-            : "View your order below, then choose pickup or delivery."}
+            : (
+              <>
+                View your order below,{" "}
+                <span className="animate-shipping-cta font-bold text-slate-900">
+                  then choose pickup or delivery.
+                </span>
+              </>
+            )}
         </p>
       </div>
 
@@ -540,48 +603,71 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
           <p className="border-b border-slate-100 px-4 py-2.5 text-sm font-medium text-slate-800">
             Order details
           </p>
-          <dl className="divide-y divide-slate-100">
+          <dl className="grid grid-cols-1 sm:grid-cols-2">
             {data.orderDetailRows.map((row) => (
               <div
                 key={row.label}
-                className="grid grid-cols-[40%_1fr] gap-3 px-4 py-2.5 text-sm"
+                className="grid grid-cols-[42%_1fr] gap-2 border-b border-slate-100 px-4 py-2.5 text-sm last:border-b-0 sm:[&:nth-child(odd)]:border-r sm:[&:nth-last-child(-n+2)]:border-b-0"
               >
                 <dt className="text-slate-500">{row.label}</dt>
-                <dd className="font-medium text-slate-800">{row.value}</dd>
+                <dd className="min-w-0 break-words font-medium text-slate-800">
+                  {row.value}
+                </dd>
               </div>
             ))}
           </dl>
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <p className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-800">
-          <Package className="h-4 w-4 text-slate-500" />
-          Shipment summary
-        </p>
-        <p className="text-sm text-slate-600">
-          {boxCountLabel}
-          {boxSummary ? ` · ${boxSummary}` : null}
-        </p>
-      </div>
-
       {step === "choose" ? (
         <div className="space-y-3">
-          <p className="text-sm font-medium text-slate-800">
+          <p className="rounded-lg border-2 border-slate-800 bg-slate-900 px-4 py-3 text-center text-base font-bold text-white shadow-sm">
             How would you like to receive your order?
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-800">
+              <Package className="h-4 w-4 text-slate-500" />
+              Shipment summary
+            </p>
+            <p className="text-sm text-slate-600">
+              {boxCountLabel}
+              {boxSummary ? ` · ${boxSummary}` : null}
+            </p>
+          </div>
+          <div
+            id="shipping-options"
+            ref={setShippingOptionsNode}
+            className="scroll-mt-4 grid gap-3 sm:grid-cols-2"
+          >
             {data.offerPickup ? (
               <button
                 type="button"
                 onClick={() => {
+                  setSelectedChoice("pickup");
                   setStep("pickup");
                   setError(null);
                 }}
-                className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
+                className={cn(
+                  "rounded-xl border-2 border-solid p-4 text-left transition active:scale-[0.99]",
+                  selectedChoice === "pickup"
+                    ? "border-black bg-sky-50 shadow-md ring-2 ring-black/15"
+                    : "border-sky-200 bg-sky-50 shadow-sm hover:border-sky-400 hover:bg-sky-100 hover:shadow-md"
+                )}
               >
-                <UserRound className="mb-2 h-5 w-5 text-slate-600" />
-                <p className="font-semibold text-slate-900">Self Pickup</p>
+                <UserRound
+                  className={cn(
+                    "mb-2 h-5 w-5",
+                    selectedChoice === "pickup" ? "text-black" : "text-sky-700"
+                  )}
+                />
+                <p className="font-semibold text-slate-900">
+                  Self Pickup (In-Store)
+                </p>
+                {selectedChoice === "pickup" ? (
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-black">
+                    Selected
+                  </p>
+                ) : null}
                 <div className="mt-2 space-y-0.5 text-sm text-slate-600">
                   {pickupLines.slice(0, 2).map((line) => (
                     <p key={line}>{line}</p>
@@ -592,19 +678,43 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                     </p>
                   ) : null}
                 </div>
+                <p
+                  className={cn(
+                    "mt-3 text-xs font-semibold uppercase tracking-wide",
+                    selectedChoice === "pickup" ? "text-black" : "text-sky-700"
+                  )}
+                >
+                  Tap to select →
+                </p>
               </button>
             ) : null}
             {offerDelivery ? (
               <button
                 type="button"
                 onClick={() => {
+                  setSelectedChoice("delivery");
                   setStep("delivery");
                   setError(null);
                 }}
-                className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
+                className={cn(
+                  "rounded-xl border-2 border-solid p-4 text-left transition active:scale-[0.99]",
+                  selectedChoice === "delivery"
+                    ? "border-black bg-sky-50 shadow-md ring-2 ring-black/15"
+                    : "border-sky-200 bg-sky-50 shadow-sm hover:border-sky-400 hover:bg-sky-100 hover:shadow-md"
+                )}
               >
-                <Truck className="mb-2 h-5 w-5 text-slate-600" />
-                <p className="font-semibold text-slate-900">Shipping</p>
+                <Truck
+                  className={cn(
+                    "mb-2 h-5 w-5",
+                    selectedChoice === "delivery" ? "text-black" : "text-sky-700"
+                  )}
+                />
+                <p className="font-semibold text-slate-900">FedEx Shipping</p>
+                {selectedChoice === "delivery" ? (
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-black">
+                    Selected
+                  </p>
+                ) : null}
                 <p className="mt-1 text-sm text-slate-500">
                   {data.offerFedex && data.offerCurri
                     ? "FedEx and Curri rates to your address"
@@ -612,21 +722,53 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                       ? "Curri courier delivery to your address"
                       : "We ship to you via FedEx"}
                 </p>
+                <p
+                  className={cn(
+                    "mt-3 text-xs font-semibold uppercase tracking-wide",
+                    selectedChoice === "delivery" ? "text-black" : "text-sky-700"
+                  )}
+                >
+                  Tap to select →
+                </p>
               </button>
             ) : null}
             {data.offerUber ? (
               <button
                 type="button"
                 onClick={() => {
+                  setSelectedChoice("uber");
                   setStep("uber");
                   setError(null);
                 }}
-                className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
+                className={cn(
+                  "rounded-xl border-2 border-solid p-4 text-left transition active:scale-[0.99]",
+                  selectedChoice === "uber"
+                    ? "border-black bg-sky-50 shadow-md ring-2 ring-black/15"
+                    : "border-sky-200 bg-sky-50 shadow-sm hover:border-sky-400 hover:bg-sky-100 hover:shadow-md"
+                )}
               >
-                <Car className="mb-2 h-5 w-5 text-slate-600" />
-                <p className="font-semibold text-slate-900">Delivery Uber</p>
+                <Car
+                  className={cn(
+                    "mb-2 h-5 w-5",
+                    selectedChoice === "uber" ? "text-black" : "text-sky-700"
+                  )}
+                />
+                <p className="font-semibold text-slate-900">Uber Local Delivery</p>
+                {selectedChoice === "uber" ? (
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-black">
+                    Selected
+                  </p>
+                ) : null}
                 <p className="mt-1 text-sm text-slate-500">
                   Local delivery to your address
+                </p>
+                <p
+                  className={cn(
+                    "mt-3 text-xs font-semibold uppercase tracking-wide",
+                    selectedChoice === "uber" ? "text-black" : "text-sky-700"
+                  )}
+                >
+                  Tap to select →
                 </p>
               </button>
             ) : null}
@@ -640,12 +782,25 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         </div>
       ) : null}
 
+      {step !== "choose" ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-800">
+            <Package className="h-4 w-4 text-slate-500" />
+            Shipment summary
+          </p>
+          <p className="text-sm text-slate-600">
+            {boxCountLabel}
+            {boxSummary ? ` · ${boxSummary}` : null}
+          </p>
+        </div>
+      ) : null}
+
       {step === "pickup" ? (
         <div className="space-y-4">
           <button
             type="button"
             onClick={() => setStep("choose")}
-            className="text-sm text-slate-500 hover:text-slate-700"
+            className="text-sm font-bold text-black hover:text-slate-800"
           >
             ← Back
           </button>
@@ -682,7 +837,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               setStep("choose");
               setError(null);
             }}
-            className="text-sm text-slate-500 hover:text-slate-700"
+            className="text-sm font-bold text-black hover:text-slate-800"
           >
             ← Back
           </button>
@@ -691,59 +846,57 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             Where should we send your order via Uber?
           </p>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm text-slate-600 sm:col-span-2">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_6.5rem]">
+            <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
               Street
               <input
                 value={address.street}
                 onChange={(e) => editAddress({ street: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
               />
             </label>
-            <label className="block text-sm text-slate-600">
+            <label className="block text-sm font-semibold text-slate-800">
               City
               <input
                 value={address.city}
                 onChange={(e) => editAddress({ city: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
               />
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block text-sm text-slate-600">
-                State
-                <select
-                  value={address.state}
-                  onChange={(e) => editAddress({ state: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select</option>
-                  {US_STATES.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.code} — {s.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm text-slate-600">
-                ZIP
-                <input
-                  value={address.zip}
-                  onChange={(e) => editAddress({ zip: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
+            <label className="block text-sm font-semibold text-slate-800">
+              State
+              <select
+                value={address.state}
+                onChange={(e) => editAddress({ state: e.target.value })}
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
+              >
+                <option value="">Select</option>
+                {US_STATES.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold text-slate-800">
+              ZIP
+              <input
+                value={address.zip}
+                onChange={(e) => editAddress({ zip: e.target.value })}
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
+              />
+            </label>
           </div>
 
-          <label className="block text-sm text-slate-600">
+          <label className="block text-sm font-semibold text-slate-800">
             Delivery notes
-            <span className="ml-1 font-normal text-slate-400">(optional)</span>
+            <span className="ml-1 font-normal text-slate-500">(optional)</span>
             <textarea
               value={deliveryNotes}
               onChange={(e) => setDeliveryNotes(e.target.value)}
               rows={3}
               placeholder="Apartment, gate code, contact person, parking instructions…"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
             />
           </label>
 
@@ -771,60 +924,58 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               setSelectedRate(null);
               setError(null);
             }}
-            className="text-sm text-slate-500 hover:text-slate-700"
+            className="text-sm font-bold text-black hover:text-slate-800"
           >
             ← Back
           </button>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm text-slate-600 sm:col-span-2">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_6.5rem]">
+            <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
               Street
               <input
                 value={address.street}
                 onChange={(e) => editAddress({ street: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
               />
             </label>
-            <label className="block text-sm text-slate-600">
+            <label className="block text-sm font-semibold text-slate-800">
               City
               <input
                 value={address.city}
                 onChange={(e) => editAddress({ city: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
               />
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block text-sm text-slate-600">
-                State
-                <select
-                  value={address.state}
-                  onChange={(e) => editAddress({ state: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select</option>
-                  {US_STATES.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.code} — {s.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm text-slate-600">
-                ZIP
-                <input
-                  value={address.zip}
-                  onChange={(e) => editAddress({ zip: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
+            <label className="block text-sm font-semibold text-slate-800">
+              State
+              <select
+                value={address.state}
+                onChange={(e) => editAddress({ state: e.target.value })}
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
+              >
+                <option value="">Select</option>
+                {US_STATES.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold text-slate-800">
+              ZIP
+              <input
+                value={address.zip}
+                onChange={(e) => editAddress({ zip: e.target.value })}
+                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
+              />
+            </label>
           </div>
 
           <button
             type="button"
             disabled={loadingRates}
             onClick={() => void loadRates()}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1a1f2e] px-4 py-3 text-sm font-bold text-white shadow-md transition hover:bg-slate-800 disabled:opacity-50 sm:w-auto"
           >
             {loadingRates ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -841,7 +992,10 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
           </button>
 
           {rates.length > 0 ? (
-            <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+            <div
+              ref={ratesPanelRef}
+              className="space-y-2 rounded-xl border border-slate-200 p-3"
+            >
               <p className="text-sm font-medium text-slate-800">
                 Select a shipping option
               </p>
@@ -966,6 +1120,21 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </p>
+      ) : null}
+
+      {step === "choose" && !optionsInView ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 p-3">
+          <div className="pointer-events-auto mx-auto max-w-lg rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur">
+            <button
+              type="button"
+              onClick={scrollToShippingOptions}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border-2 border-sky-300 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-900 shadow-sm transition hover:bg-sky-100"
+            >
+              Select shipping option
+              <ChevronDown className="h-4 w-4 animate-bounce" />
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

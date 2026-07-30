@@ -211,7 +211,7 @@ export function ApprovalPopup({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
       <div
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
         role="dialog"

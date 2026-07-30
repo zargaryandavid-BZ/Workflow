@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { MissingInfoPopup } from "@/components/notify/MissingInfoPopup";
 import { ApprovalPopup } from "@/components/notify/ApprovalPopup";
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
@@ -34,6 +35,11 @@ export function NotificationPopup({
   onSaved,
 }: Props) {
   const [dismissing, setDismissing] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   async function dismissAsManual() {
     if (dismissing) return;
@@ -58,8 +64,11 @@ export function NotificationPopup({
     onClose();
   }
 
-  if (type === "missing_info") {
-    return (
+  // Portal to body above CardDetailModal (z-[100]) — same pattern as shipping modal.
+  if (!mounted) return null;
+
+  const popup =
+    type === "missing_info" ? (
       <MissingInfoPopup
         order={order}
         tenantName={tenantName}
@@ -71,11 +80,7 @@ export function NotificationPopup({
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
       />
-    );
-  }
-
-  if (type === "ready_to_ship") {
-    return (
+    ) : type === "ready_to_ship" ? (
       <ReadyToShipPopup
         order={order}
         columnId={columnId}
@@ -87,20 +92,19 @@ export function NotificationPopup({
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
       />
+    ) : (
+      <ApprovalPopup
+        order={order}
+        tenantName={tenantName}
+        customFields={customFields}
+        fieldValues={fieldValues}
+        smsConfigured={smsConfigured}
+        publicAppUrl={publicAppUrl}
+        onClose={dismissAsManual}
+        dismissing={dismissing}
+        onSent={(toastMessage) => onSaved(toastMessage)}
+      />
     );
-  }
 
-  return (
-    <ApprovalPopup
-      order={order}
-      tenantName={tenantName}
-      customFields={customFields}
-      fieldValues={fieldValues}
-      smsConfigured={smsConfigured}
-      publicAppUrl={publicAppUrl}
-      onClose={dismissAsManual}
-      dismissing={dismissing}
-      onSent={(toastMessage) => onSaved(toastMessage)}
-    />
-  );
+  return createPortal(popup, document.body);
 }

@@ -166,3 +166,20 @@ body {
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
   animation: card-just-closed-pulse 0.9s ease-out 1;
 }
+
+/* Soft pulse on shipping portal CTA: “then choose pickup or delivery.” */
+@keyframes shipping-cta-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.72;
+    transform: translateY(1px);
+  }
+}
+.animate-shipping-cta {
+  display: inline-block;
+  animation: shipping-cta-pulse 2.2s ease-in-out infinite;
+}

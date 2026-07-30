@@ -37,8 +37,7 @@ export function SkuImageUpload({
   const [images, setImages] = useState(initialImages);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [lightboxLabel, setLightboxLabel] = useState("");
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // drag-to-reorder state
   const dragIndexRef = useRef<number | null>(null);
@@ -178,8 +177,7 @@ export function SkuImageUpload({
               <button
                 type="button"
                 onClick={() => {
-                  setLightboxSrc(img.signed_url);
-                  setLightboxLabel(img.file_name);
+                  setLightboxIndex(index);
                 }}
                 className="block h-14 w-14 overflow-hidden rounded-lg border border-slate-200"
                 aria-label={`View ${img.file_name}`}
@@ -284,12 +282,28 @@ export function SkuImageUpload({
 
       {error ? <p className="mt-1 text-[10px] text-red-600">{error}</p> : null}
 
-      {lightboxSrc ? (
-        <ImageLightbox
-          src={lightboxSrc}
-          label={lightboxLabel}
-          onClose={() => setLightboxSrc(null)}
-        />
+      {lightboxIndex != null ? (
+        (() => {
+          const previewImages = images.filter(
+            (img) =>
+              img.signed_url && isImagePreview(img.file_name, img.mime_type)
+          );
+          const targetId = images[lightboxIndex]?.id;
+          const startIndex = Math.max(
+            0,
+            previewImages.findIndex((img) => img.id === targetId)
+          );
+          return (
+            <ImageLightbox
+              images={previewImages.map((img) => ({
+                src: img.signed_url!,
+                label: img.file_name,
+              }))}
+              initialIndex={startIndex}
+              onClose={() => setLightboxIndex(null)}
+            />
+          );
+        })()
       ) : null}
     </div>
   );
@@ -314,8 +328,7 @@ export function SkuPendingImagePicker({
   const inputRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [lightboxLabel, setLightboxLabel] = useState("");
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const canUpload = !disabled && files.length < MAX_SKU_IMAGES;
 
@@ -371,8 +384,7 @@ export function SkuPendingImagePicker({
             <button
               type="button"
               onClick={() => {
-                setLightboxSrc(img.previewUrl);
-                setLightboxLabel(img.file.name);
+                setLightboxIndex(index);
               }}
               className="block h-14 w-14 overflow-hidden rounded-lg border border-slate-200"
               aria-label={`View ${img.file.name}`}
@@ -447,11 +459,14 @@ export function SkuPendingImagePicker({
 
       {error ? <p className="mt-1 text-[10px] text-red-600">{error}</p> : null}
 
-      {lightboxSrc ? (
+      {lightboxIndex != null ? (
         <ImageLightbox
-          src={lightboxSrc}
-          label={lightboxLabel}
-          onClose={() => setLightboxSrc(null)}
+          images={files.map((img) => ({
+            src: img.previewUrl,
+            label: img.file.name,
+          }))}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
         />
       ) : null}
     </div>

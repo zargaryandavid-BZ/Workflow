@@ -19,6 +19,7 @@ import {
   User,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 import {
   CARD_BADGE_LABELS,
   CARD_BADGE_STYLES,
@@ -282,6 +283,7 @@ export function OrderCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   // Right-click on designer chip (admin / account manager)
   const [designerMenuOpen, setDesignerMenuOpen] = useState(false);
@@ -530,14 +532,35 @@ export function OrderCard({
       {/* Top row: thumbnail + header info */}
       <div className="flex items-start gap-2.5">
         {thumbnails && thumbnails.length > 0 ? (
-          <Image
-            src={thumbnails[0]}
-            alt=""
-            width={80}
-            height={80}
-            className="h-20 w-20 shrink-0 rounded object-cover"
-            unoptimized
-          />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLightboxOpen(true);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="relative h-20 w-20 shrink-0 overflow-hidden rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            aria-label={`View pictures for ${order.title}`}
+            title={
+              thumbnails.length > 1
+                ? `View pictures (${thumbnails.length})`
+                : "View picture"
+            }
+          >
+            <Image
+              src={thumbnails[0]}
+              alt=""
+              width={80}
+              height={80}
+              className="h-20 w-20 object-cover"
+              unoptimized
+            />
+            {thumbnails.length > 1 ? (
+              <span className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-px text-[9px] font-semibold tabular-nums text-white">
+                {thumbnails.length}
+              </span>
+            ) : null}
+          </button>
         ) : null}
 
         <div className="min-w-0 flex-1">
@@ -1028,6 +1051,17 @@ export function OrderCard({
             document.body
           )
         : null}
+
+      {lightboxOpen && thumbnails && thumbnails.length > 0 ? (
+        <ImageLightbox
+          images={thumbnails.map((src, i) => ({
+            src,
+            label: `${order.title} · ${i + 1}/${thumbnails.length}`,
+          }))}
+          initialIndex={0}
+          onClose={() => setLightboxOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

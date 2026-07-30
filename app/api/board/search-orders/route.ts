@@ -7,10 +7,6 @@ import {
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
 import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
-import {
-  CUSTOMER_CONTACT_FIELD_NAME,
-  CUSTOMER_NAME_FIELD_NAME,
-} from "@/lib/constants";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
@@ -52,7 +48,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = req.nextUrl;
-  const q = (searchParams.get("q") ?? "").trim();
+  const q = (searchParams.get("q") ?? "").trim().replace(/^#/, "");
   // Designers are locked to their own assignments (ignore client designerId).
   const designerId =
     ctx.role === "designer"
@@ -86,50 +82,56 @@ export async function GET(req: NextRequest) {
   let matchedOrderIdsFromFields: string[] = [];
 
   if (q && !isOrderNumberQuery(q)) {
-    const pattern = `%${escapeIlike(q)}%`;
-    const nameFieldIds = customFields
-      .filter(
-        (f) =>
-          f.name.toLowerCase() === CUSTOMER_NAME_FIELD_NAME.toLowerCase() ||
-          f.name.toLowerCase() === CUSTOMER_CONTACT_FIELD_NAME.toLowerCase()
-      )
-      .map((f) => f.id);
+    const terms = q.split(/\s+/).filter(Boolean);
+    // For each term, collect matched customer IDs and order IDs from field values.
+    // The DB casts a wide net (OR across terms); post-filter enforces AND.
+    const customerIdSets: Set<string>[] = [];
+    const orderIdSets: Set<string>[] = [];
 
-    const customersRes = await supabase
-      .from("customers")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .or(
-        [
-          `name.ilike.${pattern}`,
-          `email.ilike.${pattern}`,
-          `phone.ilike.${pattern}`,
-          `company.ilike.${pattern}`,
-        ].join(",")
-      )
-      .limit(200);
+    for (const term of terms) {
+      const termPattern = `%${escapeIlike(term)}%`;
+      const allFieldIds = customFields.map((f) => f.id);
 
-    matchedCustomerIds = ((customersRes.data ?? []) as { id: string }[]).map(
-      (c) => c.id
-    );
+      const custRes = await supabase
+        .from("customers")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .or(
+          [
+            `name.ilike.${termPattern}`,
+            `email.ilike.${termPattern}`,
+            `phone.ilike.${termPattern}`,
+            `company.ilike.${termPattern}`,
+          ].join(",")
+        )
+        .limit(200);
+      customerIdSets.push(
+        new Set(((custRes.data ?? []) as { id: string }[]).map((c) => c.id))
+      );
 
-    // Best-effort: match Customer Name / Contact custom field values.
-    // Skip quietly if the cast filter isn't supported by PostgREST.
-    if (nameFieldIds.length > 0) {
-      const { data: cfRows, error: cfError } = await supabase
-        .from("custom_field_values")
-        .select("order_id")
-        .in("custom_field_id", nameFieldIds)
-        .filter("value::text", "ilike", pattern)
-        .limit(500);
-      if (!cfError && cfRows) {
-        matchedOrderIdsFromFields = [
-          ...new Set(
-            (cfRows as { order_id: string }[]).map((r) => r.order_id)
-          ),
-        ];
+      if (allFieldIds.length > 0) {
+        const { data: cfRows } = await supabase
+          .from("custom_field_values")
+          .select("order_id")
+          .in("custom_field_id", allFieldIds)
+          .filter("value::text", "ilike", termPattern)
+          .limit(500);
+        orderIdSets.push(
+          new Set(
+            ((cfRows ?? []) as { order_id: string }[]).map((r) => r.order_id)
+          )
+        );
+      } else {
+        orderIdSets.push(new Set<string>());
       }
     }
+
+    // Union customers and order IDs across all terms for the broad DB pre-filter.
+    // (AND enforcement happens in orderMatchesBoardFilters post-filter.)
+    matchedCustomerIds = [...new Set(customerIdSets.flatMap((s) => [...s]))];
+    matchedOrderIdsFromFields = [
+      ...new Set(orderIdSets.flatMap((s) => [...s])),
+    ];
   }
 
   const allOrders: OrderWithRelations[] = [];
@@ -168,8 +170,13 @@ export async function GET(req: NextRequest) {
     }
 
     if (q) {
-      const pattern = `%${escapeIlike(q)}%`;
-      const orParts = [`title.ilike.${pattern}`];
+      const terms = q.split(/\s+/).filter(Boolean);
+      const orParts: string[] = [];
+      for (const term of terms) {
+        const termPattern = `%${escapeIlike(term)}%`;
+        orParts.push(`title.ilike.${termPattern}`);
+        orParts.push(`description.ilike.${termPattern}`);
+      }
       if (matchedCustomerIds.length > 0) {
         orParts.push(`customer_id.in.(${matchedCustomerIds.join(",")})`);
       }

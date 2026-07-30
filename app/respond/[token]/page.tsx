@@ -286,17 +286,65 @@ export default async function RespondPage({
   }
 
   if (alreadyDone) {
+    const response = notification.customer_response;
+    const isApproved = response === "approved";
+    const isRejected = response === "changes_requested";
+    const customerNote = notification.customer_note?.trim() || null;
+    const staffNote = notification.staff_note?.trim() || null;
+
+    const statusTitle = isApproved
+      ? "Approved"
+      : isRejected
+        ? "Not approved"
+        : "Response received";
+    const statusBody = isApproved
+      ? "Your approval has been recorded. Thank you!"
+      : isRejected
+        ? "Your feedback was received. Our team will be in touch shortly."
+        : "We already received your response. Thank you!";
+
     return (
       <RespondCard
         tenantName={notification.tenant_name}
         orderTitle={headerTitle}
         footer={footer}
       >
-        <div className="text-center">
-          <h1 className="text-lg font-semibold text-slate-800">Thank you</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            We already received your response. Thank you!
-          </p>
+        <div className="space-y-5">
+          <div
+            className={
+              isApproved
+                ? "rounded-lg bg-emerald-50 p-4 text-center text-emerald-800"
+                : isRejected
+                  ? "rounded-lg bg-red-50 p-4 text-center text-red-800"
+                  : "rounded-lg bg-slate-50 p-4 text-center text-slate-800"
+            }
+          >
+            <h1 className="text-lg font-semibold">{statusTitle}</h1>
+            <p className="mt-1 text-sm opacity-90">{statusBody}</p>
+            {customerNote ? (
+              <div className="mt-3 rounded-md bg-white/70 px-3 py-2 text-left">
+                <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                  {isRejected ? "Reason for rejection" : "Your note"}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-sm">
+                  &ldquo;{customerNote}&rdquo;
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          {staffNote ? (
+            <div className="rounded-r-lg border-l-[3px] border-[#1d4ed8] bg-[#f0f9ff] px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1d4ed8]">
+                Note from our team
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                {staffNote}
+              </p>
+            </div>
+          ) : null}
+
+          {orderReview}
         </div>
       </RespondCard>
     );

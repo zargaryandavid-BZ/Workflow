@@ -133,7 +133,7 @@ function pickSearchAutoNavTarget(
 ): { columnId: string; orderId: string } | null {
   if (!q || orders.length === 0) return null;
 
-  if (isOrderNumberQuery(q)) {
+  if (isOrderNumberQuery(q.trim().replace(/^#/, ""))) {
     if (orders.length !== 1) return null;
     return { columnId: orders[0].column_id, orderId: orders[0].id };
   }
@@ -623,7 +623,7 @@ export function Board({
           if (!cancelled) setSearchLoading(false);
         }
       })();
-    }, 400);
+    }, 200);
 
     return () => {
       cancelled = true;
@@ -1964,9 +1964,9 @@ export function Board({
                   e.currentTarget.blur();
                 }
               }}
-              placeholder="Filter by order, customer, email, phone…"
+              placeholder="Search orders, customers, products, notes…"
               className="h-9 w-full pl-8"
-              aria-label="Filter by order number, customer name, email or phone"
+              aria-label="Search orders, customers, products, and notes"
               aria-autocomplete="list"
               aria-expanded={showGroupSuggestions}
             />
