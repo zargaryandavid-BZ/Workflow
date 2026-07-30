@@ -4,8 +4,22 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  ArrowDown,
-  ArrowUp,
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  GripVertical,
   ImageIcon,
   Loader2,
   Pencil,
@@ -113,6 +127,10 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
 
   useEffect(() => setColumns(initialColumns), [initialColumns]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
   async function persistOrder(next: BoardColumn[]) {
     setColumns(next);
     await fetch("/api/columns/reorder", {
@@ -123,12 +141,13 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
     router.refresh();
   }
 
-  function move(index: number, dir: -1 | 1) {
-    const target = index + dir;
-    if (target < 0 || target >= columns.length) return;
-    const next = [...columns];
-    [next[index], next[target]] = [next[target], next[index]];
-    persistOrder(next);
+  function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = columns.findIndex((c) => c.id === active.id);
+    const newIndex = columns.findIndex((c) => c.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    void persistOrder(arrayMove(columns, oldIndex, newIndex));
   }
 
   return (
@@ -177,97 +196,35 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
             );
           }}
         />
+      ) : columns.length === 0 ? (
+        <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-400">
+          No columns yet.
+        </p>
       ) : (
-      <>
-      <ul className="space-y-1.5">
-        {columns.map((col, index) => (
-          <li
-            key={col.id}
-            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+        <DndContext
+          id="settings-columns"
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={onDragEnd}
+        >
+          <SortableContext
+            items={columns.map((c) => c.id)}
+            strategy={verticalListSortingStrategy}
           >
-            <div className="flex flex-col">
-              <button
-                onClick={() => move(index, -1)}
-                disabled={index === 0}
-                className="rounded p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
-                aria-label="Move up"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => move(index, 1)}
-                disabled={index === columns.length - 1}
-                className="rounded p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
-                aria-label="Move down"
-              >
-                <ArrowDown className="h-4 w-4" />
-              </button>
-            </div>
-
-            <span
-              className="h-8 w-1.5 shrink-0 rounded-full"
-              style={{ background: col.color ?? DEFAULT_COLOR }}
-            />
-
-            {col.image_url ? (
-              <Image
-                src={col.image_url}
-                alt=""
-                width={36}
-                height={36}
-                className="h-9 w-9 shrink-0 rounded-md object-cover"
-                unoptimized
-              />
-            ) : (
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-300">
-                <ImageIcon className="h-4 w-4" />
-              </span>
-            )}
-
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <p className="min-w-0 truncate text-sm font-medium text-slate-800">
-                  {col.name}
-                </p>
-                <Badge
-                  className={`${KIND_BADGE[col.kind]} shrink-0`}
-                  title={kindMeta(col.kind).hint}
-                >
-                  {kindMeta(col.kind).label}
-                </Badge>
-                <span className="shrink-0 text-xs text-slate-400">
-                  {orderCounts[col.id] ?? 0} job
-                  {(orderCounts[col.id] ?? 0) === 1 ? "" : "s"}
-                </span>
-              </div>
-              <p
-                className="truncate text-[11px] text-slate-500"
-                title={columnConfigSummary(col, index)}
-              >
-                {columnConfigSummary(col, index)}
-              </p>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              onClick={() => setEditing(col)}
-              className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              aria-label="Edit column"
-            >
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setDeleting(col)}
-              className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
-              aria-label="Delete column"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      </>
+            <ul className="space-y-1.5">
+              {columns.map((col, index) => (
+                <SortableColumnRow
+                  key={col.id}
+                  col={col}
+                  index={index}
+                  orderCount={orderCounts[col.id] ?? 0}
+                  onEdit={() => setEditing(col)}
+                  onDelete={() => setDeleting(col)}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
 
       {editing ? (
@@ -295,6 +252,115 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
         />
       ) : null}
     </div>
+  );
+}
+
+function SortableColumnRow({
+  col,
+  index,
+  orderCount,
+  onEdit,
+  onDelete,
+}: {
+  col: BoardColumn;
+  index: number;
+  orderCount: number;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: col.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+    >
+      <button
+        type="button"
+        className="cursor-grab touch-none rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+        aria-label="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+
+      <span
+        className="h-8 w-1.5 shrink-0 rounded-full"
+        style={{ background: col.color ?? DEFAULT_COLOR }}
+      />
+
+      {col.image_url ? (
+        <Image
+          src={col.image_url}
+          alt=""
+          width={36}
+          height={36}
+          className="h-9 w-9 shrink-0 rounded-md object-cover"
+          unoptimized
+        />
+      ) : (
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-300">
+          <ImageIcon className="h-4 w-4" />
+        </span>
+      )}
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="min-w-0 truncate text-sm font-medium text-slate-800">
+            {col.name}
+          </p>
+          <Badge
+            className={`${KIND_BADGE[col.kind]} shrink-0`}
+            title={kindMeta(col.kind).hint}
+          >
+            {kindMeta(col.kind).label}
+          </Badge>
+          <span className="shrink-0 text-xs text-slate-400">
+            {orderCount} job{orderCount === 1 ? "" : "s"}
+          </span>
+        </div>
+        <p
+          className="truncate text-[11px] text-slate-500"
+          title={columnConfigSummary(col, index)}
+        >
+          {columnConfigSummary(col, index)}
+        </p>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Edit column"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600"
+          aria-label="Delete column"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </li>
   );
 }
 

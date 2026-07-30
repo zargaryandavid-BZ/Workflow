@@ -1377,6 +1377,7 @@ export function Board({
   ) {
     if (groupOrders.length === 0) return;
     const snapshot = boardOrdersRef.current;
+    const designerName = designer.name ?? "";
 
     for (const order of groupOrders) {
       const specs = {
@@ -1387,9 +1388,20 @@ export function Board({
       patchOrderFields(order.id, { specs });
       setDesignerNameByOrder((prev) => ({
         ...prev,
-        [order.id]: designer.name ?? "",
+        [order.id]: designerName,
       }));
     }
+
+    // Filtered board reads searchEnrichments.designerNameByOrder, which
+    // otherwise keeps the stale name until the filter is cleared.
+    setSearchEnrichments((prev) => {
+      if (!prev) return prev;
+      const designerNameByOrder = { ...prev.designerNameByOrder };
+      for (const order of groupOrders) {
+        designerNameByOrder[order.id] = designerName;
+      }
+      return { ...prev, designerNameByOrder };
+    });
 
     try {
       await Promise.all(

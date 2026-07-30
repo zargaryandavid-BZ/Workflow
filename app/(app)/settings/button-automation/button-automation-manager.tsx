@@ -103,6 +103,7 @@ export function ButtonAutomationManager({
         </p>
       ) : (
         <DndContext
+          id="settings-button-automations"
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={onDragEnd}

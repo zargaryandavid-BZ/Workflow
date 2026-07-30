@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 
 export type ImageLightboxItem = {
@@ -19,6 +19,20 @@ interface ImageLightboxProps {
   images?: ImageLightboxItem[];
   initialIndex?: number;
   onClose: () => void;
+}
+
+/** Prevent the click that closed the overlay from falling through to the board. */
+function suppressClickThrough() {
+  const suppress = (ev: Event) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+  document.addEventListener("click", suppress, true);
+  document.addEventListener("mouseup", suppress, true);
+  window.setTimeout(() => {
+    document.removeEventListener("click", suppress, true);
+    document.removeEventListener("mouseup", suppress, true);
+  }, 350);
 }
 
 export function ImageLightbox({
@@ -60,10 +74,12 @@ export function ImageLightbox({
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
         setIndex((i) => (i - 1 + items.length) % items.length);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
         setIndex((i) => (i + 1) % items.length);
       }
     }
@@ -73,61 +89,96 @@ export function ImageLightbox({
 
   if (!current) return null;
 
+  function closeLightbox() {
+    suppressClickThrough();
+    onClose();
+  }
+
+  function onBackdropPointerDown(e: PointerEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeLightbox();
+  }
+
   function goPrev(e: MouseEvent) {
+    e.preventDefault();
     e.stopPropagation();
     setIndex((i) => (i - 1 + items.length) % items.length);
   }
 
   function goNext(e: MouseEvent) {
+    e.preventDefault();
     e.stopPropagation();
     setIndex((i) => (i + 1) % items.length);
+  }
+
+  function stop(e: MouseEvent | PointerEvent) {
+    e.stopPropagation();
   }
 
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/85 p-4"
-      onClick={onClose}
+      onPointerDown={onBackdropPointerDown}
+      onClick={(e) => {
+        // Backdrop close is handled on pointerdown; block residual clicks.
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
     >
       <div
         className="relative flex max-h-[90vh] max-w-[90vw] flex-col items-center"
-        onClick={(e) => e.stopPropagation()}
+        onClick={stop}
+        onPointerDown={stop}
       >
         <button
           type="button"
-          onClick={onClose}
-          className="absolute -right-3 -top-3 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow-lg hover:bg-slate-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            closeLightbox();
+          }}
+          onPointerDown={stop}
+          className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-lg hover:bg-slate-100"
           aria-label="Close preview"
         >
           <X className="h-4 w-4 text-slate-700" />
         </button>
 
-        {multi ? (
-          <button
-            type="button"
-            onClick={goPrev}
-            className="absolute left-0 top-1/2 z-10 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-slate-800 shadow-lg hover:bg-white sm:-translate-x-14"
-            aria-label="Previous picture"
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </button>
-        ) : null}
+        <div className="relative">
+          {multi ? (
+            <button
+              type="button"
+              onClick={goPrev}
+              onPointerDown={stop}
+              className="absolute left-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-slate-800 shadow-lg hover:bg-white"
+              aria-label="Previous picture"
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+          ) : null}
 
-        <img
-          src={current.src}
-          alt={current.alt ?? current.label ?? "Preview"}
-          className="max-h-[85vh] max-w-[88vw] rounded-lg object-contain shadow-2xl"
-        />
+          <img
+            src={current.src}
+            alt={current.alt ?? current.label ?? "Preview"}
+            className="max-h-[85vh] max-w-[88vw] rounded-lg object-contain shadow-2xl"
+            draggable={false}
+          />
 
-        {multi ? (
-          <button
-            type="button"
-            onClick={goNext}
-            className="absolute right-0 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-white/95 text-slate-800 shadow-lg hover:bg-white sm:translate-x-14"
-            aria-label="Next picture"
-          >
-            <ChevronRight className="h-6 w-6" />
-          </button>
-        ) : null}
+          {multi ? (
+            <button
+              type="button"
+              onClick={goNext}
+              onPointerDown={stop}
+              className="absolute right-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-slate-800 shadow-lg hover:bg-white"
+              aria-label="Next picture"
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          ) : null}
+        </div>
 
         <div className="mt-2 flex max-w-full flex-col items-center gap-1">
           {current.label ? (

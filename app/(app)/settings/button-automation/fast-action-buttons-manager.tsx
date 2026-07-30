@@ -14,6 +14,10 @@ import {
   isFastActionButtonColor,
 } from "@/lib/fast-action-buttons";
 import { RoleOrIndividualPicker, type PickerValue, type TeamMember } from "@/components/RoleOrIndividualPicker";
+import {
+  FastActionByColumnMatrix,
+  type CreateFastActionDefaults,
+} from "./fast-action-by-column-matrix";
 import { cn } from "@/lib/utils";
 import type {
   BoardColumn,
@@ -39,7 +43,10 @@ export function FastActionButtonsManager({
 }: Props) {
   const router = useRouter();
   const [buttons, setButtons] = useState(initialButtons);
+  const [tab, setTab] = useState<"buttons" | "by-column">("by-column");
   const [editing, setEditing] = useState<FastActionButton | "new" | null>(null);
+  const [createDefaults, setCreateDefaults] =
+    useState<CreateFastActionDefaults | null>(null);
   const [deleting, setDeleting] = useState<FastActionButton | null>(null);
 
   useEffect(() => setButtons(initialButtons), [initialButtons]);
@@ -55,13 +62,58 @@ export function FastActionButtonsManager({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setEditing("new")} disabled={disabled}>
-          <Plus className="h-4 w-4" /> Add Button
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <button
+            type="button"
+            onClick={() => setTab("by-column")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === "by-column"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            By column
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("buttons")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === "buttons"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            All buttons
+          </button>
+        </div>
+        {tab === "buttons" ? (
+          <Button
+            onClick={() => {
+              setCreateDefaults(null);
+              setEditing("new");
+            }}
+            disabled={disabled}
+          >
+            <Plus className="h-4 w-4" /> Add Button
+          </Button>
+        ) : null}
       </div>
 
-      {buttons.length === 0 ? (
+      {tab === "by-column" ? (
+        <FastActionByColumnMatrix
+          columns={columns}
+          buttons={buttons}
+          disabled={disabled}
+          onButtonsChange={setButtons}
+          onCreateForColumn={(defaults) => {
+            setCreateDefaults(defaults);
+            setEditing("new");
+          }}
+        />
+      ) : buttons.length === 0 ? (
         <p className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-400">
           No fast action buttons yet. Add one to give your team one-click
           shortcuts inside order cards.
@@ -73,7 +125,10 @@ export function FastActionButtonsManager({
               key={btn.id}
               button={btn}
               columns={columns}
-              onEdit={() => setEditing(btn)}
+              onEdit={() => {
+                setCreateDefaults(null);
+                setEditing(btn);
+              }}
               onDelete={() => setDeleting(btn)}
               onToggle={() => toggleEnabled(btn)}
             />
@@ -87,9 +142,22 @@ export function FastActionButtonsManager({
           columns={columns}
           notificationRules={notificationRules}
           members={members}
-          onClose={() => setEditing(null)}
+          initialShowInColumns={
+            editing === "new" && createDefaults?.showInColumnId
+              ? [createDefaults.showInColumnId]
+              : undefined
+          }
+          initialDestinationColumnId={
+            editing === "new" ? createDefaults?.destinationColumnId : undefined
+          }
+          initialName={editing === "new" ? createDefaults?.name : undefined}
+          onClose={() => {
+            setEditing(null);
+            setCreateDefaults(null);
+          }}
           onSaved={() => {
             setEditing(null);
+            setCreateDefaults(null);
             router.refresh();
           }}
         />
@@ -200,6 +268,9 @@ function ButtonEditor({
   columns,
   notificationRules,
   members,
+  initialShowInColumns,
+  initialDestinationColumnId,
+  initialName,
   onClose,
   onSaved,
 }: {
@@ -207,18 +278,22 @@ function ButtonEditor({
   columns: BoardColumn[];
   notificationRules: NotificationRule[];
   members: TeamMember[];
+  /** Prefill "Show when card is in" when creating from the By column tab. */
+  initialShowInColumns?: string[];
+  initialDestinationColumnId?: string;
+  initialName?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState(button?.name ?? "");
+  const [name, setName] = useState(button?.name ?? initialName ?? "");
   const [color, setColor] = useState<FastActionButtonColor>(
     isFastActionButtonColor(button?.color) ? button!.color : "blue"
   );
   const [destinationColumnId, setDestinationColumnId] = useState(
-    button?.destination_column_id ?? ""
+    button?.destination_column_id ?? initialDestinationColumnId ?? ""
   );
   const [showInColumns, setShowInColumns] = useState<string[]>(
-    button?.show_in_columns ?? []
+    button?.show_in_columns ?? initialShowInColumns ?? []
   );
   const [visibility, setVisibility] = useState<PickerValue>({
     mode: button?.visibility_mode ?? "all",

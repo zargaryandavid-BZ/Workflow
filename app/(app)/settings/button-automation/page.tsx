@@ -124,7 +124,8 @@ export default async function ButtonAutomationSettingsPage() {
         </h2>
         <p className="mb-5 text-sm text-slate-500">
           One-click buttons inside the order card that instantly move it to a
-          column.
+          column. Use the By column tab to see and edit which buttons appear in
+          each stage.
         </p>
         {fastButtonsMigrationRequired ? (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

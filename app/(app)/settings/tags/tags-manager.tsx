@@ -75,6 +75,7 @@ export function TagsManager({ initialTags }: Props) {
         </p>
       ) : (
         <DndContext
+          id="settings-tags"
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={onDragEnd}
