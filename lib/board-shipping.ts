@@ -46,7 +46,7 @@ function shortDeliveryLabel(
 ): { label: string; title: string } {
   const serviceType = fedex?.serviceType?.trim() || "";
   const serviceName = fedex?.serviceName?.trim() || "";
-  const title = serviceName || serviceType || "Delivery";
+  const title = serviceName || serviceType || "Shipping";
 
   if (serviceType && SHORT_LABELS[serviceType]) {
     return { label: SHORT_LABELS[serviceType], title };
@@ -60,7 +60,7 @@ function shortDeliveryLabel(
       return { label: compact, title };
     }
   }
-  return { label: "Delivery", title };
+  return { label: "Shipping", title };
 }
 
 export function boardShippingSignFromRequest(row: {
@@ -110,7 +110,7 @@ export function boardShippingSignFromRequest(row: {
       kind: "delivery",
       choice: "delivery",
       label,
-      title: `Client chose delivery · ${title}`,
+      title: `Client chose shipping · ${title}`,
     };
   }
   if (row.client_choice === "uber") {

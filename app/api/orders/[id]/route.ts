@@ -37,6 +37,171 @@ import type {
   Tag,
 } from "@/lib/types";
 
+type AppSupabase = Awaited<ReturnType<typeof createClient>>;
+
+async function recordSaveActivity(
+  supabase: AppSupabase,
+  params: {
+    tenantId: string;
+    userId: string;
+    orderId: string;
+    updates: Record<string, unknown>;
+    existingOrder: Record<string, unknown>;
+    customFieldValues?: Array<{ customFieldId: string; value: unknown }>;
+  }
+): Promise<void> {
+  const {
+    tenantId,
+    userId,
+    orderId,
+    updates,
+    existingOrder,
+    customFieldValues,
+  } = params;
+
+  // Tag name lookup (only when tag changed)
+  let oldTagName: string | null = null;
+  let newTagName: string | null = null;
+  if (
+    updates.tag_id !== undefined &&
+    updates.tag_id !== existingOrder.tag_id
+  ) {
+    const tagIdsToFetch = [
+      existingOrder.tag_id as string | null,
+      updates.tag_id as string | null,
+    ].filter((tid): tid is string => !!tid);
+    if (tagIdsToFetch.length > 0) {
+      const { data: tagRows } = await supabase
+        .from("tags")
+        .select("id, name")
+        .in("id", tagIdsToFetch);
+      const tagMap = new Map(
+        ((tagRows ?? []) as { id: string; name: string }[]).map((t) => [
+          t.id,
+          t.name,
+        ])
+      );
+      oldTagName = existingOrder.tag_id
+        ? (tagMap.get(existingOrder.tag_id as string) ?? null)
+        : null;
+      newTagName = updates.tag_id
+        ? (tagMap.get(updates.tag_id as string) ?? null)
+        : null;
+    }
+  }
+
+  // Build a human-readable change list for the activity log.
+  type ChangeEntry = { field: string; from?: unknown; to?: unknown };
+  const changes: ChangeEntry[] = [];
+  const existing = existingOrder as Record<string, unknown> & {
+    specs?: Record<string, unknown>;
+  };
+
+  if (updates.title !== undefined && updates.title !== existing.title)
+    changes.push({
+      field: "Order number",
+      from: existing.title,
+      to: updates.title,
+    });
+  if (updates.priority !== undefined && updates.priority !== existing.priority)
+    changes.push({
+      field: "Priority",
+      from: existing.priority,
+      to: updates.priority,
+    });
+  if (
+    updates.due_date !== undefined &&
+    (updates.due_date ?? null) !== (existing.due_date ?? null)
+  )
+    changes.push({
+      field: "Due date",
+      from: existing.due_date ?? null,
+      to: updates.due_date ?? null,
+    });
+  if (
+    updates.description !== undefined &&
+    (updates.description ?? "") !== (existing.description ?? "")
+  )
+    changes.push({
+      field: "Description updated",
+      from: existing.description ?? "",
+      to: updates.description ?? "",
+    });
+  if (
+    updates.created_by !== undefined &&
+    updates.created_by !== existing.created_by
+  )
+    changes.push({ field: "Owner changed" });
+  if (updates.tag_id !== undefined && updates.tag_id !== existing.tag_id)
+    changes.push({ field: "Tag", from: oldTagName, to: newTagName });
+
+  if (updates.specs !== undefined) {
+    const oldSpecs = (existing.specs ?? {}) as Record<string, unknown>;
+    const newSpecs = (updates.specs ?? {}) as Record<string, unknown>;
+    const oldDesigner = (oldSpecs.designer_name as string | undefined) ?? null;
+    const newDesigner = (newSpecs.designer_name as string | undefined) ?? null;
+    if ((newSpecs.designer_id ?? null) !== (oldSpecs.designer_id ?? null))
+      changes.push({ field: "Designer", from: oldDesigner, to: newDesigner });
+
+    const oldDesignTask = (oldSpecs.design_task as string | undefined) ?? "";
+    const newDesignTask = (newSpecs.design_task as string | undefined) ?? "";
+    if (newDesignTask !== oldDesignTask)
+      changes.push({ field: "Design task updated" });
+
+    const oldSkus = Array.isArray(oldSpecs.skus) ? oldSpecs.skus : [];
+    const newSkus = Array.isArray(newSpecs.skus) ? newSpecs.skus : [];
+    if (newSkus.length !== oldSkus.length)
+      changes.push({ field: "SKUs", from: oldSkus.length, to: newSkus.length });
+    else if (JSON.stringify(oldSkus) !== JSON.stringify(newSkus))
+      changes.push({ field: "SKUs updated" });
+  }
+
+  if (customFieldValues && customFieldValues.length > 0) {
+    const cfIds = customFieldValues.map((v) => v.customFieldId);
+    const [{ data: cfDefs }, { data: oldCfv }] = await Promise.all([
+      supabase.from("custom_fields").select("id, name").in("id", cfIds),
+      supabase
+        .from("custom_field_values")
+        .select("custom_field_id, value")
+        .eq("order_id", orderId)
+        .in("custom_field_id", cfIds),
+    ]);
+    const nameById = new Map(
+      ((cfDefs ?? []) as { id: string; name: string }[]).map((f) => [
+        f.id,
+        f.name,
+      ])
+    );
+    const oldValById = new Map(
+      (
+        (oldCfv ?? []) as { custom_field_id: string; value: unknown }[]
+      ).map((v) => [v.custom_field_id, v.value])
+    );
+    const SKIP_CF = new Set(["customer name", "customer contact", "order qty"]);
+    for (const cfv of customFieldValues) {
+      const name = nameById.get(cfv.customFieldId) ?? "";
+      if (!name || SKIP_CF.has(name.toLowerCase())) continue;
+      const oldVal = oldValById.get(cfv.customFieldId) ?? null;
+      const newVal = cfv.value ?? null;
+      if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+        if (typeof newVal === "boolean")
+          changes.push({ field: name, to: newVal ? "Yes" : "No" });
+        else if (oldVal !== null && oldVal !== "")
+          changes.push({ field: name, from: oldVal, to: newVal });
+        else changes.push({ field: name, to: newVal });
+      }
+    }
+  }
+
+  await logActivity(supabase, {
+    tenantId,
+    orderId,
+    actor: userId,
+    action: "updated",
+    metadata: { changes },
+  });
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -273,16 +438,20 @@ export async function PATCH(
 
   if (body.customFieldValues) {
     let orderQtyFieldId: string | undefined;
-    for (const name of ORDER_QTY_FIELD_ALIASES) {
-      const { data: orderQtyField } = await supabase
+    {
+      const aliases = ORDER_QTY_FIELD_ALIASES;
+      // Single query instead of N sequential queries — OR across all aliases.
+      // Quote values so names with spaces (e.g. "Order QTY") parse correctly.
+      const orFilter = aliases.map((n) => `name.ilike."${n}"`).join(",");
+      const { data: orderQtyFields } = await supabase
         .from("custom_fields")
         .select("id")
         .eq("tenant_id", tenantId)
-        .ilike("name", name)
-        .maybeSingle();
-      if (orderQtyField && typeof (orderQtyField as { id?: string }).id === "string") {
-        orderQtyFieldId = (orderQtyField as { id: string }).id;
-        break;
+        .or(orFilter)
+        .limit(1);
+      const first = (orderQtyFields ?? [])[0] as { id?: string } | undefined;
+      if (first && typeof first.id === "string") {
+        orderQtyFieldId = first.id;
       }
     }
     const skusForQty =
@@ -364,114 +533,29 @@ export async function PATCH(
     }
   }
 
-  // Look up tag names when the tag is being changed so activity shows e.g. "Tag: Waiting → Approved".
-  let oldTagName: string | null = null;
-  let newTagName: string | null = null;
-  if (updates.tag_id !== undefined && updates.tag_id !== (existingOrder as Record<string, unknown>).tag_id) {
-    const tagIdsToFetch = [
-      (existingOrder as Record<string, unknown>).tag_id as string | null,
-      updates.tag_id as string | null,
-    ].filter((tid): tid is string => !!tid);
-    if (tagIdsToFetch.length > 0) {
-      const { data: tagRows } = await supabase
-        .from("tags")
-        .select("id, name")
-        .in("id", tagIdsToFetch);
-      const tagMap = new Map(
-        ((tagRows ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name])
-      );
-      oldTagName = ((existingOrder as Record<string, unknown>).tag_id as string | null)
-        ? (tagMap.get((existingOrder as Record<string, unknown>).tag_id as string) ?? null)
-        : null;
-      newTagName = updates.tag_id
-        ? (tagMap.get(updates.tag_id as string) ?? null)
-        : null;
-    }
-  }
-
-  // Build a human-readable change list for the activity log.
-  type ChangeEntry = { field: string; from?: unknown; to?: unknown };
-  const changes: ChangeEntry[] = [];
-  const existing = existingOrder as Record<string, unknown> & {
-    specs?: Record<string, unknown>;
-  };
-
-  if (updates.title !== undefined && updates.title !== existing.title)
-    changes.push({ field: "Order number", from: existing.title, to: updates.title });
-  if (updates.priority !== undefined && updates.priority !== existing.priority)
-    changes.push({ field: "Priority", from: existing.priority, to: updates.priority });
-  if (updates.due_date !== undefined && (updates.due_date ?? null) !== (existing.due_date ?? null))
-    changes.push({ field: "Due date", from: existing.due_date ?? null, to: updates.due_date ?? null });
-  if (updates.description !== undefined && (updates.description ?? "") !== (existing.description ?? ""))
-    changes.push({
-      field: "Description updated",
-      from: existing.description ?? "",
-      to: updates.description ?? "",
-    });
-  if (updates.created_by !== undefined && updates.created_by !== existing.created_by)
-    changes.push({ field: "Owner changed" });
-  if (updates.tag_id !== undefined && updates.tag_id !== existing.tag_id)
-    changes.push({ field: "Tag", from: oldTagName, to: newTagName });
-
-  if (updates.specs !== undefined) {
-    const oldSpecs = (existing.specs ?? {}) as Record<string, unknown>;
-    const newSpecs = (updates.specs ?? {}) as Record<string, unknown>;
-    const oldDesigner = (oldSpecs.designer_name as string | undefined) ?? null;
-    const newDesigner = (newSpecs.designer_name as string | undefined) ?? null;
-    if ((newSpecs.designer_id ?? null) !== (oldSpecs.designer_id ?? null))
-      changes.push({ field: "Designer", from: oldDesigner, to: newDesigner });
-
-    const oldDesignTask = (oldSpecs.design_task as string | undefined) ?? "";
-    const newDesignTask = (newSpecs.design_task as string | undefined) ?? "";
-    if (newDesignTask !== oldDesignTask)
-      changes.push({ field: "Design task updated" });
-
-    const oldSkus = Array.isArray(oldSpecs.skus) ? oldSpecs.skus : [];
-    const newSkus = Array.isArray(newSpecs.skus) ? newSpecs.skus : [];
-    if (newSkus.length !== oldSkus.length)
-      changes.push({ field: "SKUs", from: oldSkus.length, to: newSkus.length });
-    else if (JSON.stringify(oldSkus) !== JSON.stringify(newSkus))
-      changes.push({ field: "SKUs updated" });
-  }
-
-  if (body.customFieldValues && body.customFieldValues.length > 0) {
-    const cfIds = body.customFieldValues.map((v) => v.customFieldId);
-    const [{ data: cfDefs }, { data: oldCfv }] = await Promise.all([
-      supabase.from("custom_fields").select("id, name").in("id", cfIds),
-      supabase.from("custom_field_values").select("custom_field_id, value").eq("order_id", id).in("custom_field_id", cfIds),
-    ]);
-    const nameById = new Map(
-      ((cfDefs ?? []) as { id: string; name: string }[]).map((f) => [f.id, f.name])
-    );
-    const oldValById = new Map(
-      ((oldCfv ?? []) as { custom_field_id: string; value: unknown }[]).map((v) => [v.custom_field_id, v.value])
-    );
-    const SKIP_CF = new Set(["customer name", "customer contact", "order qty"]);
-    for (const cfv of body.customFieldValues) {
-      const name = nameById.get(cfv.customFieldId) ?? "";
-      if (!name || SKIP_CF.has(name.toLowerCase())) continue;
-      const oldVal = oldValById.get(cfv.customFieldId) ?? null;
-      const newVal = cfv.value ?? null;
-      if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-        if (typeof newVal === "boolean")
-          changes.push({ field: name, to: newVal ? "Yes" : "No" });
-        else if (oldVal !== null && oldVal !== "")
-          changes.push({ field: name, from: oldVal, to: newVal });
-        else
-          changes.push({ field: name, to: newVal });
-      }
-    }
-  }
-
-  await logActivity(supabase, {
-    tenantId: ctx.tenant.id,
+  // Fire-and-forget — do not await; client doesn't need activity log data
+  void recordSaveActivity(supabase, {
+    tenantId,
+    userId: ctx.userId,
     orderId: id,
-    actor: ctx.userId,
-    action: "updated",
-    metadata: { changes },
-  });
+    updates: updates as Record<string, unknown>,
+    existingOrder: existingOrder as Record<string, unknown>,
+    customFieldValues: body.customFieldValues,
+  }).catch((err) => console.error("[activity-log]", err));
 
-  const order = await loadOrderWithRelations(supabase, id, tenantId);
+  // Build a minimal order object from what we already have in memory.
+  // The client only reads `error` and `tagNotifyWarning` — it does NOT
+  // use the returned `order` in the normal save path (see card-detail-modal.tsx).
+  // Optional `?reload=true` keeps a fully-joined order for rare callers.
+  const url = new URL(request.url);
+  const forceReload = url.searchParams.get("reload") === "true";
+  const order = forceReload
+    ? await loadOrderWithRelations(supabase, id, tenantId)
+    : ({
+        ...(existingOrder as Record<string, unknown>),
+        ...updates,
+        id,
+      } as OrderWithRelations);
 
   let tagNotifyWarning: string | null = null;
   // Fire when the order's tag is newly set or changed to a different tag.

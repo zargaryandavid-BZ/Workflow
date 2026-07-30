@@ -127,68 +127,68 @@ export default async function BoardPage({
   const designerIds = memberRows
     .filter((m) => m.role === "designer")
     .map((m) => m.user_id);
+  const loadColIds = designerLoadColumnIds(allBoardColumns);
 
-  let designers: Designer[] = [];
-  if (designerIds.length > 0) {
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", designerIds);
-    const nameById = new Map(
-      (
-        (profiles ?? []) as { id: string; full_name: string | null }[]
-      ).map((p) => [p.id, p.full_name])
-    );
-    designers = designerIds.map((id) => ({
-      id,
-      name: nameById.get(id) ?? "Unnamed designer",
-      load: 0,
-      skuCount: 0,
-    }));
+  // Round 2: designers, owners, buttons, warnings, time chips — all parallel.
+  const [
+    designers,
+    owners,
+    buttonAutomations,
+    fastActionButtons,
+    warningRules,
+    timeChipsResult,
+  ] = await Promise.all([
+    (async (): Promise<Designer[]> => {
+      if (designerIds.length === 0) return [];
 
-    // Active load = jobs currently in Start + In Progress columns.
-    const loadColIds = designerLoadColumnIds(allBoardColumns);
-    if (loadColIds.length > 0) {
-      const { data: loadOrders } = await supabase
-        .from("orders")
-        .select("column_id, specs")
-        .eq("tenant_id", tenantId)
-        .is("removed_at", null)
-        .in("column_id", loadColIds);
-      const counts = countDesignerLoads(
-        designerIds,
-        (loadOrders ?? []) as {
-          column_id: string;
-          specs?: Record<string, unknown> | null;
-        }[],
-        loadColIds
+      const [profilesRes, loadOrdersRes] = await Promise.all([
+        supabase.from("profiles").select("id, full_name").in("id", designerIds),
+        loadColIds.length > 0
+          ? supabase
+              .from("orders")
+              .select("column_id, specs")
+              .eq("tenant_id", tenantId)
+              .is("removed_at", null)
+              .in("column_id", loadColIds)
+          : Promise.resolve({ data: [] as { column_id: string; specs?: Record<string, unknown> | null }[] }),
+      ]);
+
+      const nameById = new Map(
+        (
+          (profilesRes.data ?? []) as { id: string; full_name: string | null }[]
+        ).map((p) => [p.id, p.full_name])
       );
-      designers = designers.map((d) => {
-        const stats = counts.get(d.id);
+      const counts =
+        loadColIds.length > 0
+          ? countDesignerLoads(
+              designerIds,
+              (loadOrdersRes.data ?? []) as {
+                column_id: string;
+                specs?: Record<string, unknown> | null;
+              }[],
+              loadColIds
+            )
+          : new Map<string, { load: number; skuCount: number }>();
+
+      return designerIds.map((id) => {
+        const stats = counts.get(id);
         return {
-          ...d,
+          id,
+          name: nameById.get(id) ?? "Unnamed designer",
           load: stats?.load ?? 0,
           skuCount: stats?.skuCount ?? 0,
         };
       });
-    }
-  }
+    })(),
+    loadAccountManagerOwners(supabase, tenantId),
+    loadButtonAutomations(supabase, tenantId),
+    loadFastActionButtons(supabase, tenantId),
+    loadEnabledCardWarningRules(supabase, tenantId),
+    listTimeChips(supabase, tenantId).catch(() => [] as TimeChip[]),
+  ]);
 
-  const [owners, buttonAutomations, fastActionButtons, warningRules] =
-    await Promise.all([
-      loadAccountManagerOwners(supabase, tenantId),
-      loadButtonAutomations(supabase, tenantId),
-      loadFastActionButtons(supabase, tenantId),
-      loadEnabledCardWarningRules(supabase, tenantId),
-    ]);
-
-  let timeChips: TimeChip[] = [];
-  try {
-    timeChips = await listTimeChips(supabase, tenantId);
-  } catch {
-    // Migration 0060 may not be applied yet — cards fall back to legacy chips.
-    timeChips = [];
-  }
+  // Migration 0060 may not be applied yet — cards fall back to legacy chips.
+  const timeChips = timeChipsResult;
 
   const tenant = ctx.tenant;
 

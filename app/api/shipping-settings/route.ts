@@ -114,7 +114,7 @@ export async function PATCH(request: Request) {
       !nextOffers.offer_curri
     ) {
       return NextResponse.json(
-        { error: "Enable at least one delivery option for clients" },
+        { error: "Enable at least one shipping option for clients" },
         { status: 400 }
       );
     }

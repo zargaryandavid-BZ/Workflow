@@ -171,7 +171,7 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
     },
     {
       id: "fedex" as const,
-      label: "Delivery FedEx",
+      label: "Shipping FedEx",
       description: "Live FedEx rates on the portal",
       checked: offerFedex,
       set: setOfferFedex,
@@ -187,7 +187,7 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
       id: "curri" as const,
       label: "Curri rates",
       description:
-        "Show Curri same-day quotes with FedEx on the Delivery step",
+        "Show Curri same-day quotes with FedEx on the Shipping step",
       checked: offerCurri,
       set: setOfferCurri,
     },
@@ -216,7 +216,7 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
           Offer to clients
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Choose which delivery options appear on the client shipping portal.
+          Choose which shipping options appear on the client shipping portal.
           At least one must stay enabled.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">

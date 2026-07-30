@@ -61,3 +61,14 @@ export function notificationToCardBadge(
   if (customerResponse === "info_submitted") return "responded";
   return "responded";
 }
+
+/**
+ * Manual follow-up is a staff log, not a customer outcome.
+ * When scanning newest → oldest, skip these so an older Approved/Rejected
+ * (or Waiting / Client responded) still wins on the card tag.
+ */
+export function isSoftNotificationBadge(
+  badge: CardNotificationBadge
+): boolean {
+  return badge === "manual";
+}

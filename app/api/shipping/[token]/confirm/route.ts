@@ -63,7 +63,7 @@ export async function POST(
   const settings = await loadShippingSettings(admin, shipReq.tenant_id);
   if (!isShippingChoiceOffered(settings, body.choice)) {
     return NextResponse.json(
-      { error: "That delivery option is not available." },
+      { error: "That shipping option is not available." },
       { status: 403 }
     );
   }

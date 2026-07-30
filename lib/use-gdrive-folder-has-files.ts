@@ -11,6 +11,37 @@ const inFlight = new Map<string, Promise<boolean>>();
 /** Subscribers notified when an order's cached status is invalidated/refreshed. */
 const listeners = new Map<string, Set<() => void>>();
 
+/**
+ * Cap concurrent Drive checks so opening the board doesn't spawn dozens of
+ * /gdrive-status calls at once (that made the board feel stuck).
+ */
+const MAX_CONCURRENT = 2;
+let activeChecks = 0;
+const waitQueue: Array<() => void> = [];
+
+function runNextQueued() {
+  while (activeChecks < MAX_CONCURRENT && waitQueue.length > 0) {
+    const next = waitQueue.shift();
+    if (next) next();
+  }
+}
+
+function enqueueCheck<T>(work: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = () => {
+      activeChecks += 1;
+      work()
+        .then(resolve, reject)
+        .finally(() => {
+          activeChecks -= 1;
+          runNextQueued();
+        });
+    };
+    if (activeChecks < MAX_CONCURRENT) start();
+    else waitQueue.push(start);
+  });
+}
+
 function notify(orderId: string) {
   listeners.get(orderId)?.forEach((fn) => fn());
 }
@@ -39,18 +70,19 @@ function fetchHasFilesDeduped(orderId: string): Promise<boolean> {
   const existing = inFlight.get(orderId);
   if (existing) return existing;
 
-  const promise = fetchHasFiles(orderId)
-    .then((next) => {
-      hasFilesCache.set(orderId, next);
-      return next;
-    })
-    .catch(() => {
-      hasFilesCache.set(orderId, false);
-      return false;
-    })
-    .finally(() => {
-      inFlight.delete(orderId);
-    });
+  const promise = enqueueCheck(() =>
+    fetchHasFiles(orderId)
+      .then((next) => {
+        hasFilesCache.set(orderId, next);
+        return next;
+      })
+      .catch(() => {
+        hasFilesCache.set(orderId, false);
+        return false;
+      })
+  ).finally(() => {
+    inFlight.delete(orderId);
+  });
 
   inFlight.set(orderId, promise);
   return promise;
@@ -89,9 +121,11 @@ export async function refreshGdriveFolderHasFiles(
 }
 
 /**
- * Green order # / Copy Link from cache only.
- * Does **not** call Drive on mount (that made the board / cards feel stuck).
- * Checks run on move / Copy Link / Final production via refreshGdriveFolderHasFiles.
+ * Green order # / Copy Link when Artwork / Final production Drive folder has files.
+ *
+ * Uses cache when present. On cache miss (with a Drive URL), schedules a
+ * deferred, concurrency-limited Drive check so the board can paint first.
+ * Explicit refresh still runs immediately via refreshGdriveFolderHasFiles.
  */
 export function useGdriveFolderHasFiles(
   orderId: string | null | undefined,
@@ -122,21 +156,15 @@ export function useGdriveFolderHasFiles(
       return;
     }
 
-    // Cache miss: only fetch after an explicit refresh bumped epoch.
-    if (epoch === 0) {
-      setHasFiles(false);
-      return;
-    }
-
     let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      try {
-        const next = await fetchHasFilesDeduped(orderId);
+    // Let the board paint / column fetches settle, then check Drive.
+    // Explicit refresh (epoch bump with empty cache) uses a shorter delay.
+    const delayMs = epoch === 0 ? 800 : 50;
+    const timer = window.setTimeout(() => {
+      void fetchHasFilesDeduped(orderId).then((next) => {
         if (!cancelled) setHasFiles(next);
-      } catch {
-        if (!cancelled) setHasFiles(false);
-      }
-    }, 100);
+      });
+    }, delayMs);
 
     return () => {
       cancelled = true;

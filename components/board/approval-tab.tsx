@@ -346,6 +346,17 @@ export function ApprovalTab({
   }
 
   const latest = notes[0];
+  // Manual follow-up after a customer Approve shouldn't replace the headline
+  // status / primary actions (Move to production, etc.).
+  const statusNote =
+    latest.channel === "manual" && latest.status !== "responded"
+      ? notes.find(
+          (n) =>
+            n.status === "responded" &&
+            (n.customer_response === "approved" ||
+              n.customer_response === "changes_requested")
+        ) ?? latest
+      : latest;
   const history = [...notes].sort(
     (a, b) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -377,7 +388,10 @@ export function ApprovalTab({
   }
 
   function renderLatestActions() {
-    if (latest.status === "responded" && latest.customer_response === "approved") {
+    if (
+      statusNote.status === "responded" &&
+      statusNote.customer_response === "approved"
+    ) {
       return productionColumn ? (
         <MoveButton
           orderId={orderId}
@@ -391,13 +405,13 @@ export function ApprovalTab({
     }
 
     if (
-      latest.status === "responded" &&
-      latest.customer_response === "changes_requested"
+      statusNote.status === "responded" &&
+      statusNote.customer_response === "changes_requested"
     ) {
       return (
         <div className="space-y-3">
           <NotifyRow
-            note={latest}
+            note={statusNote}
             customer={customer}
             contactEmail={contactEmail}
             contactPhone={contactPhone}
@@ -420,8 +434,8 @@ export function ApprovalTab({
     }
 
     if (
-      latest.channel === "manual" &&
-      latest.status !== "responded"
+      statusNote.channel === "manual" &&
+      statusNote.status !== "responded"
     ) {
       return (
         <div className="space-y-2">
@@ -442,12 +456,12 @@ export function ApprovalTab({
     }
 
     if (
-      (latest.status === "sent" || latest.status === "pending") &&
-      latest.channel !== "manual"
+      (statusNote.status === "sent" || statusNote.status === "pending") &&
+      statusNote.channel !== "manual"
     ) {
       return (
         <NotifyRow
-          note={latest}
+          note={statusNote}
           customer={customer}
           contactEmail={contactEmail}
           contactPhone={contactPhone}
@@ -502,7 +516,7 @@ export function ApprovalTab({
     };
   }
 
-  const latestStatus = entryStatus(latest);
+  const latestStatus = entryStatus(statusNote);
 
   return (
     <div className="space-y-5">
@@ -517,44 +531,44 @@ export function ApprovalTab({
         ) : null}
       </div>
 
-      {(latest.status === "sent" || latest.status === "pending") &&
-      latest.channel !== "manual" ? (
+      {(statusNote.status === "sent" || statusNote.status === "pending") &&
+      statusNote.channel !== "manual" ? (
         <div className="text-sm text-slate-600">
           <p>
             <span className="font-medium text-slate-700">Sent: </span>
-            {formatDateTime(latest.created_at)} via{" "}
-            {channelLabel(latest.channel)}
+            {formatDateTime(statusNote.created_at)} via{" "}
+            {channelLabel(statusNote.channel)}
           </p>
           <p className="mt-1">
             <span className="font-medium text-slate-700">To: </span>
-            {sentToLabel(latest, customer, contactEmail, contactPhone)}
+            {sentToLabel(statusNote, customer, contactEmail, contactPhone)}
           </p>
-          {showCustomerLink(latest) ? (
+          {showCustomerLink(statusNote) ? (
             <div className="mt-3">
-              <CustomerLinkRow token={latest.token} />
+              <CustomerLinkRow token={statusNote.token} />
             </div>
           ) : null}
         </div>
       ) : null}
 
-      {latest.status === "responded" && latest.customer_note ? (
+      {statusNote.status === "responded" && statusNote.customer_note ? (
         <div>
           <p className="text-sm font-medium text-slate-700">
             Customer last response:
           </p>
           <blockquote className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            &ldquo;{latest.customer_note}&rdquo;
+            &ldquo;{statusNote.customer_note}&rdquo;
           </blockquote>
         </div>
       ) : null}
 
-      {latest.staff_note &&
-      latest.status !== "responded" &&
-      latest.channel !== "manual" ? (
+      {statusNote.staff_note &&
+      statusNote.status !== "responded" &&
+      statusNote.channel !== "manual" ? (
         <div>
           <p className="text-sm font-medium text-slate-700">Note to customer:</p>
           <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
-            {latest.staff_note}
+            {statusNote.staff_note}
           </p>
         </div>
       ) : null}

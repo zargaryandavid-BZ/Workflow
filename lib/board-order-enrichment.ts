@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   notificationToCardBadge,
+  isSoftNotificationBadge,
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import {
@@ -165,6 +166,7 @@ export async function enrichBoardOrders(
   }
 
   const notificationBadgeByOrder: Record<string, CardNotificationBadge> = {};
+  const softBadgeByOrder: Record<string, CardNotificationBadge> = {};
   const approvalDateByOrder: Record<string, string> = {};
   for (const row of (notifRes.data ?? []) as {
     order_id: string;
@@ -190,7 +192,18 @@ export async function enrichBoardOrders(
       row.channel,
       row.customer_response
     );
-    if (badge) notificationBadgeByOrder[row.order_id] = badge;
+    if (!badge) continue;
+    // Newest→oldest: don't let a Manual follow-up hide an older Approved tag.
+    if (isSoftNotificationBadge(badge)) {
+      if (!softBadgeByOrder[row.order_id]) softBadgeByOrder[row.order_id] = badge;
+      continue;
+    }
+    notificationBadgeByOrder[row.order_id] = badge;
+  }
+  for (const [orderId, soft] of Object.entries(softBadgeByOrder)) {
+    if (!notificationBadgeByOrder[orderId]) {
+      notificationBadgeByOrder[orderId] = soft;
+    }
   }
 
   const ownerNameByOrder: Record<string, string> = {};

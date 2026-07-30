@@ -38,7 +38,7 @@ export async function POST(
 
   if (!fedexSelection?.serviceType || fedexSelection.totalCharge == null) {
     return NextResponse.json(
-      { error: "Select a delivery option with a valid price." },
+      { error: "Select a shipping option with a valid price." },
       { status: 422 }
     );
   }

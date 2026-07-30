@@ -46,7 +46,6 @@ function isTransientUpstreamError(err: unknown): boolean {
 }
 
 export async function GET(req: NextRequest) {
-  const t0 = Date.now();
   try {
     const ctx = await getTenantContext();
     if (!ctx) {
@@ -81,11 +80,9 @@ export async function GET(req: NextRequest) {
       query = query.eq("specs->>designer_id", ctx.userId);
     }
 
-    const tQuery = Date.now();
     const { data: rawOrders, error: ordersError, count } = await query
       .order("position", { ascending: true })
       .range(from, to);
-    const queryMs = Date.now() - tQuery;
 
     if (ordersError) {
       console.error("[column-orders] Failed to fetch orders:", ordersError);
@@ -115,18 +112,10 @@ export async function GET(req: NextRequest) {
     };
 
     if (orders.length === 0) {
-      // #region agent log
-      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'D',location:'column-orders/route.ts:empty',message:'column-orders empty',data:{columnId:columnId.slice(0,8),queryMs,totalMs:Date.now()-t0},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       return NextResponse.json(empty);
     }
 
-    const tEnrich = Date.now();
     const enrichment = await enrichBoardOrders(supabase, orders);
-    const enrichMs = Date.now() - tEnrich;
-    // #region agent log
-    fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'D',location:'column-orders/route.ts:ok',message:'column-orders timing',data:{columnId:columnId.slice(0,8),page,orders:orders.length,queryMs,enrichMs,totalMs:Date.now()-t0},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     const response: ColumnOrdersResponse = {
       orders,

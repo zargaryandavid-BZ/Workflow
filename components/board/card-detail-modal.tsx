@@ -554,6 +554,90 @@ export function CardDetailModal({
       customerName,
       customerContact
     );
+
+    const selectedTag = tagId
+      ? (tags.find((t) => t.id === tagId) ?? null)
+      : null;
+    const nextTitle = title.trim();
+    const nextDue = dateInputValue(dueDate) || null;
+    const nextPriority = priority as "low" | "normal" | "high" | "urgent";
+    const boardPatch = {
+      tag_id: tagId || null,
+      tag: selectedTag,
+      title: nextTitle,
+      description: description || null,
+      priority: nextPriority,
+      due_date: nextDue,
+      created_by: ownerId || null,
+      specs: nextSpecs,
+    };
+    const rollbackPatch = data
+      ? {
+          tag_id: data.order.tag_id,
+          tag: data.order.tag ?? null,
+          title: data.order.title,
+          description: data.order.description,
+          priority: data.order.priority,
+          due_date: data.order.due_date,
+          created_by: data.order.created_by,
+          specs: data.order.specs ?? {},
+        }
+      : null;
+
+    // Optimistic UI — board + modal update before the network round-trip.
+    setNoteHistory(updatedHistory);
+    setNewNote("");
+    setData((prev) => {
+      if (!prev) return prev;
+      const valueById = new Map(
+        customFieldValues.map((row) => [row.customFieldId, row.value])
+      );
+      return {
+        ...prev,
+        order: {
+          ...prev.order,
+          title: nextTitle,
+          description: description || null,
+          internal_note: internalNoteJson,
+          priority: nextPriority,
+          due_date: nextDue,
+          created_by: ownerId || null,
+          tag_id: tagId || null,
+          tag: selectedTag,
+          specs: nextSpecs,
+        },
+        values: prev.values
+          .map((row) =>
+            valueById.has(row.custom_field_id)
+              ? { ...row, value: valueById.get(row.custom_field_id) }
+              : row
+          )
+          .concat(
+            customFieldValues
+              .filter(
+                (row) =>
+                  !prev.values.some(
+                    (v) => v.custom_field_id === row.customFieldId
+                  )
+              )
+              .map((row) => ({
+                id: `local-${row.customFieldId}`,
+                order_id: prev.order.id,
+                custom_field_id: row.customFieldId,
+                value: row.value,
+              }))
+          ),
+      };
+    });
+    setFieldValues((prev) => {
+      const next = { ...prev };
+      for (const row of customFieldValues) {
+        next[row.customFieldId] = row.value;
+      }
+      return next;
+    });
+    onChanged(boardPatch);
+
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",
@@ -579,6 +663,8 @@ export function CardDetailModal({
       };
       if (!res.ok) {
         setSaveError(savedJson.error ?? "Failed to save order");
+        if (rollbackPatch) onChanged(rollbackPatch);
+        await load({ silent: true });
         return false;
       }
 
@@ -586,73 +672,6 @@ export function CardDetailModal({
         onLinkCopied?.(savedJson.tagNotifyWarning);
       }
 
-      setNoteHistory(updatedHistory);
-      setNewNote("");
-      const selectedTag = tagId
-        ? (tags.find((t) => t.id === tagId) ?? null)
-        : null;
-      const nextTitle = title.trim();
-      const nextDue = dateInputValue(dueDate) || null;
-      const nextPriority = priority as "low" | "normal" | "high" | "urgent";
-
-      // Keep local detail in sync immediately so isDirty() clears without a
-      // second click while the silent reload finishes.
-      setData((prev) => {
-        if (!prev) return prev;
-        const valueById = new Map(
-          customFieldValues.map((row) => [row.customFieldId, row.value])
-        );
-        return {
-          ...prev,
-          order: {
-            ...prev.order,
-            title: nextTitle,
-            description: description || null,
-            internal_note: internalNoteJson,
-            priority: nextPriority,
-            due_date: nextDue,
-            created_by: ownerId || null,
-            tag_id: tagId || null,
-            tag: selectedTag,
-            specs: nextSpecs,
-          },
-          values: prev.values.map((row) =>
-            valueById.has(row.custom_field_id)
-              ? { ...row, value: valueById.get(row.custom_field_id) }
-              : row
-          ).concat(
-            customFieldValues
-              .filter(
-                (row) =>
-                  !prev.values.some((v) => v.custom_field_id === row.customFieldId)
-              )
-              .map((row) => ({
-                id: `local-${row.customFieldId}`,
-                order_id: prev.order.id,
-                custom_field_id: row.customFieldId,
-                value: row.value,
-              }))
-          ),
-        };
-      });
-      setFieldValues((prev) => {
-        const next = { ...prev };
-        for (const row of customFieldValues) {
-          next[row.customFieldId] = row.value;
-        }
-        return next;
-      });
-
-      onChanged({
-        tag_id: tagId || null,
-        tag: selectedTag,
-        title: nextTitle,
-        description: description || null,
-        priority: nextPriority,
-        due_date: nextDue,
-        created_by: ownerId || null,
-        specs: nextSpecs,
-      });
       // Local state already mirrors the save — skip a second full GET (~1–2s).
       if (options?.reload === true) {
         await load({ silent: true });

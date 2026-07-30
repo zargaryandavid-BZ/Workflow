@@ -604,7 +604,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-400 hover:shadow-sm"
               >
                 <Truck className="mb-2 h-5 w-5 text-slate-600" />
-                <p className="font-semibold text-slate-900">Delivery</p>
+                <p className="font-semibold text-slate-900">Shipping</p>
                 <p className="mt-1 text-sm text-slate-500">
                   {data.offerFedex && data.offerCurri
                     ? "FedEx and Curri rates to your address"
@@ -633,7 +633,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
           </div>
           {!data.offerPickup && !offerDelivery && !data.offerUber ? (
             <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              No delivery options are available right now. Please contact the
+              No shipping options are available right now. Please contact the
               shop.
             </p>
           ) : null}
@@ -834,7 +834,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               : rates.length > 0
                 ? "Refresh rates"
                 : data.offerFedex && data.offerCurri
-                  ? "Get delivery rates"
+                  ? "Get shipping rates"
                   : data.offerCurri
                     ? "Get Curri rates"
                     : "Get FedEx rates"}
@@ -843,7 +843,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
           {rates.length > 0 ? (
             <div className="space-y-2 rounded-xl border border-slate-200 p-3">
               <p className="text-sm font-medium text-slate-800">
-                Select a delivery option
+                Select a shipping option
               </p>
               {rates.map((rate) => {
                 const selected = isSameRate(selectedRate, rate);
@@ -903,7 +903,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 ) : null}
                 {paymentRequired
                   ? "Continue to Payment →"
-                  : "Confirm Delivery →"}
+                  : "Confirm Shipping →"}
               </button>
             </div>
           ) : null}

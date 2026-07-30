@@ -219,12 +219,12 @@ export function OrderFormBody({
 
   const [fieldLinks, setFieldLinks] = useState<FieldLink[]>([]);
 
-  // After the card is already open, quietly refresh green status (does not block load).
+  // When opening a card, re-check Final production so Copy Link / order # go green.
   useEffect(() => {
     if (!orderId || !/^https?:\/\//i.test(artworkValue)) return;
     const timer = window.setTimeout(() => {
       void refreshGdriveFolderHasFiles(orderId);
-    }, 1200);
+    }, 400);
     return () => window.clearTimeout(timer);
   }, [orderId, artworkValue]);
 

@@ -340,15 +340,27 @@ export function ShippingTab({
               <span className="font-medium text-slate-600">Portal:</span>{" "}
               {portalUrl}
             </p>
-            <button
-              type="button"
-              onClick={() => void copyPortalUrl()}
-              title={portalCopied ? "Copied" : "Copy portal link"}
-              className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-800"
-            >
-              <Copy className="h-3.5 w-3.5" />
-              {portalCopied ? "Copied" : "Copy"}
-            </button>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <a
+                href={portalUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Open portal link"
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-800"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open
+              </a>
+              <button
+                type="button"
+                onClick={() => void copyPortalUrl()}
+                title={portalCopied ? "Copied" : "Copy portal link"}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-800"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {portalCopied ? "Copied" : "Copy"}
+              </button>
+            </div>
           </div>
         ) : null}
       </section>
@@ -370,7 +382,7 @@ export function ShippingTab({
             <p>
               {shippingRequest.status === "payment_pending"
                 ? "Awaiting payment — client started checkout but hasn’t finished yet."
-                : "Awaiting client response — they haven’t chosen a delivery option yet."}
+                : "Awaiting client response — they haven’t chosen a shipping option yet."}
             </p>
             {shippingRequest.status === "payment_pending" && rate ? (
               <dl className="space-y-1.5">
@@ -477,7 +489,7 @@ export function ShippingTab({
           <div className="space-y-3 text-sm text-slate-700">
             <p className="flex items-center gap-2 font-medium text-slate-900">
               <Truck className="h-4 w-4 text-slate-500" />
-              Delivery
+              Shipping
               {rate?.serviceName ? ` · ${rate.serviceName}` : null}
             </p>
             <dl className="space-y-1.5">

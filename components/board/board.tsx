@@ -860,6 +860,26 @@ export function Board({
   // When a page-0 fetch is requested while one is already in flight, queue a
   // follow-up so post-save / post-move refreshes are not dropped.
   const pendingColumnRefetchRef = useRef(new Set<string>());
+  // Debounce post-save enrichment refreshes so Save doesn't immediately
+  // re-hit /api/board/column-orders (and compete with the PATCH).
+  const softColumnRefreshTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+  const fetchColumnOrdersRef = useRef<
+    (columnId: string, page: number) => Promise<void>
+  >(async () => {});
+
+  const scheduleSoftColumnRefresh = useCallback((columnId: string) => {
+    const existing = softColumnRefreshTimersRef.current.get(columnId);
+    if (existing) clearTimeout(existing);
+    softColumnRefreshTimersRef.current.set(
+      columnId,
+      setTimeout(() => {
+        softColumnRefreshTimersRef.current.delete(columnId);
+        void fetchColumnOrdersRef.current(columnId, 0);
+      }, 1200)
+    );
+  }, []);
 
   // ── Per-column fetch ─────────────────────────────────────────────────────────
   const fetchColumnOrders = useCallback(
@@ -870,9 +890,6 @@ export function Board({
         columnLoadStatusRef.current[columnId] === "loading"
       ) {
         pendingColumnRefetchRef.current.add(columnId);
-        // #region agent log
-        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'C',location:'board.tsx:fetch:queued',message:'column fetch queued',data:{columnId:columnId.slice(0,8),pending:pendingColumnRefetchRef.current.size},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         return;
       }
 
@@ -882,11 +899,6 @@ export function Board({
         [columnId]: "loading",
       };
       setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
-      const t0 = Date.now();
-      // #region agent log
-      const loadingCount = Object.values(columnLoadStatusRef.current).filter((s) => s === "loading").length;
-      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'A',location:'board.tsx:fetch:start',message:'column fetch start shows Loading UI',data:{columnId:columnId.slice(0,8),page,wasLoaded,loadingCount,loadedCols:loadedColumnsRef.current.size},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
 
       try {
         const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`;
@@ -994,9 +1006,6 @@ export function Board({
         };
         setColumnLoadStatus((s) => ({ ...s, [columnId]: "loaded" }));
         loadedColumnsRef.current.add(columnId);
-        // #region agent log
-        fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'A',location:'board.tsx:fetch:ok',message:'column fetch ok',data:{columnId:columnId.slice(0,8),page,wasLoaded,ms:Date.now()-t0,orders:data.orders.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
       } catch (err) {
         const transient = isTransientNetworkError(err);
         if (transient && wasLoaded) {
@@ -1027,6 +1036,7 @@ export function Board({
     },
     [] // all dependencies are refs or stable setters
   );
+  fetchColumnOrdersRef.current = fetchColumnOrders;
 
   // Called by Column's IntersectionObserver / Table when a column needs data.
   // Retry allowed after error; idle kicks off the first load.
@@ -1085,9 +1095,6 @@ export function Board({
     if (draggingRef.current) return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
-      // #region agent log
-      fetch('http://127.0.0.1:7557/ingest/19f28f15-fbcc-4f8f-ac21-080af04100d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'35427e'},body:JSON.stringify({sessionId:'35427e',runId:'pre-fix',hypothesisId:'B',location:'board.tsx:scheduleRefresh:fire',message:'scheduleRefresh fired',data:{reason,loadedCols:loadedColumnsRef.current.size},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       // Refresh server-rendered metadata (columns, custom fields, tags, etc.)
       router.refresh();
       // Refresh orders + enrichments for every visible column.
@@ -1515,21 +1522,27 @@ export function Board({
       });
     }
 
-    for (const { order, position } of moves) {
-      const result = await requestOrderMove(
-        { orderId: order.id, toColumnId, position },
-        { fromColumnId, columns }
-      );
+    const results = await Promise.all(
+      moves.map(({ order, position }) =>
+        requestOrderMove(
+          { orderId: order.id, toColumnId, position },
+          { fromColumnId, columns }
+        )
+      )
+    );
 
-      if (!result.ok) {
+    const failedIdx = results.findIndex((r) => !r.ok);
+    if (failedIdx !== -1) {
+      const failed = results[failedIdx]!;
+      if (!failed.ok) {
         restoreOrdersSnapshot(snapshot);
-        if (result.missingFields?.length) {
+        if (failed.missingFields?.length) {
           setMoveBlockedState({
-            orderId: order.id,
-            missingFields: result.missingFields,
+            orderId: moves[failedIdx]?.order.id ?? moves[0].order.id,
+            missingFields: failed.missingFields,
           });
         } else {
-          flashPermissionError(result.error ?? "Move was rejected.");
+          flashPermissionError(failed.error ?? "Move was rejected.");
         }
         return;
       }
@@ -1843,11 +1856,14 @@ export function Board({
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
     for (const col of columns) map.set(col.id, []);
-    for (const order of [...displayOrders].sort(
-      (a, b) => a.position - b.position
-    )) {
-      if (!map.has(order.column_id)) map.set(order.column_id, []);
-      map.get(order.column_id)!.push(order);
+    // Bucket first, then sort per column — avoids a full-list sort on every render.
+    for (const order of displayOrders) {
+      const list = map.get(order.column_id);
+      if (list) list.push(order);
+      else map.set(order.column_id, [order]);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.position - b.position);
     }
     return map;
   }, [displayOrders, columns]);
@@ -2478,10 +2494,10 @@ export function Board({
               );
             }
           }
-          // Re-fetch the column of the edited order for enrichments / field values.
+          // Soft-refresh enrichments later — card fields already patched above.
+          // Skipping an immediate column refetch + router.refresh keeps Save snappy.
           const order = boardOrdersRef.current.find((o) => o.id === detailId);
-          if (order) void fetchColumnOrders(order.column_id, 0);
-          router.refresh();
+          if (order) scheduleSoftColumnRefresh(order.column_id);
         }}
         onLinkCopied={flashToast}
         buttonAutomations={buttonAutomations}

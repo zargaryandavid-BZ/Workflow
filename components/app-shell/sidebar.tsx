@@ -146,8 +146,18 @@ interface SidebarProps {
 export function Sidebar({ role, open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [feedbackCount, setFeedbackCount] = useState<number | null>(null);
+  // Defer timer + feedback fetches until after first paint so they don't
+  // compete with the board's column-order requests on cold start.
+  const [sidebarReady, setSidebarReady] = useState(false);
 
   useEffect(() => {
+    const t = window.setTimeout(() => setSidebarReady(true), 300);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarReady) return;
+
     let cancelled = false;
 
     async function loadCount() {
@@ -181,7 +191,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(FEEDBACK_COUNT_CHANGED_EVENT, onCountChanged);
     };
-  }, [pathname]);
+  }, [pathname, sidebarReady]);
 
   function handleNavClick() {
     if (window.matchMedia("(max-width: 767px)").matches) {
@@ -276,7 +286,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
           ) : null}
         </Link>
       </div>
-      <TimerWidget />
+      {sidebarReady ? <TimerWidget /> : null}
       <div className="border-t border-slate-200 p-3 text-xs text-slate-400">
         {role === "admin" ? "Admin" : "Member"}
       </div>

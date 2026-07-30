@@ -21,15 +21,25 @@ export interface TenantContext {
  */
 export async function getTenantContext(): Promise<TenantContext | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [{ data: authData }, cookieStore] = await Promise.all([
+    supabase.auth.getUser(),
+    cookies(),
+  ]);
+  const user = authData.user;
   if (!user) return null;
 
-  const { data: memberships } = await supabase
-    .from("memberships")
-    .select("user_id, tenant_id, role, created_at, tenant:tenants(*)")
-    .eq("user_id", user.id);
+  // Memberships + profile in parallel — both only need user.id.
+  const [{ data: memberships }, { data: profile }] = await Promise.all([
+    supabase
+      .from("memberships")
+      .select("user_id, tenant_id, role, created_at, tenant:tenants(*)")
+      .eq("user_id", user.id),
+    supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle(),
+  ]);
 
   const typed = (memberships ?? []) as unknown as (Membership & {
     tenant: Tenant;
@@ -37,13 +47,6 @@ export async function getTenantContext(): Promise<TenantContext | null> {
 
   if (typed.length === 0) return null;
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const cookieStore = await cookies();
   const preferred = cookieStore.get(TENANT_COOKIE)?.value;
   const active =
     typed.find((m) => m.tenant_id === preferred) ?? typed[0];
