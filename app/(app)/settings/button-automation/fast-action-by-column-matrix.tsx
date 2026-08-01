@@ -158,15 +158,16 @@ export function FastActionByColumnMatrix({
 
   useEffect(() => {
     if (!openAddFor) return;
+    const columnId = openAddFor;
     function onDoc(e: MouseEvent) {
       const target = e.target as Node;
       if (addMenuRef.current?.contains(target)) return;
-      const trigger = addButtonRefs.current.get(openAddFor);
+      const trigger = addButtonRefs.current.get(columnId);
       if (trigger?.contains(target)) return;
       setOpenAddFor(null);
     }
     function onReposition() {
-      placeMenu(openAddFor);
+      placeMenu(columnId);
     }
     function onOutsideScroll(e: Event) {
       // Keep menu scrollable — only close when the page/table scrolls underneath.
