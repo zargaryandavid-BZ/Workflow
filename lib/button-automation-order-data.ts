@@ -26,6 +26,12 @@ import {
 } from "@/lib/notification-messages";
 import { formatDate } from "@/lib/utils";
 import { formatOrderDueDisplay } from "@/lib/due-date";
+import {
+  applicationDaysFromSpecs,
+  DEFAULT_APPLICATION_DAYS,
+  isApplicationEnabled,
+  productionDateFromDueDate,
+} from "@/lib/order-application";
 import { getGroupKey } from "@/lib/group-orders";
 import type {
   Asset,
@@ -78,6 +84,9 @@ export interface OrderExportData {
   orderNumberDisplay: string;
   groupSize: number | null;
   dueDateFormatted: string;
+  /** When Application is on, job ticket shows this instead of due date. */
+  productionDateFormatted: string | null;
+  applicationEnabled: boolean;
   priority: string;
   tenantName: string;
 }
@@ -435,6 +444,20 @@ export async function loadOrderExportData(
       order.due_date,
       order.specs,
       formatDate
+    ),
+    productionDateFormatted: (() => {
+      if (!isApplicationEnabled(order.specs, customFields, fieldValues)) {
+        return null;
+      }
+      const days =
+        applicationDaysFromSpecs(order.specs) ?? DEFAULT_APPLICATION_DAYS;
+      const ymd = productionDateFromDueDate(order.due_date, days);
+      return ymd ? formatDate(ymd) : null;
+    })(),
+    applicationEnabled: isApplicationEnabled(
+      order.specs,
+      customFields,
+      fieldValues
     ),
     priority: order.priority,
     tenantName,

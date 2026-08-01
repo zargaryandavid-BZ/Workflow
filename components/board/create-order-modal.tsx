@@ -21,6 +21,10 @@ import {
   validateDueDate,
   validateOrderFormFields,
 } from "@/lib/order-form";
+import {
+  DEFAULT_APPLICATION_DAYS,
+  isApplicationCustomFieldOn,
+} from "@/lib/order-application";
 import type { BoardColumn, CustomField, Designer } from "@/lib/types";
 
 interface CreateOrderModalProps {
@@ -79,6 +83,7 @@ export function CreateOrderModal({
   const [description, setDescription] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [productionNotes, setProductionNotes] = useState("");
+  const [applicationDays, setApplicationDays] = useState(DEFAULT_APPLICATION_DAYS);
   const [priority, setPriority] = useState("normal");
   const defaultOwnerId = useMemo(
     () => (owners.some((o) => o.id === currentUserId) ? currentUserId : ""),
@@ -117,6 +122,7 @@ export function CreateOrderModal({
     setDescription("");
     setInternalNote("");
     setProductionNotes("");
+    setApplicationDays(DEFAULT_APPLICATION_DAYS);
     setPriority("normal");
     setOwnerId(defaultOwnerId);
     setDueDate("");
@@ -204,6 +210,15 @@ export function CreateOrderModal({
           designers.find((d) => d.id === designerId)?.name ?? null,
         design_task: designTask || null,
         production_notes: productionNotes.trim() || null,
+        ...(isApplicationCustomFieldOn(customFields, fieldValues)
+          ? {
+              application: true,
+              application_days: Math.max(
+                1,
+                Math.floor(applicationDays) || DEFAULT_APPLICATION_DAYS
+              ),
+            }
+          : {}),
       },
       customFieldValues: buildCustomFieldPayload(
         resolved,
@@ -284,6 +299,12 @@ export function CreateOrderModal({
           onInternalNoteChange={setInternalNote}
           productionNotes={productionNotes}
           onProductionNotesChange={setProductionNotes}
+          applicationEnabled={isApplicationCustomFieldOn(
+            customFields,
+            fieldValues
+          )}
+          applicationDays={applicationDays}
+          onApplicationDaysChange={setApplicationDays}
           customerName={customerName}
           onCustomerNameChange={setCustomerName}
           customerContact={customerContact}

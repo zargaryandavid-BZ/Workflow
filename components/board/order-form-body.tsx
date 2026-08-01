@@ -17,6 +17,7 @@ import { CustomFieldInput } from "./custom-field-input";
 import { ProductMaterialsFields } from "./product-materials-fields";
 import { SkuEditor, type SkuItem, type PendingSkuImage } from "./sku-editor";
 import { DueDateFields } from "./due-date-fields";
+import { ApplicationFields } from "./application-fields";
 import { OrderQtyField, sumSkuQty } from "./order-qty-field";
 import { DEFAULT_PROCESSING_DAYS, type DueDateMode } from "@/lib/due-date";
 import { PRIORITY_OPTIONS } from "@/lib/constants";
@@ -115,6 +116,13 @@ export interface OrderFormBodyProps {
   hideOrderNumberField?: boolean;
   /** Hide priority and due date fields (rendered elsewhere in the modal). */
   hidePriorityAndDueDateFields?: boolean;
+  /**
+   * Application days / production date — shown when Product-box Application
+   * checkbox is ON (no second checkbox here).
+   */
+  applicationEnabled?: boolean;
+  applicationDays?: number;
+  onApplicationDaysChange?: (days: number) => void;
   /** Hide owner field (rendered in the modal header bar). */
   hideOwnerField?: boolean;
   /** Hide customer name/contact fields (shown in the modal header dropdown instead). */
@@ -171,6 +179,9 @@ export function OrderFormBody({
   hideEmpty: hideEmptyProp = true,
   hideOrderNumberField = false,
   hidePriorityAndDueDateFields = false,
+  applicationEnabled = false,
+  applicationDays = 1,
+  onApplicationDaysChange,
   hideOwnerField = false,
   hideCustomerSection = false,
   tags = [],
@@ -592,77 +603,102 @@ export function OrderFormBody({
       ) : null}
 
       {(!hidePriorityAndDueDateFields || !hideOwnerField) ? (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {!hidePriorityAndDueDateFields ? (
-        <div>
-          <Label htmlFor={`${idPrefix}-priority`}>Priority</Label>
-          <Select
-            id={`${idPrefix}-priority`}
-            value={priority}
-            disabled={readOnly}
-            onChange={(e) => onPriorityChange(e.target.value)}
-          >
-            {PRIORITY_OPTIONS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
+      <div className="space-y-3">
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-3",
+            !hidePriorityAndDueDateFields && !hideOwnerField
+              ? "sm:grid-cols-2"
+              : ""
+          )}
+        >
+          {!hidePriorityAndDueDateFields ? (
+            <div>
+              <Label htmlFor={`${idPrefix}-priority`}>Priority</Label>
+              <Select
+                id={`${idPrefix}-priority`}
+                value={priority}
+                disabled={readOnly}
+                onChange={(e) => onPriorityChange(e.target.value)}
+              >
+                {PRIORITY_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
+          {!hideOwnerField ? (
+            <div>
+              <Label htmlFor={`${idPrefix}-owner`}>Owner</Label>
+              <Select
+                id={`${idPrefix}-owner`}
+                value={ownerId}
+                disabled={readOnly}
+                onChange={(e) => onOwnerIdChange(e.target.value)}
+              >
+                <option value="">— Unassigned —</option>
+                {owners.length === 0 ? (
+                  <option value="" disabled>
+                    No account managers
+                  </option>
+                ) : null}
+                {owners.map((owner) => (
+                  <option key={owner.id} value={owner.id}>
+                    {owner.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
         </div>
-        ) : null}
-        {!hideOwnerField ? (
-        <div>
-          <Label htmlFor={`${idPrefix}-owner`}>Owner</Label>
-          <Select
-            id={`${idPrefix}-owner`}
-            value={ownerId}
-            disabled={readOnly}
-            onChange={(e) => onOwnerIdChange(e.target.value)}
-          >
-            <option value="">— Unassigned —</option>
-            {owners.length === 0 ? (
-              <option value="" disabled>
-                No account managers
-              </option>
-            ) : null}
-            {owners.map((owner) => (
-              <option key={owner.id} value={owner.id}>
-                {owner.name}
-              </option>
-            ))}
-          </Select>
-        </div>
+        {!hidePriorityAndDueDateFields &&
+        applicationEnabled &&
+        onApplicationDaysChange ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Application
+            </p>
+            <ApplicationFields
+              idPrefix={idPrefix}
+              applicationDays={applicationDays}
+              onApplicationDaysChange={onApplicationDaysChange}
+              dueDate={normalizedDueDate}
+              readOnly={readOnly}
+            />
+          </div>
         ) : null}
         {!hidePriorityAndDueDateFields ? (
-        <DueDateFields
-          idPrefix={idPrefix}
-          mode={dueDateMode}
-          onModeChange={(mode) => {
-            setDueDateError(null);
-            onDueDateModeChange?.(mode);
-            if (mode === "after_approval") onDueDateChange("");
-          }}
-          dueDate={normalizedDueDate}
-          onDueDateChange={handleDueDateChange}
-          processingDays={dueProcessingDays}
-          onProcessingDaysChange={(days) => {
-            setDueDateError(null);
-            onDueProcessingDaysChange?.(days);
-          }}
-          materializedDueDate={
-            dueDateMode === "after_approval" ? normalizedDueDate || null : null
-          }
-          minDueDate={minDueDate}
-          readOnly={readOnly || !onDueDateModeChange}
-          error={dueDateError}
-          hint={
-            dueDateHint &&
-            dueDateMode === "after_approval" &&
-            !normalizedDueDate
-              ? dueDateHint
-              : null
-          }
-        />
+          <DueDateFields
+            idPrefix={idPrefix}
+            mode={dueDateMode}
+            onModeChange={(mode) => {
+              setDueDateError(null);
+              onDueDateModeChange?.(mode);
+              if (mode === "after_approval") onDueDateChange("");
+            }}
+            dueDate={normalizedDueDate}
+            onDueDateChange={handleDueDateChange}
+            processingDays={dueProcessingDays}
+            onProcessingDaysChange={(days) => {
+              setDueDateError(null);
+              onDueProcessingDaysChange?.(days);
+            }}
+            materializedDueDate={
+              dueDateMode === "after_approval" ? normalizedDueDate || null : null
+            }
+            minDueDate={minDueDate}
+            readOnly={readOnly || !onDueDateModeChange}
+            error={dueDateError}
+            hint={
+              dueDateHint &&
+              dueDateMode === "after_approval" &&
+              !normalizedDueDate
+                ? dueDateHint
+                : null
+            }
+          />
         ) : null}
       </div>
       ) : null}

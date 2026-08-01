@@ -75,6 +75,8 @@ import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 import { OrderCardTimeChips } from "./order-card-time-chips";
+import { ApplicationIcon } from "./application-icon";
+import { isApplicationEnabled } from "@/lib/order-application";
 import type { TimeChip } from "@/lib/time-chips";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 
@@ -251,6 +253,11 @@ export function OrderCard({
   const isOwnerUnassigned = !order.created_by;
 
   const orderTags = orderTagsFromSpecs(order.specs);
+  const hasApplication = isApplicationEnabled(
+    order.specs,
+    customFields,
+    fieldValues
+  );
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
@@ -569,7 +576,7 @@ export function OrderCard({
             <div className="flex w-full min-w-0 items-baseline justify-start gap-1 text-left">
               <span
                 className={cn(
-                  "inline-flex shrink-0 items-center justify-start text-left text-[15px] font-bold leading-snug",
+                  "inline-flex shrink-0 items-center justify-start gap-1 text-left text-[15px] font-bold leading-snug",
                   folderHasFiles ? "text-emerald-600" : "text-slate-900"
                 )}
                 title={
@@ -594,6 +601,12 @@ export function OrderCard({
                     </span>
                   ) : null}
                 </span>
+                {hasApplication ? (
+                  <ApplicationIcon
+                    className="h-3.5 w-3.5 shrink-0 text-slate-500"
+                    title="Application"
+                  />
+                ) : null}
               </span>
               {productMaterialParts.length > 0 ? (
                 <>

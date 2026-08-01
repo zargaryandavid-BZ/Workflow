@@ -585,9 +585,17 @@ function drawPage1(
   y = drawSectionTitle(doc, "ORDER", y);
   const x = MARGIN + 6;
   const colW = COL_WIDTH - 6;
+  const dueOrProductionLabel =
+    data.applicationEnabled && data.productionDateFormatted
+      ? "Production Date"
+      : "Due Date";
+  const dueOrProductionValue =
+    data.applicationEnabled && data.productionDateFormatted
+      ? data.productionDateFormatted
+      : data.dueDateFormatted;
   const leftCol: Array<[string, string]> = [
     ["Customer", data.customerName],
-    ["Due Date", data.dueDateFormatted],
+    [dueOrProductionLabel, dueOrProductionValue],
     ["Priority", capitalize(data.priority)],
   ];
   const rightCol: Array<[string, string]> = [

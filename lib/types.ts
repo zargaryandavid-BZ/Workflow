@@ -164,6 +164,10 @@ export interface OrderSpecs {
   color?: string;
   /** Floor / press notes printed on the Job Ticket. */
   production_notes?: string | null;
+  /** When true, order needs Application (rollers); shows card icon + production date. */
+  application?: boolean;
+  /** Working days required for application when `application` is true. */
+  application_days?: number | null;
   /** Webhook billing / payment info shown on the card globe popover. */
   billing?: {
     source_url?: string | null;

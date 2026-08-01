@@ -6,7 +6,12 @@ import {
   renderNotificationRuleTemplate,
 } from "@/lib/notification-rules";
 import { sendTransactionalEmail } from "@/lib/email";
-import { buildNotificationRuleEmailHtml } from "@/lib/notification-messages";
+import {
+  buildNotificationRuleEmailHtml,
+  normalizeFeedbackEmailPlainText,
+  normalizeFeedbackEmailSubject,
+  normalizeFeedbackSmsText,
+} from "@/lib/notification-messages";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   normalizeSmsPhone,
@@ -326,15 +331,13 @@ export async function fireNotificationRules(
     }
 
     if (rule.send_email && emails.length > 0) {
-      const subject = renderNotificationRuleTemplate(
-        rule.email_subject,
-        templateContext
+      const subject = normalizeFeedbackEmailSubject(
+        renderNotificationRuleTemplate(rule.email_subject, templateContext),
+        templateContext.order_number
       );
-      const text = renderNotificationRuleTemplate(
-        rule.email_body,
-        templateContext
-      );
-      const html = buildNotificationRuleEmailHtml(text, templateContext.order_number);
+      const rawText = renderNotificationRuleTemplate(rule.email_body, templateContext);
+      const text = normalizeFeedbackEmailPlainText(rawText);
+      const html = buildNotificationRuleEmailHtml(rawText, templateContext.order_number);
 
       for (const to of emails) {
         const result = await sendTransactionalEmail({ to, subject, html, text }).catch(
@@ -347,9 +350,9 @@ export async function fireNotificationRules(
     }
 
     if (rule.send_sms && phones.length > 0) {
-      const smsText = renderNotificationRuleTemplate(
-        rule.sms_body,
-        templateContext
+      const smsText = normalizeFeedbackSmsText(
+        renderNotificationRuleTemplate(rule.sms_body, templateContext),
+        templateContext.order_number
       );
 
       for (const raw of phones) {
@@ -455,9 +458,13 @@ export async function fireNewJobNotificationRules(
     const phones2 = rule.sms_to_phone?.trim() ? [rule.sms_to_phone.trim()] : recipientPhones2;
 
     if (rule.send_email && emails.length > 0) {
-      const subject = renderNotificationRuleTemplate(rule.email_subject, templateContext);
-      const text = renderNotificationRuleTemplate(rule.email_body, templateContext);
-      const html = buildNotificationRuleEmailHtml(text, templateContext.order_number);
+      const subject = normalizeFeedbackEmailSubject(
+        renderNotificationRuleTemplate(rule.email_subject, templateContext),
+        templateContext.order_number
+      );
+      const rawText = renderNotificationRuleTemplate(rule.email_body, templateContext);
+      const text = normalizeFeedbackEmailPlainText(rawText);
+      const html = buildNotificationRuleEmailHtml(rawText, templateContext.order_number);
 
       for (const to of emails) {
         const result = await sendTransactionalEmail({ to, subject, html, text }).catch(
@@ -470,7 +477,10 @@ export async function fireNewJobNotificationRules(
     }
 
     if (rule.send_sms && phones2.length > 0) {
-      const smsText2 = renderNotificationRuleTemplate(rule.sms_body, templateContext);
+      const smsText2 = normalizeFeedbackSmsText(
+        renderNotificationRuleTemplate(rule.sms_body, templateContext),
+        templateContext.order_number
+      );
 
       for (const raw of phones2) {
         const validationError = validateSmsRecipient(raw);

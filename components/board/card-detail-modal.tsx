@@ -38,6 +38,7 @@ import {
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { DueDateFields } from "./due-date-fields";
+import { ApplicationFields } from "./application-fields";
 import {
   DEFAULT_PROCESSING_DAYS,
   formatOrderDueDisplay,
@@ -45,6 +46,12 @@ import {
   readOrderDueSpecs,
   type DueDateMode,
 } from "@/lib/due-date";
+import {
+  applicationDaysFromSpecs,
+  DEFAULT_APPLICATION_DAYS,
+  isApplicationCustomFieldOn,
+  mergeApplicationIntoOrderSpecs,
+} from "@/lib/order-application";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
@@ -263,6 +270,7 @@ export function CardDetailModal({
   const [newNote, setNewNote] = useState("");
   const [productionNotes, setProductionNotes] = useState("");
   const [priority, setPriority] = useState("normal");
+  const [applicationDays, setApplicationDays] = useState(DEFAULT_APPLICATION_DAYS);
   const [ownerId, setOwnerId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueDateMode, setDueDateMode] = useState<DueDateMode>("fixed");
@@ -338,6 +346,9 @@ export function CardDetailModal({
         : ""
     );
     setPriority(json.order.priority);
+    setApplicationDays(
+      applicationDaysFromSpecs(json.order.specs) ?? DEFAULT_APPLICATION_DAYS
+    );
     setOwnerId(json.order.created_by ?? "");
     setDueDate(dateInputValue(json.order.due_date));
     {
@@ -538,15 +549,23 @@ export function CardDetailModal({
     const internalNoteJson =
       updatedHistory.length > 0 ? JSON.stringify(updatedHistory) : null;
     const savedSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
-    const nextSpecs = {
-      ...(data?.order.specs ?? {}),
-      skus: savedSkus,
-      designer_id: designerId || null,
-      designer_name:
-        designers.find((d) => d.id === designerId)?.name ?? null,
-      design_task: designTask || null,
-      production_notes: productionNotes.trim() || null,
-    };
+    const applicationOn = isApplicationCustomFieldOn(
+      customFields,
+      fieldValues
+    );
+    const nextSpecs = mergeApplicationIntoOrderSpecs(
+      {
+        ...(data?.order.specs ?? {}),
+        skus: savedSkus,
+        designer_id: designerId || null,
+        designer_name:
+          designers.find((d) => d.id === designerId)?.name ?? null,
+        design_task: designTask || null,
+        production_notes: productionNotes.trim() || null,
+      },
+      applicationOn,
+      applicationDays
+    );
     const customFieldValues = buildCustomFieldPayload(
       resolved,
       fieldValues,
@@ -689,6 +708,13 @@ export function CardDetailModal({
     if ((description || "") !== (order.description ?? "")) return true;
     if (newNote.trim()) return true;
     if (priority !== order.priority) return true;
+    if (
+      isApplicationCustomFieldOn(customFields, fieldValues) &&
+      applicationDays !==
+        (applicationDaysFromSpecs(order.specs) ?? DEFAULT_APPLICATION_DAYS)
+    ) {
+      return true;
+    }
     if ((ownerId || "") !== (order.created_by ?? "")) return true;
     if (dateInputValue(dueDate) !== dateInputValue(order.due_date)) return true;
     {
@@ -1804,23 +1830,39 @@ export function CardDetailModal({
                 </Button>
               </div>
             ) : null}
-            {/* Priority + Due Date box */}
-            <div className="rounded-lg border border-slate-200 p-3 space-y-3">
-              <div>
-                <Label htmlFor="sidebar-priority">Priority</Label>
-                <Select
-                  id="sidebar-priority"
-                  value={priority}
-                  disabled={isViewOnly}
-                  onChange={(e) => setPriority(e.target.value)}
-                >
-                  {PRIORITY_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.label}
-                    </option>
-                  ))}
-                </Select>
+            <div className="rounded-lg border border-slate-200 p-3">
+              <Label htmlFor="sidebar-priority">Priority</Label>
+              <Select
+                id="sidebar-priority"
+                value={priority}
+                disabled={isViewOnly}
+                onChange={(e) => setPriority(e.target.value)}
+              >
+                {PRIORITY_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {isApplicationCustomFieldOn(customFields, fieldValues) ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Application
+                </p>
+                <ApplicationFields
+                  idPrefix="sidebar"
+                  applicationDays={applicationDays}
+                  onApplicationDaysChange={(days) => {
+                    setApplicationDays(days);
+                    setSaveError(null);
+                  }}
+                  dueDate={dateInputValue(dueDate)}
+                  readOnly={isViewOnly}
+                />
               </div>
+            ) : null}
+            <div className="rounded-lg border border-slate-200 p-3">
               <DueDateFields
                 idPrefix="sidebar"
                 mode={dueDateMode}

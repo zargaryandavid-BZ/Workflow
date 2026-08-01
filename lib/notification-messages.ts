@@ -128,29 +128,35 @@ export function buildBrandedEmailLayout(params: {
   const title = escapeHtml(params.emailTitle ?? "BazaarPrinting");
 
   return `<!DOCTYPE html>
-<html>
+<html style="margin:0;padding:0;">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title}</title>
+  <style type="text/css">
+    html, body { margin: 0 !important; padding: 0 !important; }
+    body { -webkit-text-size-adjust: 100%; }
+    table, td { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    p { margin: 0 !important; }
+  </style>
 </head>
-<body style="margin:0; padding:0; background-color:#eaecf7; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#eaecf7; padding:24px 16px;">
+<body style="margin:0!important;padding:0!important;background-color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;background-color:#ffffff;width:100%;">
     <tr>
-      <td align="center">
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+      <td align="center" style="margin:0;padding:0;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;max-width:520px;width:100%;background:#ffffff;">
           <tr>
-            <td style="background:#2563EB; padding:20px 28px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
+            <td style="margin:0;padding:10px 16px;background:#2563EB;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;">
                 <tr>
-                  <td style="color:#ffffff; font-size:16px; font-weight:700; letter-spacing:-0.2px;">BazaarPrinting</td>
-                  <td align="right" style="color:rgba(255,255,255,0.85); font-size:13px;">${contextLabel}</td>
+                  <td style="margin:0;padding:0;color:#ffffff;font-size:16px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;">BazaarPrinting</td>
+                  <td align="right" style="margin:0;padding:0;color:rgba(255,255,255,0.85);font-size:13px;line-height:1.2;">${contextLabel}</td>
                 </tr>
               </table>
             </td>
           </tr>
           <tr>
-            <td style="padding:28px 28px 24px;">
+            <td style="margin:0;padding:12px 16px;background:#ffffff;">
               ${params.bodyHtml}
             </td>
           </tr>
@@ -160,6 +166,202 @@ export function buildBrandedEmailLayout(params: {
   </table>
 </body>
 </html>`;
+}
+
+const GOOGLE_REVIEW_URL_RE =
+  /https?:\/\/(?:g\.page\/r\/[^\s<>"']+|www\.google\.com\/maps[^\s<>"']*|search\.google\.com\/local\/writereview[^\s<>"']*)/i;
+
+const BAZAAR_EMAIL_LOGO_URL = "https://bazaarprinting.com/assets/Bazaar.png";
+const BAZAAR_BRAND_BLUE = "#2563EB";
+const BAZAAR_BRAND_BLUE_SOFT = "#DBEAFE";
+
+const FEEDBACK_EMAIL_HEADLINE = "We'd love your feedback";
+const FEEDBACK_EMAIL_SUBTEXT =
+  "Thank you for choosing Bazaar Printing! We want to make sure we exceeded your expectations. Could you take a moment to share your feedback?";
+
+/** Normalize the Google-review notification subject. */
+export function normalizeFeedbackEmailSubject(
+  subject: string,
+  orderNumber?: string
+): string {
+  const isFeedbackSubject =
+    /your feedback helps us grow/i.test(subject) ||
+    /will be highly appreciated for your feedback/i.test(subject) ||
+    /we'd love your feedback/i.test(subject);
+  if (!isFeedbackSubject) return subject;
+  const order = orderNumber?.trim();
+  if (order) {
+    return `We'd love your feedback on Order #${order} | Bazaar Printing`;
+  }
+  return "We'd love your feedback | Bazaar Printing";
+}
+
+function extractGoogleReviewUrl(text: string): string | null {
+  const match = text.match(GOOGLE_REVIEW_URL_RE);
+  if (!match) return null;
+  return match[0].replace(/[.,);]+$/g, "");
+}
+
+/** Plain-text body for Google review feedback emails. */
+export function normalizeFeedbackEmailPlainText(text: string): string {
+  const reviewUrl = extractGoogleReviewUrl(text);
+  if (!reviewUrl) {
+    return text.trim().replace(/\n{3,}/g, "\n\n");
+  }
+  return [
+    FEEDBACK_EMAIL_HEADLINE,
+    "",
+    FEEDBACK_EMAIL_SUBTEXT,
+    "",
+    `Leave a Google Review: ${reviewUrl}`,
+    "",
+    "(+1) 747 348 4444 | info@bazaarprinting.com",
+    "306 Boyd St, Los Angeles, CA 90013",
+    "Order online: www.bazaarprinting.com",
+  ].join("\n");
+}
+
+/**
+ * SMS body for Google-review feedback. Replaces the legacy one-liner
+ * with a short review request + Google review URL.
+ */
+export function normalizeFeedbackSmsText(
+  text: string,
+  _orderNumber?: string
+): string {
+  const reviewUrl = extractGoogleReviewUrl(text);
+  if (!reviewUrl) {
+    return text.trim().replace(/\n{3,}/g, "\n\n");
+  }
+  return `Thank you for choosing Bazaar Printing! Could you take a moment to share your feedback? We'd love your review: ${reviewUrl}`;
+}
+
+/**
+ * Full feedback / Google-review email (wonderblum-style card, Bazaar blue + white).
+ */
+export function buildGoogleReviewFeedbackEmailHtml(
+  orderNumber: string,
+  reviewUrl: string
+): string {
+  const href = escapeHtml(reviewUrl);
+  const orderLabel = escapeHtml(`Order #${orderNumber}`);
+  const logoUrl = escapeHtml(BAZAAR_EMAIL_LOGO_URL);
+  const title = escapeHtml(
+    `We'd love your feedback on Order #${orderNumber} | Bazaar Printing`
+  );
+
+  const html = `<!DOCTYPE html>
+<html style="margin:0;padding:0;">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title}</title>
+  <style type="text/css">
+    html, body { margin: 0 !important; padding: 0 !important; }
+    body { -webkit-text-size-adjust: 100%; }
+    table, td { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    p { margin: 0 !important; }
+    img { border: 0; display: block; }
+  </style>
+</head>
+<body style="margin:0!important;padding:0!important;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;width:100%;background-color:#f3f4f6;border-collapse:collapse;">
+    <tr>
+      <td align="center" style="margin:0;padding:12px 12px;vertical-align:top;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:520px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;border-collapse:collapse;">
+          <tr>
+            <td style="margin:0;padding:12px 18px;background:${BAZAAR_BRAND_BLUE};vertical-align:top;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">
+                <tr>
+                  <td style="margin:0;padding:0;color:#ffffff;font-size:15px;font-weight:700;line-height:1.2;vertical-align:top;">BazaarPrinting</td>
+                  <td align="right" style="margin:0;padding:0;color:rgba(255,255,255,0.9);font-size:12px;line-height:1.2;vertical-align:top;">${orderLabel}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="margin:0;padding:18px 20px 8px;background:#ffffff;line-height:0;font-size:0;vertical-align:top;">
+              <img src="${logoUrl}" width="64" height="64" alt="Bazaar Printing" style="display:block;width:64px;height:64px;margin:0 auto;border:0;border-radius:10px;" />
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="margin:0;padding:8px 24px 0;background:#ffffff;vertical-align:top;">
+              <div style="margin:0;padding:0;font-size:22px;line-height:1.25;font-weight:700;color:#111827;text-align:center;">
+                ${escapeHtml(FEEDBACK_EMAIL_HEADLINE)}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="margin:0;padding:8px 24px 16px;background:#ffffff;vertical-align:top;">
+              <div style="margin:0;padding:0;font-size:14px;line-height:1.45;color:#374151;text-align:center;">
+                ${escapeHtml(FEEDBACK_EMAIL_SUBTEXT)}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="margin:0;padding:0 16px 18px;background:#ffffff;vertical-align:top;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="width:100%;background:${BAZAAR_BRAND_BLUE_SOFT};border-radius:12px;border-collapse:collapse;">
+                <tr>
+                  <td align="center" style="padding:16px 16px 6px;vertical-align:top;">
+                    <div style="margin:0;padding:0;font-size:17px;line-height:1.25;font-weight:700;color:#1e3a8a;text-align:center;">
+                      Rate your experience
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding:0 16px 8px;vertical-align:top;">
+                    <div style="margin:0;padding:0;font-size:13px;line-height:1.35;color:#1e40af;text-align:center;">
+                      Click below to leave your Google review:
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding:4px 16px 16px;vertical-align:top;">
+                    <a href="${href}" target="_blank" rel="noopener noreferrer"
+                      style="display:inline-block;background:${BAZAAR_BRAND_BLUE};color:#ffffff;text-decoration:none;border-radius:10px;padding:12px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+                      <span style="display:block;font-size:20px;line-height:1;letter-spacing:3px;font-weight:700;color:#FACC15;">★★★★★</span>
+                      <span style="display:block;font-size:14px;line-height:1.2;font-weight:600;margin-top:4px;color:#ffffff;">Leave a Google Review</span>
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:520px;width:100%;border-collapse:collapse;">
+          <tr>
+            <td align="center" style="padding:12px 12px 2px;vertical-align:top;">
+              <div style="margin:0;padding:0;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
+                <a href="tel:+17473484444" style="color:#6b7280;text-decoration:none;">(+1) 747 348 4444</a>
+                &nbsp;|&nbsp;
+                <a href="mailto:info@bazaarprinting.com" style="color:#6b7280;text-decoration:none;">info@bazaarprinting.com</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:2px 12px;vertical-align:top;">
+              <div style="margin:0;padding:0;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
+                306 Boyd St, Los Angeles, CA 90013
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:2px 12px 8px;vertical-align:top;">
+              <div style="margin:0;padding:0;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
+                Order online:
+                <a href="https://www.bazaarprinting.com" style="color:${BAZAAR_BRAND_BLUE};text-decoration:none;font-weight:600;">www.bazaarprinting.com</a>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  // Instantly converts source newlines into <br> in the delivered MIME — minify.
+  return html.replace(/\r?\n/g, "").replace(/>\s+</g, "><").trim();
 }
 
 function emailParagraph(html: string) {
@@ -446,8 +648,14 @@ export function messageToEmailHtml(text: string) {
  * - Order number in the header label
  * - "Key: Value" lines styled as a detail card
  * - All other lines rendered as normal paragraphs
+ * - Google review URLs use the dedicated feedback email template
  */
 export function buildNotificationRuleEmailHtml(text: string, orderNumber: string): string {
+  const reviewUrl = extractGoogleReviewUrl(text);
+  if (reviewUrl) {
+    return buildGoogleReviewFeedbackEmailHtml(orderNumber, reviewUrl);
+  }
+
   const lines = text.trim().split("\n");
   const sections: string[] = [];
   const detailRows: { label: string; value: string }[] = [];
@@ -458,7 +666,7 @@ export function buildNotificationRuleEmailHtml(text: string, orderNumber: string
     const block = pendingLines.join("\n").trim();
     if (block) {
       sections.push(
-        `<p style="margin:0 0 16px; font-size:14px; color:#374151; line-height:1.7;">${linkifyEscapedPlainText(
+        `<p style="margin:0 0 8px!important;padding:0;font-size:14px;color:#374151;line-height:1.5;">${linkifyEscapedPlainText(
           block
         )}</p>`
       );
@@ -472,13 +680,13 @@ export function buildNotificationRuleEmailHtml(text: string, orderNumber: string
       .map(
         (r) =>
           `<tr>` +
-          `<td style="padding:9px 16px 9px 0; font-size:13px; color:#6b7280; white-space:nowrap; vertical-align:top; width:38%;">${escapeHtml(r.label)}</td>` +
-          `<td style="padding:9px 0; font-size:13px; color:#111827; font-weight:600;">${escapeHtml(r.value)}</td>` +
+          `<td style="padding:8px 14px 8px 0; font-size:13px; color:#6b7280; white-space:nowrap; vertical-align:top; width:38%;">${escapeHtml(r.label)}</td>` +
+          `<td style="padding:8px 0; font-size:13px; color:#111827; font-weight:600;">${escapeHtml(r.value)}</td>` +
           `</tr>`
       )
       .join(`<tr><td colspan="2" style="padding:0;"><hr style="border:none;border-top:1px solid #e5e7eb;margin:0;"/></td></tr>`);
     sections.push(
-      `<table cellpadding="0" cellspacing="0" style="width:100%; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:2px 14px; margin:0 0 20px;">` +
+      `<table cellpadding="0" cellspacing="0" role="presentation" style="width:100%; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:2px 12px; margin:0 0 12px;">` +
         `<tbody>${rows}</tbody>` +
       `</table>`
     );
