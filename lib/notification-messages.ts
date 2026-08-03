@@ -9,6 +9,10 @@ import {
   staffNoteBlock,
   type MessageTemplateMap,
 } from "@/lib/message-templates";
+import {
+  PORTAL_FOOTER,
+  PORTAL_PRODUCT_NAME,
+} from "@/lib/portal-branding";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 const REPLY_LINK_PLACEHOLDER = "[REPLY_LINK]";
@@ -123,9 +127,20 @@ export function buildBrandedEmailLayout(params: {
   contextLabel: string;
   bodyHtml: string;
   emailTitle?: string;
+  /** Customer portal-style expiry footer. Default true; off for invite/reset. */
+  showPortalFooter?: boolean;
 }): string {
   const contextLabel = escapeHtml(params.contextLabel);
-  const title = escapeHtml(params.emailTitle ?? "BazaarPrinting");
+  const title = escapeHtml(params.emailTitle ?? PORTAL_PRODUCT_NAME);
+  const brand = escapeHtml(PORTAL_PRODUCT_NAME);
+  const showFooter = params.showPortalFooter !== false;
+  const footerRow = showFooter
+    ? `<tr>
+            <td style="margin:0;padding:10px 16px 14px;background:#ffffff;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:11px;line-height:1.4;text-align:center;">
+              ${escapeHtml(PORTAL_FOOTER)}
+            </td>
+          </tr>`
+    : "";
 
   return `<!DOCTYPE html>
 <html style="margin:0;padding:0;">
@@ -149,7 +164,7 @@ export function buildBrandedEmailLayout(params: {
             <td style="margin:0;padding:10px 16px;background:#2563EB;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;">
                 <tr>
-                  <td style="margin:0;padding:0;color:#ffffff;font-size:16px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;">BazaarPrinting</td>
+                  <td style="margin:0;padding:0;color:#ffffff;font-size:16px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;">${brand}</td>
                   <td align="right" style="margin:0;padding:0;color:rgba(255,255,255,0.85);font-size:13px;line-height:1.2;">${contextLabel}</td>
                 </tr>
               </table>
@@ -160,6 +175,7 @@ export function buildBrandedEmailLayout(params: {
               ${params.bodyHtml}
             </td>
           </tr>
+          ${footerRow}
         </table>
       </td>
     </tr>
@@ -191,9 +207,9 @@ export function normalizeFeedbackEmailSubject(
   if (!isFeedbackSubject) return subject;
   const order = orderNumber?.trim();
   if (order) {
-    return `We'd love your feedback on Order #${order} | Bazaar Printing`;
+    return `We'd love your feedback on Order #${order} | ${PORTAL_PRODUCT_NAME}`;
   }
-  return "We'd love your feedback | Bazaar Printing";
+  return `We'd love your feedback | ${PORTAL_PRODUCT_NAME}`;
 }
 
 function extractGoogleReviewUrl(text: string): string | null {
@@ -247,8 +263,10 @@ export function buildGoogleReviewFeedbackEmailHtml(
   const orderLabel = escapeHtml(`Order #${orderNumber}`);
   const logoUrl = escapeHtml(BAZAAR_EMAIL_LOGO_URL);
   const title = escapeHtml(
-    `We'd love your feedback on Order #${orderNumber} | Bazaar Printing`
+    `We'd love your feedback on Order #${orderNumber} | ${PORTAL_PRODUCT_NAME}`
   );
+  const brand = escapeHtml(PORTAL_PRODUCT_NAME);
+  const footer = escapeHtml(PORTAL_FOOTER);
 
   const html = `<!DOCTYPE html>
 <html style="margin:0;padding:0;">
@@ -273,7 +291,7 @@ export function buildGoogleReviewFeedbackEmailHtml(
             <td style="margin:0;padding:12px 18px;background:${BAZAAR_BRAND_BLUE};vertical-align:top;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="border-collapse:collapse;">
                 <tr>
-                  <td style="margin:0;padding:0;color:#ffffff;font-size:15px;font-weight:700;line-height:1.2;vertical-align:top;">BazaarPrinting</td>
+                  <td style="margin:0;padding:0;color:#ffffff;font-size:15px;font-weight:700;line-height:1.2;vertical-align:top;">${brand}</td>
                   <td align="right" style="margin:0;padding:0;color:rgba(255,255,255,0.9);font-size:12px;line-height:1.2;vertical-align:top;">${orderLabel}</td>
                 </tr>
               </table>
@@ -331,6 +349,13 @@ export function buildGoogleReviewFeedbackEmailHtml(
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:520px;width:100%;border-collapse:collapse;">
           <tr>
             <td align="center" style="padding:12px 12px 2px;vertical-align:top;">
+              <div style="margin:0;padding:0;font-size:11px;line-height:1.4;color:#94a3b8;text-align:center;">
+                ${footer}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:8px 12px 2px;vertical-align:top;">
               <div style="margin:0;padding:0;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
                 <a href="tel:+17473484444" style="color:#6b7280;text-decoration:none;">(+1) 747 348 4444</a>
                 &nbsp;|&nbsp;
@@ -758,7 +783,7 @@ export function ensureReadyToShipOrderLink(message: string, orderUrl: string) {
   if (injected.includes(orderUrl) || /\/respond\//.test(injected)) {
     return injected;
   }
-  return `${injected.trim()}\n\nView your order: ${orderUrl}\nThis link expires in 7 days.`;
+  return `${injected.trim()}\n\nView your order: ${orderUrl}`;
 }
 
 /**

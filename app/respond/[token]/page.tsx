@@ -18,6 +18,10 @@ import {
   type GroupOrderMember,
 } from "@/lib/ready-to-ship-group";
 import { RespondForm } from "./respond-form";
+import {
+  PORTAL_FOOTER,
+  PORTAL_PRODUCT_NAME,
+} from "@/lib/portal-branding";
 import type {
   CustomerResponse,
   NotificationStatus,
@@ -119,12 +123,10 @@ async function buildRespondParts(
 }
 
 function RespondCard({
-  tenantName,
   orderTitle,
   children,
   footer,
 }: {
-  tenantName: string;
   orderTitle?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -137,7 +139,7 @@ function RespondCard({
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20">
               <Printer className="h-4 w-4" />
             </span>
-            <span className="text-sm font-semibold">{tenantName}</span>
+            <span className="text-sm font-semibold">{PORTAL_PRODUCT_NAME}</span>
           </div>
           {orderTitle ? (
             <span className="text-sm text-white/90">Order {orderTitle}</span>
@@ -166,15 +168,11 @@ export default async function RespondPage({
   });
 
   const notification = (data as NotificationRow[] | null)?.[0] ?? null;
-  const footer = notification ? (
-    <>
-      This link expires in 7 days · Powered by {notification.tenant_name}
-    </>
-  ) : null;
+  const footer = notification ? <>{PORTAL_FOOTER}</> : null;
 
   if (!notification) {
     return (
-      <RespondCard tenantName="BazaarPrinting">
+      <RespondCard>
         <div className="text-center">
           <h1 className="text-lg font-semibold text-slate-800">
             Link not found
@@ -270,11 +268,7 @@ export default async function RespondPage({
 
   if (expired && !alreadyDone) {
     return (
-      <RespondCard
-        tenantName={notification.tenant_name}
-        orderTitle={headerTitle}
-        footer={footer}
-      >
+      <RespondCard orderTitle={headerTitle} footer={footer}>
         <div className="text-center">
           <h1 className="text-lg font-semibold text-slate-800">Link expired</h1>
           <p className="mt-2 text-sm text-slate-500">
@@ -304,11 +298,7 @@ export default async function RespondPage({
         : "We already received your response. Thank you!";
 
     return (
-      <RespondCard
-        tenantName={notification.tenant_name}
-        orderTitle={headerTitle}
-        footer={footer}
-      >
+      <RespondCard orderTitle={headerTitle} footer={footer}>
         <div className="space-y-5">
           <div
             className={
@@ -351,11 +341,7 @@ export default async function RespondPage({
   }
 
   return (
-    <RespondCard
-      tenantName={notification.tenant_name}
-      orderTitle={headerTitle}
-      footer={footer}
-    >
+    <RespondCard orderTitle={headerTitle} footer={footer}>
       <RespondForm
         token={token}
         type={notification.type}

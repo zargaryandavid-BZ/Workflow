@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildPickupReadyEmailBody,
   buildPickupReadyEmailHtml,
@@ -16,6 +17,122 @@ import { sendTransactionalEmail } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
 import type { MessageTemplateMap } from "@/lib/message-templates";
 import type { ShippingBox, ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
+
+type ShippingRequestRow = {
+  id: string;
+  token: string;
+  status: string;
+  client_choice: string | null;
+};
+
+/**
+ * Create or reuse a shipping request for a (re)send.
+ * Unanswered (`pending`) choose-mode links are kept so the old portal URL still works;
+ * answered / payment-pending / pickup-only flows replace the prior row(s).
+ */
+export async function ensureShippingRequestForSend(
+  supabase: SupabaseClient,
+  args: {
+    tenantId: string;
+    orderId: string;
+    boxes: ShippingBox[];
+    pickupOnly: boolean;
+  }
+): Promise<
+  | {
+      ok: true;
+      shippingReq: { id: string; token: string };
+      reused: boolean;
+      superseded: ShippingRequestRow[];
+    }
+  | { ok: false; error: string }
+> {
+  const nowIso = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: existingRows } = await supabase
+    .from("shipping_requests")
+    .select("id, token, status, client_choice")
+    .eq("tenant_id", args.tenantId)
+    .eq("order_id", args.orderId);
+  const superseded = (existingRows ?? []) as ShippingRequestRow[];
+
+  const reusable =
+    !args.pickupOnly
+      ? superseded.find((r) => r.status === "pending")
+      : undefined;
+
+  if (reusable) {
+    const { data: updated, error: updateError } = await supabase
+      .from("shipping_requests")
+      .update({
+        boxes: args.boxes,
+        sent_at: nowIso,
+        expires_at: expiresAt,
+      })
+      .eq("id", reusable.id)
+      .eq("tenant_id", args.tenantId)
+      .select("id, token")
+      .single();
+
+    if (updateError || !updated) {
+      return {
+        ok: false,
+        error: updateError?.message ?? "Failed to update shipping request",
+      };
+    }
+
+    return {
+      ok: true,
+      shippingReq: updated,
+      reused: true,
+      superseded,
+    };
+  }
+
+  if (superseded.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("shipping_requests")
+      .delete()
+      .eq("tenant_id", args.tenantId)
+      .eq("order_id", args.orderId);
+    if (deleteError) {
+      return {
+        ok: false,
+        error: "Failed to replace the previous shipping request.",
+      };
+    }
+  }
+
+  const { data: shippingReq, error: insertError } = await supabase
+    .from("shipping_requests")
+    .insert({
+      tenant_id: args.tenantId,
+      order_id: args.orderId,
+      boxes: args.boxes,
+      status: args.pickupOnly ? "client_responded" : "pending",
+      client_choice: args.pickupOnly ? "pickup" : null,
+      sent_at: nowIso,
+      responded_at: args.pickupOnly ? nowIso : null,
+      expires_at: expiresAt,
+    })
+    .select("id, token")
+    .single();
+
+  if (insertError || !shippingReq) {
+    const msg = insertError?.message?.includes("shipping_requests")
+      ? "Shipping requests require migration 0044_shipping_requests.sql."
+      : insertError?.message ?? "Failed to create shipping request";
+    return { ok: false, error: msg };
+  }
+
+  return {
+    ok: true,
+    shippingReq,
+    reused: false,
+    superseded,
+  };
+}
 
 export function parseShippingBoxes(
   rawBoxes: unknown,

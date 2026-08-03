@@ -22,6 +22,8 @@ interface Props {
   initialHistory: WebhookHistoryEntry[];
   historyLoadError: string | null;
   webhookUrl: string;
+  /** CRM pull: all board cards + current column names. */
+  boardExportUrl: string;
   productOptions: string[];
   /** Live custom-field select options keyed by webhook field name. */
   tenantFieldOptions?: Record<string, string[]>;
@@ -59,6 +61,7 @@ export function IntegrationsManager({
   initialHistory,
   historyLoadError: initialHistoryLoadError,
   webhookUrl,
+  boardExportUrl,
   productOptions,
   tenantFieldOptions = {},
 }: Props) {
@@ -474,6 +477,50 @@ export function IntegrationsManager({
               : "Never used"}
           </p>
         </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-base font-semibold text-slate-800">
+                Board export (CRM pull)
+              </h2>
+              <p className="mt-1 max-w-lg text-sm text-slate-500">
+                Your CRM can GET this URL to read every active card and which
+                column it is in right now. Uses the same secret key as the
+                inbound webhook.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Export URL
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-800">
+                    {boardExportUrl}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => copyText(boardExportUrl, "export-url")}
+                  >
+                    {copiedField === "export-url" ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    Copy
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <p className="font-medium text-slate-700">Example</p>
+                <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed">
+                  {`curl -H "x-webhook-secret: ${config.secret_key}" \\\n  "${boardExportUrl}"`}
+                </pre>
+              </div>
+            </div>
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">

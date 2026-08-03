@@ -9,6 +9,7 @@ import { logActivity } from "@/lib/automation";
 import { addOrderTag } from "@/lib/order-tags";
 import {
   appBaseUrl,
+  ensureShippingRequestForSend,
   parseShippingBoxes,
   sendPickupReadyNotifications,
   sendShippingPortalNotifications,
@@ -102,48 +103,16 @@ export async function POST(
     );
   }
 
-  const nowIso = new Date().toISOString();
-
-  const { data: supersededRows } = await supabase
-    .from("shipping_requests")
-    .select("id, token, status, client_choice")
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("order_id", orderId);
-  const superseded = supersededRows ?? [];
-  if (superseded.length > 0) {
-    const { error: deleteError } = await supabase
-      .from("shipping_requests")
-      .delete()
-      .eq("tenant_id", ctx.tenant.id)
-      .eq("order_id", orderId);
-    if (deleteError) {
-      return NextResponse.json(
-        { error: "Failed to replace the previous shipping request." },
-        { status: 500 }
-      );
-    }
+  const ensured = await ensureShippingRequestForSend(supabase, {
+    tenantId: ctx.tenant.id,
+    orderId,
+    boxes: parsedBoxes.boxes,
+    pickupOnly,
+  });
+  if (!ensured.ok) {
+    return NextResponse.json({ error: ensured.error }, { status: 500 });
   }
-
-  const { data: shippingReq, error: insertError } = await supabase
-    .from("shipping_requests")
-    .insert({
-      tenant_id: ctx.tenant.id,
-      order_id: orderId,
-      boxes: parsedBoxes.boxes,
-      status: pickupOnly ? "client_responded" : "pending",
-      client_choice: pickupOnly ? "pickup" : null,
-      sent_at: nowIso,
-      responded_at: pickupOnly ? nowIso : null,
-    })
-    .select("id, token")
-    .single();
-
-  if (insertError || !shippingReq) {
-    const msg = insertError?.message?.includes("shipping_requests")
-      ? "Shipping requests require migration 0044_shipping_requests.sql."
-      : insertError?.message ?? "Failed to create shipping request";
-    return NextResponse.json({ error: msg }, { status: 500 });
-  }
+  const { shippingReq, reused } = ensured;
 
   const portalUrl = `${appBaseUrl()}/shipping/${shippingReq.token}`;
 
@@ -272,6 +241,7 @@ export async function POST(
       smsSent,
       boxCount: parsedBoxes.boxes.length,
       taggedOrderIds: tagTargets.map((t) => t.id),
+      reused,
     },
   });
 
@@ -283,5 +253,6 @@ export async function POST(
     smsSent,
     fulfillment: pickupOnly ? "pickup" : "choose",
     taggedCount: tagTargets.length,
+    reused,
   });
 }

@@ -81,6 +81,7 @@ export default async function IntegrationsSettingsPage() {
         initialHistory={history}
         historyLoadError={historyLoadError}
         webhookUrl={`${appUrl}/api/webhook/orders`}
+        boardExportUrl={`${appUrl}/api/export/board-columns`}
         productOptions={productOptions}
         tenantFieldOptions={tenantFieldOptions}
       />

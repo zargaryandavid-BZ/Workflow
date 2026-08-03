@@ -58,6 +58,7 @@ export function buildPasswordResetEmailHtml(params: {
       invitee_name: params.fullName?.trim() || "there",
       reset_url: params.resetUrl,
     }),
+    showPortalFooter: false,
   });
 }
 
@@ -108,6 +109,7 @@ export function buildTeamInviteEmailHtml(params: {
       invitee_name: params.fullName?.trim() || "there",
       invite_url: params.inviteUrl,
     }),
+    showPortalFooter: false,
   });
 }
 

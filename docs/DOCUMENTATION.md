@@ -360,6 +360,7 @@ Full reference: [API routes](#api-routes).
 | Team | `GET /api/team`, `POST .../invite`, `PATCH/DELETE .../[id]` |
 | Tenant | `POST /api/tenant/switch`, `POST /api/onboarding` |
 | Auth | `POST /api/auth/signout` |
+| CRM export | `GET /api/export/board-columns` (webhook secret) |
 
 ## Legacy approval system
 
@@ -883,6 +884,24 @@ If `sku_key` or `drop_in_roles` errors appear at runtime, apply the relevant sec
 All authenticated routes require a valid Supabase session and active tenant (`getTenantContext()`). Missing session → **401**. Wrong tenant / not found → **404** or **403** as noted.
 
 Base URL: `{NEXT_PUBLIC_APP_URL}/api`
+
+---
+
+## CRM / Integrations export
+
+### `GET /api/export/board-columns`
+
+Pull every active board card with its current column (for CRM sync).
+
+| | |
+| --- | --- |
+| **Auth** | Same secret as inbound webhook: header `x-webhook-secret` (preferred) or query `?secret=` |
+| **Query** | `limit` (default 2000, max 5000), `offset` (default 0) |
+| **Response** | `{ tenant_id, tenant_name, exported_at, count, total, limit, offset, next_offset, columns[], orders[] }` |
+| **Order fields** | `order_id`, `order_number`, `title`, `column_id`, `column_name`, `column_position`, `card_position`, `updated_at`, `created_at` |
+| **Errors** | 401 missing/invalid secret; 500 load failure |
+
+Copy the URL from **Settings → Integrations → Board export (CRM pull)**.
 
 ---
 

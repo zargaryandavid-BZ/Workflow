@@ -10,6 +10,7 @@ import { logActivity } from "@/lib/automation";
 import { addOrderTag } from "@/lib/order-tags";
 import {
   appBaseUrl,
+  ensureShippingRequestForSend,
   parseShippingBoxes,
   sendPickupReadyNotifications,
   sendShippingPortalNotifications,
@@ -91,54 +92,18 @@ export async function POST(
     );
   }
 
-  const nowIso = new Date().toISOString();
-
-  // Overwrite semantics: resending replaces any prior shipping request for this
-  // order. Deleting the old row(s) invalidates the previous portal link (a new
-  // token is issued) and clears any earlier customer response, so the next
-  // client submission is the single source of truth.
-  const { data: supersededRows } = await supabase
-    .from("shipping_requests")
-    .select("id, token, status, client_choice")
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("order_id", orderId);
-  const superseded = supersededRows ?? [];
-  if (superseded.length > 0) {
-    const { error: deleteError } = await supabase
-      .from("shipping_requests")
-      .delete()
-      .eq("tenant_id", ctx.tenant.id)
-      .eq("order_id", orderId);
-    if (deleteError) {
-      console.error("[shipping] failed to clear previous request", deleteError);
-      return NextResponse.json(
-        { error: "Failed to replace the previous shipping request." },
-        { status: 500 }
-      );
-    }
+  // Reuse unanswered (pending) requests so the old portal link still works.
+  // Answered / payment-pending / pickup-only flows still replace prior rows.
+  const ensured = await ensureShippingRequestForSend(supabase, {
+    tenantId: ctx.tenant.id,
+    orderId,
+    boxes: parsedBoxes.boxes,
+    pickupOnly,
+  });
+  if (!ensured.ok) {
+    return NextResponse.json({ error: ensured.error }, { status: 500 });
   }
-
-  const { data: shippingReq, error: insertError } = await supabase
-    .from("shipping_requests")
-    .insert({
-      tenant_id: ctx.tenant.id,
-      order_id: orderId,
-      boxes: parsedBoxes.boxes,
-      status: pickupOnly ? "client_responded" : "pending",
-      client_choice: pickupOnly ? "pickup" : null,
-      sent_at: nowIso,
-      responded_at: pickupOnly ? nowIso : null,
-    })
-    .select("id, token")
-    .single();
-
-  if (insertError || !shippingReq) {
-    console.error("[shipping] insert failed", insertError);
-    const msg = insertError?.message?.includes("shipping_requests")
-      ? "Shipping requests require migration 0044_shipping_requests.sql. Run it in Supabase or use supabase db push."
-      : insertError?.message ?? "Failed to create shipping request";
-    return NextResponse.json({ error: msg }, { status: 500 });
-  }
+  const { shippingReq, reused, superseded } = ensured;
 
   const portalUrl = `${appBaseUrl()}/shipping/${shippingReq.token}`;
   const templates = await getMessageTemplates(supabase, ctx.tenant.id);
@@ -231,6 +196,7 @@ export async function POST(
       taggedOrderIds: tagTargets.map((t) => t.id),
       groupFullyInColumn: allReady,
       resent,
+      reused,
       supersededCount: superseded.length,
       supersededResponded: priorResponded,
     },
@@ -245,6 +211,7 @@ export async function POST(
     fulfillment: pickupOnly ? "pickup" : "choose",
     taggedCount: tagTargets.length,
     resent,
-    replacedResponse: priorResponded,
+    reused,
+    replacedResponse: priorResponded && !reused,
   });
 }

@@ -11,6 +11,10 @@ import {
   ShippingPortalClient,
   type ShippingPortalData,
 } from "@/components/shipping/shipping-portal-client";
+import {
+  PORTAL_FOOTER,
+  PORTAL_PRODUCT_NAME,
+} from "@/lib/portal-branding";
 import type {
   FedExRateOption,
   ShippingBox,
@@ -116,12 +120,10 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
 }
 
 function PortalShell({
-  tenantName,
   orderTitle,
   children,
   footer,
 }: {
-  tenantName: string;
   orderTitle?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -135,7 +137,7 @@ function PortalShell({
               <Package className="h-4 w-4" />
             </span>
             <span className="text-sm font-semibold tracking-wide">
-              {tenantName}
+              {PORTAL_PRODUCT_NAME}
             </span>
           </div>
           {orderTitle ? (
@@ -174,7 +176,7 @@ export default async function ShippingPortalPage({
 
   if (rpcError || !row) {
     return (
-      <PortalShell tenantName="BazaarPrinting">
+      <PortalShell>
         <div className="text-center">
           <h1 className="text-lg font-semibold text-slate-800">
             Link not found
@@ -235,13 +237,8 @@ export default async function ShippingPortalPage({
 
   return (
     <PortalShell
-      tenantName={row.tenant_name}
       orderTitle={row.order_title}
-      footer={
-        <>
-          This link expires in 7 days · Powered by {row.tenant_name}
-        </>
-      }
+      footer={<>{PORTAL_FOOTER}</>}
     >
       <ShippingPortalClient data={portalData} />
     </PortalShell>

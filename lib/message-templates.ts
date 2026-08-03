@@ -200,8 +200,6 @@ Please use the link below to attach your file or leave a note:
 
 {{reply_link}}
 
-This link expires in 7 days.
-
 Thank you,
 {{team_name}}`,
   missing_info_sms: `Hi {{customer_name}}, we need more info for your order {{order_number}}.
@@ -215,7 +213,6 @@ Your {{product}} order (#{{order_number}}) proof is ready for review.{{staff_not
 Please use the link below to approve or request changes:
 
 {{approval_link}}
-This link expires in 7 days.
 Thank you,
 {{team_name}}`,
   approval_sms: `Hi {{customer_name}}, your {{product}} proof for order {{order_number}} is ready.
@@ -227,7 +224,6 @@ Approve here: {{approval_link}}
 Great news! Your order #{{order_number}} is ready.{{staff_note_block}}
 View your order and choose pickup or delivery here:
 {{order_link}}
-This link expires in 7 days.
 Thank you,
 {{team_name}}`,
   ready_to_ship_sms:
@@ -242,8 +238,6 @@ Your order {{order_number}} is ready!
 Please open this link to view your order and choose self pickup or delivery:
 
 {{portal_url}}
-
-This link expires in 7 days.
 
 — {{team_name}}`,
   shipping_portal_sms:
