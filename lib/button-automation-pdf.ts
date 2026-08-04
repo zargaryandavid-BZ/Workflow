@@ -281,16 +281,74 @@ function drawSummaryCell(
   });
 }
 
+/**
+ * Split `text` so the first chunk fits in `maxHeight` at the current font.
+ * Prefers breaking on whitespace / newlines so words aren't cut mid-glyph.
+ */
+function splitTextToHeight(
+  doc: PdfDoc,
+  text: string,
+  width: number,
+  maxHeight: number
+): { fitted: string; rest: string } {
+  if (!text) return { fitted: "", rest: "" };
+  if (maxHeight < 8) return { fitted: "", rest: text };
+
+  doc.fontSize(10).font("Helvetica");
+  if (doc.heightOfString(text, { width }) <= maxHeight) {
+    return { fitted: text, rest: "" };
+  }
+
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (doc.heightOfString(text.slice(0, mid), { width }) <= maxHeight) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  let breakAt = lo;
+  if (breakAt < text.length) {
+    const window = text.slice(0, breakAt);
+    const ws = Math.max(window.lastIndexOf("\n"), window.lastIndexOf(" "));
+    // Only pull back to whitespace when we still keep a meaningful chunk.
+    if (ws >= Math.min(24, Math.floor(breakAt * 0.5))) {
+      breakAt = ws + 1;
+    }
+  }
+
+  const fitted = text.slice(0, breakAt).trimEnd();
+  const rest = text.slice(breakAt).trimStart();
+  // Guarantee progress if a single unbreakable run is taller than maxHeight.
+  if (!fitted && rest) {
+    return { fitted: rest.slice(0, 1), rest: rest.slice(1) };
+  }
+  return { fitted, rest };
+}
+
+type AttentionPageContext = {
+  tenantName: string;
+  orderNumber: string;
+  onNewPage?: () => void;
+};
+
 /** ATTENTION blocks (production notes + internal notes), drawn below the specs. */
 function drawAttentionBlocks(
   doc: PdfDoc,
   data: OrderExportData,
-  startY: number
+  startY: number,
+  pageCtx?: AttentionPageContext
 ): number {
   const x = MARGIN;
   const w = PAGE_WIDTH - MARGIN * 2;
   const innerW = w - 24;
   const titleH = 28; // ATTENTION + subtitle
+  const minBoxH = 44;
+  const bodyPadBottom = 8;
+  const bodyTopOffset = 10 + titleH;
 
   const productionNotesText =
     typeof data.order.specs?.production_notes === "string"
@@ -298,13 +356,16 @@ function drawAttentionBlocks(
       : "";
   const internalNotesText = formatInternalNoteText(data.order.internal_note);
 
-  const measure = (text: string) => {
-    if (!text) return 0;
-    doc.fontSize(10).font("Helvetica");
-    return 10 + titleH + doc.heightOfString(text, { width: innerW }) + 10;
-  };
-
   let nextY = startY;
+
+  const startNewPage = () => {
+    doc.addPage();
+    pageCtx?.onNewPage?.();
+    if (pageCtx) {
+      drawHeader(doc, pageCtx.tenantName, pageCtx.orderNumber);
+    }
+    nextY = 56;
+  };
 
   const drawBox = (
     subtitle: string,
@@ -313,37 +374,70 @@ function drawAttentionBlocks(
     accent: string,
     titleColor: string
   ) => {
-    if (!text) return;
-    const measured = measure(text);
-    if (measured <= 0) return;
+    let remaining = text;
+    let continued = false;
 
-    // Never start a notes box past the footer — that was creating orphan pages
-    // with fragments like "Letters are gold Foil".
-    const spaceLeft = CONTENT_BOTTOM - nextY;
-    if (spaceLeft < 44) return;
+    while (remaining) {
+      let spaceLeft = CONTENT_BOTTOM - nextY;
+      // Not enough room for a notes box — continue on a fresh page with header.
+      if (spaceLeft < minBoxH) {
+        startNewPage();
+        spaceLeft = CONTENT_BOTTOM - nextY;
+      }
 
-    const boxH = Math.min(measured, spaceLeft);
-    const ay = nextY;
-    doc.rect(x, ay, w, boxH).fill(fill);
-    doc.rect(x, ay, 4, boxH).fill(accent);
-    doc.rect(x, ay, w, boxH).strokeColor(accent).lineWidth(1.25).stroke();
+      const label = continued ? `${subtitle} (continued)` : subtitle;
+      const maxBodyH = Math.max(12, spaceLeft - bodyTopOffset - bodyPadBottom);
+      const { fitted, rest } = splitTextToHeight(
+        doc,
+        remaining,
+        innerW,
+        maxBodyH
+      );
 
-    doc.fillColor(titleColor).fontSize(10).font("Helvetica-Bold");
-    textAt(doc, "ATTENTION", x + 12, ay + 10, { width: innerW });
-    doc.fillColor(titleColor).fontSize(9).font("Helvetica");
-    textAt(doc, subtitle, x + 12, ay + 22, { width: innerW });
+      // If nothing fits in the available body height, force a new page.
+      if (!fitted && rest) {
+        startNewPage();
+        continue;
+      }
 
-    const bodyTop = ay + 10 + titleH;
-    const bodyH = Math.max(12, boxH - (bodyTop - ay) - 8);
-    doc.fontSize(10).font("Helvetica").fillColor("#111827");
-    doc.text(text, x + 12, bodyTop, {
-      width: innerW,
-      height: bodyH,
-      ellipsis: true,
-    });
+      const bodyH = fitted
+        ? doc.fontSize(10).font("Helvetica").heightOfString(fitted, {
+            width: innerW,
+          })
+        : 12;
+      const boxH = Math.min(
+        spaceLeft,
+        bodyTopOffset + bodyH + bodyPadBottom
+      );
+      const ay = nextY;
 
-    doc.fillColor("#000000").font("Helvetica");
-    nextY = ay + boxH + 8;
+      doc.rect(x, ay, w, boxH).fill(fill);
+      doc.rect(x, ay, 4, boxH).fill(accent);
+      doc.rect(x, ay, w, boxH).strokeColor(accent).lineWidth(1.25).stroke();
+
+      doc.fillColor(titleColor).fontSize(10).font("Helvetica-Bold");
+      textAt(doc, "ATTENTION", x + 12, ay + 10, { width: innerW });
+      doc.fillColor(titleColor).fontSize(9).font("Helvetica");
+      textAt(doc, label, x + 12, ay + 22, { width: innerW });
+
+      const bodyTop = ay + bodyTopOffset;
+      doc.fontSize(10).font("Helvetica").fillColor("#111827");
+      // lineBreak must stay on for wrapping; height clips without ellipsis so
+      // overflow is carried to the next page instead of truncated.
+      doc.text(fitted, x + 12, bodyTop, {
+        width: innerW,
+        height: Math.max(12, boxH - (bodyTop - ay) - bodyPadBottom),
+      });
+
+      doc.fillColor("#000000").font("Helvetica");
+      nextY = ay + boxH + 8;
+      remaining = rest;
+      continued = true;
+
+      if (remaining) {
+        startNewPage();
+      }
+    }
   };
 
   drawBox(
@@ -358,7 +452,12 @@ function drawAttentionBlocks(
   return nextY;
 }
 
-function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
+function drawSpecs(
+  doc: PdfDoc,
+  data: OrderExportData,
+  startY: number,
+  pageCtx?: AttentionPageContext
+): number {
   const x = MARGIN;
   const w = PAGE_WIDTH - MARGIN * 2;
   const innerX = x + 10;
@@ -399,7 +498,7 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
   }
 
   // No spec table to draw, but notes must still print.
-  if (!specRows.length) return drawAttentionBlocks(doc, data, startY);
+  if (!specRows.length) return drawAttentionBlocks(doc, data, startY, pageCtx);
 
   const description = data.order.description?.trim() ?? "";
 
@@ -530,7 +629,7 @@ function drawSpecs(doc: PdfDoc, data: OrderExportData, startY: number): number {
 
   doc.fillColor("#000000").font("Helvetica");
 
-  return drawAttentionBlocks(doc, data, startY + boxH + 8);
+  return drawAttentionBlocks(doc, data, startY + boxH + 8, pageCtx);
 }
 
 function drawDescription(doc: PdfDoc, description: string, startY: number): number {
@@ -616,9 +715,17 @@ function drawPage1(
   }
   y = rowY + 8;
 
-  y = drawSpecs(doc, data, y);
+  const pageCtx: AttentionPageContext = {
+    tenantName: data.tenantName,
+    orderNumber: data.orderNumberDisplay,
+    onNewPage: () => {
+      contentPages += 1;
+    },
+  };
+  y = drawSpecs(doc, data, y, pageCtx);
 
-  // If specs/notes pushed past the page, continue SKUs on a fresh page.
+  // If specs/notes pushed past the page, continue SKUs on a fresh page
+  // (notes overflow already continues onto new pages with headers above).
   if (y > CONTENT_BOTTOM - 40) {
     doc.addPage();
     contentPages += 1;
