@@ -141,6 +141,10 @@ export type SkuActivityChange = {
   to?: unknown;
 };
 
+function skuQtySum(skus: SkuItem[]): number {
+  return skus.reduce((sum, s) => sum + (s.qty ?? 0), 0);
+}
+
 /**
  * Human-readable SKU diffs for the order activity log
  * (added / removed / name / qty), instead of a generic "SKUs updated".
@@ -159,10 +163,19 @@ export function describeSkuActivityChanges(
   }
 
   const changes: SkuActivityChange[] = [];
+  const oldSum = skuQtySum(oldSkus);
+  const newSum = skuQtySum(newSkus);
+  // Prefer a single order-level qty line (Qty: 3 → 4) when the total changes.
+  const loggedTotalQty = oldSum !== newSum;
+  if (loggedTotalQty) {
+    changes.push({ field: "Qty", from: oldSum, to: newSum });
+  }
+
   const oldById = new Map(oldSkus.filter((s) => s.id).map((s) => [s.id, s]));
   const newById = new Map(newSkus.filter((s) => s.id).map((s) => [s.id, s]));
   const matchedOldIds = new Set<string>();
   const matchedNewIds = new Set<string>();
+  const multiSku = Math.max(oldSkus.length, newSkus.length) > 1;
 
   for (const [id, next] of newById) {
     const prev = oldById.get(id);
@@ -177,9 +190,9 @@ export function describeSkuActivityChanges(
         to: next.name || "(empty)",
       });
     }
-    if (prev.qty !== next.qty) {
+    if (!loggedTotalQty && prev.qty !== next.qty) {
       changes.push({
-        field: `SKU qty (${label})`,
+        field: multiSku ? `Qty (${label})` : "Qty",
         from: prev.qty ?? "(empty)",
         to: next.qty ?? "(empty)",
       });
@@ -202,9 +215,9 @@ export function describeSkuActivityChanges(
         to: next.name || "(empty)",
       });
     }
-    if (prev.qty !== next.qty) {
+    if (!loggedTotalQty && prev.qty !== next.qty) {
       changes.push({
-        field: `SKU qty (${label})`,
+        field: multiSku ? `Qty (${label})` : "Qty",
         from: prev.qty ?? "(empty)",
         to: next.qty ?? "(empty)",
       });

@@ -43,6 +43,7 @@ import {
   DEFAULT_PROCESSING_DAYS,
   formatOrderDueDisplay,
   isPendingAfterApprovalDue,
+  mergeDueSpecsIntoOrderSpecs,
   readOrderDueSpecs,
   type DueDateMode,
 } from "@/lib/due-date";
@@ -490,6 +491,16 @@ export function CardDetailModal({
     }
   }, [open, orderId, load]);
 
+  // Wait cursor while the save request is in flight.
+  useEffect(() => {
+    if (!saving) return;
+    const prev = document.body.style.cursor;
+    document.body.style.cursor = "wait";
+    return () => {
+      document.body.style.cursor = prev;
+    };
+  }, [saving]);
+
   async function save(options?: { reload?: boolean }): Promise<boolean> {
     if (!orderId || saving) return false;
 
@@ -553,18 +564,27 @@ export function CardDetailModal({
       customFields,
       fieldValues
     );
-    const nextSpecs = mergeApplicationIntoOrderSpecs(
+    const nextProductionNotes = productionNotes.trim();
+    const nextDesignTask = designTask || "";
+    const nextSpecs = mergeDueSpecsIntoOrderSpecs(
+      mergeApplicationIntoOrderSpecs(
+        {
+          ...(data?.order.specs ?? {}),
+          skus: savedSkus,
+          designer_id: designerId || null,
+          designer_name:
+            designers.find((d) => d.id === designerId)?.name ?? null,
+          design_task: nextDesignTask || null,
+          production_notes: nextProductionNotes || null,
+        },
+        applicationOn,
+        applicationDays
+      ),
       {
-        ...(data?.order.specs ?? {}),
-        skus: savedSkus,
-        designer_id: designerId || null,
-        designer_name:
-          designers.find((d) => d.id === designerId)?.name ?? null,
-        design_task: designTask || null,
-        production_notes: productionNotes.trim() || null,
-      },
-      applicationOn,
-      applicationDays
+        due_date_mode: dueDateMode,
+        due_processing_days:
+          dueDateMode === "after_approval" ? dueProcessingDays : null,
+      }
     );
     const customFieldValues = buildCustomFieldPayload(
       resolved,
@@ -578,13 +598,16 @@ export function CardDetailModal({
       ? (tags.find((t) => t.id === tagId) ?? null)
       : null;
     const nextTitle = title.trim();
+    const nextDescription = description || "";
     const nextDue = dateInputValue(dueDate) || null;
     const nextPriority = priority as "low" | "normal" | "high" | "urgent";
+    const nextCustomerName = customerName.trim();
+    const nextCustomerContact = customerContact.trim();
     const boardPatch = {
       tag_id: tagId || null,
       tag: selectedTag,
       title: nextTitle,
-      description: description || null,
+      description: nextDescription || null,
       priority: nextPriority,
       due_date: nextDue,
       created_by: ownerId || null,
@@ -604,8 +627,18 @@ export function CardDetailModal({
       : null;
 
     // Optimistic UI — board + modal update before the network round-trip.
+    // Keep form state + dirty baselines in sync so Save/Cancel hide after save.
     setNoteHistory(updatedHistory);
     setNewNote("");
+    setTitle(nextTitle);
+    setDescription(nextDescription);
+    setProductionNotes(nextProductionNotes);
+    setDesignTask(nextDesignTask);
+    setDueDate(nextDue ?? "");
+    setCustomerName(nextCustomerName);
+    setCustomerContact(nextCustomerContact);
+    setSkus(savedSkus);
+    baselineSkusRef.current = savedSkus;
     setData((prev) => {
       if (!prev) return prev;
       const valueById = new Map(
@@ -616,7 +649,7 @@ export function CardDetailModal({
         order: {
           ...prev.order,
           title: nextTitle,
-          description: description || null,
+          description: nextDescription || null,
           internal_note: internalNoteJson,
           priority: nextPriority,
           due_date: nextDue,
@@ -695,6 +728,10 @@ export function CardDetailModal({
       if (options?.reload === true) {
         await load({ silent: true });
       }
+      // Save button uses mousedown preventDefault so inputs keep focus for
+      // the click — blur after success so the cursor leaves the field.
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
       return true;
     } finally {
       setSaving(false);
@@ -1345,7 +1382,8 @@ export function CardDetailModal({
       open={open}
       onClose={handleClose}
       title={modalTitle}
-      className="max-w-3xl"
+      className={cn("max-w-3xl", saving && "cursor-wait")}
+      overlayClassName={saving ? "cursor-wait" : undefined}
       headerAction={
         !isViewOnly ? (
           <select
@@ -1425,7 +1463,7 @@ export function CardDetailModal({
               {downloadingArchive ? "Preparing…" : "Download"}
             </button>
           ) : null}
-          {!isViewOnly && isDirty() ? (
+          {!isViewOnly && (isDirty() || saving) ? (
             <>
               <Button
                 variant="outline"
@@ -1446,8 +1484,16 @@ export function CardDetailModal({
                   archiving ||
                   downloadingArchive
                 }
+                className={saving ? "cursor-wait" : undefined}
               >
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  "Save changes"
+                )}
               </Button>
             </>
           ) : (
@@ -1810,15 +1856,23 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
-            {!isViewOnly && isDirty() ? (
+            {!isViewOnly && (isDirty() || saving) ? (
               <div className="flex flex-col gap-2">
                 <Button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => void save()}
                   disabled={saving || loading}
+                  className={saving ? "cursor-wait" : undefined}
                 >
-                  {saving ? "Saving…" : "Save changes"}
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save changes"
+                  )}
                 </Button>
                 <Button
                   variant="ghost"

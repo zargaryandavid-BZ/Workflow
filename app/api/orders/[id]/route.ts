@@ -37,6 +37,10 @@ import type {
   Tag,
 } from "@/lib/types";
 
+const ORDER_QTY_NAME_SET = new Set(
+  ORDER_QTY_FIELD_ALIASES.map((n) => n.toLowerCase())
+);
+
 type AppSupabase = Awaited<ReturnType<typeof createClient>>;
 
 async function recordSaveActivity(
@@ -48,6 +52,11 @@ async function recordSaveActivity(
     updates: Record<string, unknown>;
     existingOrder: Record<string, unknown>;
     customFieldValues?: Array<{ customFieldId: string; value: unknown }>;
+    /** Snapshot taken before upsert — required so diffs see prior values. */
+    previousCustomFieldValues?: Array<{
+      custom_field_id: string;
+      value: unknown;
+    }>;
   }
 ): Promise<void> {
   const {
@@ -57,6 +66,7 @@ async function recordSaveActivity(
     updates,
     existingOrder,
     customFieldValues,
+    previousCustomFieldValues,
   } = params;
 
   // Tag name lookup (only when tag changed)
@@ -158,14 +168,10 @@ async function recordSaveActivity(
 
   if (customFieldValues && customFieldValues.length > 0) {
     const cfIds = customFieldValues.map((v) => v.customFieldId);
-    const [{ data: cfDefs }, { data: oldCfv }] = await Promise.all([
-      supabase.from("custom_fields").select("id, name").in("id", cfIds),
-      supabase
-        .from("custom_field_values")
-        .select("custom_field_id, value")
-        .eq("order_id", orderId)
-        .in("custom_field_id", cfIds),
-    ]);
+    const { data: cfDefs } = await supabase
+      .from("custom_fields")
+      .select("id, name")
+      .in("id", cfIds);
     const nameById = new Map(
       ((cfDefs ?? []) as { id: string; name: string }[]).map((f) => [
         f.id,
@@ -173,25 +179,32 @@ async function recordSaveActivity(
       ])
     );
     const oldValById = new Map(
-      (
-        (oldCfv ?? []) as { custom_field_id: string; value: unknown }[]
-      ).map((v) => [v.custom_field_id, v.value])
+      (previousCustomFieldValues ?? []).map((v) => [
+        v.custom_field_id,
+        v.value,
+      ])
     );
-    const SKIP_CF = new Set(["customer name", "customer contact", "order qty"]);
+    const SKIP_CF = new Set(["customer name", "customer contact"]);
+    const qtyAlreadyLogged = changes.some((c) => c.field === "Qty");
     for (const cfv of customFieldValues) {
       const name = nameById.get(cfv.customFieldId) ?? "";
       if (!name || SKIP_CF.has(name.toLowerCase())) continue;
+      const isQtyField = ORDER_QTY_NAME_SET.has(name.toLowerCase());
+      if (isQtyField && qtyAlreadyLogged) continue;
       const oldVal = oldValById.get(cfv.customFieldId) ?? null;
       const newVal = cfv.value ?? null;
       if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+        const fieldLabel = isQtyField ? "Qty" : name;
         if (typeof newVal === "boolean")
-          changes.push({ field: name, to: newVal ? "Yes" : "No" });
+          changes.push({ field: fieldLabel, to: newVal ? "Yes" : "No" });
         else if (oldVal !== null && oldVal !== "")
-          changes.push({ field: name, from: oldVal, to: newVal });
-        else changes.push({ field: name, to: newVal });
+          changes.push({ field: fieldLabel, from: oldVal, to: newVal });
+        else changes.push({ field: fieldLabel, to: newVal });
       }
     }
   }
+
+  if (changes.length === 0) return;
 
   await logActivity(supabase, {
     tenantId,
@@ -470,6 +483,10 @@ export async function PATCH(
     }
   }
 
+  let previousCustomFieldValues:
+    | Array<{ custom_field_id: string; value: unknown }>
+    | undefined;
+
   if (body.customFieldValues && body.customFieldValues.length > 0) {
     const { valid, invalidIds } = await filterValidCustomFieldValues(
       supabase,
@@ -482,6 +499,18 @@ export async function PATCH(
         { status: 400 }
       );
     }
+
+    // Snapshot before upsert so activity diffs compare against prior values.
+    const cfIds = valid.map((v) => v.customFieldId);
+    const { data: oldCfv } = await supabase
+      .from("custom_field_values")
+      .select("custom_field_id, value")
+      .eq("order_id", id)
+      .in("custom_field_id", cfIds);
+    previousCustomFieldValues = (oldCfv ?? []) as Array<{
+      custom_field_id: string;
+      value: unknown;
+    }>;
 
     try {
       const customerId = await linkCustomerFromOrderFields(
@@ -541,6 +570,7 @@ export async function PATCH(
     updates: updates as Record<string, unknown>,
     existingOrder: existingOrder as Record<string, unknown>,
     customFieldValues: body.customFieldValues,
+    previousCustomFieldValues,
   }).catch((err) => console.error("[activity-log]", err));
 
   // Build a minimal order object from what we already have in memory.
