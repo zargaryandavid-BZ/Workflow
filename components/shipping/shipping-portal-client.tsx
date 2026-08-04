@@ -124,6 +124,146 @@ const FEDEX_COMMITMENT_LABEL: Record<string, string> = {
   FEDEX_GROUND: "End of Day",
 };
 
+/** Calendar-day timestamp for sorting (time-of-day ignored so price can break ties). */
+function deliverySortKey(rate: FedExRateOption): number {
+  const startOfLocalDay = (d: Date) => {
+    if (Number.isNaN(d.getTime())) return null;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+
+  const raw = rate.deliveryDate?.trim();
+  if (raw) {
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (dateOnly) {
+      const key = startOfLocalDay(
+        new Date(
+          Number(dateOnly[1]),
+          Number(dateOnly[2]) - 1,
+          Number(dateOnly[3])
+        )
+      );
+      if (key != null) return key;
+    }
+    const monDay = /^([A-Za-z]{3})-(\d{1,2})-(\d{2,4})$/.exec(raw);
+    if (monDay) {
+      const yearRaw = Number(monDay[3]);
+      const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+      const key = startOfLocalDay(new Date(`${monDay[1]} ${monDay[2]}, ${year}`));
+      if (key != null) return key;
+    }
+    const key = startOfLocalDay(new Date(raw));
+    if (key != null) return key;
+  }
+  if (rate.provider === "curri") {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+/** e.g. "Aug 05" — prefers calendar date over transit codes like TWO_DAYS / 2D. */
+function formatDeliveryDateShort(iso: string | null | undefined): string | null {
+  if (!iso?.trim()) return null;
+  const raw = iso.trim();
+  try {
+    // Date-only (YYYY-MM-DD) — parse as local calendar day to avoid UTC shift.
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (dateOnly) {
+      const d = new Date(
+        Number(dateOnly[1]),
+        Number(dateOnly[2]) - 1,
+        Number(dateOnly[3])
+      );
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "2-digit",
+      });
+    }
+
+    // FedEx sometimes returns "Aug-05-26" / "Aug-05-2026"
+    const monDay = /^([A-Za-z]{3})-(\d{1,2})-(\d{2,4})$/.exec(raw);
+    if (monDay) {
+      const yearRaw = Number(monDay[3]);
+      const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+      const d = new Date(`${monDay[1]} ${monDay[2]}, ${year}`);
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+        });
+      }
+    }
+
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "2-digit",
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Estimate a delivery calendar date from FedEx transit / service type. */
+function estimateDeliveryDateFromTransit(rate: FedExRateOption): string | null {
+  const transit = (rate.transitDays ?? "").toUpperCase().replace(/\s+/g, "_");
+  const service = rate.serviceType.toUpperCase();
+
+  let businessDays: number | null = null;
+  if (
+    transit.includes("ONE_DAY") ||
+    transit === "1D" ||
+    transit === "ONE_DAY"
+  ) {
+    businessDays = 1;
+  } else if (
+    transit.includes("TWO_DAY") ||
+    transit === "2D" ||
+    transit === "TWO_DAYS"
+  ) {
+    businessDays = 2;
+  } else if (
+    transit.includes("THREE_DAY") ||
+    transit === "3D" ||
+    transit === "THREE_DAYS"
+  ) {
+    businessDays = 3;
+  } else if (transit.includes("FOUR_DAY") || transit === "4D") {
+    businessDays = 4;
+  } else if (transit.includes("FIVE_DAY") || transit === "5D") {
+    businessDays = 5;
+  } else if (
+    service.includes("FIRST_OVERNIGHT") ||
+    service.includes("PRIORITY_OVERNIGHT") ||
+    service.includes("STANDARD_OVERNIGHT")
+  ) {
+    businessDays = 1;
+  } else if (service.includes("2_DAY") || service.includes("2DAY")) {
+    businessDays = 2;
+  } else if (service.includes("EXPRESS_SAVER")) {
+    businessDays = 3;
+  } else if (service.includes("GROUND") || service.includes("HOME_DELIVERY")) {
+    businessDays = 5;
+  }
+
+  if (businessDays == null) return null;
+
+  const d = new Date();
+  let added = 0;
+  while (added < businessDays) {
+    d.setDate(d.getDate() + 1);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) added += 1;
+  }
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+  });
+}
+
 function formatTransit(rate: FedExRateOption) {
   if (rate.provider === "curri") {
     if (rate.transitDays) return rate.transitDays;
@@ -137,6 +277,11 @@ function formatTransit(rate: FedExRateOption) {
     }
   }
 
+  const deliveryLabel =
+    formatDeliveryDateShort(rate.deliveryDate) ??
+    estimateDeliveryDateFromTransit(rate);
+  if (deliveryLabel) return deliveryLabel;
+
   const commitment =
     FEDEX_COMMITMENT_LABEL[rate.serviceType] ??
     (rate.serviceType.includes("HOME_DELIVERY") ||
@@ -144,24 +289,8 @@ function formatTransit(rate: FedExRateOption) {
       ? "End of Day"
       : null);
 
-  // FedEx.com layout: time on first line (e.g. "End of Day"), service name below.
   if (commitment) return commitment;
 
-  if (rate.deliveryDate) {
-    try {
-      return new Date(rate.deliveryDate).toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      });
-    } catch {
-      /* fall through */
-    }
-  }
-
-  if (rate.transitDays) {
-    return rate.transitDays.replace(/_/g, " ").toLowerCase();
-  }
   return "Est. arrival TBD";
 }
 
@@ -185,7 +314,7 @@ function DeliveryAddressFields({
   onChange: (patch: Partial<ShippingDeliveryAddress>) => void;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_6.5rem]">
+    <div className="grid gap-3 sm:grid-cols-3">
       <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
         Customer name
         <input
@@ -250,26 +379,15 @@ function DeliveryAddressFields({
           className={addressInputClass}
         />
       </label>
-      <div className="flex flex-col gap-2 sm:col-span-3">
-        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
-          <input
-            type="checkbox"
-            checked={address.residential !== false}
-            onChange={(e) => onChange({ residential: e.target.checked })}
-            className="h-4 w-4 rounded border-slate-400 text-sky-700 focus:ring-sky-500"
-          />
-          Residential address
-        </label>
-        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
-          <input
-            type="checkbox"
-            checked={address.usingOwnBox !== false}
-            onChange={(e) => onChange({ usingOwnBox: e.target.checked })}
-            className="h-4 w-4 rounded border-slate-400 text-sky-700 focus:ring-sky-500"
-          />
-          We are using our box
-        </label>
-      </div>
+      <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800 sm:col-span-3">
+        <input
+          type="checkbox"
+          checked={address.residential !== false}
+          onChange={(e) => onChange({ residential: e.target.checked })}
+          className="h-4 w-4 rounded border-slate-400 text-sky-700 focus:ring-sky-500"
+        />
+        Residential address
+      </label>
     </div>
   );
 }
@@ -457,6 +575,8 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   function editAddress(patch: Partial<ShippingDeliveryAddress>) {
     setAddress((a) => ({ ...a, ...patch }));
     setError(null);
+    setRates([]);
+    setSelectedRate(null);
   }
 
   async function confirmPickup() {
@@ -564,7 +684,11 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         results.find((r) => r.source === "curri")?.rates ?? []
       ).map((r) => ({ ...r, provider: "curri" as const }));
 
+      // Soonest delivery first; cheapest within the same day.
       const nextRates = [...curriRates, ...fedexRates].sort((a, b) => {
+        const ad = deliverySortKey(a);
+        const bd = deliverySortKey(b);
+        if (ad !== bd) return ad - bd;
         const ac = a.totalCharge ?? Number.POSITIVE_INFINITY;
         const bc = b.totalCharge ?? Number.POSITIVE_INFINITY;
         return ac - bc;
@@ -575,7 +699,9 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       setPaymentRequired(paymentEnabled);
       setSelectedRate(nextRates[0] ?? null);
       if (nextRates.length === 0) {
-        setError("No delivery rates returned for this address.");
+        setError(
+          "No shipping options are available for this address. Please check the address and try again."
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to get rates");

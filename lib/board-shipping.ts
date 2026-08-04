@@ -48,6 +48,54 @@ function shortDeliveryLabel(
   const serviceName = fedex?.serviceName?.trim() || "";
   const title = serviceName || serviceType || "Shipping";
 
+  const formatShortDate = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
+
+  // Prefer estimated delivery date over "2Day" / transit-style chips.
+  const deliveryDate = fedex?.deliveryDate?.trim();
+  if (deliveryDate) {
+    try {
+      const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(deliveryDate);
+      const d = dateOnly
+        ? new Date(
+            Number(dateOnly[1]),
+            Number(dateOnly[2]) - 1,
+            Number(dateOnly[3])
+          )
+        : new Date(deliveryDate);
+      if (!Number.isNaN(d.getTime())) {
+        return { label: formatShortDate(d), title };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // Estimate from service type when FedEx didn't return a date (e.g. older quotes).
+  const svc = serviceType.toUpperCase();
+  let businessDays: number | null = null;
+  if (
+    svc.includes("FIRST_OVERNIGHT") ||
+    svc.includes("PRIORITY_OVERNIGHT") ||
+    svc.includes("STANDARD_OVERNIGHT")
+  ) {
+    businessDays = 1;
+  } else if (svc.includes("2_DAY") || svc.includes("2DAY")) {
+    businessDays = 2;
+  } else if (svc.includes("EXPRESS_SAVER")) {
+    businessDays = 3;
+  }
+  if (businessDays != null) {
+    const d = new Date();
+    let added = 0;
+    while (added < businessDays) {
+      d.setDate(d.getDate() + 1);
+      const day = d.getDay();
+      if (day !== 0 && day !== 6) added += 1;
+    }
+    return { label: formatShortDate(d), title };
+  }
+
   if (serviceType && SHORT_LABELS[serviceType]) {
     return { label: SHORT_LABELS[serviceType], title };
   }

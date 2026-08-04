@@ -40,6 +40,60 @@ export function friendlyFedExServiceName(serviceType: string, fallback?: string)
   return FEDEX_SERVICE_NAMES[serviceType] ?? fallback ?? serviceType;
 }
 
+/**
+ * Turn FedEx API errors into short messages customers can understand.
+ * Keeps the original for server logs.
+ */
+export function friendlyFedExCustomerError(raw: string): string {
+  const msg = raw.trim();
+  if (!msg) {
+    return "We couldn’t get shipping rates right now. Please check the address and try again.";
+  }
+  const lower = msg.toLowerCase();
+
+  if (
+    lower.includes("origin / destination") ||
+    lower.includes("origin/destination") ||
+    lower.includes("not currently available to this origin") ||
+    lower.includes("service is not currently available")
+  ) {
+    return "FedEx can’t ship to this address from our location. Please double-check the street, city, state, and ZIP, then try again.";
+  }
+
+  if (
+    lower.includes("postal") ||
+    lower.includes("zip code") ||
+    lower.includes("invalid destination") ||
+    lower.includes("destination address")
+  ) {
+    return "That delivery address doesn’t look valid to FedEx. Please check the ZIP and city/state, then try again.";
+  }
+
+  if (
+    lower.includes("weight") ||
+    lower.includes("dimension") ||
+    lower.includes("package")
+  ) {
+    return "FedEx couldn’t quote this package size. Please contact the shop for help.";
+  }
+
+  if (
+    lower.includes("sandbox") ||
+    lower.includes("authorize your credentials") ||
+    lower.includes("authentication") ||
+    lower.includes("not configured")
+  ) {
+    return "Shipping rates are temporarily unavailable. Please try again later or contact the shop.";
+  }
+
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "FedEx took too long to respond. Please try again in a moment.";
+  }
+
+  // Generic fallback — never show raw FedEx jargon to customers.
+  return "We couldn’t get shipping rates for this address. Please check the address and try again, or contact the shop.";
+}
+
 async function getFedExAccessToken(config: FedExConfig): Promise<string> {
   const clientId = config.apiKey?.trim();
   const clientSecret = config.secretKey?.trim();
@@ -163,9 +217,20 @@ export async function fetchFedExRates(args: {
   const residential = args.deliveryAddress.residential !== false;
   const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
+  const today = new Date();
+  const shipDateStamp = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("-");
+
   const ratePayload = {
     accountNumber: { value: accountNumber },
+    rateRequestControlParameters: {
+      returnTransitTimes: true,
+    },
     requestedShipment: {
+      shipDateStamp,
       shipper: { address: shipperAddress(config) },
       recipient: {
         address: {
@@ -180,6 +245,9 @@ export async function fetchFedExRates(args: {
       pickupType: "DROPOFF_AT_FEDEX_LOCATION",
       packagingType: usingOwnBox ? "YOUR_PACKAGING" : "FEDEX_BOX",
       rateRequestType: ["LIST", "ACCOUNT"],
+      rateRequestControlParameters: {
+        returnTransitTimes: true,
+      },
       requestedPackageLineItems: args.boxes.map((box, i) => ({
         sequenceNumber: i + 1,
         weight: {
@@ -238,6 +306,8 @@ export async function fetchFedExRates(args: {
       r.operationalDetail?.deliveryDate ??
       r.commit?.dateDetail?.dayFormat ??
       null;
+    const transitDays =
+      r.operationalDetail?.transitTime ?? r.commit?.transitDays ?? null;
 
     return {
       serviceType: r.serviceType ?? "UNKNOWN",
@@ -249,8 +319,7 @@ export async function fetchFedExRates(args: {
       fedexBaseCharge: totalCharge,
       currency: detail?.currency ?? "USD",
       deliveryDate,
-      transitDays:
-        r.operationalDetail?.transitTime ?? r.commit?.transitDays ?? null,
+      transitDays,
     };
   });
 }

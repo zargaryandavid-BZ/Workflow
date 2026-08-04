@@ -275,6 +275,8 @@ export function Board({
     columnId: string;
     orderId: string;
   } | null>(null);
+  /** Bumps when a new search nav target is set so the scroll effect re-runs. */
+  const [searchNavNonce, setSearchNavNonce] = useState(0);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
@@ -600,6 +602,8 @@ export function Board({
             lastAutoNavQueryRef.current = q;
             if (target) {
               pendingSearchNavRef.current = target;
+              setHighlightedOrderId(target.orderId);
+              setSearchNavNonce((n) => n + 1);
               setHiddenColIds((prev) => {
                 if (!prev.has(target.columnId)) return prev;
                 const next = new Set(prev);
@@ -642,35 +646,58 @@ export function Board({
     const { columnId, orderId } = pending;
     let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 30;
+    const maxAttempts = 40;
 
-    /** Scroll horizontally inside the board scroller only — never the window. */
+    /**
+     * Center in the board strip (X) and column body (Y).
+     * Avoid scrollIntoView — its inline:"nearest" parks cards on the edge
+     * and fights the horizontal center scroll.
+     */
     const scrollBoardTo = (el: Element) => {
       const scroller = boardScrollRef.current;
       const target = el as HTMLElement;
       if (scroller) {
         const sRect = scroller.getBoundingClientRect();
         const eRect = target.getBoundingClientRect();
-        const delta =
-          eRect.left + eRect.width / 2 - (sRect.left + sRect.width / 2);
-        scroller.scrollTo({
-          left: scroller.scrollLeft + delta,
-          behavior: "smooth",
-        });
+        const nextLeft =
+          scroller.scrollLeft +
+          (eRect.left + eRect.width / 2 - (sRect.left + sRect.width / 2));
+        scroller.scrollTo({ left: nextLeft, behavior: "smooth" });
       }
-      // Vertical only; inline nearest avoids shifting the document sideways.
-      target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      const colScroll = target.closest(
+        "[data-column-scroll]"
+      ) as HTMLElement | null;
+      if (colScroll && colScroll.contains(target) && colScroll !== target) {
+        const cRect = colScroll.getBoundingClientRect();
+        const eRect = target.getBoundingClientRect();
+        const nextTop =
+          colScroll.scrollTop +
+          (eRect.top + eRect.height / 2 - (cRect.top + cRect.height / 2));
+        colScroll.scrollTo({ top: nextTop, behavior: "smooth" });
+      }
       if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
     };
 
     const tryScroll = () => {
       if (cancelled) return;
       const orderEl = document.querySelector(`[data-order-id="${orderId}"]`);
+      const groupEl = document.querySelector(
+        `[data-order-ids*="${orderId}"]`
+      );
       const columnEl = document.querySelector(`[data-column-id="${columnId}"]`);
+      const el = orderEl ?? groupEl;
 
-      if (orderEl) {
-        pendingSearchNavRef.current = null;
-        scrollBoardTo(orderEl);
+      if (el) {
+        scrollBoardTo(el);
+        // Keep the ref until settle so React Strict Mode remount can re-scroll.
+        window.setTimeout(() => {
+          if (
+            !cancelled &&
+            pendingSearchNavRef.current?.orderId === orderId
+          ) {
+            pendingSearchNavRef.current = null;
+          }
+        }, 500);
         return;
       }
 
@@ -681,16 +708,19 @@ export function Board({
       }
 
       // Card never appeared — fall back to the column.
-      pendingSearchNavRef.current = null;
       if (columnEl) scrollBoardTo(columnEl);
+      pendingSearchNavRef.current = null;
     };
 
-    const id = window.requestAnimationFrame(tryScroll);
+    // Two frames so filtered columns finish layout before measuring.
+    const id = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(tryScroll);
+    });
     return () => {
       cancelled = true;
       window.cancelAnimationFrame(id);
     };
-  }, [hiddenColIds, searchResults, boardView]);
+  }, [searchNavNonce, hiddenColIds, searchResults, boardView]);
 
   // Safety net: the wide column strip must never shift the document sideways.
   // Pin window horizontal scroll back to 0 if any nested scroll leaks upward.
@@ -719,18 +749,22 @@ export function Board({
       if (scroller) {
         const sRect = scroller.getBoundingClientRect();
         const eRect = target.getBoundingClientRect();
-        const delta =
-          eRect.left + eRect.width / 2 - (sRect.left + sRect.width / 2);
-        scroller.scrollTo({
-          left: scroller.scrollLeft + delta,
-          behavior: "smooth",
-        });
+        const nextLeft =
+          scroller.scrollLeft +
+          (eRect.left + eRect.width / 2 - (sRect.left + sRect.width / 2));
+        scroller.scrollTo({ left: nextLeft, behavior: "smooth" });
       }
-      target.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-        inline: "nearest",
-      });
+      const colScroll = target.closest(
+        "[data-column-scroll]"
+      ) as HTMLElement | null;
+      if (colScroll && colScroll.contains(target) && colScroll !== target) {
+        const cRect = colScroll.getBoundingClientRect();
+        const eRect = target.getBoundingClientRect();
+        const nextTop =
+          colScroll.scrollTop +
+          (eRect.top + eRect.height / 2 - (cRect.top + cRect.height / 2));
+        colScroll.scrollTo({ top: nextTop, behavior: "smooth" });
+      }
       if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
     };
 
@@ -2351,6 +2385,11 @@ export function Board({
               />
             );
             })}
+            {/* Lets last columns scroll to true horizontal center. */}
+            <div
+              className="w-[max(1rem,calc(50vw-10rem))] shrink-0"
+              aria-hidden
+            />
           </div>
         </div>
         </div>

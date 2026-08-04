@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchFedExRates } from "@/lib/fedex";
+import { fetchFedExRates, friendlyFedExCustomerError } from "@/lib/fedex";
 import { applyShippingMarkup } from "@/lib/shipping-markup";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { loadShippingSettings } from "@/lib/shipping-settings";
@@ -102,6 +102,9 @@ export async function POST(
     const message =
       err instanceof Error ? err.message : "Failed to fetch FedEx rates";
     console.error("[fedex-rates]", message);
-    return NextResponse.json({ error: message }, { status: 502 });
+    return NextResponse.json(
+      { error: friendlyFedExCustomerError(message) },
+      { status: 502 }
+    );
   }
 }

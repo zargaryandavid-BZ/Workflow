@@ -356,6 +356,7 @@ export function Column({
 
       {/* ── Column body ───────────────────────────────────────── */}
       <div
+        data-column-scroll
         className={cn(
           "board-scroll flex min-h-[8rem] flex-1 flex-col gap-1.5 overflow-y-auto rounded-b-lg p-1 transition-colors",
           showDropTarget
