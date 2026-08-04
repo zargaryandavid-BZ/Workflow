@@ -102,6 +102,140 @@ export function skuIds(skus: SkuItem[]): string[] {
   return skus.map((s) => s.id);
 }
 
+/** Parse SKU rows for activity diffs without minting new ids. */
+function parseSkusForActivityDiff(value: unknown): SkuItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (v): v is Record<string, unknown> =>
+        typeof v === "object" && v !== null
+    )
+    .map((v) => ({
+      id: typeof v.id === "string" ? v.id.trim() : "",
+      name: typeof v.name === "string" ? v.name.trim() : "",
+      qty:
+        typeof v.qty === "number" && !Number.isNaN(v.qty)
+          ? v.qty
+          : v.qty === "" || v.qty === undefined || v.qty === null
+            ? null
+            : Number(v.qty),
+    }))
+    .map((s) => ({
+      ...s,
+      qty:
+        s.qty != null && typeof s.qty === "number" && !Number.isNaN(s.qty)
+          ? s.qty
+          : null,
+    }));
+}
+
+function skuActivityLabel(sku: SkuItem): string {
+  const name = sku.name.trim() || "Untitled SKU";
+  if (sku.qty != null) return `${name} (qty ${sku.qty})`;
+  return name;
+}
+
+export type SkuActivityChange = {
+  field: string;
+  from?: unknown;
+  to?: unknown;
+};
+
+/**
+ * Human-readable SKU diffs for the order activity log
+ * (added / removed / name / qty), instead of a generic "SKUs updated".
+ */
+export function describeSkuActivityChanges(
+  oldSkusRaw: unknown,
+  newSkusRaw: unknown
+): SkuActivityChange[] {
+  const oldSkus = parseSkusForActivityDiff(oldSkusRaw);
+  const newSkus = parseSkusForActivityDiff(newSkusRaw);
+  if (oldSkus.length === 0 && newSkus.length === 0) {
+    return [];
+  }
+  if (JSON.stringify(oldSkus) === JSON.stringify(newSkus)) {
+    return [];
+  }
+
+  const changes: SkuActivityChange[] = [];
+  const oldById = new Map(oldSkus.filter((s) => s.id).map((s) => [s.id, s]));
+  const newById = new Map(newSkus.filter((s) => s.id).map((s) => [s.id, s]));
+  const matchedOldIds = new Set<string>();
+  const matchedNewIds = new Set<string>();
+
+  for (const [id, next] of newById) {
+    const prev = oldById.get(id);
+    if (!prev) continue;
+    matchedOldIds.add(id);
+    matchedNewIds.add(id);
+    const label = next.name || prev.name || "SKU";
+    if (prev.name !== next.name) {
+      changes.push({
+        field: "SKU name",
+        from: prev.name || "(empty)",
+        to: next.name || "(empty)",
+      });
+    }
+    if (prev.qty !== next.qty) {
+      changes.push({
+        field: `SKU qty (${label})`,
+        from: prev.qty ?? "(empty)",
+        to: next.qty ?? "(empty)",
+      });
+    }
+  }
+
+  // Index-pair remaining rows (covers missing/unstable ids).
+  const oldUnmatched = oldSkus.filter((s) => !s.id || !matchedOldIds.has(s.id));
+  const newUnmatched = newSkus.filter((s) => !s.id || !matchedNewIds.has(s.id));
+  const pairCount = Math.min(oldUnmatched.length, newUnmatched.length);
+
+  for (let i = 0; i < pairCount; i++) {
+    const prev = oldUnmatched[i]!;
+    const next = newUnmatched[i]!;
+    const label = next.name || prev.name || "SKU";
+    if (prev.name !== next.name) {
+      changes.push({
+        field: "SKU name",
+        from: prev.name || "(empty)",
+        to: next.name || "(empty)",
+      });
+    }
+    if (prev.qty !== next.qty) {
+      changes.push({
+        field: `SKU qty (${label})`,
+        from: prev.qty ?? "(empty)",
+        to: next.qty ?? "(empty)",
+      });
+    }
+  }
+
+  for (let i = pairCount; i < newUnmatched.length; i++) {
+    changes.push({ field: "SKU added", to: skuActivityLabel(newUnmatched[i]!) });
+  }
+  for (let i = pairCount; i < oldUnmatched.length; i++) {
+    changes.push({
+      field: "SKU removed",
+      to: skuActivityLabel(oldUnmatched[i]!),
+    });
+  }
+
+  if (changes.length === 0) {
+    if (oldSkus.length !== newSkus.length) {
+      changes.push({
+        field: "SKUs",
+        from: oldSkus.length,
+        to: newSkus.length,
+      });
+    } else {
+      changes.push({ field: "SKUs updated" });
+    }
+  }
+
+  return changes;
+}
+
 /** Count of SKU rows on an order (read-only, no id generation). */
 export function skuCountFromSpecs(specs: unknown): number {
   const raw =

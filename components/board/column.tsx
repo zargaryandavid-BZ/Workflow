@@ -281,7 +281,10 @@ export function Column({
                 style={{ background: column.color }}
               />
             ) : null}
-            <span className="truncate text-sm font-semibold text-slate-700">
+            <span
+              className="truncate text-sm font-semibold text-slate-700"
+              title={column.name}
+            >
               {column.name}
             </span>
             <span className="rounded-full bg-white px-1.5 text-xs font-medium text-slate-500">

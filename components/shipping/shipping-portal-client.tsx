@@ -112,6 +112,18 @@ function formatMoney(amount: number | null, currency: string) {
   }
 }
 
+/** FedEx.com-style commitment labels (time of day / end of day). */
+const FEDEX_COMMITMENT_LABEL: Record<string, string> = {
+  FIRST_OVERNIGHT: "8:00 AM",
+  PRIORITY_OVERNIGHT: "12:00 PM",
+  STANDARD_OVERNIGHT: "8:00 PM",
+  FEDEX_2_DAY_AM: "12:00 PM",
+  FEDEX_2_DAY: "8:00 PM",
+  FEDEX_EXPRESS_SAVER: "End of Day",
+  GROUND_HOME_DELIVERY: "End of Day",
+  FEDEX_GROUND: "End of Day",
+};
+
 function formatTransit(rate: FedExRateOption) {
   if (rate.provider === "curri") {
     if (rate.transitDays) return rate.transitDays;
@@ -124,6 +136,17 @@ function formatTransit(rate: FedExRateOption) {
         return "By end of day";
     }
   }
+
+  const commitment =
+    FEDEX_COMMITMENT_LABEL[rate.serviceType] ??
+    (rate.serviceType.includes("HOME_DELIVERY") ||
+    /home delivery/i.test(rate.serviceName)
+      ? "End of Day"
+      : null);
+
+  // FedEx.com layout: time on first line (e.g. "End of Day"), service name below.
+  if (commitment) return commitment;
+
   if (rate.deliveryDate) {
     try {
       return new Date(rate.deliveryDate).toLocaleDateString("en-US", {
@@ -135,6 +158,7 @@ function formatTransit(rate: FedExRateOption) {
       /* fall through */
     }
   }
+
   if (rate.transitDays) {
     return rate.transitDays.replace(/_/g, " ").toLowerCase();
   }
@@ -1034,10 +1058,14 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               {rates.map((rate) => {
                 const selected = isSameRate(selectedRate, rate);
                 const isCurri = rate.provider === "curri";
+                const showFees =
+                  rate.fedexBaseCharge != null &&
+                  rate.totalCharge != null &&
+                  rate.fedexBaseCharge !== rate.totalCharge;
                 return (
                   <label
                     key={rateKey(rate)}
-                    className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm ${
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm ${
                       selected
                         ? "border-slate-800 bg-slate-50"
                         : "border-slate-200 hover:border-slate-300"
@@ -1047,9 +1075,25 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                       type="radio"
                       checked={selected}
                       onChange={() => setSelectedRate(rate)}
+                      className="mt-1"
                     />
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex flex-wrap items-center gap-2 font-medium text-slate-800">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline justify-between gap-3">
+                        <span className="font-semibold text-slate-900">
+                          {formatTransit(rate)}
+                        </span>
+                        <span className="shrink-0 text-right">
+                          <span className="font-semibold text-slate-900">
+                            {formatMoney(rate.totalCharge, rate.currency)}
+                          </span>
+                          {showFees ? (
+                            <span className="ml-1 text-xs font-normal text-slate-400">
+                              incl. fees
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-2 text-slate-600">
                         {rate.serviceName}
                         {isCurri ? (
                           <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
@@ -1062,19 +1106,6 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                         )}
                       </span>
                     </span>
-                    <span className="shrink-0 text-slate-500">
-                      {formatTransit(rate)}
-                    </span>
-                    <span className="shrink-0 font-semibold text-slate-900">
-                      {formatMoney(rate.totalCharge, rate.currency)}
-                    </span>
-                    {rate.fedexBaseCharge != null &&
-                    rate.totalCharge != null &&
-                    rate.fedexBaseCharge !== rate.totalCharge ? (
-                      <span className="text-xs text-slate-400">
-                        incl. fees
-                      </span>
-                    ) : null}
                   </label>
                 );
               })}

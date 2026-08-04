@@ -5,7 +5,7 @@ import { logActivity } from "@/lib/automation";
 import { ORDER_QTY_FIELD_ALIASES } from "@/lib/constants";
 import { isAccountManagerOwner } from "@/lib/order-owners";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
-import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
+import { normalizeSkus, prepareSkusForSave, validateSkus, describeSkuActivityChanges } from "@/lib/skus";
 import {
   buildStaffDueSpecs,
   mergeDueSpecsIntoOrderSpecs,
@@ -150,10 +150,10 @@ async function recordSaveActivity(
 
     const oldSkus = Array.isArray(oldSpecs.skus) ? oldSpecs.skus : [];
     const newSkus = Array.isArray(newSpecs.skus) ? newSpecs.skus : [];
-    if (newSkus.length !== oldSkus.length)
-      changes.push({ field: "SKUs", from: oldSkus.length, to: newSkus.length });
-    else if (JSON.stringify(oldSkus) !== JSON.stringify(newSkus))
-      changes.push({ field: "SKUs updated" });
+    const skuChanges = describeSkuActivityChanges(oldSkus, newSkus);
+    if (skuChanges.length > 0) {
+      changes.push(...skuChanges);
+    }
   }
 
   if (customFieldValues && customFieldValues.length > 0) {
