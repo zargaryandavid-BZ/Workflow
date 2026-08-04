@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureFedExLabel } from "@/lib/fedex-label";
 import { completeShippingResponse } from "@/lib/shipping-confirm";
+import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { dollarsToCents } from "@/lib/shipping-markup";
 import {
   isShippingChoiceOffered,
@@ -95,13 +96,18 @@ export async function POST(
     }
     const addr = body.deliveryAddress;
     if (
+      !addr?.name?.trim() ||
+      !addr?.phone?.trim() ||
       !addr?.street?.trim() ||
       !addr?.city?.trim() ||
       !addr?.state?.trim() ||
       !addr?.zip?.trim()
     ) {
       return NextResponse.json(
-        { error: "Delivery address is required." },
+        {
+          error:
+            "Customer name, contact number, and delivery address are required.",
+        },
         { status: 422 }
       );
     }
@@ -110,13 +116,18 @@ export async function POST(
   if (body.choice === "uber") {
     const addr = body.deliveryAddress;
     if (
+      !addr?.name?.trim() ||
+      !addr?.phone?.trim() ||
       !addr?.street?.trim() ||
       !addr?.city?.trim() ||
       !addr?.state?.trim() ||
       !addr?.zip?.trim()
     ) {
       return NextResponse.json(
-        { error: "Delivery address is required." },
+        {
+          error:
+            "Customer name, contact number, and delivery address are required.",
+        },
         { status: 422 }
       );
     }
@@ -175,14 +186,7 @@ export async function POST(
       body.choice === "uber" ||
       body.choice === "curri") &&
     body.deliveryAddress
-      ? {
-          street: body.deliveryAddress.street.trim(),
-          city: body.deliveryAddress.city.trim(),
-          state: body.deliveryAddress.state.trim().toUpperCase(),
-          zip: body.deliveryAddress.zip.trim(),
-          country:
-            (body.deliveryAddress.country ?? "US").trim().toUpperCase() || "US",
-        }
+      ? normalizeDeliveryAddress(body.deliveryAddress)
       : null;
 
   const deliveryNotes =

@@ -559,11 +559,19 @@ export interface ShippingBox {
 }
 
 export interface ShippingDeliveryAddress {
+  /** Recipient / customer name (editable on shipping portal). */
+  name?: string;
+  /** Recipient contact phone (editable on shipping portal). */
+  phone?: string;
   street: string;
   city: string;
   state: string;
   zip: string;
   country?: string;
+  /** Residential delivery (default true). Affects FedEx surcharges. */
+  residential?: boolean;
+  /** Customer/own packaging vs FedEx box (default true → YOUR_PACKAGING). */
+  usingOwnBox?: boolean;
 }
 
 export type ShippingRateProvider = "fedex" | "curri";

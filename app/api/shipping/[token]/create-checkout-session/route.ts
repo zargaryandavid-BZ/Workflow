@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dollarsToCents } from "@/lib/shipping-markup";
+import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import {
   isShippingChoiceOffered,
   isStripeConfiguredFromSettings,
@@ -44,13 +45,18 @@ export async function POST(
   }
 
   if (
+    !deliveryAddress?.name?.trim() ||
+    !deliveryAddress?.phone?.trim() ||
     !deliveryAddress?.street?.trim() ||
     !deliveryAddress?.city?.trim() ||
     !deliveryAddress?.state?.trim() ||
     !deliveryAddress?.zip?.trim()
   ) {
     return NextResponse.json(
-      { error: "Delivery address is required." },
+      {
+        error:
+          "Customer name, contact number, and delivery address are required.",
+      },
       { status: 422 }
     );
   }
@@ -126,13 +132,7 @@ export async function POST(
     return NextResponse.json({ error: message }, { status: 503 });
   }
 
-  const normalizedAddress = {
-    street: deliveryAddress.street.trim(),
-    city: deliveryAddress.city.trim(),
-    state: deliveryAddress.state.trim().toUpperCase(),
-    zip: deliveryAddress.zip.trim(),
-    country: (deliveryAddress.country ?? "US").trim().toUpperCase() || "US",
-  };
+  const normalizedAddress = normalizeDeliveryAddress(deliveryAddress);
 
   let session;
   try {

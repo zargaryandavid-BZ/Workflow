@@ -117,6 +117,31 @@ export function mockFedExRates(
   ];
 }
 
+function parseNetCharge(raw: number | string | null | undefined): number | null {
+  if (raw == null) return null;
+  const n = typeof raw === "number" ? raw : Number.parseFloat(String(raw));
+  return Number.isFinite(n) ? n : null;
+}
+
+type RatedShipmentDetail = {
+  rateType?: string;
+  actualRateType?: string;
+  totalNetCharge?: number | string;
+  currency?: string;
+};
+
+/** Prefer LIST (published) rates so quotes align closer to fedex.com. */
+function pickRatedDetail(
+  details: RatedShipmentDetail[] | undefined
+): RatedShipmentDetail | undefined {
+  if (!details?.length) return undefined;
+  const list = details.find((d) => {
+    const t = `${d.rateType ?? ""} ${d.actualRateType ?? ""}`.toUpperCase();
+    return t.includes("LIST");
+  });
+  return list ?? details[0];
+}
+
 export async function fetchFedExRates(args: {
   boxes: ShippingBox[];
   deliveryAddress: ShippingDeliveryAddress;
@@ -135,6 +160,8 @@ export async function fetchFedExRates(args: {
 
   const accessToken = await getFedExAccessToken(config);
   const accountNumber = config.accountNumber!.trim();
+  const residential = args.deliveryAddress.residential !== false;
+  const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
   const ratePayload = {
     accountNumber: { value: accountNumber },
@@ -147,10 +174,12 @@ export async function fetchFedExRates(args: {
           stateOrProvinceCode: args.deliveryAddress.state,
           postalCode: args.deliveryAddress.zip,
           countryCode: args.deliveryAddress.country || "US",
+          residential,
         },
       },
       pickupType: "DROPOFF_AT_FEDEX_LOCATION",
-      rateRequestType: ["ACCOUNT", "LIST"],
+      packagingType: usingOwnBox ? "YOUR_PACKAGING" : "FEDEX_BOX",
+      rateRequestType: ["LIST", "ACCOUNT"],
       requestedPackageLineItems: args.boxes.map((box, i) => ({
         sequenceNumber: i + 1,
         weight: {
@@ -182,13 +211,14 @@ export async function fetchFedExRates(args: {
       rateReplyDetails?: Array<{
         serviceType?: string;
         serviceName?: string;
-        ratedShipmentDetails?: Array<{
-          totalNetCharge?: number | string;
-          currency?: string;
-        }>;
+        ratedShipmentDetails?: RatedShipmentDetail[];
         operationalDetail?: {
           deliveryDate?: string;
           transitTime?: string;
+        };
+        commit?: {
+          dateDetail?: { dayFormat?: string; dayOfWeek?: string };
+          transitDays?: string;
         };
       }>;
     };
@@ -202,14 +232,12 @@ export async function fetchFedExRates(args: {
   }
 
   return (ratesData.output?.rateReplyDetails ?? []).map((r) => {
-    const detail = r.ratedShipmentDetails?.[0];
-    const rawCharge = detail?.totalNetCharge;
-    const totalCharge =
-      rawCharge == null
-        ? null
-        : typeof rawCharge === "number"
-          ? rawCharge
-          : Number.parseFloat(String(rawCharge));
+    const detail = pickRatedDetail(r.ratedShipmentDetails);
+    const totalCharge = parseNetCharge(detail?.totalNetCharge);
+    const deliveryDate =
+      r.operationalDetail?.deliveryDate ??
+      r.commit?.dateDetail?.dayFormat ??
+      null;
 
     return {
       serviceType: r.serviceType ?? "UNKNOWN",
@@ -217,11 +245,12 @@ export async function fetchFedExRates(args: {
         r.serviceType ?? "",
         r.serviceName
       ),
-      totalCharge: Number.isFinite(totalCharge) ? totalCharge : null,
-      fedexBaseCharge: Number.isFinite(totalCharge) ? totalCharge : null,
+      totalCharge,
+      fedexBaseCharge: totalCharge,
       currency: detail?.currency ?? "USD",
-      deliveryDate: r.operationalDetail?.deliveryDate ?? null,
-      transitDays: r.operationalDetail?.transitTime ?? null,
+      deliveryDate,
+      transitDays:
+        r.operationalDetail?.transitTime ?? r.commit?.transitDays ?? null,
     };
   });
 }
@@ -295,6 +324,8 @@ export async function createFedExShipment(args: {
   const accountNumber = config.accountNumber!.trim();
   const country =
     (args.deliveryAddress.country ?? "US").trim().toUpperCase() || "US";
+  const residential = args.deliveryAddress.residential !== false;
+  const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
   const shipPayload = {
     labelResponseOptions: "LABEL",
@@ -303,7 +334,7 @@ export async function createFedExShipment(args: {
       shipDatestamp: todayShipDate(),
       pickupType: "DROPOFF_AT_FEDEX_LOCATION",
       serviceType: args.serviceType,
-      packagingType: "YOUR_PACKAGING",
+      packagingType: usingOwnBox ? "YOUR_PACKAGING" : "FEDEX_BOX",
       blockInsightVisibility: false,
       shipper: {
         contact: {
@@ -332,7 +363,7 @@ export async function createFedExShipment(args: {
             stateOrProvinceCode: args.deliveryAddress.state,
             postalCode: args.deliveryAddress.zip,
             countryCode: country,
-            residential: true,
+            residential,
           },
         },
       ],

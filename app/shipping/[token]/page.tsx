@@ -119,6 +119,31 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
   return byOrder[orderId]?.[0] ?? null;
 }
 
+/** Fallback contact from the order's linked customer row. */
+async function customerFallbacksForOrder(
+  orderId: string
+): Promise<{ name: string; phone: string }> {
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin
+      .from("orders")
+      .select("customer:customers(name, phone)")
+      .eq("id", orderId)
+      .maybeSingle();
+    const customer = data?.customer as
+      | { name?: string | null; phone?: string | null }
+      | { name?: string | null; phone?: string | null }[]
+      | null;
+    const row = Array.isArray(customer) ? customer[0] : customer;
+    return {
+      name: row?.name?.trim() ?? "",
+      phone: row?.phone?.trim() ?? "",
+    };
+  } catch {
+    return { name: "", phone: "" };
+  }
+}
+
 function PortalShell({
   orderTitle,
   children,
@@ -199,7 +224,10 @@ export default async function ShippingPortalPage({
       ? query.session_id
       : null;
 
-  const mainImageUrl = await mainImageUrlForOrder(row.order_id);
+  const [mainImageUrl, customerFallbacks] = await Promise.all([
+    mainImageUrlForOrder(row.order_id),
+    customerFallbacksForOrder(row.order_id),
+  ]);
 
   const orderDetailRows = buildRespondOrderRows(
     null,
@@ -215,7 +243,8 @@ export default async function ShippingPortalPage({
     fedexSelection: row.fedex_selection,
     deliveryAddress: defaultDeliveryAddress(
       row.order_fields,
-      row.delivery_address
+      row.delivery_address,
+      customerFallbacks
     ),
     deliveryNotes: row.delivery_notes ?? "",
     expiresAt: row.expires_at,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchFedExRates } from "@/lib/fedex";
 import { applyShippingMarkup } from "@/lib/shipping-markup";
+import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { loadShippingSettings } from "@/lib/shipping-settings";
 import type {
   FedExRateOption,
@@ -66,13 +67,7 @@ export async function POST(
     return NextResponse.json({ rates: [], paymentEnabled: false });
   }
 
-  const deliveryAddress = {
-    street: addr.street.trim(),
-    city: addr.city.trim(),
-    state: addr.state.trim().toUpperCase(),
-    zip: addr.zip.trim(),
-    country: (addr.country ?? "US").trim().toUpperCase() || "US",
-  };
+  const deliveryAddress = normalizeDeliveryAddress(addr);
 
   try {
     const baseRates = await fetchFedExRates({
@@ -82,16 +77,16 @@ export async function POST(
     });
 
     const paymentEnabled = settings?.payment_enabled ?? false;
-    const markupFixed = settings?.markup_fixed_cents ?? 0;
     const markupPercent = settings?.markup_percent ?? 0;
 
     const rates: FedExRateOption[] = baseRates.map((rate) => {
       const tagged = { ...rate, provider: "fedex" as const };
       const base = tagged.totalCharge;
-      if (!paymentEnabled || base == null) {
+      // Client price = FedEx API rate + percent markup only (no fixed fee).
+      if (!paymentEnabled || base == null || markupPercent === 0) {
         return tagged;
       }
-      const withMarkup = applyShippingMarkup(base, markupFixed, markupPercent);
+      const withMarkup = applyShippingMarkup(base, 0, markupPercent);
       return {
         ...tagged,
         fedexBaseCharge: base,

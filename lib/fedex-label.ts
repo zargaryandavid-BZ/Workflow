@@ -185,24 +185,28 @@ export async function ensureFedExLabel(
     return markFailed(admin, shippingRequestId, "Order not found.");
   }
 
-  const recipientPhone = exportData.customerPhone?.trim() || null;
+  const recipientPhone =
+    address.phone?.trim() || exportData.customerPhone?.trim() || null;
   if (!recipientPhone) {
     return markFailed(
       admin,
       shippingRequestId,
-      "Customer phone is required for FedEx labels. Add a phone on the order customer."
+      "Customer phone is required for FedEx labels. Add a contact number on the shipping form or order."
     );
   }
 
   const recipientName =
-    exportData.customerName && exportData.customerName !== "—"
+    address.name?.trim() ||
+    (exportData.customerName && exportData.customerName !== "—"
       ? exportData.customerName
-      : exportData.order.customer?.name?.trim() || "Customer";
+      : exportData.order.customer?.name?.trim() || "Customer");
 
   try {
     const created = await createFedExShipment({
       boxes,
       deliveryAddress: {
+        name: recipientName,
+        phone: recipientPhone,
         street: address.street.trim(),
         city: address.city.trim(),
         state: address.state.trim().toUpperCase(),

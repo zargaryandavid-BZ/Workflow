@@ -47,6 +47,9 @@ function formatBox(box: ShippingBox, index: number) {
 }
 
 function formatDeliveryAddress(address: ShippingDeliveryAddress) {
+  const contact = [address.name?.trim(), address.phone?.trim()]
+    .filter(Boolean)
+    .join(" · ");
   const line1 = address.street.trim();
   const cityStateZip = [
     address.city.trim(),
@@ -56,7 +59,7 @@ function formatDeliveryAddress(address: ShippingDeliveryAddress) {
     .join(", ");
   const country =
     address.country && address.country !== "US" ? address.country.trim() : "";
-  return [line1, cityStateZip, country].filter(Boolean).join("\n");
+  return [contact, line1, cityStateZip, country].filter(Boolean).join("\n");
 }
 
 function AddressBlock({
@@ -114,6 +117,18 @@ function AddressBlock({
         </button>
       </div>
       <p>
+        {address.name?.trim() ? (
+          <>
+            {address.name.trim()}
+            <br />
+          </>
+        ) : null}
+        {address.phone?.trim() ? (
+          <>
+            {address.phone.trim()}
+            <br />
+          </>
+        ) : null}
         {address.street}
         <br />
         {address.city}, {address.state} {address.zip}

@@ -430,7 +430,8 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
         <div className="mt-5 border-t border-slate-100 pt-4">
           <h3 className="text-sm font-semibold text-slate-800">Markup</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Client price = FedEx rate + fixed markup + (FedEx rate × percent).
+            Client price = FedEx API rate + (FedEx rate × percent). Fixed markup
+            is not applied to client quotes.
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block text-sm text-slate-600">
@@ -443,6 +444,9 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
                 onChange={(e) => setMarkupFixedDollars(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
               />
+              <span className="mt-1 block text-xs text-slate-400">
+                Saved for reference — not added to client rates.
+              </span>
             </label>
             <label className="block text-sm text-slate-600">
               Percent markup (%)

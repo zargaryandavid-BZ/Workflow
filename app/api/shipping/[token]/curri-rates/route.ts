@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchCurriRates, isCurriConfigured } from "@/lib/curri";
 import { applyShippingMarkup } from "@/lib/shipping-markup";
+import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import {
   loadShippingSettings,
   resolveFedExConfig,
@@ -82,13 +83,7 @@ export async function POST(
         ];
 
   const config = resolveFedExConfig(settings);
-  const deliveryAddress = {
-    street: addr.street.trim(),
-    city: addr.city.trim(),
-    state: addr.state.trim().toUpperCase(),
-    zip: addr.zip.trim(),
-    country: (addr.country ?? "US").trim().toUpperCase() || "US",
-  };
+  const deliveryAddress = normalizeDeliveryAddress(addr);
 
   const baseRates = await fetchCurriRates({
     boxes,
@@ -102,15 +97,14 @@ export async function POST(
   });
 
   const paymentEnabled = settings?.payment_enabled ?? false;
-  const markupFixed = settings?.markup_fixed_cents ?? 0;
   const markupPercent = settings?.markup_percent ?? 0;
 
   const rates: FedExRateOption[] = baseRates.map((rate) => {
     const base = rate.totalCharge;
-    if (!paymentEnabled || base == null) {
+    if (!paymentEnabled || base == null || markupPercent === 0) {
       return rate;
     }
-    const withMarkup = applyShippingMarkup(base, markupFixed, markupPercent);
+    const withMarkup = applyShippingMarkup(base, 0, markupPercent);
     return {
       ...rate,
       fedexBaseCharge: base,

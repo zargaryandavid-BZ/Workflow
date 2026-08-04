@@ -150,6 +150,106 @@ function rateKey(rate: FedExRateOption) {
   ].join(":");
 }
 
+const addressInputClass =
+  "mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200";
+
+function DeliveryAddressFields({
+  address,
+  onChange,
+}: {
+  address: ShippingDeliveryAddress;
+  onChange: (patch: Partial<ShippingDeliveryAddress>) => void;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_6.5rem]">
+      <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
+        Customer name
+        <input
+          value={address.name ?? ""}
+          onChange={(e) => onChange({ name: e.target.value })}
+          autoComplete="name"
+          className={addressInputClass}
+        />
+      </label>
+      <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
+        Contact number
+        <input
+          value={address.phone ?? ""}
+          onChange={(e) => onChange({ phone: e.target.value })}
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          placeholder="10-digit phone"
+          className={addressInputClass}
+        />
+      </label>
+      <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
+        Street
+        <input
+          value={address.street}
+          onChange={(e) => onChange({ street: e.target.value })}
+          autoComplete="street-address"
+          className={addressInputClass}
+        />
+      </label>
+      <label className="block text-sm font-semibold text-slate-800">
+        City
+        <input
+          value={address.city}
+          onChange={(e) => onChange({ city: e.target.value })}
+          autoComplete="address-level2"
+          className={addressInputClass}
+        />
+      </label>
+      <label className="block text-sm font-semibold text-slate-800">
+        State
+        <select
+          value={address.state}
+          onChange={(e) => onChange({ state: e.target.value })}
+          autoComplete="address-level1"
+          className={addressInputClass}
+        >
+          <option value="">Select</option>
+          {US_STATES.map((s) => (
+            <option key={s.code} value={s.code}>
+              {s.code} — {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block text-sm font-semibold text-slate-800">
+        ZIP
+        <input
+          value={address.zip}
+          onChange={(e) => onChange({ zip: e.target.value })}
+          autoComplete="postal-code"
+          className={addressInputClass}
+        />
+      </label>
+      <div className="flex flex-col gap-2 sm:col-span-3">
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+          <input
+            type="checkbox"
+            checked={address.residential !== false}
+            onChange={(e) => onChange({ residential: e.target.checked })}
+            className="h-4 w-4 rounded border-slate-400 text-sky-700 focus:ring-sky-500"
+          />
+          Residential address
+        </label>
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+          <input
+            type="checkbox"
+            checked={address.usingOwnBox !== false}
+            onChange={(e) => onChange({ usingOwnBox: e.target.checked })}
+            className="h-4 w-4 rounded border-slate-400 text-sky-700 focus:ring-sky-500"
+          />
+          We are using our box
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function isSameRate(a: FedExRateOption | null, b: FedExRateOption) {
   if (!a) return false;
   return rateKey(a) === rateKey(b);
@@ -169,11 +269,15 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       : "choose"
   );
   const [address, setAddress] = useState<ShippingDeliveryAddress>({
+    name: data.deliveryAddress?.name ?? "",
+    phone: data.deliveryAddress?.phone ?? "",
     street: data.deliveryAddress?.street ?? "",
     city: data.deliveryAddress?.city ?? "",
     state: data.deliveryAddress?.state ?? "",
     zip: data.deliveryAddress?.zip ?? "",
     country: data.deliveryAddress?.country ?? "US",
+    residential: data.deliveryAddress?.residential !== false,
+    usingOwnBox: data.deliveryAddress?.usingOwnBox !== false,
   });
   const [deliveryNotes, setDeliveryNotes] = useState(data.deliveryNotes ?? "");
   const [rates, setRates] = useState<FedExRateOption[]>([]);
@@ -358,12 +462,16 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   async function loadRates() {
     setError(null);
     if (
+      !address.name?.trim() ||
+      !address.phone?.trim() ||
       !address.street.trim() ||
       !address.city.trim() ||
       !address.state.trim() ||
       !address.zip.trim()
     ) {
-      setError("Please fill in street, city, state, and ZIP.");
+      setError(
+        "Please fill in customer name, contact number, street, city, state, and ZIP."
+      );
       return;
     }
     setLoadingRates(true);
@@ -457,12 +565,16 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   async function confirmUber() {
     setError(null);
     if (
+      !address.name?.trim() ||
+      !address.phone?.trim() ||
       !address.street.trim() ||
       !address.city.trim() ||
       !address.state.trim() ||
       !address.zip.trim()
     ) {
-      setError("Please fill in street, city, state, and ZIP.");
+      setError(
+        "Please fill in customer name, contact number, street, city, state, and ZIP."
+      );
       return;
     }
     setConfirming(true);
@@ -846,47 +958,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             Where should we send your order via Uber?
           </p>
 
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_6.5rem]">
-            <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
-              Street
-              <input
-                value={address.street}
-                onChange={(e) => editAddress({ street: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-            <label className="block text-sm font-semibold text-slate-800">
-              City
-              <input
-                value={address.city}
-                onChange={(e) => editAddress({ city: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-            <label className="block text-sm font-semibold text-slate-800">
-              State
-              <select
-                value={address.state}
-                onChange={(e) => editAddress({ state: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              >
-                <option value="">Select</option>
-                {US_STATES.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.code} — {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm font-semibold text-slate-800">
-              ZIP
-              <input
-                value={address.zip}
-                onChange={(e) => editAddress({ zip: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-          </div>
+          <DeliveryAddressFields address={address} onChange={editAddress} />
 
           <label className="block text-sm font-semibold text-slate-800">
             Delivery notes
@@ -929,47 +1001,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             ← Back
           </button>
 
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_6.5rem]">
-            <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
-              Street
-              <input
-                value={address.street}
-                onChange={(e) => editAddress({ street: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-            <label className="block text-sm font-semibold text-slate-800">
-              City
-              <input
-                value={address.city}
-                onChange={(e) => editAddress({ city: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-            <label className="block text-sm font-semibold text-slate-800">
-              State
-              <select
-                value={address.state}
-                onChange={(e) => editAddress({ state: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              >
-                <option value="">Select</option>
-                {US_STATES.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.code} — {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm font-semibold text-slate-800">
-              ZIP
-              <input
-                value={address.zip}
-                onChange={(e) => editAddress({ zip: e.target.value })}
-                className="mt-1 w-full rounded-lg border-2 border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-200"
-              />
-            </label>
-          </div>
+          <DeliveryAddressFields address={address} onChange={editAddress} />
 
           <button
             type="button"
@@ -1086,6 +1118,10 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             <div className="mt-3 space-y-1 text-sm text-emerald-800">
               {doneAddress ? (
                 <p>
+                  {[doneAddress.name, doneAddress.phone]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  {doneAddress.name || doneAddress.phone ? <br /> : null}
                   {doneAddress.street}, {doneAddress.city} {doneAddress.state}{" "}
                   {doneAddress.zip}
                 </p>
@@ -1104,6 +1140,10 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               </p>
               {doneAddress ? (
                 <p>
+                  {[doneAddress.name, doneAddress.phone]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  {doneAddress.name || doneAddress.phone ? <br /> : null}
                   {doneAddress.street}, {doneAddress.city} {doneAddress.state}{" "}
                   {doneAddress.zip}
                 </p>
