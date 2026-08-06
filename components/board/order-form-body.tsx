@@ -116,6 +116,8 @@ export interface OrderFormBodyProps {
   hideOrderNumberField?: boolean;
   /** Hide priority and due date fields (rendered elsewhere in the modal). */
   hidePriorityAndDueDateFields?: boolean;
+  /** Require a fixed due date (create order / quote). */
+  dueDateRequired?: boolean;
   /**
    * Application days / production date — shown when Product-box Application
    * checkbox is ON (no second checkbox here).
@@ -179,6 +181,7 @@ export function OrderFormBody({
   hideEmpty: hideEmptyProp = true,
   hideOrderNumberField = false,
   hidePriorityAndDueDateFields = false,
+  dueDateRequired = false,
   applicationEnabled = false,
   applicationDays = 1,
   onApplicationDaysChange,
@@ -691,6 +694,7 @@ export function OrderFormBody({
             minDueDate={minDueDate}
             readOnly={readOnly || !onDueDateModeChange}
             error={dueDateError}
+            required={dueDateRequired}
             hint={
               dueDateHint &&
               dueDateMode === "after_approval" &&

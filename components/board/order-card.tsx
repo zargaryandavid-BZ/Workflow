@@ -12,9 +12,11 @@ import {
   CreditCard,
   Car,
   CalendarClock,
+  Flag,
   MapPin,
   MoveRight,
   RefreshCw,
+  Tag,
   Truck,
   User,
 } from "lucide-react";
@@ -51,6 +53,7 @@ import {
 import {
   formatShortOrderNumber,
 } from "./order-number-label";
+import { PriorityScoreBadge } from "./priority-score-badge";
 import {
   getActiveWarning,
   CARD_WARNING_BORDER_COLORS,
@@ -60,9 +63,16 @@ import type {
   CardWarningRule,
   CustomField,
   Designer,
+  OrderTagSummary,
   OrderWithRelations,
   Role,
+  Tag as BoardTag,
 } from "@/lib/types";
+import {
+  PRIORITY_SCORES,
+  priorityScoreFromSpecs,
+  type PriorityScore,
+} from "@/lib/order-priority-score";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import {
   shippingCardBorderColor,
@@ -103,6 +113,12 @@ interface OrderCardProps {
     id: string | null;
     name: string | null;
   }) => void;
+  /** Board tags for right-click Tag menu (admin / pre-prod). */
+  tags?: BoardTag[];
+  /** Persist board tag from right-click menu. */
+  onSetTag?: (tag: OrderTagSummary | null) => void;
+  /** Persist priority score 1–5 (or null to clear) from right-click menu. */
+  onSetPriorityScore?: (score: PriorityScore | null) => void;
   /** Persist due date from right-click on the due chip. */
   onSetDueDate?: (update: {
     mode: DueDateMode;
@@ -164,6 +180,9 @@ export function OrderCard({
   designerName: designerNameProp,
   designers = [],
   onAssignDesigner,
+  tags = [],
+  onSetTag,
+  onSetPriorityScore,
   onSetDueDate,
   highlighted = false,
   notificationBadge,
@@ -309,12 +328,22 @@ export function OrderCard({
     availableColumns.length > 0 && Boolean(onMoveToColumn);
   const hasActionMenu = actionButtons.length > 0;
   const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
+  const canSetTag = Boolean(onSetTag) && tags.length > 0;
+  const canSetPriorityScore = Boolean(onSetPriorityScore);
   const canSetDueDate = Boolean(onSetDueDate);
   const canResendApproval =
     notificationBadge === "rejected" && Boolean(onResendApproval);
   const hasContextMenu =
-    hasMoveMenu || hasActionMenu || canAssignDesigner || canResendApproval;
+    hasMoveMenu ||
+    hasActionMenu ||
+    canAssignDesigner ||
+    canSetTag ||
+    canSetPriorityScore ||
+    canResendApproval;
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
+  const [tagSubOpen, setTagSubOpen] = useState(false);
+  const [prioritySubOpen, setPrioritySubOpen] = useState(false);
+  const currentPriorityScore = priorityScoreFromSpecs(order.specs);
 
   const dueExactOpenRef = useRef(false);
   dueExactOpenRef.current = dueExactOpen;
@@ -402,11 +431,16 @@ export function OrderCard({
     hasActionMenu,
     hasMoveMenu,
     canAssignDesigner,
+    canSetTag,
+    canSetPriorityScore,
     canResendApproval,
     designerSubOpen,
+    tagSubOpen,
+    prioritySubOpen,
     actionButtons.length,
     availableColumns.length,
     designers.length,
+    tags.length,
   ]);
 
   useLayoutEffect(() => {
@@ -453,6 +487,8 @@ export function OrderCard({
     setDueMenuOpen(false);
     setDueExactOpen(false);
     setDesignerSubOpen(false);
+    setTagSubOpen(false);
+    setPrioritySubOpen(false);
     setMenuPos({ x: e.clientX, y: e.clientY });
     setMenuOpen(true);
   }
@@ -585,21 +621,26 @@ export function OrderCard({
                     : order.title
                 }
               >
-                <span className="truncate">
-                  {formatShortOrderNumber(order.title)}
-                  {groupSize != null && groupSize >= 2 ? (
-                    <span
-                      className={cn(
-                        "font-normal",
-                        folderHasFiles
-                          ? "text-emerald-500/80"
-                          : "text-slate-400"
-                      )}
-                    >
-                      {" "}
-                      ({groupSize})
-                    </span>
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  {currentPriorityScore != null ? (
+                    <PriorityScoreBadge score={currentPriorityScore} />
                   ) : null}
+                  <span className="truncate">
+                    {formatShortOrderNumber(order.title)}
+                    {groupSize != null && groupSize >= 2 ? (
+                      <span
+                        className={cn(
+                          "font-normal",
+                          folderHasFiles
+                            ? "text-emerald-500/80"
+                            : "text-slate-400"
+                        )}
+                      >
+                        {" "}
+                        ({groupSize})
+                      </span>
+                    ) : null}
+                  </span>
                 </span>
                 {hasApplication ? (
                   <ApplicationIcon
@@ -809,7 +850,11 @@ export function OrderCard({
                 <div
                   className={cn(
                     "shrink-0 py-1",
-                    (hasActionMenu || hasMoveMenu || canAssignDesigner) &&
+                    (hasActionMenu ||
+                      hasMoveMenu ||
+                      canAssignDesigner ||
+                      canSetTag ||
+                      canSetPriorityScore) &&
                       "border-b border-slate-100"
                   )}
                 >
@@ -863,12 +908,20 @@ export function OrderCard({
                 <div
                   className={cn(
                     "shrink-0 py-1",
-                    (hasMoveMenu || hasActionMenu) && "border-b border-slate-100"
+                    (hasMoveMenu ||
+                      hasActionMenu ||
+                      canSetTag ||
+                      canSetPriorityScore) &&
+                      "border-b border-slate-100"
                   )}
                 >
                   <button
                     type="button"
-                    onClick={() => setDesignerSubOpen((v) => !v)}
+                    onClick={() => {
+                      setDesignerSubOpen((v) => !v);
+                      setTagSubOpen(false);
+                      setPrioritySubOpen(false);
+                    }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                   >
                     <User className="h-3.5 w-3.5 shrink-0 text-slate-400" />
@@ -909,6 +962,155 @@ export function OrderCard({
                           <span className="shrink-0 tabular-nums text-slate-400">
                             {formatDesignerLoadSuffix(d.load, d.skuCount)}
                           </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {canSetTag ? (
+                <div
+                  className={cn(
+                    "shrink-0 py-1",
+                    (hasMoveMenu || canSetPriorityScore) &&
+                      "border-b border-slate-100"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTagSubOpen((v) => !v);
+                      setDesignerSubOpen(false);
+                      setPrioritySubOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Tag className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="flex-1 whitespace-nowrap">Tag</span>
+                    {order.tag?.name ? (
+                      <span className="max-w-[6rem] truncate text-xs text-slate-400">
+                        {order.tag.name}
+                      </span>
+                    ) : null}
+                    {tagSubOpen ? (
+                      <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    )}
+                  </button>
+                  {tagSubOpen ? (
+                    <div className="max-h-48 overflow-y-auto border-t border-slate-100 bg-slate-50/80 py-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSetTag?.(null);
+                          setMenuOpen(false);
+                          setTagSubOpen(false);
+                        }}
+                        className={cn(
+                          "flex w-full px-3 py-1.5 pl-8 text-left text-sm hover:bg-slate-100",
+                          !order.tag_id
+                            ? "font-medium text-slate-900"
+                            : "text-slate-600"
+                        )}
+                      >
+                        None
+                      </button>
+                      {tags.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            onSetTag?.({
+                              id: t.id,
+                              name: t.name,
+                              color: t.color,
+                            });
+                            setMenuOpen(false);
+                            setTagSubOpen(false);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2 px-3 py-1.5 pl-8 text-left text-sm hover:bg-slate-100",
+                            order.tag_id === t.id
+                              ? "font-medium text-slate-900"
+                              : "text-slate-700"
+                          )}
+                        >
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
+                            style={{ backgroundColor: t.color ?? "#e2e8f0" }}
+                          />
+                          <span className="truncate">{t.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {canSetPriorityScore ? (
+                <div
+                  className={cn(
+                    "shrink-0 py-1",
+                    hasMoveMenu && "border-b border-slate-100"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrioritySubOpen((v) => !v);
+                      setDesignerSubOpen(false);
+                      setTagSubOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Flag className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="flex-1 whitespace-nowrap">Priority</span>
+                    {currentPriorityScore != null ? (
+                      <span className="tabular-nums text-xs text-slate-400">
+                        {currentPriorityScore}
+                      </span>
+                    ) : null}
+                    {prioritySubOpen ? (
+                      <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    )}
+                  </button>
+                  {prioritySubOpen ? (
+                    <div className="max-h-48 overflow-y-auto border-t border-slate-100 bg-slate-50/80 py-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSetPriorityScore?.(null);
+                          setMenuOpen(false);
+                          setPrioritySubOpen(false);
+                        }}
+                        className={cn(
+                          "flex w-full px-3 py-1.5 pl-8 text-left text-sm hover:bg-slate-100",
+                          currentPriorityScore == null
+                            ? "font-medium text-slate-900"
+                            : "text-slate-600"
+                        )}
+                      >
+                        None
+                      </button>
+                      {PRIORITY_SCORES.map((score) => (
+                        <button
+                          key={score}
+                          type="button"
+                          onClick={() => {
+                            onSetPriorityScore?.(score);
+                            setMenuOpen(false);
+                            setPrioritySubOpen(false);
+                          }}
+                          className={cn(
+                            "flex w-full px-3 py-1.5 pl-8 text-left text-sm tabular-nums hover:bg-slate-100",
+                            currentPriorityScore === score
+                              ? "font-medium text-slate-900"
+                              : "text-slate-700"
+                          )}
+                        >
+                          {score}
                         </button>
                       ))}
                     </div>

@@ -272,10 +272,13 @@ export function validateOrderFormFields(
 
 export function validateDueDate(
   dueDate: string | null | undefined,
-  previousDueDate?: string | null
+  previousDueDate?: string | null,
+  options?: { required?: boolean }
 ): string | null {
   const value = dueDate?.trim();
-  if (!value) return null;
+  if (!value) {
+    return options?.required ? "Due date is required." : null;
+  }
   const normalized = value.slice(0, 10);
   const previous = previousDueDate?.trim().slice(0, 10);
   if (previous && normalized === previous) return null;

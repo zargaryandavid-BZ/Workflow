@@ -41,7 +41,7 @@ import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import { canDragInColumn, canDropIn, canDropOut, canUseBoardActionButtons } from "@/lib/permissions";
+import { canDragInColumn, canDropIn, canDropOut, canSetBoardTagAndPriority, canUseBoardActionButtons } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
@@ -57,7 +57,7 @@ import {
   saveHiddenColumnIds,
 } from "@/lib/board-column-visibility";
 import {
-  DEFAULT_COLUMN_SORT,
+  defaultSortForColumn,
   getColumnSortMode,
   loadColumnSortMap,
   saveColumnSortMap,
@@ -65,6 +65,7 @@ import {
   type ColumnSortMap,
   type ColumnSortMode,
 } from "@/lib/board-column-sort";
+import { isStartColumn } from "@/lib/board-columns";
 import {
   buildStaffDueSpecs,
   DEFAULT_PROCESSING_DAYS,
@@ -79,9 +80,11 @@ import type {
   Designer,
   ButtonAutomation,
   FastActionButton,
+  OrderTagSummary,
   OrderWithRelations,
   Role,
 } from "@/lib/types";
+import type { PriorityScore } from "@/lib/order-priority-score";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { OrderOwner } from "./order-form-body";
 import type { CardNotificationBadge } from "@/lib/card-badges";
@@ -436,8 +439,11 @@ export function Board({
   }, [persistedUiReady, tenantId, columnSortById]);
 
   function setColumnSortMode(columnId: string, mode: ColumnSortMode) {
+    // Start column sort is locked to Priority: 5 → None for all users.
+    if (isStartColumn(columnId, columns)) return;
+    const columnDefault = defaultSortForColumn(false);
     setColumnSortById((prev) => {
-      if (mode === DEFAULT_COLUMN_SORT) {
+      if (mode === columnDefault) {
         if (!(columnId in prev)) return prev;
         const next = { ...prev };
         delete next[columnId];
@@ -451,7 +457,9 @@ export function Board({
   function setAllColumnsSortMode(mode: ColumnSortMode) {
     const next: ColumnSortMap = {};
     for (const col of columns) {
-      if (mode !== DEFAULT_COLUMN_SORT) next[col.id] = mode;
+      if (isStartColumn(col.id, columns)) continue;
+      const colDefault = defaultSortForColumn(false);
+      if (mode !== colDefault) next[col.id] = mode;
     }
     setColumnSortById(next);
   }
@@ -1462,6 +1470,49 @@ export function Board({
     }
   }
 
+  async function handleSetTag(
+    order: OrderWithRelations,
+    tag: OrderTagSummary | null
+  ) {
+    const snapshot = boardOrdersRef.current;
+    patchOrderFields(order.id, {
+      tag_id: tag?.id ?? null,
+      tag: tag,
+    });
+    try {
+      await patchOrderApi(order.id, { tagId: tag?.id ?? null });
+      flashToast(tag ? `Tagged as ${tag.name}` : "Tag cleared");
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update tag"
+      );
+    }
+  }
+
+  async function handleSetPriorityScore(
+    order: OrderWithRelations,
+    score: PriorityScore | null
+  ) {
+    const snapshot = boardOrdersRef.current;
+    const specs = {
+      ...(order.specs ?? {}),
+      priority_score: score,
+    };
+    patchOrderFields(order.id, { specs });
+    try {
+      await patchOrderApi(order.id, { specs });
+      flashToast(
+        score != null ? `Priority set to ${score}` : "Priority cleared"
+      );
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update priority"
+      );
+    }
+  }
+
   async function handleGroupSetDueDates(updates: GroupDueDateUpdate[]) {
     if (updates.length === 0) return;
     const snapshot = boardOrdersRef.current;
@@ -1714,7 +1765,9 @@ export function Board({
       dueTodayOnly
         ? (searchResults ?? orders)
         : orders;
-    const sortMode = getColumnSortMode(columnSortById, overColumn);
+    const sortMode = getColumnSortMode(columnSortById, overColumn, {
+      isStartColumn: isStartColumn(overColumn, columns),
+    });
     const columnOrders = sortOrdersForColumn(
       placementSource.filter((o) => o.column_id === overColumn),
       sortMode
@@ -2292,6 +2345,15 @@ export function Board({
           onOpenOrder={(o) => openOrderDetail(o.id)}
           onVisible={onColumnVisible}
           highlightedOrderId={highlightedOrderId}
+          tags={canSetBoardTagAndPriority(role) ? tags : undefined}
+          onSetTag={
+            canSetBoardTagAndPriority(role) ? handleSetTag : undefined
+          }
+          onSetPriorityScore={
+            canSetBoardTagAndPriority(role)
+              ? handleSetPriorityScore
+              : undefined
+          }
         />
         </div>
       ) : (
@@ -2321,7 +2383,9 @@ export function Board({
                 isDragActive={activeId !== null}
                 groupedView={groupedView}
                 orders={columnOrders}
-                sortMode={getColumnSortMode(columnSortById, column.id)}
+                sortMode={getColumnSortMode(columnSortById, column.id, {
+                  isStartColumn: isStartColumn(column.id, columns),
+                })}
                 onSortModeChange={(mode) => setColumnSortMode(column.id, mode)}
                 customFields={customFields}
                 fieldValuesByOrder={displayFieldValuesByOrder}
@@ -2338,6 +2402,7 @@ export function Board({
                 webhookSourceStyles={webhookSourceStyles}
                 timeChips={timeChips}
                 isFirst={index === 0}
+                sortLocked={isStartColumn(column.id, columns)}
                 availableColumns={getMoveableColumns(column.id)}
                 onMoveToColumn={handleContextMove}
                 actionButtons={
@@ -2362,6 +2427,17 @@ export function Board({
                 }}
                 designers={designersWithLoad}
                 onGroupAssignDesigner={handleGroupAssignDesigner}
+                tags={
+                  canSetBoardTagAndPriority(role) ? tags : undefined
+                }
+                onSetTag={
+                  canSetBoardTagAndPriority(role) ? handleSetTag : undefined
+                }
+                onSetPriorityScore={
+                  canSetBoardTagAndPriority(role)
+                    ? handleSetPriorityScore
+                    : undefined
+                }
                 onGroupSetDueDates={handleGroupSetDueDates}
                 onSetDueDate={handleSetDueDate}
                 highlightedOrderId={highlightedOrderId}

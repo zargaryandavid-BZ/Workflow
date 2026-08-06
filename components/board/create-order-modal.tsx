@@ -174,7 +174,7 @@ export function CreateOrderModal({
     }
 
     if (dueDateMode === "fixed") {
-      const dueDateError = validateDueDate(dueDate);
+      const dueDateError = validateDueDate(dueDate, null, { required: true });
       if (dueDateError) {
         setError(dueDateError);
         return;
@@ -325,6 +325,7 @@ export function CreateOrderModal({
           onDueDateModeChange={setDueDateMode}
           dueProcessingDays={dueProcessingDays}
           onDueProcessingDaysChange={setDueProcessingDays}
+          dueDateRequired
           hideEmpty={false}
         />
 

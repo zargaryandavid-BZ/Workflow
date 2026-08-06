@@ -87,7 +87,9 @@ export async function createOrder(
     processingDays: body.dueProcessingDays,
   });
   if (dueMode === "fixed") {
-    const dueDateError = validateDueDate(staffDue.dueDate);
+    const dueDateError = validateDueDate(staffDue.dueDate, null, {
+      required: true,
+    });
     if (dueDateError) {
       return { error: dueDateError, status: 400 };
     }

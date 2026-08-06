@@ -24,7 +24,7 @@ import {
 import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
 import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
-import { canAssignDesignerOnBoard } from "@/lib/permissions";
+import { canAssignDesignerOnBoard, canSetBoardTagAndPriority } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
@@ -34,13 +34,16 @@ import type {
   CardWarningRule,
   CustomField,
   Designer,
+  OrderTagSummary,
   OrderWithRelations,
   Role,
+  Tag,
 } from "@/lib/types";
 import type { GroupDueDateUpdate } from "./group-due-dates-modal";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { TimeChip } from "@/lib/time-chips";
 import type { ActionButtonResult } from "./action-button";
+import type { PriorityScore } from "@/lib/order-priority-score";
 
 type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -74,6 +77,8 @@ interface ColumnProps {
   webhookSourceStyles?: WebhookSourceStyles;
   timeChips?: TimeChip[];
   isFirst: boolean;
+  /** When true, sort dropdown is fixed (Start column → Priority 5→None). */
+  sortLocked?: boolean;
   /** Columns this card can be moved to via right-click (pre-filtered by board). */
   availableColumns?: ColumnOption[];
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
@@ -90,6 +95,16 @@ interface ColumnProps {
   onGroupAssignDesigner?: (
     orders: OrderWithRelations[],
     designer: { id: string | null; name: string | null }
+  ) => void;
+  /** Board tags for right-click Tag menu. */
+  tags?: Tag[];
+  onSetTag?: (
+    order: OrderWithRelations,
+    tag: OrderTagSummary | null
+  ) => void;
+  onSetPriorityScore?: (
+    order: OrderWithRelations,
+    score: PriorityScore | null
   ) => void;
   onGroupSetDueDates?: (updates: GroupDueDateUpdate[]) => Promise<void>;
   onSetDueDate?: (
@@ -167,6 +182,7 @@ export function Column({
   webhookSourceStyles,
   timeChips = [],
   isFirst,
+  sortLocked = false,
   availableColumns,
   onMoveToColumn,
   actionButtons = [],
@@ -176,6 +192,9 @@ export function Column({
   onResendApproval,
   designers = [],
   onGroupAssignDesigner,
+  tags = [],
+  onSetTag,
+  onSetPriorityScore,
   onGroupSetDueDates,
   onSetDueDate,
   highlightedOrderId = null,
@@ -298,14 +317,20 @@ export function Column({
             <select
               id={`col-sort-${column.id}`}
               value={sortMode}
+              disabled={sortLocked}
               onChange={(e) =>
                 onSortModeChange(e.target.value as ColumnSortMode)
               }
               className={cn(
                 "max-w-[7.5rem] truncate rounded border border-slate-200 bg-white py-0.5 pl-1 pr-0 text-[10px] font-medium text-slate-600",
-                sortMode !== "manual" && "border-blue-200 bg-blue-50 text-blue-700"
+                sortMode !== "manual" && "border-blue-200 bg-blue-50 text-blue-700",
+                sortLocked && "cursor-not-allowed opacity-90"
               )}
-              title="Sort cards in this column"
+              title={
+                sortLocked
+                  ? "Start column always sorts by Priority: 5 → None"
+                  : "Sort cards in this column"
+              }
             >
               {COLUMN_SORT_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -435,6 +460,21 @@ export function Column({
                             onGroupAssignDesigner([entry.order], designer)
                         : undefined
                     }
+                    tags={
+                      role && canSetBoardTagAndPriority(role) ? tags : undefined
+                    }
+                    onSetTag={
+                      role && canSetBoardTagAndPriority(role) && onSetTag
+                        ? (tag) => onSetTag(entry.order, tag)
+                        : undefined
+                    }
+                    onSetPriorityScore={
+                      role &&
+                      canSetBoardTagAndPriority(role) &&
+                      onSetPriorityScore
+                        ? (score) => onSetPriorityScore(entry.order, score)
+                        : undefined
+                    }
                     onSetDueDate={
                       onSetDueDate
                         ? (update) => onSetDueDate(entry.order, update)
@@ -485,6 +525,21 @@ export function Column({
                     onGroupAssignDesigner
                       ? (designer) =>
                           onGroupAssignDesigner([order], designer)
+                      : undefined
+                  }
+                  tags={
+                    role && canSetBoardTagAndPriority(role) ? tags : undefined
+                  }
+                  onSetTag={
+                    role && canSetBoardTagAndPriority(role) && onSetTag
+                      ? (tag) => onSetTag(order, tag)
+                      : undefined
+                  }
+                  onSetPriorityScore={
+                    role &&
+                    canSetBoardTagAndPriority(role) &&
+                    onSetPriorityScore
+                      ? (score) => onSetPriorityScore(order, score)
                       : undefined
                   }
                   onSetDueDate={

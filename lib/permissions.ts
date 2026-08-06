@@ -53,6 +53,11 @@ export function canAssignDesignerOnBoard(role: Role): boolean {
   return role === "admin" || role === "account_manager";
 }
 
+/** Board card: set tag / priority score via right-click (admin + pre-prod). */
+export function canSetBoardTagAndPriority(role: Role): boolean {
+  return role === "admin" || role === "preprod_owner";
+}
+
 /** Board card: column action buttons in the right-click menu. */
 export function canUseBoardActionButtons(role: Role): boolean {
   return role === "admin" || role === "account_manager";

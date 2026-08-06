@@ -185,6 +185,8 @@ export interface OrderSpecs {
   due_date_label?: string | null;
   /** Easy branching: set | pending_approval | none. */
   due_date_status?: "set" | "pending_approval" | "none" | null;
+  /** Board priority score 1–5 shown as a colored circle before the order number. */
+  priority_score?: number | null;
   [key: string]: unknown;
 }
 

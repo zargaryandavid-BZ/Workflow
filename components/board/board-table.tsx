@@ -6,11 +6,15 @@ import {
   Clock,
   CreditCard,
   Car,
+  ChevronDown,
+  ChevronUp,
   Eye,
   EyeOff,
+  Flag,
   MapPin,
   MoveRight,
   RefreshCw,
+  Tag,
   Truck,
   User,
 } from "lucide-react";
@@ -41,15 +45,25 @@ import { OrderBillingGlobe } from "./order-billing-globe";
 import { OrderNumberLabel } from "./order-number-label";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 import { filterButtonsForColumn } from "@/lib/button-automations";
-import { canUseBoardActionButtons } from "@/lib/permissions";
+import {
+  canSetBoardTagAndPriority,
+  canUseBoardActionButtons,
+} from "@/lib/permissions";
 import type {
   BoardColumn,
   ButtonAutomation,
   CardWarningRule,
   CustomField,
+  OrderTagSummary,
   OrderWithRelations,
   Role,
+  Tag as BoardTag,
 } from "@/lib/types";
+import {
+  PRIORITY_SCORES,
+  priorityScoreFromSpecs,
+  type PriorityScore,
+} from "@/lib/order-priority-score";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
@@ -64,6 +78,7 @@ import {
   type ColumnSortMap,
   type ColumnSortMode,
 } from "@/lib/board-column-sort";
+import { isStartColumn } from "@/lib/board-columns";
 import type { TimeChip } from "@/lib/time-chips";
 
 interface ColumnOption {
@@ -108,6 +123,16 @@ interface BoardTableProps {
   onVisible: (columnId: string) => void;
   /** Order id to briefly highlight after closing the job ticket. */
   highlightedOrderId?: string | null;
+  /** Board tags for right-click Tag menu (admin / pre-prod). */
+  tags?: BoardTag[];
+  onSetTag?: (
+    order: OrderWithRelations,
+    tag: OrderTagSummary | null
+  ) => void;
+  onSetPriorityScore?: (
+    order: OrderWithRelations,
+    score: PriorityScore | null
+  ) => void;
 }
 
 interface MenuState {
@@ -148,9 +173,19 @@ export function BoardTable({
   onOpenOrder,
   onVisible,
   highlightedOrderId = null,
+  tags = [],
+  onSetTag,
+  onSetPriorityScore,
 }: BoardTableProps) {
   const [menuState, setMenuState] = useState<MenuState | null>(null);
+  const [tagSubOpen, setTagSubOpen] = useState(false);
+  const [prioritySubOpen, setPrioritySubOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const canManageTagPriority = canSetBoardTagAndPriority(role);
+  const canSetTag = canManageTagPriority && Boolean(onSetTag) && tags.length > 0;
+  const canSetPriorityScore =
+    canManageTagPriority && Boolean(onSetPriorityScore);
 
   // ── Resizable Order column ────────────────────────────────────────────────
   const STORAGE_KEY = "board-table-order-col-width";
@@ -218,12 +253,21 @@ export function BoardTable({
     const list = byColumn.get(columnId);
     if (!list?.length) continue;
     visibleOrders.push(
-      ...sortOrdersForColumn(list, getColumnSortMode(columnSortById, columnId))
+      ...sortOrdersForColumn(
+        list,
+        getColumnSortMode(columnSortById, columnId, {
+          isStartColumn: isStartColumn(columnId, columns),
+        })
+      )
     );
   }
 
   const sharedSortMode = (() => {
-    const modes = columns.map((c) => getColumnSortMode(columnSortById, c.id));
+    const modes = columns.map((c) =>
+      getColumnSortMode(columnSortById, c.id, {
+        isStartColumn: isStartColumn(c.id, columns),
+      })
+    );
     if (modes.length === 0) return DEFAULT_COLUMN_SORT;
     const first = modes[0];
     return modes.every((m) => m === first) ? first : "";
@@ -287,6 +331,11 @@ export function BoardTable({
     menuState,
     menuActionCount,
     menuMoveCount,
+    canSetTag,
+    canSetPriorityScore,
+    tagSubOpen,
+    prioritySubOpen,
+    tags.length,
   ]);
 
   const productField = findOrderFormField(customFields, "Product");
@@ -475,8 +524,19 @@ export function BoardTable({
                 )}
                 onClick={() => onOpenOrder(order)}
                 onContextMenu={(e) => {
-                  if (!moveableColumns.length) return;
+                  const hasMenu =
+                    moveableColumns.length > 0 ||
+                    canSetTag ||
+                    canSetPriorityScore ||
+                    (notificationBadgeByOrder[order.id] === "rejected" &&
+                      Boolean(onResendApproval)) ||
+                    (canUseBoardActionButtons(role) &&
+                      filterButtonsForColumn(buttonAutomations, order.column_id)
+                        .length > 0);
+                  if (!hasMenu) return;
                   e.preventDefault();
+                  setTagSubOpen(false);
+                  setPrioritySubOpen(false);
                   setMenuState({ order, x: e.clientX, y: e.clientY });
                 }}
               >
@@ -518,6 +578,7 @@ export function BoardTable({
                             orderId={order.id}
                             title={order.title}
                             groupSize={groupSizeByOrder[order.id]}
+                            priorityScore={priorityScoreFromSpecs(order.specs)}
                             artworkUrl={
                               artworkField
                                 ? String(fieldValues[artworkField.id] ?? "").trim()
@@ -736,6 +797,9 @@ export function BoardTable({
             const productLabel = productField
               ? String(values[productField.id] ?? "").trim()
               : "";
+            const currentPriorityScore = priorityScoreFromSpecs(
+              menuState.order.specs
+            );
             return (
               <>
                 {notificationBadgeByOrder[menuState.order.id] === "rejected" &&
@@ -743,7 +807,10 @@ export function BoardTable({
                   <div
                     className={cn(
                       "shrink-0 py-1",
-                      (actionButtons.length > 0 || moveable.length > 0) &&
+                      (actionButtons.length > 0 ||
+                        moveable.length > 0 ||
+                        canSetTag ||
+                        canSetPriorityScore) &&
                         "border-b border-slate-100"
                     )}
                   >
@@ -793,6 +860,155 @@ export function BoardTable({
                         onError={(message) => onActionError?.(message)}
                       />
                     ))}
+                  </div>
+                ) : null}
+                {canSetTag ? (
+                  <div
+                    className={cn(
+                      "shrink-0 py-1",
+                      (moveable.length > 0 || canSetPriorityScore) &&
+                        "border-b border-slate-100"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTagSubOpen((v) => !v);
+                        setPrioritySubOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <Tag className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="flex-1 whitespace-nowrap">Tag</span>
+                      {menuState.order.tag?.name ? (
+                        <span className="max-w-[6rem] truncate text-xs text-slate-400">
+                          {menuState.order.tag.name}
+                        </span>
+                      ) : null}
+                      {tagSubOpen ? (
+                        <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      )}
+                    </button>
+                    {tagSubOpen ? (
+                      <div className="max-h-48 overflow-y-auto border-t border-slate-100 bg-slate-50/80 py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSetTag?.(menuState.order, null);
+                            setMenuState(null);
+                            setTagSubOpen(false);
+                          }}
+                          className={cn(
+                            "flex w-full px-3 py-1.5 pl-8 text-left text-sm hover:bg-slate-100",
+                            !menuState.order.tag_id
+                              ? "font-medium text-slate-900"
+                              : "text-slate-600"
+                          )}
+                        >
+                          None
+                        </button>
+                        {tags.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => {
+                              onSetTag?.(menuState.order, {
+                                id: t.id,
+                                name: t.name,
+                                color: t.color,
+                              });
+                              setMenuState(null);
+                              setTagSubOpen(false);
+                            }}
+                            className={cn(
+                              "flex w-full items-center gap-2 px-3 py-1.5 pl-8 text-left text-sm hover:bg-slate-100",
+                              menuState.order.tag_id === t.id
+                                ? "font-medium text-slate-900"
+                                : "text-slate-700"
+                            )}
+                          >
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
+                              style={{
+                                backgroundColor: t.color ?? "#e2e8f0",
+                              }}
+                            />
+                            <span className="truncate">{t.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {canSetPriorityScore ? (
+                  <div
+                    className={cn(
+                      "shrink-0 py-1",
+                      moveable.length > 0 && "border-b border-slate-100"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPrioritySubOpen((v) => !v);
+                        setTagSubOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <Flag className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="flex-1 whitespace-nowrap">Priority</span>
+                      {currentPriorityScore != null ? (
+                        <span className="tabular-nums text-xs text-slate-400">
+                          {currentPriorityScore}
+                        </span>
+                      ) : null}
+                      {prioritySubOpen ? (
+                        <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      )}
+                    </button>
+                    {prioritySubOpen ? (
+                      <div className="max-h-48 overflow-y-auto border-t border-slate-100 bg-slate-50/80 py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSetPriorityScore?.(menuState.order, null);
+                            setMenuState(null);
+                            setPrioritySubOpen(false);
+                          }}
+                          className={cn(
+                            "flex w-full px-3 py-1.5 pl-8 text-left text-sm hover:bg-slate-100",
+                            currentPriorityScore == null
+                              ? "font-medium text-slate-900"
+                              : "text-slate-600"
+                          )}
+                        >
+                          None
+                        </button>
+                        {PRIORITY_SCORES.map((score) => (
+                          <button
+                            key={score}
+                            type="button"
+                            onClick={() => {
+                              onSetPriorityScore?.(menuState.order, score);
+                              setMenuState(null);
+                              setPrioritySubOpen(false);
+                            }}
+                            className={cn(
+                              "flex w-full px-3 py-1.5 pl-8 text-left text-sm tabular-nums hover:bg-slate-100",
+                              currentPriorityScore === score
+                                ? "font-medium text-slate-900"
+                                : "text-slate-700"
+                            )}
+                          >
+                            {score}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {moveable.length > 0 ? (

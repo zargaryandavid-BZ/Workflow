@@ -23,6 +23,8 @@ export interface DueDateFieldsProps {
   error?: string | null;
   /** Informational CRM / pending-approval label (not a validation error). */
   hint?: string | null;
+  /** Show required marker (create-order / quote creation). */
+  required?: boolean;
 }
 
 export function DueDateFields({
@@ -38,6 +40,7 @@ export function DueDateFields({
   readOnly = false,
   error = null,
   hint = null,
+  required = false,
 }: DueDateFieldsProps) {
   const days =
     Number.isFinite(processingDays) && processingDays >= 1
@@ -48,7 +51,10 @@ export function DueDateFields({
 
   return (
     <div className="space-y-2">
-      <Label htmlFor={`${idPrefix}-due-mode`}>Due date</Label>
+      <Label htmlFor={`${idPrefix}-due-mode`}>
+        Due date
+        {required ? <span className="ml-0.5 text-red-500">*</span> : null}
+      </Label>
       <Select
         id={`${idPrefix}-due-mode`}
         value={mode}

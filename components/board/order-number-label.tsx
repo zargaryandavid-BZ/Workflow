@@ -2,12 +2,16 @@
 
 import { cn } from "@/lib/utils";
 import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
+import type { PriorityScore } from "@/lib/order-priority-score";
+import { PriorityScoreBadge } from "./priority-score-badge";
 
 interface OrderNumberLabelProps {
   orderId: string;
   title: string;
   groupSize?: number | null;
   artworkUrl?: string | null;
+  /** When set, shown as a colored circle left of the order number. */
+  priorityScore?: PriorityScore | null;
   className?: string;
   groupClassName?: string;
 }
@@ -22,6 +26,7 @@ export function OrderNumberLabel({
   title,
   groupSize,
   artworkUrl,
+  priorityScore = null,
   className,
   groupClassName,
 }: OrderNumberLabelProps) {
@@ -30,6 +35,7 @@ export function OrderNumberLabel({
   return (
     <span
       className={cn(
+        "inline-flex items-center gap-1",
         folderHasFiles ? "text-emerald-600" : undefined,
         className
       )}
@@ -39,6 +45,9 @@ export function OrderNumberLabel({
           : undefined
       }
     >
+      {priorityScore != null ? (
+        <PriorityScoreBadge score={priorityScore} />
+      ) : null}
       {formatShortOrderNumber(title)}
       {groupSize != null && groupSize >= 2 ? (
         <span
@@ -48,7 +57,6 @@ export function OrderNumberLabel({
             groupClassName
           )}
         >
-          {" "}
           ({groupSize})
         </span>
       ) : null}
