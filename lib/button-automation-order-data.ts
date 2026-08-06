@@ -9,6 +9,7 @@ import {
 } from "@/lib/constants";
 import {
   findOrderFormField,
+  formatFieldDisplayValue,
   orderFormFieldLabel,
   ORDER_FORM_PRINT_FIELD_NAMES,
 } from "@/lib/order-form";
@@ -201,9 +202,7 @@ function buildSpecRows(
       value:
         field.field_type === "checkbox"
           ? checkboxToYesNo(raw)
-          : typeof raw === "boolean"
-            ? (raw ? "Yes" : "No")
-            : String(raw),
+          : formatFieldDisplayValue(raw),
     });
   }
 
@@ -221,9 +220,7 @@ function buildSpecRows(
       value:
         field.field_type === "checkbox"
           ? checkboxToYesNo(raw)
-          : typeof raw === "boolean"
-            ? (raw ? "Yes" : "No")
-            : String(raw),
+          : formatFieldDisplayValue(raw),
     });
   }
 

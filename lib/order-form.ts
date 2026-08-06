@@ -61,6 +61,25 @@ export function isEmptyFieldValue(v: unknown): boolean {
   return v === null || v === undefined || v === "" || v === false;
 }
 
+/**
+ * Display boolean / checkbox-like custom-field values as Yes/No
+ * (proof page, job ticket, email) instead of raw `true` / `false`.
+ */
+export function formatFieldDisplayValue(raw: unknown): string {
+  if (typeof raw === "boolean") return raw ? "Yes" : "No";
+  if (typeof raw === "string") {
+    const v = raw.trim().toLowerCase();
+    if (v === "true" || v === "yes" || v === "on" || v === "checked") {
+      return "Yes";
+    }
+    if (v === "false" || v === "no" || v === "off" || v === "unchecked") {
+      return "No";
+    }
+  }
+  if (raw === null || raw === undefined) return "";
+  return String(raw);
+}
+
 export function isValidCustomerContact(value: string): boolean {
   const v = value.trim();
   if (!v) return false;
@@ -358,12 +377,10 @@ export function cardSpecFieldsForDisplay(
     if (!field) continue;
     const raw = fieldValues[field.id];
     if (isEmptyFieldValue(raw)) continue;
-    const display =
-      typeof raw === "boolean" ? (raw ? "Yes" : "No") : String(raw);
     rows.push({
       field,
       label: orderFormFieldLabel(field.name),
-      display,
+      display: formatFieldDisplayValue(raw),
     });
   }
 

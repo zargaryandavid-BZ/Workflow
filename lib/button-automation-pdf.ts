@@ -33,8 +33,8 @@ function textAt(
 
 function yesNo(value: string): string {
   const lower = value.trim().toLowerCase();
-  if (lower === "yes" || lower === "true") return "YES";
-  if (lower === "no" || lower === "false") return "NO";
+  if (lower === "yes" || lower === "true") return "Yes";
+  if (lower === "no" || lower === "false") return "No";
   return value;
 }
 

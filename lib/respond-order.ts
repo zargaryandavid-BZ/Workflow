@@ -5,6 +5,7 @@ import {
   DESIGNER_FIELD_NAME,
 } from "@/lib/constants";
 import {
+  formatFieldDisplayValue,
   isEmptyFieldValue,
   orderFormFieldLabel,
   ORDER_FORM_PRINT_FIELD_NAMES,
@@ -32,7 +33,7 @@ function pickFieldInsensitive(
   const lower = name.toLowerCase();
   for (const [key, value] of Object.entries(fields)) {
     if (key.toLowerCase() === lower && !isEmptyFieldValue(value)) {
-      return String(value);
+      return formatFieldDisplayValue(value);
     }
   }
   return null;
@@ -70,7 +71,10 @@ export function buildRespondOrderRows(
       continue;
     }
     if (isEmptyFieldValue(raw)) continue;
-    rows.push({ label: orderFormFieldLabel(name), value: String(raw) });
+    rows.push({
+      label: orderFormFieldLabel(name),
+      value: formatFieldDisplayValue(raw),
+    });
   }
 
   // Description appears last (bottom-left in the 2-column grid) before Designer.

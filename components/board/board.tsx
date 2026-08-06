@@ -2385,11 +2385,6 @@ export function Board({
               />
             );
             })}
-            {/* Lets last columns scroll to true horizontal center. */}
-            <div
-              className="w-[max(1rem,calc(50vw-10rem))] shrink-0"
-              aria-hidden
-            />
           </div>
         </div>
         </div>
