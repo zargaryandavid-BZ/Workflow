@@ -41,7 +41,14 @@ import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import { canDragInColumn, canDropIn, canDropOut, canSetBoardTagAndPriority, canUseBoardActionButtons } from "@/lib/permissions";
+import {
+  canDragInColumn,
+  canDropIn,
+  canLeaveColumn,
+  canMove,
+  canSetBoardTagAndPriority,
+  canUseBoardActionButtons,
+} from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
@@ -85,6 +92,7 @@ import type {
   Role,
 } from "@/lib/types";
 import type { PriorityScore } from "@/lib/order-priority-score";
+import { manualPrioritySpecsPatch } from "@/lib/order-priority-score";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { OrderOwner } from "./order-form-body";
 import type { CardNotificationBadge } from "@/lib/card-badges";
@@ -422,6 +430,8 @@ export function Board({
   const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
   const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() => new Set());
   const [columnSortById, setColumnSortById] = useState<ColumnSortMap>({});
+  const columnSortByIdRef = useRef<ColumnSortMap>({});
+  columnSortByIdRef.current = columnSortById;
   const [persistedUiReady, setPersistedUiReady] = useState(false);
   const isDesignerRole = role === "designer";
 
@@ -443,15 +453,25 @@ export function Board({
     if (isStartColumn(columnId, columns)) return;
     const columnDefault = defaultSortForColumn(false);
     setColumnSortById((prev) => {
+      let next: ColumnSortMap;
       if (mode === columnDefault) {
         if (!(columnId in prev)) return prev;
-        const next = { ...prev };
+        next = { ...prev };
         delete next[columnId];
-        return next;
+      } else if (prev[columnId] === mode) {
+        return prev;
+      } else {
+        next = { ...prev, [columnId]: mode };
       }
-      if (prev[columnId] === mode) return prev;
-      return { ...prev, [columnId]: mode };
+      columnSortByIdRef.current = next;
+      return next;
     });
+    // Reload first page with DB order matching the new sort (pagination fix).
+    columnCurrentPageRef.current = {
+      ...columnCurrentPageRef.current,
+      [columnId]: 0,
+    };
+    void fetchColumnOrdersRef.current(columnId, 0);
   }
 
   function setAllColumnsSortMode(mode: ColumnSortMode) {
@@ -461,7 +481,16 @@ export function Board({
       const colDefault = defaultSortForColumn(false);
       if (mode !== colDefault) next[col.id] = mode;
     }
+    columnSortByIdRef.current = next;
     setColumnSortById(next);
+    for (const col of columns) {
+      if (isStartColumn(col.id, columns)) continue;
+      columnCurrentPageRef.current = {
+        ...columnCurrentPageRef.current,
+        [col.id]: 0,
+      };
+      void fetchColumnOrdersRef.current(col.id, 0);
+    }
   }
   const visibleColumns = useMemo(
     () => columns.filter((c) => !hiddenColIds.has(c.id)),
@@ -943,7 +972,14 @@ export function Board({
       setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
 
       try {
-        const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}`;
+        const sortMode = getColumnSortMode(
+          columnSortByIdRef.current,
+          columnId,
+          {
+            isStartColumn: isStartColumn(columnId, columnsRef.current),
+          }
+        );
+        const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}&sort=${encodeURIComponent(sortMode)}`;
         let res: Response;
         try {
           res = await fetchWithAuth(url);
@@ -965,7 +1001,8 @@ export function Board({
         // Merge orders into central state. Page 0 replaces the column's
         // existing orders (handles refreshes); later pages append.
         // Cards already in this column but outside page 0 (e.g. just moved to
-        // the end) are preserved so they don't vanish until "Load more".
+        // the end) are preserved for manual sort only — keeping them with
+        // Moved/Created sorts breaks "newest on top" with pagination.
         setOrders((prev) => {
           let next: OrderWithRelations[];
           if (page === 0) {
@@ -975,9 +1012,12 @@ export function Board({
             const kept = prev.filter(
               (o) => o.column_id !== columnId && !fetchedIds.has(o.id)
             );
-            const overflow = prev.filter(
-              (o) => o.column_id === columnId && !fetchedIds.has(o.id)
-            );
+            const overflow =
+              sortMode === "manual"
+                ? prev.filter(
+                    (o) => o.column_id === columnId && !fetchedIds.has(o.id)
+                  )
+                : [];
             // Prefer recent optimistic move placement over a stale fetch row.
             const mergedFetched = data.orders.map((o) => {
               const rm = recentMovesRef.current.get(o.id);
@@ -1308,7 +1348,7 @@ export function Board({
   /** Returns the columns a card in `fromColumnId` can be moved to via right-click. */
   function getMoveableColumns(fromColumnId: string) {
     const fromCol = columnsById.get(fromColumnId);
-    if (!fromCol || !canDropOut(role, fromCol)) return [];
+    if (!fromCol || !canLeaveColumn(role, fromCol)) return [];
     return columns.filter((c) => c.id !== fromColumnId && canDropIn(role, c));
   }
 
@@ -1322,16 +1362,16 @@ export function Board({
     const toCol = columnsById.get(toColumnId);
     if (!fromCol || !toCol) return;
 
-    if (!canDropOut(role, fromCol)) {
-      flashPermissionError(
-        `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
-      );
-      return;
-    }
-    if (!canDropIn(role, toCol)) {
-      flashPermissionError(
-        `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
-      );
+    if (!canMove(role, fromCol, toCol)) {
+      if (!canLeaveColumn(role, fromCol)) {
+        flashPermissionError(
+          `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
+        );
+      } else {
+        flashPermissionError(
+          `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
+        );
+      }
       return;
     }
 
@@ -1495,10 +1535,10 @@ export function Board({
     score: PriorityScore | null
   ) {
     const snapshot = boardOrdersRef.current;
-    const specs = {
-      ...(order.specs ?? {}),
-      priority_score: score,
-    };
+    const specs = manualPrioritySpecsPatch(
+      (order.specs ?? {}) as Record<string, unknown>,
+      score
+    );
     patchOrderFields(order.id, { specs });
     try {
       await patchOrderApi(order.id, { specs });
@@ -1589,16 +1629,16 @@ export function Board({
     const toCol = columnsById.get(toColumnId);
     if (!fromCol || !toCol) return;
 
-    if (!canDropOut(role, fromCol)) {
-      flashPermissionError(
-        `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
-      );
-      return;
-    }
-    if (!canDropIn(role, toCol)) {
-      flashPermissionError(
-        `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
-      );
+    if (!canMove(role, fromCol, toCol)) {
+      if (!canLeaveColumn(role, fromCol)) {
+        flashPermissionError(
+          `You can't move orders out of "${fromCol.name}". Check the ↑ permission on that column.`
+        );
+      } else {
+        flashPermissionError(
+          `You can't drop orders into "${toCol.name}". Check the ↓ permission on that column.`
+        );
+      }
       return;
     }
 
@@ -1687,7 +1727,7 @@ export function Board({
     const source = columnsById.get(activeColumn);
     const target = columnsById.get(overColumn);
     if (!source || !target) return;
-    if (!canDropOut(role, source) || !canDropIn(role, target)) return;
+    if (!canMove(role, source, target)) return;
 
     // Visual-only during drag: update React state for both orders + searchResults,
     // and keep boardOrdersRef in sync so drop placement uses the live column.
@@ -1735,17 +1775,16 @@ export function Board({
     const to = columnsById.get(overColumn);
     const crossing = activeColumn !== overColumn;
     if (crossing) {
-      if (from && !canDropOut(role, from)) {
-        flashPermissionError(
-          `You can't move orders out of "${from.name}". Check the ↑ permission on that column.`
-        );
-        abortDrag();
-        return;
-      }
-      if (to && !canDropIn(role, to)) {
-        flashPermissionError(
-          `You can't drop orders into "${to.name}". Check the ↓ permission on that column.`
-        );
+      if (from && to && !canMove(role, from, to)) {
+        if (!canLeaveColumn(role, from)) {
+          flashPermissionError(
+            `You can't move orders out of "${from.name}". Check the ↑ permission on that column.`
+          );
+        } else {
+          flashPermissionError(
+            `You can't drop orders into "${to.name}". Check the ↓ permission on that column.`
+          );
+        }
         abortDrag();
         return;
       }
@@ -2374,12 +2413,22 @@ export function Board({
           <div className="flex h-full w-max min-w-full gap-3 px-4 pb-4">
             {visibleColumns.map((column, index) => {
               const columnOrders = ordersByColumn.get(column.id) ?? [];
+              const dragFromId = activeId
+                ? dragSourceColumnRef.current ?? findColumnId(activeId)
+                : null;
+              const dragFrom = dragFromId
+                ? columnsById.get(dragFromId)
+                : null;
+              const canAcceptDrop =
+                dragFrom != null
+                  ? canMove(role, dragFrom, column)
+                  : canDropIn(role, column);
               return (
               <Column
                 key={column.id}
                 column={column}
                 canDragCards={canDragInColumn(role, column)}
-                canAcceptDrop={canDropIn(role, column)}
+                canAcceptDrop={canAcceptDrop}
                 isDragActive={activeId !== null}
                 groupedView={groupedView}
                 orders={columnOrders}

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { enrichBoardOrders } from "@/lib/board-order-enrichment";
+import {
+  isColumnSortMode,
+  type ColumnSortMode,
+} from "@/lib/board-column-sort";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { OrderWithRelations } from "@/lib/types";
@@ -20,6 +24,7 @@ export interface ColumnOrdersResponse {
   hasMore: boolean;
   total: number;
   page: number;
+  sort: ColumnSortMode;
 }
 
 function isTransientUpstreamError(err: unknown): boolean {
@@ -45,6 +50,64 @@ function isTransientUpstreamError(err: unknown): boolean {
   );
 }
 
+/** Apply DB order so pagination matches the column sort dropdown. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applySortToOrdersQuery(query: any, sort: ColumnSortMode) {
+  switch (sort) {
+    case "manual":
+      return query.order("position", { ascending: true });
+    case "created_desc":
+      return query
+        .order("created_at", { ascending: false })
+        .order("position", { ascending: true });
+    case "created_asc":
+      return query
+        .order("created_at", { ascending: true })
+        .order("position", { ascending: true });
+    case "due_asc":
+      return query
+        .order("due_date", { ascending: true, nullsFirst: true })
+        .order("position", { ascending: true });
+    case "due_desc":
+      return query
+        .order("due_date", { ascending: false, nullsFirst: true })
+        .order("position", { ascending: true });
+    case "title_asc":
+      return query
+        .order("title", { ascending: true })
+        .order("position", { ascending: true });
+    case "title_desc":
+      return query
+        .order("title", { ascending: false })
+        .order("position", { ascending: true });
+    case "priority_desc":
+      return query
+        .order("specs->priority_score", {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order("position", { ascending: true });
+    case "priority_asc":
+      return query
+        .order("specs->priority_score", {
+          ascending: true,
+          nullsFirst: true,
+        })
+        .order("position", { ascending: true });
+    case "moved_asc":
+      return query
+        .order("last_moved_at", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: true })
+        .order("position", { ascending: true });
+    case "moved_desc":
+    default:
+      return query
+        .order("last_moved_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .order("position", { ascending: true });
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const ctx = await getTenantContext();
@@ -55,6 +118,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl;
     const columnId = searchParams.get("columnId");
     const page = Math.max(0, parseInt(searchParams.get("page") ?? "0", 10));
+    const sortParam = searchParams.get("sort");
+    const sort: ColumnSortMode = isColumnSortMode(sortParam)
+      ? sortParam
+      : "moved_desc";
 
     if (!columnId) {
       return NextResponse.json({ error: "columnId required" }, { status: 400 });
@@ -80,9 +147,12 @@ export async function GET(req: NextRequest) {
       query = query.eq("specs->>designer_id", ctx.userId);
     }
 
-    const { data: rawOrders, error: ordersError, count } = await query
-      .order("position", { ascending: true })
-      .range(from, to);
+    query = applySortToOrdersQuery(query, sort);
+
+    const { data: rawOrders, error: ordersError, count } = await query.range(
+      from,
+      to
+    );
 
     if (ordersError) {
       console.error("[column-orders] Failed to fetch orders:", ordersError);
@@ -109,6 +179,7 @@ export async function GET(req: NextRequest) {
       hasMore: false,
       total,
       page,
+      sort,
     };
 
     if (orders.length === 0) {
@@ -123,6 +194,7 @@ export async function GET(req: NextRequest) {
       hasMore,
       total,
       page,
+      sort,
     };
 
     return NextResponse.json(response);

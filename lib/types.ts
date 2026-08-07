@@ -139,6 +139,8 @@ export interface Customer {
   phone: string | null;
   company: string | null;
   preferred_channel: PreferredChannel;
+  /** Default board priority 1–5 for new orders from this customer. */
+  default_priority_score?: number | null;
   created_at: string;
   updated_at?: string;
 }
@@ -187,6 +189,11 @@ export interface OrderSpecs {
   due_date_status?: "set" | "pending_approval" | "none" | null;
   /** Board priority score 1–5 shown as a colored circle before the order number. */
   priority_score?: number | null;
+  /**
+   * How priority_score was set: `customer` = company default (may sync when
+   * company priority changes); `manual` = card override (never auto-updated).
+   */
+  priority_source?: "customer" | "manual" | null;
   [key: string]: unknown;
 }
 

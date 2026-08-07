@@ -298,6 +298,7 @@ function MoveButton({
         orderId,
         toColumnId: columnId,
         position: Date.now(),
+        bypassDropRoles: true,
       },
       { fromColumnId: sourceColumnId, columns }
     );

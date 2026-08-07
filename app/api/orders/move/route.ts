@@ -22,6 +22,8 @@ export async function POST(request: Request) {
     orderId?: string;
     toColumnId?: string;
     position?: number;
+    /** When true, any authenticated tenant role may move (staff follow-up buttons). */
+    bypassDropRoles?: boolean;
   };
 
   if (!body.orderId || !body.toColumnId) {
@@ -84,7 +86,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Column not found" }, { status: 404 });
   }
 
-  if (!canMove(ctx.role, typedFromColumn, typedColumn)) {
+  if (
+    !body.bypassDropRoles &&
+    !canMove(ctx.role, typedFromColumn, typedColumn)
+  ) {
     return NextResponse.json(
       { error: "You don't have permission to move this order here." },
       { status: 403 }

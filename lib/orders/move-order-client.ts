@@ -20,6 +20,8 @@ export async function requestOrderMove(
     orderId: string;
     toColumnId: string;
     position?: number;
+    /** Staff follow-up buttons (Missing Info / Approval) — any tenant role. */
+    bypassDropRoles?: boolean;
   },
   options?: {
     fromColumnId?: string | null;

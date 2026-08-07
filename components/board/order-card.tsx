@@ -609,10 +609,10 @@ export function OrderCard({
         <div className="min-w-0 flex-1">
           {/* 1) Order # | Product · Material  2) Source title  3) Customer */}
           <div className="min-w-0 w-full text-left">
-            <div className="flex w-full min-w-0 items-baseline justify-start gap-1 text-left">
+            <div className="flex w-full min-w-0 items-center justify-start gap-1 text-left">
               <span
                 className={cn(
-                  "inline-flex shrink-0 items-center justify-start gap-1 text-left text-[15px] font-bold leading-snug",
+                  "inline-flex shrink-0 items-center justify-start gap-1.5 text-left text-[15px] font-bold leading-none",
                   folderHasFiles ? "text-emerald-600" : "text-slate-900"
                 )}
                 title={
@@ -621,26 +621,24 @@ export function OrderCard({
                     : order.title
                 }
               >
-                <span className="inline-flex min-w-0 items-center gap-1">
-                  {currentPriorityScore != null ? (
-                    <PriorityScoreBadge score={currentPriorityScore} />
+                {currentPriorityScore != null ? (
+                  <PriorityScoreBadge score={currentPriorityScore} />
+                ) : null}
+                <span className="truncate leading-snug">
+                  {formatShortOrderNumber(order.title)}
+                  {groupSize != null && groupSize >= 2 ? (
+                    <span
+                      className={cn(
+                        "font-normal",
+                        folderHasFiles
+                          ? "text-emerald-500/80"
+                          : "text-slate-400"
+                      )}
+                    >
+                      {" "}
+                      ({groupSize})
+                    </span>
                   ) : null}
-                  <span className="truncate">
-                    {formatShortOrderNumber(order.title)}
-                    {groupSize != null && groupSize >= 2 ? (
-                      <span
-                        className={cn(
-                          "font-normal",
-                          folderHasFiles
-                            ? "text-emerald-500/80"
-                            : "text-slate-400"
-                        )}
-                      >
-                        {" "}
-                        ({groupSize})
-                      </span>
-                    ) : null}
-                  </span>
                 </span>
                 {hasApplication ? (
                   <ApplicationIcon

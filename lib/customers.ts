@@ -6,6 +6,12 @@ import {
 import { normalizeSmsPhone } from "@/lib/sms";
 import type { Customer, PreferredChannel } from "@/lib/types";
 import { normalizePreferredChannel } from "@/lib/preferred-channel";
+import {
+  parsePriorityScore,
+  customerPrioritySpecsPatch,
+  shouldSyncCustomerPriority,
+  type PriorityScore,
+} from "@/lib/order-priority-score";
 
 type Client = SupabaseClient;
 
@@ -26,7 +32,7 @@ export interface UpsertCustomerResult {
 }
 
 const CUSTOMER_SELECT =
-  "id, tenant_id, name, email, phone, company, preferred_channel, created_at, updated_at";
+  "id, tenant_id, name, email, phone, company, preferred_channel, default_priority_score, created_at, updated_at";
 
 export function normalizeCustomerContact(
   contact: string
@@ -607,6 +613,8 @@ export interface AdminCustomerUpdateInput {
   phone?: string | null;
   company?: string | null;
   preferred_channel?: PreferredChannel | null;
+  /** 1–5 or null to clear. */
+  default_priority_score?: PriorityScore | null;
 }
 
 export function validateAdminCustomerUpdate(
@@ -628,6 +636,14 @@ export function validateAdminCustomerUpdate(
     input.preferred_channel !== "email"
   ) {
     return "Preferred channel must be SMS or Email";
+  }
+
+  if (
+    input.default_priority_score !== undefined &&
+    input.default_priority_score !== null &&
+    parsePriorityScore(input.default_priority_score) == null
+  ) {
+    return "Priority must be 1–5 or empty";
   }
 
   return null;
@@ -690,7 +706,8 @@ export async function updateCustomerByAdmin(
   client: Client,
   tenantId: string,
   customerId: string,
-  input: AdminCustomerUpdateInput
+  input: AdminCustomerUpdateInput,
+  options?: { syncClient?: Client }
 ): Promise<Customer> {
   const validationError = validateAdminCustomerUpdate(input);
   if (validationError) throw new Error(validationError);
@@ -705,6 +722,10 @@ export async function updateCustomerByAdmin(
   const name = input.name.trim();
   const company = input.company?.trim() || null;
   const preferred_channel = normalizePreferredChannel(input.preferred_channel);
+  const default_priority_score =
+    input.default_priority_score === undefined
+      ? undefined
+      : parsePriorityScore(input.default_priority_score);
 
   if (email) {
     const emailMatch = await findCustomerByEmail(client, tenantId, email);
@@ -720,9 +741,20 @@ export async function updateCustomerByAdmin(
     }
   }
 
+  const patch: Record<string, unknown> = {
+    name,
+    email,
+    phone,
+    company,
+    preferred_channel,
+  };
+  if (input.default_priority_score !== undefined) {
+    patch.default_priority_score = default_priority_score;
+  }
+
   const { data: updated, error } = await client
     .from("customers")
-    .update({ name, email, phone, company, preferred_channel })
+    .update(patch)
     .eq("id", customerId)
     .eq("tenant_id", tenantId)
     .select(CUSTOMER_SELECT)
@@ -737,5 +769,133 @@ export async function updateCustomerByAdmin(
 
   await syncOrdersCustomerFields(client, tenantId, customerId, name, email, phone);
 
+  if (input.default_priority_score !== undefined) {
+    await syncCustomerPriorityToOpenOrders(
+      options?.syncClient ?? client,
+      tenantId,
+      customerId,
+      default_priority_score ?? null
+    );
+  }
+
   return updated as Customer;
+}
+
+/**
+ * Apply company default priority to open orders that are unset or still
+ * customer-sourced. Manual card overrides are never changed.
+ */
+export async function syncCustomerPriorityToOpenOrders(
+  client: Client,
+  tenantId: string,
+  customerId: string,
+  score: PriorityScore | null
+): Promise<number> {
+  const { data: orders, error } = await client
+    .from("orders")
+    .select("id, specs")
+    .eq("tenant_id", tenantId)
+    .eq("customer_id", customerId)
+    .is("removed_at", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (orders ?? []) as {
+    id: string;
+    specs: Record<string, unknown> | null;
+  }[];
+
+  const toUpdate = rows.filter((row) => shouldSyncCustomerPriority(row.specs));
+  if (toUpdate.length === 0) return 0;
+
+  let updatedCount = 0;
+  // Sequential updates keep jsonb patches correct per-order; batch via Promise.all.
+  const results = await Promise.all(
+    toUpdate.map(async (row) => {
+      const nextSpecs = customerPrioritySpecsPatch(row.specs, score);
+      const { error: updateError } = await client
+        .from("orders")
+        .update({ specs: nextSpecs })
+        .eq("id", row.id)
+        .eq("tenant_id", tenantId);
+      if (updateError) {
+        console.error(
+          "[customers] failed to sync priority on order",
+          row.id,
+          updateError.message
+        );
+        return false;
+      }
+      return true;
+    })
+  );
+  updatedCount = results.filter(Boolean).length;
+
+  if (updatedCount === 0 && toUpdate.length > 0) {
+    throw new Error(
+      "Could not update order cards with company priority. Try again or refresh."
+    );
+  }
+
+  return updatedCount;
+}
+
+/** Admin / pre-prod: set or clear company default board priority (1–5). */
+export async function updateCustomerDefaultPriority(
+  client: Client,
+  tenantId: string,
+  customerId: string,
+  score: PriorityScore | null,
+  options?: { syncClient?: Client }
+): Promise<{ customer: Customer; ordersUpdated: number }> {
+  if (score !== null && parsePriorityScore(score) == null) {
+    throw new Error("Priority must be 1–5 or empty");
+  }
+
+  const existing = await loadCustomerById(client, customerId);
+  if (!existing || existing.tenant_id !== tenantId) {
+    throw new Error("Customer not found");
+  }
+
+  const { data: updated, error } = await client
+    .from("customers")
+    .update({ default_priority_score: score })
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .select(CUSTOMER_SELECT)
+    .single();
+
+  if (error || !updated) {
+    throw new Error(error?.message ?? "Failed to update customer priority");
+  }
+
+  const syncClient = options?.syncClient ?? client;
+  const ordersUpdated = await syncCustomerPriorityToOpenOrders(
+    syncClient,
+    tenantId,
+    customerId,
+    score
+  );
+
+  return { customer: updated as Customer, ordersUpdated };
+}
+
+/** Load a customer's default board priority for new orders. */
+export async function getCustomerDefaultPriorityScore(
+  client: Client,
+  tenantId: string,
+  customerId: string
+): Promise<PriorityScore | null> {
+  const { data, error } = await client
+    .from("customers")
+    .select("default_priority_score")
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return parsePriorityScore(
+    (data as { default_priority_score?: unknown } | null)?.default_priority_score
+  );
 }

@@ -27,10 +27,10 @@ export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Width",
   "Height",
   "Finished Size",
-  "Need a Design",
   "Application",
   "Die Cut",
   "Perforation",
+  "Need a Design",
 ] as const;
 
 /** Custom fields kept off the order form (still available for webhooks / settings). */
@@ -42,6 +42,7 @@ const ORDER_FORM_HIDDEN_FIELD_NAMES = [
 /** Labels that differ from the stored custom-field name. */
 export const ORDER_FORM_FIELD_LABELS: Record<string, string> = {
   "Artwork (GDrive link)": "Final production",
+  "Color Mode": "Color",
 };
 
 /** Always required on the order form regardless of the custom-field toggle. */
@@ -106,7 +107,25 @@ export function findOrderFormField(
   name: string
 ): CustomField | undefined {
   const lower = name.toLowerCase();
-  return fields.find((f) => f.name.toLowerCase() === lower);
+  const matches = fields.filter((f) => f.name.toLowerCase() === lower);
+  if (matches.length === 0) {
+    // Legacy tenants stored the Die text input as a second "Die Cut" field.
+    if (lower === "die") {
+      return fields.find(
+        (f) =>
+          f.name.toLowerCase() === "die cut" && f.field_type === "text"
+      );
+    }
+    return undefined;
+  }
+  if (matches.length === 1) return matches[0];
+  if (lower === "die cut") {
+    return matches.find((f) => f.field_type === "checkbox") ?? matches[0];
+  }
+  if (lower === "die") {
+    return matches.find((f) => f.field_type === "text") ?? matches[0];
+  }
+  return matches[0];
 }
 
 /** Prefer "Order QTY", fall back to "Quantity". */
@@ -142,28 +161,21 @@ export function resolveOrderFormFields(customFields: CustomField[]) {
     ].map((n) => n.toLowerCase())
   );
 
-  const byName = new Map(
-    customFields
-      .filter((f) => !reserved.has(f.name.toLowerCase()))
-      .map((f) => [f.name.toLowerCase(), f])
-  );
-
   const printFields: CustomField[] = [];
-  const seenPrintNames = new Set<string>();
+  const seenIds = new Set<string>();
   for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
-    const field = byName.get(name.toLowerCase());
-    if (!field) continue;
-    const key = field.name.toLowerCase();
-    if (seenPrintNames.has(key)) continue;
-    seenPrintNames.add(key);
+    const field = findOrderFormField(
+      customFields.filter((f) => !reserved.has(f.name.toLowerCase())),
+      name
+    );
+    if (!field || seenIds.has(field.id)) continue;
+    seenIds.add(field.id);
     printFields.push(field);
   }
   for (const field of customFields) {
     if (reserved.has(field.name.toLowerCase())) continue;
-    if (printFields.some((f) => f.id === field.id)) continue;
-    const key = field.name.toLowerCase();
-    if (seenPrintNames.has(key)) continue;
-    seenPrintNames.add(key);
+    if (seenIds.has(field.id)) continue;
+    seenIds.add(field.id);
     printFields.push(field);
   }
 

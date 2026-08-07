@@ -350,6 +350,7 @@ function MoveToInProgressButton({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [moveBlockedFields, setMoveBlockedFields] = useState<
     MissingField[] | null
   >(null);
@@ -360,11 +361,13 @@ function MoveToInProgressButton({
   async function move() {
     if (!inProgress) return;
     setLoading(true);
+    setError(null);
     const result = await requestOrderMove(
       {
         orderId,
         toColumnId: inProgress.id,
         position: Date.now(),
+        bypassDropRoles: true,
       },
       { fromColumnId: sourceColumnId, columns }
     );
@@ -376,16 +379,21 @@ function MoveToInProgressButton({
     }
     if (result.missingFields?.length) {
       setMoveBlockedFields(result.missingFields);
+      return;
     }
+    setError(result.error ?? "Move was rejected.");
   }
 
   if (!inProgress) return null;
 
   return (
     <>
-      <Button type="button" size="sm" disabled={loading} onClick={move}>
-        {loading ? "Moving…" : "Move to In Progress"}
-      </Button>
+      <div className="space-y-2">
+        <Button type="button" size="sm" disabled={loading} onClick={move}>
+          {loading ? "Moving…" : "Move to In Progress"}
+        </Button>
+        {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      </div>
       {moveBlockedFields ? (
         <MoveBlockedModal
           missingFields={moveBlockedFields}
@@ -477,7 +485,7 @@ function HistoryEntry({
 
       {!isInternalNote && note.status === "responded" ? (
         <div className="border-t border-slate-100 pt-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="inline-block rounded-md bg-amber-200 px-2 py-1 text-xs font-bold uppercase tracking-wide text-black">
             Client reply
             {note.responded_at
               ? ` · ${formatDateTime(note.responded_at)}`

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantContext } from "@/lib/auth";
 import { isAccountManagerOwner } from "@/lib/order-owners";
-import { linkCustomerFromOrderFields } from "@/lib/customers";
+import { linkCustomerFromOrderFields, getCustomerDefaultPriorityScore } from "@/lib/customers";
 import {
   logActivity,
   resolveColumnForNewJobByProduct,
@@ -15,6 +15,7 @@ import {
 import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
+import { parsePriorityScore } from "@/lib/order-priority-score";
 
 async function loadOrderQtyFieldId(
   supabase: SupabaseClient,
@@ -214,6 +215,27 @@ export async function createOrder(
     }
   }
 
+  const baseSpecs: Record<string, unknown> = {
+    ...(body.specs ?? {}),
+    skus: prepareSkusForSave(normalizedSkus),
+  };
+  // Customer company default fills priority when the card doesn't already have one.
+  if (customerId && parsePriorityScore(baseSpecs.priority_score) == null) {
+    try {
+      const customerPriority = await getCustomerDefaultPriorityScore(
+        supabase,
+        tenantId,
+        customerId
+      );
+      if (customerPriority != null) {
+        baseSpecs.priority_score = customerPriority;
+        baseSpecs.priority_source = "customer";
+      }
+    } catch (err) {
+      console.error("[createOrder] customer priority lookup failed:", err);
+    }
+  }
+
   const { data: order, error } = await supabase
     .from("orders")
     .insert({
@@ -233,13 +255,7 @@ export async function createOrder(
       customer_id: customerId,
       priority: body.priority ?? "normal",
       due_date: staffDue.dueDate,
-      specs: mergeDueSpecsIntoOrderSpecs(
-        {
-          ...(body.specs ?? {}),
-          skus: prepareSkusForSave(normalizedSkus),
-        },
-        staffDue.specs
-      ),
+      specs: mergeDueSpecsIntoOrderSpecs(baseSpecs, staffDue.specs),
       position,
       created_by: createdBy,
       last_moved_at: new Date().toISOString(),

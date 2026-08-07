@@ -4,10 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Mail, Pencil, Phone, Search, X } from "lucide-react";
 import { CardDetailModal } from "@/components/board/card-detail-modal";
+import { PriorityScoreBadge } from "@/components/board/priority-score-badge";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
+import { canSetBoardTagAndPriority } from "@/lib/permissions";
+import {
+  PRIORITY_SCORES,
+  parsePriorityScore,
+  type PriorityScore,
+} from "@/lib/order-priority-score";
 import type {
   BoardColumn,
   CustomField,
@@ -25,7 +32,10 @@ function customerToForm(c: CustomerWithStats) {
     email: c.email ?? "",
     phone: c.phone ?? "",
     company: c.company ?? "",
-    preferred_channel: (c.preferred_channel === "email" ? "email" : "sms") as PreferredChannel,
+    preferred_channel: (c.preferred_channel === "email"
+      ? "email"
+      : "sms") as PreferredChannel,
+    default_priority_score: parsePriorityScore(c.default_priority_score),
   };
 }
 
@@ -48,6 +58,7 @@ export function CustomersManager({
 }) {
   const router = useRouter();
   const isAdmin = role === "admin";
+  const canSetPriority = canSetBoardTagAndPriority(role);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<CustomerWithStats | null>(null);
   const [editing, setEditing] = useState(false);
@@ -57,10 +68,16 @@ export function CustomersManager({
     phone: "",
     company: "",
     preferred_channel: "sms" as PreferredChannel,
+    default_priority_score: null as PriorityScore | null,
   });
   const [saving, setSaving] = useState(false);
+  const [savingPriority, setSavingPriority] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [priorityToast, setPriorityToast] = useState<string | null>(null);
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
+  const [priorityDraft, setPriorityDraft] = useState<PriorityScore | null>(
+    null
+  );
 
   const selectedOrders = selected ? (ordersByCustomer[selected.id] ?? []) : [];
 
@@ -77,8 +94,10 @@ export function CustomersManager({
   useEffect(() => {
     if (selected) {
       setForm(customerToForm(selected));
+      setPriorityDraft(parsePriorityScore(selected.default_priority_score));
       setEditing(false);
       setError(null);
+      setPriorityToast(null);
     }
   }, [selected]);
 
@@ -90,6 +109,19 @@ export function CustomersManager({
     setSelected(null);
     setEditing(false);
     setError(null);
+  }
+
+  function applyCustomerUpdate(customer: CustomerWithStats) {
+    if (!selected) return;
+    const next = {
+      ...selected,
+      ...customer,
+      order_count: selected.order_count,
+      last_order_at: selected.last_order_at,
+    };
+    setSelected(next);
+    setForm(customerToForm(next));
+    setPriorityDraft(parsePriorityScore(next.default_priority_score));
   }
 
   async function saveCustomer() {
@@ -106,6 +138,7 @@ export function CustomersManager({
         phone: form.phone.trim() || null,
         company: form.company.trim() || null,
         preferred_channel: form.preferred_channel,
+        default_priority_score: form.default_priority_score,
       }),
     });
 
@@ -122,17 +155,107 @@ export function CustomersManager({
     }
 
     if (json.customer) {
-      setSelected({
-        ...selected,
-        ...json.customer,
-        order_count: selected.order_count,
-        last_order_at: selected.last_order_at,
-      });
+      applyCustomerUpdate(json.customer);
     }
 
     setEditing(false);
     router.refresh();
   }
+
+  async function savePriorityOnly() {
+    if (!selected || !canSetPriority) return;
+    setSavingPriority(true);
+    setError(null);
+
+    const res = await fetch(`/api/customers/${selected.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        priorityOnly: true,
+        default_priority_score: priorityDraft,
+      }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      customer?: CustomerWithStats;
+      ordersUpdated?: number;
+    };
+
+    setSavingPriority(false);
+
+    if (!res.ok) {
+      setError(json.error ?? "Failed to save priority");
+      return;
+    }
+
+    if (json.customer) {
+      applyCustomerUpdate(json.customer);
+    }
+    if (typeof json.ordersUpdated === "number") {
+      setError(null);
+      setPriorityToast(
+        json.ordersUpdated > 0
+          ? `Priority applied to ${json.ordersUpdated} open order${json.ordersUpdated === 1 ? "" : "s"}. Refresh the board to see badges.`
+          : "Company priority saved. No open orders needed updating."
+      );
+    }
+    router.refresh();
+  }
+
+  /** Re-apply current company priority to open cards (same score still syncs). */
+  async function applyPriorityToOpenOrders() {
+    if (!selected || !canSetPriority) return;
+    setPriorityDraft(parsePriorityScore(selected.default_priority_score));
+    setSavingPriority(true);
+    setError(null);
+
+    const res = await fetch(`/api/customers/${selected.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        priorityOnly: true,
+        default_priority_score: parsePriorityScore(
+          selected.default_priority_score
+        ),
+      }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      customer?: CustomerWithStats;
+      ordersUpdated?: number;
+    };
+
+    setSavingPriority(false);
+
+    if (!res.ok) {
+      setError(json.error ?? "Failed to apply priority");
+      return;
+    }
+
+    if (json.customer) {
+      applyCustomerUpdate(json.customer);
+    }
+    if (typeof json.ordersUpdated === "number") {
+      setPriorityToast(
+        json.ordersUpdated > 0
+          ? `Priority applied to ${json.ordersUpdated} open order${json.ordersUpdated === 1 ? "" : "s"}. Refresh the board to see badges.`
+          : "Company priority saved. No open orders needed updating."
+      );
+    }
+    router.refresh();
+  }
+
+  const priorityDirty =
+    selected != null &&
+    priorityDraft !== parsePriorityScore(selected.default_priority_score);
+
+  const canApplyExisting =
+    canSetPriority &&
+    !editing &&
+    !priorityDirty &&
+    parsePriorityScore(selected?.default_priority_score) != null;
 
   return (
     <div>
@@ -172,6 +295,7 @@ export function CustomersManager({
           <ul className="divide-y divide-slate-100">
             {filteredCustomers.map((c) => {
               const contact = c.email ?? c.phone;
+              const score = parsePriorityScore(c.default_priority_score);
               return (
                 <li key={c.id}>
                   <button
@@ -180,8 +304,11 @@ export function CustomersManager({
                     className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-800">
-                        {c.name}
+                      <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                        {score != null ? (
+                          <PriorityScoreBadge score={score} size="sm" />
+                        ) : null}
+                        <span className="truncate">{c.name}</span>
                       </p>
                       {contact ? (
                         <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-500">
@@ -234,7 +361,12 @@ export function CustomersManager({
                 type="button"
                 variant="ghost"
                 onClick={() => {
-                  if (selected) setForm(customerToForm(selected));
+                  if (selected) {
+                    setForm(customerToForm(selected));
+                    setPriorityDraft(
+                      parsePriorityScore(selected.default_priority_score)
+                    );
+                  }
                   setEditing(false);
                   setError(null);
                 }}
@@ -246,6 +378,39 @@ export function CustomersManager({
                 {saving ? "Saving…" : "Save"}
               </Button>
             </>
+          ) : canSetPriority && priorityDirty ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  if (selected) {
+                    setPriorityDraft(
+                      parsePriorityScore(selected.default_priority_score)
+                    );
+                  }
+                  setError(null);
+                }}
+                disabled={savingPriority}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void savePriorityOnly()}
+                disabled={savingPriority}
+              >
+                {savingPriority ? "Saving…" : "Save priority"}
+              </Button>
+            </>
+          ) : canApplyExisting ? (
+            <Button
+              type="button"
+              onClick={() => void applyPriorityToOpenOrders()}
+              disabled={savingPriority}
+            >
+              {savingPriority ? "Applying…" : "Apply to open orders"}
+            </Button>
           ) : null
         }
       >
@@ -321,6 +486,33 @@ export function CustomersManager({
                     if that contact method is missing.
                   </p>
                 </div>
+                <div>
+                  <Label htmlFor="customer-priority">Board priority</Label>
+                  <select
+                    id="customer-priority"
+                    value={form.default_priority_score ?? ""}
+                    onChange={(e) => {
+                      const next = parsePriorityScore(e.target.value);
+                      setForm((f) => ({
+                        ...f,
+                        default_priority_score: next,
+                      }));
+                      setPriorityDraft(next);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+                  >
+                    <option value="">None</option>
+                    {PRIORITY_SCORES.map((score) => (
+                      <option key={score} value={score}>
+                        {score}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Applies to this customer&apos;s open orders (and new ones).
+                    Manual card priority is never overwritten.
+                  </p>
+                </div>
                 <p className="text-xs text-slate-500">
                   At least one of email or phone is required.
                 </p>
@@ -351,6 +543,50 @@ export function CustomersManager({
                     {selected.preferred_channel === "email" ? "Email" : "SMS"}
                   </span>
                 </p>
+                <div className="mt-3">
+                  <p className="text-sm font-medium text-slate-700">
+                    Board priority
+                  </p>
+                  {canSetPriority ? (
+                    <>
+                      <select
+                        value={priorityDraft ?? ""}
+                        onChange={(e) =>
+                          setPriorityDraft(parsePriorityScore(e.target.value))
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+                      >
+                        <option value="">None</option>
+                        {PRIORITY_SCORES.map((score) => (
+                          <option key={score} value={score}>
+                            {score}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Applies to open orders and new ones. Card-level priority
+                        overrides this for that order only.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-1 flex items-center gap-2 text-slate-800">
+                      {priorityDraft != null ? (
+                        <>
+                          <PriorityScoreBadge score={priorityDraft} />
+                          <span>{priorityDraft}</span>
+                        </>
+                      ) : (
+                        <span className="text-slate-500">None</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+                {error ? (
+                  <p className="mt-2 text-sm text-red-600">{error}</p>
+                ) : null}
+                {priorityToast ? (
+                  <p className="mt-2 text-sm text-emerald-700">{priorityToast}</p>
+                ) : null}
               </div>
             )}
 

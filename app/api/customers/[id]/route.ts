@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
-import { updateCustomerByAdmin } from "@/lib/customers";
+import {
+  updateCustomerByAdmin,
+  updateCustomerDefaultPriority,
+} from "@/lib/customers";
+import { canSetBoardTagAndPriority } from "@/lib/permissions";
+import { parsePriorityScore } from "@/lib/order-priority-score";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function PATCH(
   request: Request,
@@ -13,24 +19,96 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (ctx.role !== "admin") {
-    return NextResponse.json(
-      { error: "Only admins can edit customers." },
-      { status: 403 }
-    );
-  }
-
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
     email?: string | null;
     phone?: string | null;
     company?: string | null;
     preferred_channel?: "sms" | "email" | null;
+    default_priority_score?: number | string | null;
+    /** When true with only priority fields, pre-prod may update priority. */
+    priorityOnly?: boolean;
   };
 
   const supabase = await createClient();
+  let syncClient = supabase;
+  try {
+    syncClient = createAdminClient();
+  } catch (err) {
+    console.warn(
+      "[customers] admin client unavailable for priority sync; using user client",
+      err
+    );
+  }
+
+  const priorityOnly =
+    body.priorityOnly === true ||
+    (body.name === undefined &&
+      body.email === undefined &&
+      body.phone === undefined &&
+      body.company === undefined &&
+      body.preferred_channel === undefined &&
+      body.default_priority_score !== undefined);
 
   try {
+    if (priorityOnly) {
+      if (!canSetBoardTagAndPriority(ctx.role)) {
+        return NextResponse.json(
+          { error: "Only admin or pre-production can set customer priority." },
+          { status: 403 }
+        );
+      }
+      const score =
+        body.default_priority_score === null ||
+        body.default_priority_score === ""
+          ? null
+          : parsePriorityScore(body.default_priority_score);
+      if (
+        body.default_priority_score !== null &&
+        body.default_priority_score !== "" &&
+        score == null
+      ) {
+        return NextResponse.json(
+          { error: "Priority must be 1–5 or empty" },
+          { status: 400 }
+        );
+      }
+      const { customer, ordersUpdated } = await updateCustomerDefaultPriority(
+        supabase,
+        ctx.tenant.id,
+        id,
+        score,
+        { syncClient }
+      );
+      return NextResponse.json({ customer, ordersUpdated });
+    }
+
+    if (ctx.role !== "admin") {
+      return NextResponse.json(
+        { error: "Only admins can edit customers." },
+        { status: 403 }
+      );
+    }
+
+    const priorityScore =
+      body.default_priority_score === undefined
+        ? undefined
+        : body.default_priority_score === null ||
+            body.default_priority_score === ""
+          ? null
+          : parsePriorityScore(body.default_priority_score);
+    if (
+      body.default_priority_score !== undefined &&
+      body.default_priority_score !== null &&
+      body.default_priority_score !== "" &&
+      priorityScore == null
+    ) {
+      return NextResponse.json(
+        { error: "Priority must be 1–5 or empty" },
+        { status: 400 }
+      );
+    }
+
     const customer = await updateCustomerByAdmin(
       supabase,
       ctx.tenant.id,
@@ -41,7 +119,9 @@ export async function PATCH(
         phone: body.phone,
         company: body.company,
         preferred_channel: body.preferred_channel,
-      }
+        default_priority_score: priorityScore,
+      },
+      { syncClient }
     );
 
     return NextResponse.json({ customer });
@@ -52,7 +132,9 @@ export async function PATCH(
         ? 404
         : message.includes("required") ||
             message.includes("Invalid") ||
-            message.includes("already")
+            message.includes("already") ||
+            message.includes("Priority") ||
+            message.includes("order cards")
           ? 400
           : 400;
     return NextResponse.json({ error: message }, { status });

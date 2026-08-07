@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity, resolveColumnForNewJobByProduct } from "@/lib/automation";
-import { upsertCustomer } from "@/lib/customers";
+import { upsertCustomer, getCustomerDefaultPriorityScore } from "@/lib/customers";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
@@ -1473,6 +1473,20 @@ function buildCustomFieldValues(
     }
   }
 
+  // Filling Die text implies Die Cut is on.
+  const dieFieldDef = fields.get("die");
+  const dieCutFieldDef = fields.get("die_cut");
+  if (dieFieldDef && dieCutFieldDef) {
+    const dieVal = byFieldId.get(dieFieldDef.id);
+    const dieFilled =
+      dieVal !== null &&
+      dieVal !== undefined &&
+      String(dieVal).trim() !== "";
+    if (dieFilled && !byFieldId.has(dieCutFieldDef.id)) {
+      byFieldId.set(dieCutFieldDef.id, true);
+    }
+  }
+
   return [...byFieldId.entries()].map(([customFieldId, value]) => ({
     customFieldId,
     value,
@@ -2183,6 +2197,8 @@ interface CreateSingleJobParams {
   webhookSource: string;
   /** Payment / source link info → specs.billing (globe popover on card). */
   billing: OrderBillingInfo | null;
+  /** Company default board priority (1–5) when set on the customer. */
+  customerPriorityScore?: number | null;
 }
 
 async function createSingleWebhookJob(
@@ -2221,6 +2237,7 @@ async function createSingleWebhookJob(
     corrections,
     webhookSource,
     billing,
+    customerPriorityScore = null,
   } = params;
 
   const {
@@ -2304,6 +2321,14 @@ async function createSingleWebhookJob(
   if (totalItems > 1) {
     specs.webhook_item_index = itemIndex;
     specs.webhook_item_title = jobTitle;
+  }
+  if (
+    typeof customerPriorityScore === "number" &&
+    customerPriorityScore >= 1 &&
+    customerPriorityScore <= 5
+  ) {
+    specs.priority_score = customerPriorityScore;
+    specs.priority_source = "customer";
   }
 
   const { data: order, error: orderError } = await client
@@ -2533,6 +2558,7 @@ export async function createOrderFromWebhook(
   const fields = await resolveCustomFields(client, tenantId);
 
   let customerId: string | null = null;
+  let customerPriorityScore: number | null = null;
   if (customerInfo.customerEmail || customerInfo.customerPhone) {
     try {
       const { customerId: id } = await upsertCustomer(client, tenantId, {
@@ -2541,6 +2567,11 @@ export async function createOrderFromWebhook(
         phone: customerInfo.customerPhone,
       });
       customerId = id;
+      customerPriorityScore = await getCustomerDefaultPriorityScore(
+        client,
+        tenantId,
+        id
+      );
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to save customer";
@@ -2675,6 +2706,7 @@ export async function createOrderFromWebhook(
       corrections: allCorrections,
       webhookSource,
       billing,
+      customerPriorityScore,
     });
 
     nextPosition += 1000;

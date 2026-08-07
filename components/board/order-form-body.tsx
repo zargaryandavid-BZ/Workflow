@@ -23,6 +23,7 @@ import { DEFAULT_PROCESSING_DAYS, type DueDateMode } from "@/lib/due-date";
 import { PRIORITY_OPTIONS } from "@/lib/constants";
 import { normalizeCustomerContact } from "@/lib/customers";
 import {
+  findOrderFormField,
   isEmptyFieldValue,
   isValidCustomerContact,
   orderFormFieldLabel,
@@ -259,6 +260,19 @@ export function OrderFormBody({
       if (!isEmptyFieldValue(fieldValues[targetId])) {
         onFieldValueChange(targetId, "");
       }
+    }
+
+    // Filling Die text auto-checks Die Cut.
+    const dieField = findOrderFormField(customFields, "Die");
+    const dieCutField = findOrderFormField(customFields, "Die Cut");
+    if (
+      dieField &&
+      dieCutField &&
+      fieldId === dieField.id &&
+      !isEmptyFieldValue(value) &&
+      !fieldValues[dieCutField.id]
+    ) {
+      onFieldValueChange(dieCutField.id, true);
     }
   }
 
@@ -818,7 +832,12 @@ export function OrderFormBody({
                     name: field.name,
                     options: optionsWithCurrent,
                   }}
-                  label={orderFormFieldLabel(field.name)}
+                  label={
+                    field.name.toLowerCase() === "die cut" &&
+                    field.field_type === "text"
+                      ? "Die"
+                      : orderFormFieldLabel(field.name)
+                  }
                   value={current}
                   onChange={(v) => handleLinkedFieldChange(field.id, v)}
                   readOnly={readOnly}

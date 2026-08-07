@@ -7,11 +7,11 @@ import {
 interface PriorityScoreBadgeProps {
   score: PriorityScore;
   className?: string;
-  /** Slightly larger circle for card headers. */
+  /** `sm` for lists; `md` for order card headers (matches customer circle). */
   size?: "sm" | "md";
 }
 
-/** Colored circle with the priority number (1–5). */
+/** Solid colored circle with the priority number (1–5) — same style on cards + customers. */
 export function PriorityScoreBadge({
   score,
   className,
@@ -20,8 +20,8 @@ export function PriorityScoreBadge({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-bold tabular-nums leading-none",
-        size === "sm" ? "h-4 w-4 text-[9px]" : "h-5 w-5 text-xs",
+        "inline-flex shrink-0 items-center justify-center rounded-full font-bold tabular-nums leading-none text-white shadow-sm",
+        size === "sm" ? "h-[18px] w-[18px] text-[10px]" : "h-5 w-5 text-[11px]",
         PRIORITY_SCORE_BADGE_STYLES[score],
         className
       )}

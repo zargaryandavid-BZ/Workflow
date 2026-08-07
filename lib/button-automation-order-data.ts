@@ -154,9 +154,6 @@ function buildSpecRows(
     return "No";
   };
 
-  const byName = new Map(
-    customFields.map((f) => [f.name.toLowerCase(), f])
-  );
   const skip = new Set(
     [
       CUSTOMER_NAME_FIELD_NAME,
@@ -170,7 +167,7 @@ function buildSpecRows(
   );
 
   const textForName = (name: string): string => {
-    const field = byName.get(name.toLowerCase());
+    const field = findOrderFormField(customFields, name);
     const raw = field ? fieldValues[field.id] : undefined;
     return raw === null || raw === undefined ? "" : String(raw).trim();
   };
@@ -193,12 +190,16 @@ function buildSpecRows(
       }
       continue;
     }
-    const field = byName.get(name.toLowerCase());
+    const field = findOrderFormField(customFields, name);
     if (!field) continue;
     const raw = fieldValues[field.id];
     if (field.field_type !== "checkbox" && (raw === null || raw === undefined || raw === "")) continue;
+    const label =
+      field.name.toLowerCase() === "die cut" && field.field_type === "text"
+        ? "Die"
+        : orderFormFieldLabel(field.name);
     rows.push({
-      label: orderFormFieldLabel(field.name),
+      label,
       value:
         field.field_type === "checkbox"
           ? checkboxToYesNo(raw)

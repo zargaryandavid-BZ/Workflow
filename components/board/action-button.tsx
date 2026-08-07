@@ -13,6 +13,11 @@ export interface ActionButtonResult {
   refreshOrder?: boolean;
 }
 
+/** SMS buttons that open Prepare Shipment (portal / pickup). Others send SMS directly. */
+function isShippingSmsButton(name: string): boolean {
+  return /\b(ship|shipping|ready\s*to\s*ship|pickup|portal)\b/i.test(name);
+}
+
 interface ActionButtonProps {
   button: ButtonAutomation;
   orderId: string;
@@ -121,12 +126,32 @@ export function ActionButton({
       }
 
       if (button.action_type === "send_sms") {
-        if ((groupSize ?? 0) >= 2) {
-          setLoading(false);
-          setPendingConfirm(true);
+        // Shipping / ready-to-ship buttons collect boxes + send portal link.
+        // Other SMS buttons (e.g. Review) send the template SMS immediately.
+        if (isShippingSmsButton(button.name)) {
+          if ((groupSize ?? 0) >= 2) {
+            setLoading(false);
+            setPendingConfirm(true);
+            return;
+          }
+          openShippingModal();
           return;
         }
-        openShippingModal();
+
+        const res = await fetch(`/api/orders/${orderId}/actions/send-sms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ button_id: button.id }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.error ?? "Failed to send SMS");
+        }
+        const tagHint = /review/i.test(button.name) ? "Review" : "Texted";
+        onComplete({
+          message: `SMS sent (${tagHint})!`,
+          refreshOrder: true,
+        });
         return;
       }
 

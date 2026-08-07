@@ -24,6 +24,34 @@ function uniqueStrings(values: (string | null | undefined)[]): string[] {
   return [...new Set(values.filter((v): v is string => Boolean(v?.trim())))];
 }
 
+/**
+ * Resolve SMS recipients for a rule.
+ * - Empty sms_to_phone → use order/staff phones from recipient setting
+ * - Fixed number → that number only
+ * - Template like {{customer_phone}} → render, then fall back to order phones if empty
+ */
+function resolveRuleSmsPhones(
+  rule: NotificationRule,
+  templateContext: ReturnType<typeof buildNotificationRuleTemplateContext>,
+  recipientPhones: string[]
+): string[] {
+  const raw = rule.sms_to_phone?.trim();
+  if (!raw) return recipientPhones;
+
+  const rendered = raw.includes("{{")
+    ? renderNotificationRuleTemplate(raw, templateContext).trim()
+    : raw;
+
+  if (!rendered || rendered.includes("{{")) {
+    return recipientPhones;
+  }
+  // Unresolved / invalid placeholders must not block customer SMS.
+  if (validateSmsRecipient(rendered)) {
+    return recipientPhones;
+  }
+  return [rendered];
+}
+
 interface StaffProfile {
   id: string;
   email: string | null;
@@ -313,11 +341,7 @@ export async function fireNotificationRules(
 
     const { emails, phones: recipientPhones } = resolveRecipients(rule.recipient, exportData, staffProfiles);
 
-    // If a fixed SMS contact number is set on the rule, send only to that number.
-    // Otherwise fall back to phone(s) resolved from the order.
-    const phones = rule.sms_to_phone?.trim()
-      ? [rule.sms_to_phone.trim()]
-      : recipientPhones;
+    const phones = resolveRuleSmsPhones(rule, templateContext, recipientPhones);
 
     console.log(
       `[NotifRule] rule "${rule.name}" recipient=${rule.recipient}` +
@@ -455,7 +479,7 @@ export async function fireNewJobNotificationRules(
     }
 
     const { emails, phones: recipientPhones2 } = resolveRecipients(rule.recipient, exportData, staffProfiles);
-    const phones2 = rule.sms_to_phone?.trim() ? [rule.sms_to_phone.trim()] : recipientPhones2;
+    const phones2 = resolveRuleSmsPhones(rule, templateContext, recipientPhones2);
 
     if (rule.send_email && emails.length > 0) {
       const subject = normalizeFeedbackEmailSubject(
