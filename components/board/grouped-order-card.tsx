@@ -2,6 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   CalendarClock,
   ChevronDown,
@@ -13,7 +15,12 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PRIORITY_STYLES } from "@/lib/constants";
-import { itemLabel, sharedOrderTitle, type GroupEntry } from "@/lib/group-orders";
+import {
+  groupDragId,
+  itemLabel,
+  sharedOrderTitle,
+  type GroupEntry,
+} from "@/lib/group-orders";
 import { customerNameFromOrder } from "@/lib/notification-messages";
 import { cn, formatDateShort } from "@/lib/utils";
 import type { CustomField, Designer, OrderWithRelations } from "@/lib/types";
@@ -33,6 +40,9 @@ interface ColumnOption {
 
 interface GroupedOrderCardProps {
   entry: GroupEntry;
+  /** Column the group is rendered in — required for drag id when canDrag. */
+  columnId?: string;
+  canDrag?: boolean;
   onOpen: (order: OrderWithRelations) => void;
   customFields?: CustomField[];
   fieldValuesByOrder?: Record<string, Record<string, unknown>>;
@@ -51,6 +61,8 @@ interface GroupedOrderCardProps {
 
 export function GroupedOrderCard({
   entry,
+  columnId,
+  canDrag = false,
   onOpen,
   customFields = [],
   fieldValuesByOrder = {},
@@ -63,6 +75,22 @@ export function GroupedOrderCard({
   highlightedOrderId = null,
 }: GroupedOrderCardProps) {
   const { key, orders } = entry;
+  const sortableId =
+    columnId && canDrag ? groupDragId(columnId, key) : `group-preview:${key}`;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: sortableId, disabled: !canDrag || !columnId });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -183,17 +211,29 @@ export function GroupedOrderCard({
     setMoveSubOpen(false);
   }
 
+  function setRefs(node: HTMLDivElement | null) {
+    setNodeRef(node);
+    ref.current = node;
+  }
+
   return (
     <div
-      ref={ref}
+      ref={setRefs}
+      style={style}
       className="relative shrink-0"
       data-order-ids={orders.map((o) => o.id).join(",")}
+      {...attributes}
+      {...(canDrag ? listeners : {})}
     >
       <div
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (isDragging) return;
+          setOpen((v) => !v);
+        }}
         onContextMenu={handleContextMenu}
         className={cn(
-          "cursor-pointer rounded-md border-2 border-blue-200 bg-blue-50 px-3 py-3.5 shadow-sm transition-shadow hover:shadow-md",
+          "rounded-md border-2 border-blue-200 bg-blue-50 px-3 py-3.5 shadow-sm transition-shadow hover:shadow-md",
+          canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
           open && "ring-2 ring-blue-400 ring-offset-1",
           containsHighlight && "card-just-closed"
         )}
@@ -259,7 +299,10 @@ export function GroupedOrderCard({
       </div>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-full z-40 mt-1 rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div
+          className="absolute left-0 right-0 top-full z-40 mt-1 rounded-lg border border-slate-200 bg-white shadow-xl"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2.5">
             <span className="text-[13px] font-semibold text-slate-700">
               {key} — {orders.length} items

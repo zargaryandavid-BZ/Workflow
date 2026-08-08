@@ -1,5 +1,6 @@
 import "server-only";
 
+import { logActivity } from "@/lib/automation";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
 import {
   buildNotificationRuleTemplateContext,
@@ -12,6 +13,8 @@ import {
   normalizeFeedbackEmailSubject,
   normalizeFeedbackSmsText,
 } from "@/lib/notification-messages";
+import { insertOrderSmsMessage } from "@/lib/order-sms";
+import { actionTagForButton, addOrderTag } from "@/lib/order-tags";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   normalizeSmsPhone,
@@ -170,6 +173,79 @@ async function fetchProfileEmails(
     email: emailMap.get(m.user_id) ?? null,
     role: m.role,
   }));
+}
+
+async function deliverCustomerSmsFromRule(params: {
+  supabase: ReturnType<typeof createAdminClient>;
+  rule: NotificationRule;
+  orderId: string;
+  tenantId: string;
+  phones: string[];
+  smsText: string;
+  orderSpecs: Record<string, unknown>;
+}): Promise<boolean> {
+  const { supabase, rule, orderId, tenantId, phones, smsText, orderSpecs } =
+    params;
+  let anySent = false;
+  let lastPhone: string | null = null;
+  let lastSid: string | null = null;
+
+  for (const raw of phones) {
+    const validationError = validateSmsRecipient(raw);
+    if (validationError) {
+      console.warn(
+        `[NotifRule] SMS skipped — ${validationError} (number: ${raw})`
+      );
+      continue;
+    }
+    const to = normalizeSmsPhone(raw);
+    const result = await sendSms({ to, body: smsText });
+    if (!result.sent) {
+      console.error(
+        `[NotifRule] SMS failed rule ${rule.id} (${rule.name}) → ${to}:`,
+        result.error ?? "unknown"
+      );
+      continue;
+    }
+    anySent = true;
+    lastPhone = to;
+    lastSid = result.sid ?? null;
+    await insertOrderSmsMessage(supabase, {
+      tenantId,
+      orderId,
+      direction: "outbound",
+      phone: to,
+      body: smsText,
+      twilioSid: result.sid ?? null,
+      actorUserId: null,
+    });
+  }
+
+  if (!anySent) return false;
+
+  // Customer SMS on enter: Review rules → Review tag; otherwise Texted.
+  if (rule.recipient === "customer" || rule.recipient === "both") {
+    const tag = actionTagForButton(rule.name, "Texted");
+    await addOrderTag(supabase, orderId, tenantId, tag, orderSpecs);
+  }
+
+  await logActivity(supabase, {
+    tenantId,
+    orderId,
+    actor: null,
+    action: "texted",
+    metadata: {
+      ruleId: rule.id,
+      buttonName: rule.name,
+      phone: lastPhone,
+      channel: "sms",
+      messageBody: smsText,
+      twilioSid: lastSid,
+      source: "notification_rule",
+    },
+  });
+
+  return true;
 }
 
 function resolveRecipients(
@@ -378,19 +454,15 @@ export async function fireNotificationRules(
         renderNotificationRuleTemplate(rule.sms_body, templateContext),
         templateContext.order_number
       );
-
-      for (const raw of phones) {
-        const validationError = validateSmsRecipient(raw);
-        if (validationError) {
-          console.warn(`[NotifRule] SMS skipped — ${validationError} (number: ${raw})`);
-          continue;
-        }
-        const to = normalizeSmsPhone(raw);
-        await sendSms({ to, body: smsText }).catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[NotifRule] SMS error rule ${rule.id}:`, message);
-        });
-      }
+      await deliverCustomerSmsFromRule({
+        supabase,
+        rule,
+        orderId,
+        tenantId,
+        phones,
+        smsText,
+        orderSpecs: (exportData.order.specs ?? {}) as Record<string, unknown>,
+      });
     }
 
     if (rule.send_webhook && rule.webhook_url?.trim()) {
@@ -505,19 +577,15 @@ export async function fireNewJobNotificationRules(
         renderNotificationRuleTemplate(rule.sms_body, templateContext),
         templateContext.order_number
       );
-
-      for (const raw of phones2) {
-        const validationError = validateSmsRecipient(raw);
-        if (validationError) {
-          console.warn(`[NotifRule] SMS skipped — ${validationError} (number: ${raw})`);
-          continue;
-        }
-        const to = normalizeSmsPhone(raw);
-        await sendSms({ to, body: smsText2 }).catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[NotifRule] SMS error rule ${rule.id}:`, message);
-        });
-      }
+      await deliverCustomerSmsFromRule({
+        supabase,
+        rule,
+        orderId,
+        tenantId,
+        phones: phones2,
+        smsText: smsText2,
+        orderSpecs: (exportData.order.specs ?? {}) as Record<string, unknown>,
+      });
     }
 
     if (rule.send_webhook && rule.webhook_url?.trim()) {

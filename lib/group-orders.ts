@@ -13,6 +13,24 @@ export interface GroupEntry {
 
 export type ColumnEntry = SingleEntry | GroupEntry;
 
+const GROUP_DRAG_PREFIX = "group:";
+
+/** Stable dnd-kit id for a same-column group card. */
+export function groupDragId(columnId: string, key: string): string {
+  return `${GROUP_DRAG_PREFIX}${columnId}:${key}`;
+}
+
+/** Parse a group drag id; returns null for order/column ids. */
+export function parseGroupDragId(
+  id: string
+): { columnId: string; key: string } | null {
+  if (!id.startsWith(GROUP_DRAG_PREFIX)) return null;
+  const rest = id.slice(GROUP_DRAG_PREFIX.length);
+  const sep = rest.indexOf(":");
+  if (sep <= 0 || sep === rest.length - 1) return null;
+  return { columnId: rest.slice(0, sep), key: rest.slice(sep + 1) };
+}
+
 /**
  * Returns the grouping key for an order:
  *  1. specs.webhook_order_number  — set by multi-item webhooks

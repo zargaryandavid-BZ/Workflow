@@ -217,42 +217,37 @@ function reconstructMessage(
   };
 }
 
-function SmsThread({
+type TimelineSms = {
+  kind: "sms";
+  id: string;
+  created_at: string;
+  message: OrderSmsMessage;
+};
+
+type TimelineActivity = {
+  kind: "activity";
+  id: string;
+  created_at: string;
+  msg: SentMessageEntry;
+};
+
+type TimelineItem = TimelineSms | TimelineActivity;
+
+function SmsComposer({
   orderId,
   contactPhone,
+  smsConfigured,
+  onSent,
 }: {
   orderId: string;
   contactPhone?: string | null;
+  smsConfigured: boolean;
+  onSent: (message: OrderSmsMessage) => void;
 }) {
-  const [messages, setMessages] = useState<OrderSmsMessage[]>([]);
-  const [smsConfigured, setSmsConfigured] = useState(true);
-  const [loading, setLoading] = useState(true);
   const [phone, setPhone] = useState(contactPhone?.trim() ?? "");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/orders/${orderId}/sms`);
-      const json = (await res.json()) as {
-        messages?: OrderSmsMessage[];
-        smsConfigured?: boolean;
-        error?: string;
-      };
-      if (!res.ok) throw new Error(json.error ?? "Failed to load SMS");
-      setMessages(json.messages ?? []);
-      setSmsConfigured(json.smsConfigured !== false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load SMS");
-    } finally {
-      setLoading(false);
-    }
-  }, [orderId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   useEffect(() => {
     if (contactPhone?.trim() && !phone.trim()) {
@@ -279,11 +274,7 @@ function SmsThread({
       };
       if (!res.ok) throw new Error(json.error ?? "Failed to send SMS");
       setBody("");
-      if (json.message) {
-        setMessages((prev) => [...prev, json.message!]);
-      } else {
-        await load();
-      }
+      if (json.message) onSent(json.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send SMS");
     } finally {
@@ -292,112 +283,140 @@ function SmsThread({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50/40 p-4">
-      <div className="flex items-center gap-2">
-        <MessageSquare className="h-4 w-4 text-sky-700" />
-        <h3 className="text-sm font-semibold text-slate-800">SMS conversation</h3>
-      </div>
-
-      {loading ? (
-        <p className="text-xs text-slate-500">Loading SMS…</p>
-      ) : messages.length === 0 ? (
-        <p className="text-xs text-slate-500">
-          No SMS yet. Send a manual message below — client replies appear here
-          when Twilio inbound is configured.
+    <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/40 p-4">
+      <p className="text-xs font-semibold text-slate-700">Send manual SMS</p>
+      {!smsConfigured ? (
+        <p className="text-xs text-amber-700">
+          Twilio is not configured. Add TWILIO_* env vars to send SMS.
         </p>
-      ) : (
-        <div className="max-h-72 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-white p-3">
-          {messages.map((m) => {
-            const outbound = m.direction === "outbound";
-            return (
-              <div
-                key={m.id}
-                className={cn(
-                  "flex",
-                  outbound ? "justify-end" : "justify-start"
-                )}
-              >
-                <div
-                  className={cn(
-                    "max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed",
-                    outbound
-                      ? "bg-sky-600 text-white"
-                      : "bg-slate-100 text-slate-800"
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "mb-1 text-[10px] font-medium",
-                      outbound ? "text-sky-100" : "text-slate-500"
-                    )}
-                  >
-                    {outbound ? "You" : "Client"}
-                    {" · "}
-                    {formatDateTime(m.created_at)}
-                    {outbound && m.actor_name ? ` · ${m.actor_name}` : null}
-                  </div>
-                  <pre className="whitespace-pre-wrap font-sans">{m.body}</pre>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="space-y-2 border-t border-sky-100 pt-3">
-        <p className="text-xs font-semibold text-slate-700">Send manual SMS</p>
-        {!smsConfigured ? (
-          <p className="text-xs text-amber-700">
-            Twilio is not configured. Add TWILIO_* env vars to send SMS.
-          </p>
-        ) : null}
-        <input
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="+1 818 555 1234"
-          className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300"
-        />
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={3}
-          placeholder="Type your message…"
-          className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300"
-        />
-        {error ? (
-          <p className="rounded bg-red-50 px-2 py-1 text-xs text-red-600">
-            {error}
-          </p>
-        ) : null}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => void handleSend()}
-            disabled={
-              sending || !smsConfigured || !phone.trim() || !body.trim()
-            }
-            className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
-          >
-            {sending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Send className="h-3.5 w-3.5" />
-            )}
-            {sending ? "Sending…" : "Send SMS"}
-          </button>
-        </div>
+      ) : null}
+      <input
+        type="tel"
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        placeholder="+1 818 555 1234"
+        className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300"
+      />
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={3}
+        placeholder="Type your message…"
+        className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300"
+      />
+      {error ? (
+        <p className="rounded bg-red-50 px-2 py-1 text-xs text-red-600">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => void handleSend()}
+          disabled={sending || !smsConfigured || !phone.trim() || !body.trim()}
+          className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+        >
+          {sending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Send className="h-3.5 w-3.5" />
+          )}
+          {sending ? "Sending…" : "Send SMS"}
+        </button>
       </div>
     </div>
   );
 }
 
+function SmsTimelineCard({ message }: { message: OrderSmsMessage }) {
+  const outbound = message.direction === "outbound";
+  return (
+    <article
+      className={cn(
+        "rounded-lg border p-4 shadow-sm",
+        outbound
+          ? "border-sky-200 bg-sky-50/50"
+          : "border-violet-200 bg-violet-50/40"
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                outbound
+                  ? "bg-sky-100 text-sky-700"
+                  : "bg-violet-100 text-violet-700"
+              )}
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              SMS
+            </span>
+            <h3 className="text-sm font-semibold text-slate-800">
+              {outbound ? "SMS sent" : "Customer replied SMS"}
+            </h3>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {outbound ? "To" : "From"}: {message.phone}
+          </p>
+        </div>
+        <div className="text-right text-xs text-slate-400">
+          <div>{formatDateTime(message.created_at)}</div>
+          {outbound && message.actor_name ? (
+            <div className="mt-0.5">by {message.actor_name}</div>
+          ) : !outbound ? (
+            <div className="mt-0.5">by Customer</div>
+          ) : null}
+        </div>
+      </div>
+      <pre
+        className={cn(
+          "mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-md px-3 py-2 text-xs leading-relaxed",
+          outbound
+            ? "bg-white text-slate-700"
+            : "bg-white text-slate-800"
+        )}
+      >
+        {message.body}
+      </pre>
+    </article>
+  );
+}
+
 export function HistoryTab(props: HistoryTabProps) {
   const { activity, contactEmail, contactPhone, orderId } = props;
-  // Keep email/both/unknown. Also keep SMS from the activity log when they were
-  // not migrated into order_sms_messages (new sends stamp twilioSid and appear
-  // in the SMS conversation thread instead).
-  const messages = sentMessagesFromActivity(activity).filter((m) => {
+  const [smsMessages, setSmsMessages] = useState<OrderSmsMessage[]>([]);
+  const [smsConfigured, setSmsConfigured] = useState(true);
+  const [smsLoading, setSmsLoading] = useState(true);
+  const [smsError, setSmsError] = useState<string | null>(null);
+
+  const loadSms = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/sms`);
+      const json = (await res.json()) as {
+        messages?: OrderSmsMessage[];
+        smsConfigured?: boolean;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "Failed to load SMS");
+      setSmsMessages(json.messages ?? []);
+      setSmsConfigured(json.smsConfigured !== false);
+      setSmsError(null);
+    } catch (err) {
+      setSmsError(err instanceof Error ? err.message : "Failed to load SMS");
+    } finally {
+      setSmsLoading(false);
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    void loadSms();
+  }, [loadSms]);
+
+  // Email/both + legacy SMS that were never stored in order_sms_messages.
+  // New SMS (with Twilio SID) live only in the SMS thread so they aren't duplicated.
+  const activityMessages = sentMessagesFromActivity(activity).filter((m) => {
     if (
       m.channel === "email" ||
       m.channel === "both" ||
@@ -410,25 +429,61 @@ export function HistoryTab(props: HistoryTabProps) {
     const meta = (log?.metadata ?? {}) as Record<string, unknown>;
     const sid =
       typeof meta.twilioSid === "string" ? meta.twilioSid.trim() : "";
-    // Already represented in SmsThread / order_sms_messages.
     if (sid) return false;
     return true;
   });
 
+  const timeline: TimelineItem[] = [
+    ...smsMessages.map(
+      (message): TimelineSms => ({
+        kind: "sms",
+        id: `sms-${message.id}`,
+        created_at: message.created_at,
+        message,
+      })
+    ),
+    ...activityMessages.map(
+      (msg): TimelineActivity => ({
+        kind: "activity",
+        id: `act-${msg.id}`,
+        created_at: msg.created_at,
+        msg,
+      })
+    ),
+  ].sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   return (
     <div className="space-y-4">
-      <SmsThread orderId={orderId} contactPhone={contactPhone} />
-
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-slate-800">
-          Email &amp; prior messages
+          All communication
         </h3>
-        {messages.length === 0 ? (
+        {smsError ? (
+          <p className="rounded bg-red-50 px-2 py-1 text-xs text-red-600">
+            {smsError}
+          </p>
+        ) : null}
+        {smsLoading && timeline.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-400">
+            Loading communication…
+          </p>
+        ) : timeline.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            No email or prior SMS messages logged yet.
+            No messages yet. SMS you send and customer replies both show here
+            (replies need Twilio inbound configured).
           </div>
         ) : (
-          messages.map((msg) => {
+          timeline.map((item) => {
+            if (item.kind === "sms") {
+              return (
+                <SmsTimelineCard key={item.id} message={item.message} />
+              );
+            }
+
+            const msg = item.msg;
             const content = reconstructMessage(msg, activity, props);
             const to =
               msg.to ??
@@ -441,7 +496,7 @@ export function HistoryTab(props: HistoryTabProps) {
 
             return (
               <article
-                key={msg.id}
+                key={item.id}
                 className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -461,7 +516,7 @@ export function HistoryTab(props: HistoryTabProps) {
                         {channelLabel(msg.channel)}
                       </span>
                       <h3 className="text-sm font-semibold text-slate-800">
-                        {msg.title}
+                        {msg.channel === "sms" ? "SMS sent" : msg.title}
                       </h3>
                     </div>
                     {to ? (
@@ -504,6 +559,17 @@ export function HistoryTab(props: HistoryTabProps) {
           })
         )}
       </div>
+
+      <SmsComposer
+        orderId={orderId}
+        contactPhone={contactPhone}
+        smsConfigured={smsConfigured}
+        onSent={(message) => {
+          setSmsMessages((prev) =>
+            prev.some((m) => m.id === message.id) ? prev : [...prev, message]
+          );
+        }}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity, onEnterColumn } from "@/lib/automation";
@@ -197,33 +197,46 @@ export async function POST(request: Request) {
   }
 
   if (isColumnChange) {
-    // Fire activity logging and automations after the response is sent — they
-    // don't affect the outcome and were the biggest source of latency.
-    logActivity(supabase, {
-      tenantId: ctx.tenant.id,
-      orderId: typedOrder.id,
-      actor: ctx.userId,
-      action: "moved",
-      metadata: {
-        from: fromColumnId,
-        to: body.toColumnId,
-        fromName: typedFromColumn.name,
-        toName: typedColumn.name,
-      },
-    }).catch((err: unknown) => {
-      console.error("[move] logActivity failed:", err instanceof Error ? err.message : err);
-    });
-    onEnterColumn(supabase, updated as Order, typedColumn, ctx.tenant.name).catch(
-      (err: unknown) => {
-        console.error("[move] onEnterColumn failed:", err instanceof Error ? err.message : err);
+    // Keep the move response fast, but use after() so Vercel/Node doesn't
+    // freeze the isolate before SMS / column automations finish.
+    const movedOrder = updated as Order;
+    const actorUserId = ctx.userId;
+    const tenantName = ctx.tenant.name;
+    after(async () => {
+      try {
+        await logActivity(supabase, {
+          tenantId,
+          orderId: typedOrder.id,
+          actor: actorUserId,
+          action: "moved",
+          metadata: {
+            from: fromColumnId,
+            to: body.toColumnId,
+            fromName: typedFromColumn.name,
+            toName: typedColumn.name,
+          },
+        });
+      } catch (err: unknown) {
+        console.error(
+          "[move] logActivity failed:",
+          err instanceof Error ? err.message : err
+        );
       }
-    );
-    fireNotificationRules(body.orderId, body.toColumnId, tenantId).catch(
-      (err: unknown) => {
+      try {
+        await onEnterColumn(supabase, movedOrder, typedColumn, tenantName);
+      } catch (err: unknown) {
+        console.error(
+          "[move] onEnterColumn failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
+      try {
+        await fireNotificationRules(body.orderId!, body.toColumnId!, tenantId);
+      } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[NotifRule] failed:", message);
       }
-    );
+    });
   }
 
   return NextResponse.json({ order: updated });

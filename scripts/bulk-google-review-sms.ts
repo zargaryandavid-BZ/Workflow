@@ -110,6 +110,17 @@ async function main() {
     .maybeSingle();
   if (!col) throw new Error(`Column not found: ${COLUMN_NAME}`);
 
+  // Prefer the on-enter column rule template (Finished: Review Request),
+  // fall back to the Google Review button automation.
+  const { data: rule } = await sb
+    .from("notification_rules")
+    .select("id, name, sms_body")
+    .eq("tenant_id", col.tenant_id)
+    .eq("column_id", col.id)
+    .eq("enabled", true)
+    .ilike("name", "%review%")
+    .maybeSingle();
+
   const { data: button } = await sb
     .from("button_automations")
     .select("id, name, config")
@@ -117,14 +128,18 @@ async function main() {
     .ilike("name", BUTTON_NAME)
     .eq("enabled", true)
     .maybeSingle();
-  if (!button) throw new Error(`Button not found: ${BUTTON_NAME}`);
 
   const bodyTemplate =
-    typeof (button.config as { body_template?: string })?.body_template ===
-    "string"
-      ? (button.config as { body_template: string }).body_template.trim()
-      : "";
-  if (!bodyTemplate) throw new Error("Google Review button has no body_template");
+    (typeof rule?.sms_body === "string" && rule.sms_body.trim()) ||
+    (typeof (button?.config as { body_template?: string } | undefined)
+      ?.body_template === "string"
+      ? (button!.config as { body_template: string }).body_template.trim()
+      : "");
+  if (!bodyTemplate) {
+    throw new Error("No Google Review SMS template found on rule or button");
+  }
+  console.log(`Template source: ${rule ? `rule "${rule.name}"` : `button "${button?.name}"`}`);
+  console.log(`Body: ${bodyTemplate}`);
 
   const { data: orders, error } = await sb
     .from("orders")

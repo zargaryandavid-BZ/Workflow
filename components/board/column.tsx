@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { OrderCard } from "./order-card";
 import { GroupedOrderCard } from "./grouped-order-card";
-import { groupOrdersForColumn } from "@/lib/group-orders";
+import { groupDragId, groupOrdersForColumn } from "@/lib/group-orders";
 import {
   COLUMN_SORT_OPTIONS,
   sortOrdersForColumn,
@@ -397,7 +397,15 @@ export function Column({
         }
       >
         <SortableContext
-          items={sortedOrders.map((o) => o.id)}
+          items={
+            columnEntries
+              ? columnEntries.map((entry) =>
+                  entry.kind === "group"
+                    ? groupDragId(column.id, entry.key)
+                    : entry.order.id
+                )
+              : sortedOrders.map((o) => o.id)
+          }
           strategy={verticalListSortingStrategy}
         >
           {/* Loading skeleton */}
@@ -427,6 +435,8 @@ export function Column({
                   <GroupedOrderCard
                     key={`group-${entry.key}`}
                     entry={entry}
+                    columnId={column.id}
+                    canDrag={canDragCards}
                     onOpen={onOpenOrder}
                     customFields={customFields}
                     fieldValuesByOrder={fieldValuesByOrder}

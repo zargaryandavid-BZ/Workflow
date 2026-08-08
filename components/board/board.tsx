@@ -31,6 +31,7 @@ import { BoardTable } from "./board-table";
 import { ColumnVisibilityDropdown } from "./column-visibility-dropdown";
 import { DesignerLeaderboardButton } from "./designer-leaderboard";
 import { OrderCard } from "./order-card";
+import { GroupedOrderCard } from "./grouped-order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
 import { MoveBlockedModal } from "./move-blocked-modal";
@@ -52,7 +53,12 @@ import {
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
-import { getGroupKey, orderGroupSearchSuggestions } from "@/lib/group-orders";
+import {
+  getGroupKey,
+  orderGroupSearchSuggestions,
+  parseGroupDragId,
+  type GroupEntry,
+} from "@/lib/group-orders";
 import {
   isOrderNumberQuery,
   orderMatchesBoardFilters,
@@ -263,6 +269,7 @@ export function Board({
 
   // ── UI state ────────────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeGroup, setActiveGroup] = useState<GroupEntry | null>(null);
   const [createColumn, setCreateColumn] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(
@@ -1704,17 +1711,45 @@ export function Board({
 
   function findColumnId(id: string): string | null {
     if (columns.some((c) => c.id === id)) return id;
+    const groupDrag = parseGroupDragId(id);
+    if (groupDrag) return groupDrag.columnId;
     const fromSearch = searchResults?.find((o) => o.id === id)?.column_id;
     if (fromSearch) return fromSearch;
     return orders.find((o) => o.id === id)?.column_id ?? null;
   }
 
+  function groupOrdersFromSnapshot(
+    snapshot: OrderWithRelations[],
+    columnId: string,
+    key: string
+  ): OrderWithRelations[] {
+    return snapshot.filter(
+      (o) => o.column_id === columnId && getGroupKey(o) === key
+    );
+  }
+
   function onDragStart(event: DragStartEvent) {
     draggingRef.current = true;
     const id = String(event.active.id);
-    dragSourceColumnRef.current = findColumnId(id);
+    const groupDrag = parseGroupDragId(id);
+    const sourceColumn = groupDrag?.columnId ?? findColumnId(id);
+    dragSourceColumnRef.current = sourceColumn;
     dragSnapshotRef.current = boardOrdersRef.current;
     setActiveId(id);
+    if (groupDrag && sourceColumn) {
+      const members = groupOrdersFromSnapshot(
+        boardOrdersRef.current,
+        sourceColumn,
+        groupDrag.key
+      );
+      setActiveGroup(
+        members.length >= 2
+          ? { kind: "group", key: groupDrag.key, orders: members }
+          : null
+      );
+    } else {
+      setActiveGroup(null);
+    }
   }
 
   function onDragOver(event: DragOverEvent) {
@@ -1728,6 +1763,11 @@ export function Board({
     const target = columnsById.get(overColumn);
     if (!source || !target) return;
     if (!canMove(role, source, target)) return;
+
+    const groupDrag = parseGroupDragId(String(active.id));
+    // Groups keep their source placement until drop. Moving them mid-drag would
+    // remount the card under a new sortable id (`group:${columnId}:${key}`).
+    if (groupDrag) return;
 
     // Visual-only during drag: update React state for both orders + searchResults,
     // and keep boardOrdersRef in sync so drop placement uses the live column.
@@ -1753,12 +1793,14 @@ export function Board({
       restoreOrdersSnapshot(dragSnapshotRef.current);
     }
     dragSnapshotRef.current = null;
+    setActiveGroup(null);
   }
 
   async function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveId(null);
     const sourceColumn = dragSourceColumnRef.current;
+    const groupDrag = parseGroupDragId(String(active.id));
     if (!over) {
       abortDrag();
       return;
@@ -1796,6 +1838,25 @@ export function Board({
       return;
     }
 
+    // Group card: move every item in the group to the target column.
+    if (groupDrag) {
+      const snap = dragSnapshotRef.current ?? boardOrdersRef.current;
+      const groupOrders = groupOrdersFromSnapshot(
+        snap,
+        groupDrag.columnId,
+        groupDrag.key
+      );
+      draggingRef.current = false;
+      dragSourceColumnRef.current = null;
+      dragSnapshotRef.current = null;
+      setActiveGroup(null);
+      if (!crossing || groupOrders.length === 0) {
+        return;
+      }
+      await handleGroupMove(groupOrders, overColumn);
+      return;
+    }
+
     const placementSource =
       personFilter ||
       ownerFilter ||
@@ -1813,7 +1874,24 @@ export function Board({
     );
     const oldIndex = columnOrders.findIndex((o) => o.id === active.id);
     let newIndex = columnOrders.findIndex((o) => o.id === over.id);
-    if (newIndex === -1) newIndex = columnOrders.length - 1;
+    if (newIndex === -1) {
+      const overGroup = parseGroupDragId(String(over.id));
+      if (overGroup) {
+        // Dropped on a group card — place after the group's last member.
+        const groupMemberIds = new Set(
+          columnOrders
+            .filter((o) => getGroupKey(o) === overGroup.key)
+            .map((o) => o.id)
+        );
+        let lastIdx = -1;
+        columnOrders.forEach((o, i) => {
+          if (groupMemberIds.has(o.id)) lastIdx = i;
+        });
+        newIndex = lastIdx === -1 ? columnOrders.length - 1 : lastIdx;
+      } else {
+        newIndex = columnOrders.length - 1;
+      }
+    }
 
     const reordered =
       oldIndex === -1
@@ -1889,6 +1967,7 @@ export function Board({
       draggingRef.current = false;
       dragSourceColumnRef.current = null;
       dragSnapshotRef.current = null;
+      setActiveGroup(null);
     }
   }
 
@@ -2515,7 +2594,15 @@ export function Board({
         </div>
 
         <DragOverlay>
-          {activeOrder ? (
+          {activeGroup ? (
+            <GroupedOrderCard
+              entry={activeGroup}
+              onOpen={() => {}}
+              customFields={customFields}
+              fieldValuesByOrder={displayFieldValuesByOrder}
+              webhookSourceStyles={webhookSourceStyles}
+            />
+          ) : activeOrder ? (
             <OrderCard
               order={activeOrder}
               customFields={customFields}
