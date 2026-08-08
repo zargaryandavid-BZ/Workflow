@@ -1108,7 +1108,12 @@ export function CardDetailModal({
     onClose();
   }
 
+  const isManualOrder = data?.order
+    ? isManualCreatedOrder(data.order)
+    : false;
   const displayOrderNumber = title.trim() || (data?.order.title ?? "").trim();
+  /** Manual jobs use a human title (not ORD-…); show it as editable when allowed. */
+  const showEditableManualTitle = isManualOrder && !isViewOnly;
 
   async function copyOrderNumber() {
     if (!displayOrderNumber) return;
@@ -1196,33 +1201,60 @@ export function CardDetailModal({
         className="mb-0 flex min-w-0 max-w-full items-baseline gap-1 text-[10px] font-semibold leading-tight tracking-wide"
       />
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        {/* Order number + copy */}
-        <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">
-          {displayOrderNumber
-            ? <>
-                {displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
-                {groupSize != null && groupSize >= 2 && (
-                  <span className="font-normal text-slate-400"> ({groupSize})</span>
+        {/* Order number + copy — Manual titles are editable inline */}
+        {showEditableManualTitle ? (
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Order title"
+            aria-label="Order title"
+            className="min-w-0 max-w-[min(100%,20rem)] truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 text-sm font-semibold text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+          />
+        ) : (
+          <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">
+            {displayOrderNumber
+              ? <>
+                  {displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+                  {groupSize != null && groupSize >= 2 && (
+                    <span className="font-normal text-slate-400"> ({groupSize})</span>
+                  )}
+                </>
+              : loading ? "…" : "Order Details"}
+            {displayOrderNumber ? (
+              <button
+                type="button"
+                onClick={copyOrderNumber}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-normal transition-colors",
+                  orderNumberCopied
+                    ? "text-emerald-600"
+                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                 )}
-              </>
-            : loading ? "…" : "Order Details"}
-          {displayOrderNumber ? (
-            <button
-              type="button"
-              onClick={copyOrderNumber}
-              className={cn(
-                "inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-normal transition-colors",
-                orderNumberCopied
-                  ? "text-emerald-600"
-                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              )}
-              title="Copy order number"
-              aria-label="Copy order number"
-            >
-              {orderNumberCopied ? "Copied" : <Copy className="h-3 w-3" aria-hidden />}
-            </button>
-          ) : null}
-        </span>
+                title="Copy order number"
+                aria-label="Copy order number"
+              >
+                {orderNumberCopied ? "Copied" : <Copy className="h-3 w-3" aria-hidden />}
+              </button>
+            ) : null}
+          </span>
+        )}
+        {showEditableManualTitle && displayOrderNumber ? (
+          <button
+            type="button"
+            onClick={copyOrderNumber}
+            className={cn(
+              "inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-normal transition-colors",
+              orderNumberCopied
+                ? "text-emerald-600"
+                : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            )}
+            title="Copy title"
+            aria-label="Copy title"
+          >
+            {orderNumberCopied ? "Copied" : <Copy className="h-3 w-3" aria-hidden />}
+          </button>
+        ) : null}
         {/* Creation date — non-editable */}
         {data?.order.created_at ? (
           <>
