@@ -84,3 +84,87 @@ export function canUseBoardActionButtons(role: Role): boolean {
 export function canViewAnalytics(role: Role): boolean {
   return role === "admin" || role === "account_manager";
 }
+
+/** Manual board create (no webhook) — shown as the "Manual" source label. */
+export function isManualCreatedOrder(order: {
+  webhook_source?: string | null;
+}): boolean {
+  const src = order.webhook_source;
+  return src == null || String(src).trim() === "";
+}
+
+/**
+ * Who may edit Manual job tickets: Admin, Sales (Account Manager), Pre-prod.
+ * CRM / webhook orders are never editable via the order form.
+ */
+export function canEditManualOrders(role: Role): boolean {
+  return (
+    role === "admin" ||
+    role === "account_manager" ||
+    role === "preprod_owner"
+  );
+}
+
+/** Whether `role` may change order details (save form / PATCH). */
+export function canEditOrderDetails(
+  role: Role,
+  order: { webhook_source?: string | null }
+): boolean {
+  return isManualCreatedOrder(order) && canEditManualOrders(role);
+}
+
+/** Spec keys board / ops may change without full Manual-order edit rights. */
+const OPERATIONAL_SPEC_KEYS = new Set([
+  "designer_id",
+  "designer_name",
+  "design_task",
+  "priority_score",
+  "priority_source",
+  "due_date_mode",
+  "due_processing_days",
+  "due_anchor_at",
+  "due_date_label",
+  "due_date_status",
+]);
+
+function jsonStable(value: unknown): string {
+  return JSON.stringify(value ?? null);
+}
+
+/**
+ * True when a PATCH would change Manual-only form fields (title, customer,
+ * SKUs, etc.). Board ops (designer, due date, tag, priority score) return false.
+ */
+export function orderPatchRequiresFormEdit(
+  body: {
+    title?: unknown;
+    description?: unknown;
+    internal_note?: unknown;
+    priority?: unknown;
+    ownerId?: unknown;
+    customFieldValues?: unknown;
+    specs?: Record<string, unknown>;
+  },
+  existingSpecs: Record<string, unknown>
+): boolean {
+  if (body.title !== undefined) return true;
+  if (body.description !== undefined) return true;
+  if (body.internal_note !== undefined) return true;
+  if (body.priority !== undefined) return true;
+  if (body.ownerId !== undefined) return true;
+  if (body.customFieldValues !== undefined) return true;
+
+  if (body.specs === undefined) return false;
+  const next = body.specs;
+  const keys = new Set([
+    ...Object.keys(existingSpecs),
+    ...Object.keys(next),
+  ]);
+  for (const key of keys) {
+    if (OPERATIONAL_SPEC_KEYS.has(key)) continue;
+    if (jsonStable(existingSpecs[key]) !== jsonStable(next[key])) {
+      return true;
+    }
+  }
+  return false;
+}

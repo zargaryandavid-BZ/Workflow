@@ -528,10 +528,27 @@ export function Board({
     saveHiddenColumnIds(tenantId, new Set());
   }, [tenantId]);
   const [animateWarnings, setAnimateWarnings] = useState(true);
+  const dueFilterMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const boardViewMenuRef = useRef<HTMLDetailsElement | null>(null);
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
     missingFields: MissingField[];
   } | null>(null);
+
+  // Close toolbar <details> menus when clicking outside.
+  useEffect(() => {
+    function onPointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      for (const ref of [dueFilterMenuRef, boardViewMenuRef]) {
+        const el = ref.current;
+        if (el?.open && !el.contains(target)) {
+          el.open = false;
+        }
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, []);
 
   // Apply per-tenant warning animation CSS variables client-side.
   useEffect(() => {
@@ -2266,7 +2283,7 @@ export function Board({
               </option>
             ))}
           </Select>
-          <details className="relative shrink-0">
+          <details ref={dueFilterMenuRef} className="relative shrink-0">
             <summary
               className={cn(
                 "flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
@@ -2342,7 +2359,7 @@ export function Board({
             </div>
           </details>
           <DesignerLeaderboardButton />
-          <details className="relative shrink-0">
+          <details ref={boardViewMenuRef} className="relative shrink-0">
             <summary
               className={cn(
                 "flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",

@@ -238,18 +238,23 @@ async function main() {
     }
     sent += 1;
 
-    const primary = g.orders[0]!;
-    await sb.from("order_sms_messages").insert({
-      tenant_id: col.tenant_id,
-      order_id: primary.id,
-      direction: "outbound",
-      phone: g.phone,
-      body: bodyTemplate,
-      twilio_sid: result.sid ?? null,
-      actor_user_id: null,
-    });
+    // One Twilio send; log the same message on every tagged card so Com. History
+    // matches the Review tag (twilio_sid only on the first — unique index).
+    for (let i = 0; i < g.orders.length; i++) {
+      const order = g.orders[i]!;
+      const { error: smsErr } = await sb.from("order_sms_messages").insert({
+        tenant_id: col.tenant_id,
+        order_id: order.id,
+        direction: "outbound",
+        phone: g.phone,
+        body: bodyTemplate,
+        twilio_sid: i === 0 ? (result.sid ?? null) : null,
+        actor_user_id: null,
+      });
+      if (smsErr) {
+        console.error(`SMS LOG FAIL ${order.title}: ${smsErr.message}`);
+      }
 
-    for (const order of g.orders) {
       const { error: tagErr } = await sb
         .from("orders")
         .update({

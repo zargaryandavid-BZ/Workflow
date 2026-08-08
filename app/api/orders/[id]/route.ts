@@ -22,6 +22,10 @@ import {
 } from "@/lib/sku-images";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
+  canEditOrderDetails,
+  orderPatchRequiresFormEdit,
+} from "@/lib/permissions";
+import {
   filterValidCustomFieldValues,
   staleCustomFieldsMessage,
 } from "@/lib/custom-field-values.server";
@@ -332,7 +336,9 @@ export async function PATCH(
 
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, tag_id")
+    .select(
+      "id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, tag_id, webhook_source"
+    )
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -343,6 +349,20 @@ export async function PATCH(
   const existingSpecs =
     ((existingOrder as { specs?: Record<string, unknown> }).specs ??
       {}) as Record<string, unknown>;
+
+  if (
+    orderPatchRequiresFormEdit(body, existingSpecs) &&
+    !canEditOrderDetails(ctx.role, existingOrder)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "Only Admin, Sales (Account Manager), and Pre-prod can edit Manual orders. CRM / webhook orders can’t be edited.",
+      },
+      { status: 403 }
+    );
+  }
+
   const existingDue = readOrderDueSpecs(existingSpecs);
   const dueFieldsTouched =
     body.dueDate !== undefined ||

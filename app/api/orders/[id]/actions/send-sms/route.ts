@@ -97,16 +97,6 @@ export async function POST(
     );
   }
 
-  await insertOrderSmsMessage(supabase, {
-    tenantId: ctx.tenant.id,
-    orderId,
-    direction: "outbound",
-    phone,
-    body: messageBody,
-    twilioSid: result.sid ?? null,
-    actorUserId: ctx.userId,
-  });
-
   // Multi-part orders: if every sibling is in this column, tag all of them.
   // Otherwise only tag the card the SMS was sent from.
   // "Review Request" (and similarly named) buttons tag Review instead of Texted.
@@ -129,7 +119,18 @@ export async function POST(
       ];
   const tag = actionTagForButton(button.name, "Texted");
 
+  // Log SMS on every tagged card so Com. History matches the tag. Twilio SID
+  // is unique, so only the card the send was triggered from keeps it.
   for (const target of tagTargets) {
+    await insertOrderSmsMessage(supabase, {
+      tenantId: ctx.tenant.id,
+      orderId: target.id,
+      direction: "outbound",
+      phone,
+      body: messageBody,
+      twilioSid: target.id === orderId ? (result.sid ?? null) : null,
+      actorUserId: ctx.userId,
+    });
     await addOrderTag(
       supabase,
       target.id,

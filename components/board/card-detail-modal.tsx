@@ -58,6 +58,11 @@ import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { sharedOrderTitle } from "@/lib/group-orders";
+import {
+  canEditManualOrders,
+  canEditOrderDetails,
+  isManualCreatedOrder,
+} from "@/lib/permissions";
 import type {
   Approval,
   ApprovalNote,
@@ -250,7 +255,6 @@ export function CardDetailModal({
   groupSameColumnCount,
   groupColumnName,
 }: CardDetailModalProps) {
-  const isViewOnly = mode === "view";
   const [modalCustomFields, setModalCustomFields] =
     useState<CustomField[]>(customFields);
   const resolved = useMemo(
@@ -264,6 +268,20 @@ export function CardDetailModal({
   const [saving, setSaving] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState<"all" | "moves">("all");
+
+  /** Form save: Manual orders only, and only Admin / Sales / Pre-prod. */
+  const isViewOnly =
+    mode === "view" ||
+    !canEditManualOrders(role) ||
+    (data?.order != null && !canEditOrderDetails(role, data.order));
+  const editLockedReason =
+    mode === "view"
+      ? null
+      : data?.order && !isManualCreatedOrder(data.order)
+        ? "CRM / webhook orders can’t be edited here — only Manual orders."
+        : !canEditManualOrders(role)
+          ? "Only Admin, Sales (Account Manager), and Pre-prod can edit Manual orders."
+          : null;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -1405,7 +1423,7 @@ export function CardDetailModal({
       }
       footer={
         <>
-          {isAdmin && !isViewOnly ? (
+          {isAdmin && mode !== "view" ? (
             <button
               type="button"
               onClick={() => {
@@ -1777,6 +1795,11 @@ export function CardDetailModal({
           ) : (
         <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="space-y-4 md:col-span-2">
+            {editLockedReason ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {editLockedReason}
+              </p>
+            ) : null}
             <OrderFormBody
               idPrefix="edit"
               customFields={modalCustomFields}
