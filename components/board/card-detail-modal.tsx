@@ -62,6 +62,7 @@ import { sharedOrderTitle } from "@/lib/group-orders";
 import {
   canEditManualOrders,
   canEditOrderDetails,
+  canEditOrderDesigner,
   canEditOrderDueDate,
   canEditOrderTitle,
 } from "@/lib/permissions";
@@ -279,11 +280,14 @@ export function CardDetailModal({
   /** Due date stays editable when the viewer cannot edit the full form. */
   const canEditDueDate = canEditOrderDueDate(mode);
   const dueDateReadOnly = !canEditDueDate;
+  /** Assigned designer stays editable under the same rule as due date. */
+  const canEditDesigner = canEditOrderDesigner(mode);
+  const designerReadOnly = !canEditDesigner;
   const editLockedReason =
     mode === "view"
       ? null
       : !canEditManualOrders(role)
-        ? "Only Admin, Sales (Account Manager), and Pre-prod can edit order details. Due date can still be changed."
+        ? "Only Admin, Sales (Account Manager), Pre-prod, and Designer can edit order details. Due date and designer can still be changed."
         : null;
 
   const [title, setTitle] = useState("");
@@ -1055,22 +1059,31 @@ export function CardDetailModal({
   /**
    * Persist designer immediately so the board updates when the ticket is closed
    * — without requiring a separate "Save changes" click.
+   * Allowed on view-only tickets when {@link canEditDesigner} (same as due date).
    */
   async function assignDesigner(nextDesignerId: string) {
-    if (!orderId || !data || isViewOnly) return;
+    if (!orderId || !data || !canEditDesigner) return;
     const prevId = designerId;
     const name =
       designers.find((d) => d.id === nextDesignerId)?.name ?? null;
     setDesignerId(nextDesignerId);
     setSaveError(null);
 
-    const nextSpecs = {
-      ...(data.order.specs ?? {}),
-      skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
-      designer_id: nextDesignerId || null,
-      designer_name: name,
-      design_task: designTask || null,
-    };
+    // Keep patch operational-only when the full form is locked so CRM /
+    // role-locked tickets don't trip form-edit permission checks via skus.
+    const nextSpecs = isViewOnly
+      ? {
+          ...(data.order.specs ?? {}),
+          designer_id: nextDesignerId || null,
+          designer_name: name,
+        }
+      : {
+          ...(data.order.specs ?? {}),
+          skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
+          designer_id: nextDesignerId || null,
+          designer_name: name,
+          design_task: designTask || null,
+        };
 
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
@@ -2048,6 +2061,7 @@ export function CardDetailModal({
               skuImagesBySkuId={skuImagesBySkuId}
               ensureSkuPersisted={ensureSkuPersisted}
               readOnly={isViewOnly}
+              designerReadOnly={designerReadOnly}
               tags={tags}
               tagId={tagId}
               onTagIdChange={isViewOnly ? undefined : setTagId}

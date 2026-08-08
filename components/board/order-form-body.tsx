@@ -111,6 +111,11 @@ export interface OrderFormBodyProps {
   /** Saves a newly added SKU row before gallery uploads can attach to it. */
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   readOnly?: boolean;
+  /**
+   * When set, overrides `readOnly` for the Assigned designer control only
+   * (e.g. allow designer changes on otherwise view-only tickets).
+   */
+  designerReadOnly?: boolean;
   /** When true, fields with no value are hidden. Defaults to true (eye closed). */
   hideEmpty?: boolean;
   /** Hide order number field (shown in modal title when editing existing orders). */
@@ -179,6 +184,7 @@ export function OrderFormBody({
   onPendingImagesChange,
   ensureSkuPersisted,
   readOnly = false,
+  designerReadOnly,
   hideEmpty: hideEmptyProp = true,
   hideOrderNumberField = false,
   hidePriorityAndDueDateFields = false,
@@ -194,6 +200,7 @@ export function OrderFormBody({
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, orderQtyField, printFields } = resolved;
+  const designerFieldReadOnly = designerReadOnly ?? readOnly;
   const [hideEmpty, setHideEmpty] = useState(hideEmptyProp);
   const [artworkCopied, setArtworkCopied] = useState(false);
   const [dueDateError, setDueDateError] = useState<string | null>(null);
@@ -887,7 +894,7 @@ export function OrderFormBody({
 
       <div className="border-t border-slate-200" />
 
-      {(!hideEmpty || designerId || designTask) ? (
+      {(!hideEmpty || designerId || designTask || !designerFieldReadOnly) ? (
       <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-400">
           For Designer
@@ -900,7 +907,7 @@ export function OrderFormBody({
             <Select
               id={`${idPrefix}-designer`}
               value={designerId}
-              disabled={readOnly}
+              disabled={designerFieldReadOnly}
               onChange={(e) => onDesignerIdChange(e.target.value)}
             >
               <option value="">

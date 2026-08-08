@@ -65,11 +65,6 @@ export function canMove(role: Role, from: DropColumn, to: DropColumn): boolean {
   return canLeaveColumn(role, from) && canDropIn(role, to);
 }
 
-/** Board card: assign designer via right-click (admin + account manager). */
-export function canAssignDesignerOnBoard(role: Role): boolean {
-  return role === "admin" || role === "account_manager";
-}
-
 /** Board / customers: set tag or priority score (admin + pre-prod). */
 export function canSetBoardTagAndPriority(role: Role): boolean {
   return role === "admin" || role === "preprod_owner";
@@ -95,14 +90,20 @@ export function isManualCreatedOrder(order: {
 
 /**
  * Who may edit order tickets (Manual + CRM): Admin, Sales (Account Manager),
- * Pre-prod. CRM order numbers (title) stay locked — see canEditOrderTitle.
+ * Pre-prod, Designer. CRM order numbers (title) stay locked — see canEditOrderTitle.
  */
 export function canEditManualOrders(role: Role): boolean {
   return (
     role === "admin" ||
     role === "account_manager" ||
-    role === "preprod_owner"
+    role === "preprod_owner" ||
+    role === "designer"
   );
+}
+
+/** Board card: assign designer via right-click (same roles as order edit). */
+export function canAssignDesignerOnBoard(role: Role): boolean {
+  return canEditManualOrders(role);
 }
 
 /** Whether `role` may change order details (save form / PATCH). */
@@ -126,6 +127,14 @@ export function canEditOrderTitle(
  * right-click) even when the viewer cannot edit the full form.
  */
 export function canEditOrderDueDate(mode: "edit" | "view" = "edit"): boolean {
+  return mode !== "view";
+}
+
+/**
+ * Assigned designer may be changed even when the viewer cannot edit the full
+ * form (same rule as {@link canEditOrderDueDate}).
+ */
+export function canEditOrderDesigner(mode: "edit" | "view" = "edit"): boolean {
   return mode !== "view";
 }
 

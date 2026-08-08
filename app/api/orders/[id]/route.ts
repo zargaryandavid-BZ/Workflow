@@ -359,7 +359,7 @@ export async function PATCH(
     return NextResponse.json(
       {
         error:
-          "Only Admin, Sales (Account Manager), and Pre-prod can edit order details.",
+          "Only Admin, Sales (Account Manager), Pre-prod, and Designer can edit order details.",
       },
       { status: 403 }
     );
