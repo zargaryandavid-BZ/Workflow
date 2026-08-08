@@ -426,6 +426,34 @@ export function resolveItemLineAttentionNote(
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
+/**
+ * Per-item notes CRM often places on the first SKU (`skus[0].comment`) instead
+ * of `line_item_comment`. Used to detect order-level note aggregation.
+ */
+export function resolveItemSkuAttentionNote(
+  rawItem: WebhookItem
+): string | null {
+  if (!Array.isArray(rawItem.skus) || rawItem.skus.length === 0) return null;
+  const parts: string[] = [];
+  for (const sku of rawItem.skus) {
+    if (!sku || typeof sku !== "object") continue;
+    const comment = skuLineComment(sku);
+    if (comment) parts.push(comment);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+/** Line-item or SKU-level note that belongs on this sub-order only. */
+export function resolveItemOwnAttentionNote(
+  rawItem: WebhookItem,
+  sharedNote: string | null = null
+): string | null {
+  return (
+    resolveItemLineAttentionNote(rawItem, sharedNote) ??
+    resolveItemSkuAttentionNote(rawItem)
+  );
+}
+
 /** Combine shared Attention + per-item line comment for one card. */
 export function combineCardAttentionNotes(
   sharedNote: string | null,
@@ -435,6 +463,135 @@ export function combineCardAttentionNotes(
     (p): p is string => Boolean(p)
   );
   return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+function normalizeNoteCompare(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Split CRM-aggregated line comments (often joined with ` | ` or blank lines)
+ * into one segment per sub-order. Returns null when it doesn't match item count.
+ */
+export function splitAggregatedLineNotes(
+  text: string | null | undefined,
+  itemCount: number
+): string[] | null {
+  if (itemCount < 2) return null;
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (!trimmed) return null;
+
+  const trySplit = (parts: string[]): string[] | null => {
+    const clean = parts.map((p) => p.trim()).filter(Boolean);
+    return clean.length === itemCount ? clean : null;
+  };
+
+  return (
+    trySplit(trimmed.split(/\s*\|\s*/)) ??
+    trySplit(trimmed.split(/\n\s*\n+/)) ??
+    trySplit(trimmed.split(/\n/))
+  );
+}
+
+/**
+ * Order-level Attention for multi-item creates.
+ * If CRM stuffed every line comment into top-level `notes`, skip that shared
+ * blob so each card only keeps its own line-item / SKU note.
+ */
+export function resolveSharedAttentionForItems(
+  body: WebhookOrderPayload,
+  items: WebhookItem[]
+): string | null {
+  const shared = resolveSharedAttentionNote(body);
+  if (!shared || items.length < 2) return shared;
+
+  const perItem = items
+    .map((it) => resolveItemOwnAttentionNote(it, null))
+    .filter((n): n is string => Boolean(n));
+
+  const sn = normalizeNoteCompare(shared);
+
+  if (perItem.length >= 2) {
+    const candidates = [
+      perItem.join("\n\n"),
+      perItem.join("\n"),
+      perItem.join(" | "),
+      perItem.join("|"),
+    ].map(normalizeNoteCompare);
+
+    if (candidates.includes(sn)) return null;
+
+    // Shared embeds most per-item notes (CRM paste of every line ticket).
+    const embedCount = perItem.filter((p) => {
+      const head = normalizeNoteCompare(p).slice(0, 64);
+      return head.length >= 24 && sn.includes(head);
+    }).length;
+    if (embedCount >= Math.ceil(perItem.length * 0.5)) return null;
+  }
+
+  // Item titles appear inside order-level notes (typical CRM aggregate paste).
+  const titles = items
+    .map((it) => (typeof it.title === "string" ? it.title.trim() : ""))
+    .filter((t) => t.length >= 8);
+  if (titles.length >= 2) {
+    const titleHits = titles.filter((t) => shared.includes(t)).length;
+    if (
+      titleHits >= 2 &&
+      titleHits >= Math.ceil(titles.length * 0.5) &&
+      perItem.length >= 1
+    ) {
+      return null;
+    }
+  }
+
+  // Repeated "Purchased for Job#" blocks = one paste per line item.
+  const purchasedHits = (shared.match(/Purchased for Job#/gi) ?? []).length;
+  if (purchasedHits >= 2 && perItem.length >= 1) return null;
+
+  return shared;
+}
+
+/**
+ * Per-card Attention text: shared staff note (when real) + this line's comment.
+ * Falls back to splitting order-level notes / non-URL design_task when CRM
+ * sent all line comments in one field and items lack their own notes.
+ */
+export function resolveCardAttentionNotes(opts: {
+  items: WebhookItem[];
+  itemIndex: number;
+  sharedAttention: string | null;
+  splitFromNotes: string[] | null;
+  splitFromDesignTask: string[] | null;
+}): { attention: string | null; suppressMisroutedDesignTask: boolean } {
+  const {
+    items,
+    itemIndex,
+    sharedAttention,
+    splitFromNotes,
+    splitFromDesignTask,
+  } = opts;
+  const rawItem = items[itemIndex]!;
+  const ownNote = resolveItemOwnAttentionNote(rawItem, null);
+  // Item/SKU notes are applied in createSingleWebhookJob via skuComments +
+  // line fields — only pass item-level (non-SKU) text here to avoid doubling.
+  let itemLine = resolveItemLineAttentionNote(rawItem, null);
+
+  // Fall back to split aggregates only when this item has no own notes at all.
+  if (!ownNote && !itemLine && splitFromNotes?.[itemIndex]) {
+    itemLine = splitFromNotes[itemIndex]!;
+  }
+  if (!ownNote && !itemLine && splitFromDesignTask?.[itemIndex]) {
+    itemLine = splitFromDesignTask[itemIndex]!;
+  }
+
+  // Aggregated order-level notes were split → don't paste the full blob on each card.
+  const shared = splitFromNotes ? null : sharedAttention;
+
+  return {
+    attention: combineCardAttentionNotes(shared, itemLine),
+    // When design_task was an aggregated comment string, keep it out of Description.
+    suppressMisroutedDesignTask: Boolean(splitFromDesignTask),
+  };
 }
 
 function normalizeWebhookSkus(
@@ -2602,6 +2759,23 @@ export async function createOrderFromWebhook(
     balance: body.balance,
   });
 
+  // Per-card Notes: keep line-item comments on their own cards. CRM sometimes
+  // concatenates every line comment into order-level notes (see ORD-2026-0486)
+  // while also putting each line's text on skus[0].comment.
+  const sharedAttention = resolveSharedAttentionForItems(body, items);
+  const itemsHaveOwnNotes = items.some((it) =>
+    Boolean(resolveItemOwnAttentionNote(it, null))
+  );
+  const splitFromNotes =
+    items.length > 1 && !itemsHaveOwnNotes
+      ? splitAggregatedLineNotes(resolveSharedAttentionNote(body), items.length)
+      : null;
+  const orderMisroutedDesignTask = resolveMisroutedDesignTaskText(body);
+  const splitFromDesignTask =
+    items.length > 1 && !itemsHaveOwnNotes
+      ? splitAggregatedLineNotes(orderMisroutedDesignTask, items.length)
+      : null;
+
   for (let i = 0; i < items.length; i++) {
     const rawItem = items[i];
     const item = mergeItemWithOrder(body, rawItem);
@@ -2663,15 +2837,17 @@ export async function createOrderFromWebhook(
         : null;
     const billing = hasBillingInfo(mergedBilling) ? mergedBilling : null;
 
-    const sharedAttention = resolveSharedAttentionNote(body);
-    const itemLineAttention = resolveItemLineAttentionNote(
-      rawItem,
-      sharedAttention
-    );
-    const combinedAttention = combineCardAttentionNotes(
-      sharedAttention,
-      itemLineAttention
-    );
+    const { attention: combinedAttention, suppressMisroutedDesignTask } =
+      resolveCardAttentionNotes({
+        items,
+        itemIndex: i,
+        sharedAttention,
+        splitFromNotes,
+        splitFromDesignTask,
+      });
+    const misroutedDesignTask = suppressMisroutedDesignTask
+      ? null
+      : resolveMisroutedDesignTaskText(designerInput);
 
     const result = await createSingleWebhookJob({
       client,
@@ -2701,7 +2877,7 @@ export async function createOrderFromWebhook(
       designerName,
       designNotes: resolveDesignNotes(designerInput),
       designTaskUrl: resolveDesignTaskUrl(designerInput),
-      misroutedDesignTask: resolveMisroutedDesignTaskText(designerInput),
+      misroutedDesignTask,
       internalNote: combinedAttention,
       corrections: allCorrections,
       webhookSource,

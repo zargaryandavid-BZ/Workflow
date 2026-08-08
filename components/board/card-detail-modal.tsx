@@ -40,6 +40,7 @@ import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInput
 import { DueDateFields } from "./due-date-fields";
 import { ApplicationFields } from "./application-fields";
 import {
+  buildStaffDueSpecs,
   DEFAULT_PROCESSING_DAYS,
   formatOrderDueDisplay,
   isPendingAfterApprovalDue,
@@ -61,7 +62,8 @@ import { sharedOrderTitle } from "@/lib/group-orders";
 import {
   canEditManualOrders,
   canEditOrderDetails,
-  isManualCreatedOrder,
+  canEditOrderDueDate,
+  canEditOrderTitle,
 } from "@/lib/permissions";
 import type {
   Approval,
@@ -269,19 +271,20 @@ export function CardDetailModal({
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState<"all" | "moves">("all");
 
-  /** Form save: Manual orders only, and only Admin / Sales / Pre-prod. */
+  /** Full form: Admin / Sales / Pre-prod (Manual + CRM). Order # locked for CRM. */
   const isViewOnly =
     mode === "view" ||
     !canEditManualOrders(role) ||
     (data?.order != null && !canEditOrderDetails(role, data.order));
+  /** Due date stays editable when the viewer cannot edit the full form. */
+  const canEditDueDate = canEditOrderDueDate(mode);
+  const dueDateReadOnly = !canEditDueDate;
   const editLockedReason =
     mode === "view"
       ? null
-      : data?.order && !isManualCreatedOrder(data.order)
-        ? "CRM / webhook orders can’t be edited here — only Manual orders."
-        : !canEditManualOrders(role)
-          ? "Only Admin, Sales (Account Manager), and Pre-prod can edit Manual orders."
-          : null;
+      : !canEditManualOrders(role)
+        ? "Only Admin, Sales (Account Manager), and Pre-prod can edit order details. Due date can still be changed."
+        : null;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -519,8 +522,120 @@ export function CardDetailModal({
     };
   }, [saving]);
 
+  function isDueDateDirty(): boolean {
+    if (!data) return false;
+    const order = data.order;
+    if (dateInputValue(dueDate) !== dateInputValue(order.due_date)) return true;
+    const dueSpecs = readOrderDueSpecs(order.specs);
+    const prevMode =
+      dueSpecs.due_date_mode === "after_approval" ? "after_approval" : "fixed";
+    if (dueDateMode !== prevMode) return true;
+    if (
+      dueDateMode === "after_approval" &&
+      dueProcessingDays !==
+        (dueSpecs.due_processing_days ?? DEFAULT_PROCESSING_DAYS)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  /** CRM / view-only tickets: persist due date without a full form save. */
+  async function saveDueDateOnly(): Promise<boolean> {
+    if (!orderId || !data || saving || !canEditDueDate) return false;
+
+    if (dueDateMode === "fixed") {
+      const dueDateError = validateDueDate(dueDate, data.order.due_date);
+      if (dueDateError) {
+        setSaveError(dueDateError);
+        return false;
+      }
+    } else if (!Number.isFinite(dueProcessingDays) || dueProcessingDays < 1) {
+      setSaveError("Working days after approval must be at least 1.");
+      return false;
+    }
+
+    setSaveError(null);
+    setSaving(true);
+
+    const staffDue = buildStaffDueSpecs({
+      mode: dueDateMode,
+      dueDate: dateInputValue(dueDate) || null,
+      processingDays:
+        dueDateMode === "after_approval" ? dueProcessingDays : null,
+      previousSpecs: data.order.specs,
+    });
+    const nextDue = staffDue.dueDate;
+    const nextSpecs = mergeDueSpecsIntoOrderSpecs(
+      data.order.specs,
+      staffDue.specs
+    );
+    const rollback = {
+      due_date: data.order.due_date,
+      specs: data.order.specs ?? {},
+    };
+
+    setDueDate(nextDue ?? "");
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            order: {
+              ...prev.order,
+              due_date: nextDue,
+              specs: nextSpecs,
+            },
+          }
+        : prev
+    );
+    onChanged({ due_date: nextDue, specs: nextSpecs });
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dueDate: nextDue,
+          dueDateMode,
+          dueProcessingDays:
+            dueDateMode === "after_approval" ? dueProcessingDays : null,
+        }),
+      });
+      const savedJson = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!res.ok) {
+        setSaveError(savedJson.error ?? "Failed to update due date");
+        onChanged(rollback);
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                order: {
+                  ...prev.order,
+                  due_date: rollback.due_date,
+                  specs: rollback.specs,
+                },
+              }
+            : prev
+        );
+        setDueDate(dateInputValue(rollback.due_date));
+        return false;
+      }
+      onChanged();
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save(options?: { reload?: boolean }): Promise<boolean> {
     if (!orderId || saving) return false;
+
+    // CRM / role-locked tickets: only due date may change.
+    if (isViewOnly) {
+      return saveDueDateOnly();
+    }
 
     if (!title.trim()) {
       setSaveError("Order Number is required");
@@ -584,6 +699,15 @@ export function CardDetailModal({
     );
     const nextProductionNotes = productionNotes.trim();
     const nextDesignTask = designTask || "";
+    const nextDueInput = dateInputValue(dueDate) || null;
+    const staffDue = buildStaffDueSpecs({
+      mode: dueDateMode,
+      dueDate: nextDueInput,
+      processingDays:
+        dueDateMode === "after_approval" ? dueProcessingDays : null,
+      previousSpecs: data?.order.specs,
+    });
+    const nextDue = staffDue.dueDate;
     const nextSpecs = mergeDueSpecsIntoOrderSpecs(
       mergeApplicationIntoOrderSpecs(
         {
@@ -598,11 +722,7 @@ export function CardDetailModal({
         applicationOn,
         applicationDays
       ),
-      {
-        due_date_mode: dueDateMode,
-        due_processing_days:
-          dueDateMode === "after_approval" ? dueProcessingDays : null,
-      }
+      staffDue.specs
     );
     const customFieldValues = buildCustomFieldPayload(
       resolved,
@@ -615,9 +735,12 @@ export function CardDetailModal({
     const selectedTag = tagId
       ? (tags.find((t) => t.id === tagId) ?? null)
       : null;
-    const nextTitle = title.trim();
+    // CRM / webhook order numbers are immutable — keep the stored title.
+    const nextTitle =
+      data?.order && canEditOrderTitle(role, data.order)
+        ? title.trim()
+        : (data?.order.title ?? title).trim();
     const nextDescription = description || "";
-    const nextDue = dateInputValue(dueDate) || null;
     const nextPriority = priority as "low" | "normal" | "high" | "urgent";
     const nextCustomerName = customerName.trim();
     const nextCustomerContact = customerContact.trim();
@@ -713,12 +836,12 @@ export function CardDetailModal({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title,
-          description,
+          title: nextTitle,
+          description: nextDescription || null,
           internal_note: internalNoteJson,
-          priority,
+          priority: nextPriority,
           ownerId: ownerId || null,
-          dueDate: dateInputValue(dueDate) || null,
+          dueDate: nextDue,
           dueDateMode,
           dueProcessingDays:
             dueDateMode === "after_approval" ? dueProcessingDays : null,
@@ -741,6 +864,10 @@ export function CardDetailModal({
       if (savedJson.tagNotifyWarning) {
         onLinkCopied?.(savedJson.tagNotifyWarning);
       }
+
+      // Soft-refresh column only after the PATCH lands so due date / title
+      // on the board card aren't overwritten by a stale fetch.
+      onChanged();
 
       // Local state already mirrors the save — skip a second full GET (~1–2s).
       if (options?.reload === true) {
@@ -1108,12 +1235,12 @@ export function CardDetailModal({
     onClose();
   }
 
-  const isManualOrder = data?.order
-    ? isManualCreatedOrder(data.order)
-    : false;
   const displayOrderNumber = title.trim() || (data?.order.title ?? "").trim();
-  /** Manual jobs use a human title (not ORD-…); show it as editable when allowed. */
-  const showEditableManualTitle = isManualOrder && !isViewOnly;
+  /** Order number/title editable only on Manual tickets (CRM numbers stay fixed). */
+  const showEditableManualTitle =
+    Boolean(data?.order) &&
+    canEditOrderTitle(role, data!.order) &&
+    !isViewOnly;
 
   async function copyOrderNumber() {
     if (!displayOrderNumber) return;
@@ -1546,6 +1673,39 @@ export function CardDetailModal({
                 )}
               </Button>
             </>
+          ) : isViewOnly && canEditDueDate && (isDueDateDirty() || saving) ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={revert}
+                type="button"
+                disabled={saving || removing || archiving || downloadingArchive}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => void save()}
+                disabled={
+                  saving ||
+                  loading ||
+                  removing ||
+                  archiving ||
+                  downloadingArchive
+                }
+                className={saving ? "cursor-wait" : undefined}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  "Save due date"
+                )}
+              </Button>
+            </>
           ) : (
             <Button
               variant="outline"
@@ -1911,7 +2071,8 @@ export function CardDetailModal({
           </div>
 
           <div className="space-y-4">
-            {!isViewOnly && (isDirty() || saving) ? (
+            {(!isViewOnly && (isDirty() || saving)) ||
+            (isViewOnly && canEditDueDate && (isDueDateDirty() || saving)) ? (
               <div className="flex flex-col gap-2">
                 <Button
                   type="button"
@@ -1925,6 +2086,8 @@ export function CardDetailModal({
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Saving…
                     </>
+                  ) : isViewOnly ? (
+                    "Save due date"
                   ) : (
                     "Save changes"
                   )}
@@ -1996,7 +2159,7 @@ export function CardDetailModal({
                     : null
                 }
                 minDueDate={localDateInputValue()}
-                readOnly={isViewOnly}
+                readOnly={dueDateReadOnly}
                 hint={
                   dueDateHint &&
                   dueDateMode === "after_approval" &&

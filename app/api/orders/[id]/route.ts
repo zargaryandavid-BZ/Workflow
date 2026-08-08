@@ -23,6 +23,8 @@ import {
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
   canEditOrderDetails,
+  canEditOrderTitle,
+  isManualCreatedOrder,
   orderPatchRequiresFormEdit,
 } from "@/lib/permissions";
 import {
@@ -357,7 +359,23 @@ export async function PATCH(
     return NextResponse.json(
       {
         error:
-          "Only Admin, Sales (Account Manager), and Pre-prod can edit Manual orders. CRM / webhook orders can’t be edited.",
+          "Only Admin, Sales (Account Manager), and Pre-prod can edit order details.",
+      },
+      { status: 403 }
+    );
+  }
+
+  // CRM / webhook order numbers are immutable.
+  if (
+    body.title !== undefined &&
+    String(body.title).trim() !== String(existingOrder.title ?? "").trim() &&
+    !canEditOrderTitle(ctx.role, existingOrder)
+  ) {
+    return NextResponse.json(
+      {
+        error: isManualCreatedOrder(existingOrder)
+          ? "You don’t have permission to change the order number."
+          : "CRM / webhook order numbers can’t be changed.",
       },
       { status: 403 }
     );

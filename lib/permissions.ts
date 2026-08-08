@@ -94,8 +94,8 @@ export function isManualCreatedOrder(order: {
 }
 
 /**
- * Who may edit Manual job tickets: Admin, Sales (Account Manager), Pre-prod.
- * CRM / webhook orders are never editable via the order form.
+ * Who may edit order tickets (Manual + CRM): Admin, Sales (Account Manager),
+ * Pre-prod. CRM order numbers (title) stay locked — see canEditOrderTitle.
  */
 export function canEditManualOrders(role: Role): boolean {
   return (
@@ -108,9 +108,25 @@ export function canEditManualOrders(role: Role): boolean {
 /** Whether `role` may change order details (save form / PATCH). */
 export function canEditOrderDetails(
   role: Role,
+  _order?: { webhook_source?: string | null }
+): boolean {
+  return canEditManualOrders(role);
+}
+
+/** Order number/title: editable only on Manual tickets (not CRM / webhook). */
+export function canEditOrderTitle(
+  role: Role,
   order: { webhook_source?: string | null }
 ): boolean {
-  return isManualCreatedOrder(order) && canEditManualOrders(role);
+  return canEditOrderDetails(role, order) && isManualCreatedOrder(order);
+}
+
+/**
+ * Due date may be changed on Manual and CRM/webhook cards (same as board
+ * right-click) even when the viewer cannot edit the full form.
+ */
+export function canEditOrderDueDate(mode: "edit" | "view" = "edit"): boolean {
+  return mode !== "view";
 }
 
 /** Spec keys board / ops may change without full Manual-order edit rights. */
@@ -132,8 +148,8 @@ function jsonStable(value: unknown): string {
 }
 
 /**
- * True when a PATCH would change Manual-only form fields (title, customer,
- * SKUs, etc.). Board ops (designer, due date, tag, priority score) return false.
+ * True when a PATCH would change full form fields (title, customer, SKUs,
+ * etc.). Board ops (designer, due date, tag, priority score) return false.
  */
 export function orderPatchRequiresFormEdit(
   body: {

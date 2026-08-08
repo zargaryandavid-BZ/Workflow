@@ -2768,9 +2768,11 @@ export function Board({
                   : prev
               );
             }
+            // Field patches are applied optimistically above. Do not soft-refresh
+            // here — a column refetch can race the PATCH and restore stale due_date.
+            return;
           }
-          // Soft-refresh enrichments later — card fields already patched above.
-          // Skipping an immediate column refetch + router.refresh keeps Save snappy.
+          // Soft-refresh enrichments after a successful save (no patch).
           const order = boardOrdersRef.current.find((o) => o.id === detailId);
           if (order) scheduleSoftColumnRefresh(order.column_id);
         }}
