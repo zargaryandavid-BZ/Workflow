@@ -69,6 +69,7 @@ import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderCardTimeChips } from "./order-card-time-chips";
+import { MoveMenuSections } from "./move-menu-sections";
 import { partCardTitle } from "@/lib/group-orders";
 import {
   COLUMN_SORT_OPTIONS,
@@ -1033,25 +1034,13 @@ export function BoardTable({
                       Move to
                     </p>
                     <div className="min-h-0 flex-1 overflow-y-auto py-1">
-                      {moveable.map((col) => (
-                        <button
-                          key={col.id}
-                          type="button"
-                          onClick={() => {
-                            onMoveToColumn(menuState.order, col.id);
-                            setMenuState(null);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                        >
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
-                            style={{
-                              backgroundColor: col.color ?? "#e2e8f0",
-                            }}
-                          />
-                          <span className="truncate">{col.name}</span>
-                        </button>
-                      ))}
+                      <MoveMenuSections
+                        columns={moveable}
+                        onSelect={(col) => {
+                          onMoveToColumn(menuState.order, col.id);
+                          setMenuState(null);
+                        }}
+                      />
                     </div>
                   </>
                 ) : null}

@@ -80,6 +80,7 @@ import {
 } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
+import { MoveMenuSections } from "./move-menu-sections";
 import { partCardTitle } from "@/lib/group-orders";
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
@@ -1131,23 +1132,13 @@ export function OrderCard({
                     Move to
                   </p>
                   <div className="min-h-0 flex-1 overflow-y-auto py-1">
-                    {availableColumns.map((col) => (
-                      <button
-                        key={col.id}
-                        type="button"
-                        onClick={() => {
-                          onMoveToColumn?.(order, col.id);
-                          setMenuOpen(false);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
-                          style={{ backgroundColor: col.color ?? "#e2e8f0" }}
-                        />
-                        <span className="truncate">{col.name}</span>
-                      </button>
-                    ))}
+                    <MoveMenuSections
+                      columns={availableColumns}
+                      onSelect={(col) => {
+                        onMoveToColumn?.(order, col.id);
+                        setMenuOpen(false);
+                      }}
+                    />
                   </div>
                 </>
               ) : null}
