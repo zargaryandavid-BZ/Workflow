@@ -79,7 +79,6 @@ import {
   shippingTagClass,
 } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
-import { WebhookSourceLabel } from "./webhook-source-label";
 import { MoveMenuSections } from "./move-menu-sections";
 import { partCardTitle } from "@/lib/group-orders";
 import { OrderBillingGlobe } from "./order-billing-globe";
@@ -615,9 +614,9 @@ export function OrderCard({
         ) : null}
 
         <div className="min-w-0 flex-1">
-          {/* 1) Order/part # badge  2) Source tag + item title  3) Customer  4) Spec detail */}
+          {/* 1) Order/part # + item title  2) Customer  3) Spec detail */}
           <div className="min-w-0 w-full text-left">
-            <div className="flex w-full min-w-0 items-center justify-start gap-1 text-left">
+            <div className="mb-0.5 flex w-full min-w-0 items-center justify-start gap-1.5 text-left">
               <span
                 className={cn(
                   "inline-flex shrink-0 items-center justify-start gap-1.5 text-left text-[15px] font-bold leading-none",
@@ -655,21 +654,18 @@ export function OrderCard({
                   />
                 ) : null}
               </span>
-            </div>
-            {/* Source tag + the card's own item title (prominent) */}
-            <div className="mb-0.5 mt-0.5 flex w-full min-w-0 items-baseline justify-start gap-1.5 text-left">
-              <WebhookSourceLabel
-                webhookSource={order.webhook_source}
-                sourceStyles={webhookSourceStyles}
-                className="inline-flex shrink-0 items-baseline text-[10px] font-semibold leading-tight tracking-wide"
-              />
               {cardTitle ? (
-                <span
-                  className="min-w-0 flex-1 truncate text-left text-[15px] font-bold leading-snug text-slate-900"
-                  title={cardTitle}
-                >
-                  {cardTitle}
-                </span>
+                <>
+                  <span className="shrink-0 text-slate-300" aria-hidden>
+                    ·
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-left text-[15px] font-bold leading-snug text-slate-900"
+                    title={cardTitle}
+                  >
+                    {cardTitle}
+                  </span>
+                </>
               ) : null}
             </div>
             {displayCustomerName ? (

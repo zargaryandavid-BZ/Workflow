@@ -67,7 +67,6 @@ import {
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
-import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import { MoveMenuSections } from "./move-menu-sections";
 import { partCardTitle } from "@/lib/group-orders";
@@ -488,6 +487,7 @@ export function BoardTable({
             const productName = productField
               ? String(fieldValues[productField.id] ?? "").trim()
               : "";
+            const cardTitle = partCardTitle(order, productName);
             const materialsName = materialsField
               ? String(fieldValues[materialsField.id] ?? "").trim()
               : "";
@@ -577,15 +577,10 @@ export function BoardTable({
                     ) : null}
 
                     <div className="min-w-0 flex-1">
-                      <WebhookSourceLabel
-                        webhookSource={order.webhook_source}
-                        sourceStyles={webhookSourceStyles}
-                        orderTitle={partCardTitle(order, productName)}
-                      />
-                      {/* Customer + order number */}
+                      {/* Customer + order number + item title */}
                       <div className="flex items-baseline gap-1.5">
                         {displayCustomerName ? (
-                          <span className="truncate text-sm font-bold leading-tight text-slate-800">
+                          <span className="max-w-[45%] shrink-0 truncate text-sm font-bold leading-tight text-slate-800">
                             {displayCustomerName}
                           </span>
                         ) : null}
@@ -602,6 +597,14 @@ export function BoardTable({
                             }
                           />
                         </span>
+                        {cardTitle ? (
+                          <span
+                            className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight text-slate-700"
+                            title={cardTitle}
+                          >
+                            {cardTitle}
+                          </span>
+                        ) : null}
                       </div>
 
                       {/* Dates + spec summary */}
