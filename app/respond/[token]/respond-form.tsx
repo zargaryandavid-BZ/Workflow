@@ -15,6 +15,7 @@ import {
   RESPOND_MAX_BYTES,
   formatFileSize,
   type OrderMetaChip,
+  type UploadSlot,
 } from "@/lib/respond-page";
 import type { CustomerResponse, NotificationType } from "@/lib/types";
 
@@ -23,10 +24,111 @@ interface Props {
   type: NotificationType;
   productLabel?: string;
   orderNumber?: string;
+  /** This part's line-item title, shown as the heading + upload label. */
+  itemTitle?: string;
+  /** Titled per-SKU upload targets. Each maps its file to a specific SKU. */
+  uploadSlots?: UploadSlot[];
   staffNote?: string | null;
   metaChips?: OrderMetaChip[];
   tenantName?: string;
   orderReview?: React.ReactNode;
+}
+
+/** A single titled upload control (its own file input + drag state). */
+function UploadDropzone({
+  label,
+  files,
+  disabled,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  files: File[];
+  disabled: boolean;
+  onAdd: (list: FileList | null) => void;
+  onRemove: (index: number) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <div>
+      <Label className="mb-1.5 block text-sm font-medium text-slate-700">
+        {label}
+      </Label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={RESPOND_ACCEPT}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          onAdd(e.target.files);
+          if (inputRef.current) inputRef.current.value = "";
+        }}
+      />
+
+      {files.length > 0 ? (
+        <ul className="mb-2 space-y-1.5">
+          {files.map((file, index) => (
+            <li
+              key={`${file.name}-${index}`}
+              className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-700"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span className="truncate">{file.name}</span>
+                <span className="shrink-0 text-xs text-slate-400">
+                  {formatFileSize(file.size)}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemove(index)}
+                className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                aria-label={`Remove ${file.name}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          onAdd(e.dataTransfer.files);
+        }}
+        disabled={disabled}
+        className={`flex w-full items-center gap-2.5 rounded-lg border border-dashed px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-60 ${
+          dragOver
+            ? "border-[#1d4ed8] bg-[#f0f9ff] text-[#1d4ed8]"
+            : "border-slate-300 bg-slate-50 text-slate-500 hover:border-[#1d4ed8] hover:bg-[#f0f9ff]"
+        }`}
+      >
+        <CloudUpload className="h-4 w-4 shrink-0" />
+        <span className="min-w-0">
+          <span className="block text-slate-600">
+            {files.length > 0
+              ? "Add another file"
+              : "Drag & drop or click to upload"}
+          </span>
+          <span className="text-xs text-slate-400">
+            PDF, AI, EPS, PNG, JPG · Max 50MB
+          </span>
+        </span>
+      </button>
+    </div>
+  );
 }
 
 export function RespondForm({
@@ -34,6 +136,8 @@ export function RespondForm({
   type,
   productLabel,
   orderNumber,
+  itemTitle,
+  uploadSlots,
   staffNote,
   metaChips = [],
   tenantName,
@@ -46,13 +150,20 @@ export function RespondForm({
     "approved" | "rejected" | "info" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [filesBySlot, setFilesBySlot] = useState<Record<number, File[]>>({});
 
-  const canSend = note.trim().length > 0 || pendingFiles.length > 0;
+  // Titled upload targets. Legacy links (no slots) fall back to one item slot.
+  const itemHeading = itemTitle?.trim() || productLabel || "Your order";
+  const slots: UploadSlot[] =
+    uploadSlots && uploadSlots.length > 0
+      ? uploadSlots
+      : [{ skuKey: null, label: itemHeading }];
+  const multiSlot = slots.length > 1;
 
-  function addFiles(list: FileList | null) {
+  const anyFiles = Object.values(filesBySlot).some((f) => f.length > 0);
+  const canSend = note.trim().length > 0 || anyFiles;
+
+  function addFiles(slotIndex: number, list: FileList | null) {
     if (!list || list.length === 0) return;
     setError(null);
     const next: File[] = [];
@@ -64,13 +175,18 @@ export function RespondForm({
       next.push(file);
     }
     if (next.length > 0) {
-      setPendingFiles((prev) => [...prev, ...next]);
+      setFilesBySlot((prev) => ({
+        ...prev,
+        [slotIndex]: [...(prev[slotIndex] ?? []), ...next],
+      }));
     }
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function removeFile(index: number) {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  function removeFile(slotIndex: number, index: number) {
+    setFilesBySlot((prev) => ({
+      ...prev,
+      [slotIndex]: (prev[slotIndex] ?? []).filter((_, i) => i !== index),
+    }));
   }
 
   async function respond(response: CustomerResponse) {
@@ -83,17 +199,22 @@ export function RespondForm({
     setLoading(true);
 
     try {
-      for (const file of pendingFiles) {
-        const form = new FormData();
-        form.append("file", file);
-        form.append("token", token);
-        const uploadRes = await fetch("/api/notifications/upload", {
-          method: "POST",
-          body: form,
-        });
-        const uploadJson = await uploadRes.json();
-        if (!uploadRes.ok) {
-          throw new Error(uploadJson.error ?? `Failed to upload ${file.name}`);
+      for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
+        const files = filesBySlot[slotIndex] ?? [];
+        const { skuKey } = slots[slotIndex];
+        for (const file of files) {
+          const form = new FormData();
+          form.append("file", file);
+          form.append("token", token);
+          if (skuKey) form.append("skuKey", skuKey);
+          const uploadRes = await fetch("/api/notifications/upload", {
+            method: "POST",
+            body: form,
+          });
+          const uploadJson = await uploadRes.json();
+          if (!uploadRes.ok) {
+            throw new Error(uploadJson.error ?? `Failed to upload ${file.name}`);
+          }
         }
       }
 
@@ -112,9 +233,7 @@ export function RespondForm({
       }
       setDone(true);
       if (type === "customer_approval") {
-        setDoneKind(
-          response === "approved" ? "approved" : "rejected"
-        );
+        setDoneKind(response === "approved" ? "approved" : "rejected");
       } else {
         setDoneKind("info");
       }
@@ -327,12 +446,19 @@ export function RespondForm({
         </div>
       ) : null}
 
-      <p className="text-sm leading-relaxed text-slate-600">
-        We need more information for your {productLabel ?? "order"}
-        {orderNumber ? ` ${orderNumber}` : ""} before we can proceed.
-        {" "}Please see the note from our team below, then attach your file or
-        leave a reply.
-      </p>
+      <div>
+        <h2 className="text-base font-semibold text-slate-800">
+          {itemHeading}
+        </h2>
+        <p className="mt-1 text-sm leading-relaxed text-slate-600">
+          We need your file{multiSlot ? "s" : ""} for this item
+          {orderNumber ? ` (order ${orderNumber})` : ""} before we can proceed.
+          {multiSlot
+            ? " Please upload the correct file for each item below,"
+            : " Please attach your file below,"}
+          {" "}or leave us a note.
+        </p>
+      </div>
 
       {staffNote?.trim() ? (
         <div className="rounded-r-lg border-l-[3px] border-[#1d4ed8] bg-[#f0f9ff] px-4 py-3">
@@ -345,77 +471,21 @@ export function RespondForm({
         </div>
       ) : null}
 
-      <div>
-        <Label className="mb-1.5 block text-sm font-medium text-slate-700">
-          Attach a file
-        </Label>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={RESPOND_ACCEPT}
-          className="hidden"
-          onChange={(e) => addFiles(e.target.files)}
-        />
-
-        {pendingFiles.length > 0 ? (
-          <ul className="mb-2 space-y-1.5">
-            {pendingFiles.map((file, index) => (
-              <li
-                key={`${file.name}-${index}`}
-                className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-700"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <span className="truncate">{file.name}</span>
-                  <span className="shrink-0 text-xs text-slate-400">
-                    {formatFileSize(file.size)}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeFile(index)}
-                  className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                  aria-label={`Remove ${file.name}`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            addFiles(e.dataTransfer.files);
-          }}
-          disabled={loading}
-          className={`flex w-full items-center gap-2.5 rounded-lg border border-dashed px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-60 ${
-            dragOver
-              ? "border-[#1d4ed8] bg-[#f0f9ff] text-[#1d4ed8]"
-              : "border-slate-300 bg-slate-50 text-slate-500 hover:border-[#1d4ed8] hover:bg-[#f0f9ff]"
-          }`}
-        >
-          <CloudUpload className="h-4 w-4 shrink-0" />
-          <span className="min-w-0">
-            <span className="block text-slate-600">
-              {pendingFiles.length > 0
-                ? "Add another file"
-                : "Drag & drop or click to upload"}
-            </span>
-            <span className="text-xs text-slate-400">
-              PDF, AI, EPS, PNG, JPG · Max 50MB
-            </span>
-          </span>
-        </button>
+      <div className="space-y-4">
+        {slots.map((slot, index) => (
+          <UploadDropzone
+            key={`${slot.skuKey ?? "item"}-${index}`}
+            label={
+              multiSlot
+                ? slot.label || `Item ${index + 1}`
+                : `Attach files for ${slot.label}`
+            }
+            files={filesBySlot[index] ?? []}
+            disabled={loading}
+            onAdd={(list) => addFiles(index, list)}
+            onRemove={(fileIndex) => removeFile(index, fileIndex)}
+          />
+        ))}
       </div>
 
       <div className="flex items-center gap-3">

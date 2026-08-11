@@ -14,6 +14,7 @@ import {
   ensureReadyToShipOrderLink,
   injectApprovalLink,
   injectReplyLink,
+  itemTitleFromSpecs,
   messageToEmailHtml,
   missingInfoSubject,
   readyToShipSubject,
@@ -119,6 +120,14 @@ async function deliverNotification(
     readyToShipOrderLabel = formatReadyToShipGroupLabel(members);
   }
 
+  // Each order line item is its own part/card — name it so the customer knows
+  // exactly which item we need files for.
+  const itemTitle = itemTitleFromSpecs(
+    params.order.specs,
+    productFromOrder(params.order),
+    params.order.title
+  );
+
   const syncedCustomerId = await syncCustomerFromNotification(client, {
     tenantId: params.order.tenant_id,
     orderId: params.order.id,
@@ -163,6 +172,7 @@ async function deliverNotification(
           productType: productFromOrder(params.order),
           orderNumber: params.order.title,
           replyLink: actionUrl,
+          itemTitle,
           staffNote,
           teamName: `${params.tenantName} Team`,
           templates,
@@ -209,6 +219,7 @@ async function deliverNotification(
       const subjectVars = {
         customer_name: customerName?.trim() || "there",
         product: productLabel,
+        item_title: itemTitle,
         reply_link: actionUrl,
         approval_link: actionUrl,
         order_link: actionUrl,
@@ -267,6 +278,7 @@ async function deliverNotification(
               customerName,
               orderNumber: params.order.title,
               replyLink: actionUrl,
+              itemTitle,
               brandName: params.tenantName,
               templates,
             })

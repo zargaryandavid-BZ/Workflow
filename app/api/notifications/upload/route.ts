@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { RESPOND_MAX_BYTES } from "@/lib/respond-page";
+import { normalizeSkus } from "@/lib/skus";
 
 const BUCKET = "order-assets";
 const ALLOWED_EXT = new Set([
@@ -16,6 +17,9 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const file = form.get("file");
   const token = form.get("token");
+  const skuKeyRaw = form.get("skuKey");
+  const requestedSkuKey =
+    typeof skuKeyRaw === "string" && skuKeyRaw.trim() ? skuKeyRaw.trim() : null;
 
   if (!(file instanceof File) || typeof token !== "string") {
     return NextResponse.json(
@@ -63,6 +67,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This link has expired." }, { status: 410 });
   }
 
+  // Tag the upload to a specific SKU/part when the reply page supplied one and
+  // it is a real SKU on this order (assets.sku_key powers the per-SKU artwork
+  // views + the Pulse order-artwork endpoint). Unknown keys degrade to null.
+  let skuKey: string | null = null;
+  if (requestedSkuKey) {
+    const { data: orderRow } = await admin
+      .from("orders")
+      .select("specs")
+      .eq("id", notification.order_id)
+      .maybeSingle();
+    const skus = normalizeSkus(
+      (orderRow?.specs as { skus?: unknown } | null)?.skus
+    );
+    if (skus.some((s) => s.id === requestedSkuKey)) {
+      skuKey = requestedSkuKey;
+    }
+  }
+
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `${notification.tenant_id}/${notification.order_id}/${Date.now()}-${safeName}`;
 
@@ -80,6 +102,7 @@ export async function POST(request: Request) {
       tenant_id: notification.tenant_id,
       order_id: notification.order_id,
       notification_id: notification.id,
+      sku_key: skuKey,
       file_name: file.name,
       storage_path: path,
       mime_type: file.type || null,

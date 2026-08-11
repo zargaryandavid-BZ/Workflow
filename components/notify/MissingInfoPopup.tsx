@@ -9,6 +9,7 @@ import {
   buildMissingInfoSmsBody,
   customerContactFromOrder,
   customerNameFromOrder,
+  itemTitleFromSpecs,
   missingInfoSubject,
   productFromOrder,
 } from "@/lib/notification-messages";
@@ -56,6 +57,10 @@ export function MissingInfoPopup({
     () => productFromOrder(fieldValues, customFields),
     [fieldValues, customFields]
   );
+  const itemTitle = useMemo(
+    () => itemTitleFromSpecs(order.specs, product, order.title),
+    [order.specs, product, order.title]
+  );
 
   const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
     defaultSendChannels(
@@ -66,7 +71,13 @@ export function MissingInfoPopup({
   );
   const [email, setEmail] = useState(contact.email ?? "");
   const [phone, setPhone] = useState(contact.phone ?? "");
-  const [subject, setSubject] = useState(() => missingInfoSubject(order.title));
+  const [subject, setSubject] = useState(() =>
+    missingInfoSubject(order.title, undefined, {
+      customer_name: customerName,
+      product,
+      item_title: itemTitle,
+    })
+  );
   const [internalNote, setInternalNote] = useState("");
   const emailPreview = useMemo(
     () =>
@@ -74,10 +85,11 @@ export function MissingInfoPopup({
         customerName,
         product,
         orderNumber: order.title,
+        itemTitle,
         tenantName: `${tenantName} Team`,
         staffNote: internalNote.trim() || null,
       }),
-    [customerName, product, order.title, tenantName, internalNote]
+    [customerName, product, itemTitle, order.title, tenantName, internalNote]
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -308,6 +320,7 @@ export function MissingInfoPopup({
                   customerName,
                   orderNumber: order.title,
                   replyLink: "[reply link added on send]",
+                  itemTitle,
                   brandName: tenantName,
                 })}
               </p>

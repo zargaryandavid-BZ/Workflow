@@ -3,6 +3,16 @@ export interface OrderMetaChip {
   value: string;
 }
 
+/**
+ * A titled upload target on the customer reply page. `skuKey` maps the uploaded
+ * asset to a specific SKU (assets.sku_key) so it flows to the per-SKU artwork
+ * views; `null` tags the file to the order/part only (legacy / no SKUs).
+ */
+export interface UploadSlot {
+  skuKey: string | null;
+  label: string;
+}
+
 function pickField(
   fields: Record<string, unknown>,
   ...names: string[]
