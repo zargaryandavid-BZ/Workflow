@@ -27,6 +27,7 @@ import type { CustomField, Designer, OrderWithRelations } from "@/lib/types";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 import { WebhookSourceLabel } from "./webhook-source-label";
+import { MoveMenuSections } from "./move-menu-sections";
 import {
   GroupDueDatesModal,
   type GroupDueDateUpdate,
@@ -487,26 +488,16 @@ export function GroupedOrderCard({
                     )}
                   </button>
                   {moveSubOpen ? (
-                    <div className="border-t border-slate-100 bg-slate-50/80 py-1">
-                      {availableColumns.map((col) => (
-                        <button
-                          key={col.id}
-                          type="button"
-                          onClick={() => {
-                            onMoveGroup(orders, col.id);
-                            closeMenu();
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 pl-8 text-left text-sm text-slate-700 hover:bg-slate-100"
-                        >
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-200"
-                            style={{
-                              backgroundColor: col.color ?? "#e2e8f0",
-                            }}
-                          />
-                          <span className="truncate">{col.name}</span>
-                        </button>
-                      ))}
+                    <div className="border-t border-slate-100">
+                      <MoveMenuSections
+                        columns={availableColumns}
+                        onSelect={(col) => {
+                          onMoveGroup(orders, col.id);
+                          closeMenu();
+                        }}
+                        itemClassName="pl-8"
+                        headerClassName="pl-8"
+                      />
                     </div>
                   ) : null}
                 </div>
