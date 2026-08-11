@@ -665,7 +665,7 @@ export function OrderFormBody({
                 <option value="">— Unassigned —</option>
                 {owners.length === 0 ? (
                   <option value="" disabled>
-                    No account managers
+                    No owners available
                   </option>
                 ) : null}
                 {owners.map((owner) => (

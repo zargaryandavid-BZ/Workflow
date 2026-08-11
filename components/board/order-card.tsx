@@ -84,6 +84,7 @@ import {
   shippingTagClass,
 } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import { webhookSourceCardBackground } from "@/lib/webhook-source-styles";
 import { MoveMenuSections } from "./move-menu-sections";
 import { partCardTitle } from "@/lib/group-orders";
 import { OrderBillingGlobe } from "./order-billing-globe";
@@ -292,11 +293,16 @@ export function OrderCard({
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
     !activeWarning ? shippingCardBorderColor(shippingSign) : null;
+  const webhookCardBg =
+    !isDesignerUnassigned
+      ? webhookSourceCardBackground(order.webhook_source, webhookSourceStyles)
+      : null;
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
+    ...(webhookCardBg ? { backgroundColor: webhookCardBg } : {}),
     // Emergency severity (if any) always wins the border color; else animated
     // warnings set border-color in keyframes so avoid an inline color fighting them.
     ...(emergencySeverity
@@ -574,8 +580,12 @@ export function OrderCard({
           : "shadow-sm transition-shadow hover:shadow-md",
         isDesignerUnassigned
           ? UNASSIGNED_DESIGNER_CARD_CLASS
-          : "bg-white",
-        !emergencySeverity && !shippingBorderColor && !activeWarning ? "border-slate-200" : "",
+          : webhookCardBg
+            ? ""
+            : "bg-white",
+        !emergencySeverity && !shippingBorderColor && !activeWarning
+          ? "border-slate-200"
+          : "",
         canDrag ? "cursor-pointer" : "cursor-default",
         activeWarning && animateWarnings && !highlighted
           ? `warning-${activeWarning.rule.color}`

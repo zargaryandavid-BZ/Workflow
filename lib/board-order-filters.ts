@@ -2,13 +2,27 @@ import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
-import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
+import {
+  MANUAL_WEBHOOK_SOURCE_FILTER,
+  OTHER_WEBHOOK_SOURCE_FILTER,
+  UNASSIGNED_OWNER_FILTER,
+} from "@/lib/constants";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 export interface BoardOrderFilters {
   q: string;
   personFilter: string;
   ownerFilter: string;
+  /**
+   * Webhook source key, or {@link MANUAL_WEBHOOK_SOURCE_FILTER} /
+   * {@link OTHER_WEBHOOK_SOURCE_FILTER}. Empty = all.
+   */
+  webhookSourceFilter?: string;
+  /**
+   * Configured Integrations source keys (lowercase). Used when filtering
+   * {@link OTHER_WEBHOOK_SOURCE_FILTER}.
+   */
+  knownWebhookSourceKeys?: readonly string[];
   /** When true, only cards with a past due date (not in Done columns). */
   overdueOnly?: boolean;
   /** When true, only cards due on today's local calendar date (not in Done). */
@@ -108,6 +122,22 @@ export function orderMatchesBoardFilters(
     if (filters.ownerFilter === UNASSIGNED_OWNER_FILTER) {
       if (order.created_by) return false;
     } else if (order.created_by !== filters.ownerFilter) {
+      return false;
+    }
+  }
+  if (filters.webhookSourceFilter) {
+    const raw = order.webhook_source;
+    const key =
+      raw == null ? null : String(raw).trim().toLowerCase();
+    if (filters.webhookSourceFilter === MANUAL_WEBHOOK_SOURCE_FILTER) {
+      if (key != null) return false;
+    } else if (filters.webhookSourceFilter === OTHER_WEBHOOK_SOURCE_FILTER) {
+      if (key == null) return false;
+      const known = new Set(
+        (filters.knownWebhookSourceKeys ?? []).map((k) => k.toLowerCase())
+      );
+      if (key !== "" && known.has(key)) return false;
+    } else if (key !== filters.webhookSourceFilter.toLowerCase()) {
       return false;
     }
   }

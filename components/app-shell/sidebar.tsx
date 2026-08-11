@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Archive,
+  AlertTriangle,
   BarChart3,
   Clock,
   LayoutGrid,
@@ -90,6 +91,12 @@ const nav: NavItem[] = [
     href: "/settings/card-warnings",
     label: "Card Warnings",
     icon: ShieldAlert,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/emergency-balance",
+    label: "Emergency Balance",
+    icon: AlertTriangle,
     adminOnly: true,
   },
   {

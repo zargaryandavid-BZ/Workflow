@@ -1,9 +1,12 @@
+import type { EmergencyBalanceConfig } from "@/lib/emergency-balance";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 
 export type {
   WebhookSourceStyleEntry,
   WebhookSourceStyles,
 } from "@/lib/webhook-source-styles";
+
+export type { EmergencyBalanceConfig } from "@/lib/emergency-balance";
 
 export type Role =
   | "admin"
@@ -57,6 +60,11 @@ export interface Tenant {
    * Default Mon–Fri: [1, 2, 3, 4, 5].
    */
   warning_working_days: number[];
+  /**
+   * Emergency / Urgency view rules (per board column id).
+   * See lib/emergency-balance.ts — empty conditions = no warning for that column.
+   */
+  emergency_balance?: EmergencyBalanceConfig | Record<string, unknown> | null;
 }
 
 export interface Profile {

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeEmergencyBalance } from "@/lib/emergency-balance";
 import { Board } from "@/components/board/board";
 import { isPublicAppUrl } from "@/lib/notification-messages";
 import { isSmsConfigured } from "@/lib/sms";
@@ -200,6 +201,10 @@ export default async function BoardPage({
       warningAnimationSpeedMs={tenant.warning_speed_ms ?? 2500}
       warningAnimationSpreadPx={tenant.warning_spread_px ?? 3}
       warningWorkingDays={tenant.warning_working_days ?? [1, 2, 3, 4, 5]}
+      emergencyBalance={normalizeEmergencyBalance(
+        tenant.emergency_balance,
+        boardColumns.map((c) => ({ id: c.id, name: c.name }))
+      )}
       role={ctx.role}
       columns={boardColumns}
       tags={(tagsRes.data ?? []) as Tag[]}

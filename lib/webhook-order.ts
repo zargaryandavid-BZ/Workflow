@@ -585,7 +585,23 @@ export function resolveCardAttentionNotes(opts: {
   }
 
   // Aggregated order-level notes were split → don't paste the full blob on each card.
-  const shared = splitFromNotes ? null : sharedAttention;
+  let shared = splitFromNotes ? null : sharedAttention;
+
+  // Extra guard (ORD-2026-0483): CRM often pastes every line's note into
+  // order-level `notes` AND still sends each line's text on skus[0].comment.
+  // If shared embeds another item's own note, drop it so buildWebhookNotes
+  // only keeps this card's SKU / line comment.
+  if (shared && items.length > 1) {
+    const sn = normalizeNoteCompare(shared);
+    const foreignHit = items.some((it, idx) => {
+      if (idx === itemIndex) return false;
+      const other = resolveItemOwnAttentionNote(it, null);
+      if (!other) return false;
+      const head = normalizeNoteCompare(other).slice(0, 48);
+      return head.length >= 20 && sn.includes(head);
+    });
+    if (foreignHit) shared = null;
+  }
 
   return {
     attention: combineCardAttentionNotes(shared, itemLine),

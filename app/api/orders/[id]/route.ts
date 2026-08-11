@@ -450,7 +450,7 @@ export async function PATCH(
       );
       if (!valid) {
         return NextResponse.json(
-          { error: "Owner must be an account manager" },
+          { error: "Owner must be an account manager or admin" },
           { status: 400 }
         );
       }

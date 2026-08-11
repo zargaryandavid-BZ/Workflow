@@ -671,7 +671,7 @@ export function CardDetailModal({
     }
 
     if (ownerId && !owners.some((o) => o.id === ownerId)) {
-      setSaveError("Owner must be an account manager");
+      setSaveError("Owner must be an account manager or admin");
       return false;
     }
 
@@ -1178,7 +1178,7 @@ export function CardDetailModal({
     if (!ownerId || owners.some((o) => o.id === ownerId)) return owners;
     return [
       ...owners,
-      { id: ownerId, name: "Previous owner (not account manager)" },
+      { id: ownerId, name: "Previous owner (not account manager or admin)" },
     ];
   }, [owners, ownerId]);
 

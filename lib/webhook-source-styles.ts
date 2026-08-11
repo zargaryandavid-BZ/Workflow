@@ -99,3 +99,31 @@ export function resolveWebhookSourceStyle(
   }
   return { label: cfg.other.label, color: cfg.other.color };
 }
+
+/** Soft tint for kanban cards (mix source color toward white). */
+export function hexToCardBackground(hex: string, strength = 0.14): string {
+  const n = normalizeHexColor(hex);
+  const r = parseInt(n.slice(1, 3), 16);
+  const g = parseInt(n.slice(3, 5), 16);
+  const b = parseInt(n.slice(5, 7), 16);
+  const mix = (c: number) => Math.round(255 - (255 - c) * strength);
+  return `rgb(${mix(r)} ${mix(g)} ${mix(b)})`;
+}
+
+/**
+ * Card background for specific webhook sources (e.g. website / WEB).
+ * Returns null for manual, unknown, or sources not in `tintKeys`.
+ */
+export function webhookSourceCardBackground(
+  webhookSource: string | null | undefined,
+  styles: WebhookSourceStyles | null | undefined,
+  tintKeys: readonly string[] = ["website"]
+): string | null {
+  if (webhookSource == null) return null;
+  const key = normalizeKey(webhookSource);
+  if (!key || !tintKeys.map(normalizeKey).includes(key)) return null;
+  const cfg = styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES;
+  const match = cfg.sources.find((s) => s.key === key);
+  if (!match) return null;
+  return hexToCardBackground(match.color);
+}

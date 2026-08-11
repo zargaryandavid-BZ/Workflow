@@ -175,7 +175,7 @@ export async function createOrder(
       body.ownerId
     );
     if (!valid) {
-      return { error: "Owner must be an account manager", status: 400 };
+      return { error: "Owner must be an account manager or admin", status: 400 };
     }
   }
 

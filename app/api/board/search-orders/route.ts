@@ -6,7 +6,11 @@ import {
   isOrderNumberQuery,
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
-import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
+import {
+  MANUAL_WEBHOOK_SOURCE_FILTER,
+  OTHER_WEBHOOK_SOURCE_FILTER,
+  UNASSIGNED_OWNER_FILTER,
+} from "@/lib/constants";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
@@ -55,6 +59,11 @@ export async function GET(req: NextRequest) {
       ? ctx.userId
       : (searchParams.get("designerId") ?? "");
   const ownerId = searchParams.get("ownerId") ?? "";
+  const webhookSource = (searchParams.get("webhookSource") ?? "").trim();
+  const knownWebhookSourceKeys = (searchParams.get("knownSources") ?? "")
+    .split(",")
+    .map((k) => k.trim().toLowerCase())
+    .filter(Boolean);
   const overdueOnly =
     searchParams.get("overdueOnly") === "1" ||
     searchParams.get("overdueOnly") === "true";
@@ -62,7 +71,14 @@ export async function GET(req: NextRequest) {
     searchParams.get("dueTodayOnly") === "1" ||
     searchParams.get("dueTodayOnly") === "true";
 
-  if (!q && !designerId && !ownerId && !overdueOnly && !dueTodayOnly) {
+  if (
+    !q &&
+    !designerId &&
+    !ownerId &&
+    !webhookSource &&
+    !overdueOnly &&
+    !dueTodayOnly
+  ) {
     return NextResponse.json(emptyResponse());
   }
 
@@ -153,6 +169,20 @@ export async function GET(req: NextRequest) {
     if (designerId) {
       query = query.eq("specs->>designer_id", designerId);
     }
+    if (webhookSource === MANUAL_WEBHOOK_SOURCE_FILTER) {
+      query = query.is("webhook_source", null);
+    } else if (webhookSource === OTHER_WEBHOOK_SOURCE_FILTER) {
+      query = query.not("webhook_source", "is", null);
+      if (knownWebhookSourceKeys.length > 0) {
+        query = query.not(
+          "webhook_source",
+          "in",
+          `(${knownWebhookSourceKeys.join(",")})`
+        );
+      }
+    } else if (webhookSource) {
+      query = query.eq("webhook_source", webhookSource.toLowerCase());
+    }
     if (overdueOnly) {
       // Due before today's local calendar date (due today is not overdue yet).
       const today = new Date();
@@ -241,6 +271,8 @@ export async function GET(req: NextRequest) {
     q,
     personFilter: designerId,
     ownerFilter: ownerId,
+    webhookSourceFilter: webhookSource,
+    knownWebhookSourceKeys,
     overdueOnly,
     dueTodayOnly,
     doneColumnIds,

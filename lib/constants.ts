@@ -68,6 +68,15 @@ export const UNASSIGNED_OWNER_TEXT_CLASS =
 /** Sentinel for board owner filter — jobs with no `created_by`. */
 export const UNASSIGNED_OWNER_FILTER = "__unassigned__";
 
+/** Board webhook-source filter — manually created jobs (`webhook_source` null). */
+export const MANUAL_WEBHOOK_SOURCE_FILTER = "__manual__";
+
+/**
+ * Board webhook-source filter — webhook jobs with empty/unknown source
+ * (Integrations "other" style).
+ */
+export const OTHER_WEBHOOK_SOURCE_FILTER = "__other__";
+
 export const COLUMN_ACCENT: Record<ColumnKind, string> = {
   normal: "border-t-slate-400",
   exception: "border-t-amber-500",

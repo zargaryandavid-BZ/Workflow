@@ -64,7 +64,12 @@ import {
   isOrderNumberQuery,
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
-import { UNASSIGNED_OWNER_FILTER } from "@/lib/constants";
+import {
+  MANUAL_WEBHOOK_SOURCE_FILTER,
+  OTHER_WEBHOOK_SOURCE_FILTER,
+  UNASSIGNED_OWNER_FILTER,
+} from "@/lib/constants";
+import { DEFAULT_WEBHOOK_SOURCE_STYLES } from "@/lib/webhook-source-styles";
 import { filterButtonsForColumn } from "@/lib/button-automations";
 import {
   loadHiddenColumnIds,
@@ -113,10 +118,15 @@ import { stageKey } from "@/lib/stage-groups";
 import {
   evaluateEmergency,
   matchesQuickFilter,
-  QUICK_FILTER_META,
+  quickFilterMeta,
   type EmergencyQuickFilter,
   type EmergencyResult,
 } from "@/lib/emergency-view";
+import {
+  DEFAULT_EMERGENCY_BALANCE,
+  normalizeEmergencyBalance,
+  type EmergencyBalanceConfig,
+} from "@/lib/emergency-balance";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { OrderOwner } from "./order-form-body";
 import type { CardNotificationBadge } from "@/lib/card-badges";
@@ -207,6 +217,8 @@ interface BoardProps {
   warningAnimationSpreadPx?: number;
   /** Weekdays that count toward stale warnings (Date.getDay: 0–6). */
   warningWorkingDays?: number[];
+  /** Emergency / Urgency view thresholds (defaults = current hardcoded balance). */
+  emergencyBalance?: EmergencyBalanceConfig;
   webhookSourceStyles?: WebhookSourceStyles;
   timeChips?: TimeChip[];
   initialOrderId?: string | null;
@@ -234,12 +246,24 @@ export function Board({
   warningAnimationSpeedMs = 2500,
   warningAnimationSpreadPx = 3,
   warningWorkingDays = [1, 2, 3, 4, 5],
+  emergencyBalance: emergencyBalanceProp,
   webhookSourceStyles = undefined,
   timeChips = [],
   initialOrderId = null,
   appUrl,
 }: BoardProps) {
   const router = useRouter();
+  const emergencyBalance = useMemo(
+    () =>
+      normalizeEmergencyBalance(
+        emergencyBalanceProp ?? DEFAULT_EMERGENCY_BALANCE
+      ),
+    [emergencyBalanceProp]
+  );
+  const emergencyQuickFilterMeta = useMemo(
+    () => quickFilterMeta(emergencyBalance),
+    [emergencyBalance]
+  );
 
   // ── Core order state ────────────────────────────────────────────────────────
   const [orders, setOrders] = useState<OrderWithRelations[]>([]);
@@ -296,6 +320,7 @@ export function Board({
   const [orderQuery, setOrderQuery] = useState("");
   const [personFilter, setPersonFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
+  const [webhookSourceFilter, setWebhookSourceFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
   // Emergency / Urgency view (read-only overlay; changes no existing data).
@@ -390,16 +415,35 @@ export function Board({
     });
   }, [designers, orders, columns, columnLoadStatus]);
 
+  const knownWebhookSourceKeys = useMemo(
+    () =>
+      (webhookSourceStyles ?? DEFAULT_WEBHOOK_SOURCE_STYLES).sources.map((s) =>
+        s.key.toLowerCase()
+      ),
+    [webhookSourceStyles]
+  );
+
   const boardFilters = useMemo(
     () => ({
       q: orderQuery,
       personFilter,
       ownerFilter,
+      webhookSourceFilter,
+      knownWebhookSourceKeys,
       overdueOnly,
       dueTodayOnly,
       doneColumnIds,
     }),
-    [orderQuery, personFilter, ownerFilter, overdueOnly, dueTodayOnly, doneColumnIds]
+    [
+      orderQuery,
+      personFilter,
+      ownerFilter,
+      webhookSourceFilter,
+      knownWebhookSourceKeys,
+      overdueOnly,
+      dueTodayOnly,
+      doneColumnIds,
+    ]
   );
 
   /** Maps every orderId to its cross-column group size (only set when ≥ 2). */
@@ -408,6 +452,7 @@ export function Board({
       orderQuery.trim() !== "" ||
       personFilter !== "" ||
       ownerFilter !== "" ||
+      webhookSourceFilter !== "" ||
       overdueOnly ||
       dueTodayOnly;
     const source = filtersOn
@@ -441,6 +486,7 @@ export function Board({
     orderQuery,
     personFilter,
     ownerFilter,
+    webhookSourceFilter,
     overdueOnly,
     dueTodayOnly,
     boardFilters,
@@ -620,6 +666,8 @@ export function Board({
     orderQuery,
     personFilter,
     ownerFilter,
+    webhookSourceFilter,
+    knownWebhookSourceKeys.join(","),
     overdueOnly ? "1" : "0",
     dueTodayOnly ? "1" : "0",
     tenantId,
@@ -631,6 +679,7 @@ export function Board({
       q !== "" ||
       personFilter !== "" ||
       ownerFilter !== "" ||
+      webhookSourceFilter !== "" ||
       overdueOnly ||
       dueTodayOnly;
 
@@ -655,6 +704,15 @@ export function Board({
           if (q) params.set("q", q);
           if (personFilter) params.set("designerId", personFilter);
           if (ownerFilter) params.set("ownerId", ownerFilter);
+          if (webhookSourceFilter) {
+            params.set("webhookSource", webhookSourceFilter);
+            if (
+              webhookSourceFilter === OTHER_WEBHOOK_SOURCE_FILTER &&
+              knownWebhookSourceKeys.length > 0
+            ) {
+              params.set("knownSources", knownWebhookSourceKeys.join(","));
+            }
+          }
           if (overdueOnly) params.set("overdueOnly", "1");
           if (dueTodayOnly) params.set("dueTodayOnly", "1");
 
@@ -1899,6 +1957,7 @@ export function Board({
     const placementSource =
       personFilter ||
       ownerFilter ||
+      webhookSourceFilter ||
       orderQuery.trim() ||
       overdueOnly ||
       dueTodayOnly
@@ -2012,10 +2071,12 @@ export function Board({
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const ownerFilterOptions = owners;
+  const sourceStyleConfig = webhookSourceStyles ?? DEFAULT_WEBHOOK_SOURCE_STYLES;
   const filtersActive =
     orderQuery.trim() !== "" ||
     personFilter !== "" ||
     ownerFilter !== "" ||
+    webhookSourceFilter !== "" ||
     overdueOnly ||
     dueTodayOnly;
 
@@ -2135,24 +2196,28 @@ export function Board({
     for (const order of displayOrders) {
       const col = columns.find((c) => c.id === order.column_id);
       if (!col) continue;
-      map[order.id] = evaluateEmergency({
-        columnName: col.name,
-        hoursHere: hoursInCurrentColumn(order.last_moved_at, now),
-        workingDaysHere: daysInCurrentColumn(
-          order.last_moved_at,
-          now,
-          warningWorkingDays
-        ),
-        daysToDue: order.due_date ? calendarDaysUntilDue(order.due_date) : null,
-        isRush: /rush/i.test(order.tag?.name ?? ""),
-        hasApplication: isApplicationEnabled(
-          order.specs,
-          customFields,
-          fieldValuesByOrder[order.id] ?? {}
-        ),
-        priorityScore: priorityScoreFromSpecs(order.specs),
-        isKeyAccount: false, // CRM key-account flag — companion piece, wired later
-      });
+      map[order.id] = evaluateEmergency(
+        {
+          columnId: col.id,
+          columnName: col.name,
+          hoursHere: hoursInCurrentColumn(order.last_moved_at, now),
+          workingDaysHere: daysInCurrentColumn(
+            order.last_moved_at,
+            now,
+            warningWorkingDays
+          ),
+          daysToDue: order.due_date ? calendarDaysUntilDue(order.due_date) : null,
+          isRush: /rush/i.test(order.tag?.name ?? ""),
+          hasApplication: isApplicationEnabled(
+            order.specs,
+            customFields,
+            fieldValuesByOrder[order.id] ?? {}
+          ),
+          priorityScore: priorityScoreFromSpecs(order.specs),
+          isKeyAccount: false, // CRM key-account flag — companion piece, wired later
+        },
+        emergencyBalance
+      );
     }
     return map;
   }, [
@@ -2162,6 +2227,45 @@ export function Board({
     customFields,
     fieldValuesByOrder,
     warningWorkingDays,
+    emergencyBalance,
+  ]);
+
+  // Counts for each quick-filter chip (from currently loaded / filtered board cards).
+  const emergencyQuickFilterCounts = useMemo(() => {
+    const counts: Record<EmergencyQuickFilter, number> = {
+      one_day_left: 0,
+      due_today: 0,
+      late: 0,
+      combo_at_risk: 0,
+    };
+    const keys = Object.keys(counts) as EmergencyQuickFilter[];
+    for (const order of displayOrders) {
+      const colIdx = columnIndexById.get(order.column_id) ?? -1;
+      const beforeApplicationStage =
+        applicationStageIndex < 0 ? true : colIdx < applicationStageIndex;
+      const input = {
+        daysToDue: order.due_date
+          ? calendarDaysUntilDue(order.due_date)
+          : null,
+        hasApplication: isApplicationEnabled(
+          order.specs,
+          customFields,
+          fieldValuesByOrder[order.id] ?? {}
+        ),
+        beforeApplicationStage,
+      };
+      for (const key of keys) {
+        if (matchesQuickFilter(key, input, emergencyBalance)) counts[key] += 1;
+      }
+    }
+    return counts;
+  }, [
+    displayOrders,
+    columnIndexById,
+    applicationStageIndex,
+    customFields,
+    fieldValuesByOrder,
+    emergencyBalance,
   ]);
 
   // Orders that survive the Emergency toggle and/or the active quick-filter.
@@ -2174,17 +2278,21 @@ export function Board({
         const colIdx = columnIndexById.get(order.column_id) ?? -1;
         const beforeApplicationStage =
           applicationStageIndex < 0 ? true : colIdx < applicationStageIndex;
-        const match = matchesQuickFilter(emergencyQuickFilter, {
-          daysToDue: order.due_date
-            ? calendarDaysUntilDue(order.due_date)
-            : null,
-          hasApplication: isApplicationEnabled(
-            order.specs,
-            customFields,
-            fieldValuesByOrder[order.id] ?? {}
-          ),
-          beforeApplicationStage,
-        });
+        const match = matchesQuickFilter(
+          emergencyQuickFilter,
+          {
+            daysToDue: order.due_date
+              ? calendarDaysUntilDue(order.due_date)
+              : null,
+            hasApplication: isApplicationEnabled(
+              order.specs,
+              customFields,
+              fieldValuesByOrder[order.id] ?? {}
+            ),
+            beforeApplicationStage,
+          },
+          emergencyBalance
+        );
         if (!match) continue;
       }
       set.add(order.id);
@@ -2200,6 +2308,7 @@ export function Board({
     applicationStageIndex,
     customFields,
     fieldValuesByOrder,
+    emergencyBalance,
   ]);
 
   const emergencyFilteredOrders = useMemo(
@@ -2235,12 +2344,20 @@ export function Board({
     : null;
 
   const selectedPersonLabel =
-    designers.find((d) => d.id === personFilter)?.name ?? "All people";
+    designers.find((d) => d.id === personFilter)?.name ?? "All designers";
   const selectedOwnerLabel =
     ownerFilter === UNASSIGNED_OWNER_FILTER
       ? "Unassigned"
       : ownerFilterOptions.find((o) => o.id === ownerFilter)?.name ??
         "All owners";
+  const selectedWebhookSourceLabel =
+    webhookSourceFilter === MANUAL_WEBHOOK_SOURCE_FILTER
+      ? "Manual"
+      : webhookSourceFilter === OTHER_WEBHOOK_SOURCE_FILTER
+        ? sourceStyleConfig.other.label
+        : sourceStyleConfig.sources.find(
+            (s) => s.key === webhookSourceFilter
+          )?.label ?? "All sources";
   const dueFilterValue = dueTodayOnly
     ? "today"
     : overdueOnly
@@ -2380,10 +2497,10 @@ export function Board({
               onChange={(e) => setPersonFilter(e.target.value)}
               style={{ width: adaptiveSelectWidth(selectedPersonLabel) }}
               className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
-              aria-label="Filter by person"
+              aria-label="Filter by designer"
               title={selectedPersonLabel}
             >
-              <option value="">All people</option>
+              <option value="">All designers</option>
               {designers.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -2406,6 +2523,27 @@ export function Board({
                 {owner.name}
               </option>
             ))}
+          </Select>
+          <Select
+            value={webhookSourceFilter}
+            onChange={(e) => setWebhookSourceFilter(e.target.value)}
+            style={{
+              width: adaptiveSelectWidth(selectedWebhookSourceLabel, 11, 16),
+            }}
+            className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
+            aria-label="Filter by webhook source"
+            title={selectedWebhookSourceLabel}
+          >
+            <option value="">All sources</option>
+            <option value={MANUAL_WEBHOOK_SOURCE_FILTER}>Manual</option>
+            {sourceStyleConfig.sources.map((src) => (
+              <option key={src.key} value={src.key}>
+                {src.label}
+              </option>
+            ))}
+            <option value={OTHER_WEBHOOK_SOURCE_FILTER}>
+              {sourceStyleConfig.other.label}
+            </option>
           </Select>
           <details ref={dueFilterMenuRef} className="relative shrink-0">
             <summary
@@ -2507,6 +2645,7 @@ export function Board({
               ] as EmergencyQuickFilter[]
             ).map((key, i) => {
               const active = emergencyQuickFilter === key;
+              const count = emergencyQuickFilterCounts[key];
               return (
                 <button
                   key={key}
@@ -2521,9 +2660,10 @@ export function Board({
                       ? "bg-amber-500 text-white"
                       : "text-slate-600 hover:bg-slate-50"
                   )}
-                  title={QUICK_FILTER_META[key].description}
+                  title={emergencyQuickFilterMeta[key].description}
                 >
-                  {QUICK_FILTER_META[key].label}
+                  {emergencyQuickFilterMeta[key].label}
+                  {active ? ` (${count})` : ""}
                 </button>
               );
             })}
@@ -2574,6 +2714,7 @@ export function Board({
                 setOrderQuery("");
                 setPersonFilter("");
                 setOwnerFilter("");
+                setWebhookSourceFilter("");
                 setOverdueOnly(false);
                 setDueTodayOnly(false);
               }}
