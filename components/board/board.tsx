@@ -302,6 +302,12 @@ export function Board({
   const [emergencyOnly, setEmergencyOnly] = useState(false);
   const [emergencyQuickFilter, setEmergencyQuickFilter] =
     useState<EmergencyQuickFilter | null>(null);
+  // Soft warning when a combo/application job is dragged past the Application stage.
+  const [comboAppWarning, setComboAppWarning] = useState<{
+    orderTitle: string;
+    toColumnName: string;
+    proceed: () => void;
+  } | null>(null);
   const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
     null
   );
@@ -1399,7 +1405,50 @@ export function Board({
   }
 
   /** Handles a column move triggered from the right-click context menu. */
+  /** True when an order carries Application (a combo, or an app-service item). */
+  function orderNeedsApplication(order: OrderWithRelations): boolean {
+    const fv = fieldValuesByOrder[order.id] ?? {};
+    if (isApplicationEnabled(order.specs, customFields, fv)) return true;
+    // Belt-and-suspenders: catch combos by product value until CRM auto-flags them.
+    return Object.values(fv).some(
+      (v) => typeof v === "string" && /combo/i.test(v)
+    );
+  }
+
+  /** True when moving `order` to `toColumnId` would skip the Application stage. */
+  function moveSkipsApplication(
+    order: OrderWithRelations,
+    toColumnId: string
+  ): boolean {
+    if (applicationStageIndex < 0) return false;
+    const fromIdx = columnIndexById.get(order.column_id) ?? -1;
+    const toIdx = columnIndexById.get(toColumnId) ?? -1;
+    if (fromIdx < 0 || toIdx < 0) return false;
+    // Only when jumping FROM a pre-application stage TO a post-application stage.
+    if (!(fromIdx < applicationStageIndex && toIdx > applicationStageIndex))
+      return false;
+    return orderNeedsApplication(order);
+  }
+
   async function handleContextMove(
+    order: OrderWithRelations,
+    toColumnId: string
+  ) {
+    if (moveSkipsApplication(order, toColumnId)) {
+      setComboAppWarning({
+        orderTitle: order.title,
+        toColumnName: columnsById.get(toColumnId)?.name ?? "that stage",
+        proceed: () => {
+          setComboAppWarning(null);
+          void runContextMove(order, toColumnId);
+        },
+      });
+      return;
+    }
+    await runContextMove(order, toColumnId);
+  }
+
+  async function runContextMove(
     order: OrderWithRelations,
     toColumnId: string
   ) {
@@ -1951,6 +2000,25 @@ export function Board({
     const activeOrderForPatch =
       boardOrdersRef.current.find((o) => o.id === active.id) ??
       orders.find((o) => o.id === active.id);
+
+    // Combo/application guard: warn before letting a combo skip the Application
+    // stage. Snap the card back, then re-run the move only if Rafael confirms.
+    if (
+      crossing &&
+      activeOrderForPatch &&
+      moveSkipsApplication(activeOrderForPatch, overColumn)
+    ) {
+      abortDrag();
+      setComboAppWarning({
+        orderTitle: activeOrderForPatch.title,
+        toColumnName: columnsById.get(overColumn)?.name ?? "that stage",
+        proceed: () => {
+          setComboAppWarning(null);
+          void runContextMove(activeOrderForPatch, overColumn);
+        },
+      });
+      return;
+    }
 
     patchOrderPlacement(String(active.id), {
       column_id: overColumn,
@@ -2991,6 +3059,51 @@ export function Board({
           }}
           onClose={() => setMoveBlockedState(null)}
         />
+      ) : null}
+
+      {comboAppWarning ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-slate-800">
+                  Skipping the Application stage?
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  <span className="font-medium">
+                    {comboAppWarning.orderTitle}
+                  </span>{" "}
+                  is a combo / application job and hasn&rsquo;t gone through{" "}
+                  <span className="font-medium">In the application</span> yet.
+                  You&rsquo;re moving it to{" "}
+                  <span className="font-medium">
+                    {comboAppWarning.toColumnName}
+                  </span>
+                  .
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setComboAppWarning(null)}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={comboAppWarning.proceed}
+                className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+              >
+                Move anyway
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
