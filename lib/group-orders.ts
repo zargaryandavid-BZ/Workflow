@@ -124,6 +124,44 @@ export function sharedOrderTitle(
   return title;
 }
 
+/**
+ * Title shown on an individual PART card (the `CRM | …` label on OrderCard /
+ * board-table rows / the card detail header).
+ *
+ * A multi-item order is split into one card per line item; each line carries
+ * its OWN title in `specs.webhook_item_title` (stamped by the order webhook).
+ * That per-line title is what distinguishes the parts, so it wins here. When a
+ * multi-item part has no own title, fall back to its product — never the
+ * shared order title, which is identical on every sibling and hides which part
+ * is which. Single-item orders have no per-line title, so their card legitimately
+ * shows the order-level title ({@link sharedOrderTitle}).
+ */
+export function partCardTitle(
+  order: {
+    title?: string;
+    specs?: Record<string, unknown> | null;
+  },
+  productFallback?: string | null
+): string | null {
+  const specs = order.specs ?? null;
+  const itemTitle =
+    typeof specs?.webhook_item_title === "string"
+      ? specs.webhook_item_title.trim()
+      : "";
+  if (itemTitle) return itemTitle;
+
+  // Multi-item part (stamped with an item index) but no own title → product,
+  // so each part stays distinguishable rather than repeating the order title.
+  if (typeof specs?.webhook_item_index === "number") {
+    const product =
+      typeof productFallback === "string" ? productFallback.trim() : "";
+    return product || null;
+  }
+
+  // Single-item order: the order-level title is this card's title.
+  return sharedOrderTitle(order);
+}
+
 export interface OrderGroupSearchSuggestion {
   key: string;
   /** e.g. "ORD-2026-0098-(3)" */
