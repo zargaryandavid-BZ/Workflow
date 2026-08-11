@@ -340,6 +340,8 @@ export function BoardTable({
 
   const productField = findOrderFormField(customFields, "Product");
   const materialsField = findOrderFormField(customFields, "Materials");
+  const finishingField = findOrderFormField(customFields, "Finishing");
+  const specialEffectsField = findOrderFormField(customFields, "Special effects");
   const artworkField = findOrderFormField(customFields, ARTWORK_FIELD_NAME);
 
   return (
@@ -488,6 +490,12 @@ export function BoardTable({
             const materialsName = materialsField
               ? String(fieldValues[materialsField.id] ?? "").trim()
               : "";
+            const finishingName = finishingField
+              ? String(fieldValues[finishingField.id] ?? "").trim()
+              : "";
+            const specialEffectsName = specialEffectsField
+              ? String(fieldValues[specialEffectsField.id] ?? "").trim()
+              : "";
             const orderQty = cardOrderQty(customFields, fieldValues, order.specs);
             const skuCount = cardSkuCount(order.specs);
 
@@ -502,9 +510,16 @@ export function BoardTable({
             const moveableColumns = getMoveableColumns(order.column_id);
             const moveableIds = new Set(moveableColumns.map((c) => c.id));
 
+            // One clean spec line: material · lamination · special effects ·
+            // qty · SKU. Empty/None values (and their separators) are dropped.
+            const cleanSpec = (value: string): string | null => {
+              const trimmed = value.trim();
+              return trimmed && !/^(none|n\/a)$/i.test(trimmed) ? trimmed : null;
+            };
             const summaryParts = [
-              productName || null,
-              materialsName || null,
+              cleanSpec(materialsName),
+              cleanSpec(finishingName),
+              cleanSpec(specialEffectsName),
               orderQty != null ? `qty ${orderQty}` : null,
               skuCount > 0 ? `${skuCount} SKU` : null,
             ].filter(Boolean);
@@ -602,7 +617,7 @@ export function BoardTable({
                           showPriority={false}
                         />
                         {summaryParts.length > 0 ? (
-                          <span className="text-[10px] text-slate-500">
+                          <span className="text-[10px] font-medium text-slate-700">
                             {summaryParts.join(" · ")}
                           </span>
                         ) : null}
