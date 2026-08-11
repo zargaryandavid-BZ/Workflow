@@ -11,7 +11,8 @@ import {
   type RespondSkuImage,
 } from "@/lib/respond-order";
 import { OrderReview } from "@/components/respond/order-review";
-import { orderMetaChips } from "@/lib/respond-page";
+import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
+import { itemTitleFromSpecs } from "@/lib/notification-messages";
 import {
   formatReadyToShipGroupLabel,
   listOrderGroupMembers,
@@ -196,6 +197,30 @@ export default async function RespondPage({
   const productLabel = productFromFields(orderFields);
   const metaChips = orderMetaChips(orderFields, notification.order_specs ?? {});
 
+  // This part's own line-item title (each card is its own item).
+  const itemTitle = itemTitleFromSpecs(
+    notification.order_specs ?? {},
+    productLabel,
+    notification.order_title
+  );
+
+  // Titled per-SKU upload targets for the missing-info reply page. Each SKU
+  // becomes its own labeled upload slot so the file is tagged to that SKU;
+  // with no SKUs (legacy) we fall back to a single item-titled slot.
+  const notifSkus = skusForRespond(notification.order_specs ?? {});
+  const uploadSlots: UploadSlot[] =
+    notification.type === "missing_info"
+      ? notifSkus.length > 0
+        ? notifSkus.map((sku, index) => ({
+            skuKey: sku.id,
+            label:
+              notifSkus.length === 1
+                ? itemTitle
+                : sku.name.trim() || `Item ${index + 1}`,
+          }))
+        : [{ skuKey: null, label: itemTitle }]
+      : [];
+
   let headerTitle = notification.order_title;
   let orderReview: React.ReactNode = null;
 
@@ -347,6 +372,8 @@ export default async function RespondPage({
         type={notification.type}
         productLabel={productLabel}
         orderNumber={headerTitle}
+        itemTitle={itemTitle}
+        uploadSlots={uploadSlots}
         staffNote={notification.staff_note}
         metaChips={metaChips}
         tenantName={notification.tenant_name}

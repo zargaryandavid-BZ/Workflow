@@ -78,11 +78,36 @@ export function productFromOrder(
   return value || "order";
 }
 
+/**
+ * The customer-facing title of a single part/card (each order line item is its
+ * own board card). Prefers the per-item webhook title, then the product name,
+ * then the card's order number/title. Data-driven from the part being notified.
+ */
+export function itemTitleFromSpecs(
+  specs: Record<string, unknown> | null | undefined,
+  productType: string,
+  orderTitle: string
+): string {
+  const rawItem =
+    specs && typeof specs.webhook_item_title === "string"
+      ? specs.webhook_item_title.trim()
+      : "";
+  if (rawItem) return rawItem;
+  const product = productType.trim();
+  if (product && product.toLowerCase() !== "order") return product;
+  const rawOrder =
+    specs && typeof specs.webhook_order_title === "string"
+      ? specs.webhook_order_title.trim()
+      : "";
+  return rawOrder || orderTitle;
+}
+
 export function buildMissingInfoMessage(params: {
   customerName: string;
   product: string;
   orderNumber: string;
   replyLink?: string;
+  itemTitle?: string;
   staffNote?: string | null;
   tenantName?: string;
   templates?: MessageTemplateMap | null;
@@ -92,6 +117,7 @@ export function buildMissingInfoMessage(params: {
     productType: params.product,
     orderNumber: params.orderNumber,
     replyLink: params.replyLink ?? REPLY_LINK_PLACEHOLDER,
+    itemTitle: params.itemTitle,
     staffNote: params.staffNote,
     teamName: params.tenantName ?? "BazaarPrinting Team",
     templates: params.templates,
@@ -422,14 +448,17 @@ export function buildMissingInfoEmailBody(params: {
   productType: string;
   orderNumber: string;
   replyLink: string;
+  itemTitle?: string;
   staffNote?: string | null;
   teamName?: string;
   templates?: MessageTemplateMap | null;
 }) {
   const map = templatesOrDefault(params.templates);
+  const productLabel = formatOrderProductLabel(params.productType);
   return renderMessageTemplate(map.missing_info_email_body, {
     customer_name: params.customerName,
-    product: formatOrderProductLabel(params.productType),
+    product: productLabel,
+    item_title: params.itemTitle?.trim() || productLabel,
     order_number: params.orderNumber,
     reply_link: params.replyLink,
     staff_note_block: staffNoteBlock(params.staffNote),
@@ -444,17 +473,20 @@ export function buildMissingInfoEmailHtml(params: {
   productType: string;
   orderNumber: string;
   replyLink: string;
+  itemTitle?: string;
   staffNote?: string | null;
   teamName?: string;
   templates?: MessageTemplateMap | null;
 }) {
   const text = buildMissingInfoEmailBody(params);
+  const productLabel = formatOrderProductLabel(params.productType);
   return buildBrandedEmailLayout({
     contextLabel: `Order #${params.orderNumber}`,
     bodyHtml: plainTextToEmailParagraphs(text),
     emailTitle: missingInfoSubject(params.orderNumber, params.templates, {
       customer_name: params.customerName,
-      product: formatOrderProductLabel(params.productType),
+      product: productLabel,
+      item_title: params.itemTitle?.trim() || productLabel,
       reply_link: params.replyLink,
       staff_note_block: staffNoteBlock(params.staffNote),
       team_name: params.teamName ?? "BazaarPrinting Team",
@@ -468,6 +500,7 @@ export function buildMissingInfoSmsBody(params: {
   customerName?: string | null;
   orderNumber: string;
   replyLink: string;
+  itemTitle?: string;
   brandName?: string;
   templates?: MessageTemplateMap | null;
 }) {
@@ -478,6 +511,7 @@ export function buildMissingInfoSmsBody(params: {
     reply_link: params.replyLink,
     brand: params.brandName ?? "BazaarPrinting",
     product: "order",
+    item_title: params.itemTitle?.trim() || "your order",
     team_name: params.brandName ? `${params.brandName} Team` : "BazaarPrinting Team",
     staff_note_block: "",
   });
@@ -486,6 +520,7 @@ export function buildMissingInfoSmsBody(params: {
 export type MissingInfoSubjectVars = {
   customer_name?: string;
   product?: string;
+  item_title?: string;
   reply_link?: string;
   staff_note_block?: string;
   team_name?: string;
@@ -502,6 +537,7 @@ export function missingInfoSubject(
     order_number: orderNumber,
     customer_name: vars?.customer_name ?? "",
     product: vars?.product ?? "",
+    item_title: vars?.item_title?.trim() || vars?.product || orderNumber,
     reply_link: vars?.reply_link ?? "",
     staff_note_block: vars?.staff_note_block ?? "",
     team_name: vars?.team_name ?? "",

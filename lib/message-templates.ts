@@ -53,6 +53,7 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
     ],
     variables: [
       "{{customer_name}}",
+      "{{item_title}}",
       "{{order_number}}",
       "{{product}}",
       "{{reply_link}}",
@@ -191,18 +192,18 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
 
 export const DEFAULT_MESSAGE_TEMPLATES: MessageTemplateMap = {
   missing_info_email_subject:
-    "Action needed: missing info for order {{order_number}}",
+    "Action needed: files for {{item_title}} (order {{order_number}})",
   missing_info_email_body: `Hi {{customer_name}},
 
-We need more information to complete your {{product}} order (#{{order_number}}).{{staff_note_block}}
+We're missing files for: {{item_title}} (order #{{order_number}}).{{staff_note_block}}
 
-Please use the link below to attach your file or leave a note:
+Please use the link below to attach your file for this item or leave a note:
 
 {{reply_link}}
 
 Thank you,
 {{team_name}}`,
-  missing_info_sms: `Hi {{customer_name}}, we need more info for your order {{order_number}}.
+  missing_info_sms: `Hi {{customer_name}}, we need files for {{item_title}} on order {{order_number}}.
 Please reply here: {{reply_link}}
 - {{brand}}`,
 
