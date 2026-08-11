@@ -58,7 +58,7 @@ import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
-import { sharedOrderTitle } from "@/lib/group-orders";
+import { partCardTitle } from "@/lib/group-orders";
 import {
   canEditManualOrders,
   canEditOrderDetails,
@@ -1337,7 +1337,14 @@ export function CardDetailModal({
       <WebhookSourceLabel
         webhookSource={data?.order.webhook_source}
         sourceStyles={webhookSourceStyles}
-        orderTitle={data?.order ? sharedOrderTitle(data.order) : null}
+        orderTitle={
+          data?.order
+            ? partCardTitle(
+                data.order,
+                productFromOrder(fieldValues, modalCustomFields)
+              )
+            : null
+        }
         className="mb-0 flex min-w-0 max-w-full items-baseline gap-1 text-[10px] font-semibold leading-tight tracking-wide"
       />
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">

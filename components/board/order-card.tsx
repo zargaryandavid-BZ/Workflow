@@ -80,7 +80,7 @@ import {
 } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
-import { sharedOrderTitle } from "@/lib/group-orders";
+import { partCardTitle } from "@/lib/group-orders";
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
@@ -659,7 +659,7 @@ export function OrderCard({
             <WebhookSourceLabel
               webhookSource={order.webhook_source}
               sourceStyles={webhookSourceStyles}
-              orderTitle={sharedOrderTitle(order)}
+              orderTitle={partCardTitle(order, productName)}
               className="mb-0.5 flex w-full min-w-0 items-baseline justify-start gap-1 text-left text-[10px] font-semibold leading-tight tracking-wide"
             />
             {displayCustomerName ? (

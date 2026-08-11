@@ -69,7 +69,7 @@ import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderCardTimeChips } from "./order-card-time-chips";
-import { sharedOrderTitle } from "@/lib/group-orders";
+import { partCardTitle } from "@/lib/group-orders";
 import {
   COLUMN_SORT_OPTIONS,
   DEFAULT_COLUMN_SORT,
@@ -564,7 +564,7 @@ export function BoardTable({
                       <WebhookSourceLabel
                         webhookSource={order.webhook_source}
                         sourceStyles={webhookSourceStyles}
-                        orderTitle={sharedOrderTitle(order)}
+                        orderTitle={partCardTitle(order, productName)}
                       />
                       {/* Customer + order number */}
                       <div className="flex items-baseline gap-1.5">
