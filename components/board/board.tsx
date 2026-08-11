@@ -18,6 +18,7 @@ import {
 import { arrayMove } from "@dnd-kit/sortable";
 import {
   Activity,
+  AlertTriangle,
   CalendarClock,
   CalendarDays,
   Layers,
@@ -98,7 +99,24 @@ import type {
   Role,
 } from "@/lib/types";
 import type { PriorityScore } from "@/lib/order-priority-score";
-import { manualPrioritySpecsPatch } from "@/lib/order-priority-score";
+import {
+  manualPrioritySpecsPatch,
+  priorityScoreFromSpecs,
+} from "@/lib/order-priority-score";
+import { isApplicationEnabled } from "@/lib/order-application";
+import { calendarDaysUntilDue } from "@/lib/board-due-date";
+import {
+  hoursInCurrentColumn,
+  daysInCurrentColumn,
+} from "@/lib/card-warning-rules";
+import { stageKey } from "@/lib/stage-groups";
+import {
+  evaluateEmergency,
+  matchesQuickFilter,
+  QUICK_FILTER_META,
+  type EmergencyQuickFilter,
+  type EmergencyResult,
+} from "@/lib/emergency-view";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { OrderOwner } from "./order-form-body";
 import type { CardNotificationBadge } from "@/lib/card-badges";
@@ -280,6 +298,10 @@ export function Board({
   const [ownerFilter, setOwnerFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
+  // Emergency / Urgency view (read-only overlay; changes no existing data).
+  const [emergencyOnly, setEmergencyOnly] = useState(false);
+  const [emergencyQuickFilter, setEmergencyQuickFilter] =
+    useState<EmergencyQuickFilter | null>(null);
   const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
     null
   );
@@ -2087,11 +2109,113 @@ export function Board({
     ? searchEnrichments.approvalDateByOrder
     : approvalDateByOrder;
 
+  // ── Emergency / Urgency view (read-only overlay) ──────────────────────────
+  const emergencyActive = emergencyOnly || emergencyQuickFilter !== null;
+
+  const columnIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    columns.forEach((c, i) => m.set(c.id, i));
+    return m;
+  }, [columns]);
+
+  const applicationStageIndex = useMemo(
+    () =>
+      columns.findIndex(
+        (c) => stageKey(c.name) === stageKey("In the application")
+      ),
+    [columns]
+  );
+
+  // Per-order emergency evaluation — a PURE READ of fields already on each order.
+  // Only computed while the view/filter is active, so it costs nothing when off.
+  const emergencyByOrder = useMemo(() => {
+    const map: Record<string, EmergencyResult> = {};
+    if (!emergencyActive) return map;
+    const now = Date.now();
+    for (const order of displayOrders) {
+      const col = columns.find((c) => c.id === order.column_id);
+      if (!col) continue;
+      map[order.id] = evaluateEmergency({
+        columnName: col.name,
+        hoursHere: hoursInCurrentColumn(order.last_moved_at, now),
+        workingDaysHere: daysInCurrentColumn(
+          order.last_moved_at,
+          now,
+          warningWorkingDays
+        ),
+        daysToDue: order.due_date ? calendarDaysUntilDue(order.due_date) : null,
+        isRush: /rush/i.test(order.tag?.name ?? ""),
+        hasApplication: isApplicationEnabled(
+          order.specs,
+          customFields,
+          fieldValuesByOrder[order.id] ?? {}
+        ),
+        priorityScore: priorityScoreFromSpecs(order.specs),
+        isKeyAccount: false, // CRM key-account flag — companion piece, wired later
+      });
+    }
+    return map;
+  }, [
+    emergencyActive,
+    displayOrders,
+    columns,
+    customFields,
+    fieldValuesByOrder,
+    warningWorkingDays,
+  ]);
+
+  // Orders that survive the Emergency toggle and/or the active quick-filter.
+  const emergencyPassIds = useMemo(() => {
+    const set = new Set<string>();
+    if (!emergencyActive) return set;
+    for (const order of displayOrders) {
+      if (emergencyOnly && !emergencyByOrder[order.id]?.severity) continue;
+      if (emergencyQuickFilter) {
+        const colIdx = columnIndexById.get(order.column_id) ?? -1;
+        const beforeApplicationStage =
+          applicationStageIndex < 0 ? true : colIdx < applicationStageIndex;
+        const match = matchesQuickFilter(emergencyQuickFilter, {
+          daysToDue: order.due_date
+            ? calendarDaysUntilDue(order.due_date)
+            : null,
+          hasApplication: isApplicationEnabled(
+            order.specs,
+            customFields,
+            fieldValuesByOrder[order.id] ?? {}
+          ),
+          beforeApplicationStage,
+        });
+        if (!match) continue;
+      }
+      set.add(order.id);
+    }
+    return set;
+  }, [
+    emergencyActive,
+    emergencyOnly,
+    emergencyQuickFilter,
+    displayOrders,
+    emergencyByOrder,
+    columnIndexById,
+    applicationStageIndex,
+    customFields,
+    fieldValuesByOrder,
+  ]);
+
+  const emergencyFilteredOrders = useMemo(
+    () =>
+      emergencyActive
+        ? displayOrders.filter((o) => emergencyPassIds.has(o.id))
+        : displayOrders,
+    [emergencyActive, displayOrders, emergencyPassIds]
+  );
+
   const ordersByColumn = useMemo(() => {
     const map = new Map<string, OrderWithRelations[]>();
     for (const col of columns) map.set(col.id, []);
     // Bucket first, then sort per column — avoids a full-list sort on every render.
     for (const order of displayOrders) {
+      if (emergencyActive && !emergencyPassIds.has(order.id)) continue;
       const list = map.get(order.column_id);
       if (list) list.push(order);
       else map.set(order.column_id, [order]);
@@ -2100,7 +2224,7 @@ export function Board({
       list.sort((a, b) => a.position - b.position);
     }
     return map;
-  }, [displayOrders, columns]);
+  }, [displayOrders, columns, emergencyActive, emergencyPassIds]);
 
   const activeOrder =
     displayOrders.find((o) => o.id === activeId) ??
@@ -2358,6 +2482,52 @@ export function Board({
               </button>
             </div>
           </details>
+          {/* Emergency / Urgency view — read-only overlay + always-visible quick filters */}
+          <button
+            type="button"
+            onClick={() => setEmergencyOnly((v) => !v)}
+            className={cn(
+              "flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm font-medium transition-colors",
+              emergencyOnly
+                ? "border-red-500 bg-red-600 text-white hover:bg-red-700"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50"
+            )}
+            title="Emergency view — show only jobs that need attention right now"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            Emergency
+          </button>
+          <div className="flex h-9 shrink-0 items-stretch overflow-hidden rounded-md border border-slate-300 text-xs">
+            {(
+              [
+                "one_day_left",
+                "due_today",
+                "late",
+                "combo_at_risk",
+              ] as EmergencyQuickFilter[]
+            ).map((key, i) => {
+              const active = emergencyQuickFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() =>
+                    setEmergencyQuickFilter(active ? null : key)
+                  }
+                  className={cn(
+                    "inline-flex items-center px-2 font-medium transition-colors",
+                    i > 0 && "border-l border-slate-300",
+                    active
+                      ? "bg-amber-500 text-white"
+                      : "text-slate-600 hover:bg-slate-50"
+                  )}
+                  title={QUICK_FILTER_META[key].description}
+                >
+                  {QUICK_FILTER_META[key].label}
+                </button>
+              );
+            })}
+          </div>
           <DesignerLeaderboardButton />
           <details ref={boardViewMenuRef} className="relative shrink-0">
             <summary
@@ -2441,7 +2611,7 @@ export function Board({
           columns={columns}
           hiddenColIds={hiddenColIds}
           onToggleColumnVisibility={toggleColumnVisibility}
-          orders={displayOrders}
+          orders={emergencyFilteredOrders}
           columnSortById={columnSortById}
           onApplySortToAllColumns={setAllColumnsSortMode}
           customFields={customFields}
@@ -2544,6 +2714,7 @@ export function Board({
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
                 warningWorkingDays={warningWorkingDays}
+                emergencyByOrder={emergencyByOrder}
                 webhookSourceStyles={webhookSourceStyles}
                 timeChips={timeChips}
                 isFirst={index === 0}

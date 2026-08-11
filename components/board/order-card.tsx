@@ -58,6 +58,11 @@ import {
   getActiveWarning,
   CARD_WARNING_BORDER_COLORS,
 } from "@/lib/card-warning-rules";
+import {
+  EMERGENCY_SEVERITY_BORDER,
+  EMERGENCY_SEVERITY_LABEL,
+  type EmergencySeverity,
+} from "@/lib/emergency-view";
 import type {
   ButtonAutomation,
   CardWarningRule,
@@ -137,6 +142,10 @@ interface OrderCardProps {
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
   warningWorkingDays?: number[];
+  /** Emergency-view severity for this card (amber/red/critical), or null. */
+  emergencySeverity?: EmergencySeverity | null;
+  /** Emergency reasons (worst first) shown in the corner-dot tooltip. */
+  emergencyReasons?: string[];
   webhookSourceStyles?: WebhookSourceStyles;
   /** Column accent color (hex) — used to tint the customer name at 70% opacity. */
   columnColor?: string | null;
@@ -190,6 +199,8 @@ export function OrderCard({
   approvalDate = null,
   shippingSign,
   groupSize,
+  emergencySeverity = null,
+  emergencyReasons = [],
   warningRules = [],
   animateWarnings = true,
   warningWorkingDays = [1, 2, 3, 4, 5],
@@ -286,12 +297,15 @@ export function OrderCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    // Animated warnings set border-color in keyframes; avoid an inline color fighting them.
-    ...(activeWarning && !animateWarnings
-      ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
-      : !activeWarning && shippingBorderColor
-        ? { borderColor: shippingBorderColor }
-        : {}),
+    // Emergency severity (if any) always wins the border color; else animated
+    // warnings set border-color in keyframes so avoid an inline color fighting them.
+    ...(emergencySeverity
+      ? { borderColor: EMERGENCY_SEVERITY_BORDER[emergencySeverity] }
+      : activeWarning && !animateWarnings
+        ? { borderColor: CARD_WARNING_BORDER_COLORS[activeWarning.rule.color] }
+        : !activeWarning && shippingBorderColor
+          ? { borderColor: shippingBorderColor }
+          : {}),
   };
 
   // Derive a 70%-opacity version of the column accent colour for the title.
@@ -561,7 +575,7 @@ export function OrderCard({
         isDesignerUnassigned
           ? UNASSIGNED_DESIGNER_CARD_CLASS
           : "bg-white",
-        !shippingBorderColor && !activeWarning ? "border-slate-200" : "",
+        !emergencySeverity && !shippingBorderColor && !activeWarning ? "border-slate-200" : "",
         canDrag ? "cursor-pointer" : "cursor-default",
         activeWarning && animateWarnings && !highlighted
           ? `warning-${activeWarning.rule.color}`
@@ -573,7 +587,15 @@ export function OrderCard({
     >
       {/* padded content wrapper */}
       <div className="px-3 py-3.5">
-      {activeWarning ? (
+      {emergencySeverity ? (
+        <span
+          className="absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full ring-2 ring-white"
+          style={{ backgroundColor: EMERGENCY_SEVERITY_BORDER[emergencySeverity] }}
+          title={`${EMERGENCY_SEVERITY_LABEL[emergencySeverity]}${
+            emergencyReasons.length ? " — " + emergencyReasons.join(" · ") : ""
+          }`}
+        />
+      ) : activeWarning ? (
         <span
           className={`warning-dot-${activeWarning.rule.color} absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full`}
           title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}

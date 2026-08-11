@@ -44,6 +44,7 @@ import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { TimeChip } from "@/lib/time-chips";
 import type { ActionButtonResult } from "./action-button";
 import type { PriorityScore } from "@/lib/order-priority-score";
+import type { EmergencyResult } from "@/lib/emergency-view";
 
 type ColumnLoadStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -74,6 +75,8 @@ interface ColumnProps {
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
   warningWorkingDays?: number[];
+  /** Emergency-view result per order (read-only; empty unless the view is on). */
+  emergencyByOrder?: Record<string, EmergencyResult>;
   webhookSourceStyles?: WebhookSourceStyles;
   timeChips?: TimeChip[];
   isFirst: boolean;
@@ -179,6 +182,7 @@ export function Column({
   warningRules = [],
   animateWarnings = true,
   warningWorkingDays = [1, 2, 3, 4, 5],
+  emergencyByOrder = {},
   webhookSourceStyles,
   timeChips = [],
   isFirst,
@@ -501,6 +505,8 @@ export function Column({
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
                     warningWorkingDays={warningWorkingDays}
+                    emergencySeverity={emergencyByOrder[entry.order.id]?.severity ?? null}
+                    emergencyReasons={emergencyByOrder[entry.order.id]?.reasons}
                     webhookSourceStyles={webhookSourceStyles}
                     columnColor={column.color}
                     columnKind={column.kind}
@@ -566,6 +572,8 @@ export function Column({
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}
                   warningWorkingDays={warningWorkingDays}
+                  emergencySeverity={emergencyByOrder[order.id]?.severity ?? null}
+                  emergencyReasons={emergencyByOrder[order.id]?.reasons}
                   webhookSourceStyles={webhookSourceStyles}
                   columnColor={column.color}
                   columnKind={column.kind}
