@@ -528,15 +528,22 @@ export function OrderCard({
     setDueExactOpen(false);
   }
 
-  const productMaterialParts = [productName || null, materialsName || null].filter(
-    Boolean
-  );
-  const summaryTrailingParts = [
-    finishingName || null,
-    specialEffectsName || null,
+  // The card's own line-item title (falls back to product for untitled parts).
+  const cardTitle = partCardTitle(order, productName);
+  // Drop empty and placeholder ("None"/"N/A") spec values so their separators
+  // aren't rendered either.
+  const cleanSpec = (value: string | null | undefined): string | null => {
+    const trimmed = (value ?? "").trim();
+    return trimmed && !/^(none|n\/a)$/i.test(trimmed) ? trimmed : null;
+  };
+  // One clean detail line: material · lamination · special effects · qty · SKU.
+  const detailParts = [
+    cleanSpec(materialsName),
+    cleanSpec(finishingName),
+    cleanSpec(specialEffectsName),
     orderQty != null ? `qty ${orderQty}` : null,
     skuCount > 0 ? `${skuCount} SKU` : null,
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
 
   return (
     <div
@@ -607,7 +614,7 @@ export function OrderCard({
         ) : null}
 
         <div className="min-w-0 flex-1">
-          {/* 1) Order # | Product · Material  2) Source title  3) Customer */}
+          {/* 1) Order/part # badge  2) Source tag + item title  3) Customer  4) Spec detail */}
           <div className="min-w-0 w-full text-left">
             <div className="flex w-full min-w-0 items-center justify-start gap-1 text-left">
               <span
@@ -647,36 +654,38 @@ export function OrderCard({
                   />
                 ) : null}
               </span>
-              {productMaterialParts.length > 0 ? (
-                <>
-                  <span className="shrink-0 text-slate-300">|</span>
-                  <span className="min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-snug text-slate-600">
-                    {productMaterialParts.join(" · ")}
-                  </span>
-                </>
+            </div>
+            {/* Source tag + the card's own item title (prominent) */}
+            <div className="mb-0.5 mt-0.5 flex w-full min-w-0 items-baseline justify-start gap-1.5 text-left">
+              <WebhookSourceLabel
+                webhookSource={order.webhook_source}
+                sourceStyles={webhookSourceStyles}
+                className="inline-flex shrink-0 items-baseline text-[10px] font-semibold leading-tight tracking-wide"
+              />
+              {cardTitle ? (
+                <span
+                  className="min-w-0 flex-1 truncate text-left text-[15px] font-bold leading-snug text-slate-900"
+                  title={cardTitle}
+                >
+                  {cardTitle}
+                </span>
               ) : null}
             </div>
-            <WebhookSourceLabel
-              webhookSource={order.webhook_source}
-              sourceStyles={webhookSourceStyles}
-              orderTitle={partCardTitle(order, productName)}
-              className="mb-0.5 flex w-full min-w-0 items-baseline justify-start gap-1 text-left text-[10px] font-semibold leading-tight tracking-wide"
-            />
             {displayCustomerName ? (
               <span className="inline-flex max-w-full items-center justify-start text-left text-[15px] font-bold leading-snug text-slate-900">
                 <span className="min-w-0 truncate">{displayCustomerName}</span>
               </span>
             ) : null}
-            {summaryTrailingParts.length > 0 ||
+            {detailParts.length > 0 ||
             (role === "admin" &&
               hasBillingInfo(billingFromSpecs(order.specs))) ? (
               <p
                 lang="en"
-                className="mt-1 w-full pr-1 text-left text-[11px] leading-snug text-slate-500 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
+                className="mt-1 w-full pr-1 text-left text-[11.5px] font-medium leading-snug text-slate-700 [hyphens:auto] [overflow-wrap:break-word] [word-break:normal]"
               >
-                {summaryTrailingParts.length > 0 ? (
+                {detailParts.length > 0 ? (
                   <span>
-                    · {summaryTrailingParts.join(" · ")}
+                    {detailParts.join(" · ")}
                     {role === "admin" &&
                     hasBillingInfo(billingFromSpecs(order.specs)) ? (
                       <>
