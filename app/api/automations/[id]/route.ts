@@ -16,24 +16,51 @@ export async function PATCH(
   const body = (await request.json().catch(() => ({}))) as {
     enabled?: boolean;
     toColumn?: string | null;
+    fromColumn?: string | null;
     rejectedToColumn?: string | null;
+    config?: Record<string, unknown>;
   };
   const updates: Record<string, unknown> = {};
   if (body.enabled !== undefined) updates.enabled = body.enabled;
   if (body.toColumn !== undefined) updates.to_column = body.toColumn || null;
+  if (body.fromColumn !== undefined) updates.from_column = body.fromColumn || null;
 
   const supabase = await createClient();
 
-  if (body.rejectedToColumn !== undefined) {
+  if (body.rejectedToColumn !== undefined || body.config !== undefined) {
     const { data: existing } = await supabase
       .from("automation_rules")
       .select("config")
       .eq("id", id)
       .maybeSingle();
-    updates.config = {
+    const nextConfig = {
       ...((existing?.config as Record<string, unknown> | null) ?? {}),
-      rejected_to_column: body.rejectedToColumn || null,
+      ...(body.config ?? {}),
     };
+    if (body.rejectedToColumn !== undefined) {
+      nextConfig.rejected_to_column = body.rejectedToColumn || null;
+    }
+    if (body.config?.idle_value !== undefined) {
+      const v = Number(body.config.idle_value);
+      if (!Number.isFinite(v) || v < 1) {
+        return NextResponse.json(
+          { error: "idle_value must be a positive number" },
+          { status: 400 }
+        );
+      }
+      nextConfig.idle_value = Math.min(365, Math.round(v));
+    }
+    if (body.config?.idle_unit !== undefined) {
+      const u = body.config.idle_unit;
+      if (u !== "hours" && u !== "days" && u !== "working_days") {
+        return NextResponse.json(
+          { error: "idle_unit must be hours, days, or working_days" },
+          { status: 400 }
+        );
+      }
+      nextConfig.idle_unit = u;
+    }
+    updates.config = nextConfig;
   }
 
   const { data, error } = await supabase

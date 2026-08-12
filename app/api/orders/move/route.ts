@@ -231,6 +231,21 @@ export async function POST(request: Request) {
         );
       }
       try {
+        const { processWorkspaceMirrorOnEnter } = await import(
+          "@/lib/workspace-mirror"
+        );
+        await processWorkspaceMirrorOnEnter(
+          movedOrder,
+          body.toColumnId!,
+          actorUserId
+        );
+      } catch (err: unknown) {
+        console.error(
+          "[move] workspace mirror failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
+      try {
         await fireNotificationRules(body.orderId!, body.toColumnId!, tenantId);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

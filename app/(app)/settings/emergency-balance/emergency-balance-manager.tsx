@@ -467,6 +467,55 @@ export function EmergencyBalanceManager({
         </div>
       </section>
 
+      {/* Board toolbar buttons */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="mb-1 text-sm font-semibold text-slate-800">
+          Board toolbar
+        </h2>
+        <p className="mb-4 text-sm text-slate-500">
+          Show or hide the <strong className="font-medium text-slate-700">Emergency</strong> button
+          and <strong className="font-medium text-slate-700">Combo at risk</strong> chip on the board.
+        </p>
+        <div className="space-y-2">
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300"
+              checked={values.toolbar.emergency_visible}
+              disabled={migrationRequired || saving}
+              onChange={(e) =>
+                setValues((p) => ({
+                  ...p,
+                  toolbar: {
+                    ...p.toolbar,
+                    emergency_visible: e.target.checked,
+                  },
+                }))
+              }
+            />
+            Show “Emergency” button
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300"
+              checked={values.toolbar.combo_at_risk_visible}
+              disabled={migrationRequired || saving}
+              onChange={(e) =>
+                setValues((p) => ({
+                  ...p,
+                  toolbar: {
+                    ...p.toolbar,
+                    combo_at_risk_visible: e.target.checked,
+                  },
+                }))
+              }
+            />
+            Show “Combo at risk” chip
+          </label>
+        </div>
+      </section>
+
       {/* Due quick-filter chips */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <h2 className="mb-1 text-sm font-semibold text-slate-800">

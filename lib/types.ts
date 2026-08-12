@@ -29,7 +29,8 @@ export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type AutomationTrigger =
   | "on_enter_column"
   | "on_approval_result"
-  | "on_job_created";
+  | "on_job_created"
+  | "on_column_idle";
 
 export type NotificationType = "missing_info" | "customer_approval" | "ready_to_ship";
 

@@ -90,7 +90,7 @@ export function DesignerLeaderboardButton() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-9 w-9 items-center justify-center rounded-md border transition-colors",
+          "flex h-8 w-8 items-center justify-center rounded-md border transition-colors",
           open
             ? "border-amber-300 bg-amber-50 text-amber-700"
             : "border-slate-300 text-amber-600 hover:bg-amber-50 hover:text-amber-700"

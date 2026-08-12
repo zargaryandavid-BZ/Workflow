@@ -107,6 +107,14 @@ export interface EmergencyBalanceConfig {
   quick_filters: EmergencyQuickFiltersConfig;
   /** Top-bar Board health visibility + which metrics to include. */
   board_health: BoardHealthSettingsConfig;
+  /** Show/hide Emergency button and Combo at risk chip on the board. */
+  toolbar: EmergencyToolbarConfig;
+}
+
+/** Board toolbar: Emergency view button + Combo at risk chip. */
+export interface EmergencyToolbarConfig {
+  emergency_visible: boolean;
+  combo_at_risk_visible: boolean;
 }
 
 export const DEFAULT_EMERGENCY_GLOBALS = {
@@ -146,6 +154,15 @@ export const DEFAULT_BOARD_HEALTH_SETTINGS: BoardHealthSettingsConfig = {
 
 export function defaultBoardHealthSettings(): BoardHealthSettingsConfig {
   return { ...DEFAULT_BOARD_HEALTH_SETTINGS };
+}
+
+export const DEFAULT_EMERGENCY_TOOLBAR: EmergencyToolbarConfig = {
+  emergency_visible: true,
+  combo_at_risk_visible: true,
+};
+
+export function defaultEmergencyToolbar(): EmergencyToolbarConfig {
+  return { ...DEFAULT_EMERGENCY_TOOLBAR };
 }
 
 export type ColumnRef = { id: string; name: string };
@@ -513,6 +530,23 @@ function normalizeBoardHealthSettings(
   };
 }
 
+function normalizeEmergencyToolbar(raw: unknown): EmergencyToolbarConfig {
+  const src =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  return {
+    emergency_visible:
+      typeof src.emergency_visible === "boolean"
+        ? src.emergency_visible
+        : true,
+    combo_at_risk_visible:
+      typeof src.combo_at_risk_visible === "boolean"
+        ? src.combo_at_risk_visible
+        : true,
+  };
+}
+
 /**
  * Build default config for a tenant's columns (suggested rules for known stages).
  * Unknown / new columns start with no conditions (no warning).
@@ -531,6 +565,7 @@ export function buildDefaultEmergencyBalance(
     by_column,
     quick_filters: defaultQuickFiltersConfig(),
     board_health: defaultBoardHealthSettings(),
+    toolbar: defaultEmergencyToolbar(),
   };
 }
 
@@ -594,6 +629,7 @@ export function normalizeEmergencyBalance(
       by_column: buildDefaultEmergencyBalance(columns).by_column,
       quick_filters: normalizeQuickFilters(src.quick_filters, columns),
       board_health: normalizeBoardHealthSettings(src.board_health, columns),
+      toolbar: normalizeEmergencyToolbar(src.toolbar),
     };
   }
 
@@ -604,6 +640,7 @@ export function normalizeEmergencyBalance(
       by_column: normalizeByColumn(src.by_column),
       quick_filters: normalizeQuickFilters(src.quick_filters, columns),
       board_health: normalizeBoardHealthSettings(src.board_health, columns),
+      toolbar: normalizeEmergencyToolbar(src.toolbar),
     };
   }
 
@@ -615,6 +652,7 @@ export function normalizeEmergencyBalance(
       by_column: buildDefaultEmergencyBalance(columns).by_column,
       quick_filters: normalizeQuickFilters(src.quick_filters, columns),
       board_health: normalizeBoardHealthSettings(src.board_health, columns),
+      toolbar: normalizeEmergencyToolbar(src.toolbar),
     };
   }
 
@@ -624,6 +662,7 @@ export function normalizeEmergencyBalance(
     by_column: {},
     quick_filters: normalizeQuickFilters(src.quick_filters, columns),
     board_health: normalizeBoardHealthSettings(src.board_health, columns),
+    toolbar: normalizeEmergencyToolbar(src.toolbar),
   };
 }
 
@@ -693,4 +732,5 @@ export const DEFAULT_EMERGENCY_BALANCE: EmergencyBalanceConfig = {
   by_column: {},
   quick_filters: defaultQuickFiltersConfig(),
   board_health: defaultBoardHealthSettings(),
+  toolbar: defaultEmergencyToolbar(),
 };

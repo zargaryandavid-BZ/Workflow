@@ -338,17 +338,28 @@ export function Board({
 
   // Drop a due chip filter if settings hide that chip.
   useEffect(() => {
-    if (
-      !emergencyQuickFilter ||
-      emergencyQuickFilter === "combo_at_risk" ||
-      isQuickFilterVisible(emergencyBalance, emergencyQuickFilter)
-    ) {
+    if (!emergencyQuickFilter) return;
+    if (emergencyQuickFilter === "combo_at_risk") {
+      if (emergencyBalance.toolbar.combo_at_risk_visible === false) {
+        setEmergencyQuickFilter(null);
+      }
       return;
     }
-    setEmergencyQuickFilter(null);
-    if (emergencyQuickFilter === "late") setOverdueOnly(false);
-    if (emergencyQuickFilter === "due_today") setDueTodayOnly(false);
+    if (!isQuickFilterVisible(emergencyBalance, emergencyQuickFilter)) {
+      setEmergencyQuickFilter(null);
+      if (emergencyQuickFilter === "late") setOverdueOnly(false);
+      if (emergencyQuickFilter === "due_today") setDueTodayOnly(false);
+    }
   }, [emergencyBalance, emergencyQuickFilter]);
+
+  useEffect(() => {
+    if (
+      emergencyOnly &&
+      emergencyBalance.toolbar.emergency_visible === false
+    ) {
+      setEmergencyOnly(false);
+    }
+  }, [emergencyBalance.toolbar.emergency_visible, emergencyOnly]);
 
   const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
     null
@@ -1527,6 +1538,34 @@ export function Board({
     return () => clearInterval(id);
   }, [scheduleRefresh]);
 
+  // Idle auto-move rules: check ~every minute while the board is open.
+  useEffect(() => {
+    let cancelled = false;
+    async function runIdle() {
+      try {
+        const res = await fetch("/api/automations/run-idle-moves", {
+          method: "POST",
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { moved?: number };
+        if ((data.moved ?? 0) > 0 && !draggingRef.current) {
+          scheduleRefresh("idle-auto-move");
+        }
+      } catch {
+        // Non-fatal
+      }
+    }
+    void runIdle();
+    const id = setInterval(() => {
+      if (!draggingRef.current) void runIdle();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [scheduleRefresh]);
+
   // ── DnD ────────────────────────────────────────────────────────────────────
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -2472,24 +2511,98 @@ export function Board({
       : "";
   const canAnimateWarnings = warningRules.length > 0;
 
-  function adaptiveSelectWidth(label: string, minCh = 10, maxCh = 16) {
-    return `${Math.min(maxCh, Math.max(minCh, label.length + 3))}ch`;
+  function adaptiveSelectWidth(label: string, minCh = 8, maxCh = 12) {
+    return `${Math.min(maxCh, Math.max(minCh, label.length + 2))}ch`;
   }
+
+  const toolbarShellRef = useRef<HTMLDivElement>(null);
+  const toolbarInnerRef = useRef<HTMLDivElement>(null);
+  const [toolbarScale, setToolbarScale] = useState(1);
+
+  const visibleEmergencyChips = (
+    [
+      "one_day_left",
+      "due_today",
+      "late",
+      "combo_at_risk",
+    ] as EmergencyQuickFilter[]
+  ).filter((key) =>
+    key === "combo_at_risk"
+      ? emergencyBalance.toolbar.combo_at_risk_visible !== false
+      : isQuickFilterVisible(emergencyBalance, key)
+  );
+
+  useEffect(() => {
+    const shell = toolbarShellRef.current;
+    const inner = toolbarInnerRef.current;
+    if (!shell || !inner) return;
+
+    const measure = () => {
+      // Measure intrinsic content width (ignore flex stretch / ml-auto).
+      const prevZoom = inner.style.getPropertyValue("zoom");
+      const prevWidth = inner.style.width;
+      inner.style.setProperty("zoom", "1");
+      inner.style.width = "max-content";
+      const available = shell.clientWidth;
+      const needed = inner.scrollWidth;
+      if (prevZoom) inner.style.setProperty("zoom", prevZoom);
+      else inner.style.removeProperty("zoom");
+      inner.style.width = prevWidth;
+      const next =
+        needed > available && available > 0
+          ? Math.max(0.7, available / needed)
+          : 1;
+      setToolbarScale((prev) =>
+        Math.abs(prev - next) < 0.008 ? prev : next
+      );
+    };
+
+    const raf = requestAnimationFrame(measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(shell);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [
+    personFilter,
+    ownerFilter,
+    webhookSourceFilter,
+    emergencyOnly,
+    emergencyQuickFilter,
+    filtersActive,
+    displayOrders.length,
+    searchLoading,
+    isDesignerRole,
+    visibleEmergencyChips.length,
+    emergencyBalance.toolbar.emergency_visible,
+  ]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-full w-full max-w-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-        <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 sm:gap-3">
-          <h1 className="text-lg font-semibold text-slate-800">
+      <div
+        ref={toolbarShellRef}
+        className="w-full min-w-0 overflow-hidden px-3 py-2"
+      >
+        <div
+          ref={toolbarInnerRef}
+          className="flex flex-nowrap items-center gap-1.5"
+          style={{
+            zoom: toolbarScale,
+            width: toolbarScale < 0.999 ? "max-content" : "100%",
+          }}
+        >
+        <div className="flex shrink-0 items-center gap-1.5">
+          <h1 className="whitespace-nowrap text-base font-semibold text-slate-800">
             Production Board
           </h1>
-          <div className="flex h-9 items-stretch rounded-md border border-slate-300 text-sm">
+          <div className="flex h-8 items-stretch rounded-md border border-slate-300 text-sm">
             <button
               type="button"
               onClick={() => setBoardView("kanban")}
               className={cn(
-                "inline-flex items-center justify-center gap-1.5 rounded-l-md px-2.5 transition-colors",
+                "inline-flex items-center justify-center gap-1 rounded-l-md px-2 transition-colors",
                 boardView === "kanban"
                   ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
@@ -2497,13 +2610,13 @@ export function Board({
               title="Kanban view"
             >
               <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
-              Kanban
+              <span className="hidden min-[1100px]:inline">Kanban</span>
             </button>
             <button
               type="button"
               onClick={() => setBoardView("table")}
               className={cn(
-                "inline-flex items-center justify-center gap-1.5 border-l border-slate-300 px-2.5 transition-colors",
+                "inline-flex items-center justify-center gap-1 border-l border-slate-300 px-2 transition-colors",
                 boardView === "table"
                   ? "bg-slate-800 text-white"
                   : "text-slate-600 hover:bg-slate-50"
@@ -2511,7 +2624,7 @@ export function Board({
               title="Table view"
             >
               <Table2 className="h-3.5 w-3.5 shrink-0" />
-              Table
+              <span className="hidden min-[1100px]:inline">Table</span>
             </button>
             <ColumnVisibilityDropdown
               columns={columns}
@@ -2522,12 +2635,17 @@ export function Board({
             />
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+        <div
+          className={cn(
+            "flex shrink-0 flex-nowrap items-center gap-1.5",
+            toolbarScale >= 0.999 && "ml-auto"
+          )}
+        >
           <div
             ref={searchBoxRef}
-            className="relative min-w-[10rem] max-w-md flex-1 basis-[12rem]"
+            className="relative w-36 shrink-0"
           >
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
               value={orderQuery}
               onChange={(e) => {
@@ -2546,8 +2664,8 @@ export function Board({
                   e.currentTarget.blur();
                 }
               }}
-              placeholder="Search orders, customers, products, notes…"
-              className="h-9 w-full pl-8"
+              placeholder="Search…"
+              className="h-8 w-full pl-7 text-sm"
               aria-label="Search orders, customers, products, and notes"
               aria-autocomplete="list"
               aria-expanded={showGroupSuggestions}
@@ -2603,7 +2721,7 @@ export function Board({
               value={personFilter}
               onChange={(e) => setPersonFilter(e.target.value)}
               style={{ width: adaptiveSelectWidth(selectedPersonLabel) }}
-              className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
+              className="h-8 max-w-[12rem] shrink-0 truncate text-sm"
               aria-label="Filter by designer"
               title={selectedPersonLabel}
             >
@@ -2619,7 +2737,7 @@ export function Board({
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}
             style={{ width: adaptiveSelectWidth(selectedOwnerLabel) }}
-            className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
+            className="h-8 max-w-[12rem] shrink-0 truncate text-sm"
             aria-label="Filter by owner"
             title={selectedOwnerLabel}
           >
@@ -2635,9 +2753,9 @@ export function Board({
             value={webhookSourceFilter}
             onChange={(e) => setWebhookSourceFilter(e.target.value)}
             style={{
-              width: adaptiveSelectWidth(selectedWebhookSourceLabel, 11, 16),
+              width: adaptiveSelectWidth(selectedWebhookSourceLabel, 10, 14),
             }}
-            className="h-9 max-w-[14rem] shrink-0 truncate text-sm"
+            className="h-8 max-w-[12rem] shrink-0 truncate text-sm"
             aria-label="Filter by webhook source"
             title={selectedWebhookSourceLabel}
           >
@@ -2655,7 +2773,7 @@ export function Board({
           <details ref={dueFilterMenuRef} className="relative shrink-0">
             <summary
               className={cn(
-                "flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
+                "flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
                 dueFilterValue === "today" &&
                   "border-amber-300 bg-amber-50 text-amber-800",
                 dueFilterValue === "overdue" &&
@@ -2730,89 +2848,79 @@ export function Board({
               </button>
             </div>
           </details>
-          {/* Emergency / Urgency view — read-only overlay + always-visible quick filters */}
-          <button
-            type="button"
-            onClick={() => setEmergencyOnly((v) => !v)}
-            className={cn(
-              "flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm font-medium transition-colors",
-              emergencyOnly
-                ? "border-red-500 bg-red-600 text-white hover:bg-red-700"
-                : "border-slate-300 text-slate-600 hover:bg-slate-50"
-            )}
-            title="Emergency view — show only jobs that need attention right now"
-          >
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            Emergency
-          </button>
-          <div className="flex h-9 shrink-0 items-stretch overflow-hidden rounded-md border border-slate-300 text-xs">
-            {(
-              [
-                "one_day_left",
-                "due_today",
-                "late",
-                "combo_at_risk",
-              ] as EmergencyQuickFilter[]
-            )
-              .filter(
-                (key) =>
-                  key === "combo_at_risk" ||
-                  isQuickFilterVisible(emergencyBalance, key)
-              )
-              .map((key, i) => {
-              const active = emergencyQuickFilter === key;
-              const count = emergencyQuickFilterCounts[key];
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => {
-                    if (active) {
-                      setEmergencyQuickFilter(null);
-                      if (key === "late") setOverdueOnly(false);
-                      if (key === "due_today") setDueTodayOnly(false);
-                      return;
-                    }
-                    setEmergencyQuickFilter(key);
-                    // Load the full matching set (through-column from settings).
-                    if (key === "late") {
-                      setOverdueOnly(true);
-                      setDueTodayOnly(false);
-                    } else if (key === "due_today") {
-                      setDueTodayOnly(true);
-                      setOverdueOnly(false);
-                    } else {
-                      setOverdueOnly(false);
-                      setDueTodayOnly(false);
-                    }
-                  }}
-                  className={cn(
-                    "inline-flex items-center gap-1 px-2 font-medium transition-colors",
-                    i > 0 && "border-l border-slate-300",
-                    active
-                      ? "bg-amber-500 text-white"
-                      : "text-slate-600 hover:bg-slate-50"
-                  )}
-                  title={emergencyQuickFilterMeta[key].description}
-                >
-                  {emergencyQuickFilterMeta[key].label}
-                  <span
-                    className={cn(
-                      "tabular-nums",
-                      active ? "text-white/90" : "text-slate-400"
-                    )}
-                  >
-                    ({count})
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {/* Emergency / Urgency view — read-only overlay + quick filters */}
+          {emergencyBalance.toolbar.emergency_visible !== false ? (
+            <button
+              type="button"
+              onClick={() => setEmergencyOnly((v) => !v)}
+              className={cn(
+                "flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border px-2 text-sm font-medium transition-colors",
+                emergencyOnly
+                  ? "border-red-500 bg-red-600 text-white hover:bg-red-700"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+              )}
+              title="Emergency view — show only jobs that need attention right now"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Emergency
+            </button>
+          ) : null}
+          {visibleEmergencyChips.length > 0 ? (
+            <div className="flex h-8 shrink-0 items-stretch overflow-hidden rounded-md border border-slate-300 text-xs">
+              {visibleEmergencyChips.map((key, i) => {
+                  const active = emergencyQuickFilter === key;
+                  const count = emergencyQuickFilterCounts[key];
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        if (active) {
+                          setEmergencyQuickFilter(null);
+                          if (key === "late") setOverdueOnly(false);
+                          if (key === "due_today") setDueTodayOnly(false);
+                          return;
+                        }
+                        setEmergencyQuickFilter(key);
+                        if (key === "late") {
+                          setOverdueOnly(true);
+                          setDueTodayOnly(false);
+                        } else if (key === "due_today") {
+                          setDueTodayOnly(true);
+                          setOverdueOnly(false);
+                        } else {
+                          setOverdueOnly(false);
+                          setDueTodayOnly(false);
+                        }
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1 whitespace-nowrap px-1.5 font-medium transition-colors",
+                        i > 0 && "border-l border-slate-300",
+                        active
+                          ? "bg-amber-500 text-white"
+                          : "text-slate-600 hover:bg-slate-50"
+                      )}
+                      title={emergencyQuickFilterMeta[key].description}
+                    >
+                      {emergencyQuickFilterMeta[key].label}
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          active ? "text-white/90" : "text-slate-400"
+                        )}
+                      >
+                        ({count})
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          ) : null}
           <DesignerLeaderboardButton />
           <details ref={boardViewMenuRef} className="relative shrink-0">
             <summary
               className={cn(
-                "flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
+                "flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
                 groupedView
                   ? "border-blue-400 bg-blue-50 text-blue-700"
                   : "border-slate-300 text-slate-600 hover:bg-slate-50"
@@ -2859,7 +2967,7 @@ export function Board({
                 setDueTodayOnly(false);
                 setEmergencyQuickFilter(null);
               }}
-              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-sm text-slate-600 hover:bg-slate-50"
+              className="inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-sm text-slate-600 hover:bg-slate-50"
             >
               <X className="h-4 w-4" /> Clear
             </button>
@@ -2869,6 +2977,7 @@ export function Board({
               ? "Searching…"
               : `${displayOrders.length} job${displayOrders.length === 1 ? "" : "s"}`}
           </span>
+        </div>
         </div>
       </div>
 

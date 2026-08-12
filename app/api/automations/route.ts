@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     Boolean(
       String((body.config as { product?: string }).product ?? "").trim()
     );
+  const isColumnIdle = body.trigger === "on_column_idle";
 
   if (!body.trigger || (!body.toColumn && !isNotify)) {
     return NextResponse.json(
@@ -40,11 +41,45 @@ export async function POST(request: Request) {
     );
   }
 
+  if (isColumnIdle) {
+    if (!body.fromColumn) {
+      return NextResponse.json(
+        { error: "fromColumn is required for idle auto-move rules" },
+        { status: 400 }
+      );
+    }
+    const idleValue = Number((body.config as { idle_value?: unknown })?.idle_value);
+    const idleUnit = (body.config as { idle_unit?: unknown })?.idle_unit;
+    if (!Number.isFinite(idleValue) || idleValue < 1) {
+      return NextResponse.json(
+        { error: "idle_value must be a positive number" },
+        { status: 400 }
+      );
+    }
+    if (
+      idleUnit !== "hours" &&
+      idleUnit !== "days" &&
+      idleUnit !== "working_days"
+    ) {
+      return NextResponse.json(
+        { error: "idle_unit must be hours, days, or working_days" },
+        { status: 400 }
+      );
+    }
+  }
+
   const config = { ...(body.config ?? {}) };
   if (body.trigger === "on_job_created") {
     config.product = String(
       (body.config as { product?: string }).product ?? ""
     ).trim();
+  }
+  if (isColumnIdle) {
+    config.idle_value = Math.min(
+      365,
+      Math.round(Number((body.config as { idle_value?: number }).idle_value))
+    );
+    config.idle_unit = (body.config as { idle_unit?: string }).idle_unit;
   }
 
   const supabase = await createClient();
@@ -54,7 +89,9 @@ export async function POST(request: Request) {
       tenant_id: ctx.tenant.id,
       trigger: body.trigger,
       from_column:
-        body.trigger === "on_enter_column" ? body.fromColumn || null : null,
+        body.trigger === "on_enter_column" || isColumnIdle
+          ? body.fromColumn || null
+          : null,
       to_column: body.toColumn,
       config,
       enabled: true,

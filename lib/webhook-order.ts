@@ -459,14 +459,50 @@ export function combineCardAttentionNotes(
   sharedNote: string | null,
   itemLineNote: string | null
 ): string | null {
-  const parts = [sharedNote?.trim(), itemLineNote?.trim()].filter(
-    (p): p is string => Boolean(p)
-  );
-  return parts.length > 0 ? parts.join("\n\n") : null;
+  const a = sharedNote?.trim() || "";
+  const b = itemLineNote?.trim() || "";
+  if (!a && !b) return null;
+  if (!a) return b;
+  if (!b) return a;
+  const an = normalizeNoteCompare(a);
+  const bn = normalizeNoteCompare(b);
+  if (an === bn) return a;
+  // CRM pasted the same block into both fields (one may be a longer paste).
+  if (an.includes(bn)) return a;
+  if (bn.includes(an)) return b;
+  return `${a}\n\n${b}`;
 }
 
 function normalizeNoteCompare(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Drop consecutive duplicate paragraphs (CRM often posts the same block twice). */
+export function collapseDuplicateNoteParagraphs(text: string): string {
+  const chunks = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (chunks.length <= 1) {
+    // Also collapse single-newline duplicates of the same block.
+    const lines = text
+      .split(/\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 2 && normalizeNoteCompare(lines[0]!) === normalizeNoteCompare(lines[1]!)) {
+      return lines[0]!;
+    }
+    return text.trim();
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    const key = normalizeNoteCompare(chunk);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(chunk);
+  }
+  return out.join("\n\n");
 }
 
 /**
@@ -571,10 +607,9 @@ export function resolveCardAttentionNotes(opts: {
     splitFromDesignTask,
   } = opts;
   const rawItem = items[itemIndex]!;
-  const ownNote = resolveItemOwnAttentionNote(rawItem, null);
-  // Item/SKU notes are applied in createSingleWebhookJob via skuComments +
-  // line fields — only pass item-level (non-SKU) text here to avoid doubling.
-  let itemLine = resolveItemLineAttentionNote(rawItem, null);
+  // Compare line/SKU notes against shared Attention so CRM duplicates are dropped.
+  const ownNote = resolveItemOwnAttentionNote(rawItem, sharedAttention);
+  let itemLine = resolveItemLineAttentionNote(rawItem, sharedAttention);
 
   // Fall back to split aggregates only when this item has no own notes at all.
   if (!ownNote && !itemLine && splitFromNotes?.[itemIndex]) {
@@ -740,6 +775,9 @@ export function buildWebhookOrderDescription(opts: {
  * Build Attention / Internal notes text: staff notes + SKU line comments
  * (plain comment text — no `SKU1:` prefix).
  *
+ * CRM often pastes the same text into both `line_item_comment` and
+ * `skus[0].comment` — skip SKU comments already present in the staff note.
+ *
  * ```
  * Rush — confirm ship date
  *
@@ -752,17 +790,32 @@ export function buildWebhookNotes(opts: {
   skuComments?: { index: number; name: string; comment: string }[];
 }): string | null {
   const parts: string[] = [];
-  const note = opts.internalNote?.trim() || "";
+  const note = collapseDuplicateNoteParagraphs(opts.internalNote?.trim() || "");
   if (note) parts.push(note);
 
-  const skuLines = (opts.skuComments ?? [])
-    .filter((s) => s.comment.trim())
-    .map((s) => s.comment.trim());
+  const noteNorm = note ? normalizeNoteCompare(note) : "";
+  const seen = new Set<string>();
+  const skuLines: string[] = [];
+  for (const s of opts.skuComments ?? []) {
+    const comment = collapseDuplicateNoteParagraphs(s.comment.trim());
+    if (!comment) continue;
+    const c = normalizeNoteCompare(comment);
+    if (!c || seen.has(c)) continue;
+    // Already in the line/staff note (exact, contained, or contains) → don't paste twice.
+    if (
+      noteNorm &&
+      (noteNorm === c || noteNorm.includes(c) || c.includes(noteNorm))
+    ) {
+      continue;
+    }
+    seen.add(c);
+    skuLines.push(comment);
+  }
   if (skuLines.length > 0) {
     parts.push(skuLines.join("\n"));
   }
 
-  const combined = parts.join("\n\n").trim();
+  const combined = collapseDuplicateNoteParagraphs(parts.join("\n\n").trim());
   return combined || null;
 }
 

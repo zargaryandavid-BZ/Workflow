@@ -9,6 +9,7 @@ import {
   BarChart3,
   Clock,
   LayoutGrid,
+  Link2,
   ListChecks,
   Plug,
   Package,
@@ -73,6 +74,12 @@ const nav: NavItem[] = [
     href: "/settings/automations",
     label: "Automations",
     icon: Workflow,
+    adminOnly: true,
+  },
+  {
+    href: "/settings/workspace-links",
+    label: "Workspace links",
+    icon: Link2,
     adminOnly: true,
   },
   {

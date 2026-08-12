@@ -147,7 +147,7 @@ create index if not exists approvals_order_idx on public.approvals (order_id);
 create index if not exists approvals_token_idx on public.approvals (token);
 
 -- Automation rules -----------------------------------------------------------
-create type public.automation_trigger as enum ('on_enter_column', 'on_approval_result', 'on_job_created');
+create type public.automation_trigger as enum ('on_enter_column', 'on_approval_result', 'on_job_created', 'on_column_idle');
 
 create table if not exists public.automation_rules (
   id uuid primary key default gen_random_uuid(),
