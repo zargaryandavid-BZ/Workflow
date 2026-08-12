@@ -13,7 +13,22 @@ export interface DesignerLoadStats {
 export function isDesignerLoadColumn(name: string): boolean {
   const n = name.trim().toLowerCase();
   if (!n) return false;
-  if (n.includes("start")) return true;
+  if (isStartColumn(name)) return true;
+  if (isInProgressColumn(name)) return true;
+  return false;
+}
+
+/** True for Start stage columns. */
+export function isStartColumn(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (!n) return false;
+  return /\bstart\b/.test(n);
+}
+
+/** True for In Progress stage columns (not Start / Hold / production). */
+export function isInProgressColumn(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (!n) return false;
   if (/\bin[\s-]*progress\b/.test(n)) return true;
   if (n === "progress") return true;
   return false;
@@ -23,6 +38,12 @@ export function designerLoadColumnIds(
   columns: { id: string; name: string }[]
 ): string[] {
   return columns.filter((c) => isDesignerLoadColumn(c.name)).map((c) => c.id);
+}
+
+export function inProgressColumnIds(
+  columns: { id: string; name: string }[]
+): string[] {
+  return columns.filter((c) => isInProgressColumn(c.name)).map((c) => c.id);
 }
 
 function skuRowCountFromSpecs(specs: Record<string, unknown> | null | undefined): number {

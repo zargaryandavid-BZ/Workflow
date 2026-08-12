@@ -66,7 +66,7 @@ export function Topbar({
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
+    <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
       <div className="flex min-w-0 items-center gap-2">
         {!sidebarOpen ? (
           <button
@@ -95,7 +95,7 @@ export function Topbar({
               className="fixed inset-0 z-10"
               onClick={() => setOpenTenant(false)}
             />
-            <div className="absolute left-0 z-20 mt-1 w-60 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+            <div className="absolute left-0 z-50 mt-1 w-60 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
               <div className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Workspaces
               </div>
@@ -147,7 +147,7 @@ export function Topbar({
               className="fixed inset-0 z-10"
               onClick={() => setOpenUser(false)}
             />
-            <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+            <div className="absolute right-0 z-50 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
               <div className="px-3 py-2 text-sm text-slate-700">
                 {fullName?.trim() ? (
                   <p>

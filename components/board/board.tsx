@@ -2643,7 +2643,7 @@ export function Board({
         >
           <div
             ref={searchBoxRef}
-            className="relative z-50 w-56 shrink-0"
+            className="relative w-56 shrink-0"
           >
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
