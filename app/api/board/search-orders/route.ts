@@ -203,6 +203,9 @@ export async function GET(req: NextRequest) {
         const termPattern = `%${escapeIlike(term)}%`;
         orParts.push(`title.ilike.${termPattern}`);
         orParts.push(`description.ilike.${termPattern}`);
+        // Renamed card titles still match via CRM order number in specs.
+        orParts.push(`specs->>webhook_order_number.ilike.${termPattern}`);
+        orParts.push(`specs->>webhook_item_title.ilike.${termPattern}`);
       }
       if (matchedCustomerIds.length > 0) {
         orParts.push(`customer_id.in.(${matchedCustomerIds.join(",")})`);

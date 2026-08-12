@@ -45,6 +45,41 @@ export function isOrderNumberQuery(q: string): boolean {
   return /^0*\d{1,8}(-\d+)?$/i.test(q.trim());
 }
 
+/**
+ * Searchable order-number tokens for a card: title, CRM webhook order number,
+ * short base (`ORD-2026-0509` → `0509`), and part suffix (`0509-11`).
+ * Keeps renamed titles (product names) findable by original order number.
+ */
+export function orderNumberSearchHaystack(order: {
+  title: string;
+  specs?: Record<string, unknown> | null;
+}): string {
+  const parts: string[] = [order.title];
+  const specs = order.specs ?? null;
+  const won =
+    typeof specs?.webhook_order_number === "string"
+      ? specs.webhook_order_number.trim()
+      : "";
+  if (won) {
+    parts.push(won);
+    const match = /^ord-\d{4}-(.+)$/i.exec(won);
+    const short = match?.[1]?.trim();
+    if (short) {
+      parts.push(short);
+      const idx = specs?.webhook_item_index;
+      if (typeof idx === "number" && Number.isFinite(idx)) {
+        parts.push(`${short}-${Math.floor(idx) + 1}`);
+      }
+    }
+  }
+  const itemTitle =
+    typeof specs?.webhook_item_title === "string"
+      ? specs.webhook_item_title.trim()
+      : "";
+  if (itemTitle) parts.push(itemTitle);
+  return parts.join(" ").toLowerCase();
+}
+
 /** Local calendar date as YYYY-MM-DD (machine / browser timezone). */
 export function localDateString(now: Date = new Date()): string {
   const y = now.getFullYear();
@@ -97,7 +132,7 @@ export function orderMatchesBoardFilters(
   const q = filters.q.trim().replace(/^#/, "").toLowerCase();
   if (q) {
     if (isOrderNumberQuery(q)) {
-      if (!order.title.toLowerCase().includes(q)) return false;
+      if (!orderNumberSearchHaystack(order).includes(q)) return false;
     } else {
       const customerName = customerNameFromOrder(
         order,
@@ -127,6 +162,7 @@ export function orderMatchesBoardFilters(
         email ?? "",
         phone ?? "",
         order.description ?? "",
+        orderNumberSearchHaystack(order),
         ...allFieldStrings,
       ]
         .join(" ")
