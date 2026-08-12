@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn, initials } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/constants";
 import type { Role } from "@/lib/types";
+import { BoardHealthButton } from "@/components/app-shell/board-health-button";
 
 interface TopbarProps {
   tenants: { id: string; name: string }[];
@@ -126,6 +127,7 @@ export function Topbar({
           </>
         ) : null}
         </div>
+        <BoardHealthButton />
       </div>
 
       <div className="relative shrink-0">
