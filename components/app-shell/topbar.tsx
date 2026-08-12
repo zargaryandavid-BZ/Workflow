@@ -17,6 +17,7 @@ interface TopbarProps {
   role: Role;
   sidebarOpen: boolean;
   onMenuToggle: () => void;
+  boardHealthVisible?: boolean;
 }
 
 function avatarLetter(fullName: string | null, email: string | null) {
@@ -35,6 +36,7 @@ export function Topbar({
   role,
   sidebarOpen,
   onMenuToggle,
+  boardHealthVisible = true,
 }: TopbarProps) {
   const router = useRouter();
   const [openTenant, setOpenTenant] = useState(false);
@@ -127,7 +129,7 @@ export function Topbar({
           </>
         ) : null}
         </div>
-        <BoardHealthButton />
+        <BoardHealthButton enabled={boardHealthVisible} />
       </div>
 
       <div className="relative shrink-0">

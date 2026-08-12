@@ -52,6 +52,45 @@ export interface EmergencyCondition {
   severity: EmergencyConditionSeverity;
 }
 
+export interface EmergencyQuickFilterButtonConfig {
+  /** When false, the chip is hidden on the board. */
+  visible: boolean;
+  /**
+   * Inclusive end of the column range (from the first board column).
+   * null = Board health cutoff (through Ready to Ship).
+   */
+  through_column_id: string | null;
+}
+
+export type EmergencyDueQuickFilterKey =
+  | "one_day_left"
+  | "due_today"
+  | "late";
+
+export type EmergencyQuickFiltersConfig = Record<
+  EmergencyDueQuickFilterKey,
+  EmergencyQuickFilterButtonConfig
+>;
+
+/**
+ * Top-bar Board health button + popover.
+ * Late / Due today column ranges come from {@link EmergencyBalanceConfig.quick_filters};
+ * Warnings from Card Warnings rules; Stuck from per-column idle conditions.
+ */
+export interface BoardHealthSettingsConfig {
+  /** Show the heart button in the app top bar. */
+  visible: boolean;
+  /**
+   * Inclusive end column for open-jobs scope (and Warnings / Stuck).
+   * null = Ready to Ship (legacy Board health cutoff).
+   */
+  through_column_id: string | null;
+  show_late: boolean;
+  show_due_today: boolean;
+  show_warnings: boolean;
+  show_stuck: boolean;
+}
+
 export interface EmergencyBalanceConfig {
   version: 2;
   combo_at_risk_due_days: number;
@@ -64,6 +103,10 @@ export interface EmergencyBalanceConfig {
    * Missing key or empty array = no warning for that column.
    */
   by_column: Record<string, EmergencyCondition[]>;
+  /** Visibility + column range for 1 day left / Due today / Late chips. */
+  quick_filters: EmergencyQuickFiltersConfig;
+  /** Top-bar Board health visibility + which metrics to include. */
+  board_health: BoardHealthSettingsConfig;
 }
 
 export const DEFAULT_EMERGENCY_GLOBALS = {
@@ -72,6 +115,38 @@ export const DEFAULT_EMERGENCY_GLOBALS = {
   due_overlay_amber_tight_days: 2,
   flag_late_always: true,
 } as const;
+
+export const DEFAULT_QUICK_FILTER_BUTTON: EmergencyQuickFilterButtonConfig = {
+  visible: true,
+  through_column_id: null,
+};
+
+export const EMERGENCY_DUE_QUICK_FILTER_KEYS: EmergencyDueQuickFilterKey[] = [
+  "one_day_left",
+  "due_today",
+  "late",
+];
+
+export function defaultQuickFiltersConfig(): EmergencyQuickFiltersConfig {
+  return {
+    one_day_left: { ...DEFAULT_QUICK_FILTER_BUTTON },
+    due_today: { ...DEFAULT_QUICK_FILTER_BUTTON },
+    late: { ...DEFAULT_QUICK_FILTER_BUTTON },
+  };
+}
+
+export const DEFAULT_BOARD_HEALTH_SETTINGS: BoardHealthSettingsConfig = {
+  visible: true,
+  through_column_id: null,
+  show_late: true,
+  show_due_today: true,
+  show_warnings: true,
+  show_stuck: true,
+};
+
+export function defaultBoardHealthSettings(): BoardHealthSettingsConfig {
+  return { ...DEFAULT_BOARD_HEALTH_SETTINGS };
+}
 
 export type ColumnRef = { id: string; name: string };
 
@@ -373,6 +448,71 @@ function normalizeByColumn(raw: unknown): Record<string, EmergencyCondition[]> {
   return out;
 }
 
+function normalizeQuickFilterButton(
+  raw: unknown,
+  columnIds: Set<string>
+): EmergencyQuickFilterButtonConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...DEFAULT_QUICK_FILTER_BUTTON };
+  }
+  const o = raw as Record<string, unknown>;
+  const through =
+    typeof o.through_column_id === "string" && o.through_column_id.trim()
+      ? o.through_column_id.trim()
+      : null;
+  return {
+    visible: typeof o.visible === "boolean" ? o.visible : true,
+    through_column_id:
+      through && (columnIds.size === 0 || columnIds.has(through))
+        ? through
+        : null,
+  };
+}
+
+function normalizeQuickFilters(
+  raw: unknown,
+  columns: ColumnRef[]
+): EmergencyQuickFiltersConfig {
+  const columnIds = new Set(columns.map((c) => c.id));
+  const src =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  return {
+    one_day_left: normalizeQuickFilterButton(src.one_day_left, columnIds),
+    due_today: normalizeQuickFilterButton(src.due_today, columnIds),
+    late: normalizeQuickFilterButton(src.late, columnIds),
+  };
+}
+
+function normalizeBoardHealthSettings(
+  raw: unknown,
+  columns: ColumnRef[]
+): BoardHealthSettingsConfig {
+  const columnIds = new Set(columns.map((c) => c.id));
+  const src =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const through =
+    typeof src.through_column_id === "string" && src.through_column_id.trim()
+      ? src.through_column_id.trim()
+      : null;
+  return {
+    visible: typeof src.visible === "boolean" ? src.visible : true,
+    through_column_id:
+      through && (columnIds.size === 0 || columnIds.has(through))
+        ? through
+        : null,
+    show_late: typeof src.show_late === "boolean" ? src.show_late : true,
+    show_due_today:
+      typeof src.show_due_today === "boolean" ? src.show_due_today : true,
+    show_warnings:
+      typeof src.show_warnings === "boolean" ? src.show_warnings : true,
+    show_stuck: typeof src.show_stuck === "boolean" ? src.show_stuck : true,
+  };
+}
+
 /**
  * Build default config for a tenant's columns (suggested rules for known stages).
  * Unknown / new columns start with no conditions (no warning).
@@ -389,6 +529,8 @@ export function buildDefaultEmergencyBalance(
     version: 2,
     ...DEFAULT_EMERGENCY_GLOBALS,
     by_column,
+    quick_filters: defaultQuickFiltersConfig(),
+    board_health: defaultBoardHealthSettings(),
   };
 }
 
@@ -446,7 +588,13 @@ export function normalizeEmergencyBalance(
     (src.version !== 2 && !("by_column" in src) && isLegacyFlatConfig(src));
 
   if (empty && columns.length > 0) {
-    return { version: 2, ...globals, by_column: buildDefaultEmergencyBalance(columns).by_column };
+    return {
+      version: 2,
+      ...globals,
+      by_column: buildDefaultEmergencyBalance(columns).by_column,
+      quick_filters: normalizeQuickFilters(src.quick_filters, columns),
+      board_health: normalizeBoardHealthSettings(src.board_health, columns),
+    };
   }
 
   if (src.version === 2 || "by_column" in src) {
@@ -454,6 +602,8 @@ export function normalizeEmergencyBalance(
       version: 2,
       ...globals,
       by_column: normalizeByColumn(src.by_column),
+      quick_filters: normalizeQuickFilters(src.quick_filters, columns),
+      board_health: normalizeBoardHealthSettings(src.board_health, columns),
     };
   }
 
@@ -463,10 +613,18 @@ export function normalizeEmergencyBalance(
       version: 2,
       ...globals,
       by_column: buildDefaultEmergencyBalance(columns).by_column,
+      quick_filters: normalizeQuickFilters(src.quick_filters, columns),
+      board_health: normalizeBoardHealthSettings(src.board_health, columns),
     };
   }
 
-  return { version: 2, ...globals, by_column: {} };
+  return {
+    version: 2,
+    ...globals,
+    by_column: {},
+    quick_filters: normalizeQuickFilters(src.quick_filters, columns),
+    board_health: normalizeBoardHealthSettings(src.board_health, columns),
+  };
 }
 
 /** Apply suggested defaults only to columns that currently have zero conditions. */
@@ -533,4 +691,6 @@ export const DEFAULT_EMERGENCY_BALANCE: EmergencyBalanceConfig = {
   version: 2,
   ...DEFAULT_EMERGENCY_GLOBALS,
   by_column: {},
+  quick_filters: defaultQuickFiltersConfig(),
+  board_health: defaultBoardHealthSettings(),
 };

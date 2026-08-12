@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell/app-shell";
+import { normalizeEmergencyBalance } from "@/lib/emergency-balance";
 
 export default async function AppLayout({
   children,
@@ -15,6 +16,10 @@ export default async function AppLayout({
     name: m.tenant.name,
   }));
 
+  const boardHealthVisible =
+    normalizeEmergencyBalance(ctx.tenant.emergency_balance).board_health
+      .visible !== false;
+
   return (
     <AppShell
       role={ctx.role}
@@ -22,6 +27,7 @@ export default async function AppLayout({
       activeTenantId={ctx.tenant.id}
       email={ctx.email}
       fullName={ctx.fullName}
+      boardHealthVisible={boardHealthVisible}
     >
       {children}
     </AppShell>

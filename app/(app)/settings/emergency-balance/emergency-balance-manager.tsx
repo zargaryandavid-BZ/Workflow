@@ -17,6 +17,11 @@ import {
   type EmergencyConditionKind,
   type EmergencyConditionSeverity,
 } from "@/lib/emergency-balance";
+import {
+  QUICK_FILTER_THROUGH_DEFAULT,
+  throughColumnIdFromSelect,
+  throughColumnSelectValue,
+} from "@/lib/emergency-quick-filters";
 import { cn } from "@/lib/utils";
 import type { BoardColumn } from "@/lib/types";
 
@@ -305,7 +310,261 @@ export function EmergencyBalanceManager({
         </div>
       </section>
 
-      {/* Column picker + conditions */}
+      {/* Board health (top-bar heart) */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="mb-1 text-sm font-semibold text-slate-800">
+          Board health
+        </h2>
+        <p className="mb-4 text-sm text-slate-500">
+          Controls the heart icon in the top bar.{" "}
+          <strong className="font-medium text-slate-700">Late</strong> and{" "}
+          <strong className="font-medium text-slate-700">Due today</strong> use
+          the Due quick filter column ranges below.{" "}
+          <strong className="font-medium text-slate-700">Warnings</strong> use{" "}
+          <a
+            href="/settings/card-warnings"
+            className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900"
+          >
+            Card Warnings
+          </a>
+          . <strong className="font-medium text-slate-700">Stuck</strong> uses
+          idle conditions on each column.
+        </p>
+        <div className="space-y-4">
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300"
+              checked={values.board_health.visible}
+              disabled={migrationRequired || saving}
+              onChange={(e) =>
+                setValues((p) => ({
+                  ...p,
+                  board_health: {
+                    ...p.board_health,
+                    visible: e.target.checked,
+                  },
+                }))
+              }
+            />
+            Show Board health button in the top bar
+          </label>
+
+          <div className="max-w-xs">
+            <Label htmlFor="bh-through" className="text-xs text-slate-500">
+              Through column (open jobs / Warnings / Stuck)
+            </Label>
+            <Select
+              id="bh-through"
+              disabled={
+                migrationRequired || saving || !values.board_health.visible
+              }
+              className="mt-1"
+              value={throughColumnSelectValue({
+                visible: true,
+                through_column_id: values.board_health.through_column_id,
+              })}
+              onChange={(e) =>
+                setValues((p) => ({
+                  ...p,
+                  board_health: {
+                    ...p.board_health,
+                    through_column_id: throughColumnIdFromSelect(e.target.value),
+                  },
+                }))
+              }
+            >
+              <option value={QUICK_FILTER_THROUGH_DEFAULT}>
+                Ready to Ship (Board health default)
+              </option>
+              {columns.map((col) => (
+                <option key={col.id} value={col.id}>
+                  Start → {col.name}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-[11px] text-slate-400">
+              Counts from Start through this column (inclusive)
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Metrics in the popover
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  {
+                    key: "show_late" as const,
+                    label: "Late",
+                    hint: "Due quick filter → Late",
+                  },
+                  {
+                    key: "show_due_today" as const,
+                    label: "Due today",
+                    hint: "Due quick filter → Due today",
+                  },
+                  {
+                    key: "show_warnings" as const,
+                    label: "Warnings",
+                    hint: "Settings are taken from Card Warnings settings",
+                  },
+                  {
+                    key: "show_stuck" as const,
+                    label: "Stuck",
+                    hint: "Column idle conditions",
+                  },
+                ] as const
+              ).map(({ key, label, hint }) => (
+                <label
+                  key={key}
+                  className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                    checked={values.board_health[key]}
+                    disabled={
+                      migrationRequired ||
+                      saving ||
+                      !values.board_health.visible
+                    }
+                    onChange={(e) =>
+                      setValues((p) => ({
+                        ...p,
+                        board_health: {
+                          ...p.board_health,
+                          [key]: e.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                  <span>
+                    <span className="font-medium text-slate-800">{label}</span>
+                    <span className="mt-0.5 block text-[11px] text-slate-400">
+                      {key === "show_warnings" ? (
+                        <>
+                          Settings are taken from{" "}
+                          <a
+                            href="/settings/card-warnings"
+                            className="font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Card Warnings
+                          </a>{" "}
+                          settings
+                        </>
+                      ) : (
+                        hint
+                      )}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Due quick-filter chips */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="mb-1 text-sm font-semibold text-slate-800">
+          Due quick filters
+        </h2>
+        <p className="mb-4 text-sm text-slate-500">
+          Control the board chips <strong className="font-medium text-slate-700">1 day left</strong>,{" "}
+          <strong className="font-medium text-slate-700">Due today</strong>, and{" "}
+          <strong className="font-medium text-slate-700">Late</strong>. Counts run from the
+          first board column through the selected column (inclusive).
+        </p>
+        <div className="space-y-3">
+          {(
+            [
+              { key: "one_day_left" as const, label: "1 day left" },
+              { key: "due_today" as const, label: "Due today" },
+              { key: "late" as const, label: "Late" },
+            ] as const
+          ).map(({ key, label }) => {
+            const cfg = values.quick_filters[key];
+            return (
+              <div
+                key={key}
+                className="flex flex-col gap-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={cfg.visible}
+                    disabled={migrationRequired || saving}
+                    onChange={(e) =>
+                      setValues((p) => ({
+                        ...p,
+                        quick_filters: {
+                          ...p.quick_filters,
+                          [key]: {
+                            ...p.quick_filters[key],
+                            visible: e.target.checked,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  Show “{label}”
+                </label>
+                <div className="min-w-0 flex-1 sm:max-w-xs">
+                  <Label htmlFor={`qf-through-${key}`} className="text-xs text-slate-500">
+                    Through column
+                  </Label>
+                  <Select
+                    id={`qf-through-${key}`}
+                    disabled={migrationRequired || saving || !cfg.visible}
+                    className="mt-1"
+                    value={throughColumnSelectValue(cfg)}
+                    onChange={(e) =>
+                      setValues((p) => ({
+                        ...p,
+                        quick_filters: {
+                          ...p.quick_filters,
+                          [key]: {
+                            ...p.quick_filters[key],
+                            through_column_id: throughColumnIdFromSelect(
+                              e.target.value
+                            ),
+                          },
+                        },
+                      }))
+                    }
+                  >
+                    <option value={QUICK_FILTER_THROUGH_DEFAULT}>
+                      Ready to Ship (Board health default)
+                    </option>
+                    {columns.map((col) => (
+                      <option key={col.id} value={col.id}>
+                        Start → {col.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Counts from Start through this column (inclusive)
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Per-column emergency warning conditions */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">Warning rules</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Idle and urgency conditions per board column. Empty columns do not
+            show emergency warnings.
+          </p>
+        </div>
       <div className="grid min-h-[28rem] overflow-hidden rounded-xl border border-slate-200 bg-white lg:grid-cols-[minmax(14rem,18rem)_1fr]">
         <aside className="max-h-[70vh] overflow-y-auto border-b border-slate-200 lg:border-b-0 lg:border-r">
           <div className="sticky top-0 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -525,6 +784,7 @@ export function EmergencyBalanceManager({
           )}
         </div>
       </div>
+      </section>
     </div>
   );
 }

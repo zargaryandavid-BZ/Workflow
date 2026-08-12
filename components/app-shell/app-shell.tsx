@@ -11,6 +11,7 @@ interface AppShellProps {
   activeTenantId: string;
   email: string | null;
   fullName: string | null;
+  boardHealthVisible?: boolean;
   children: React.ReactNode;
 }
 
@@ -20,6 +21,7 @@ export function AppShell({
   activeTenantId,
   email,
   fullName,
+  boardHealthVisible = true,
   children,
 }: AppShellProps) {
   // Closed by default on all screen sizes; open via the topbar menu button.
@@ -51,6 +53,7 @@ export function AppShell({
           role={role}
           sidebarOpen={sidebarOpen}
           onMenuToggle={() => setSidebarOpen((open) => !open)}
+          boardHealthVisible={boardHealthVisible}
         />
         <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
       </div>

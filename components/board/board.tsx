@@ -61,6 +61,7 @@ import {
   type GroupEntry,
 } from "@/lib/group-orders";
 import {
+  businessDateString,
   isOrderNumberQuery,
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
@@ -110,6 +111,7 @@ import {
 } from "@/lib/order-priority-score";
 import { isApplicationEnabled } from "@/lib/order-application";
 import { calendarDaysUntilDue } from "@/lib/board-due-date";
+import { columnsIncludedInBoardHealth } from "@/lib/board-health";
 import {
   hoursInCurrentColumn,
   daysInCurrentColumn,
@@ -126,7 +128,12 @@ import {
   DEFAULT_EMERGENCY_BALANCE,
   normalizeEmergencyBalance,
   type EmergencyBalanceConfig,
+  type EmergencyDueQuickFilterKey,
 } from "@/lib/emergency-balance";
+import {
+  columnIdsForQuickFilter,
+  isQuickFilterVisible,
+} from "@/lib/emergency-quick-filters";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import type { OrderOwner } from "./order-form-body";
 import type { CardNotificationBadge } from "@/lib/card-badges";
@@ -256,9 +263,10 @@ export function Board({
   const emergencyBalance = useMemo(
     () =>
       normalizeEmergencyBalance(
-        emergencyBalanceProp ?? DEFAULT_EMERGENCY_BALANCE
+        emergencyBalanceProp ?? DEFAULT_EMERGENCY_BALANCE,
+        columns.map((c) => ({ id: c.id, name: c.name }))
       ),
-    [emergencyBalanceProp]
+    [emergencyBalanceProp, columns]
   );
   const emergencyQuickFilterMeta = useMemo(
     () => quickFilterMeta(emergencyBalance),
@@ -327,6 +335,21 @@ export function Board({
   const [emergencyOnly, setEmergencyOnly] = useState(false);
   const [emergencyQuickFilter, setEmergencyQuickFilter] =
     useState<EmergencyQuickFilter | null>(null);
+
+  // Drop a due chip filter if settings hide that chip.
+  useEffect(() => {
+    if (
+      !emergencyQuickFilter ||
+      emergencyQuickFilter === "combo_at_risk" ||
+      isQuickFilterVisible(emergencyBalance, emergencyQuickFilter)
+    ) {
+      return;
+    }
+    setEmergencyQuickFilter(null);
+    if (emergencyQuickFilter === "late") setOverdueOnly(false);
+    if (emergencyQuickFilter === "due_today") setDueTodayOnly(false);
+  }, [emergencyBalance, emergencyQuickFilter]);
+
   const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
     null
   );
@@ -376,6 +399,36 @@ export function Board({
     () => new Set(columns.filter((c) => c.kind === "done").map((c) => c.id)),
     [columns]
   );
+  /** Same column set as Board health (through Ready to Ship). */
+  const activePipelineColumnIds = useMemo(
+    () =>
+      new Set(
+        columnsIncludedInBoardHealth(
+          columns.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))
+        ).map((c) => c.id)
+      ),
+    [columns]
+  );
+
+  /** Per due-chip column range (Start → through column from Emergency settings). */
+  const dueQuickFilterColumnIds = useMemo(() => {
+    const cols = columns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      kind: c.kind,
+    }));
+    const qf = emergencyBalance.quick_filters;
+    return {
+      one_day_left: columnIdsForQuickFilter(
+        cols,
+        qf.one_day_left.through_column_id
+      ),
+      due_today: columnIdsForQuickFilter(cols, qf.due_today.through_column_id),
+      late: columnIdsForQuickFilter(cols, qf.late.through_column_id),
+    } satisfies Record<EmergencyDueQuickFilterKey, Set<string>>;
+  }, [columns, emergencyBalance.quick_filters]);
+
+  const businessToday = businessDateString();
 
   // Live designer load (Start + In Progress) from loaded board orders, seeded
   // from server counts so the assign dropdown stays accurate as cards move.
@@ -423,6 +476,18 @@ export function Board({
     [webhookSourceStyles]
   );
 
+  /** Column scope for Late / Due today full-DB load (matches chip through-column). */
+  const dueDateLoadColumnIds = useMemo(() => {
+    if (overdueOnly) return dueQuickFilterColumnIds.late;
+    if (dueTodayOnly) return dueQuickFilterColumnIds.due_today;
+    return activePipelineColumnIds;
+  }, [
+    overdueOnly,
+    dueTodayOnly,
+    dueQuickFilterColumnIds,
+    activePipelineColumnIds,
+  ]);
+
   const boardFilters = useMemo(
     () => ({
       q: orderQuery,
@@ -433,6 +498,7 @@ export function Board({
       overdueOnly,
       dueTodayOnly,
       doneColumnIds,
+      activePipelineColumnIds: dueDateLoadColumnIds,
     }),
     [
       orderQuery,
@@ -443,6 +509,7 @@ export function Board({
       overdueOnly,
       dueTodayOnly,
       doneColumnIds,
+      dueDateLoadColumnIds,
     ]
   );
 
@@ -670,6 +737,12 @@ export function Board({
     knownWebhookSourceKeys.join(","),
     overdueOnly ? "1" : "0",
     dueTodayOnly ? "1" : "0",
+    overdueOnly
+      ? (emergencyBalance.quick_filters.late.through_column_id ?? "")
+      : "",
+    dueTodayOnly
+      ? (emergencyBalance.quick_filters.due_today.through_column_id ?? "")
+      : "",
     tenantId,
   ].join("\0");
 
@@ -713,8 +786,18 @@ export function Board({
               params.set("knownSources", knownWebhookSourceKeys.join(","));
             }
           }
-          if (overdueOnly) params.set("overdueOnly", "1");
-          if (dueTodayOnly) params.set("dueTodayOnly", "1");
+          if (overdueOnly) {
+            params.set("overdueOnly", "1");
+            const through =
+              emergencyBalance.quick_filters.late.through_column_id;
+            if (through) params.set("throughColumnId", through);
+          }
+          if (dueTodayOnly) {
+            params.set("dueTodayOnly", "1");
+            const through =
+              emergencyBalance.quick_filters.due_today.through_column_id;
+            if (through) params.set("throughColumnId", through);
+          }
 
           const res = await fetchWithAuth(`/api/board/search-orders?${params}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -2189,11 +2272,13 @@ export function Board({
 
   // Per-order emergency evaluation — a PURE READ of fields already on each order.
   // Only computed while the view/filter is active, so it costs nothing when off.
+  // Same column scope as Board health (through Ready to Ship).
   const emergencyByOrder = useMemo(() => {
     const map: Record<string, EmergencyResult> = {};
     if (!emergencyActive) return map;
     const now = Date.now();
     for (const order of displayOrders) {
+      if (!activePipelineColumnIds.has(order.column_id)) continue;
       const col = columns.find((c) => c.id === order.column_id);
       if (!col) continue;
       map[order.id] = evaluateEmergency(
@@ -2206,7 +2291,9 @@ export function Board({
             now,
             warningWorkingDays
           ),
-          daysToDue: order.due_date ? calendarDaysUntilDue(order.due_date) : null,
+          daysToDue: order.due_date
+            ? calendarDaysUntilDue(order.due_date, businessToday)
+            : null,
           isRush: /rush/i.test(order.tag?.name ?? ""),
           hasApplication: isApplicationEnabled(
             order.specs,
@@ -2228,9 +2315,11 @@ export function Board({
     fieldValuesByOrder,
     warningWorkingDays,
     emergencyBalance,
+    businessToday,
+    activePipelineColumnIds,
   ]);
 
-  // Counts for each quick-filter chip (from currently loaded / filtered board cards).
+  // Counts for each quick-filter chip (due chips use per-filter column ranges).
   const emergencyQuickFilterCounts = useMemo(() => {
     const counts: Record<EmergencyQuickFilter, number> = {
       one_day_left: 0,
@@ -2245,7 +2334,7 @@ export function Board({
         applicationStageIndex < 0 ? true : colIdx < applicationStageIndex;
       const input = {
         daysToDue: order.due_date
-          ? calendarDaysUntilDue(order.due_date)
+          ? calendarDaysUntilDue(order.due_date, businessToday)
           : null,
         hasApplication: isApplicationEnabled(
           order.specs,
@@ -2255,6 +2344,11 @@ export function Board({
         beforeApplicationStage,
       };
       for (const key of keys) {
+        const scope =
+          key === "combo_at_risk"
+            ? activePipelineColumnIds
+            : dueQuickFilterColumnIds[key];
+        if (!scope.has(order.column_id)) continue;
         if (matchesQuickFilter(key, input, emergencyBalance)) counts[key] += 1;
       }
     }
@@ -2266,13 +2360,23 @@ export function Board({
     customFields,
     fieldValuesByOrder,
     emergencyBalance,
+    activePipelineColumnIds,
+    dueQuickFilterColumnIds,
+    businessToday,
   ]);
 
   // Orders that survive the Emergency toggle and/or the active quick-filter.
   const emergencyPassIds = useMemo(() => {
     const set = new Set<string>();
     if (!emergencyActive) return set;
+    const filterScope =
+      emergencyQuickFilter == null
+        ? activePipelineColumnIds
+        : emergencyQuickFilter === "combo_at_risk"
+          ? activePipelineColumnIds
+          : dueQuickFilterColumnIds[emergencyQuickFilter];
     for (const order of displayOrders) {
+      if (!filterScope.has(order.column_id)) continue;
       if (emergencyOnly && !emergencyByOrder[order.id]?.severity) continue;
       if (emergencyQuickFilter) {
         const colIdx = columnIndexById.get(order.column_id) ?? -1;
@@ -2282,7 +2386,7 @@ export function Board({
           emergencyQuickFilter,
           {
             daysToDue: order.due_date
-              ? calendarDaysUntilDue(order.due_date)
+              ? calendarDaysUntilDue(order.due_date, businessToday)
               : null,
             hasApplication: isApplicationEnabled(
               order.specs,
@@ -2309,6 +2413,9 @@ export function Board({
     customFields,
     fieldValuesByOrder,
     emergencyBalance,
+    activePipelineColumnIds,
+    dueQuickFilterColumnIds,
+    businessToday,
   ]);
 
   const emergencyFilteredOrders = useMemo(
@@ -2579,6 +2686,7 @@ export function Board({
                 onClick={(e) => {
                   setDueTodayOnly(false);
                   setOverdueOnly(false);
+                  setEmergencyQuickFilter(null);
                   e.currentTarget.closest("details")?.removeAttribute("open");
                 }}
               >
@@ -2595,6 +2703,7 @@ export function Board({
                 onClick={(e) => {
                   setDueTodayOnly(true);
                   setOverdueOnly(false);
+                  setEmergencyQuickFilter("due_today");
                   e.currentTarget.closest("details")?.removeAttribute("open");
                 }}
               >
@@ -2612,6 +2721,7 @@ export function Board({
                 onClick={(e) => {
                   setOverdueOnly(true);
                   setDueTodayOnly(false);
+                  setEmergencyQuickFilter("late");
                   e.currentTarget.closest("details")?.removeAttribute("open");
                 }}
               >
@@ -2643,18 +2753,41 @@ export function Board({
                 "late",
                 "combo_at_risk",
               ] as EmergencyQuickFilter[]
-            ).map((key, i) => {
+            )
+              .filter(
+                (key) =>
+                  key === "combo_at_risk" ||
+                  isQuickFilterVisible(emergencyBalance, key)
+              )
+              .map((key, i) => {
               const active = emergencyQuickFilter === key;
               const count = emergencyQuickFilterCounts[key];
               return (
                 <button
                   key={key}
                   type="button"
-                  onClick={() =>
-                    setEmergencyQuickFilter(active ? null : key)
-                  }
+                  onClick={() => {
+                    if (active) {
+                      setEmergencyQuickFilter(null);
+                      if (key === "late") setOverdueOnly(false);
+                      if (key === "due_today") setDueTodayOnly(false);
+                      return;
+                    }
+                    setEmergencyQuickFilter(key);
+                    // Load the full matching set (through-column from settings).
+                    if (key === "late") {
+                      setOverdueOnly(true);
+                      setDueTodayOnly(false);
+                    } else if (key === "due_today") {
+                      setDueTodayOnly(true);
+                      setOverdueOnly(false);
+                    } else {
+                      setOverdueOnly(false);
+                      setDueTodayOnly(false);
+                    }
+                  }}
                   className={cn(
-                    "inline-flex items-center px-2 font-medium transition-colors",
+                    "inline-flex items-center gap-1 px-2 font-medium transition-colors",
                     i > 0 && "border-l border-slate-300",
                     active
                       ? "bg-amber-500 text-white"
@@ -2663,7 +2796,14 @@ export function Board({
                   title={emergencyQuickFilterMeta[key].description}
                 >
                   {emergencyQuickFilterMeta[key].label}
-                  {active ? ` (${count})` : ""}
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      active ? "text-white/90" : "text-slate-400"
+                    )}
+                  >
+                    ({count})
+                  </span>
                 </button>
               );
             })}
@@ -2717,6 +2857,7 @@ export function Board({
                 setWebhookSourceFilter("");
                 setOverdueOnly(false);
                 setDueTodayOnly(false);
+                setEmergencyQuickFilter(null);
               }}
               className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-sm text-slate-600 hover:bg-slate-50"
             >

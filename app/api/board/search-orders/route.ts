@@ -3,9 +3,11 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { enrichBoardOrders } from "@/lib/board-order-enrichment";
 import {
+  businessDateString,
   isOrderNumberQuery,
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
+import { columnIdsForQuickFilter } from "@/lib/emergency-quick-filters";
 import {
   MANUAL_WEBHOOK_SOURCE_FILTER,
   OTHER_WEBHOOK_SOURCE_FILTER,
@@ -13,7 +15,7 @@ import {
 } from "@/lib/constants";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
-import type { CustomField, OrderWithRelations } from "@/lib/types";
+import type { BoardColumn, CustomField, OrderWithRelations } from "@/lib/types";
 
 export interface SearchOrdersResponse {
   orders: OrderWithRelations[];
@@ -70,6 +72,7 @@ export async function GET(req: NextRequest) {
   const dueTodayOnly =
     searchParams.get("dueTodayOnly") === "1" ||
     searchParams.get("dueTodayOnly") === "true";
+  const throughColumnId = (searchParams.get("throughColumnId") ?? "").trim() || null;
 
   if (
     !q &&
@@ -184,19 +187,13 @@ export async function GET(req: NextRequest) {
       query = query.eq("webhook_source", webhookSource.toLowerCase());
     }
     if (overdueOnly) {
-      // Due before today's local calendar date (due today is not overdue yet).
-      const today = new Date();
-      const y = today.getFullYear();
-      const m = String(today.getMonth() + 1).padStart(2, "0");
-      const d = String(today.getDate()).padStart(2, "0");
-      query = query.not("due_date", "is", null).lt("due_date", `${y}-${m}-${d}`);
+      // Same calendar rule as Board health Late (America/Los_Angeles).
+      const today = businessDateString();
+      query = query.not("due_date", "is", null).lt("due_date", today);
     }
     if (dueTodayOnly) {
-      const today = new Date();
-      const y = today.getFullYear();
-      const m = String(today.getMonth() + 1).padStart(2, "0");
-      const d = String(today.getDate()).padStart(2, "0");
-      query = query.eq("due_date", `${y}-${m}-${d}`);
+      const today = businessDateString();
+      query = query.eq("due_date", today);
     }
 
     if (q) {
@@ -256,15 +253,21 @@ export async function GET(req: NextRequest) {
   }
 
   let doneColumnIds: Set<string> | undefined;
+  let activePipelineColumnIds: Set<string> | undefined;
   if (overdueOnly || dueTodayOnly) {
-    const { data: doneCols } = await supabase
+    const { data: cols } = await supabase
       .from("board_columns")
-      .select("id")
+      .select("id, name, kind, position")
       .eq("tenant_id", tenantId)
-      .eq("kind", "done");
+      .order("position", { ascending: true });
+    const columns = (cols ?? []) as Pick<
+      BoardColumn,
+      "id" | "name" | "kind" | "position"
+    >[];
     doneColumnIds = new Set(
-      ((doneCols ?? []) as { id: string }[]).map((c) => c.id)
+      columns.filter((c) => c.kind === "done").map((c) => c.id)
     );
+    activePipelineColumnIds = columnIdsForQuickFilter(columns, throughColumnId);
   }
 
   const filters = {
@@ -276,6 +279,7 @@ export async function GET(req: NextRequest) {
     overdueOnly,
     dueTodayOnly,
     doneColumnIds,
+    activePipelineColumnIds,
   };
   const orders = allOrders.filter((order) =>
     orderMatchesBoardFilters(

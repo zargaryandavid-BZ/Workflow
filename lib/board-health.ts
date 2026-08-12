@@ -1,9 +1,9 @@
 /**
  * Board health (0–5) from late / due-today / warning / stuck job counts.
  *
- * Scope: active pipeline from the start of the board through
- * "(Boyd Only) Ready to Ship" (inclusive). Shipping, Shipped Customer,
- * Finished, and Review Request columns are out of scope.
+ * Scope: configurable through-column (default: Ready to Ship).
+ * Late / Due today use Due quick-filter column ranges when set.
+ * Warnings use Card Warnings rules; Stuck uses Emergency idle conditions.
  */
 
 import {
@@ -13,6 +13,7 @@ import {
   type ActiveWarning,
 } from "@/lib/card-warning-rules";
 import { calendarDaysUntilDue } from "@/lib/board-due-date";
+import { businessDateString } from "@/lib/board-order-filters";
 import {
   DEFAULT_EMERGENCY_BALANCE,
   type EmergencyBalanceConfig,
@@ -39,6 +40,17 @@ export interface BoardHealthResult {
   label: string;
   summary: string;
   counts: BoardHealthCounts;
+  /** When false, the top-bar button should not render. */
+  visible: boolean;
+  /** Which metric rows to show in the popover. */
+  show: {
+    late: boolean;
+    dueToday: boolean;
+    warnings: boolean;
+    stuck: boolean;
+  };
+  /** Label for the open-jobs footer (e.g. Ready to Ship). */
+  throughLabel: string;
 }
 
 export const BOARD_HEALTH_META: Record<
@@ -136,6 +148,28 @@ export function columnsIncludedInBoardHealth(
   return columns.filter((c) => !isHealthExcludedColumn(c));
 }
 
+/**
+ * Columns from the start of the board through `throughColumnId` (inclusive).
+ * When throughColumnId is null/missing, uses Ready to Ship cutoff.
+ */
+function columnsThroughEnd(
+  columns: HealthColumn[],
+  throughColumnId: string | null | undefined
+): HealthColumn[] {
+  if (throughColumnId) {
+    const idx = columns.findIndex((c) => c.id === throughColumnId);
+    if (idx >= 0) return columns.slice(0, idx + 1);
+  }
+  return columnsIncludedInBoardHealth(columns);
+}
+
+function columnIdSetThroughEnd(
+  columns: HealthColumn[],
+  throughColumnId: string | null | undefined
+): Set<string> {
+  return new Set(columnsThroughEnd(columns, throughColumnId).map((c) => c.id));
+}
+
 function hrs(h: number | null): number {
   return h == null ? 0 : h;
 }
@@ -189,7 +223,12 @@ export function scoreBoardHealth(counts: BoardHealthCounts): BoardHealthLevel {
 }
 
 export function buildBoardHealthResult(
-  counts: BoardHealthCounts
+  counts: BoardHealthCounts,
+  opts?: {
+    visible?: boolean;
+    show?: BoardHealthResult["show"];
+    throughLabel?: string;
+  }
 ): BoardHealthResult {
   const level = scoreBoardHealth(counts);
   const meta = BOARD_HEALTH_META[level];
@@ -202,6 +241,14 @@ export function buildBoardHealthResult(
     label: meta.label,
     summary,
     counts,
+    visible: opts?.visible !== false,
+    show: opts?.show ?? {
+      late: true,
+      dueToday: true,
+      warnings: true,
+      stuck: true,
+    },
+    throughLabel: opts?.throughLabel ?? "Ready to Ship",
   };
 }
 
@@ -214,10 +261,25 @@ export function evaluateBoardHealth(opts: {
   nowMs?: number;
 }): BoardHealthResult {
   const nowMs = opts.nowMs ?? Date.now();
+  const today = businessDateString(new Date(nowMs));
   const cfg = opts.emergencyBalance ?? DEFAULT_EMERGENCY_BALANCE;
-  const included = columnsIncludedInBoardHealth(opts.columns);
+  const bh = cfg.board_health;
+
+  const included = columnsThroughEnd(opts.columns, bh.through_column_id);
   const includedIds = new Set(included.map((c) => c.id));
   const colById = new Map(included.map((c) => [c.id, c]));
+
+  const lateIds = columnIdSetThroughEnd(
+    opts.columns,
+    cfg.quick_filters.late.through_column_id
+  );
+  const dueTodayIds = columnIdSetThroughEnd(
+    opts.columns,
+    cfg.quick_filters.due_today.through_column_id
+  );
+
+  const throughCol = included[included.length - 1];
+  const throughLabel = throughCol?.name ?? "Ready to Ship";
 
   let late = 0;
   let dueToday = 0;
@@ -232,7 +294,7 @@ export function evaluateBoardHealth(opts: {
     if (!col) continue;
 
     const daysToDue = order.due_date
-      ? calendarDaysUntilDue(order.due_date)
+      ? calendarDaysUntilDue(order.due_date, today)
       : null;
     const hoursHere = hoursInCurrentColumn(order.last_moved_at, nowMs);
     const workingDaysHere = daysInCurrentColumn(
@@ -242,14 +304,19 @@ export function evaluateBoardHealth(opts: {
     );
     const conditions = cfg.by_column[order.column_id] ?? [];
 
-    const isLate = daysToDue != null && daysToDue < 0;
-    const isDueToday = daysToDue === 0;
+    const isLate =
+      bh.show_late &&
+      lateIds.has(order.column_id) &&
+      daysToDue != null &&
+      daysToDue < 0;
+    const isDueToday =
+      bh.show_due_today &&
+      dueTodayIds.has(order.column_id) &&
+      daysToDue === 0;
 
-    const warning: ActiveWarning | null = getActiveWarning(
-      order,
-      opts.warningRules,
-      opts.warningWorkingDays
-    );
+    const warning: ActiveWarning | null = bh.show_warnings
+      ? getActiveWarning(order, opts.warningRules, opts.warningWorkingDays)
+      : null;
 
     const emergency = evaluateEmergency(
       {
@@ -270,8 +337,12 @@ export function evaluateBoardHealth(opts: {
       cfg
     );
 
-    const isWarning = Boolean(warning) || emergency.severity === "amber";
-    const isStuck = isStuckInColumn(conditions, hoursHere, workingDaysHere);
+    const isWarning =
+      bh.show_warnings &&
+      (Boolean(warning) || emergency.severity === "amber");
+    const isStuck =
+      bh.show_stuck &&
+      isStuckInColumn(conditions, hoursHere, workingDaysHere);
 
     if (isLate) late += 1;
     if (isDueToday) dueToday += 1;
@@ -280,12 +351,24 @@ export function evaluateBoardHealth(opts: {
     if (isLate || isDueToday || isWarning || isStuck) attention += 1;
   }
 
-  return buildBoardHealthResult({
-    open: openOrders.length,
-    late,
-    dueToday,
-    warnings,
-    stuck,
-    attention,
-  });
+  return buildBoardHealthResult(
+    {
+      open: openOrders.length,
+      late,
+      dueToday,
+      warnings,
+      stuck,
+      attention,
+    },
+    {
+      visible: bh.visible !== false,
+      show: {
+        late: bh.show_late !== false,
+        dueToday: bh.show_due_today !== false,
+        warnings: bh.show_warnings !== false,
+        stuck: bh.show_stuck !== false,
+      },
+      throughLabel,
+    }
+  );
 }
