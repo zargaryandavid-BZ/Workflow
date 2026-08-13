@@ -89,6 +89,19 @@ export interface OrderFormBodyProps {
   /** Printed on the Job Ticket as ATTENTION PRODUCTION NOTES. */
   productionNotes: string;
   onProductionNotesChange: (value: string) => void;
+  /**
+   * Three-audience notes (customer / designer / production). The production
+   * note is {@link productionNotes} above. These two are the customer- and
+   * designer-facing notes; they render only when {@link showAudienceNotes} is
+   * true (hidden from production-floor members), and only in the modal that
+   * wires the handlers.
+   */
+  customerFacingNote?: string;
+  onCustomerFacingNoteChange?: (value: string) => void;
+  designerNote?: string;
+  onDesignerNoteChange?: (value: string) => void;
+  /** Show the customer/designer note windows (staff only, not production floor). */
+  showAudienceNotes?: boolean;
   fieldValues: Record<string, unknown>;
   onFieldValueChange: (fieldId: string, value: unknown) => void;
   skus: SkuItem[];
@@ -166,6 +179,11 @@ export function OrderFormBody({
   onInternalNoteChange,
   productionNotes,
   onProductionNotesChange,
+  customerFacingNote = "",
+  onCustomerFacingNoteChange,
+  designerNote = "",
+  onDesignerNoteChange,
+  showAudienceNotes = false,
   fieldValues,
   onFieldValueChange,
   skus,
@@ -960,6 +978,42 @@ export function OrderFormBody({
           </div>
         </div>
       </div>
+      ) : null}
+
+      {showAudienceNotes &&
+      onCustomerFacingNoteChange &&
+      onDesignerNoteChange ? (
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Notes
+          </p>
+          <div>
+            <Label htmlFor={`${idPrefix}-customer-note`}>Customer note</Label>
+            <Textarea
+              id={`${idPrefix}-customer-note`}
+              readOnly={readOnly}
+              value={customerFacingNote}
+              onChange={(e) => onCustomerFacingNoteChange(e.target.value)}
+              placeholder="Notes about / for the customer (staff only)…"
+              className={cn(readOnly ? "bg-slate-50" : "bg-white")}
+            />
+          </div>
+          <div>
+            <Label htmlFor={`${idPrefix}-designer-note`}>Designer note</Label>
+            <Textarea
+              id={`${idPrefix}-designer-note`}
+              readOnly={readOnly}
+              value={designerNote}
+              onChange={(e) => onDesignerNoteChange(e.target.value)}
+              placeholder="Notes for the designer…"
+              className={cn(readOnly ? "bg-slate-50" : "bg-white")}
+            />
+          </div>
+          <p className="text-[11px] text-slate-400">
+            The <span className="font-medium">Production note</span> below is
+            what the production floor sees.
+          </p>
+        </div>
       ) : null}
 
       {(!hideEmpty ||
