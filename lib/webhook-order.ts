@@ -261,6 +261,8 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   customer_name?: string;
   customer_contact?: string;
   customer_phone?: string;
+  /** CRM starred / key account (customers.priority_stars >= 1). */
+  is_key_account?: boolean;
   order_number?: string;
   /**
    * Human-readable title after the source label (`CRM | …`).
@@ -2394,6 +2396,8 @@ interface CreateSingleJobParams {
   customerId: string | null;
   customerName: string;
   orderContact: string;
+  /** CRM starred / key account — stored in specs so the board can flag it. */
+  isKeyAccount?: boolean;
   item: WebhookItem;
   priority: string;
   dueDate: string | null;
@@ -2453,6 +2457,7 @@ async function createSingleWebhookJob(
     totalItems,
     tagId,
     ownerId,
+    isKeyAccount,
     requestOwnerSpecs,
     designerId,
     designerName,
@@ -2542,6 +2547,7 @@ async function createSingleWebhookJob(
   if (sharedTitle) {
     specs.webhook_order_title = sharedTitle;
   }
+  if (isKeyAccount) specs.is_key_account = true;
   // Always stamp for idempotent due-date updates on later CRM webhooks.
   specs.webhook_order_number = webhookOrderNumber;
   if (totalItems > 1) {
@@ -2928,6 +2934,7 @@ export async function createOrderFromWebhook(
       customerId,
       customerName: customerInfo.customerName,
       orderContact: customerInfo.orderContact,
+      isKeyAccount: body.is_key_account === true,
       item,
       priority,
       dueDate,
