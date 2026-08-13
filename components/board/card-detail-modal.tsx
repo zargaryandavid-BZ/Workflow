@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Archive,
+  ArchiveRestore,
   CalendarClock,
   ChevronDown,
   ChevronRight,
@@ -1369,6 +1370,48 @@ export function CardDetailModal({
     }
   }
 
+  const [archivingBoard, setArchivingBoard] = useState(false);
+  const isBoardArchived = data?.order.specs?.archived === true;
+
+  /**
+   * Archive a finished order OFF the active board (or restore it). Sets
+   * specs.archived — the board hides archived orders from Kanban/List/Table and
+   * from Late/Emergency counts, but keeps them searchable via the Archived
+   * filter. Distinct from "Archive to Supabase" (a ZIP backup that leaves the
+   * card on the board) and from "Delete Order" (removal).
+   */
+  async function toggleBoardArchive() {
+    if (!data?.order || archivingBoard) return;
+    const next = !isBoardArchived;
+    const nextSpecs = {
+      ...(data.order.specs ?? {}),
+      archived: next || null,
+      archived_at: next ? new Date().toISOString() : null,
+    };
+    setArchivingBoard(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ specs: nextSpecs }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setSaveError(json.error ?? "Failed to archive order");
+        return;
+      }
+      setData((prev) =>
+        prev ? { ...prev, order: { ...prev.order, specs: nextSpecs } } : prev
+      );
+      onChanged({ specs: nextSpecs });
+    } catch {
+      setSaveError("Failed to archive order");
+    } finally {
+      setArchivingBoard(false);
+    }
+  }
+
   const modalTitle = (
     <span className="flex min-w-0 flex-col items-start gap-0.5">
       {/* Title / source — left, above order number */}
@@ -1689,6 +1732,34 @@ export function CardDetailModal({
                 <Archive className="h-4 w-4" />
               )}
               {archiving ? "Archiving…" : "Archive"}
+            </button>
+          ) : null}
+          {orderId && data && mode !== "view" ? (
+            <button
+              type="button"
+              onClick={() => void toggleBoardArchive()}
+              disabled={
+                loading || saving || removing || archiving || archivingBoard
+              }
+              className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              title={
+                isBoardArchived
+                  ? "Restore this order to the active board"
+                  : "Hide this finished order from the active board (still searchable via the Archived filter)"
+              }
+            >
+              {archivingBoard ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isBoardArchived ? (
+                <ArchiveRestore className="h-4 w-4" />
+              ) : (
+                <Archive className="h-4 w-4" />
+              )}
+              {archivingBoard
+                ? "Saving…"
+                : isBoardArchived
+                  ? "Restore to board"
+                  : "Archive off board"}
             </button>
           ) : null}
           {orderId && data ? (
