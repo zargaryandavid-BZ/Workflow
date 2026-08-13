@@ -17,6 +17,7 @@ import {
   MapPin,
   MoveRight,
   RefreshCw,
+  Star,
   Tag,
   Truck,
   User,
@@ -301,6 +302,7 @@ export function OrderCard({
   );
   const isReprint = order.specs?.reprint === true;
   const isLocked = order.specs?.locked === true;
+  const isKeyAccount = order.specs?.is_key_account === true;
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
@@ -721,6 +723,14 @@ export function OrderCard({
                   >
                     <Lock className="h-2.5 w-2.5" />
                     Locked
+                  </span>
+                ) : null}
+                {isKeyAccount ? (
+                  <span
+                    className="inline-flex shrink-0 items-center"
+                    title="Key account"
+                  >
+                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />
                   </span>
                 ) : null}
               </span>
