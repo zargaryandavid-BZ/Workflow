@@ -13,6 +13,7 @@ import {
   Car,
   CalendarClock,
   Flag,
+  Boxes,
   Lock,
   MapPin,
   MoveRight,
@@ -46,6 +47,7 @@ import {
   customerNameFromOrder,
 } from "@/lib/notification-messages";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
+import { getComboStock, COMBO_STOCK_LABELS } from "@/lib/combo-stock";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
 import {
@@ -303,6 +305,7 @@ export function OrderCard({
   const isReprint = order.specs?.reprint === true;
   const isLocked = order.specs?.locked === true;
   const isKeyAccount = order.specs?.is_key_account === true;
+  const comboStock = getComboStock(order);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
@@ -731,6 +734,31 @@ export function OrderCard({
                     title="Key account"
                   >
                     <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />
+                  </span>
+                ) : null}
+                {comboStock ? (
+                  <span
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide",
+                      comboStock.status === "in_stock" &&
+                        "bg-emerald-100 text-emerald-700",
+                      comboStock.status === "ordered" &&
+                        "bg-blue-100 text-blue-700",
+                      comboStock.status === "pending" &&
+                        "bg-amber-100 text-amber-700",
+                      comboStock.status === "cant_get" &&
+                        "bg-red-100 text-red-700"
+                    )}
+                    title={COMBO_STOCK_LABELS[comboStock.status]}
+                  >
+                    <Boxes className="h-2.5 w-2.5" />
+                    {comboStock.status === "in_stock"
+                      ? "In stock"
+                      : comboStock.status === "ordered"
+                        ? "Ordered"
+                        : comboStock.status === "cant_get"
+                          ? "No stock"
+                          : "Stock?"}
                   </span>
                 ) : null}
               </span>

@@ -70,6 +70,11 @@ import {
   isOrderArchived,
 } from "@/lib/board-order-filters";
 import {
+  getComboStock,
+  comboStockConfirmed,
+  isComboOrder,
+} from "@/lib/combo-stock";
+import {
   MANUAL_WEBHOOK_SOURCE_FILTER,
   OTHER_WEBHOOK_SOURCE_FILTER,
   UNASSIGNED_OWNER_FILTER,
@@ -1615,12 +1620,44 @@ export function Board({
     return orderNeedsApplication(order);
   }
 
+  /**
+   * A combo order can't leave "In Progress" until the warehouse confirms stock
+   * (reply 1 = in stock or 2 = ordered). Admins / account managers can override.
+   * Returns a blocking reason for non-managers, or null if the move is allowed.
+   */
+  function comboStockMoveBlock(
+    order: OrderWithRelations,
+    toColumnId: string
+  ): string | null {
+    if (role === "admin" || role === "account_manager") return null;
+    const fromCol = columnsById.get(order.column_id);
+    const toCol = columnsById.get(toColumnId);
+    if (!fromCol || !toCol) return null;
+    if (toCol.id === fromCol.id) return null;
+    if (fromCol.name.trim().toLowerCase() !== "in progress") return null;
+    if (
+      !isComboOrder(order, fieldValuesByOrder[order.id] ?? {}, customFields)
+    ) {
+      return null;
+    }
+    const stock = getComboStock(order);
+    if (comboStockConfirmed(stock?.status)) return null;
+    return stock?.status === "cant_get"
+      ? "Warehouse can't get the stock for this combo. A manager must decide before it leaves In Progress."
+      : "Combo stock isn't confirmed yet — waiting on the warehouse. A manager can override.";
+  }
+
   async function handleContextMove(
     order: OrderWithRelations,
     toColumnId: string
   ) {
     if (order.specs?.locked === true) {
       flashPermissionError("This card is locked — unlock it to move.");
+      return;
+    }
+    const stockBlock = comboStockMoveBlock(order, toColumnId);
+    if (stockBlock) {
+      flashPermissionError(stockBlock);
       return;
     }
     if (moveSkipsApplication(order, toColumnId)) {
@@ -2142,6 +2179,17 @@ export function Board({
         }
         abortDrag();
         return;
+      }
+      const draggedOrder = boardOrdersRef.current.find(
+        (o) => o.id === String(active.id)
+      );
+      if (draggedOrder) {
+        const stockBlock = comboStockMoveBlock(draggedOrder, overColumn);
+        if (stockBlock) {
+          flashPermissionError(stockBlock);
+          abortDrag();
+          return;
+        }
       }
     } else if (to && !canDropIn(role, to)) {
       flashPermissionError(

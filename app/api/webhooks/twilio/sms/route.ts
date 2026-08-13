@@ -7,6 +7,12 @@ import {
   validateTwilioSignature,
 } from "@/lib/order-sms";
 import { logActivity } from "@/lib/automation";
+import {
+  getComboStock,
+  parseStockReply,
+  withComboStock,
+  type ComboStock,
+} from "@/lib/combo-stock";
 
 export const runtime = "nodejs";
 
@@ -94,6 +100,36 @@ export async function POST(request: Request) {
       twilioSid: sid,
     },
   });
+
+  // Combo stock check: if this order is awaiting a warehouse reply and the body
+  // is 1/2/3, apply it (1 = in stock, 2 = ordered, 3 = can't get).
+  const reply = parseStockReply(body);
+  if (reply) {
+    const { data: order } = await admin
+      .from("orders")
+      .select("specs")
+      .eq("id", match.orderId)
+      .maybeSingle();
+    const prev = order ? getComboStock(order) : null;
+    if (prev && prev.status === "pending") {
+      const stock: ComboStock = {
+        ...prev,
+        status: reply,
+        answered_at: new Date().toISOString(),
+      };
+      await admin
+        .from("orders")
+        .update({ specs: withComboStock(order?.specs, stock) })
+        .eq("id", match.orderId);
+      await logActivity(admin, {
+        tenantId: match.tenantId,
+        orderId: match.orderId,
+        actor: null,
+        action: "combo_stock_reply",
+        metadata: { status: reply, source: "twilio_inbound" },
+      });
+    }
+  }
 
   return twimlOk();
 }
