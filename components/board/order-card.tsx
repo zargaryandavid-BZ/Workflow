@@ -642,6 +642,11 @@ export function OrderCard({
                 {thumbnails.length}
               </span>
             ) : null}
+            {/* Order # overlaid on the image — frees the title line for the item name. */}
+            <span className="pointer-events-none absolute left-0.5 top-0.5 max-w-[calc(100%-4px)] truncate rounded bg-black/70 px-1 py-px text-[10px] font-bold leading-tight tabular-nums text-white">
+              {formatShortOrderNumber(order.title)}
+              {groupSize != null && groupSize >= 2 ? ` (${groupSize})` : ""}
+            </span>
           </button>
         ) : null}
 
@@ -663,22 +668,24 @@ export function OrderCard({
                 {currentPriorityScore != null ? (
                   <PriorityScoreBadge score={currentPriorityScore} />
                 ) : null}
-                <span className="truncate leading-snug">
-                  {formatShortOrderNumber(order.title)}
-                  {groupSize != null && groupSize >= 2 ? (
-                    <span
-                      className={cn(
-                        "font-normal",
-                        folderHasFiles
-                          ? "text-emerald-500/80"
-                          : "text-slate-400"
-                      )}
-                    >
-                      {" "}
-                      ({groupSize})
-                    </span>
-                  ) : null}
-                </span>
+                {!(thumbnails && thumbnails.length > 0) ? (
+                  <span className="truncate leading-snug">
+                    {formatShortOrderNumber(order.title)}
+                    {groupSize != null && groupSize >= 2 ? (
+                      <span
+                        className={cn(
+                          "font-normal",
+                          folderHasFiles
+                            ? "text-emerald-500/80"
+                            : "text-slate-400"
+                        )}
+                      >
+                        {" "}
+                        ({groupSize})
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
                 {hasApplication ? (
                   <ApplicationIcon
                     className="h-3.5 w-3.5 shrink-0 text-slate-500"
@@ -688,9 +695,11 @@ export function OrderCard({
               </span>
               {cardTitle ? (
                 <>
-                  <span className="shrink-0 text-slate-300" aria-hidden>
-                    ·
-                  </span>
+                  {!(thumbnails && thumbnails.length > 0) ? (
+                    <span className="shrink-0 text-slate-300" aria-hidden>
+                      ·
+                    </span>
+                  ) : null}
                   <span
                     className="min-w-0 flex-1 truncate text-left text-[15px] font-bold leading-snug text-slate-900"
                     title={cardTitle}
