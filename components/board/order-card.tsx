@@ -125,6 +125,8 @@ interface OrderCardProps {
   onSetTag?: (tag: OrderTagSummary | null) => void;
   /** Persist priority score 1–5 (or null to clear) from right-click menu. */
   onSetPriorityScore?: (score: PriorityScore | null) => void;
+  /** Toggle the Reprint mark on this order (right-click menu). */
+  onSetReprint?: (on: boolean) => void;
   /** Persist due date from right-click on the due chip. */
   onSetDueDate?: (update: {
     mode: DueDateMode;
@@ -193,6 +195,7 @@ export function OrderCard({
   tags = [],
   onSetTag,
   onSetPriorityScore,
+  onSetReprint,
   onSetDueDate,
   highlighted = false,
   notificationBadge,
@@ -289,6 +292,7 @@ export function OrderCard({
     customFields,
     fieldValues
   );
+  const isReprint = order.specs?.reprint === true;
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
@@ -359,6 +363,7 @@ export function OrderCard({
     canAssignDesigner ||
     canSetTag ||
     canSetPriorityScore ||
+    Boolean(onSetReprint) ||
     canResendApproval;
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
   const [tagSubOpen, setTagSubOpen] = useState(false);
@@ -691,6 +696,14 @@ export function OrderCard({
                     className="h-3.5 w-3.5 shrink-0 text-slate-500"
                     title="Application"
                   />
+                ) : null}
+                {isReprint ? (
+                  <span
+                    className="shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-amber-700"
+                    title="Reprint"
+                  >
+                    Reprint
+                  </span>
                 ) : null}
               </span>
               {cardTitle ? (
@@ -1161,6 +1174,19 @@ export function OrderCard({
                     </div>
                   ) : null}
                 </div>
+              ) : null}
+              {onSetReprint ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSetReprint(!isReprint);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                >
+                  <RefreshCw className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                  {isReprint ? "Remove reprint mark" : "Mark as reprint"}
+                </button>
               ) : null}
               {hasMoveMenu ? (
                 <>
