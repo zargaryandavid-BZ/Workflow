@@ -23,12 +23,14 @@ import {
   CalendarDays,
   Layers,
   LayoutDashboard,
+  List,
   Search,
   Table2,
   X,
 } from "lucide-react";
 import { Column } from "./column";
 import { BoardTable } from "./board-table";
+import { BoardListView } from "./board-list-view";
 import { ColumnVisibilityDropdown } from "./column-visibility-dropdown";
 import { DesignerLeaderboardButton } from "./designer-leaderboard";
 import { OrderCard } from "./order-card";
@@ -581,7 +583,9 @@ export function Board({
     columnName: string;
   } | null>(null);
   const [groupedView, setGroupedView] = useState(false);
-  const [boardView, setBoardView] = useState<"kanban" | "table">("kanban");
+  const [boardView, setBoardView] = useState<"kanban" | "table" | "list">(
+    "kanban"
+  );
   const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() => new Set());
   const [columnSortById, setColumnSortById] = useState<ColumnSortMap>({});
   const columnSortByIdRef = useRef<ColumnSortMap>({});
@@ -2729,6 +2733,20 @@ export function Board({
               <Table2 className="h-3.5 w-3.5 shrink-0" />
               <span className="hidden min-[1100px]:inline">Table</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setBoardView("list")}
+              className={cn(
+                "inline-flex items-center justify-center gap-1 border-l border-slate-300 px-2 transition-colors",
+                boardView === "list"
+                  ? "bg-slate-800 text-white"
+                  : "text-slate-600 hover:bg-slate-50"
+              )}
+              title="List view"
+            >
+              <List className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden min-[1100px]:inline">List</span>
+            </button>
             <ColumnVisibilityDropdown
               columns={columns}
               hiddenColIds={hiddenColIds}
@@ -3096,7 +3114,20 @@ export function Board({
         </div>
       ) : null}
 
-      {boardView === "table" ? (
+      {boardView === "list" ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <BoardListView
+            orders={emergencyFilteredOrders}
+            columns={columns}
+            customFields={customFields}
+            fieldValuesByOrder={displayFieldValuesByOrder}
+            thumbnailByOrder={displayThumbnailByOrder}
+            ownerNameByOrder={displayOwnerNameByOrder}
+            designerNameByOrder={displayDesignerNameByOrder}
+            onOpenOrder={(o) => openOrderDetail(o.id)}
+          />
+        </div>
+      ) : boardView === "table" ? (
         <div
           className="min-h-0 min-w-0 flex-1 overflow-hidden"
           onPointerDown={handleBoardPointerDown}
