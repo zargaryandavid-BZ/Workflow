@@ -22,6 +22,7 @@ import {
 } from "@/lib/time-chips";
 import { dueDateBadgeClass, dueDateStatus } from "@/lib/board-due-date";
 import { formatTimeInColumn } from "@/lib/card-warning-rules";
+import { formatWorkingHours } from "@/lib/working-hours";
 import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
 import { PRIORITY_STYLES } from "@/lib/constants";
 import { cn, formatDate, formatDateShort } from "@/lib/utils";
@@ -346,6 +347,14 @@ function renderSystemOrCustomChip(args: {
         />
         <span className="font-medium text-slate-500">In col</span>
         {timeHere.label}
+        {(() => {
+          const w = formatWorkingHours(order.last_moved_at, Date.now(), columnName);
+          return w ? (
+            <span className="ml-0.5 font-medium text-emerald-600" title={w.title}>
+              · {w.label}
+            </span>
+          ) : null;
+        })()}
       </span>
     );
   }
@@ -495,6 +504,21 @@ function LegacyTimeChips({
             <Timer className="h-3 w-3 shrink-0 text-slate-400" />
             <span className="font-medium text-slate-500">In col</span>
             {timeHere.label}
+            {(() => {
+              const w = formatWorkingHours(
+                order.last_moved_at,
+                Date.now(),
+                columnName
+              );
+              return w ? (
+                <span
+                  className="ml-0.5 font-medium text-emerald-600"
+                  title={w.title}
+                >
+                  · {w.label}
+                </span>
+              ) : null;
+            })()}
           </span>
         ) : null}
         {showShipped ? (
