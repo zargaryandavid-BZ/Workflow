@@ -111,8 +111,15 @@ export function OrderCardTimeChips({
   showPriority = true,
   onDueContextMenu,
 }: RenderArgs) {
+  // Finished / shipped-to-customer / done columns are terminal — the job is
+  // complete, so don't flag it "Late" or stuck.
+  const columnNm = (columnName ?? "").toLowerCase();
+  const isTerminalColumn =
+    columnKind === "done" ||
+    columnNm.includes("finished") ||
+    columnNm.includes("shipped customer");
   const dueStatus = dueDateStatus(order.due_date, {
-    inDoneColumn: columnKind === "done",
+    inDoneColumn: isTerminalColumn,
     specs: order.specs,
   });
   const timeHere = formatTimeInColumn(
