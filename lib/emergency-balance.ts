@@ -296,12 +296,18 @@ export function suggestedConditionsForStage(
   const key = stageKey(columnName);
   const c = createCondition;
 
+  // The real board column is "Start (Create Order)", which normalizes to a
+  // different key than "Start" — so key the Start rules under BOTH names, or
+  // the create-order column seeds no rules and never flags in Emergency.
+  const startConditions = [
+    c({ kind: "idle_hours", value: 5, severity: "amber" }),
+    c({ kind: "idle_hours", value: 20, severity: "critical" }),
+    c({ kind: "due_within_days", value: 3, severity: "due_overlay" }),
+  ];
+
   const map: Record<string, EmergencyCondition[]> = {
-    [stageKey("Start")]: [
-      c({ kind: "idle_hours", value: 5, severity: "amber" }),
-      c({ kind: "idle_hours", value: 20, severity: "critical" }),
-      c({ kind: "due_within_days", value: 3, severity: "due_overlay" }),
-    ],
+    [stageKey("Start")]: startConditions,
+    [stageKey("Start (Create Order)")]: startConditions,
     [stageKey("In Progress")]: [
       c({ kind: "idle_hours", value: 5, severity: "amber" }),
       c({ kind: "idle_hours", value: 10, severity: "red" }),
