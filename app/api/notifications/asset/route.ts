@@ -108,7 +108,7 @@ export async function GET(request: Request) {
   // Default: serve from assets table
   const { data: asset } = await admin
     .from("assets")
-    .select("id, order_id, file_name, storage_path, notification_id")
+    .select("id, order_id, file_name, storage_path, notification_id, is_locked")
     .eq("id", id)
     .maybeSingle();
 
@@ -117,6 +117,11 @@ export async function GET(request: Request) {
   }
 
   if (asset.notification_id) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Locked reference images (CRM/manager attachment) are internal-only.
+  if ((asset as { is_locked?: boolean }).is_locked) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

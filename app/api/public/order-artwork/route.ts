@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
   const { data: assetRows, error: assetError } = await admin
     .from("assets")
-    .select("id, order_id, sku_key, storage_path, external_url")
+    .select("id, order_id, sku_key, storage_path, external_url, is_locked")
     .in("order_id", orderIds)
     .not("sku_key", "is", null);
 
@@ -92,6 +92,9 @@ export async function GET(request: NextRequest) {
   const assetsByOrderSku = new Map<string, AssetRow>();
   for (const row of (assetRows ?? []) as AssetRow[]) {
     if (!row.sku_key) continue;
+    // Locked reference images (the CRM/manager attachment) are internal-only —
+    // never surface them to the customer.
+    if ((row as { is_locked?: boolean }).is_locked) continue;
     assetsByOrderSku.set(`${row.order_id}:${row.sku_key}`, row);
   }
 

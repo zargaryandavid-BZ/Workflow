@@ -1728,6 +1728,13 @@ async function insertExternalAsset(
     orderId: string;
     externalUrl: string;
     skuKey?: string | null;
+    /**
+     * Mark this asset as a locked internal reference. Webhook (CRM) artwork is
+     * always locked: designers can't delete/replace it and it is never sent to
+     * the customer. Their own proof files (uploaded later) are unlocked and
+     * customer-facing. Requires migration 0075_assets_is_locked.
+     */
+    isLocked?: boolean;
   }
 ): Promise<string | null> {
   const row = {
@@ -1740,6 +1747,7 @@ async function insertExternalAsset(
     mime_type: null,
     size: null,
     uploaded_by: null,
+    is_locked: params.isLocked ?? false,
   };
 
   const { error } = await client.from("assets").insert(row);
@@ -2623,6 +2631,7 @@ async function createSingleWebhookJob(
       tenantId,
       orderId,
       externalUrl: item.artwork_url.trim(),
+      isLocked: true,
     });
     if (assetError) {
       warnings.push(`Order artwork could not be saved: ${assetError}`);
@@ -2635,6 +2644,7 @@ async function createSingleWebhookJob(
       orderId,
       externalUrl: url,
       skuKey: skuId,
+      isLocked: true,
     });
     if (assetError) {
       warnings.push(

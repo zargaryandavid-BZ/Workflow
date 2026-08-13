@@ -49,14 +49,17 @@ export async function POST(request: Request) {
   const skuKeyTrimmed =
     typeof skuKey === "string" && skuKey.trim() ? skuKey.trim() : null;
 
-  // One artwork file per SKU: replace any existing asset for this sku_key.
+  // One artwork file per SKU: replace any existing UNLOCKED asset for this
+  // sku_key. Locked assets (the CRM/manager reference image) are preserved —
+  // the designer's proof lands alongside it, never on top of it.
   if (skuKeyTrimmed) {
     const { data: existing } = await supabase
       .from("assets")
-      .select("id, storage_path")
+      .select("id, storage_path, is_locked")
       .eq("order_id", orderId)
       .eq("sku_key", skuKeyTrimmed);
     for (const row of existing ?? []) {
+      if ((row as { is_locked?: boolean }).is_locked) continue;
       if (row.storage_path) {
         await supabase.storage.from(ORDER_ASSETS_BUCKET).remove([row.storage_path]);
       }
