@@ -24,6 +24,8 @@ import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
+import { ComboStockControl } from "./combo-stock-control";
+import { isComboOrder, getComboStock } from "@/lib/combo-stock";
 import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -2158,6 +2160,36 @@ export function CardDetailModal({
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 {editLockedReason}
               </p>
+            ) : null}
+            {data?.order &&
+            isComboOrder(data.order, fieldValues, modalCustomFields) ? (
+              <ComboStockControl
+                orderId={data.order.id}
+                stock={getComboStock(data.order)}
+                canManage={role === "admin" || role === "account_manager"}
+                onChanged={(stock) => {
+                  setData((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          order: {
+                            ...prev.order,
+                            specs: {
+                              ...(prev.order.specs ?? {}),
+                              combo_stock: stock,
+                            },
+                          },
+                        }
+                      : prev
+                  );
+                  onChanged({
+                    specs: {
+                      ...(data.order.specs ?? {}),
+                      combo_stock: stock,
+                    },
+                  });
+                }}
+              />
             ) : null}
             <OrderFormBody
               idPrefix="edit"
