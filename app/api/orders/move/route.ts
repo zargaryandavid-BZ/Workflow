@@ -6,6 +6,12 @@ import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { canMove } from "@/lib/permissions";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import {
+  isShipStageKind,
+  requiresStockConfirmationBeforeShip,
+  STOCK_GATE_MESSAGE,
+} from "@/lib/warehouse-stock";
+import { requestWarehouseStockConfirmation } from "@/lib/warehouse-stock.server";
+import {
   chipsToStampOnEnter,
   withTimeChipStamp,
 } from "@/lib/time-chips";
@@ -145,6 +151,38 @@ export async function POST(request: Request) {
         {
           error: "Card cannot be moved — missing required fields",
           missing_fields: missing.map((f) => f.label),
+        },
+        { status: 422 }
+      );
+    }
+
+    // "With Application" gate: a combo order that needs application must have
+    // warehouse stock confirmed before it can enter Ready-to-Ship / Done.
+    // The card stays put and the warehouse is texted (once) to confirm stock.
+    if (
+      isShipStageKind(typedColumn.kind) &&
+      requiresStockConfirmationBeforeShip(
+        typedOrder.specs,
+        (customFieldsRes.data ?? []) as CustomField[],
+        fieldValues
+      )
+    ) {
+      const stockReq = await requestWarehouseStockConfirmation(supabase, {
+        orderId: typedOrder.id,
+        tenantId,
+        title: typedOrder.title,
+        specs: typedOrder.specs,
+        orderNumber: null,
+        tenantName: ctx.tenant.name,
+        actorUserId: ctx.userId,
+      });
+      return NextResponse.json(
+        {
+          error: STOCK_GATE_MESSAGE,
+          needs_stock_confirmation: true,
+          warehouse_notified: stockReq.smsSent,
+          warehouse_already_notified: stockReq.alreadySent,
+          warehouse_notify_error: stockReq.error ?? null,
         },
         { status: 422 }
       );

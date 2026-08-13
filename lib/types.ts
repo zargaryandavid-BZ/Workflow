@@ -179,6 +179,16 @@ export interface OrderSpecs {
   application?: boolean;
   /** Working days required for application when `application` is true. */
   application_days?: number | null;
+  /**
+   * "With Application" (combo) warehouse stock gate. A combo order cannot enter
+   * Ready-to-Ship / be released for pickup until the warehouse confirms the
+   * physical containers are in stock. See lib/warehouse-stock.ts.
+   */
+  warehouse_stock_confirmed?: boolean;
+  warehouse_stock_confirmed_at?: string | null;
+  warehouse_stock_confirmed_by?: string | null;
+  warehouse_stock_sms_sent_at?: string | null;
+  warehouse_stock_confirm_secret?: string | null;
   /** Webhook billing / payment info shown on the card globe popover. */
   billing?: {
     source_url?: string | null;
