@@ -19,6 +19,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   Activity,
   AlertTriangle,
+  Archive,
   CalendarClock,
   CalendarDays,
   Layers,
@@ -66,6 +67,7 @@ import {
   businessDateString,
   isOrderNumberQuery,
   orderMatchesBoardFilters,
+  isOrderArchived,
 } from "@/lib/board-order-filters";
 import {
   MANUAL_WEBHOOK_SOURCE_FILTER,
@@ -328,6 +330,10 @@ export function Board({
   const [webhookSourceFilter, setWebhookSourceFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
+  // Archive: finished orders are hidden from the active board (so they stop
+  // showing as late/stuck) but stay retrievable. `archivedOnly` shows only the
+  // archived set. Uses specs.archived — additive, no schema change.
+  const [archivedOnly, setArchivedOnly] = useState(false);
   // Emergency / Urgency view (read-only overlay; changes no existing data).
   const [emergencyOnly, setEmergencyOnly] = useState(false);
   const [emergencyQuickFilter, setEmergencyQuickFilter] =
@@ -2331,9 +2337,15 @@ export function Board({
   ]);
 
   const displayOrders = useMemo(() => {
-    const base = filtersActive
+    const rawBase = filtersActive
       ? (searchResults ?? localFilteredOrders)
       : orders;
+    // Archived orders are hidden from the active board (and from every overlay
+    // that derives from displayOrders: Emergency, Late/Due counts, List, Table)
+    // unless the Archived filter is on, which then shows only them.
+    const base = rawBase.filter((order) =>
+      archivedOnly ? isOrderArchived(order) : !isOrderArchived(order)
+    );
     if (!isDesignerRole) return base;
     return base.filter(
       (order) =>
@@ -2344,9 +2356,15 @@ export function Board({
     searchResults,
     localFilteredOrders,
     orders,
+    archivedOnly,
     isDesignerRole,
     currentUserId,
   ]);
+
+  const archivedCount = useMemo(
+    () => orders.reduce((n, o) => n + (isOrderArchived(o) ? 1 : 0), 0),
+    [orders]
+  );
 
   /** e.g. typing "XXX" → suggest "XXX-(3)" with part titles to continue filtering. */
   const orderGroupSuggestions = useMemo(
@@ -2984,6 +3002,26 @@ export function Board({
             >
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               Emergency
+            </button>
+          ) : null}
+          {archivedOnly || archivedCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setArchivedOnly((v) => !v)}
+              className={cn(
+                "flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border px-2 text-sm font-medium transition-colors",
+                archivedOnly
+                  ? "border-slate-700 bg-slate-800 text-white hover:bg-slate-900"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+              )}
+              title={
+                archivedOnly
+                  ? "Showing archived (finished) orders — click to return to the active board"
+                  : "Show archived (finished) orders — hidden from the active board but kept searchable"
+              }
+            >
+              <Archive className="h-3.5 w-3.5 shrink-0" />
+              Archived{archivedCount > 0 ? ` (${archivedCount})` : ""}
             </button>
           ) : null}
           {visibleEmergencyChips.length > 0 ? (

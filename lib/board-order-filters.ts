@@ -9,6 +9,18 @@ import {
 } from "@/lib/constants";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
+/**
+ * A finished order that has been archived off the active board. Stored as
+ * `specs.archived = true` (additive jsonb flag — no schema change). Archived
+ * orders are hidden from the board, Emergency, and Late/Due counts, but remain
+ * searchable via the Archived filter. See {@link OrderWithRelations}.
+ */
+export function isOrderArchived(order: {
+  specs?: Record<string, unknown> | null;
+}): boolean {
+  return order.specs?.archived === true;
+}
+
 export interface BoardOrderFilters {
   q: string;
   personFilter: string;
