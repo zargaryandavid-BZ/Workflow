@@ -110,6 +110,7 @@ interface ColumnProps {
     score: PriorityScore | null
   ) => void;
   onSetReprint?: (order: OrderWithRelations, on: boolean) => void;
+  onSetLocked?: (order: OrderWithRelations, on: boolean) => void;
   onGroupSetDueDates?: (updates: GroupDueDateUpdate[]) => Promise<void>;
   onSetDueDate?: (
     order: OrderWithRelations,
@@ -201,6 +202,7 @@ export function Column({
   onSetTag,
   onSetPriorityScore,
   onSetReprint,
+  onSetLocked,
   onGroupSetDueDates,
   onSetDueDate,
   highlightedOrderId = null,
@@ -496,6 +498,11 @@ export function Column({
                         ? (on) => onSetReprint(entry.order, on)
                         : undefined
                     }
+                    onSetLocked={
+                      role && canSetBoardTagAndPriority(role) && onSetLocked
+                        ? (on) => onSetLocked(entry.order, on)
+                        : undefined
+                    }
                     onSetDueDate={
                       onSetDueDate
                         ? (update) => onSetDueDate(entry.order, update)
@@ -568,6 +575,11 @@ export function Column({
                   onSetReprint={
                     role && canSetBoardTagAndPriority(role) && onSetReprint
                       ? (on) => onSetReprint(order, on)
+                      : undefined
+                  }
+                  onSetLocked={
+                    role && canSetBoardTagAndPriority(role) && onSetLocked
+                      ? (on) => onSetLocked(order, on)
                       : undefined
                   }
                   onSetDueDate={
