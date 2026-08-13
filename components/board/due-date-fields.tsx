@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Input, Label, Select } from "@/components/ui/input";
 import {
   DEFAULT_PROCESSING_DAYS,
@@ -46,6 +47,19 @@ export function DueDateFields({
     Number.isFinite(processingDays) && processingDays >= 1
       ? processingDays
       : DEFAULT_PROCESSING_DAYS;
+  // Local text state so the field can be CLEARED while typing (the old code
+  // snapped an empty box straight back to the default, so you couldn't delete it).
+  const [daysText, setDaysText] = useState(String(days));
+  useEffect(() => {
+    if (Number(daysText) !== processingDays) {
+      setDaysText(
+        Number.isFinite(processingDays) && processingDays >= 1
+          ? String(Math.floor(processingDays))
+          : ""
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processingDays]);
   const showMaterialized =
     mode === "after_approval" && Boolean(materializedDueDate?.trim());
 
@@ -96,14 +110,23 @@ export function DueDateFields({
               min={1}
               max={90}
               readOnly={readOnly}
-              value={days}
+              value={daysText}
               onChange={(e) => {
-                const n = Number(e.target.value);
-                onProcessingDaysChange(
-                  Number.isFinite(n) && n >= 1
-                    ? Math.floor(n)
-                    : DEFAULT_PROCESSING_DAYS
-                );
+                const raw = e.target.value;
+                // Allow empty / partial input so the box can be cleared and retyped.
+                if (raw !== "" && !/^\d{1,2}$/.test(raw)) return;
+                setDaysText(raw);
+                const n = Number(raw);
+                if (Number.isFinite(n) && n >= 1 && n <= 90) {
+                  onProcessingDaysChange(Math.floor(n));
+                }
+              }}
+              onBlur={() => {
+                const n = Number(daysText);
+                if (!(Number.isFinite(n) && n >= 1)) {
+                  setDaysText(String(DEFAULT_PROCESSING_DAYS));
+                  onProcessingDaysChange(DEFAULT_PROCESSING_DAYS);
+                }
               }}
               className={`w-24 shrink-0 ${readOnly ? "bg-slate-50" : ""}`}
             />
