@@ -13,6 +13,7 @@ import {
   Car,
   CalendarClock,
   Flag,
+  Lock,
   MapPin,
   MoveRight,
   RefreshCw,
@@ -127,6 +128,8 @@ interface OrderCardProps {
   onSetPriorityScore?: (score: PriorityScore | null) => void;
   /** Toggle the Reprint mark on this order (right-click menu). */
   onSetReprint?: (on: boolean) => void;
+  /** Toggle the Lock on this order (locked cards can't be moved). */
+  onSetLocked?: (on: boolean) => void;
   /** Persist due date from right-click on the due chip. */
   onSetDueDate?: (update: {
     mode: DueDateMode;
@@ -196,6 +199,7 @@ export function OrderCard({
   onSetTag,
   onSetPriorityScore,
   onSetReprint,
+  onSetLocked,
   onSetDueDate,
   highlighted = false,
   notificationBadge,
@@ -231,7 +235,10 @@ export function OrderCard({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: order.id, disabled: !canDrag });
+  } = useSortable({
+    id: order.id,
+    disabled: !canDrag || order.specs?.locked === true,
+  });
 
   const orderQty = cardOrderQty(customFields, fieldValues, order.specs);
   const skuCount = cardSkuCount(order.specs);
@@ -293,6 +300,7 @@ export function OrderCard({
     fieldValues
   );
   const isReprint = order.specs?.reprint === true;
+  const isLocked = order.specs?.locked === true;
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
@@ -364,6 +372,7 @@ export function OrderCard({
     canSetTag ||
     canSetPriorityScore ||
     Boolean(onSetReprint) ||
+    Boolean(onSetLocked) ||
     canResendApproval;
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
   const [tagSubOpen, setTagSubOpen] = useState(false);
@@ -703,6 +712,15 @@ export function OrderCard({
                     title="Reprint"
                   >
                     Reprint
+                  </span>
+                ) : null}
+                {isLocked ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-red-700"
+                    title="Locked — can't be moved"
+                  >
+                    <Lock className="h-2.5 w-2.5" />
+                    Locked
                   </span>
                 ) : null}
               </span>
@@ -1186,6 +1204,19 @@ export function OrderCard({
                 >
                   <RefreshCw className="h-3.5 w-3.5 shrink-0 text-amber-600" />
                   {isReprint ? "Remove reprint mark" : "Mark as reprint"}
+                </button>
+              ) : null}
+              {onSetLocked ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSetLocked(!isLocked);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                >
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-red-600" />
+                  {isLocked ? "Unlock card" : "Lock card (no move)"}
                 </button>
               ) : null}
               {hasMoveMenu ? (

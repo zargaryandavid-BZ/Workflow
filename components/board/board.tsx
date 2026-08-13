@@ -1609,6 +1609,10 @@ export function Board({
     order: OrderWithRelations,
     toColumnId: string
   ) {
+    if (order.specs?.locked === true) {
+      flashPermissionError("This card is locked — unlock it to move.");
+      return;
+    }
     if (moveSkipsApplication(order, toColumnId)) {
       setComboAppWarning({
         orderTitle: order.title,
@@ -1837,6 +1841,24 @@ export function Board({
       restoreOrdersSnapshot(snapshot);
       flashPermissionError(
         err instanceof Error ? err.message : "Failed to update reprint"
+      );
+    }
+  }
+
+  async function handleSetLocked(order: OrderWithRelations, on: boolean) {
+    const snapshot = boardOrdersRef.current;
+    const specs = {
+      ...((order.specs ?? {}) as Record<string, unknown>),
+      locked: on,
+    };
+    patchOrderFields(order.id, { specs });
+    try {
+      await patchOrderApi(order.id, { specs });
+      flashToast(on ? "Card locked" : "Card unlocked");
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update lock"
       );
     }
   }
@@ -3228,6 +3250,9 @@ export function Board({
                 }
                 onSetReprint={
                   canSetBoardTagAndPriority(role) ? handleSetReprint : undefined
+                }
+                onSetLocked={
+                  canSetBoardTagAndPriority(role) ? handleSetLocked : undefined
                 }
                 onGroupSetDueDates={handleGroupSetDueDates}
                 onSetDueDate={handleSetDueDate}
