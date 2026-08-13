@@ -1823,6 +1823,24 @@ export function Board({
     }
   }
 
+  async function handleSetReprint(order: OrderWithRelations, on: boolean) {
+    const snapshot = boardOrdersRef.current;
+    const specs = {
+      ...((order.specs ?? {}) as Record<string, unknown>),
+      reprint: on,
+    };
+    patchOrderFields(order.id, { specs });
+    try {
+      await patchOrderApi(order.id, { specs });
+      flashToast(on ? "Marked as reprint" : "Reprint mark removed");
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update reprint"
+      );
+    }
+  }
+
   async function handleGroupSetDueDates(updates: GroupDueDateUpdate[]) {
     if (updates.length === 0) return;
     const snapshot = boardOrdersRef.current;
@@ -3207,6 +3225,9 @@ export function Board({
                   canSetBoardTagAndPriority(role)
                     ? handleSetPriorityScore
                     : undefined
+                }
+                onSetReprint={
+                  canSetBoardTagAndPriority(role) ? handleSetReprint : undefined
                 }
                 onGroupSetDueDates={handleGroupSetDueDates}
                 onSetDueDate={handleSetDueDate}
