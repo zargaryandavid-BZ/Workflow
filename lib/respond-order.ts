@@ -109,19 +109,25 @@ export function respondSkuImageUrl(token: string, imageId: string): string {
   return `/api/notifications/asset?token=${encodeURIComponent(token)}&id=${encodeURIComponent(imageId)}&type=sku_image`;
 }
 
-/** Staff-uploaded order + SKU artwork (excludes customer reply uploads). */
+/**
+ * Staff-uploaded order + SKU artwork shown to the customer. Excludes customer
+ * reply uploads (notification_id set) and locked reference images (the
+ * CRM/manager attachment, is_locked) which are internal-only.
+ */
 export async function fetchRespondOrderAssets(
   orderId: string
 ): Promise<RespondOrderAsset[]> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("assets")
-    .select("id, file_name, mime_type, sku_key, size")
+    .select("id, file_name, mime_type, sku_key, size, is_locked")
     .eq("order_id", orderId)
     .is("notification_id", null)
     .order("created_at", { ascending: true });
 
-  return (data ?? []) as RespondOrderAsset[];
+  return ((data ?? []) as (RespondOrderAsset & { is_locked?: boolean })[]).filter(
+    (a) => !a.is_locked
+  );
 }
 
 export interface RespondSkuImage {

@@ -29,6 +29,13 @@ export async function DELETE(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  if ((asset as { is_locked?: boolean }).is_locked) {
+    return NextResponse.json(
+      { error: "This is a locked reference image and can't be deleted." },
+      { status: 403 }
+    );
+  }
+
   if (!isOrderLevelAsset(asset)) {
     return NextResponse.json(
       { error: "Only general order assets can be deleted here" },

@@ -294,6 +294,12 @@ export interface Asset {
   mime_type: string | null;
   size: number | null;
   uploaded_by: string | null;
+  /**
+   * Locked internal reference image (the CRM/manager attachment). Designers
+   * can't delete/replace it and it is never sent to the customer. Requires
+   * migration 0075_assets_is_locked.
+   */
+  is_locked?: boolean;
   created_at: string;
 }
 

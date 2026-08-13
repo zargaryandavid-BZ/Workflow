@@ -9,6 +9,7 @@ import {
   FileImage,
   FileText,
   Loader2,
+  Lock,
   Paperclip,
   Trash2,
   Upload,
@@ -236,15 +237,26 @@ export function AssetsSection({
           </p>
         ) : (
           <ul className="space-y-0.5">
-            {assets.map((asset) => (
+            {assets.map((asset) => {
+              const locked = (asset as { is_locked?: boolean }).is_locked;
+              return (
               <li
                 key={asset.id}
                 className="group flex items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-white/80"
               >
                 <AssetIcon mimeType={asset.mime_type} fileName={asset.file_name} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-800">
+                  <p className="flex items-center gap-1 truncate text-sm font-medium text-slate-800">
                     {asset.file_name}
+                    {locked ? (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-px text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                        title="Reference image from the CRM — internal only, never sent to the customer and can't be deleted"
+                      >
+                        <Lock className="h-2.5 w-2.5" />
+                        Reference
+                      </span>
+                    ) : null}
                   </p>
                   {asset.size ? (
                     <p className="text-xs text-slate-400">
@@ -270,7 +282,7 @@ export function AssetsSection({
                   >
                     <Download className="h-4 w-4" />
                   </a>
-                  {!readOnly ? (
+                  {!readOnly && !locked ? (
                     <button
                       type="button"
                       onClick={() => void handleDelete(asset.id)}
@@ -282,7 +294,8 @@ export function AssetsSection({
                   ) : null}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>
