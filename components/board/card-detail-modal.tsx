@@ -297,6 +297,8 @@ export function CardDetailModal({
   const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
   const [newNote, setNewNote] = useState("");
   const [productionNotes, setProductionNotes] = useState("");
+  const [customerFacingNote, setCustomerFacingNote] = useState("");
+  const [designerNote, setDesignerNote] = useState("");
   const [priority, setPriority] = useState("normal");
   const [applicationDays, setApplicationDays] = useState(DEFAULT_APPLICATION_DAYS);
   const [ownerId, setOwnerId] = useState("");
@@ -376,6 +378,16 @@ export function CardDetailModal({
     setProductionNotes(
       typeof json.order.specs?.production_notes === "string"
         ? json.order.specs.production_notes
+        : ""
+    );
+    setCustomerFacingNote(
+      typeof json.order.specs?.customer_facing_note === "string"
+        ? json.order.specs.customer_facing_note
+        : ""
+    );
+    setDesignerNote(
+      typeof json.order.specs?.designer_notes === "string"
+        ? json.order.specs.designer_notes
         : ""
     );
     setPriority(json.order.priority);
@@ -729,6 +741,8 @@ export function CardDetailModal({
             designers.find((d) => d.id === designerId)?.name ?? null,
           design_task: nextDesignTask || null,
           production_notes: nextProductionNotes || null,
+          customer_facing_note: customerFacingNote.trim() || null,
+          designer_notes: designerNote.trim() || null,
         },
         applicationOn,
         applicationDays
@@ -785,6 +799,8 @@ export function CardDetailModal({
     setTitle(nextTitle);
     setDescription(nextDescription);
     setProductionNotes(nextProductionNotes);
+    setCustomerFacingNote(customerFacingNote.trim());
+    setDesignerNote(designerNote.trim());
     setDesignTask(nextDesignTask);
     setDueDate(nextDue ?? "");
     setCustomerName(nextCustomerName);
@@ -931,6 +947,17 @@ export function CardDetailModal({
     if (
       (productionNotes || "").trim() !==
       String(order.specs?.production_notes ?? "").trim()
+    ) {
+      return true;
+    }
+    if (
+      customerFacingNote.trim() !==
+      String(order.specs?.customer_facing_note ?? "").trim()
+    ) {
+      return true;
+    }
+    if (
+      designerNote.trim() !== String(order.specs?.designer_notes ?? "").trim()
     ) {
       return true;
     }
@@ -2154,6 +2181,11 @@ export function CardDetailModal({
               onInternalNoteChange={setNewNote}
               productionNotes={productionNotes}
               onProductionNotesChange={setProductionNotes}
+              customerFacingNote={customerFacingNote}
+              onCustomerFacingNoteChange={setCustomerFacingNote}
+              designerNote={designerNote}
+              onDesignerNoteChange={setDesignerNote}
+              showAudienceNotes={role !== "member"}
               customerName={customerName}
               onCustomerNameChange={setCustomerName}
               customerContact={customerContact}
