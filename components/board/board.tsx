@@ -173,10 +173,10 @@ function isTransientNetworkError(err: unknown): boolean {
 }
 
 /**
- * Pick a card to scroll to after search.
- * - Order-number queries: only when exactly one card matches (multi-part
- *   groups like XXX-1 + XXX-2 stay put).
- * - Name / text queries: first match in board column order.
+ * Pick a card to scroll to after search — the first match in board order
+ * (column order, then position). Works for BOTH order-number and name/text
+ * queries: a multi-part order (XXX-1 + XXX-2 …) now navigates to its first part
+ * instead of giving up, which is why searches "sometimes didn't take".
  */
 function pickSearchAutoNavTarget(
   q: string,
@@ -184,11 +184,6 @@ function pickSearchAutoNavTarget(
   columns: BoardColumn[]
 ): { columnId: string; orderId: string } | null {
   if (!q || orders.length === 0) return null;
-
-  if (isOrderNumberQuery(q.trim().replace(/^#/, ""))) {
-    if (orders.length !== 1) return null;
-    return { columnId: orders[0].column_id, orderId: orders[0].id };
-  }
 
   const colIndex = new Map(columns.map((c, i) => [c.id, i]));
   const sorted = [...orders].sort((a, b) => {
