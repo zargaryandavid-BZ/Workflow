@@ -41,7 +41,7 @@ export function MoveMenuSections<T extends MoveMenuColumn>({
   if (sections.length === 0) return null;
 
   return (
-    <>
+    <div className="max-h-[55vh] overflow-y-auto overscroll-contain">
       {sections.map((section) => (
         <div
           key={section.group.id}
@@ -78,6 +78,6 @@ export function MoveMenuSections<T extends MoveMenuColumn>({
           ))}
         </div>
       ))}
-    </>
+    </div>
   );
 }
