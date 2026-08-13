@@ -27,6 +27,29 @@ export function WebhookSourceLabel({
   if (!style) return null;
 
   const title = orderTitle?.trim() || null;
+
+  // CRM is the default source (nearly every order comes from the CRM), so its
+  // badge is pure noise — hide the "CRM" chip and just show the title. Every
+  // OTHER source (website, manual, …) still shows its short tag so the odd ones
+  // stand out.
+  const isCrm = (webhookSource ?? "").trim().toLowerCase() === "crm";
+  if (isCrm) {
+    if (!title) return null;
+    return (
+      <span
+        className={
+          className ??
+          "mb-0.5 flex min-w-0 items-baseline gap-1 text-[10px] font-semibold leading-tight tracking-wide"
+        }
+        title={`Card source: CRM · ${title}`}
+      >
+        <span className="min-w-0 truncate text-[13px] font-semibold normal-case tracking-normal text-slate-700">
+          {title}
+        </span>
+      </span>
+    );
+  }
+
   const titleAttr = title
     ? `Card source: ${style.label} · ${title}`
     : `Card source: ${style.label}`;
