@@ -291,6 +291,7 @@ export function CardDetailModal({
         : null;
 
   const [title, setTitle] = useState("");
+  const [itemName, setItemName] = useState("");
   const [description, setDescription] = useState("");
   const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
   const [newNote, setNewNote] = useState("");
@@ -349,6 +350,11 @@ export function CardDetailModal({
     const formFields = resolveOrderFormFields(fields);
     setData(json);
     setTitle(json.order.title);
+    setItemName(
+      typeof json.order.specs?.webhook_item_title === "string"
+        ? json.order.specs.webhook_item_title
+        : ""
+    );
     setDescription(json.order.description ?? "");
     const rawNote = json.order.internal_note ?? "";
     let parsedHistory: NoteEntry[] = [];
@@ -1331,6 +1337,38 @@ export function CardDetailModal({
 
   const ownerName = ownerId ? (owners.find((o) => o.id === ownerId)?.name ?? null) : null;
 
+  async function saveItemName() {
+    if (!data?.order) return;
+    const current =
+      typeof data.order.specs?.webhook_item_title === "string"
+        ? data.order.specs.webhook_item_title
+        : "";
+    const next = itemName.trim();
+    if (next === current.trim()) return;
+    const nextSpecs = {
+      ...(data.order.specs ?? {}),
+      webhook_item_title: next || null,
+    };
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ specs: nextSpecs }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setSaveError(json.error ?? "Failed to save item name");
+        return;
+      }
+      setData((prev) =>
+        prev ? { ...prev, order: { ...prev.order, specs: nextSpecs } } : prev
+      );
+      onChanged({ specs: nextSpecs });
+    } catch {
+      setSaveError("Failed to save item name");
+    }
+  }
+
   const modalTitle = (
     <span className="flex min-w-0 flex-col items-start gap-0.5">
       {/* Title / source — left, above order number */}
@@ -1338,7 +1376,7 @@ export function CardDetailModal({
         webhookSource={data?.order.webhook_source}
         sourceStyles={webhookSourceStyles}
         orderTitle={
-          data?.order
+          isViewOnly && data?.order
             ? partCardTitle(
                 data.order,
                 productFromOrder(fieldValues, modalCustomFields)
@@ -1347,6 +1385,17 @@ export function CardDetailModal({
         }
         className="mb-0 flex min-w-0 max-w-full items-baseline gap-1 text-[10px] font-semibold leading-tight tracking-wide"
       />
+      {!isViewOnly && data?.order ? (
+        <input
+          type="text"
+          value={itemName}
+          onChange={(e) => setItemName(e.target.value)}
+          onBlur={saveItemName}
+          placeholder="Line item name"
+          aria-label="Line item name"
+          className="min-w-0 max-w-[min(100%,22rem)] truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[13px] font-semibold text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+        />
+      ) : null}
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         {/* Order number + copy — Manual titles are editable inline */}
         {showEditableManualTitle ? (
