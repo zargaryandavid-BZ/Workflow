@@ -8,6 +8,11 @@ import {
 import { logActivity } from "@/lib/automation";
 import { addOrderTag } from "@/lib/order-tags";
 import {
+  requiresStockConfirmationBeforeShip,
+  STOCK_GATE_MESSAGE,
+} from "@/lib/warehouse-stock";
+import { requestWarehouseStockConfirmation } from "@/lib/warehouse-stock.server";
+import {
   appBaseUrl,
   ensureShippingRequestForSend,
   parseShippingBoxes,
@@ -83,6 +88,37 @@ export async function POST(
   );
   if (!exportData) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  // "With Application" gate: block releasing a combo order (pickup or delivery)
+  // until the warehouse confirms the containers are physically in stock.
+  if (
+    requiresStockConfirmationBeforeShip(
+      exportData.order.specs,
+      exportData.customFields,
+      exportData.fieldValues
+    )
+  ) {
+    const stockReq = await requestWarehouseStockConfirmation(supabase, {
+      orderId: exportData.order.id,
+      tenantId: ctx.tenant.id,
+      title: exportData.order.title,
+      specs: exportData.order.specs,
+      orderNumber:
+        exportData.orderNumberDisplay || exportData.orderNumber || null,
+      tenantName: ctx.tenant.name,
+      actorUserId: ctx.userId,
+    });
+    return NextResponse.json(
+      {
+        error: STOCK_GATE_MESSAGE,
+        needs_stock_confirmation: true,
+        warehouse_notified: stockReq.smsSent,
+        warehouse_already_notified: stockReq.alreadySent,
+        warehouse_notify_error: stockReq.error ?? null,
+      },
+      { status: 422 }
+    );
   }
 
   const email =
