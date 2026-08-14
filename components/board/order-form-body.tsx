@@ -67,6 +67,8 @@ export interface OrderFormBodyProps {
   productSpecs?: Record<string, unknown> | null;
   /** Update a per-product spec value (persists into specs.spec_selections on save). */
   onProductSpecChange?: (key: string, value: string) => void;
+  /** Toggle a per-product option checkbox (persists into specs.product_options). */
+  onProductToggleChange?: (label: string, checked: boolean) => void;
   idPrefix: string;
   customFields: CustomField[];
   owners: OrderOwner[];
@@ -167,11 +169,15 @@ type SpecFieldOptions = Record<string, { value?: string; label?: string }[]>;
 function ProductSpecsSection({
   specs,
   fieldOptions,
+  toggles,
   onChange,
+  onToggle,
 }: {
   specs?: Record<string, unknown> | null;
   fieldOptions?: SpecFieldOptions | null;
+  toggles?: { key: string; label: string }[] | null;
   onChange?: (key: string, value: string) => void;
+  onToggle?: (label: string, checked: boolean) => void;
 }) {
   const s = (specs && typeof specs === "object" ? specs : {}) as Record<string, unknown>;
   const selRaw = s.spec_selections;
@@ -183,12 +189,21 @@ function ProductSpecsSection({
   const opts = Array.isArray(s.product_options)
     ? (s.product_options as unknown[]).map(String).filter(Boolean)
     : [];
+  // Editable toggle checkboxes (Tear notch, Inside printing, Gusset, Hang hole…);
+  // "Design service" is handled by Workflow's native Need-a-design.
+  const toggleList = (toggles ?? []).filter((t) => t.key !== "DESIGN_SERVICE");
   const cutting = typeof s.cutting_type === "string" ? s.cutting_type.trim() : "";
   // Stored spec values that have no catalog options (shown read-only).
   const readonlyRows = Object.entries(sel).filter(
     ([k, v]) => !foKeys.includes(k) && v != null && String(v).trim() !== "",
   );
-  if (foKeys.length === 0 && readonlyRows.length === 0 && opts.length === 0 && !cutting) {
+  if (
+    foKeys.length === 0 &&
+    toggleList.length === 0 &&
+    readonlyRows.length === 0 &&
+    opts.length === 0 &&
+    !cutting
+  ) {
     return null;
   }
   return (
@@ -228,6 +243,30 @@ function ProductSpecsSection({
           })}
         </div>
       ) : null}
+      {toggleList.length > 0 ? (
+        <div className="flex flex-wrap gap-x-5 gap-y-2 pt-0.5">
+          {toggleList.map((t) => {
+            const checked = opts.some(
+              (o) => o.toLowerCase() === t.label.toLowerCase(),
+            );
+            return (
+              <label
+                key={t.key}
+                className="flex items-center gap-2 text-sm text-slate-700"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={!onToggle}
+                  onChange={(e) => onToggle?.(t.label, e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                {t.label}
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
       {readonlyRows.length > 0 ? (
         <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
           {readonlyRows.map(([k, v]) => (
@@ -238,18 +277,26 @@ function ProductSpecsSection({
           ))}
         </div>
       ) : null}
-      {cutting || opts.length > 0 ? (
+      {cutting ||
+      opts.some(
+        (o) => !toggleList.some((t) => t.label.toLowerCase() === o.toLowerCase()),
+      ) ? (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {cutting ? (
             <span className="rounded-md bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">
               Cutting: {cutting}
             </span>
           ) : null}
-          {opts.map((o) => (
-            <span key={o} className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-              {o}
-            </span>
-          ))}
+          {opts
+            .filter(
+              (o) =>
+                !toggleList.some((t) => t.label.toLowerCase() === o.toLowerCase()),
+            )
+            .map((o) => (
+              <span key={o} className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                {o}
+              </span>
+            ))}
         </div>
       ) : null}
     </div>
@@ -259,6 +306,7 @@ function ProductSpecsSection({
 export function OrderFormBody({
   productSpecs,
   onProductSpecChange,
+  onProductToggleChange,
   idPrefix,
   customFields,
   owners,
@@ -485,6 +533,17 @@ export function OrderFormBody({
     const norm = currentProductName.trim().toLowerCase();
     for (const k of Object.keys(map)) {
       if (k.trim().toLowerCase() === norm) return map[k] as SpecFieldOptions;
+    }
+    return null;
+  })();
+
+  const productToggles: { key: string; label: string }[] | null = (() => {
+    const map = crmCatalog?.optionTogglesByProduct;
+    if (!map || !currentProductName) return null;
+    if (map[currentProductName]) return map[currentProductName];
+    const norm = currentProductName.trim().toLowerCase();
+    for (const k of Object.keys(map)) {
+      if (k.trim().toLowerCase() === norm) return map[k];
     }
     return null;
   })();
@@ -945,7 +1004,9 @@ export function OrderFormBody({
         <ProductSpecsSection
           specs={productSpecs}
           fieldOptions={productSpecFieldOptions}
+          toggles={productToggles}
           onChange={onProductSpecChange}
+          onToggle={onProductToggleChange}
         />
 
         {visiblePrintFields.length > 0 ? (

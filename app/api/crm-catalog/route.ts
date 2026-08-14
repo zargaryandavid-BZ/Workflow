@@ -13,11 +13,13 @@ const CRM_CATALOG_URL =
 
 type CrmMaterial = { name?: string };
 type CrmGroup = { materials?: CrmMaterial[] };
+type CrmToggle = { key?: string; label?: string };
 type CrmProduct = {
   name?: string;
   category_id?: number | null;
   material_groups?: CrmGroup[];
   field_options?: Record<string, unknown>;
+  option_toggles?: CrmToggle[];
 };
 type CrmCategory = {
   id?: number;
@@ -66,6 +68,7 @@ export async function GET() {
     const productsByCategory: Record<string, string[]> = {};
     const materialsByProduct: Record<string, string[]> = {};
     const fieldOptionsByProduct: Record<string, Record<string, unknown>> = {};
+    const optionTogglesByProduct: Record<string, { key: string; label: string }[]> = {};
 
     for (const p of data.products ?? []) {
       if (!p.name) continue;
@@ -80,13 +83,25 @@ export async function GET() {
       }
       materialsByProduct[p.name] = mats;
       if (p.field_options) fieldOptionsByProduct[p.name] = p.field_options;
+      if (Array.isArray(p.option_toggles) && p.option_toggles.length) {
+        optionTogglesByProduct[p.name] = p.option_toggles
+          .filter((t) => t && t.key && t.label)
+          .map((t) => ({ key: String(t.key), label: String(t.label) }));
+      }
     }
     for (const k of Object.keys(productsByCategory)) {
       productsByCategory[k].sort((a, b) => a.localeCompare(b));
     }
 
     return NextResponse.json(
-      { version: 1, categories, productsByCategory, materialsByProduct, fieldOptionsByProduct },
+      {
+        version: 1,
+        categories,
+        productsByCategory,
+        materialsByProduct,
+        fieldOptionsByProduct,
+        optionTogglesByProduct,
+      },
       { headers: { "Cache-Control": "public, max-age=120, stale-while-revalidate=600" } },
     );
   } catch (err) {
