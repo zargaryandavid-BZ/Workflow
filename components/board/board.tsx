@@ -897,7 +897,10 @@ export function Board({
     const { columnId, orderId } = pending;
     let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 40;
+    // ~6s: the target card can render late (search results still populating, a
+    // long column, or a just-unhidden column), and giving up too early was the
+    // main cause of "search doesn't jump to the order".
+    const maxAttempts = 120;
 
     /**
      * Center in the board strip (X) and column body (Y).
@@ -925,6 +928,9 @@ export function Board({
           colScroll.scrollTop +
           (eRect.top + eRect.height / 2 - (cRect.top + cRect.height / 2));
         colScroll.scrollTo({ top: nextTop, behavior: "smooth" });
+      } else {
+        // Not inside a Kanban column (e.g. a Table/List row) — plain center-scroll.
+        target.scrollIntoView({ block: "center", inline: "nearest" });
       }
       if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
     };
@@ -1015,6 +1021,9 @@ export function Board({
           colScroll.scrollTop +
           (eRect.top + eRect.height / 2 - (cRect.top + cRect.height / 2));
         colScroll.scrollTo({ top: nextTop, behavior: "smooth" });
+      } else {
+        // Not inside a Kanban column (e.g. a Table/List row) — plain center-scroll.
+        target.scrollIntoView({ block: "center", inline: "nearest" });
       }
       if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
     };

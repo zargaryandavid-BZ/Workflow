@@ -185,6 +185,7 @@ export function BoardListView({
     return (
       <tr
         key={r.order.id}
+        data-order-id={r.order.id}
         onClick={() => onOpenOrder(r.order)}
         className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
       >
