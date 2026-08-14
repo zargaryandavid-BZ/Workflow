@@ -2197,6 +2197,7 @@ export function CardDetailModal({
             ) : null}
             <OrderFormBody
               idPrefix="edit"
+              productSpecs={data.order.specs ?? null}
               customFields={modalCustomFields}
               owners={ownersForForm}
               designers={designers}

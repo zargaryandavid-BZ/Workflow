@@ -2547,6 +2547,20 @@ async function createSingleWebhookJob(
   });
 
   const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs, ...dueSpecs };
+  // New quote-system per-product parameters from the CRM (combos, pouches, apparel,
+  // boxes). Stored additively under specs so the card can show them. (Hayk 2026-08)
+  {
+    const ir = item as Record<string, unknown>;
+    if (ir.spec_selections && typeof ir.spec_selections === "object" && !Array.isArray(ir.spec_selections) && Object.keys(ir.spec_selections as object).length) {
+      specs.spec_selections = ir.spec_selections;
+    }
+    if (Array.isArray(ir.product_options) && ir.product_options.length) {
+      specs.product_options = ir.product_options;
+    }
+    if (typeof ir.cutting_type === "string" && ir.cutting_type.trim()) {
+      specs.cutting_type = ir.cutting_type.trim();
+    }
+  }
   if (designerId) specs.designer_id = designerId;
   if (designerName) specs.designer_name = designerName;
   if (designTaskUrl) specs.design_task = designTaskUrl;
