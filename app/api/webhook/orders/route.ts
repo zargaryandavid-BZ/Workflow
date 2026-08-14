@@ -11,6 +11,7 @@ import {
   type WebhookCreateResult,
   type WebhookOrderPayload,
 } from "@/lib/webhook-order";
+import { cancelOrdersFromWebhook } from "@/lib/webhook-cancel-order";
 
 /**
  * Inbound order webhook — POST /api/webhook/orders
@@ -113,6 +114,64 @@ export async function POST(request: Request) {
       errorMessage: "Invalid JSON",
     });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Cancellation event — the CRM cancelled this order. Pull its board job(s)
+  // off the board instead of upserting. Matched by webhook_order_number.
+  const eventName = (body as { event?: string }).event?.trim().toLowerCase();
+  if (eventName === "order.canceled" || eventName === "order.cancelled") {
+    const orderNumber =
+      typeof (body as { order_number?: unknown }).order_number === "string"
+        ? (body as { order_number: string }).order_number.trim()
+        : "";
+    if (!orderNumber) {
+      await logWebhookHistory({
+        requestPayload: body,
+        requestRaw: null,
+        responsePayload: { error: "order_number is required to cancel" },
+        responseStatus: 400,
+        success: false,
+        errorMessage: "order_number is required to cancel",
+      });
+      return NextResponse.json(
+        { error: "order_number is required to cancel" },
+        { status: 400 },
+      );
+    }
+    try {
+      const { cancelled } = await cancelOrdersFromWebhook(
+        adminClient,
+        activeConfig.tenant_id,
+        orderNumber,
+        "CRM",
+      );
+      await touchWebhookLastUsed(adminClient, activeConfig.id);
+      const response = {
+        success: true,
+        event: "order.canceled",
+        order_number: orderNumber,
+        cancelled,
+      };
+      await logWebhookHistory({
+        requestPayload: body,
+        requestRaw: null,
+        responsePayload: response,
+        responseStatus: 200,
+        success: true,
+      });
+      return NextResponse.json(response);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Server error";
+      await logWebhookHistory({
+        requestPayload: body,
+        requestRaw: null,
+        responsePayload: { error: message },
+        responseStatus: 500,
+        success: false,
+        errorMessage: message,
+      });
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
   }
 
   // Product exclusion check — skip orders whose product type is on the exclusion list.
