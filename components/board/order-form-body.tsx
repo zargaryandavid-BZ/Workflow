@@ -1343,6 +1343,64 @@ export function OrderFormBody({
         </div>
       ) : null}
 
+      {(!hideEmpty || (noteHistory && noteHistory.length > 0) || !readOnly) ? (
+        <div className="min-w-0 space-y-3 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle
+              className="h-4 w-4 shrink-0 text-amber-600"
+              aria-hidden
+            />
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+              Attention
+            </p>
+            <span className="text-[11px] font-normal text-amber-600/80">
+              Internal notes
+            </span>
+          </div>
+
+          {noteHistory && noteHistory.length > 0 ? (
+            <div className="min-w-0 space-y-2">
+              {noteHistory.map((entry, i) => (
+                <div key={i} className="min-w-0">
+                  {i > 0 && <hr className="mb-2 border-amber-200/80" />}
+                  <p className="mb-1 text-[11px] font-semibold text-amber-800/70">
+                    {entry.author}
+                    <span className="mx-1 font-normal">/</span>
+                    {new Date(entry.date).toLocaleString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  <p className="min-w-0 break-all whitespace-pre-wrap text-sm text-amber-950">
+                    {entry.text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {!readOnly ? (
+            <div>
+              <Label htmlFor={`${idPrefix}-internal-note`}>
+                {noteHistory && noteHistory.length > 0
+                  ? "Add new note"
+                  : "Note"}
+              </Label>
+              <Textarea
+                id={`${idPrefix}-internal-note`}
+                value={internalNote}
+                onChange={(e) => onInternalNoteChange(e.target.value)}
+                placeholder="Internal notes visible only to the team…"
+                className="border-amber-200 bg-white focus-visible:ring-amber-400"
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {!hideCustomerSection ? (
         <>
           <div className="border-t border-slate-200" />
