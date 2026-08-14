@@ -24,6 +24,7 @@ import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
+import { NudgeButton } from "./nudge-button";
 import { ComboStockControl } from "./combo-stock-control";
 import { isComboOrder, getComboStock } from "@/lib/combo-stock";
 import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
@@ -1742,6 +1743,9 @@ export function CardDetailModal({
           ) : (
             <span className="mr-auto" />
           )}
+          {orderId && data && mode !== "view" ? (
+            <NudgeButton orderId={orderId} />
+          ) : null}
           {orderId && data && isAdmin ? (
             <button
               type="button"
