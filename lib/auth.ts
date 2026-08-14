@@ -16,8 +16,9 @@ export interface TenantContext {
  * Resolves the current user and their active tenant. Returns null when there
  * is no authenticated user or the user belongs to no tenants.
  *
- * The active tenant is taken from the `ppm_tenant` cookie when valid,
- * otherwise it falls back to the first membership.
+ * The active tenant is taken from the `ppm_tenant` cookie when valid; otherwise
+ * it defaults to the BazaarPrinting workspace when the user belongs to it, and
+ * only then falls back to the first membership.
  */
 export async function getTenantContext(): Promise<TenantContext | null> {
   const supabase = await createClient();
@@ -48,8 +49,13 @@ export async function getTenantContext(): Promise<TenantContext | null> {
   if (typed.length === 0) return null;
 
   const preferred = cookieStore.get(TENANT_COOKIE)?.value;
+  // Order of preference: explicit cookie choice → BazaarPrinting workspace →
+  // first membership. Keeps a user's manual switch sticky while defaulting new
+  // sessions to the live BazaarPrinting board instead of an empty workspace.
   const active =
-    typed.find((m) => m.tenant_id === preferred) ?? typed[0];
+    typed.find((m) => m.tenant_id === preferred) ??
+    typed.find((m) => (m.tenant?.name ?? "").toLowerCase().includes("bazaar")) ??
+    typed[0];
 
   return {
     userId: user.id,
