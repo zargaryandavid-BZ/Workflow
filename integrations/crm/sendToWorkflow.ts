@@ -91,7 +91,14 @@ export interface CrmOrder {
   due_date_label?: string | null;
   due_date_status?: "set" | "pending_approval" | "none" | null;
   priority?: string | null;
+  /** Client-facing Order Description (Customer Note). */
   description?: string | null;
+  /** Floor / Job Ticket production notes. */
+  production_notes?: string | null;
+  /** Designer Information notes. */
+  designer_notes?: string | null;
+  /** @deprecated Prefer production_notes. */
+  line_item_comment?: string | null;
   designer_id?: string | null;
   designer_email?: string | null;
   designer_name?: string | null;
@@ -102,8 +109,7 @@ export interface CrmSku {
   sku_name: string;
   quantity: number;
   artwork_url?: string | null;
-  /** Line comment — stored under Attention / Internal notes. */
-  description?: string | null;
+  /** SKU-only production comment (omit if same as item production_notes). */
   comment?: string | null;
 }
 
@@ -198,6 +204,8 @@ export async function sendToWorkflow(
     order_qty:
       !order.skus?.length && order.quantity ? order.quantity : undefined,
     description: order.description ?? undefined,
+    production_notes: order.production_notes ?? order.line_item_comment ?? undefined,
+    designer_notes: order.designer_notes ?? undefined,
   };
 
   if (order.skus && order.skus.length > 0) {
@@ -205,7 +213,7 @@ export async function sendToWorkflow(
       sku_name: s.sku_name,
       quantity: s.quantity,
       artwork_url: s.artwork_url ?? undefined,
-      description: s.description ?? s.comment ?? undefined,
+      comment: s.comment ?? undefined,
     }));
   }
 

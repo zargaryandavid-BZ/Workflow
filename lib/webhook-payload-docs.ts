@@ -304,7 +304,11 @@ const NOTES_MD = `
 - \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores both email and phone. Existing customers are reused — no duplicates.
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
 - **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
-- \`designer_information\` / \`designer_notes\` fill the **Designer Information** custom field only.
+- \`designer_information\` / \`designer_notes\` / \`notes_for_designer\` fill the **Designer Information** custom field only.
+- \`description\` → **Order Description (Customer Note)** — client-facing.
+- \`production_notes\` / \`notes_for_production\` (legacy: \`line_item_comment\`, and older \`notes\`) → **Production notes** on the Job Ticket.
+- **Internal notes are not set by webhook** — staff add them in the app.
+- Per-SKU \`comment\` values that are unique are appended to **Production notes** (do not duplicate \`production_notes\`).
 - \`design_task\` must be an **http(s) URL** for Design files; non-URL text goes into Order Description.
 - \`notes\` / \`internal_note\` land on the card **Notes** tab.
 - Per-SKU \`description\` / \`comment\` values are combined into the **Notes** tab (together with \`notes\`).

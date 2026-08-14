@@ -80,7 +80,6 @@ export function CreateOrderModal({
   onCreated,
 }: CreateOrderModalProps) {
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [productionNotes, setProductionNotes] = useState("");
   const [applicationDays, setApplicationDays] = useState(DEFAULT_APPLICATION_DAYS);
@@ -119,7 +118,6 @@ export function CreateOrderModal({
   function reset() {
     revokeAllPending(pendingImagesBySkuId);
     setTitle("");
-    setDescription("");
     setInternalNote("");
     setProductionNotes("");
     setApplicationDays(DEFAULT_APPLICATION_DAYS);
@@ -193,7 +191,7 @@ export function CreateOrderModal({
     setLoading(true);
     const json = await createOrderAction({
       title,
-      description,
+      description: null,
       internalNote: internalNote || null,
       columnId,
       ownerId: ownerId || null,
@@ -293,8 +291,6 @@ export function CreateOrderModal({
           onPriorityChange={setPriority}
           ownerId={ownerId}
           onOwnerIdChange={setOwnerId}
-          description={description}
-          onDescriptionChange={setDescription}
           internalNote={internalNote}
           onInternalNoteChange={setInternalNote}
           productionNotes={productionNotes}

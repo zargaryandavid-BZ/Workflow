@@ -101,7 +101,6 @@ export function SkuEditor({
                   onChange={(e) => update(index, { name: e.target.value })}
                   placeholder={`SKU ${index + 1} name`}
                   disabled={disabled}
-                  required
                 />
                 <Input
                   type="number"
@@ -114,7 +113,6 @@ export function SkuEditor({
                   }
                   placeholder="Qty"
                   disabled={disabled}
-                  required
                 />
                 <button
                   type="button"

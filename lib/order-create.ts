@@ -16,6 +16,7 @@ import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import { parsePriorityScore } from "@/lib/order-priority-score";
+import { noteHistoryFromPlainText } from "@/lib/note-history";
 
 async function loadOrderQtyFieldId(
   supabase: SupabaseClient,
@@ -219,6 +220,19 @@ export async function createOrder(
     ...(body.specs ?? {}),
     skus: prepareSkusForSave(normalizedSkus),
   };
+  const authorName = ctx.fullName ?? ctx.email ?? "Unknown";
+  if (
+    typeof baseSpecs.production_notes === "string" &&
+    baseSpecs.production_notes.trim()
+  ) {
+    baseSpecs.production_notes = noteHistoryFromPlainText(
+      baseSpecs.production_notes,
+      authorName
+    );
+  } else if (baseSpecs.production_notes != null) {
+    // Only string notes are accepted on create.
+    delete baseSpecs.production_notes;
+  }
   // Customer company default fills priority when the card doesn't already have one.
   if (customerId && parsePriorityScore(baseSpecs.priority_score) == null) {
     try {
@@ -243,15 +257,10 @@ export async function createOrder(
       column_id: columnId,
       title: body.title.trim(),
       description: body.description ?? null,
-      internal_note: body.internalNote
-        ? JSON.stringify([
-            {
-              author: ctx.fullName ?? ctx.email ?? "Unknown",
-              date: new Date().toISOString(),
-              text: body.internalNote,
-            },
-          ])
-        : null,
+      internal_note: noteHistoryFromPlainText(
+        body.internalNote,
+        ctx.fullName ?? ctx.email ?? "Unknown"
+      ),
       customer_id: customerId,
       priority: body.priority ?? "normal",
       due_date: staffDue.dueDate,

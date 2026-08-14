@@ -85,7 +85,7 @@ export function validateSkus(
       Number.isNaN(s.qty) ||
       s.qty < 1
     ) {
-      return `SKU ${i + 1}: quantity is required (minimum 1).`;
+      return `SKU ${i + 1}: quantity must be at least 1.`;
     }
   }
 

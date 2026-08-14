@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
 import type { OrderNote } from "@/lib/types";
@@ -17,14 +16,11 @@ interface NotesTabProps {
 export function NotesTab({
   notes,
   orderId,
-  userId,
-  isAdmin = false,
   onChanged,
 }: NotesTabProps) {
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,20 +46,8 @@ export function NotesTab({
     }
   }
 
-  async function handleDelete(noteId: string) {
-    if (!window.confirm("Delete this note?")) return;
-    setDeletingId(noteId);
-    try {
-      await fetch(`/api/orders/${orderId}/notes/${noteId}`, { method: "DELETE" });
-      onChanged();
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
   return (
     <div className="space-y-4">
-      {/* Compose */}
       <form onSubmit={handleSubmit} className="space-y-2">
         <textarea
           value={text}
@@ -82,46 +66,27 @@ export function NotesTab({
         </div>
       </form>
 
-      {/* History */}
       {notes.length === 0 ? (
         <p className="text-sm text-slate-400">No notes yet.</p>
       ) : (
         <ul className="space-y-3">
-          {notes.map((note) => {
-            const canDelete = isAdmin || note.created_by === userId;
-            return (
-              <li
-                key={note.id}
-                className="rounded-lg border border-slate-200 bg-slate-50 p-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-slate-500">
-                      <span className="font-semibold text-slate-700">
-                        {note.creator_name ?? "Staff member"}
-                      </span>
-                      {" · "}
-                      {formatDateTime(note.created_at)}
-                    </p>
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
-                      {note.text}
-                    </p>
-                  </div>
-                  {canDelete ? (
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(note.id)}
-                      disabled={deletingId === note.id}
-                      className="shrink-0 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
-                      title="Delete note"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
+          {notes.map((note) => (
+            <li
+              key={note.id}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+            >
+              <p className="text-xs text-slate-500">
+                <span className="font-semibold text-slate-700">
+                  {note.creator_name ?? "Staff member"}
+                </span>
+                {" · "}
+                {formatDateTime(note.created_at)}
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
+                {note.text}
+              </p>
+            </li>
+          ))}
         </ul>
       )}
     </div>

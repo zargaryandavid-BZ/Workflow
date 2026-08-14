@@ -140,8 +140,12 @@ interface WebhookDesignerInput {
   designer_email?: string;
   designer_id?: string;
   designer?: string;
+  /** Designer Information custom field (aliases: designer_notes, notes_for_designer). */
   designer_information?: string;
+  /** Alias for `designer_information`. */
   designer_notes?: string;
+  /** Alias for `designer_information`. */
+  notes_for_designer?: string;
   design_task?: string;
 }
 
@@ -173,16 +177,16 @@ export interface WebhookSkuPayload {
   quantity?: number | string;
   artwork_url?: string;
   /**
-   * Line Item Comment for this SKU — combined into Attention / Internal notes
-   * Line comment — stored under Attention / Internal notes
-   * (aliases: `comment`, `line_item_comment`).
+   * Line Item Comment for this SKU → Notes for production on the card /
+   * Job Ticket (aliases: `comment`, `line_item_comment`).
+   * Do not put client-facing description here.
    */
   description?: string;
-  /** Alias for line item comment (`description`). */
+  /** Alias for line item production comment. */
   comment?: string;
-  /** Alias for line item comment (`description`). */
+  /** Alias for line item production comment. */
   line_item_comment?: string;
-  /** Alias for line item comment (`description`). */
+  /** Alias for line item production comment. */
   line_comment?: string;
 }
 
@@ -221,22 +225,33 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
+  /**
+   * Client-facing description (Order Description / Customer Note).
+   * Visible on the card; not the same as production or designer notes.
+   */
   description?: string;
   /**
-   * Attention / Internal notes on this line only (alias: `notes`).
-   * Combined with order-level Attention and SKU comments on create.
+   * Notes for production (Job Ticket “production notes”).
+   * Aliases: `notes_for_production`, and legacy `line_item_comment` /
+   * `line_comment` / `comment` when production_notes is empty.
+   */
+  production_notes?: string;
+  /** Alias for `production_notes`. */
+  notes_for_production?: string;
+  /**
+   * Team-only Internal notes (Attention — internal).
+   * Alias: `notes`. Prefer production_notes for floor instructions.
    */
   internal_note?: string;
   /** Alias for `internal_note`. */
   notes?: string;
   /**
-   * CRM Line Item Comment for this sub-order only → Notes tab on that card.
-   * Combined with order-level Attention when both are present.
+   * @deprecated Prefer `production_notes`. Still accepted as production notes.
    */
   line_item_comment?: string;
-  /** Alias for `line_item_comment`. */
+  /** Alias for `line_item_comment` → production notes. */
   line_comment?: string;
-  /** Alias for `line_item_comment`. */
+  /** Alias for `line_item_comment` → production notes. */
   comment?: string;
   category?: string;
   category_name?: string;
@@ -314,18 +329,27 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
-  /** Order Description on the card (customer/production notes). */
+  /**
+   * Client-facing Order Description (Customer Note) on every card when set
+   * at order level. Prefer `items[].description` per line.
+   */
   description?: string;
   /**
-   * CRM Attention / Internal Notes — applied to every sub-product card
-   * (alias: `notes`). Combined with each item's Line Item Comment + SKU comments.
+   * Team-only Internal notes applied to every sub-card (alias: `notes`).
+   * Floor instructions should use `production_notes` / `items[].production_notes`.
    */
   internal_note?: string;
   /** Alias for `internal_note`. */
   notes?: string;
   /**
-   * Flat single-item Line Item Comment (prefer `items[].line_item_comment`
-   * for multi-item orders).
+   * Order-level notes for production (Job Ticket). Prefer per-item
+   * `items[].production_notes`.
+   */
+  production_notes?: string;
+  /** Alias for `production_notes`. */
+  notes_for_production?: string;
+  /**
+   * @deprecated Prefer `production_notes`. Flat single-item production comment.
    */
   line_item_comment?: string;
   skus?: WebhookSkuPayload[];
@@ -371,7 +395,6 @@ function skuLineComment(item: WebhookSkuPayload): string | null {
     "line_item_comment",
     "line_comment",
     "comment",
-    "description",
   ] as const) {
     const raw = item[key];
     if (typeof raw === "string" && raw.trim()) return raw.trim();
@@ -390,40 +413,71 @@ function pickTrimmedNote(
 }
 
 /**
- * CRM Attention / Internal Notes — order-level, applied to every sub-product card.
- * Does not include line-item comments.
+ * Order-level notes used only as a production fallback for older CRM payloads.
+ * Webhook never writes Internal notes (staff add those in the app).
  */
 export function resolveSharedAttentionNote(
   order: WebhookOrderPayload
 ): string | null {
-  return pickTrimmedNote(order.internal_note, order.notes);
+  return pickTrimmedNote(
+    order.production_notes,
+    order.notes_for_production,
+    order.line_item_comment,
+    order.internal_note,
+    order.notes
+  );
+}
+
+/**
+ * Notes for production (Job Ticket production-notes box).
+ * Prefers explicit production fields; falls back to legacy line_item_comment
+ * and (last) `notes` when CRM still sends floor text there.
+ * Does not write Internal notes — those are staff-only in the app.
+ */
+export function resolveItemProductionNotes(
+  rawItem: WebhookItem
+): string | null {
+  return pickTrimmedNote(
+    rawItem.production_notes,
+    rawItem.notes_for_production,
+    rawItem.line_item_comment,
+    rawItem.line_comment,
+    rawItem.comment,
+    // Legacy: older CRM payloads stuffed floor text into notes.
+    rawItem.notes,
+    rawItem.internal_note
+  );
+}
+
+/**
+ * @deprecated Internal notes are not set by webhook (staff add them in the app).
+ * Kept for aggregate-detection helpers only.
+ */
+export function resolveItemStaffInternalNote(
+  _rawItem: WebhookItem,
+  _sharedNote: string | null = null
+): string | null {
+  return null;
 }
 
 /**
  * CRM Line Item Comment (+ optional item-only notes) for one sub-order.
- * Reads the raw item payload only — never inherits order-level Attention.
+ * @deprecated Prefer resolveItemProductionNotes + resolveItemStaffInternalNote.
  */
 export function resolveItemLineAttentionNote(
   rawItem: WebhookItem,
   sharedNote: string | null = null
 ): string | null {
   const parts: string[] = [];
-  const itemStaff = pickTrimmedNote(rawItem.internal_note, rawItem.notes);
-  // Skip when flat normalizeItems copied order notes onto the synthetic item.
-  if (itemStaff && itemStaff !== sharedNote) {
-    parts.push(itemStaff);
-  }
-  const lineComment = pickTrimmedNote(
-    rawItem.line_item_comment,
-    rawItem.line_comment,
-    rawItem.comment
-  );
+  const staff = resolveItemStaffInternalNote(rawItem, sharedNote);
+  if (staff) parts.push(staff);
+  const production = resolveItemProductionNotes(rawItem);
   if (
-    lineComment &&
-    lineComment !== itemStaff &&
-    lineComment !== sharedNote
+    production &&
+    production !== staff &&
+    production !== sharedNote
   ) {
-    parts.push(lineComment);
+    parts.push(production);
   }
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
@@ -451,7 +505,8 @@ export function resolveItemOwnAttentionNote(
   sharedNote: string | null = null
 ): string | null {
   return (
-    resolveItemLineAttentionNote(rawItem, sharedNote) ??
+    resolveItemProductionNotes(rawItem) ??
+    resolveItemStaffInternalNote(rawItem, sharedNote) ??
     resolveItemSkuAttentionNote(rawItem)
   );
 }
@@ -590,9 +645,8 @@ export function resolveSharedAttentionForItems(
 }
 
 /**
- * Per-card Attention text: shared staff note (when real) + this line's comment.
- * Falls back to splitting order-level notes / non-URL design_task when CRM
- * sent all line comments in one field and items lack their own notes.
+ * Per-card team-only Internal notes (Attention — internal).
+ * Production floor text is resolved separately via {@link resolveCardProductionNotes}.
  */
 export function resolveCardAttentionNotes(opts: {
   items: WebhookItem[];
@@ -609,25 +663,21 @@ export function resolveCardAttentionNotes(opts: {
     splitFromDesignTask,
   } = opts;
   const rawItem = items[itemIndex]!;
-  // Compare line/SKU notes against shared Attention so CRM duplicates are dropped.
   const ownNote = resolveItemOwnAttentionNote(rawItem, sharedAttention);
-  let itemLine = resolveItemLineAttentionNote(rawItem, sharedAttention);
+  let itemStaff = resolveItemStaffInternalNote(rawItem, sharedAttention);
 
   // Fall back to split aggregates only when this item has no own notes at all.
-  if (!ownNote && !itemLine && splitFromNotes?.[itemIndex]) {
-    itemLine = splitFromNotes[itemIndex]!;
+  if (!ownNote && !itemStaff && splitFromNotes?.[itemIndex]) {
+    itemStaff = splitFromNotes[itemIndex]!;
   }
-  if (!ownNote && !itemLine && splitFromDesignTask?.[itemIndex]) {
-    itemLine = splitFromDesignTask[itemIndex]!;
+  if (!ownNote && !itemStaff && splitFromDesignTask?.[itemIndex]) {
+    itemStaff = splitFromDesignTask[itemIndex]!;
   }
 
-  // Aggregated order-level notes were split → don't paste the full blob on each card.
   let shared = splitFromNotes ? null : sharedAttention;
 
-  // Extra guard (ORD-2026-0483): CRM often pastes every line's note into
-  // order-level `notes` AND still sends each line's text on skus[0].comment.
-  // If shared embeds another item's own note, drop it so buildWebhookNotes
-  // only keeps this card's SKU / line comment.
+  // Extra guard: CRM often pastes every line's note into order-level `notes`
+  // AND still sends each line's text on skus[0].comment.
   if (shared && items.length > 1) {
     const sn = normalizeNoteCompare(shared);
     const foreignHit = items.some((it, idx) => {
@@ -641,10 +691,31 @@ export function resolveCardAttentionNotes(opts: {
   }
 
   return {
-    attention: combineCardAttentionNotes(shared, itemLine),
-    // When design_task was an aggregated comment string, keep it out of Description.
+    attention: combineCardAttentionNotes(shared, itemStaff),
     suppressMisroutedDesignTask: Boolean(splitFromDesignTask),
   };
+}
+
+/**
+ * Per-card Notes for production (Job Ticket production-notes box).
+ * Includes unique SKU comments that are not already in the production text.
+ */
+export function resolveCardProductionNotes(opts: {
+  item: WebhookItem;
+  skuComments: { index: number; name: string; comment: string }[];
+  orderProductionNotes?: string | null;
+}): string | null {
+  const itemProd = resolveItemProductionNotes(opts.item);
+  const orderProd =
+    typeof opts.orderProductionNotes === "string"
+      ? opts.orderProductionNotes.trim()
+      : "";
+  // Item production text wins; order-level only when item has none.
+  const base = itemProd || orderProd || null;
+  return buildWebhookNotes({
+    internalNote: base,
+    skuComments: opts.skuComments,
+  });
 }
 
 function normalizeWebhookSkus(
@@ -727,7 +798,11 @@ function resolveDesignTaskUrl(input: WebhookDesignerInput): string | null {
  * buildWebhookOrderDescription), not Design files.
  */
 function resolveDesignNotes(input: WebhookDesignerInput): string | null {
-  for (const key of ["designer_information", "designer_notes"] as const) {
+  for (const key of [
+    "designer_information",
+    "designer_notes",
+    "notes_for_designer",
+  ] as const) {
     const raw = input[key];
     if (typeof raw === "string" && raw.trim()) return raw.trim();
   }
@@ -1007,6 +1082,8 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       description: body.description,
       internal_note: body.internal_note ?? body.notes,
       notes: body.notes,
+      production_notes: body.production_notes ?? body.notes_for_production,
+      notes_for_production: body.notes_for_production,
       line_item_comment: body.line_item_comment,
       skus: body.skus,
       designer_email: body.designer_email,
@@ -1014,6 +1091,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       designer: body.designer,
       designer_information: body.designer_information,
       designer_notes: body.designer_notes,
+      notes_for_designer: body.notes_for_designer,
       design_task: body.design_task,
       owner_email: body.owner_email,
       owner_id: body.owner_id,
@@ -1171,9 +1249,19 @@ function mergeItemWithOrder(
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: firstNonEmpty(item.artwork_url, order.artwork_url),
     description: firstNonEmpty(item.description, order.description),
-    // Keep Attention (notes) separate from Line Item Comment — combined at create.
+    // Keep Internal notes separate from production notes.
     internal_note: firstNonEmpty(item.internal_note, item.notes, order.internal_note, order.notes),
     notes: firstNonEmpty(item.notes, order.notes),
+    production_notes: firstNonEmpty(
+      item.production_notes,
+      item.notes_for_production,
+      order.production_notes,
+      order.notes_for_production
+    ),
+    notes_for_production: firstNonEmpty(
+      item.notes_for_production,
+      order.notes_for_production
+    ),
     line_item_comment: item.line_item_comment,
     line_comment: item.line_comment,
     comment: item.comment,
@@ -1187,6 +1275,10 @@ function mergeItemWithOrder(
       order.designer_information
     ),
     designer_notes: firstNonEmpty(item.designer_notes, order.designer_notes),
+    notes_for_designer: firstNonEmpty(
+      item.notes_for_designer,
+      order.notes_for_designer
+    ),
     design_task: firstNonEmpty(item.design_task, order.design_task),
     owner_email: firstNonEmpty(item.owner_email, order.owner_email),
     owner_id: firstNonEmpty(item.owner_id, order.owner_id),
@@ -2429,7 +2521,10 @@ interface CreateSingleJobParams {
   designTaskUrl: string | null;
   /** Non-URL design_task text — folded into Order Description. */
   misroutedDesignTask: string | null;
+  /** Team-only Internal notes (Attention — internal). */
   internalNote: string | null;
+  /** Order-level production notes fallback for flat payloads. */
+  orderProductionNotes?: string | null;
   corrections: string[];
   /** Normalized source key; empty string → Integrations "other" style. */
   webhookSource: string;
@@ -2473,6 +2568,7 @@ async function createSingleWebhookJob(
     designTaskUrl,
     misroutedDesignTask,
     internalNote,
+    orderProductionNotes = null,
     corrections,
     webhookSource,
     billing,
@@ -2536,14 +2632,17 @@ async function createSingleWebhookJob(
 
   const itemDescription =
     typeof item.description === "string" ? item.description.trim() : null;
-  const description = buildWebhookOrderDescription({
+  const orderDescriptionText = buildWebhookOrderDescription({
     orderDescription,
     itemDescription,
     misroutedDesignTask,
   });
-  const notesText = buildWebhookNotes({
-    internalNote,
+  // CRM description → Customer note (internal_note). Order Description field retired.
+  const notesText = orderDescriptionText;
+  const productionNotesText = resolveCardProductionNotes({
+    item,
     skuComments,
+    orderProductionNotes,
   });
 
   const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs, ...dueSpecs };
@@ -2564,6 +2663,7 @@ async function createSingleWebhookJob(
   if (designerId) specs.designer_id = designerId;
   if (designerName) specs.designer_name = designerName;
   if (designTaskUrl) specs.design_task = designTaskUrl;
+  if (productionNotesText) specs.production_notes = productionNotesText;
   if (billing) specs.billing = billing;
   const sharedTitle = orderLevelTitle.trim();
   if (sharedTitle) {
@@ -2591,11 +2691,11 @@ async function createSingleWebhookJob(
       tenant_id: tenantId,
       column_id: effectiveColumnId,
       title: cardTitle,
-      description: description || null,
+      description: null,
       internal_note: notesText
         ? JSON.stringify([
             {
-              author: "Webhook",
+              author: "CRM",
               date: new Date().toISOString(),
               text: notesText,
             },
@@ -2978,7 +3078,15 @@ export async function createOrderFromWebhook(
       designNotes: resolveDesignNotes(designerInput),
       designTaskUrl: resolveDesignTaskUrl(designerInput),
       misroutedDesignTask,
-      internalNote: combinedAttention,
+      // Internal notes are staff-only — never set by webhook.
+      internalNote: null,
+      orderProductionNotes: pickTrimmedNote(
+        body.production_notes,
+        body.notes_for_production,
+        body.line_item_comment,
+        body.notes,
+        body.internal_note
+      ),
       corrections: allCorrections,
       webhookSource,
       billing,

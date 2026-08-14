@@ -35,6 +35,7 @@ import {
   UNASSIGNED_DESIGNER_TEXT_CLASS,
   UNASSIGNED_OWNER_TEXT_CLASS,
   ARTWORK_FIELD_NAME,
+  PRIORITY_STYLES,
 } from "@/lib/constants";
 import type { ColumnKind } from "@/lib/types";
 import {
@@ -46,8 +47,15 @@ import {
   customerContactFromOrder,
   customerNameFromOrder,
 } from "@/lib/notification-messages";
-import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
+import {
+  cn,
+  dateInputValue,
+  formatDateShort,
+  formatDateTime,
+  localDateInputValue,
+} from "@/lib/utils";
 import { getComboStock, COMBO_STOCK_LABELS } from "@/lib/combo-stock";
+import { dueDateStatus } from "@/lib/board-due-date";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
 import {
@@ -584,6 +592,22 @@ export function OrderCard({
     skuCount > 0 ? `${skuCount} SKU` : null,
   ].filter(Boolean) as string[];
 
+  const dueStatus = dueDateStatus(order.due_date, {
+    inDoneColumn: columnKind === "done",
+    specs: order.specs,
+  });
+  const dueLabel = order.due_date
+    ? formatDateShort(order.due_date)
+    : dueStatus.kind === "pending_approval"
+      ? dueStatus.label
+      : "—";
+  const isRush = order.priority === "high" || order.priority === "urgent";
+  const ownerLabel = isOwnerUnassigned
+    ? "Unassigned"
+    : ownerName?.trim() || "—";
+  const designerLabel = designerName ?? "Unassigned";
+  const enteredLabel = formatDateTime(order.created_at) || "—";
+
   return (
     <div
       ref={setNodeRef}
@@ -815,6 +839,62 @@ export function OrderCard({
               </p>
             ) : null}
           </div>
+
+          {/* Always-visible staff meta — owner / designer / due / rush / entered */}
+          <p
+            className="mt-1.5 w-full text-left text-[11px] leading-snug text-slate-600 [overflow-wrap:anywhere]"
+            title={[
+              `Owner: ${ownerLabel}`,
+              `Designer: ${designerLabel}`,
+              `Due: ${dueLabel}`,
+              isRush ? `Rush: ${order.priority}` : "Rush: no",
+              `Entered: ${enteredLabel}`,
+            ].join(" · ")}
+          >
+            <span
+              className={cn(
+                isOwnerUnassigned ? "font-medium text-amber-800" : "text-slate-600"
+              )}
+            >
+              <span className="font-medium text-slate-500">Owner:</span>{" "}
+              {ownerLabel}
+            </span>
+            <span className="text-slate-300"> · </span>
+            <span
+              className={cn(
+                isDesignerUnassigned ? "font-medium text-amber-800" : "text-slate-600"
+              )}
+            >
+              <span className="font-medium text-slate-500">Designer:</span>{" "}
+              {designerLabel}
+            </span>
+            <span className="text-slate-300"> · </span>
+            <span>
+              <span className="font-medium text-slate-500">Due:</span>{" "}
+              {dueLabel}
+            </span>
+            <span className="text-slate-300"> · </span>
+            {isRush ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-semibold",
+                  PRIORITY_STYLES[order.priority]
+                )}
+              >
+                Rush · {order.priority}
+              </span>
+            ) : (
+              <span>
+                <span className="font-medium text-slate-500">Rush:</span> no
+              </span>
+            )}
+            <span className="text-slate-300"> · </span>
+            <span className="inline-flex items-center gap-0.5">
+              <Clock className="h-3 w-3 shrink-0 text-slate-400" />
+              <span className="font-medium text-slate-500">Entered</span>{" "}
+              {enteredLabel}
+            </span>
+          </p>
 
           {shippingSign ? (
             <div className="mt-1.5 flex items-center gap-2">

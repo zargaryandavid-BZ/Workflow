@@ -2,6 +2,7 @@ import "server-only";
 
 import { createRequire } from "node:module";
 import type { OrderExportData } from "@/lib/button-automation-order-data";
+import { formatNoteHistoryText } from "@/lib/note-history";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -49,7 +50,7 @@ function capitalize(s: string): string {
 }
 
 /**
- * `orders.internal_note` is stored as JSON history
+ * `orders.internal_note` / `specs.production_notes` are stored as JSON history
  * `[{ author, date, text }, …]` (or legacy plain text).
  * Returns clear note text only for PDF display.
  */
@@ -350,10 +351,11 @@ function drawAttentionBlocks(
   const bodyPadBottom = 8;
   const bodyTopOffset = 10 + titleH;
 
-  const productionNotesText =
+  const productionNotesText = formatNoteHistoryText(
     typeof data.order.specs?.production_notes === "string"
-      ? data.order.specs.production_notes.trim()
-      : "";
+      ? data.order.specs.production_notes
+      : null
+  );
   const internalNotesText = formatInternalNoteText(data.order.internal_note);
 
   let nextY = startY;

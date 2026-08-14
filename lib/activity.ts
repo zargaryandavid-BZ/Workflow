@@ -129,11 +129,17 @@ export function describeActivity(log: ActivityLog): string {
       if (!changes || changes.length === 0) return "Order updated";
 
       const parts = changes.map((c) => {
-        const hasFrom = c.from !== undefined && c.from !== null && c.from !== "";
-        const hasTo = c.to !== undefined && c.to !== null && c.to !== "";
-        if (hasFrom && hasTo) return `${c.field}: ${String(c.from)} → ${String(c.to)}`;
-        if (hasTo) return `${c.field}: ${String(c.to)}`;
-        if (hasFrom) return `${c.field} removed`;
+        const fromText =
+          c.from !== undefined && c.from !== null && c.from !== ""
+            ? String(c.from)
+            : null;
+        const toText =
+          c.to !== undefined && c.to !== null && c.to !== ""
+            ? String(c.to)
+            : null;
+        if (fromText && toText) return `${c.field}: ${fromText} → ${toText}`;
+        if (toText && !fromText) return `${c.field}: ${toText}`;
+        if (fromText && !toText) return `${c.field}: ${fromText} → cleared`;
         return c.field;
       });
 

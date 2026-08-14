@@ -90,6 +90,11 @@ import type {
   ShippingRequest,
   JobNotification,
 } from "@/lib/types";
+import {
+  appendNoteEntry,
+  parseNoteHistory,
+  serializeNoteHistory,
+} from "@/lib/note-history";
 
 interface CardDetailModalProps {
   orderId: string | null;
@@ -198,8 +203,6 @@ function mergeSilentDetail(
   };
 }
 
-type ActivityChangeEntry = { field?: unknown; from?: unknown; to?: unknown };
-
 function formatDuration(ms: number): string {
   const minutes = Math.floor(ms / 60_000);
   if (minutes < 60) return `${minutes}m`;
@@ -273,7 +276,7 @@ export function CardDetailModal({
   dataRef.current = data;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(true);
   const [activityFilter, setActivityFilter] = useState<"all" | "moves">("all");
 
   /** Full form: Admin / Sales / Pre-prod (Manual + CRM). Order # locked for CRM. */
@@ -296,9 +299,11 @@ export function CardDetailModal({
 
   const [title, setTitle] = useState("");
   const [itemName, setItemName] = useState("");
-  const [description, setDescription] = useState("");
   const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
   const [newNote, setNewNote] = useState("");
+  const [productionNoteHistory, setProductionNoteHistory] = useState<
+    NoteEntry[]
+  >([]);
   const [productionNotes, setProductionNotes] = useState("");
   const [customerFacingNote, setCustomerFacingNote] = useState("");
   const [designerNote, setDesignerNote] = useState("");
@@ -361,28 +366,15 @@ export function CardDetailModal({
         ? json.order.specs.webhook_item_title
         : ""
     );
-    setDescription(json.order.description ?? "");
     const rawNote = json.order.internal_note ?? "";
-    let parsedHistory: NoteEntry[] = [];
-    if (rawNote) {
-      try {
-        const parsed = JSON.parse(rawNote);
-        if (Array.isArray(parsed)) {
-          parsedHistory = parsed as NoteEntry[];
-        } else {
-          parsedHistory = [{ author: "Unknown", date: new Date().toISOString(), text: rawNote }];
-        }
-      } catch {
-        parsedHistory = [{ author: "Unknown", date: new Date().toISOString(), text: rawNote }];
-      }
-    }
-    setNoteHistory(parsedHistory);
+    setNoteHistory(parseNoteHistory(rawNote));
     setNewNote("");
-    setProductionNotes(
+    const rawProduction =
       typeof json.order.specs?.production_notes === "string"
         ? json.order.specs.production_notes
-        : ""
-    );
+        : "";
+    setProductionNoteHistory(parseNoteHistory(rawProduction));
+    setProductionNotes("");
     setCustomerFacingNote(
       typeof json.order.specs?.customer_facing_note === "string"
         ? json.order.specs.customer_facing_note
@@ -521,7 +513,7 @@ export function CardDetailModal({
   useEffect(() => {
     if (open && orderId) {
       setSaveError(null);
-      setActivityOpen(false);
+      setActivityFilter("all");
       setModalCustomFields(customFieldsRef.current);
       load();
     }
@@ -532,7 +524,8 @@ export function CardDetailModal({
       setCustomerName("");
       setPriority("normal");
       setTab("details");
-      setActivityOpen(false);
+      setActivityOpen(true);
+      setActivityFilter("all");
       setPersistedSkuIds(new Set());
       baselineSkusRef.current = [];
     }
@@ -705,25 +698,25 @@ export function CardDetailModal({
 
     setSaveError(null);
     setSaving(true);
-    const updatedHistory =
-      newNote.trim()
-        ? [
-            ...noteHistory,
-            {
-              author: currentUserName,
-              date: new Date().toISOString(),
-              text: newNote.trim(),
-            },
-          ]
-        : noteHistory;
-    const internalNoteJson =
-      updatedHistory.length > 0 ? JSON.stringify(updatedHistory) : null;
+    const updatedHistory = appendNoteEntry(
+      noteHistory,
+      newNote,
+      currentUserName
+    );
+    const internalNoteJson = serializeNoteHistory(updatedHistory);
+    const updatedProductionHistory = appendNoteEntry(
+      productionNoteHistory,
+      productionNotes,
+      currentUserName
+    );
+    const nextProductionNotesJson = serializeNoteHistory(
+      updatedProductionHistory
+    );
     const savedSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
     const applicationOn = isApplicationCustomFieldOn(
       customFields,
       fieldValues
     );
-    const nextProductionNotes = productionNotes.trim();
     const nextDesignTask = designTask || "";
     const nextDueInput = dateInputValue(dueDate) || null;
     const staffDue = buildStaffDueSpecs({
@@ -743,7 +736,7 @@ export function CardDetailModal({
           designer_name:
             designers.find((d) => d.id === designerId)?.name ?? null,
           design_task: nextDesignTask || null,
-          production_notes: nextProductionNotes || null,
+          production_notes: nextProductionNotesJson,
           customer_facing_note: customerFacingNote.trim() || null,
           designer_notes: designerNote.trim() || null,
         },
@@ -768,7 +761,6 @@ export function CardDetailModal({
       data?.order && canEditOrderTitle(role, data.order)
         ? title.trim()
         : (data?.order.title ?? title).trim();
-    const nextDescription = description || "";
     const nextPriority = priority as "low" | "normal" | "high" | "urgent";
     const nextCustomerName = customerName.trim();
     const nextCustomerContact = customerContact.trim();
@@ -776,7 +768,6 @@ export function CardDetailModal({
       tag_id: tagId || null,
       tag: selectedTag,
       title: nextTitle,
-      description: nextDescription || null,
       priority: nextPriority,
       due_date: nextDue,
       created_by: ownerId || null,
@@ -799,9 +790,9 @@ export function CardDetailModal({
     // Keep form state + dirty baselines in sync so Save/Cancel hide after save.
     setNoteHistory(updatedHistory);
     setNewNote("");
+    setProductionNoteHistory(updatedProductionHistory);
+    setProductionNotes("");
     setTitle(nextTitle);
-    setDescription(nextDescription);
-    setProductionNotes(nextProductionNotes);
     setCustomerFacingNote(customerFacingNote.trim());
     setDesignerNote(designerNote.trim());
     setDesignTask(nextDesignTask);
@@ -820,7 +811,6 @@ export function CardDetailModal({
         order: {
           ...prev.order,
           title: nextTitle,
-          description: nextDescription || null,
           internal_note: internalNoteJson,
           priority: nextPriority,
           due_date: nextDue,
@@ -867,7 +857,6 @@ export function CardDetailModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: nextTitle,
-          description: nextDescription || null,
           internal_note: internalNoteJson,
           priority: nextPriority,
           ownerId: ownerId || null,
@@ -917,8 +906,8 @@ export function CardDetailModal({
     if (!data) return false;
     const order = data.order;
     if (title !== order.title) return true;
-    if ((description || "") !== (order.description ?? "")) return true;
     if (newNote.trim()) return true;
+    if (productionNotes.trim()) return true;
     if (priority !== order.priority) return true;
     if (
       isApplicationCustomFieldOn(customFields, fieldValues) &&
@@ -947,12 +936,7 @@ export function CardDetailModal({
     if ((tagId || "") !== (order.tag_id ?? "")) return true;
     if ((designerId || "") !== String(order.specs?.designer_id ?? "")) return true;
     if ((designTask || "") !== String(order.specs?.design_task ?? "")) return true;
-    if (
-      (productionNotes || "").trim() !==
-      String(order.specs?.production_notes ?? "").trim()
-    ) {
-      return true;
-    }
+    if (productionNotes.trim()) return true;
     if (
       customerFacingNote.trim() !==
       String(order.specs?.customer_facing_note ?? "").trim()
@@ -1161,26 +1145,47 @@ export function CardDetailModal({
         Number.isNaN(sku.qty) ||
         sku.qty < 1
       ) {
-        return "Enter SKU quantity before uploading images.";
+        return "Enter SKU quantity (at least 1) before uploading images.";
       }
 
-      const res = await fetch(`/api/orders/${orderId}`, {
-        method: "PATCH",
+      // Upsert only this SKU — full-order PATCH validates every row and blocks
+      // uploads when a sibling CRM SKU has a name but no quantity yet.
+      const res = await fetch(`/api/orders/${orderId}/skus`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          specs: {
-            ...(data?.order.specs ?? {}),
-            skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
-          },
+          id: sku.id,
+          name: sku.name.trim(),
+          qty: sku.qty,
         }),
       });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        skus?: ReturnType<typeof prepareSkusForSave>;
+      };
       if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: string };
         return json.error ?? "Failed to save SKU";
       }
 
-      const savedSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
+      const savedSkus =
+        json.skus ??
+        prepareSkusForSave(
+          [
+            ...normalizeSkus(data?.order.specs?.skus).filter(
+              (s) => s.id !== skuId
+            ),
+            { id: sku.id, name: sku.name.trim(), qty: sku.qty },
+          ],
+          { pendingArtworkIds: [] }
+        );
       setPersistedSkuIds((prev) => new Set([...prev, skuId]));
+      setSkus((prev) =>
+        prev.map((s) =>
+          s.id === skuId
+            ? { id: sku.id, name: sku.name.trim(), qty: sku.qty }
+            : s
+        )
+      );
       setData((prev) =>
         prev
           ? {
@@ -1243,41 +1248,6 @@ export function CardDetailModal({
     ? customerContactFromOrder(data.order, fieldValues, modalCustomFields)
     : { email: null, phone: null };
   const orderTags = data ? orderTagsFromSpecs(data.order.specs) : [];
-  const descriptionVersions = useMemo(() => {
-    if (!data) return [];
-
-    const versions: Array<{
-      id: string;
-      text: string;
-      actorName: string | null;
-      createdAt: string;
-    }> = [];
-
-    for (const log of data.activity) {
-      if (log.action !== "updated") continue;
-      const rawChanges = (log.metadata?.changes ?? []) as ActivityChangeEntry[];
-      const change = rawChanges.find((entry) => entry.field === "Description updated");
-      if (!change || change.to == null) continue;
-
-      versions.push({
-        id: log.id,
-        text: typeof change.to === "string" ? change.to : String(change.to),
-        actorName: log.actor_name,
-        createdAt: log.created_at,
-      });
-    }
-
-    if (versions.length === 0 && (data.order.description ?? "").trim()) {
-      versions.push({
-        id: "current-description",
-        text: data.order.description ?? "",
-        actorName: null,
-        createdAt: data.order.updated_at,
-      });
-    }
-
-    return versions;
-  }, [data]);
 
   async function handleClose() {
     if (saving || removing) return;
@@ -2250,11 +2220,10 @@ export function CardDetailModal({
               onPriorityChange={setPriority}
               ownerId={ownerId}
               onOwnerIdChange={setOwnerId}
-              description={description}
-              onDescriptionChange={setDescription}
               noteHistory={noteHistory}
               internalNote={newNote}
               onInternalNoteChange={setNewNote}
+              productionNoteHistory={productionNoteHistory}
               productionNotes={productionNotes}
               onProductionNotesChange={setProductionNotes}
               customerFacingNote={customerFacingNote}
