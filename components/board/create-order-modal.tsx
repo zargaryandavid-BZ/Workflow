@@ -191,7 +191,6 @@ export function CreateOrderModal({
     setLoading(true);
     const json = await createOrderAction({
       title,
-      description: null,
       internalNote: internalNote || null,
       columnId,
       ownerId: ownerId || null,
