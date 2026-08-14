@@ -6,6 +6,7 @@ export type CrmCatalog = {
   productsByCategory: Record<string, string[]>;
   materialsByProduct: Record<string, string[]>;
   fieldOptionsByProduct: Record<string, Record<string, unknown>>;
+  optionTogglesByProduct?: Record<string, { key: string; label: string }[]>;
 };
 
 let cached: CrmCatalog | null = null;

@@ -2217,6 +2217,26 @@ export function CardDetailModal({
                     : prev,
                 )
               }
+              onProductToggleChange={(label, checked) =>
+                setData((prev) => {
+                  if (!prev) return prev;
+                  const cur = Array.isArray(prev.order.specs?.product_options)
+                    ? (prev.order.specs!.product_options as unknown[]).map(String)
+                    : [];
+                  const next = checked
+                    ? cur.some((o) => o.toLowerCase() === label.toLowerCase())
+                      ? cur
+                      : [...cur, label]
+                    : cur.filter((o) => o.toLowerCase() !== label.toLowerCase());
+                  return {
+                    ...prev,
+                    order: {
+                      ...prev.order,
+                      specs: { ...(prev.order.specs ?? {}), product_options: next },
+                    },
+                  };
+                })
+              }
               customFields={modalCustomFields}
               owners={ownersForForm}
               designers={designers}
