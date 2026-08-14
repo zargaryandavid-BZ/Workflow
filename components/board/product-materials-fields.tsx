@@ -45,6 +45,11 @@ interface Props {
    * filtering from product-data. Pass null/undefined to keep the catalog fallback.
    */
   materialOptionsOverride?: string[] | null;
+  /**
+   * When set, replaces the Category dropdown options (ordered, incl. sub-
+   * categories) — e.g. the live CRM catalog. Null/undefined keeps the fallback.
+   */
+  categoryOptionsOverride?: string[] | null;
 }
 
 function asString(value: unknown): string {
@@ -69,6 +74,7 @@ export function ProductMaterialsFields({
   hideEmpty = false,
   productOptionsOverride = null,
   materialOptionsOverride = null,
+  categoryOptionsOverride = null,
 }: Props) {
   const product = asString(productValue);
   const materials = asString(materialsValue);
@@ -76,9 +82,11 @@ export function ProductMaterialsFields({
   const storedCategory = asString(categoryValue).trim();
 
   const categoryOptions = uniqueOptions(
-    categoryField?.options && categoryField.options.length > 0
-      ? categoryField.options
-      : [...PRODUCT_CATEGORY_NAMES]
+    categoryOptionsOverride != null && categoryOptionsOverride.length > 0
+      ? categoryOptionsOverride
+      : categoryField?.options && categoryField.options.length > 0
+        ? categoryField.options
+        : [...PRODUCT_CATEGORY_NAMES]
   );
 
   const productOptions = uniqueOptions(

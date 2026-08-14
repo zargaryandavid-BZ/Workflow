@@ -865,6 +865,7 @@ export function OrderFormBody({
                 handleLinkedFieldChange(materialsField.id, v)
               }
               productOptionsOverride={productOptionsOverride}
+              categoryOptionsOverride={crmCatalog?.categories ?? null}
               materialOptionsOverride={materialOptionsOverride}
               readOnly={readOnly}
               hideEmpty={hideEmpty}
