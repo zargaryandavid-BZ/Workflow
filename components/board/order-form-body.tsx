@@ -63,8 +63,10 @@ export interface OrderOwner {
 }
 
 export interface OrderFormBodyProps {
-  /** Order specs (read-only) — renders the CRM per-product parameters section. */
+  /** Order specs — renders the CRM per-product parameters section. */
   productSpecs?: Record<string, unknown> | null;
+  /** Update a per-product spec value (persists into specs.spec_selections on save). */
+  onProductSpecChange?: (key: string, value: string) => void;
   idPrefix: string;
   customFields: CustomField[];
   owners: OrderOwner[];
@@ -160,43 +162,93 @@ function humanizeSpecKey(k: string): string {
   return k.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
 }
 
-function ProductSpecsSection({ specs }: { specs?: Record<string, unknown> | null }) {
-  if (!specs || typeof specs !== "object") return null;
-  const s = specs as Record<string, unknown>;
+type SpecFieldOptions = Record<string, { value?: string; label?: string }[]>;
+
+function ProductSpecsSection({
+  specs,
+  fieldOptions,
+  onChange,
+}: {
+  specs?: Record<string, unknown> | null;
+  fieldOptions?: SpecFieldOptions | null;
+  onChange?: (key: string, value: string) => void;
+}) {
+  const s = (specs && typeof specs === "object" ? specs : {}) as Record<string, unknown>;
   const selRaw = s.spec_selections;
   const sel: Record<string, unknown> =
     selRaw && typeof selRaw === "object" && !Array.isArray(selRaw)
       ? (selRaw as Record<string, unknown>)
       : {};
+  const foKeys = fieldOptions ? Object.keys(fieldOptions) : [];
   const opts = Array.isArray(s.product_options)
     ? (s.product_options as unknown[]).map(String).filter(Boolean)
     : [];
   const cutting = typeof s.cutting_type === "string" ? s.cutting_type.trim() : "";
-  const rows = Object.entries(sel).filter(
-    ([, v]) => v != null && String(v).trim() !== "",
+  // Stored spec values that have no catalog options (shown read-only).
+  const readonlyRows = Object.entries(sel).filter(
+    ([k, v]) => !foKeys.includes(k) && v != null && String(v).trim() !== "",
   );
-  if (rows.length === 0 && opts.length === 0 && !cutting) return null;
+  if (foKeys.length === 0 && readonlyRows.length === 0 && opts.length === 0 && !cutting) {
+    return null;
+  }
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
       <p className="text-sm font-semibold text-slate-700">Product Specifications</p>
-      <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
-        {rows.map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-2">
-            <span className="text-slate-500">{humanizeSpecKey(k)}</span>
-            <span className="text-right text-slate-800">{String(v)}</span>
-          </div>
-        ))}
-        {cutting ? (
-          <div className="flex justify-between gap-2">
-            <span className="text-slate-500">Cutting</span>
-            <span className="text-right text-slate-800">{cutting}</span>
-          </div>
-        ) : null}
-      </div>
-      {opts.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 pt-1">
+      {foKeys.length > 0 ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {foKeys.map((k) => {
+            const options = (fieldOptions?.[k] ?? [])
+              .map((o) => ({
+                value: String(o.value ?? o.label ?? ""),
+                label: String(o.label ?? o.value ?? ""),
+              }))
+              .filter((o) => o.value);
+            const current = sel[k] != null ? String(sel[k]) : "";
+            const known = options.some((o) => o.value === current || o.label === current);
+            return (
+              <label key={k} className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-500">
+                  {humanizeSpecKey(k)}
+                </span>
+                <Select
+                  value={current}
+                  onChange={(e) => onChange?.(k, e.target.value)}
+                  disabled={!onChange}
+                >
+                  <option value="">—</option>
+                  {!known && current ? <option value={current}>{current}</option> : null}
+                  {options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
+      {readonlyRows.length > 0 ? (
+        <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
+          {readonlyRows.map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-2">
+              <span className="text-slate-500">{humanizeSpecKey(k)}</span>
+              <span className="text-right text-slate-800">{String(v)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {cutting || opts.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+          {cutting ? (
+            <span className="rounded-md bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">
+              Cutting: {cutting}
+            </span>
+          ) : null}
           {opts.map((o) => (
-            <span key={o} className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">{o}</span>
+            <span key={o} className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+              {o}
+            </span>
           ))}
         </div>
       ) : null}
@@ -206,6 +258,7 @@ function ProductSpecsSection({ specs }: { specs?: Record<string, unknown> | null
 
 export function OrderFormBody({
   productSpecs,
+  onProductSpecChange,
   idPrefix,
   customFields,
   owners,
@@ -418,6 +471,22 @@ export function OrderFormBody({
     if (linked === null) return null;
     if (!product) return [];
     return linked;
+  })();
+
+  // Live CRM per-product field set (pouch zipper/seal/gusset, combo label sizes,
+  // apparel color/print, box 3D size…) — drives the editable specs section.
+  const currentProductName = productField
+    ? String(fieldValues[productField.id] ?? "").trim()
+    : "";
+  const productSpecFieldOptions: SpecFieldOptions | null = (() => {
+    const map = crmCatalog?.fieldOptionsByProduct;
+    if (!map || !currentProductName) return null;
+    if (map[currentProductName]) return map[currentProductName] as SpecFieldOptions;
+    const norm = currentProductName.trim().toLowerCase();
+    for (const k of Object.keys(map)) {
+      if (k.trim().toLowerCase() === norm) return map[k] as SpecFieldOptions;
+    }
+    return null;
   })();
 
   function handleCategoryLinkedChange(value: unknown) {
@@ -873,7 +942,11 @@ export function OrderFormBody({
           </div>
         ) : null}
 
-        <ProductSpecsSection specs={productSpecs} />
+        <ProductSpecsSection
+          specs={productSpecs}
+          fieldOptions={productSpecFieldOptions}
+          onChange={onProductSpecChange}
+        />
 
         {visiblePrintFields.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

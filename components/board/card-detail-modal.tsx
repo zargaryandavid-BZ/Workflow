@@ -2198,6 +2198,25 @@ export function CardDetailModal({
             <OrderFormBody
               idPrefix="edit"
               productSpecs={data.order.specs ?? null}
+              onProductSpecChange={(key, value) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        order: {
+                          ...prev.order,
+                          specs: {
+                            ...(prev.order.specs ?? {}),
+                            spec_selections: {
+                              ...((prev.order.specs?.spec_selections as Record<string, unknown>) ?? {}),
+                              [key]: value,
+                            },
+                          },
+                        },
+                      }
+                    : prev,
+                )
+              }
               customFields={modalCustomFields}
               owners={ownersForForm}
               designers={designers}
