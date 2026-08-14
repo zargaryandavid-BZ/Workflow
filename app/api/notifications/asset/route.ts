@@ -70,6 +70,58 @@ export async function GET(request: Request) {
 
   const admin = createAdminClient();
 
+  // Frozen approval snapshot: id = "snap:<index>" into this round's
+  // job_notifications.approval_files (the file the customer saw when sent).
+  if (id.startsWith("snap:")) {
+    const index = Number(id.slice("snap:".length));
+    const { data: notif } = await admin
+      .from("job_notifications")
+      .select("approval_files, token_expires_at, status")
+      .eq("token", token)
+      .maybeSingle();
+    if (!notif) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    const n = notif as {
+      approval_files?: Array<{
+        file_name?: string;
+        storage_path?: string | null;
+        external_url?: string | null;
+      }> | null;
+      token_expires_at?: string | null;
+      status?: string;
+    };
+    const expired =
+      n.status !== "responded" &&
+      n.token_expires_at != null &&
+      new Date(n.token_expires_at).getTime() < Date.now();
+    if (expired) {
+      return NextResponse.json({ error: "Link expired" }, { status: 403 });
+    }
+    const file = n.approval_files?.[index];
+    if (!file) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (file.external_url?.trim()) {
+      return NextResponse.redirect(file.external_url);
+    }
+    if (!file.storage_path) {
+      return NextResponse.json({ error: "File has no content" }, { status: 400 });
+    }
+    const { data: signed, error } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrl(file.storage_path, 3600, {
+        download: file.file_name ?? "file",
+      });
+    if (error || !signed) {
+      return NextResponse.json(
+        { error: error?.message ?? "Could not sign URL" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.redirect(signed.signedUrl);
+  }
+
   if (type === "sku_image") {
     const { data: skuImage } = await admin
       .from("order_sku_images")

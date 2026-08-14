@@ -123,6 +123,36 @@ async function buildRespondParts(
   return parts;
 }
 
+/**
+ * For a customer_approval round, load the frozen file snapshot captured when it
+ * was sent (job_notifications.approval_files). Returns them as review assets
+ * whose id is `snap:<index>` (served by /api/notifications/asset), or null when
+ * the round has no snapshot.
+ */
+async function loadFrozenApprovalAssets(
+  notification: NotificationRow
+): Promise<RespondOrderAsset[] | null> {
+  if (notification.type !== "customer_approval") return null;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("job_notifications")
+    .select("approval_files")
+    .eq("id", notification.notification_id)
+    .maybeSingle();
+  const files = (data as { approval_files?: unknown } | null)?.approval_files;
+  if (!Array.isArray(files) || files.length === 0) return null;
+  return files.map((f, i) => {
+    const file = f as { file_name?: string; mime_type?: string | null; sku_key?: string | null };
+    return {
+      id: `snap:${i}`,
+      file_name: file.file_name ?? `File ${i + 1}`,
+      mime_type: file.mime_type ?? null,
+      sku_key: file.sku_key ?? null,
+      size: null,
+    };
+  });
+}
+
 function RespondCard({
   orderTitle,
   children,
@@ -272,13 +302,27 @@ export default async function RespondPage({
     const skus = skusForRespond(notification.order_specs ?? {});
     let assets: RespondOrderAsset[] = [];
     let skuImages: Record<string, RespondSkuImage[]> = {};
-    try {
-      [assets, skuImages] = await Promise.all([
-        fetchRespondOrderAssets(notification.order_id),
-        fetchRespondSkuImages(notification.order_id),
-      ]);
-    } catch {
-      // non-critical; proceed without assets
+    // Customer approval: serve the frozen snapshot captured when THIS round was
+    // sent, so the customer always sees exactly what went out — even if the
+    // designer later changed the live file. Falls back to live files if this
+    // round has no snapshot (older rounds / missing_info).
+    const frozen = await loadFrozenApprovalAssets(notification);
+    if (frozen) {
+      assets = frozen;
+      try {
+        skuImages = await fetchRespondSkuImages(notification.order_id);
+      } catch {
+        // non-critical
+      }
+    } else {
+      try {
+        [assets, skuImages] = await Promise.all([
+          fetchRespondOrderAssets(notification.order_id),
+          fetchRespondSkuImages(notification.order_id),
+        ]);
+      } catch {
+        // non-critical; proceed without assets
+      }
     }
     orderReview = (
       <OrderReview
