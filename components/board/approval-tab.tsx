@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, MessageSquare } from "lucide-react";
+import { Mail, MessageSquare, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, formatDateTime } from "@/lib/utils";
@@ -617,6 +617,31 @@ export function ApprovalTab({
                       {status.label}
                     </span>
                   </div>
+
+                  {note.approval_files && note.approval_files.length > 0 ? (
+                    <div className="mt-2">
+                      <p className="text-[11px] font-medium text-slate-400">
+                        Files sent this round
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {note.approval_files.map((f, i) => (
+                          <a
+                            key={i}
+                            href={`/api/orders/${orderId}/approval-files/${note.id}/${i}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                            title={`Exact file the customer saw for this approval: ${f.file_name}`}
+                          >
+                            <Paperclip className="h-3 w-3 shrink-0" />
+                            <span className="max-w-[160px] truncate">
+                              {f.file_name}
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {note.staff_note ? (
                     <p className="mt-3 whitespace-pre-wrap text-slate-700">

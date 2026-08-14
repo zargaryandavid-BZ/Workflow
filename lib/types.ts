@@ -504,6 +504,20 @@ export interface JobNotification {
   responded_at: string | null;
   created_by: string | null;
   created_at: string;
+  /**
+   * Frozen snapshot of the files sent for this approval round (see migration
+   * 0076). Present on customer_approval rounds; lets the history show the exact
+   * file the customer saw even after the live file is replaced.
+   */
+  approval_files?:
+    | {
+        file_name: string;
+        mime_type: string | null;
+        sku_key: string | null;
+        storage_path: string | null;
+        external_url: string | null;
+      }[]
+    | null;
 }
 
 /** Missing-info note with staff/creator metadata for the order detail tab. */

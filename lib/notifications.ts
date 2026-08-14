@@ -32,6 +32,7 @@ import {
 import { syncCustomerFromNotification } from "@/lib/customers";
 import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
+import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
 import type {
   CustomerResponse,
@@ -450,6 +451,16 @@ export async function saveNotificationRequest(
     .single();
 
   if (error) throw new Error(error.message);
+
+  // Freeze the files for this approval round so the history keeps the exact
+  // file the customer saw, even after the live file is later replaced.
+  if (params.type === "customer_approval") {
+    try {
+      await snapshotApprovalFiles(client, (notification as JobNotification).id);
+    } catch (err) {
+      console.error("[approval-snapshot] failed:", err);
+    }
+  }
 
   let emailSent = false;
   if (autoSend) {
