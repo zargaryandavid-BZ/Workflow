@@ -19,7 +19,12 @@ type CrmProduct = {
   material_groups?: CrmGroup[];
   field_options?: Record<string, unknown>;
 };
-type CrmCategory = { id?: number; name?: string; sort_order?: number };
+type CrmCategory = {
+  id?: number;
+  name?: string;
+  sort_order?: number;
+  parent_id?: number | null;
+};
 
 export async function GET() {
   try {
@@ -40,10 +45,23 @@ export async function GET() {
     for (const c of data.categories ?? []) {
       if (typeof c.id === "number" && c.name) catById.set(c.id, c.name);
     }
-    const categories = [...(data.categories ?? [])]
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-      .map((c) => c.name)
-      .filter((n): n is string => !!n);
+    // Ordered like the CRM picker: top-level categories by sort_order, each
+    // immediately followed by its sub-categories (Apparel → Tees & Polos, …).
+    const bySort = (a: CrmCategory, b: CrmCategory) =>
+      (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+      (a.name ?? "").localeCompare(b.name ?? "");
+    const all = data.categories ?? [];
+    const childrenOf = (pid: number) =>
+      all.filter((c) => c.parent_id === pid).sort(bySort);
+    const categories: string[] = [];
+    for (const parent of all.filter((c) => c.parent_id == null).sort(bySort)) {
+      if (parent.name) categories.push(parent.name);
+      if (typeof parent.id === "number") {
+        for (const child of childrenOf(parent.id)) {
+          if (child.name) categories.push(child.name);
+        }
+      }
+    }
 
     const productsByCategory: Record<string, string[]> = {};
     const materialsByProduct: Record<string, string[]> = {};
