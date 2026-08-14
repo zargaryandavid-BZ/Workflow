@@ -1694,171 +1694,178 @@ export function CardDetailModal({
       }
       footer={
         <>
-          {isAdmin && mode !== "view" ? (
-            <button
-              type="button"
-              onClick={() => {
-                setRemoveError(null);
-                setConfirmRemove(true);
-              }}
-              disabled={
-                loading || saving || removing || archiving || downloadingArchive
-              }
-              className="mr-auto flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Remove order"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete Order
-            </button>
-          ) : (
-            <span className="mr-auto" />
-          )}
-          {orderId && data && mode !== "view" ? (
-            <NudgeButton orderId={orderId} />
-          ) : null}
-          {orderId && data && isAdmin ? (
-            <button
-              type="button"
-              onClick={() => {
-                setArchiveError(null);
-                setConfirmArchive(true);
-              }}
-              disabled={
-                loading || saving || removing || archiving || downloadingArchive
-              }
-              className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Save ZIP to Supabase (Settings → Archive)"
-            >
-              {archiving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Archive className="h-4 w-4" />
-              )}
-              {archiving ? "Archiving…" : "Archive"}
-            </button>
-          ) : null}
-          {orderId && data && mode !== "view" ? (
-            <button
-              type="button"
-              onClick={() => void toggleBoardArchive()}
-              disabled={
-                loading || saving || removing || archiving || archivingBoard
-              }
-              className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title={
-                isBoardArchived
-                  ? "Restore this order to the active board"
-                  : "Hide this finished order from the active board (still searchable via the Archived filter)"
-              }
-            >
-              {archivingBoard ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isBoardArchived ? (
-                <ArchiveRestore className="h-4 w-4" />
-              ) : (
-                <Archive className="h-4 w-4" />
-              )}
-              {archivingBoard
-                ? "Saving…"
-                : isBoardArchived
-                  ? "Restore to board"
-                  : "Archive off board"}
-            </button>
-          ) : null}
-          {orderId && data ? (
-            <button
-              type="button"
-              onClick={() => void downloadArchive()}
-              disabled={
-                loading || saving || removing || archiving || downloadingArchive
-              }
-              className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              title="Download ZIP with order data, history, and files"
-            >
-              {downloadingArchive ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              {downloadingArchive ? "Preparing…" : "Download"}
-            </button>
-          ) : null}
-          {!isViewOnly && (isDirty() || saving) ? (
-            <>
+          <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
+            {isAdmin && mode !== "view" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRemoveError(null);
+                  setConfirmRemove(true);
+                }}
+                disabled={
+                  loading || saving || removing || archiving || downloadingArchive
+                }
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-200 px-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Remove order"
+              >
+                <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                Delete
+              </button>
+            ) : null}
+            {orderId && data && mode !== "view" ? (
+              <NudgeButton orderId={orderId} />
+            ) : null}
+            {orderId && data && isAdmin ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setArchiveError(null);
+                  setConfirmArchive(true);
+                }}
+                disabled={
+                  loading || saving || removing || archiving || downloadingArchive
+                }
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Save ZIP to Supabase (Settings → Archive)"
+              >
+                {archiving ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <Archive className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {archiving ? "Archiving…" : "Archive"}
+              </button>
+            ) : null}
+            {orderId && data && mode !== "view" ? (
+              <button
+                type="button"
+                onClick={() => void toggleBoardArchive()}
+                disabled={
+                  loading || saving || removing || archiving || archivingBoard
+                }
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title={
+                  isBoardArchived
+                    ? "Restore this order to the active board"
+                    : "Hide this finished order from the active board (still searchable via the Archived filter)"
+                }
+              >
+                {archivingBoard ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : isBoardArchived ? (
+                  <ArchiveRestore className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <Archive className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {archivingBoard
+                  ? "Saving…"
+                  : isBoardArchived
+                    ? "Restore"
+                    : "Off board"}
+              </button>
+            ) : null}
+            {orderId && data ? (
+              <button
+                type="button"
+                onClick={() => void downloadArchive()}
+                disabled={
+                  loading || saving || removing || archiving || downloadingArchive
+                }
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Download ZIP with order data, history, and files"
+              >
+                {downloadingArchive ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {downloadingArchive ? "Preparing…" : "Download"}
+              </button>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
+            {!isViewOnly && (isDirty() || saving) ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={revert}
+                  type="button"
+                  disabled={saving || removing || archiving || downloadingArchive}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void save()}
+                  disabled={
+                    saving ||
+                    loading ||
+                    removing ||
+                    archiving ||
+                    downloadingArchive
+                  }
+                  className={saving ? "cursor-wait" : undefined}
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save changes"
+                  )}
+                </Button>
+              </>
+            ) : isViewOnly && canEditDueDate && (isDueDateDirty() || saving) ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={revert}
+                  type="button"
+                  disabled={saving || removing || archiving || downloadingArchive}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void save()}
+                  disabled={
+                    saving ||
+                    loading ||
+                    removing ||
+                    archiving ||
+                    downloadingArchive
+                  }
+                  className={saving ? "cursor-wait" : undefined}
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save due date"
+                  )}
+                </Button>
+              </>
+            ) : (
               <Button
                 variant="outline"
-                onClick={revert}
+                size="sm"
+                onClick={handleClose}
                 type="button"
                 disabled={saving || removing || archiving || downloadingArchive}
               >
-                Cancel
+                Close
               </Button>
-              <Button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => void save()}
-                disabled={
-                  saving ||
-                  loading ||
-                  removing ||
-                  archiving ||
-                  downloadingArchive
-                }
-                className={saving ? "cursor-wait" : undefined}
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Saving…
-                  </>
-                ) : (
-                  "Save changes"
-                )}
-              </Button>
-            </>
-          ) : isViewOnly && canEditDueDate && (isDueDateDirty() || saving) ? (
-            <>
-              <Button
-                variant="outline"
-                onClick={revert}
-                type="button"
-                disabled={saving || removing || archiving || downloadingArchive}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => void save()}
-                disabled={
-                  saving ||
-                  loading ||
-                  removing ||
-                  archiving ||
-                  downloadingArchive
-                }
-                className={saving ? "cursor-wait" : undefined}
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Saving…
-                  </>
-                ) : (
-                  "Save due date"
-                )}
-              </Button>
-            </>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={handleClose}
-              type="button"
-              disabled={saving || removing || archiving || downloadingArchive}
-            >
-              Close
-            </Button>
-          )}
+            )}
+          </div>
         </>
       }
     >
