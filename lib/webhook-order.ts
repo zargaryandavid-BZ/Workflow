@@ -2637,8 +2637,9 @@ async function createSingleWebhookJob(
     itemDescription,
     misroutedDesignTask,
   });
-  // CRM description → Customer note (internal_note). Order Description field retired.
-  const notesText = orderDescriptionText;
+  // CRM description → Notes → Customer note. Order Description field retired.
+  const customerFacingNoteText = orderDescriptionText;
+  const notesText: string | null = null;
   const productionNotesText = resolveCardProductionNotes({
     item,
     skuComments,
@@ -2664,6 +2665,7 @@ async function createSingleWebhookJob(
   if (designerName) specs.designer_name = designerName;
   if (designTaskUrl) specs.design_task = designTaskUrl;
   if (productionNotesText) specs.production_notes = productionNotesText;
+  if (customerFacingNoteText) specs.customer_facing_note = customerFacingNoteText;
   if (billing) specs.billing = billing;
   const sharedTitle = orderLevelTitle.trim();
   if (sharedTitle) {
