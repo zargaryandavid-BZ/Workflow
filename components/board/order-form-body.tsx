@@ -63,6 +63,8 @@ export interface OrderOwner {
 }
 
 export interface OrderFormBodyProps {
+  /** Order specs (read-only) — renders the CRM per-product parameters section. */
+  productSpecs?: Record<string, unknown> | null;
   idPrefix: string;
   customFields: CustomField[];
   owners: OrderOwner[];
@@ -154,7 +156,56 @@ export interface OrderFormBodyProps {
   onTagIdChange?: (value: string) => void;
 }
 
+function humanizeSpecKey(k: string): string {
+  return k.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+}
+
+function ProductSpecsSection({ specs }: { specs?: Record<string, unknown> | null }) {
+  if (!specs || typeof specs !== "object") return null;
+  const s = specs as Record<string, unknown>;
+  const selRaw = s.spec_selections;
+  const sel: Record<string, unknown> =
+    selRaw && typeof selRaw === "object" && !Array.isArray(selRaw)
+      ? (selRaw as Record<string, unknown>)
+      : {};
+  const opts = Array.isArray(s.product_options)
+    ? (s.product_options as unknown[]).map(String).filter(Boolean)
+    : [];
+  const cutting = typeof s.cutting_type === "string" ? s.cutting_type.trim() : "";
+  const rows = Object.entries(sel).filter(
+    ([, v]) => v != null && String(v).trim() !== "",
+  );
+  if (rows.length === 0 && opts.length === 0 && !cutting) return null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+      <p className="text-sm font-semibold text-slate-700">Product Specifications</p>
+      <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-2">
+            <span className="text-slate-500">{humanizeSpecKey(k)}</span>
+            <span className="text-right text-slate-800">{String(v)}</span>
+          </div>
+        ))}
+        {cutting ? (
+          <div className="flex justify-between gap-2">
+            <span className="text-slate-500">Cutting</span>
+            <span className="text-right text-slate-800">{cutting}</span>
+          </div>
+        ) : null}
+      </div>
+      {opts.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {opts.map((o) => (
+            <span key={o} className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">{o}</span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function OrderFormBody({
+  productSpecs,
   idPrefix,
   customFields,
   owners,
@@ -820,6 +871,8 @@ export function OrderFormBody({
             />
           </div>
         ) : null}
+
+        <ProductSpecsSection specs={productSpecs} />
 
         {visiblePrintFields.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
