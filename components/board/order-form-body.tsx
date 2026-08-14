@@ -15,6 +15,7 @@ import {
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { CustomFieldInput } from "./custom-field-input";
 import { ProductMaterialsFields } from "./product-materials-fields";
+import { useCrmCatalog, catalogLookup } from "@/lib/use-crm-catalog";
 import { SkuEditor, type SkuItem, type PendingSkuImage } from "./sku-editor";
 import { DueDateFields } from "./due-date-fields";
 import { ApplicationFields } from "./application-fields";
@@ -218,6 +219,7 @@ export function OrderFormBody({
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, orderQtyField, printFields } = resolved;
+  const crmCatalog = useCrmCatalog();
   const designerFieldReadOnly = designerReadOnly ?? readOnly;
   const [hideEmpty, setHideEmpty] = useState(hideEmptyProp);
   const [artworkCopied, setArtworkCopied] = useState(false);
@@ -336,6 +338,8 @@ export function OrderFormBody({
   const productOptionsOverride = (() => {
     if (!categoryField || !productField) return null;
     const category = String(fieldValues[categoryField.id] ?? "").trim();
+    const fromCrm = crmCatalog ? catalogLookup(crmCatalog.productsByCategory, category) : null;
+    if (fromCrm) return category ? fromCrm : [];
     const linked = linkedTargetOptions(
       fieldLinks,
       categoryField.id,
@@ -352,6 +356,8 @@ export function OrderFormBody({
   const materialOptionsOverride = (() => {
     if (!productField || !materialsField) return null;
     const product = String(fieldValues[productField.id] ?? "").trim();
+    const fromCrm = crmCatalog ? catalogLookup(crmCatalog.materialsByProduct, product) : null;
+    if (fromCrm) return product ? fromCrm : [];
     const linked = linkedTargetOptions(
       fieldLinks,
       productField.id,
