@@ -664,6 +664,73 @@ async function missingInfoTargetColumn(
  *   (approved / rejected), otherwise falls back to on_approval_result rules.
  * - missing_info: moves the order to the notify rule's target column.
  */
+/**
+ * Combined approval: apply an approval decision to every OTHER line item of a
+ * multi-part order, so one approve/reject covers the whole order. Fixes the
+ * problem where a 12-line order sent 12 separate approvals and customers missed
+ * some. Each sibling with a still-open customer_approval gets the same result
+ * and is marked responded.
+ */
+async function applyApprovalToOrderGroup(
+  admin: Client,
+  primary: { order_id: string; tenant_id: string },
+  response: CustomerResponse,
+  note: string | null
+): Promise<void> {
+  const { data: order } = await admin
+    .from("orders")
+    .select("id, title, column_id, description, specs, tenant_id")
+    .eq("id", primary.order_id)
+    .maybeSingle();
+  if (!order) return;
+  const members = await listOrderGroupMembers(admin, primary.tenant_id, {
+    id: order.id as string,
+    title: order.title as string,
+    column_id: order.column_id as string | null,
+    description: order.description as string | null,
+    specs: (order.specs ?? {}) as Record<string, unknown>,
+  });
+  if (members.length <= 1) return;
+
+  for (const m of members) {
+    if (m.id === primary.order_id) continue;
+    const { data: sib } = await admin
+      .from("job_notifications")
+      .select("id")
+      .eq("order_id", m.id)
+      .eq("type", "customer_approval")
+      .in("status", ["pending", "sent"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!sib) continue;
+    if (response === "approved") {
+      await onApprovalResult(admin, {
+        tenantId: primary.tenant_id,
+        orderId: m.id,
+        result: "approved",
+      });
+    } else {
+      await logActivity(admin, {
+        tenantId: primary.tenant_id,
+        orderId: m.id,
+        actor: null,
+        action: "rejected",
+        metadata: { via: "customer", note: note || null, grouped: true },
+      });
+    }
+    await admin
+      .from("job_notifications")
+      .update({
+        status: "responded",
+        customer_response: response,
+        customer_note: note || null,
+        responded_at: new Date().toISOString(),
+      })
+      .eq("id", (sib as { id: string }).id);
+  }
+}
+
 export async function respondToNotification(
   admin: Client,
   params: {
@@ -756,6 +823,13 @@ export async function respondToNotification(
         },
       });
     }
+    // One decision covers every line item of a multi-part order.
+    await applyApprovalToOrderGroup(
+      admin,
+      { order_id: notification.order_id, tenant_id: notification.tenant_id },
+      params.response,
+      params.note?.trim() || null
+    );
   } else if (notification.type === "ready_to_ship") {
     // View/acknowledge only — do not move the order off Ready to Ship.
     await logActivity(admin, {
