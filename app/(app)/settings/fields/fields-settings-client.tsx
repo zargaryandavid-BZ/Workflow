@@ -10,8 +10,10 @@ type Tab = "fields" | "links";
 
 export function FieldsSettingsClient({
   initialFields,
+  initialCatalogUrl = "",
 }: {
   initialFields: CustomField[];
+  initialCatalogUrl?: string;
 }) {
   const [tab, setTab] = useState<Tab>("fields");
   const selectFields = initialFields.filter((f) => f.field_type === "select");
@@ -46,7 +48,10 @@ export function FieldsSettingsClient({
       </div>
 
       {tab === "fields" ? (
-        <FieldsManager initialFields={initialFields} />
+        <FieldsManager
+          initialFields={initialFields}
+          initialCatalogUrl={initialCatalogUrl}
+        />
       ) : (
         <LinkedDropdownsTab selectFields={selectFields} />
       )}

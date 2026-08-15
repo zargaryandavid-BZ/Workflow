@@ -10,11 +10,24 @@ export default async function FieldsSettingsPage() {
   if (ctx.role !== "admin") redirect("/board");
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("custom_fields")
-    .select("*")
-    .eq("tenant_id", ctx.tenant.id)
-    .order("position", { ascending: true });
+  const [{ data }, { data: tenantRow }] = await Promise.all([
+    supabase
+      .from("custom_fields")
+      .select("*")
+      .eq("tenant_id", ctx.tenant.id)
+      .order("position", { ascending: true }),
+    supabase
+      .from("tenants")
+      .select("catalog_import_url")
+      .eq("id", ctx.tenant.id)
+      .maybeSingle(),
+  ]);
+
+  const savedCatalogUrl =
+    typeof (tenantRow as { catalog_import_url?: string | null } | null)
+      ?.catalog_import_url === "string"
+      ? (tenantRow as { catalog_import_url: string }).catalog_import_url.trim()
+      : "";
 
   return (
     <div>
@@ -23,7 +36,10 @@ export default async function FieldsSettingsPage() {
         Capture print-specific metadata on every job (e.g. Pantone color, bleed,
         finish). These appear on each job&apos;s detail view.
       </p>
-      <FieldsSettingsClient initialFields={(data ?? []) as CustomField[]} />
+      <FieldsSettingsClient
+        initialFields={(data ?? []) as CustomField[]}
+        initialCatalogUrl={savedCatalogUrl}
+      />
     </div>
   );
 }

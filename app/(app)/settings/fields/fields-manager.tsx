@@ -2,12 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Download, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  CatalogImportReviewModal,
+  type CatalogReviewPayload,
+} from "@/components/settings/catalog-import-review-modal";
 import type { CustomField, CustomFieldType } from "@/lib/types";
+import type { CatalogFieldKey } from "@/lib/import-catalog-review";
 
 const TYPES: { value: CustomFieldType; label: string }[] = [
   { value: "text", label: "Text" },
@@ -34,8 +39,10 @@ function parseOptionsText(text: string): string[] {
 
 export function FieldsManager({
   initialFields,
+  initialCatalogUrl = "",
 }: {
   initialFields: CustomField[];
+  initialCatalogUrl?: string;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -45,6 +52,22 @@ export function FieldsManager({
   const [loading, setLoading] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [applyingImport, setApplyingImport] = useState(false);
+  const [catalogUrl, setCatalogUrl] = useState(() => {
+    if (initialCatalogUrl.trim()) return initialCatalogUrl;
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem("workflow.catalogImportUrl")?.trim() ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [review, setReview] = useState<CatalogReviewPayload | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<CustomField | null>(null);
@@ -84,6 +107,83 @@ export function FieldsManager({
       return;
     }
     setMessage(`Updated options on ${json.updated} field${json.updated === 1 ? "" : "s"}.`);
+    router.refresh();
+  }
+
+  /** Analyze catalog vs our fields, then open review modal (no DB writes yet). */
+  async function importCatalog() {
+    setImportError(null);
+    setImportMessage(null);
+    setReviewError(null);
+    setImporting(true);
+    const res = await fetch("/api/custom-fields/import-catalog/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: catalogUrl.trim() || undefined }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      aiUsed?: boolean;
+      aiConfigured?: boolean;
+      catalogUrl?: string;
+      duplicates?: CatalogReviewPayload["duplicates"];
+      additions?: CatalogReviewPayload["additions"];
+    };
+    setImporting(false);
+    if (!res.ok) {
+      setImportError(json.error ?? "Analyze failed");
+      return;
+    }
+    if (typeof json.catalogUrl === "string" && json.catalogUrl.trim()) {
+      const saved = json.catalogUrl.trim();
+      setCatalogUrl(saved);
+      try {
+        localStorage.setItem("workflow.catalogImportUrl", saved);
+      } catch {
+        /* ignore */
+      }
+    }
+    setReview({
+      aiUsed: Boolean(json.aiUsed),
+      aiConfigured: json.aiConfigured !== false,
+      duplicates: json.duplicates ?? [],
+      additions: json.additions ?? [],
+    });
+    setReviewOpen(true);
+  }
+
+  async function applyCatalogReview(payload: {
+    groups: {
+      fieldKey: CatalogFieldKey;
+      ours: string[];
+      catalog: string[];
+      keep: string[];
+    }[];
+    add: { fieldKey: CatalogFieldKey; value: string }[];
+  }) {
+    setReviewError(null);
+    setApplyingImport(true);
+    const res = await fetch("/api/custom-fields/import-catalog/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      products?: number;
+      materials?: number;
+      categories?: number;
+    };
+    setApplyingImport(false);
+    if (!res.ok) {
+      setReviewError(json.error ?? "Apply failed");
+      return;
+    }
+    setReviewOpen(false);
+    setReview(null);
+    setImportMessage(
+      `Import applied — Products ${json.products ?? 0}, Materials ${json.materials ?? 0}, Categories ${json.categories ?? 0} options.`
+    );
     router.refresh();
   }
 
@@ -170,10 +270,64 @@ export function FieldsManager({
         </p>
       ) : null}
 
+      <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-4">
+        <div>
+          <p className="text-sm font-medium text-slate-700">
+            Import from Catalog{" "}
+            <span className="font-normal text-slate-400">(optional)</span>
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Paste a CRM catalog API URL, or leave blank for the default CRM feed.
+            Import analyzes catalog vs your Category / Product / Materials options,
+            highlights possible duplicates (rules + AI when configured), then you
+            choose what to keep. Nothing is saved until you confirm.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1">
+            <Label htmlFor="catalog-url">Catalog API URL</Label>
+            <Input
+              id="catalog-url"
+              type="url"
+              value={catalogUrl}
+              onChange={(e) => setCatalogUrl(e.target.value)}
+              placeholder="https://your-crm.vercel.app/api/catalog"
+              disabled={importing}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void importCatalog()}
+            disabled={importing}
+            className="shrink-0 whitespace-nowrap"
+          >
+            <Download
+              className={`h-4 w-4 shrink-0 ${importing ? "animate-pulse" : ""}`}
+            />
+            {importing ? "Analyzing…" : "Import"}
+          </Button>
+        </div>
+        {importError ? (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+            {importError}
+          </p>
+        ) : null}
+        {importMessage ? (
+          <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {importMessage}
+          </p>
+        ) : null}
+      </div>
+
       <form
         onSubmit={add}
         className="space-y-4 rounded-lg border border-slate-200 bg-white p-4"
       >
+        <p className="text-sm font-medium text-slate-700">
+          Add custom field{" "}
+          <span className="font-normal text-slate-400">(manual)</span>
+        </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="f-name">Field name</Label>
@@ -307,6 +461,19 @@ export function FieldsManager({
           }}
         />
       ) : null}
+
+      <CatalogImportReviewModal
+        open={reviewOpen}
+        review={review}
+        applying={applyingImport}
+        error={reviewError}
+        onClose={() => {
+          if (applyingImport) return;
+          setReviewOpen(false);
+          setReviewError(null);
+        }}
+        onApply={(payload) => void applyCatalogReview(payload)}
+      />
     </div>
   );
 }

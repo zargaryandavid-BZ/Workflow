@@ -66,6 +66,8 @@ export interface Tenant {
    * See lib/emergency-balance.ts — empty conditions = no warning for that column.
    */
   emergency_balance?: EmergencyBalanceConfig | Record<string, unknown> | null;
+  /** Last successful Settings → Fields catalog import URL. */
+  catalog_import_url?: string | null;
 }
 
 export interface Profile {
