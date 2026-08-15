@@ -1,4 +1,5 @@
 import { Printer } from "lucide-react";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -16,8 +17,10 @@ import { itemTitleFromSpecs } from "@/lib/notification-messages";
 import {
   formatReadyToShipGroupLabel,
   listOrderGroupMembers,
+  orderGroupKey,
   type GroupOrderMember,
 } from "@/lib/ready-to-ship-group";
+import { ensureApprovalGroupPortal } from "@/lib/approval-group";
 import { RespondForm } from "./respond-form";
 import {
   PORTAL_FOOTER,
@@ -293,41 +296,41 @@ export default async function RespondPage({
     }
   }
 
-  // Combined approval: show EVERY line item of a multi-part order on one page so
-  // the customer approves them all in one place (one decision applies to all).
-  if (!orderReview && notification.type === "customer_approval") {
+  // Multi-item customer approvals use a stable group portal (one SMS link for
+  // the whole order). Old per-item tokens redirect there.
+  if (notification.type === "customer_approval") {
     const admin = createAdminClient();
     const { data: primaryOrder } = await admin
       .from("orders")
       .select("id, title, tenant_id, column_id, description, specs")
       .eq("id", notification.order_id)
       .maybeSingle();
-    const members = primaryOrder
-      ? await listOrderGroupMembers(admin, primaryOrder.tenant_id as string, {
+    if (primaryOrder) {
+      const members = await listOrderGroupMembers(
+        admin,
+        primaryOrder.tenant_id as string,
+        {
           id: primaryOrder.id as string,
           title: primaryOrder.title as string,
           column_id: primaryOrder.column_id as string | null,
           description: primaryOrder.description as string | null,
           specs: (primaryOrder.specs ?? {}) as Record<string, unknown>,
-        })
-      : [];
-    if (members.length > 1) {
-      const parts = await buildRespondParts(members, notification);
-      orderReview = (
-        <div className="space-y-4">
-          {parts.map((part) => (
-            <OrderReview
-              key={part.id}
-              token={token}
-              heading={part.title}
-              rows={part.rows}
-              skus={part.skus}
-              assets={part.assets}
-              skuImages={part.skuImages}
-            />
-          ))}
-        </div>
+        }
       );
+      if (members.length > 1) {
+        const key = orderGroupKey({
+          title: primaryOrder.title as string,
+          specs: (primaryOrder.specs ?? {}) as Record<string, unknown>,
+        });
+        if (key) {
+          const portal = await ensureApprovalGroupPortal(
+            admin,
+            primaryOrder.tenant_id as string,
+            key
+          );
+          redirect(`/respond/g/${portal.token}`);
+        }
+      }
     }
   }
 

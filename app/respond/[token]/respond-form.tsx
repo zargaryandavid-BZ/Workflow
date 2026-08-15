@@ -32,6 +32,8 @@ interface Props {
   metaChips?: OrderMetaChip[];
   tenantName?: string;
   orderReview?: React.ReactNode;
+  /** Fired after a successful customer_approval decision (group portal nav). */
+  onDecided?: (decision: "approved" | "rejected") => void;
 }
 
 /** A single titled upload control (its own file input + drag state). */
@@ -142,6 +144,7 @@ export function RespondForm({
   metaChips = [],
   tenantName,
   orderReview,
+  onDecided,
 }: Props) {
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
@@ -233,7 +236,9 @@ export function RespondForm({
       }
       setDone(true);
       if (type === "customer_approval") {
-        setDoneKind(response === "approved" ? "approved" : "rejected");
+        const kind = response === "approved" ? "approved" : "rejected";
+        setDoneKind(kind);
+        onDecided?.(kind);
       } else {
         setDoneKind("info");
       }
