@@ -68,7 +68,8 @@ export async function listOrderGroupMembers(
     .is("removed_at", null);
 
   if (webhookKey) {
-    q = q.filter("specs->>'webhook_order_number'", "eq", webhookKey);
+    // Use .eq on the JSON path — .filter("specs->>'…'") silently returns no rows.
+    q = q.eq("specs->>webhook_order_number", webhookKey);
   } else {
     q = q.ilike("title", `${groupKey}-%`);
   }

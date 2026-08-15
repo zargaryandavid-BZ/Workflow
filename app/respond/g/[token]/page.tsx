@@ -179,7 +179,7 @@ export default async function ApprovalGroupPage({
     .select("id, title, tenant_id, column_id, description, specs")
     .eq("tenant_id", portal.tenant_id)
     .is("removed_at", null)
-    .filter("specs->>'webhook_order_number'", "eq", portal.group_key)
+    .eq("specs->>webhook_order_number", portal.group_key)
     .limit(1);
 
   type SeedOrder = {
