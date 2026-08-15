@@ -139,10 +139,14 @@ async function buildItem(
 
 export default async function ApprovalGroupPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams: Promise<{ item?: string | string[] }>;
 }) {
   const { token } = await params;
+  const sp = await searchParams;
+  const initialItem = Array.isArray(sp.item) ? sp.item[0] : sp.item ?? null;
   const supabase = await createClient();
   const { data } = await supabase.rpc("get_approval_group_portal_by_token", {
     p_token: token,
@@ -254,6 +258,7 @@ export default async function ApprovalGroupPage({
       tenantName={portal.tenant_name}
       items={payloads}
       reviews={reviews}
+      initialItem={initialItem}
     />
   );
 }

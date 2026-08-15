@@ -1,13 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { respondUrl } from "@/lib/notification-messages";
 
-export function CustomerLinkRow({ token }: { token: string }) {
+export function CustomerLinkRow({
+  token,
+  orderId,
+}: {
+  token: string;
+  /** When set (approval tab), resolve group portal + ?item= for multi-item orders. */
+  orderId?: string;
+}) {
+  const fallback = respondUrl(token);
+  const [url, setUrl] = useState(fallback);
   const [copied, setCopied] = useState(false);
-  const url = respondUrl(token);
+
+  useEffect(() => {
+    setUrl(fallback);
+    if (!orderId?.trim()) return;
+
+    let cancelled = false;
+    const qs = new URLSearchParams({ token });
+    fetch(`/api/orders/${orderId}/approval-customer-link?${qs.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as { url?: string };
+      })
+      .then((data) => {
+        if (cancelled || !data?.url?.trim()) return;
+        setUrl(data.url.trim());
+      })
+      .catch(() => {
+        // keep per-item /respond/{token} fallback
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, orderId, fallback]);
 
   async function copy() {
     try {

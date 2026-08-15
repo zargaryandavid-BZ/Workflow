@@ -548,7 +548,7 @@ export function ApprovalTab({
           </p>
           {showCustomerLink(statusNote) ? (
             <div className="mt-3">
-              <CustomerLinkRow token={statusNote.token} />
+              <CustomerLinkRow token={statusNote.token} orderId={orderId} />
             </div>
           ) : null}
         </div>
@@ -655,7 +655,7 @@ export function ApprovalTab({
 
                   {showCustomerLink(note) ? (
                     <div className="mt-3">
-                      <CustomerLinkRow token={note.token} />
+                      <CustomerLinkRow token={note.token} orderId={orderId} />
                     </div>
                   ) : null}
 

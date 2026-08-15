@@ -20,10 +20,10 @@ export type ApprovalGroupItemPayload = {
   productLabel: string;
 };
 
-function statusLabel(status: ApprovalItemStatus): string {
+function shortStatusLabel(status: ApprovalItemStatus): string {
   switch (status) {
     case "waiting":
-      return "Waiting for your approval";
+      return "Waiting";
     case "pending":
       return "Pending";
     case "approved":
@@ -31,6 +31,26 @@ function statusLabel(status: ApprovalItemStatus): string {
     case "rejected":
       return "Rejected";
   }
+}
+
+const STATUS_SORT_ORDER: Record<ApprovalItemStatus, number> = {
+  waiting: 0,
+  rejected: 1,
+  pending: 2,
+  approved: 3,
+};
+
+function sortApprovalItems(
+  list: ApprovalGroupItemPayload[]
+): ApprovalGroupItemPayload[] {
+  return [...list].sort((a, b) => {
+    const byStatus =
+      STATUS_SORT_ORDER[a.summary.status] - STATUS_SORT_ORDER[b.summary.status];
+    if (byStatus !== 0) return byStatus;
+    return a.summary.title.localeCompare(b.summary.title, undefined, {
+      numeric: true,
+    });
+  });
 }
 
 function statusClass(status: ApprovalItemStatus, selected: boolean): string {
@@ -67,14 +87,19 @@ export function ApprovalGroupView({
   tenantName,
   items: initialItems,
   reviews,
+  initialItem = null,
 }: {
   groupLabel: string;
   tenantName: string;
   items: ApprovalGroupItemPayload[];
   /** Server-rendered OrderReview nodes keyed by order id. */
   reviews: Record<string, ReactNode>;
+  /** Prefer selecting this order id or title from ?item=. */
+  initialItem?: string | null;
 }) {
   const [items, setItems] = useState(initialItems);
+
+  const sortedItems = useMemo(() => sortApprovalItems(items), [items]);
 
   const waiting = useMemo(
     () => items.filter((i) => i.summary.status === "waiting").length,
@@ -82,18 +107,37 @@ export function ApprovalGroupView({
   );
 
   const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const firstWaiting = initialItems.find((i) => i.summary.status === "waiting");
+    const sorted = sortApprovalItems(initialItems);
+    if (initialItem?.trim()) {
+      const needle = initialItem.trim();
+      const match = sorted.find(
+        (i) =>
+          i.summary.orderId === needle || i.summary.title === needle
+      );
+      if (match && match.summary.status !== "pending") {
+        return match.summary.orderId;
+      }
+    }
+    const firstWaiting = sorted.find((i) => i.summary.status === "waiting");
     if (firstWaiting) return firstWaiting.summary.orderId;
-    const clickable = initialItems.find((i) => i.summary.status !== "pending");
+    const clickable = sorted.find((i) => i.summary.status !== "pending");
     return clickable?.summary.orderId ?? null;
   });
 
   const selected = items.find((i) => i.summary.orderId === selectedId) ?? null;
   const selectedReview = selectedId ? reviews[selectedId] ?? null : null;
 
+  function syncItemQuery(orderId: string) {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("item", orderId);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }
+
   function selectItem(orderId: string, status: ApprovalItemStatus) {
     if (status === "pending") return;
     setSelectedId(orderId);
+    syncItemQuery(orderId);
   }
 
   function onDecided(orderId: string, decision: "approved" | "rejected") {
@@ -113,12 +157,13 @@ export function ApprovalGroupView({
           : item
       )
     );
+    syncItemQuery(orderId);
   }
 
   return (
     <div className="min-h-screen bg-[#f8fafc] px-3 py-6 sm:px-4 sm:py-8">
-      <div className="mx-auto w-full max-w-5xl overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
-        <div className="flex items-center justify-between bg-[#1d4ed8] px-4 py-3 text-white">
+      <div className="mx-auto w-full max-w-5xl rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
+        <div className="flex items-center justify-between rounded-t-xl bg-[#1d4ed8] px-4 py-3 text-white">
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20">
               <Printer className="h-4 w-4" />
@@ -139,52 +184,50 @@ export function ApprovalGroupView({
           </p>
         </div>
 
-        <div className="flex flex-col md:flex-row">
-          <aside className="shrink-0 border-b border-slate-100 md:w-64 md:border-b-0 md:border-r md:border-slate-100">
-            <div className="max-h-56 space-y-1.5 overflow-y-auto p-3 md:max-h-[min(70vh,640px)] md:p-4">
+        <div className="flex flex-col md:flex-row md:items-stretch">
+          <aside className="flex shrink-0 flex-col border-b border-slate-100 md:w-72 md:border-b-0 md:border-r md:border-slate-100 md:max-h-[min(70vh,640px)]">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 md:px-4 md:py-4 [scrollbar-gutter:stable]">
               <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 Sub-items
               </p>
-              {items.map((item) => {
-                const { summary } = item;
-                const selectedRow = summary.orderId === selectedId;
-                const disabled = summary.status === "pending";
-                return (
-                  <button
-                    key={summary.orderId}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => selectItem(summary.orderId, summary.status)}
-                    className={cn(
-                      "flex w-full flex-col gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                      statusClass(summary.status, selectedRow),
-                      summary.status === "waiting" && !selectedRow
-                        ? "ring-1 ring-amber-200"
-                        : null
-                    )}
-                  >
-                    <span className="flex items-start gap-2">
-                      <span
+              <ul className="space-y-1.5 pb-1">
+                {sortedItems.map((item) => {
+                  const { summary } = item;
+                  const selectedRow = summary.orderId === selectedId;
+                  const disabled = summary.status === "pending";
+                  return (
+                    <li key={summary.orderId}>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() =>
+                          selectItem(summary.orderId, summary.status)
+                        }
                         className={cn(
-                          "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-                          statusDot(summary.status)
+                          "flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
+                          statusClass(summary.status, selectedRow)
                         )}
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">
-                          {summary.itemLabel}
+                      >
+                        <span
+                          className={cn(
+                            "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                            statusDot(summary.status)
+                          )}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium leading-snug">
+                            {summary.itemLabel}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[11px] font-medium leading-snug opacity-80">
+                            {summary.title} ·{" "}
+                            {shortStatusLabel(summary.status)}
+                          </span>
                         </span>
-                        <span className="block truncate text-[11px] opacity-70">
-                          {summary.title}
-                        </span>
-                        <span className="mt-0.5 block text-[11px] font-medium">
-                          {statusLabel(summary.status)}
-                        </span>
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           </aside>
 
@@ -251,7 +294,7 @@ export function ApprovalGroupView({
           </main>
         </div>
 
-        <div className="border-t border-slate-100 px-6 py-4 text-center text-xs text-slate-400">
+        <div className="rounded-b-xl border-t border-slate-100 px-6 py-4 text-center text-xs text-slate-400">
           {PORTAL_FOOTER}
         </div>
       </div>

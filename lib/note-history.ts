@@ -1,6 +1,6 @@
 import type { NoteEntry } from "@/lib/types";
 
-/** Parse `internal_note` / `specs.production_notes` JSON history (or legacy plain text). */
+/** Parse `internal_note` / `specs.production_notes` / `specs.designer_notes` JSON history (or legacy plain text). */
 export function parseNoteHistory(raw: string | null | undefined): NoteEntry[] {
   const trimmed = typeof raw === "string" ? raw.trim() : "";
   if (!trimmed) return [];

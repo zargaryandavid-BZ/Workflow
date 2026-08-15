@@ -88,13 +88,19 @@ export async function ensureApprovalGroupPortal(
   };
 }
 
-export function approvalGroupRespondUrl(portalToken: string): string {
-  return `${appUrl()}/respond/g/${portalToken}`;
+export function approvalGroupRespondUrl(
+  portalToken: string,
+  itemId?: string | null
+): string {
+  const base = `${appUrl()}/respond/g/${portalToken}`;
+  const item = itemId?.trim();
+  if (!item) return base;
+  return `${base}?item=${encodeURIComponent(item)}`;
 }
 
 /**
  * Customer-facing approval link for SMS/email.
- * Multi-item groups → stable /respond/g/{token}; single cards → /respond/{notifToken}.
+ * Multi-item groups → stable /respond/g/{token}?item=…; single cards → /respond/{notifToken}.
  */
 export async function resolveCustomerApprovalActionUrl(
   client: Client,
@@ -117,7 +123,7 @@ export async function resolveCustomerApprovalActionUrl(
     return `${appUrl()}/respond/${notificationToken}`;
   }
   const portal = await ensureApprovalGroupPortal(client, order.tenant_id, key);
-  return approvalGroupRespondUrl(portal.token);
+  return approvalGroupRespondUrl(portal.token, order.id);
 }
 
 function statusFromNotification(row: {

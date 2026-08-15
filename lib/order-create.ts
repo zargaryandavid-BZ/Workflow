@@ -233,6 +233,17 @@ export async function createOrder(
     // Only string notes are accepted on create.
     delete baseSpecs.production_notes;
   }
+  if (
+    typeof baseSpecs.designer_notes === "string" &&
+    baseSpecs.designer_notes.trim()
+  ) {
+    baseSpecs.designer_notes = noteHistoryFromPlainText(
+      baseSpecs.designer_notes,
+      authorName
+    );
+  } else if (baseSpecs.designer_notes != null) {
+    delete baseSpecs.designer_notes;
+  }
   // Customer company default fills priority when the card doesn't already have one.
   if (customerId && parsePriorityScore(baseSpecs.priority_score) == null) {
     try {

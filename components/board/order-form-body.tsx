@@ -101,13 +101,14 @@ export interface OrderFormBodyProps {
   onProductionNotesChange: (value: string) => void;
   /**
    * Three-audience notes (customer / designer / production). The production
-   * note is {@link productionNotes} above. These two are the customer- and
-   * designer-facing notes; they render only when {@link showAudienceNotes} is
-   * true (hidden from production-floor members), and only in the modal that
-   * wires the handlers.
+   * note is {@link productionNotes} above. Customer note stays a single field;
+   * designer notes are append-only history like internal/production.
    */
   customerFacingNote?: string;
   onCustomerFacingNoteChange?: (value: string) => void;
+  /** Parsed history of past designer note entries (edit mode). */
+  designerNoteHistory?: NoteEntry[];
+  /** Draft text for a new designer note (append-only). */
   designerNote?: string;
   onDesignerNoteChange?: (value: string) => void;
   /** Show the customer/designer note windows (staff only, not production floor). */
@@ -336,6 +337,7 @@ export function OrderFormBody({
   onProductionNotesChange,
   customerFacingNote = "",
   onCustomerFacingNoteChange,
+  designerNoteHistory,
   designerNote = "",
   onDesignerNoteChange,
   showAudienceNotes = false,
@@ -1178,16 +1180,47 @@ export function OrderFormBody({
               className={cn(readOnly ? "bg-slate-50" : "bg-white")}
             />
           </div>
-          <div>
-            <Label htmlFor={`${idPrefix}-designer-note`}>Designer note</Label>
-            <Textarea
-              id={`${idPrefix}-designer-note`}
-              readOnly={readOnly}
-              value={designerNote}
-              onChange={(e) => onDesignerNoteChange(e.target.value)}
-              placeholder="Notes for the designer…"
-              className={cn(readOnly ? "bg-slate-50" : "bg-white")}
-            />
+          <div className="space-y-2">
+            <Label>Designer note</Label>
+            {designerNoteHistory && designerNoteHistory.length > 0 ? (
+              <div className="min-w-0 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                {designerNoteHistory.map((entry, i) => (
+                  <div key={i} className="min-w-0">
+                    {i > 0 && <hr className="mb-2 border-slate-100" />}
+                    <p className="mb-1 text-[11px] font-semibold text-slate-500">
+                      {entry.author}
+                      <span className="mx-1 font-normal">/</span>
+                      {new Date(entry.date).toLocaleString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                    <p className="min-w-0 break-all whitespace-pre-wrap text-sm text-slate-900">
+                      {entry.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {!readOnly ? (
+              <div>
+                <Label htmlFor={`${idPrefix}-designer-note`}>
+                  {designerNoteHistory && designerNoteHistory.length > 0
+                    ? "Add new note"
+                    : "Note for designer"}
+                </Label>
+                <Textarea
+                  id={`${idPrefix}-designer-note`}
+                  value={designerNote}
+                  onChange={(e) => onDesignerNoteChange(e.target.value)}
+                  placeholder="Notes for the designer…"
+                  className="bg-white"
+                />
+              </div>
+            ) : null}
           </div>
           <p className="text-[11px] text-slate-400">
             The <span className="font-medium">Production note</span> below is

@@ -306,6 +306,10 @@ export function CardDetailModal({
   >([]);
   const [productionNotes, setProductionNotes] = useState("");
   const [customerFacingNote, setCustomerFacingNote] = useState("");
+  const [designerNoteHistory, setDesignerNoteHistory] = useState<NoteEntry[]>(
+    []
+  );
+  /** Draft text for a new designer note (append-only). */
   const [designerNote, setDesignerNote] = useState("");
   const [priority, setPriority] = useState("normal");
   const [applicationDays, setApplicationDays] = useState(DEFAULT_APPLICATION_DAYS);
@@ -380,11 +384,12 @@ export function CardDetailModal({
         ? json.order.specs.customer_facing_note
         : ""
     );
-    setDesignerNote(
+    const rawDesigner =
       typeof json.order.specs?.designer_notes === "string"
         ? json.order.specs.designer_notes
-        : ""
-    );
+        : "";
+    setDesignerNoteHistory(parseNoteHistory(rawDesigner));
+    setDesignerNote("");
     setPriority(json.order.priority);
     setApplicationDays(
       applicationDaysFromSpecs(json.order.specs) ?? DEFAULT_APPLICATION_DAYS
@@ -712,6 +717,12 @@ export function CardDetailModal({
     const nextProductionNotesJson = serializeNoteHistory(
       updatedProductionHistory
     );
+    const updatedDesignerHistory = appendNoteEntry(
+      designerNoteHistory,
+      designerNote,
+      currentUserName
+    );
+    const nextDesignerNotesJson = serializeNoteHistory(updatedDesignerHistory);
     const savedSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
     const applicationOn = isApplicationCustomFieldOn(
       customFields,
@@ -738,7 +749,7 @@ export function CardDetailModal({
           design_task: nextDesignTask || null,
           production_notes: nextProductionNotesJson,
           customer_facing_note: customerFacingNote.trim() || null,
-          designer_notes: designerNote.trim() || null,
+          designer_notes: nextDesignerNotesJson,
         },
         applicationOn,
         applicationDays
@@ -794,7 +805,8 @@ export function CardDetailModal({
     setProductionNotes("");
     setTitle(nextTitle);
     setCustomerFacingNote(customerFacingNote.trim());
-    setDesignerNote(designerNote.trim());
+    setDesignerNoteHistory(updatedDesignerHistory);
+    setDesignerNote("");
     setDesignTask(nextDesignTask);
     setDueDate(nextDue ?? "");
     setCustomerName(nextCustomerName);
@@ -943,11 +955,7 @@ export function CardDetailModal({
     ) {
       return true;
     }
-    if (
-      designerNote.trim() !== String(order.specs?.designer_notes ?? "").trim()
-    ) {
-      return true;
-    }
+    if (designerNote.trim()) return true;
 
     const savedSkus = prepareSkusForSave(baselineSkusRef.current, {
       pendingArtworkIds: [],
@@ -2235,6 +2243,7 @@ export function CardDetailModal({
               onProductionNotesChange={setProductionNotes}
               customerFacingNote={customerFacingNote}
               onCustomerFacingNoteChange={setCustomerFacingNote}
+              designerNoteHistory={designerNoteHistory}
               designerNote={designerNote}
               onDesignerNoteChange={setDesignerNote}
               showAudienceNotes={role !== "member"}
