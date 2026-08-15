@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { OrderReview } from "@/components/respond/order-review";
+import { useMemo, useState, type ReactNode } from "react";
 import { RespondForm } from "@/app/respond/[token]/respond-form";
 import {
   PORTAL_FOOTER,
@@ -12,22 +11,12 @@ import type {
   ApprovalItemStatus,
 } from "@/lib/approval-group";
 import type { OrderMetaChip } from "@/lib/respond-page";
-import type {
-  RespondOrderAsset,
-  RespondOrderRow,
-  RespondSkuImage,
-} from "@/lib/respond-order";
-import type { SkuItem } from "@/lib/skus";
 import { cn } from "@/lib/utils";
 import { Printer } from "lucide-react";
 
 export type ApprovalGroupItemPayload = {
   summary: ApprovalGroupItemSummary;
   metaChips: OrderMetaChip[];
-  rows: RespondOrderRow[];
-  skus: SkuItem[];
-  assets: RespondOrderAsset[];
-  skuImages: Record<string, RespondSkuImage[]>;
   productLabel: string;
 };
 
@@ -77,10 +66,13 @@ export function ApprovalGroupView({
   groupLabel,
   tenantName,
   items: initialItems,
+  reviews,
 }: {
   groupLabel: string;
   tenantName: string;
   items: ApprovalGroupItemPayload[];
+  /** Server-rendered OrderReview nodes keyed by order id. */
+  reviews: Record<string, ReactNode>;
 }) {
   const [items, setItems] = useState(initialItems);
 
@@ -97,6 +89,7 @@ export function ApprovalGroupView({
   });
 
   const selected = items.find((i) => i.summary.orderId === selectedId) ?? null;
+  const selectedReview = selectedId ? reviews[selectedId] ?? null : null;
 
   function selectItem(orderId: string, status: ApprovalItemStatus) {
     if (status === "pending") return;
@@ -220,16 +213,7 @@ export function ApprovalGroupView({
                 onDecided={(decision) =>
                   onDecided(selected.summary.orderId, decision)
                 }
-                orderReview={
-                  <OrderReview
-                    token={selected.summary.notificationToken}
-                    heading={selected.summary.itemLabel}
-                    rows={selected.rows}
-                    skus={selected.skus}
-                    assets={selected.assets}
-                    skuImages={selected.skuImages}
-                  />
-                }
+                orderReview={selectedReview}
               />
             ) : (
               <div className="space-y-5">
@@ -261,16 +245,7 @@ export function ApprovalGroupView({
                     </div>
                   ) : null}
                 </div>
-                {selected.summary.notificationToken ? (
-                  <OrderReview
-                    token={selected.summary.notificationToken}
-                    heading={selected.summary.itemLabel}
-                    rows={selected.rows}
-                    skus={selected.skus}
-                    assets={selected.assets}
-                    skuImages={selected.skuImages}
-                  />
-                ) : null}
+                {selectedReview}
               </div>
             )}
           </main>

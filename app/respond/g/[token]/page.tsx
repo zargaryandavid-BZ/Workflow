@@ -15,12 +15,14 @@ import {
   skusForRespond,
   type RespondOrderAsset,
 } from "@/lib/respond-order";
+import { OrderReview } from "@/components/respond/order-review";
 import { orderMetaChips } from "@/lib/respond-page";
 import type { OrderSpecs } from "@/lib/types";
 import {
   ApprovalGroupView,
   type ApprovalGroupItemPayload,
 } from "./approval-group-view";
+import type { ReactNode } from "react";
 
 async function loadOrderFields(
   admin: ReturnType<typeof createAdminClient>,
@@ -71,7 +73,7 @@ async function loadFrozenApprovalAssets(
   });
 }
 
-async function buildItemPayload(
+async function buildItem(
   admin: ReturnType<typeof createAdminClient>,
   summary: ApprovalGroupItemSummary,
   member: {
@@ -81,14 +83,19 @@ async function buildItemPayload(
     specs: Record<string, unknown>;
   },
   fields: Record<string, unknown>
-): Promise<ApprovalGroupItemPayload> {
+): Promise<{
+  payload: ApprovalGroupItemPayload;
+  review: ReactNode | null;
+}> {
   const specs = (member.specs ?? {}) as OrderSpecs;
   const rawProduct = fields["Product"] ?? fields["product"];
   const product = rawProduct ? String(rawProduct) : "order";
 
   let assets: RespondOrderAsset[] = [];
-  let skuImages: Record<string, Awaited<ReturnType<typeof fetchRespondSkuImages>>[string]> =
-    {};
+  let skuImages: Record<
+    string,
+    Awaited<ReturnType<typeof fetchRespondSkuImages>>[string]
+  > = {};
 
   const frozen = await loadFrozenApprovalAssets(admin, summary.notificationId);
   if (frozen) {
@@ -109,15 +116,25 @@ async function buildItemPayload(
     }
   }
 
-  return {
+  const payload: ApprovalGroupItemPayload = {
     summary,
     metaChips: orderMetaChips(fields, specs),
-    rows: buildRespondOrderRows(member.description, fields, specs),
-    skus: skusForRespond(specs),
-    assets,
-    skuImages,
     productLabel: product,
   };
+
+  const review =
+    summary.notificationToken != null ? (
+      <OrderReview
+        token={summary.notificationToken}
+        heading={summary.itemLabel}
+        rows={buildRespondOrderRows(member.description, fields, specs)}
+        skus={skusForRespond(specs)}
+        assets={assets}
+        skuImages={skuImages}
+      />
+    ) : null;
+
+  return { payload, review };
 }
 
 export default async function ApprovalGroupPage({
@@ -133,7 +150,12 @@ export default async function ApprovalGroupPage({
 
   const portal = (
     data as
-      | { portal_id: string; tenant_id: string; group_key: string; tenant_name: string }[]
+      | {
+          portal_id: string;
+          tenant_id: string;
+          group_key: string;
+          tenant_name: string;
+        }[]
       | null
   )?.[0];
 
@@ -152,7 +174,6 @@ export default async function ApprovalGroupPage({
 
   const admin = createAdminClient();
 
-  // Seed any order in this group (webhook key or title PREFIX-N).
   const { data: byWebhook } = await admin
     .from("orders")
     .select("id, title, tenant_id, column_id, description, specs")
@@ -211,16 +232,18 @@ export default async function ApprovalGroupPage({
   );
 
   const payloads: ApprovalGroupItemPayload[] = [];
+  const reviews: Record<string, ReactNode> = {};
+
   for (const summary of summaries) {
     const member = members.find((m) => m.id === summary.orderId)!;
-    payloads.push(
-      await buildItemPayload(
-        admin,
-        summary,
-        member,
-        fieldByOrderId.get(member.id) ?? {}
-      )
+    const { payload, review } = await buildItem(
+      admin,
+      summary,
+      member,
+      fieldByOrderId.get(member.id) ?? {}
     );
+    payloads.push(payload);
+    if (review) reviews[summary.orderId] = review;
   }
 
   const groupLabel = formatReadyToShipGroupLabel(members);
@@ -230,6 +253,7 @@ export default async function ApprovalGroupPage({
       groupLabel={groupLabel}
       tenantName={portal.tenant_name}
       items={payloads}
+      reviews={reviews}
     />
   );
 }
