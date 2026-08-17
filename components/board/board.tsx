@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -739,7 +739,7 @@ export function Board({
   }
 
   /** Keep last-closed card ring until another card opens or empty board is clicked. */
-  function handleBoardPointerDown(e: PointerEvent<HTMLDivElement>) {
+  function handleBoardPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (!highlightedOrderId) return;
     const target = e.target;
     if (!(target instanceof Element)) return;
@@ -1024,7 +1024,7 @@ export function Board({
     let panStartScroll = 0;
     const interactive =
       "button,a,input,select,textarea,[data-order-card],[data-order-id]";
-    const onPointerDown = (e: PointerEvent) => {
+    const onPointerDown = (e: globalThis.PointerEvent) => {
       if (e.button !== 0) return;
       const t = e.target;
       if (!(t instanceof Element) || t.closest(interactive)) return;
@@ -1032,11 +1032,11 @@ export function Board({
       panStartX = e.clientX;
       panStartScroll = el.scrollLeft;
     };
-    const onPointerMove = (e: PointerEvent) => {
+    const onPointerMove = (e: globalThis.PointerEvent) => {
       if (panPointerId !== e.pointerId) return;
       el.scrollLeft = panStartScroll - (e.clientX - panStartX);
     };
-    const endPan = (e: PointerEvent) => {
+    const endPan = (e: globalThis.PointerEvent) => {
       if (panPointerId === e.pointerId) panPointerId = null;
     };
 
@@ -2504,7 +2504,7 @@ export function Board({
   // Close the multi-part order dropdown on outside click.
   useEffect(() => {
     if (!groupSuggestionsOpen || orderGroupSuggestions.length === 0) return;
-    function onPointerDown(e: MouseEvent | PointerEvent) {
+    function onPointerDown(e: MouseEvent | globalThis.PointerEvent) {
       const el = searchBoxRef.current;
       if (!el) return;
       if (e.target instanceof Node && !el.contains(e.target)) {

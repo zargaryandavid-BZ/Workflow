@@ -567,9 +567,9 @@ function RuleEditor({
                 <span>
                   <span className="font-medium">Send full order card JSON</span>
                   <span className="block text-xs text-slate-500 mt-0.5">
-                    Posts every field from the order card (customer, product, specs,
-                    custom fields, SKUs, notes, etc.). Empty fields are sent as
-                    empty strings so the other system always gets a complete payload.
+                    Posts a Pulse-compatible job ticket payload (customer, product,
+                    materials, sizes, SKUs, notes, etc.). Empty fields are omitted
+                    as empty strings / null so Pulse can fill them in.
                   </span>
                 </span>
               </label>

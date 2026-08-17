@@ -1,5 +1,17 @@
 import type { OrderExportData } from "@/lib/button-automation-order-data";
-import { formatFieldDisplayValue } from "@/lib/order-form";
+import {
+  ARTWORK_FIELD_NAME,
+  CUSTOMER_CONTACT_FIELD_NAME,
+  CUSTOMER_NAME_FIELD_NAME,
+  DESIGNER_FIELD_NAME,
+} from "@/lib/constants";
+import { formatNoteHistoryText } from "@/lib/note-history";
+import {
+  findOrderFormField,
+  findOrderQtyField,
+  formatFieldDisplayValue,
+} from "@/lib/order-form";
+import { isApplicationEnabled } from "@/lib/order-application";
 
 /** Stored in `webhook_body_template` when "Send full order card JSON" is enabled. */
 export const FULL_ORDER_WEBHOOK_SENTINEL = "__FULL_ORDER_CARD__";
@@ -10,41 +22,125 @@ export function isFullOrderWebhookTemplate(
   return (template ?? "").trim() === FULL_ORDER_WEBHOOK_SENTINEL;
 }
 
-function asString(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
+function fieldRaw(
+  data: OrderExportData,
+  ...names: string[]
+): unknown {
+  for (const name of names) {
+    const field = findOrderFormField(data.customFields, name);
+    if (!field) continue;
+    const raw = data.fieldValues[field.id];
+    if (raw !== null && raw !== undefined && raw !== "") return raw;
   }
-  if (Array.isArray(value) || typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "";
-    }
-  }
-  return "";
+  return undefined;
 }
 
-function emptyable(value: unknown): string | number | boolean | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return value;
-  return asString(value);
+function fieldString(data: OrderExportData, ...names: string[]): string {
+  const raw = fieldRaw(data, ...names);
+  if (raw == null || raw === "") return "";
+  return formatFieldDisplayValue(raw).trim();
+}
+
+function fieldNumber(data: OrderExportData, ...names: string[]): number | null {
+  const raw = fieldRaw(data, ...names);
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const n = Number(String(raw).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function fieldBool(data: OrderExportData, ...names: string[]): boolean {
+  const raw = fieldRaw(data, ...names);
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw === 1;
+  if (typeof raw === "string") {
+    const v = raw.trim().toLowerCase();
+    return ["true", "yes", "1", "on", "checked"].includes(v);
+  }
+  return false;
+}
+
+function asIsoDate(value: string | null | undefined): string {
+  if (!value?.trim()) return "";
+  // Already ISO date / datetime
+  if (/^\d{4}-\d{2}-\d{2}/.test(value.trim())) {
+    return value.trim().slice(0, 10);
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
+function resolveFacility(data: OrderExportData): string {
+  const explicit = fieldString(data, "Facility", "Plant", "Location");
+  const normalized = explicit.trim().toLowerCase().replace(/\s+/g, "-");
+  if (normalized.includes("boyd")) return "boyd-street";
+  if (normalized.includes("16th") || normalized.includes("16-th")) {
+    return "16th-street";
+  }
+  const materials = fieldString(data, "Materials", "Material", "Paper Stock");
+  if (/\bboyd\b/i.test(materials)) return "boyd-street";
+  return "16th-street";
+}
+
+function buildCustomFieldsMap(data: OrderExportData): Record<string, string> {
+  const skip = new Set(
+    [
+      CUSTOMER_NAME_FIELD_NAME,
+      CUSTOMER_CONTACT_FIELD_NAME,
+      ARTWORK_FIELD_NAME,
+      DESIGNER_FIELD_NAME,
+      "Category",
+      "Product",
+      "Materials",
+      "Material",
+      "Special effects",
+      "Finishing",
+      "Lamination",
+      "Sides",
+      "Position",
+      "Roll Direction",
+      "Color",
+      "Color Mode",
+      "Die",
+      "Width",
+      "Height",
+      "Finished Size",
+      "Application",
+      "Die Cut",
+      "Perforation",
+      "Need a Design",
+      "Facility",
+      "Plant",
+      "Location",
+      "Unit Price",
+      "Unit Price ($)",
+      "Order QTY",
+      "Quantity",
+    ].map((n) => n.toLowerCase())
+  );
+
+  const out: Record<string, string> = {};
+  for (const field of data.customFields) {
+    if (skip.has(field.name.toLowerCase())) continue;
+    const raw = data.fieldValues[field.id];
+    out[field.name] =
+      raw == null || raw === "" ? "" : formatFieldDisplayValue(raw);
+  }
+  return out;
 }
 
 /**
- * Build a POST body with every order-card field the receiving system needs.
- * Missing values are empty string / null / [] so downstream software can always
- * read the same shape.
+ * Pulse job-ticket webhook payload.
+ * Shape matches receive-job-webhook: only `customer` is required; empties allowed.
  */
 export function buildFullOrderWebhookPayload(
   data: OrderExportData,
-  extra: {
-    event: "order_entered_column" | "order_created" | "order_webhook_test";
-    columnId: string;
-    tenantId: string;
-    movedAt: string;
+  _extra?: {
+    event?: "order_entered_column" | "order_created" | "order_webhook_test";
+    columnId?: string;
+    tenantId?: string;
+    movedAt?: string;
   }
 ): Record<string, unknown> {
   const order = data.order;
@@ -53,141 +149,144 @@ export function buildFullOrderWebhookPayload(
       ? (order.specs as Record<string, unknown>)
       : {};
 
-  const customFields: Record<string, string> = {};
-  for (const field of data.customFields) {
-    const raw = data.fieldValues[field.id];
-    if (raw == null || raw === "") {
-      customFields[field.name] = "";
-    } else {
-      customFields[field.name] = formatFieldDisplayValue(raw);
+  const qtyField = findOrderQtyField(data.customFields);
+  const manualQty =
+    qtyField != null ? data.fieldValues[qtyField.id] : undefined;
+  let totalQuantity: number | null = data.totalQty;
+  if (totalQuantity == null || totalQuantity === 0) {
+    if (typeof manualQty === "number" && Number.isFinite(manualQty)) {
+      totalQuantity = manualQty;
+    } else if (manualQty != null && manualQty !== "") {
+      const n = Number(manualQty);
+      totalQuantity = Number.isFinite(n) ? n : null;
     }
   }
 
-  const specsOut: Record<string, string | number | boolean | null> = {};
-  for (const [key, value] of Object.entries(specs)) {
-    specsOut[key] = emptyable(value) as string | number | boolean | null;
+  const sizeWidth = fieldNumber(data, "Width");
+  const sizeHeight = fieldNumber(data, "Height");
+  const finishedSize = fieldString(data, "Finished Size");
+  let width = sizeWidth;
+  let height = sizeHeight;
+  if ((width == null || height == null) && finishedSize) {
+    const m = finishedSize.match(/([\d.]+)\s*[x×]\s*([\d.]+)/i);
+    if (m) {
+      width = width ?? Number(m[1]);
+      height = height ?? Number(m[2]);
+    }
   }
 
+  const designTask =
+    data.designTask ||
+    (typeof specs.design_task === "string" ? specs.design_task.trim() : "");
+
+  const productionNotes = formatNoteHistoryText(
+    typeof specs.production_notes === "string" ? specs.production_notes : ""
+  );
+  const designerNotes = formatNoteHistoryText(
+    typeof specs.designer_notes === "string" ? specs.designer_notes : ""
+  );
+  const internalNotes = formatNoteHistoryText(order.internal_note);
+
+  const customer =
+    data.customerName === "—" || !data.customerName.trim()
+      ? ""
+      : data.customerName.trim();
+
+  const color =
+    fieldString(data, "Color Mode", "Color") ||
+    (typeof specs.color === "string" ? specs.color : "") ||
+    "";
+
+  const application =
+    isApplicationEnabled(order.specs, data.customFields, data.fieldValues) ||
+    fieldBool(data, "Application");
+
   return {
-    event: extra.event,
-    moved_at: extra.movedAt || "",
-    tenant: {
-      id: extra.tenantId || "",
-      name: data.tenantName || "",
-    },
-    column: {
-      id: extra.columnId || order.column_id || "",
-      name: data.columnName || "",
-    },
-    order: {
-      id: order.id || "",
-      title: order.title || "",
-      order_number: data.orderNumber || "",
-      order_number_display: data.orderNumberDisplay || "",
-      description: order.description || "",
-      internal_note: order.internal_note || "",
-      priority: order.priority || "",
-      priority_label: data.priority || "",
-      due_date: order.due_date || "",
-      due_date_formatted: data.dueDateFormatted === "—" ? "" : data.dueDateFormatted || "",
-      production_date_formatted: data.productionDateFormatted || "",
-      application_enabled: Boolean(data.applicationEnabled),
-      column_id: order.column_id || "",
-      customer_id: order.customer_id || "",
-      tag_id: order.tag_id || "",
-      tag_name: data.tagName || "",
-      webhook_source: order.webhook_source || "",
-      created_by: order.created_by || "",
-      created_at: order.created_at || "",
-      updated_at: order.updated_at || "",
-      last_moved_at: order.last_moved_at || "",
-      group_size: data.groupSize,
-      total_qty: data.totalQty,
-      specs: specsOut,
-    },
-    customer: {
-      name: data.customerName === "—" ? "" : data.customerName || "",
-      email: data.customerEmail || "",
-      phone: data.customerPhone || "",
-      contact: data.customerContact || "",
-    },
-    product: data.product || "",
-    die: data.die || "",
-    artwork_link: data.artworkLink || "",
-    design_task: data.designTask || "",
-    owner: {
-      name: data.ownerName || "",
-      email: data.ownerEmail || "",
-    },
-    designer: {
-      name: data.designerName || "",
-      email: data.designerEmail || "",
-    },
-    assigned_to: {
-      name: data.assignedToName === "—" ? "" : data.assignedToName || "",
-      email: data.assignedToEmail || "",
-    },
-    custom_fields: customFields,
-    spec_rows: (data.specRows ?? []).map((row) => ({
-      label: row.label || "",
-      value: row.value || "",
-    })),
+    tenantName: data.tenantName || "",
+    customer,
+    dueDate: asIsoDate(order.due_date),
+    priority: data.priority && data.priority !== "—" ? data.priority : order.priority || "",
+    accountManager: data.ownerName || "",
+    designer: data.designerName || "",
+    totalQuantity,
+    category: fieldString(data, "Category"),
+    product: data.product || fieldString(data, "Product") || "",
+    materials: fieldString(data, "Materials", "Material", "Paper Stock"),
+    specialEffects: fieldString(data, "Special effects", "Special Effects"),
+    finishing: fieldString(data, "Finishing", "Lamination"),
+    sides: fieldString(data, "Sides"),
+    position: fieldString(data, "Position"),
+    rollDirection: fieldString(data, "Roll Direction"),
+    color,
+    die: data.die || fieldString(data, "Die") || "",
+    sizeWidth: width,
+    sizeHeight: height,
+    application,
+    dieCut: fieldString(data, "Die Cut") || (fieldBool(data, "Die Cut") ? "Yes" : ""),
+    perforation: fieldBool(data, "Perforation"),
+    needDesign: fieldBool(data, "Need a Design"),
+    customFields: buildCustomFieldsMap(data),
+    designFilesLink: /^https?:\/\//i.test(designTask) ? designTask : "",
+    artworkLink: data.artworkLink || "",
+    description: order.description || designerNotes || "",
+    productionNotes,
+    internalNotes,
+    facility: resolveFacility(data),
     skus: (data.skuRows ?? []).map((row) => ({
-      index: row.index,
       name: row.name || "",
-      qty: row.qty,
-      image_links: row.imageLinks ?? [],
+      quantity: row.qty,
+      artworkUrl: row.imageLinks[0] ?? "",
     })),
+    // Extra Workflow context (ignored by Pulse if unused)
+    workflowOrderId: order.id || "",
+    workflowOrderNumber: data.orderNumber || "",
+    workflowColumn: data.columnName || "",
   };
 }
 
 export function buildFullOrderWebhookTestPayload(): Record<string, unknown> {
   return {
-    event: "order_webhook_test",
-    moved_at: new Date().toISOString(),
-    tenant: { id: "test-tenant", name: "Test Tenant" },
-    column: { id: "test-column", name: "Test Column" },
-    order: {
-      id: "00000000-0000-0000-0000-000000000001",
-      title: "ORD-TEST-001",
-      order_number: "ORD-TEST-001",
-      order_number_display: "ORD-TEST-001",
-      description: "",
-      internal_note: "",
-      priority: "normal",
-      priority_label: "Normal",
-      due_date: "2026-12-31",
-      due_date_formatted: "Dec 31, 2026",
-      production_date_formatted: "",
-      application_enabled: false,
-      column_id: "test-column",
-      customer_id: "",
-      tag_id: "",
-      tag_name: "",
-      webhook_source: "",
-      created_by: "",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      last_moved_at: new Date().toISOString(),
-      group_size: null,
-      total_qty: null,
-      specs: {},
-    },
-    customer: {
-      name: "Test Customer",
-      email: "test@example.com",
-      phone: "+18185551234",
-      contact: "test@example.com",
-    },
-    product: "Test Product",
+    tenantName: "Workflow Integration Test",
+    customer: "Workflow Pulse Test",
+    dueDate: "2026-09-01",
+    priority: "Normal",
+    accountManager: "Workflow Test",
+    designer: "",
+    totalQuantity: 100,
+    category: "Pouches",
+    product: "Pouches",
+    materials: "Clear BOPP",
+    specialEffects: "",
+    finishing: "",
+    sides: "1-sided",
+    position: "",
+    rollDirection: "",
+    color: "CMYK",
     die: "",
-    artwork_link: "",
-    design_task: "",
-    owner: { name: "", email: "" },
-    designer: { name: "", email: "" },
-    assigned_to: { name: "Staff Member", email: "" },
-    custom_fields: {},
-    spec_rows: [],
-    skus: [],
+    sizeWidth: 4,
+    sizeHeight: 6,
+    application: false,
+    dieCut: "",
+    perforation: false,
+    needDesign: false,
+    customFields: {
+      Source: "Workflow test webhook",
+    },
+    designFilesLink: "",
+    artworkLink: "",
+    description: "Test payload from Workflow → Pulse receive-job-webhook.",
+    productionNotes: "",
+    internalNotes: "Safe to delete — Workflow integration test.",
+    facility: "16th-street",
+    skus: [
+      {
+        name: "Test SKU",
+        quantity: 100,
+        artworkUrl: "",
+      },
+    ],
+    workflowOrderId: "test",
+    workflowOrderNumber: "WF-TEST-001",
+    workflowColumn: "Test",
   };
 }

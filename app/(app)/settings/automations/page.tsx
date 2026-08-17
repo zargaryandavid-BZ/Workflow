@@ -57,9 +57,13 @@ export default async function AutomationsSettingsPage() {
             Settings → Button Automation → Notification Rules
           </a>
           : choose the column, enable <strong>Send Webhook</strong>, paste the
-          other software’s URL, and turn on{" "}
-          <strong>Send full order card JSON</strong>. Empty fields are sent as
-          empty strings so the receiver always gets a complete payload.
+          Pulse URL (
+          <code className="text-xs">
+            …/functions/v1/receive-job-webhook
+          </code>
+          ), and turn on{" "}
+          <strong>Send full order card JSON</strong>. Empty fields are sent empty
+          so Pulse can fill them in.
         </p>
       </div>
       <AutomationsManager
