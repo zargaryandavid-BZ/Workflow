@@ -44,6 +44,24 @@ export default async function AutomationsSettingsPage() {
         Notify customers and move jobs automatically as they flow through the
         pipeline.
       </p>
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+        <p className="font-medium text-slate-800">
+          Send order data to another system when a job enters a column
+        </p>
+        <p className="mt-1 text-slate-500">
+          Configure that under{" "}
+          <a
+            href="/settings/button-automation"
+            className="font-medium text-[var(--primary)] hover:underline"
+          >
+            Settings → Button Automation → Notification Rules
+          </a>
+          : choose the column, enable <strong>Send Webhook</strong>, paste the
+          other software’s URL, and turn on{" "}
+          <strong>Send full order card JSON</strong>. Empty fields are sent as
+          empty strings so the receiver always gets a complete payload.
+        </p>
+      </div>
       <AutomationsManager
         initialRules={(rulesRes.data ?? []) as AutomationRule[]}
         columns={(columnsRes.data ?? []) as BoardColumn[]}

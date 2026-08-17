@@ -42,9 +42,8 @@ body {
 .board-scroll {
   scrollbar-width: thin;
   scrollbar-color: #97a0af #dfe1e6;
-  /* Keep the wide column strip inside this scrollport (not the window).
-     Without this, horizontal swipes scroll the document and get pinned to 0. */
-  contain: paint;
+  /* Do not use contain:paint here — it reports a large scrollWidth but
+     never moves scrollLeft (wheel deltaX is ignored). */
   overscroll-behavior-x: contain;
   scroll-padding-inline: 1rem;
 }

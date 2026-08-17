@@ -11,6 +11,8 @@ import {
   DEFAULT_NOTIFICATION_EMAIL_SUBJECT,
   DEFAULT_NOTIFICATION_SMS_BODY,
   DEFAULT_NOTIFICATION_WEBHOOK_BODY,
+  FULL_ORDER_WEBHOOK_SENTINEL,
+  isFullOrderWebhookTemplate,
   NOTIFICATION_RULE_RECIPIENT_LABELS,
   NOTIFICATION_RULE_TEMPLATE_VARS,
   NOTIFICATION_RULE_TRIGGER_LABELS,
@@ -145,7 +147,7 @@ function RuleRow({
             </span>
           ) : null}
           {rule.send_webhook ? (
-            <span title="Webhook enabled">
+            <span title={isFullOrderWebhookTemplate(rule.webhook_body_template) ? "Full order webhook" : "Webhook enabled"}>
               <Link2 className="h-3.5 w-3.5" />
             </span>
           ) : null}
@@ -225,8 +227,13 @@ function RuleEditor({
   );
   const [smsToPhone, setSmsToPhone] = useState(rule?.sms_to_phone ?? "");
   const [webhookUrl, setWebhookUrl] = useState(rule?.webhook_url ?? "");
+  const [fullOrderWebhook, setFullOrderWebhook] = useState(
+    isFullOrderWebhookTemplate(rule?.webhook_body_template)
+  );
   const [webhookBodyTemplate, setWebhookBodyTemplate] = useState(
-    rule?.webhook_body_template || DEFAULT_NOTIFICATION_WEBHOOK_BODY
+    isFullOrderWebhookTemplate(rule?.webhook_body_template)
+      ? DEFAULT_NOTIFICATION_WEBHOOK_BODY
+      : rule?.webhook_body_template || DEFAULT_NOTIFICATION_WEBHOOK_BODY
   );
   const [webhookHeaders, setWebhookHeaders] = useState<{ key: string; value: string }[]>(
     () => Object.entries(rule?.webhook_headers ?? {}).map(([key, value]) => ({ key, value }))
@@ -254,7 +261,9 @@ function RuleEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           webhook_url: webhookUrl.trim(),
-          webhook_body_template: webhookBodyTemplate,
+          webhook_body_template: fullOrderWebhook
+            ? FULL_ORDER_WEBHOOK_SENTINEL
+            : webhookBodyTemplate,
           webhook_headers: headersObj,
         }),
       });
@@ -295,7 +304,9 @@ function RuleEditor({
       sms_body: smsBody,
       sms_to_phone: smsToPhone.trim(),
       webhook_url: webhookUrl.trim(),
-      webhook_body_template: webhookBodyTemplate,
+      webhook_body_template: fullOrderWebhook
+        ? FULL_ORDER_WEBHOOK_SENTINEL
+        : webhookBodyTemplate,
       webhook_headers: headersObj,
       recipient_mode: staffRecipients.mode,
       recipient_roles: staffRecipients.roles,
@@ -545,16 +556,41 @@ function RuleEditor({
                   placeholder="https://"
                 />
               </div>
-              <div>
-                <Label htmlFor="rule-webhook-body">Request body</Label>
-                <textarea
-                  id="rule-webhook-body"
-                  rows={6}
-                  value={webhookBodyTemplate}
-                  onChange={(e) => setWebhookBodyTemplate(e.target.value)}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+
+              <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 cursor-pointer hover:bg-slate-100">
+                <input
+                  type="checkbox"
+                  checked={fullOrderWebhook}
+                  onChange={(e) => setFullOrderWebhook(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300"
                 />
-              </div>
+                <span>
+                  <span className="font-medium">Send full order card JSON</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Posts every field from the order card (customer, product, specs,
+                    custom fields, SKUs, notes, etc.). Empty fields are sent as
+                    empty strings so the other system always gets a complete payload.
+                  </span>
+                </span>
+              </label>
+
+              {!fullOrderWebhook ? (
+                <div>
+                  <Label htmlFor="rule-webhook-body">Request body</Label>
+                  <textarea
+                    id="rule-webhook-body"
+                    rows={6}
+                    value={webhookBodyTemplate}
+                    onChange={(e) => setWebhookBodyTemplate(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  />
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Body is generated automatically from the order card when the job
+                  enters the column.
+                </p>
+              )}
 
               <div>
                 <div className="mb-1.5 flex items-center justify-between">

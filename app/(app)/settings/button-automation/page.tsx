@@ -93,8 +93,9 @@ export default async function ButtonAutomationSettingsPage() {
       <section>
         <h2 className="text-sm font-semibold text-slate-800">Notification Rules</h2>
         <p className="mb-5 text-sm text-slate-500">
-          Rules run automatically when a job enters a column — sending email or SMS
-          to the customer or staff.
+          Rules run automatically when a job enters a column — email/SMS to
+          customer or staff, and optional webhooks to other software (including a
+          full order-card JSON payload).
         </p>
         {rulesMigrationRequired ? (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

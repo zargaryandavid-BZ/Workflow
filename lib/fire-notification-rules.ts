@@ -6,6 +6,10 @@ import {
   buildNotificationRuleTemplateContext,
   renderNotificationRuleTemplate,
 } from "@/lib/notification-rules";
+import {
+  buildFullOrderWebhookPayload,
+  isFullOrderWebhookTemplate,
+} from "@/lib/order-webhook-payload";
 import { sendTransactionalEmail } from "@/lib/email";
 import {
   buildNotificationRuleEmailHtml,
@@ -25,6 +29,45 @@ import type { NotificationRule, NotificationRuleRecipient } from "@/lib/types";
 
 function uniqueStrings(values: (string | null | undefined)[]): string[] {
   return [...new Set(values.filter((v): v is string => Boolean(v?.trim())))];
+}
+
+async function postNotificationRuleWebhook(args: {
+  rule: NotificationRule;
+  exportData: NonNullable<Awaited<ReturnType<typeof loadOrderExportData>>>;
+  templateContext: ReturnType<typeof buildNotificationRuleTemplateContext>;
+  event: "order_entered_column" | "order_created";
+  columnId: string;
+  tenantId: string;
+  movedAt: string;
+}): Promise<void> {
+  const url = args.rule.webhook_url?.trim();
+  if (!args.rule.send_webhook || !url) return;
+
+  const body = isFullOrderWebhookTemplate(args.rule.webhook_body_template)
+    ? JSON.stringify(
+        buildFullOrderWebhookPayload(args.exportData, {
+          event: args.event,
+          columnId: args.columnId,
+          tenantId: args.tenantId,
+          movedAt: args.movedAt,
+        })
+      )
+    : renderNotificationRuleTemplate(
+        args.rule.webhook_body_template || "{}",
+        args.templateContext
+      );
+
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(args.rule.webhook_headers ?? {}),
+    },
+    body,
+  }).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[NotifRule webhook] "${args.rule.name}" failed:`, message);
+  });
 }
 
 /**
@@ -467,20 +510,14 @@ export async function fireNotificationRules(
     }
 
     if (rule.send_webhook && rule.webhook_url?.trim()) {
-      const renderedBody = renderNotificationRuleTemplate(
-        rule.webhook_body_template || "{}",
-        templateContext
-      );
-      await fetch(rule.webhook_url.trim(), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(rule.webhook_headers ?? {}),
-        },
-        body: renderedBody,
-      }).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`[NotifRule webhook] "${rule.name}" failed:`, message);
+      await postNotificationRuleWebhook({
+        rule,
+        exportData,
+        templateContext,
+        event: "order_entered_column",
+        columnId: newColumnId,
+        tenantId,
+        movedAt,
       });
     }
   }
@@ -590,20 +627,14 @@ export async function fireNewJobNotificationRules(
     }
 
     if (rule.send_webhook && rule.webhook_url?.trim()) {
-      const renderedBody2 = renderNotificationRuleTemplate(
-        rule.webhook_body_template || "{}",
-        templateContext
-      );
-      await fetch(rule.webhook_url.trim(), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(rule.webhook_headers ?? {}),
-        },
-        body: renderedBody2,
-      }).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`[NotifRule webhook] "${rule.name}" failed:`, message);
+      await postNotificationRuleWebhook({
+        rule,
+        exportData,
+        templateContext,
+        event: "order_created",
+        columnId,
+        tenantId,
+        movedAt: movedAt2,
       });
     }
   }

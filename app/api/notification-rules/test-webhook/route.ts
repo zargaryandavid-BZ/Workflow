@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { renderNotificationRuleTemplate } from "@/lib/notification-rules";
+import {
+  buildFullOrderWebhookTestPayload,
+  isFullOrderWebhookTemplate,
+} from "@/lib/order-webhook-payload";
 
 /** Dummy variables used when testing a webhook before real order data is available. */
 const TEST_VARS = {
@@ -37,10 +41,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "webhook_url is required" }, { status: 422 });
   }
 
-  const renderedBody = renderNotificationRuleTemplate(
-    body.webhook_body_template?.trim() || "{}",
-    TEST_VARS
-  );
+  const renderedBody = isFullOrderWebhookTemplate(body.webhook_body_template)
+    ? JSON.stringify(buildFullOrderWebhookTestPayload())
+    : renderNotificationRuleTemplate(
+        body.webhook_body_template?.trim() || "{}",
+        TEST_VARS
+      );
 
   try {
     const res = await fetch(url, {

@@ -1002,6 +1002,58 @@ export function Board({
     return () => window.removeEventListener("scroll", pinWindowX, true);
   }, []);
 
+  useEffect(() => {
+    if (boardView !== "kanban") return;
+    const el = boardScrollRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      const horizontal =
+        e.shiftKey || absX > absY || (absX > 0 && absY < 1);
+      if (!horizontal) return;
+      const dx = e.shiftKey && absX <= absY ? e.deltaY : e.deltaX;
+      if (dx === 0) return;
+      e.preventDefault();
+      el.scrollLeft += dx;
+    };
+
+    let panPointerId: number | null = null;
+    let panStartX = 0;
+    let panStartScroll = 0;
+    const interactive =
+      "button,a,input,select,textarea,[data-order-card],[data-order-id]";
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target;
+      if (!(t instanceof Element) || t.closest(interactive)) return;
+      panPointerId = e.pointerId;
+      panStartX = e.clientX;
+      panStartScroll = el.scrollLeft;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (panPointerId !== e.pointerId) return;
+      el.scrollLeft = panStartScroll - (e.clientX - panStartX);
+    };
+    const endPan = (e: PointerEvent) => {
+      if (panPointerId === e.pointerId) panPointerId = null;
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", endPan);
+    el.addEventListener("pointercancel", endPan);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup", endPan);
+      el.removeEventListener("pointercancel", endPan);
+    };
+  }, [boardView]);
+
   function closeOrderDetail() {
     const closedId = detailId;
     setDetailId(null);

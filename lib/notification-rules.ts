@@ -61,6 +61,11 @@ export const DEFAULT_NOTIFICATION_WEBHOOK_BODY = `{
   "moved_at": "{{moved_at}}"
 }`;
 
+export {
+  FULL_ORDER_WEBHOOK_SENTINEL,
+  isFullOrderWebhookTemplate,
+} from "@/lib/order-webhook-payload";
+
 export interface NotificationRuleTemplateContext {
   customer_name: string;
   customer_email: string;
