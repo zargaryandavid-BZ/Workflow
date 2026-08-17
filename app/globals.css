@@ -48,6 +48,11 @@ body {
   overscroll-behavior-x: contain;
   scroll-padding-inline: 1rem;
 }
+/* Horizontal Kanban strip — touch/trackpad must pan here, not the page. */
+.board-h-scroll {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
 .board-scroll::-webkit-scrollbar {
   height: 12px;
   width: 10px;

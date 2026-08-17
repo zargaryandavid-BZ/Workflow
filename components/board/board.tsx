@@ -979,10 +979,22 @@ export function Board({
     };
   }, [searchNavNonce, hiddenColIds, searchResults, boardView]);
 
-  // Safety net: the wide column strip must never shift the document sideways.
-  // Pin window horizontal scroll back to 0 if any nested scroll leaks upward.
+  // Safety net: if the *document* scrolls sideways, pin it back.
+  // Only act on viewport/document scroll — never on .board-scroll / columns.
+  // A capture listener that calls scrollTo on every nested scroll freezes
+  // horizontal board panning in Safari / iPad (gesture gets cancelled).
   useEffect(() => {
-    const pinWindowX = () => {
+    const pinWindowX = (event?: Event) => {
+      if (event) {
+        const t = event.target;
+        if (
+          t !== document &&
+          t !== document.documentElement &&
+          t !== document.body
+        ) {
+          return;
+        }
+      }
       if (window.scrollX !== 0) window.scrollTo(0, window.scrollY);
     };
     pinWindowX();
@@ -1592,8 +1604,10 @@ export function Board({
   }, [scheduleRefresh]);
 
   // ── DnD ────────────────────────────────────────────────────────────────────
+  // Distance high enough that a horizontal pan across the board is not
+  // stolen as a card drag (esp. trackpad / touch).
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 12 } })
   );
 
   /** Returns the columns a card in `fromColumnId` can be moved to via right-click. */
@@ -3294,7 +3308,7 @@ export function Board({
         <div
           ref={boardScrollRef}
           onPointerDown={handleBoardPointerDown}
-          className="board-scroll h-full min-h-0 min-w-0 w-full max-w-full overflow-x-auto overflow-y-hidden overscroll-x-none"
+          className="board-scroll board-h-scroll h-full min-h-0 min-w-0 w-full max-w-full overflow-x-auto overflow-y-hidden overscroll-x-contain"
         >
           <div className="flex h-full w-max min-w-full gap-3 px-3 pb-4 sm:px-4">
             {visibleColumns.map((column, index) => {
