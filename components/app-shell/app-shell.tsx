@@ -24,7 +24,8 @@ export function AppShell({
   boardHealthVisible = true,
   children,
 }: AppShellProps) {
-  // Closed by default on all screen sizes; open via the topbar menu button.
+  // Closed by default. Overlay drawer on all breakpoints so the board never
+  // gets horizontally clipped when the nav opens (esp. tablet / iPad).
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -33,7 +34,7 @@ export function AppShell({
         <button
           type="button"
           aria-label="Close menu"
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          className="fixed inset-0 z-40 bg-black/40"
           onClick={() => setSidebarOpen(false)}
         />
       ) : null}
@@ -55,7 +56,7 @@ export function AppShell({
           onMenuToggle={() => setSidebarOpen((open) => !open)}
           boardHealthVisible={boardHealthVisible}
         />
-        <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
       </div>
     </div>
   );

@@ -68,16 +68,15 @@ export function Topbar({
   return (
     <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
       <div className="flex min-w-0 items-center gap-2">
-        {!sidebarOpen ? (
-          <button
-            type="button"
-            onClick={onMenuToggle}
-            className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
-            aria-label="Open menu"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={onMenuToggle}
+          className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
+          aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+          aria-expanded={sidebarOpen}
+        >
+          <Menu className="h-5 w-5" />
+        </button>
         <div className="relative min-w-0">
         <button
           onClick={() => setOpenTenant((o) => !o)}

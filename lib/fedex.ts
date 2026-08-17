@@ -120,7 +120,7 @@ async function getFedExAccessToken(config: FedExConfig): Promise<string> {
   if (!res.ok || !json.access_token) {
     const msg =
       json.errors?.[0]?.message ?? "Failed to authenticate with FedEx.";
-    throw new Error(msg);
+    throw new FedExApiError(msg, res.status, json);
   }
 
   return json.access_token;
@@ -339,9 +339,65 @@ export interface FedExContact {
   companyName?: string | null;
 }
 
+export class FedExApiError extends Error {
+  httpStatus: number;
+  json: unknown;
+
+  constructor(message: string, httpStatus: number, json: unknown) {
+    super(message);
+    this.name = "FedExApiError";
+    this.httpStatus = httpStatus;
+    this.json = json;
+  }
+}
+
 export interface FedExCreatedShipment {
   trackingNumber: string;
   labelPdfs: Buffer[];
+}
+
+/** FedEx Ship API label image types we support. */
+export type FedExLabelImageType = "PDF" | "PNG" | "ZPLII";
+
+export interface FedExLabelSpecification {
+  imageType: FedExLabelImageType;
+  labelStockType: string;
+}
+
+export const DEFAULT_FEDEX_LABEL_SPEC: FedExLabelSpecification = {
+  imageType: "PDF",
+  labelStockType: "PAPER_4X6",
+};
+
+export type FedExShipResponseJson = {
+  output?: {
+    transactionShipments?: Array<{
+      masterTrackingNumber?: string;
+      pieceResponses?: Array<{
+        trackingNumber?: string;
+        packageDocuments?: Array<{
+          contentType?: string;
+          docType?: string;
+          encodedLabel?: string;
+        }>;
+      }>;
+      shipmentDocuments?: Array<{
+        contentType?: string;
+        docType?: string;
+        encodedLabel?: string;
+      }>;
+    }>;
+  };
+  errors?: Array<{ message?: string; code?: string }>;
+};
+
+export interface FedExShipmentRequestResult {
+  ok: boolean;
+  httpStatus: number;
+  json: FedExShipResponseJson;
+  trackingNumber: string | null;
+  labels: Buffer[];
+  errorMessage: string | null;
 }
 
 function digitsOnlyPhone(phone: string): string {
@@ -354,18 +410,71 @@ function todayShipDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/**
- * Create a FedEx shipment and return tracking + PDF label bytes (one per package).
- */
-export async function createFedExShipment(args: {
+function shipErrorMessage(shipData: FedExShipResponseJson): string {
+  const code = shipData.errors?.[0]?.code ?? null;
+  const rawMsg =
+    shipData.errors?.[0]?.message ?? "FedEx create shipment failed.";
+  if (code === "FORBIDDEN.ERROR") {
+    return "FedEx rejected Ship API access (FORBIDDEN). In FedEx Developer Portal, enable the Ship API on this project and pin/link the same account number as Settings → Shipping. Also confirm production keys are used when Sandbox is off.";
+  }
+  return rawMsg;
+}
+
+function extractLabelBuffers(
+  shipData: FedExShipResponseJson,
+  imageType: FedExLabelImageType
+): Buffer[] {
+  const txn = shipData.output?.transactionShipments?.[0];
+  if (!txn) return [];
+
+  const want = imageType.toUpperCase();
+  const labels: Buffer[] = [];
+  const consider = (
+    docs: Array<{ contentType?: string; docType?: string; encodedLabel?: string }>
+  ) => {
+    for (const doc of docs) {
+      if (!doc.encodedLabel) continue;
+      const docType = (doc.docType ?? "").toUpperCase();
+      if (docType && docType !== want && docType !== "LABEL") continue;
+      labels.push(Buffer.from(doc.encodedLabel, "base64"));
+    }
+  };
+
+  for (const piece of txn.pieceResponses ?? []) {
+    consider(piece.packageDocuments ?? []);
+  }
+  if (labels.length === 0) {
+    consider(txn.shipmentDocuments ?? []);
+  }
+  return labels;
+}
+
+export type RequestFedExShipmentArgs = {
   boxes: ShippingBox[];
   deliveryAddress: ShippingDeliveryAddress;
   serviceType: string;
-  settings?: ShippingSettings | null;
   shipperContact: FedExContact;
   recipientContact: FedExContact;
-}): Promise<FedExCreatedShipment> {
-  const config = resolveFedExConfig(args.settings ?? null);
+  /** When set, used as-is (does not re-resolve from tenant settings). */
+  config?: FedExConfig;
+  settings?: ShippingSettings | null;
+  labelSpecification?: Partial<FedExLabelSpecification>;
+};
+
+/**
+ * Same Ship API request the app uses in production. Returns the raw JSON on
+ * success or failure so callers (e.g. sample-label scripts) can persist it.
+ */
+export async function requestFedExShipment(
+  args: RequestFedExShipmentArgs
+): Promise<FedExShipmentRequestResult> {
+  const config = args.config ?? resolveFedExConfig(args.settings ?? null);
+  const labelSpec: FedExLabelSpecification = {
+    imageType: args.labelSpecification?.imageType ?? DEFAULT_FEDEX_LABEL_SPEC.imageType,
+    labelStockType:
+      args.labelSpecification?.labelStockType ??
+      DEFAULT_FEDEX_LABEL_SPEC.labelStockType,
+  };
 
   if (!isFedExConfigured(config)) {
     throw new Error(
@@ -389,7 +498,22 @@ export async function createFedExShipment(args: {
     );
   }
 
-  const accessToken = await getFedExAccessToken(config);
+  let accessToken: string;
+  try {
+    accessToken = await getFedExAccessToken(config);
+  } catch (err) {
+    if (err instanceof FedExApiError) {
+      return {
+        ok: false,
+        httpStatus: err.httpStatus,
+        json: (err.json ?? {}) as FedExShipResponseJson,
+        trackingNumber: null,
+        labels: [],
+        errorMessage: err.message,
+      };
+    }
+    throw err;
+  }
   const accountNumber = config.accountNumber!.trim();
   const country =
     (args.deliveryAddress.country ?? "US").trim().toUpperCase() || "US";
@@ -438,10 +562,15 @@ export async function createFedExShipment(args: {
       ],
       shippingChargesPayment: {
         paymentType: "SENDER",
+        payor: {
+          responsibleParty: {
+            accountNumber: { value: accountNumber },
+          },
+        },
       },
       labelSpecification: {
-        imageType: "PDF",
-        labelStockType: "PAPER_4X6",
+        imageType: labelSpec.imageType,
+        labelStockType: labelSpec.labelStockType,
       },
       requestedPackageLineItems: args.boxes.map((box, i) => ({
         sequenceNumber: i + 1,
@@ -470,71 +599,92 @@ export async function createFedExShipment(args: {
     body: JSON.stringify(shipPayload),
   });
 
-  const shipData = (await shipRes.json().catch(() => ({}))) as {
-    output?: {
-      transactionShipments?: Array<{
-        masterTrackingNumber?: string;
-        pieceResponses?: Array<{
-          trackingNumber?: string;
-          packageDocuments?: Array<{
-            contentType?: string;
-            docType?: string;
-            encodedLabel?: string;
-          }>;
-        }>;
-        shipmentDocuments?: Array<{
-          contentType?: string;
-          docType?: string;
-          encodedLabel?: string;
-        }>;
-      }>;
-    };
-    errors?: Array<{ message?: string; code?: string }>;
-  };
+  const shipData = (await shipRes.json().catch(() => ({}))) as FedExShipResponseJson;
+  const labels = extractLabelBuffers(shipData, labelSpec.imageType);
+  const txn = shipData.output?.transactionShipments?.[0];
+  const trackingNumber =
+    txn?.masterTrackingNumber?.trim() ||
+    txn?.pieceResponses?.[0]?.trackingNumber?.trim() ||
+    null;
 
   if (!shipRes.ok) {
-    const msg =
-      shipData.errors?.[0]?.message ?? "FedEx create shipment failed.";
-    throw new Error(msg);
+    return {
+      ok: false,
+      httpStatus: shipRes.status,
+      json: shipData,
+      trackingNumber,
+      labels,
+      errorMessage: shipErrorMessage(shipData),
+    };
   }
 
-  const txn = shipData.output?.transactionShipments?.[0];
   if (!txn) {
-    throw new Error("FedEx returned no shipment details.");
+    return {
+      ok: false,
+      httpStatus: shipRes.status,
+      json: shipData,
+      trackingNumber: null,
+      labels,
+      errorMessage: "FedEx returned no shipment details.",
+    };
   }
-
-  const trackingNumber =
-    txn.masterTrackingNumber?.trim() ||
-    txn.pieceResponses?.[0]?.trackingNumber?.trim() ||
-    "";
 
   if (!trackingNumber) {
-    throw new Error("FedEx returned no tracking number.");
+    return {
+      ok: false,
+      httpStatus: shipRes.status,
+      json: shipData,
+      trackingNumber: null,
+      labels,
+      errorMessage: "FedEx returned no tracking number.",
+    };
   }
 
-  const labelPdfs: Buffer[] = [];
-  for (const piece of txn.pieceResponses ?? []) {
-    for (const doc of piece.packageDocuments ?? []) {
-      if (!doc.encodedLabel) continue;
-      const isPdf =
-        !doc.docType ||
-        doc.docType.toUpperCase() === "PDF" ||
-        doc.contentType?.toUpperCase() === "LABEL";
-      if (!isPdf) continue;
-      labelPdfs.push(Buffer.from(doc.encodedLabel, "base64"));
-    }
+  if (labels.length === 0) {
+    return {
+      ok: false,
+      httpStatus: shipRes.status,
+      json: shipData,
+      trackingNumber,
+      labels,
+      errorMessage: `FedEx returned no ${labelSpec.imageType} label.`,
+    };
   }
 
-  if (labelPdfs.length === 0) {
-    for (const doc of txn.shipmentDocuments ?? []) {
-      if (!doc.encodedLabel) continue;
-      labelPdfs.push(Buffer.from(doc.encodedLabel, "base64"));
-    }
+  return {
+    ok: true,
+    httpStatus: shipRes.status,
+    json: shipData,
+    trackingNumber,
+    labels,
+    errorMessage: null,
+  };
+}
+
+/**
+ * Create a FedEx shipment and return tracking + PDF label bytes (one per package).
+ */
+export async function createFedExShipment(args: {
+  boxes: ShippingBox[];
+  deliveryAddress: ShippingDeliveryAddress;
+  serviceType: string;
+  settings?: ShippingSettings | null;
+  shipperContact: FedExContact;
+  recipientContact: FedExContact;
+  labelSpecification?: Partial<FedExLabelSpecification>;
+}): Promise<FedExCreatedShipment> {
+  const config = resolveFedExConfig(args.settings ?? null);
+  const result = await requestFedExShipment({
+    ...args,
+    config,
+  });
+
+  if (!result.ok) {
+    throw new Error(result.errorMessage ?? "FedEx create shipment failed.");
   }
 
-  if (labelPdfs.length === 0) {
-    throw new Error("FedEx returned no PDF label.");
-  }
-
-  return { trackingNumber, labelPdfs };
+  return {
+    trackingNumber: result.trackingNumber!,
+    labelPdfs: result.labels,
+  };
 }

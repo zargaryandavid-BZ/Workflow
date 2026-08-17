@@ -102,15 +102,61 @@ export function buildTeamInviteEmailHtml(params: {
   templates?: MessageTemplateMap | null;
 }) {
   const text = buildTeamInviteEmailBody(params);
+  const marker = "__INVITE_CTA__";
+  let withMarker = text.includes(params.inviteUrl)
+    ? text.split(params.inviteUrl).join(marker)
+    : text;
+
+  if (!withMarker.includes(marker)) {
+    // Custom template omitted {{invite_url}} — place CTA before expiry / sign-off.
+    const expiryAt = withMarker.search(/\nThis link expires/i);
+    if (expiryAt >= 0) {
+      withMarker =
+        withMarker.slice(0, expiryAt) +
+        `\n\n${marker}\n` +
+        withMarker.slice(expiryAt);
+    } else {
+      withMarker = `${withMarker.trim()}\n\n${marker}`;
+    }
+  }
+
+  withMarker = withMarker
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const button = emailCtaButton(params.inviteUrl, "Accept invite");
+  const parts = withMarker.split(marker);
+  const bodyHtml = parts
+    .map((part, index) => {
+      const paras = plainTextToParagraphs(part);
+      return index < parts.length - 1 ? `${paras}${button}` : paras;
+    })
+    .join("");
+
   return buildBrandedEmailLayout({
     contextLabel: "Team invite",
-    bodyHtml: plainTextToParagraphs(text),
+    bodyHtml,
     emailTitle: teamInviteSubject(params.tenantName, params.templates, {
       invitee_name: params.fullName?.trim() || "there",
       invite_url: params.inviteUrl,
     }),
     showPortalFooter: false,
   });
+}
+
+function emailCtaButton(href: string, label: string): string {
+  const safeHref = escapeHtml(href);
+  const safeLabel = escapeHtml(label);
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px;">
+  <tr>
+    <td align="left" style="border-radius:8px;background:#2563EB;">
+      <a href="${safeHref}" target="_blank" style="display:inline-block;padding:12px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;font-weight:600;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;">
+        ${safeLabel}
+      </a>
+    </td>
+  </tr>
+</table>`;
 }
 
 function escapeHtml(value: string) {

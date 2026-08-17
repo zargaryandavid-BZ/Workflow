@@ -42,8 +42,9 @@ body {
 .board-scroll {
   scrollbar-width: thin;
   scrollbar-color: #97a0af #dfe1e6;
-  /* Keep wide column strip from expanding the document scrollport */
-  contain: paint;
+  /* Avoid paint containment — it clipped the left edge of columns on tablet. */
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 1rem;
 }
 .board-scroll::-webkit-scrollbar {
   height: 12px;

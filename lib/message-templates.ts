@@ -267,7 +267,7 @@ Thank you,
   team_invite_email_body: `Hi {{invitee_name}},
 
 You've been invited to join {{tenant_name}} on Workflow.
-Use the link below to create your account and set your password:
+Use the button below to create your account and set your password:
 
 {{invite_url}}
 

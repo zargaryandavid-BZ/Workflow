@@ -208,9 +208,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
   }, [pathname, sidebarReady]);
 
   function handleNavClick() {
-    if (window.matchMedia("(max-width: 767px)").matches) {
-      onClose();
-    }
+    onClose();
   }
 
   function navLinkClass(href: string) {
@@ -232,11 +230,12 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white transition-transform duration-200 ease-in-out md:static",
-        open ? "translate-x-0" : "-translate-x-full md:hidden"
+        "fixed inset-y-0 left-0 z-50 flex w-60 max-w-[85vw] flex-col border-r border-slate-200 bg-white shadow-xl transition-transform duration-200 ease-in-out",
+        open ? "translate-x-0" : "pointer-events-none -translate-x-full"
       )}
+      aria-hidden={!open}
     >
-      <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4">
         <Link
           href="/board"
           prefetch={false}
@@ -260,49 +259,51 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
           <X className="h-4 w-4" />
         </button>
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {nav
-          .filter((item) => navItemVisible(item, role))
-          .map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                prefetch={false}
-                onClick={handleNavClick}
-                className={navLinkClass(item.href)}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+        <nav className="space-y-1 p-3">
+          {nav
+            .filter((item) => navItemVisible(item, role))
+            .map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  prefetch={false}
+                  onClick={handleNavClick}
+                  className={navLinkClass(item.href)}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+        </nav>
+        <div className="mt-auto border-t border-slate-200 p-3">
+          <Link
+            href={feedbackNav.href}
+            prefetch={false}
+            onClick={handleNavClick}
+            className={navLinkClass(feedbackNav.href)}
+            title={feedbackLabel}
+            aria-label={feedbackLabel}
+          >
+            <FeedbackIcon className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{feedbackNav.label}</span>
+            {feedbackCount != null ? (
+              <span
+                className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-semibold tabular-nums text-slate-600"
+                aria-hidden
               >
-                <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
-              </Link>
-            );
-          })}
-      </nav>
-      <div className="border-t border-slate-200 p-3">
-        <Link
-          href={feedbackNav.href}
-          prefetch={false}
-          onClick={handleNavClick}
-          className={navLinkClass(feedbackNav.href)}
-          title={feedbackLabel}
-          aria-label={feedbackLabel}
-        >
-          <FeedbackIcon className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">{feedbackNav.label}</span>
-          {feedbackCount != null ? (
-            <span
-              className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-semibold tabular-nums text-slate-600"
-              aria-hidden
-            >
-              {feedbackCount}
-            </span>
-          ) : null}
-        </Link>
-      </div>
-      {sidebarReady ? <TimerWidget /> : null}
-      <div className="border-t border-slate-200 p-3 text-xs text-slate-400">
-        {role === "admin" ? "Admin" : "Member"}
+                {feedbackCount}
+              </span>
+            ) : null}
+          </Link>
+        </div>
+        {sidebarReady ? <TimerWidget /> : null}
+        <div className="border-t border-slate-200 p-3 text-xs text-slate-400">
+          {role === "admin" ? "Admin" : "Member"}
+        </div>
       </div>
     </aside>
   );

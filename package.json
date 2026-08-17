@@ -13,7 +13,8 @@
     "resequence-positions": "npx tsx scripts/resequence-positions.ts",
     "seed:custom-fields": "npx tsx scripts/seed-custom-fields.ts",
     "merge-duplicate-customers": "npx tsx scripts/merge-duplicate-customers.ts",
-    "clean-orders-customers": "npx tsx scripts/clean-orders-customers.ts"
+    "clean-orders-customers": "npx tsx scripts/clean-orders-customers.ts",
+    "fedex:sample-labels": "npx tsx --import ./scripts/fedex/register-server-only.mjs scripts/fedex/generate-sample-labels.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

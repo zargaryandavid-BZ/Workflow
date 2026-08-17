@@ -2765,7 +2765,7 @@ export function Board({
     <div className="flex h-full w-full max-w-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div
         ref={toolbarShellRef}
-        className="relative z-40 w-full min-w-0 overflow-visible px-3 py-2"
+        className="relative z-40 w-full min-w-0 overflow-x-auto overflow-y-visible px-3 py-2"
       >
         <div
           ref={toolbarInnerRef}
@@ -3296,7 +3296,7 @@ export function Board({
           onPointerDown={handleBoardPointerDown}
           className="board-scroll h-full min-h-0 min-w-0 w-full max-w-full overflow-x-auto overflow-y-hidden overscroll-x-none"
         >
-          <div className="flex h-full w-max min-w-full gap-3 px-4 pb-4">
+          <div className="flex h-full w-max min-w-full gap-3 px-3 pb-4 sm:px-4">
             {visibleColumns.map((column, index) => {
               const columnOrders = ordersByColumn.get(column.id) ?? [];
               const dragFromId = activeId
