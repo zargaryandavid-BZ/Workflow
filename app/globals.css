@@ -42,7 +42,9 @@ body {
 .board-scroll {
   scrollbar-width: thin;
   scrollbar-color: #97a0af #dfe1e6;
-  /* Avoid paint containment — it clipped the left edge of columns on tablet. */
+  /* Keep the wide column strip inside this scrollport (not the window).
+     Without this, horizontal swipes scroll the document and get pinned to 0. */
+  contain: paint;
   overscroll-behavior-x: contain;
   scroll-padding-inline: 1rem;
 }
