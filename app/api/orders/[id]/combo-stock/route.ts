@@ -134,7 +134,18 @@ export async function PATCH(
     answered_at: new Date().toISOString(),
     override_by: payload.override ? ctx.userId : (prev?.override_by ?? null),
   };
-  const nextSpecs = withComboStock(specs, stock);
+  let nextSpecs = withComboStock(specs, stock);
+  if (status === "in_stock" || status === "ordered") {
+    nextSpecs = {
+      ...nextSpecs,
+      warehouse_stock_confirmed: true,
+      warehouse_stock_confirmed_at: new Date().toISOString(),
+      warehouse_stock_confirmed_by:
+        (typeof nextSpecs.warehouse_stock_confirmed_by === "string" &&
+          nextSpecs.warehouse_stock_confirmed_by) ||
+        ctx.userId,
+    };
+  }
   await supabase.from("orders").update({ specs: nextSpecs }).eq("id", orderId);
 
   await logActivity(supabase, {

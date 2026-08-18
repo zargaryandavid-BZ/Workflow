@@ -18,6 +18,7 @@
  */
 
 import { CATEGORY_FIELD_NAME } from "@/lib/constants";
+import { comboStockConfirmed, getComboStock } from "@/lib/combo-stock";
 import { findOrderFormField } from "@/lib/order-form";
 import { isApplicationEnabled } from "@/lib/order-application";
 import { PRODUCT_CATEGORIES } from "@/lib/product-data";
@@ -98,10 +99,12 @@ export function requiresStockConfirmationBeforeShip(
   customFields?: CustomField[],
   fieldValues?: Record<string, unknown>
 ): boolean {
-  return (
-    orderIsWithApplication(specs, customFields, fieldValues) &&
-    !warehouseStockConfirmed(specs)
-  );
+  if (!orderIsWithApplication(specs, customFields, fieldValues)) return false;
+  if (warehouseStockConfirmed(specs)) return false;
+  // Manager / Jacob "In stock" or "Ordered" on COMBO STOCK is the same signal.
+  const combo = getComboStock({ specs: asRecord(specs) });
+  if (comboStockConfirmed(combo?.status)) return false;
+  return true;
 }
 
 /** Column kinds that represent the fulfilled / shippable stages the gate protects. */

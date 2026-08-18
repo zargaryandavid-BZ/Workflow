@@ -117,9 +117,21 @@ export async function POST(request: Request) {
         status: reply,
         answered_at: new Date().toISOString(),
       };
+      let nextSpecs = withComboStock(
+        (order?.specs as Record<string, unknown> | null) ?? null,
+        stock
+      );
+      if (reply === "in_stock" || reply === "ordered") {
+        nextSpecs = {
+          ...nextSpecs,
+          warehouse_stock_confirmed: true,
+          warehouse_stock_confirmed_at: new Date().toISOString(),
+          warehouse_stock_confirmed_by: "combo_stock_sms",
+        };
+      }
       await admin
         .from("orders")
-        .update({ specs: withComboStock(order?.specs, stock) })
+        .update({ specs: nextSpecs })
         .eq("id", match.orderId);
       await logActivity(admin, {
         tenantId: match.tenantId,
