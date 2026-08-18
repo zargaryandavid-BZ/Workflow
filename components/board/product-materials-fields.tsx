@@ -11,6 +11,7 @@ import {
 import {
   findMatchingOption,
   optionsMatch,
+  selectValueForOptions,
   uniqueOptions,
 } from "@/lib/field-links";
 import type { CustomField } from "@/lib/types";
@@ -105,6 +106,10 @@ export function ProductMaterialsFields({
       !categoryOptions.some((c) => optionsMatch(c, storedCategory))
       ? [storedCategory, ...categoryOptions]
       : categoryOptions
+  );
+  const categorySelectValue = selectValueForOptions(
+    categorySelectOptions,
+    storedCategory
   );
   const productSelectOptions = uniqueOptions(
     product && !productOptions.some((p) => optionsMatch(p, product))
@@ -217,7 +222,7 @@ export function ProductMaterialsFields({
           </Label>
           <Select
             id="order-category"
-            value={storedCategory}
+            value={categorySelectValue}
             disabled={readOnly}
             onChange={(e) => handleCategoryChange(e.target.value)}
           >

@@ -2554,7 +2554,7 @@ export function CardDetailModal({
                           </span>
                           <span className="block text-slate-400">
                             {formatDateTime(log.created_at)}
-                            {log.actor_name ? ` · ${log.actor_name}` : ""}
+                            {` · ${log.actor_name}`}
                           </span>
                         </li>
                       ))}
@@ -2599,7 +2599,7 @@ export function CardDetailModal({
                                   </p>
                                   <p className="text-[11px] text-slate-400">
                                     {formatDateTime(log.created_at)}
-                                    {log.actor_name ? ` · ${log.actor_name}` : ""}
+                                    {` · ${log.actor_name}`}
                                   </p>
                                   <p className="text-[11px] text-slate-500">
                                     Stayed{" "}

@@ -110,6 +110,7 @@ export async function POST(
       channel: body.channel,
       toEmail: body.toEmail ?? null,
       toPhone: body.toPhone ?? null,
+      actorUserId: ctx.userId,
     });
     return NextResponse.json({ ok: true, resent: false, ...result });
   } catch (err) {

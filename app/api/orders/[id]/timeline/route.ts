@@ -136,6 +136,15 @@ export async function GET(
       c.name,
     ])
   );
+  const notificationActorById = new Map<string, string>();
+  for (const notification of allNotifications) {
+    if (notification.id && notification.created_by) {
+      notificationActorById.set(
+        notification.id as string,
+        notification.created_by as string
+      );
+    }
+  }
 
   const assetsByNotification = new Map<string, Asset[]>();
   for (const asset of (responseAssets ?? []) as Asset[]) {
@@ -175,6 +184,7 @@ export async function GET(
     {
       nameById: creatorNameById,
       columnNameById,
+      notificationActorById,
     }
   );
 

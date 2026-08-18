@@ -2,13 +2,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActivityLog, Order } from "@/lib/types";
 
 export interface ActivityLogEntry extends ActivityLog {
-  actor_name: string | null;
+  actor_name: string;
 }
 
 export interface SentMessageEntry {
   id: string;
   created_at: string;
-  actor_name: string | null;
+  actor_name: string;
   channel: "email" | "sms" | "both" | "unknown";
   title: string;
   to: string | null;
@@ -22,6 +22,7 @@ const CUSTOMER_ACTIONS = new Set([
   "rejected",
   "info_submitted",
   "customer_replied",
+  "combo_stock_reply",
 ]);
 
 const MESSAGE_ACTIONS = new Set([
@@ -37,6 +38,56 @@ function metaString(
 ): string | null {
   const value = meta[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function resolveActivityActorName(
+  log: ActivityLog,
+  nameById: Map<string, string>,
+  notificationActorById: Map<string, string> = new Map()
+): string {
+  if (log.actor) {
+    return nameById.get(log.actor) ?? "Team member";
+  }
+
+  const meta = (log.metadata ?? {}) as Record<string, unknown>;
+  const notificationId = metaString(meta, "notificationId");
+  const notificationActorId = notificationId
+    ? notificationActorById.get(notificationId)
+    : null;
+  if (notificationActorId) {
+    return nameById.get(notificationActorId) ?? "Team member";
+  }
+
+  const source = metaString(meta, "source")?.toLowerCase();
+  const via = metaString(meta, "via")?.toLowerCase();
+  if (
+    CUSTOMER_ACTIONS.has(log.action) ||
+    via === "customer" ||
+    source === "twilio_inbound"
+  ) {
+    return "Customer";
+  }
+
+  if (source === "sms_link") {
+    const confirmedBy = metaString(meta, "confirmedBy");
+    return confirmedBy && confirmedBy !== "warehouse-sms"
+      ? confirmedBy
+      : "Warehouse";
+  }
+
+  if (
+    log.action === "idle_auto_moved" ||
+    source === "notification_rule" ||
+    Boolean(meta.automation)
+  ) {
+    return "Automation";
+  }
+
+  if (source === "webhook" || meta.webhook_source) {
+    return "Webhook";
+  }
+
+  return "System";
 }
 
 export function isSentMessageActivity(log: ActivityLog): boolean {
@@ -221,6 +272,8 @@ export async function enrichActivityLog(
     nameById?: Map<string, string>;
     /** Prefetched column id → name. */
     columnNameById?: Map<string, string>;
+    /** Notification id → staff user id, used for historical send attribution. */
+    notificationActorById?: Map<string, string>;
   }
 ): Promise<ActivityLogEntry[]> {
   const entries = [...(activity ?? [])];
@@ -292,12 +345,11 @@ export async function enrichActivityLog(
         }
       }
 
-      let actor_name: string | null = null;
-      if (log.actor) {
-        actor_name = nameById.get(log.actor) ?? "Team member";
-      } else if (CUSTOMER_ACTIONS.has(log.action)) {
-        actor_name = "Customer";
-      }
+      const actor_name = resolveActivityActorName(
+        log,
+        nameById,
+        options?.notificationActorById
+      );
 
       return { ...log, metadata: meta, actor_name };
     })

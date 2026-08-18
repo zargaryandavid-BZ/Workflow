@@ -525,9 +525,7 @@ export function HistoryTab(props: HistoryTabProps) {
                   </div>
                   <div className="text-right text-xs text-slate-400">
                     <div>{formatDateTime(msg.created_at)}</div>
-                    {msg.actor_name ? (
-                      <div className="mt-0.5">by {msg.actor_name}</div>
-                    ) : null}
+                    <div className="mt-0.5">by {msg.actor_name}</div>
                   </div>
                 </div>
 

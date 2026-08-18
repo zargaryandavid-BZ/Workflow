@@ -41,6 +41,18 @@ export function findMatchingOption(
   return options.find((o) => normalizeOptionKey(o) === key);
 }
 
+/**
+ * Return the exact option string that an HTML select can use for a stored value.
+ * Equivalent labels such as "🏷️ Labels & Stickers" and "Labels & Stickers"
+ * must resolve to the option's exact value or the browser renders a blank select.
+ */
+export function selectValueForOptions(
+  options: string[] | null | undefined,
+  storedValue: string
+): string {
+  return findMatchingOption(options, storedValue) ?? storedValue;
+}
+
 /** Preserve order while dropping duplicate strings. */
 export function uniqueOptions(options: string[] | null | undefined): string[] {
   if (!options?.length) return [];

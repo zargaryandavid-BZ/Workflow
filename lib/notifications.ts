@@ -101,6 +101,7 @@ async function deliverNotification(
     toPhone?: string | null;
     subject?: string | null;
     messageBody?: string | null;
+    actorUserId?: string | null;
   }
 ): Promise<{ sent: boolean; error?: string; channel?: DeliverChannel }> {
   const actionUrl =
@@ -354,7 +355,7 @@ async function deliverNotification(
   await logActivity(client, {
     tenantId: params.order.tenant_id,
     orderId: params.order.id,
-    actor: null,
+    actor: params.actorUserId ?? params.notification.created_by ?? null,
     action: "customer_notified",
     metadata: {
       type: params.notification.type,
@@ -479,6 +480,7 @@ export async function saveNotificationRequest(
       channel: "email",
       staffNote: note,
       toEmail: params.toEmail,
+      actorUserId: params.createdBy,
     });
     emailSent = emailDelivery.sent;
   }
@@ -524,6 +526,7 @@ export async function dispatchNotification(
     toPhone?: string | null;
     subject?: string | null;
     messageBody?: string | null;
+    actorUserId?: string | null;
   }
 ) {
   const delivery = await deliverNotification(client, params);
@@ -621,6 +624,7 @@ export async function createNotification(
         params.messageBody
           ? injectApprovalLink(params.messageBody, actionUrl)
           : params.messageBody,
+      actorUserId: params.createdBy,
     });
     if (!delivery.sent) {
       throw new Error(

@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types lib/due-date.test.ts lib/designer-load.test.ts lib/import-catalog.test.ts",
+    "test": "node --test --experimental-strip-types lib/activity.test.ts lib/due-date.test.ts lib/designer-load.test.ts lib/field-links.test.ts lib/import-catalog.test.ts",
     "resequence-positions": "npx tsx scripts/resequence-positions.ts",
     "seed:custom-fields": "npx tsx scripts/seed-custom-fields.ts",
     "merge-duplicate-customers": "npx tsx scripts/merge-duplicate-customers.ts",
