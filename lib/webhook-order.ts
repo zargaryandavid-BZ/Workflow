@@ -2674,9 +2674,13 @@ async function createSingleWebhookJob(
   if (isKeyAccount) specs.is_key_account = true;
   // Always stamp for idempotent due-date updates on later CRM webhooks.
   specs.webhook_order_number = webhookOrderNumber;
+  // Per-line display title (card + "Line item name"). Always stamp so single-item
+  // orders also populate the modal field — not only multi-item parts.
+  if (jobTitle.trim()) {
+    specs.webhook_item_title = jobTitle.trim();
+  }
   if (totalItems > 1) {
     specs.webhook_item_index = itemIndex;
-    specs.webhook_item_title = jobTitle;
   }
   if (
     typeof customerPriorityScore === "number" &&

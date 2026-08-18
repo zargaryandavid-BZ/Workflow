@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Columns3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BoardColumn } from "@/lib/types";
@@ -14,6 +15,8 @@ interface Props {
   segmented?: boolean;
 }
 
+const MENU_Z = 200;
+
 export function ColumnVisibilityDropdown({
   columns,
   hiddenColIds,
@@ -22,10 +25,42 @@ export function ColumnVisibilityDropdown({
   segmented = false,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
+    null
+  );
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const visibleCount = columns.length - hiddenColIds.size;
   const hasHidden = hiddenColIds.size > 0;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const place = () => {
+      const rect = buttonRef.current!.getBoundingClientRect();
+      const width = 224; // w-56
+      const left = Math.min(
+        Math.max(8, rect.left),
+        window.innerWidth - width - 8
+      );
+      setMenuPos({ top: rect.bottom + 4, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -34,9 +69,10 @@ export function ColumnVisibilityDropdown({
         if (e.key === "Escape") setOpen(false);
         return;
       }
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", close);
@@ -46,9 +82,64 @@ export function ColumnVisibilityDropdown({
     };
   }, [open]);
 
+  const menu =
+    open && mounted && menuPos
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-label="Visible columns"
+            className="fixed w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+            style={{ top: menuPos.top, left: menuPos.left, zIndex: MENU_Z }}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Show columns
+              </p>
+              {hiddenColIds.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onShowAll();
+                    setOpen(false);
+                  }}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                >
+                  Show all
+                </button>
+              ) : null}
+            </div>
+            <ul className="max-h-64 overflow-y-auto py-1">
+              {columns.map((col) => {
+                const visible = !hiddenColIds.has(col.id);
+                return (
+                  <li key={col.id}>
+                    <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={visible}
+                        onChange={() => onToggle(col.id)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]/30"
+                      />
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: col.color ?? "#94a3b8" }}
+                      />
+                      <span className="truncate">{col.name}</span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <div ref={rootRef} className="relative flex h-full shrink-0">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
@@ -80,62 +171,15 @@ export function ColumnVisibilityDropdown({
               segmented
                 ? open
                   ? "bg-white/20 text-white"
-                  : "bg-slate-200 text-slate-700"
-                : "bg-blue-200/80 text-blue-800"
+                  : "bg-blue-100 text-blue-700"
+                : "bg-blue-100 text-blue-700"
             )}
           >
-            {visibleCount}/{columns.length}
+            {columns.length - hiddenColIds.size}/{columns.length}
           </span>
         ) : null}
       </button>
-
-      {open ? (
-        <div
-          role="listbox"
-          aria-label="Visible columns"
-          className="absolute left-0 z-50 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-        >
-          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Show columns
-            </p>
-            {hiddenColIds.size > 0 ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onShowAll();
-                  setOpen(false);
-                }}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800"
-              >
-                Show all
-              </button>
-            ) : null}
-          </div>
-          <ul className="max-h-64 overflow-y-auto py-1">
-            {columns.map((col) => {
-              const visible = !hiddenColIds.has(col.id);
-              return (
-                <li key={col.id}>
-                  <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={visible}
-                      onChange={() => onToggle(col.id)}
-                      className="h-3.5 w-3.5 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]/30"
-                    />
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: col.color ?? "#94a3b8" }}
-                    />
-                    <span className="truncate">{col.name}</span>
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ) : null}
+      {menu}
     </div>
   );
 }

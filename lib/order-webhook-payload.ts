@@ -187,6 +187,14 @@ export function buildFullOrderWebhookPayload(
   );
   const internalNotes = formatNoteHistoryText(order.internal_note);
 
+  // Line-item title (UI “Line 1” / webhook_item_title) — this is the job title for Pulse.
+  const itemTitle =
+    (typeof specs.webhook_item_title === "string"
+      ? specs.webhook_item_title.trim()
+      : "") ||
+    fieldString(data, "Line 1", "Line item name", "Item Title", "Item title") ||
+    "";
+
   const customer =
     data.customerName === "—" || !data.customerName.trim()
       ? ""
@@ -228,7 +236,9 @@ export function buildFullOrderWebhookPayload(
     customFields: buildCustomFieldsMap(data),
     designFilesLink: /^https?:\/\//i.test(designTask) ? designTask : "",
     artworkLink: data.artworkLink || "",
-    description: order.description || designerNotes || "",
+    // Pulse job title = Line 1 item title (not order.description / designer notes)
+    title: itemTitle,
+    description: itemTitle || order.description || designerNotes || "",
     productionNotes,
     internalNotes,
     facility: resolveFacility(data),
@@ -275,6 +285,7 @@ export function buildFullOrderWebhookTestPayload(): Record<string, unknown> {
     designFilesLink: "",
     artworkLink: "",
     description: "Test payload from Workflow → Pulse receive-job-webhook.",
+    title: "Test Line Item Title",
     productionNotes: "",
     internalNotes: "Safe to delete — Workflow integration test.",
     facility: "16th-street",

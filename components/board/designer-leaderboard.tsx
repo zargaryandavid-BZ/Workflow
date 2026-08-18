@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, Trophy } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { DesignerLeaderboardResult } from "@/lib/designer-leaderboard";
@@ -27,19 +28,53 @@ function rankBadge(rank: number) {
   return "bg-white text-slate-500 border-slate-200";
 }
 
+const MENU_Z = 200;
+
 export function DesignerLeaderboardButton() {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DesignerLeaderboardResult | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(
+    null
+  );
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const place = () => {
+      const rect = buttonRef.current!.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 4,
+        right: Math.max(8, window.innerWidth - rect.right),
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function onPointerDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
@@ -84,9 +119,102 @@ export function DesignerLeaderboardButton() {
     };
   }, [open]);
 
+  const menu =
+    open && mounted && menuPos
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+            style={{
+              top: menuPos.top,
+              right: menuPos.right,
+              zIndex: MENU_Z,
+            }}
+          >
+            <div className="border-b border-slate-100 bg-gradient-to-r from-amber-50 to-white px-4 py-3">
+              <p className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <Trophy className="h-4 w-4 text-amber-600" />
+                Designer leaders
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {data?.monthLabel ?? "This month"} · all assigned cards
+                (Orders/SKUs)
+              </p>
+            </div>
+
+            <div className="max-h-[min(24rem,70vh)] overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : error ? (
+                <p className="px-4 py-6 text-center text-sm text-red-600">
+                  {error}
+                </p>
+              ) : !data || data.rows.length === 0 ? (
+                <p className="px-4 py-6 text-center text-sm text-slate-500">
+                  No designers yet.
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100 py-1">
+                  {data.rows.map((row) => (
+                    <li
+                      key={row.id}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5",
+                        row.rank === 1 && row.orderCount > 0 && "bg-amber-50/60"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold tabular-nums",
+                          rankBadge(row.rank)
+                        )}
+                      >
+                        {row.rank === 1 ? (
+                          <Trophy className="h-3.5 w-3.5 text-amber-600" />
+                        ) : (
+                          row.rank
+                        )}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-800">
+                          {row.name}
+                        </p>
+                        <Stars count={row.stars} />
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-semibold tabular-nums text-slate-800">
+                          {row.orderCount}/{row.skuCount}
+                        </p>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">
+                          Orders/SKUs
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {data && !loading && !error ? (
+              <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400">
+                <span>
+                  Total {data.totalOrders}/{data.totalSkus} · Updated{" "}
+                  {formatDateTime(data.updatedAt)}
+                </span>
+              </div>
+            ) : null}
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
@@ -101,86 +229,7 @@ export function DesignerLeaderboardButton() {
       >
         <Trophy className="h-4 w-4" />
       </button>
-
-      {open ? (
-        <div className="absolute right-0 z-50 mt-1 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-          <div className="border-b border-slate-100 bg-gradient-to-r from-amber-50 to-white px-4 py-3">
-            <p className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-              <Trophy className="h-4 w-4 text-amber-600" />
-              Designer leaders
-            </p>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {data?.monthLabel ?? "This month"} · all assigned cards
-              (Orders/SKUs)
-            </p>
-          </div>
-
-          <div className="max-h-[min(24rem,70vh)] overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading…
-              </div>
-            ) : error ? (
-              <p className="px-4 py-6 text-center text-sm text-red-600">
-                {error}
-              </p>
-            ) : !data || data.rows.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-slate-500">
-                No designers yet.
-              </p>
-            ) : (
-              <ul className="divide-y divide-slate-100 py-1">
-                {data.rows.map((row) => (
-                  <li
-                    key={row.id}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5",
-                      row.rank === 1 && row.orderCount > 0 && "bg-amber-50/60"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold tabular-nums",
-                        rankBadge(row.rank)
-                      )}
-                    >
-                      {row.rank === 1 ? (
-                        <Trophy className="h-3.5 w-3.5 text-amber-600" />
-                      ) : (
-                        row.rank
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-800">
-                        {row.name}
-                      </p>
-                      <Stars count={row.stars} />
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-sm font-semibold tabular-nums text-slate-800">
-                        {row.orderCount}/{row.skuCount}
-                      </p>
-                      <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                        Orders/SKUs
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {data && !loading && !error ? (
-            <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400">
-              <span>
-                Total {data.totalOrders}/{data.totalSkus} · Updated{" "}
-                {formatDateTime(data.updatedAt)}
-              </span>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      {menu}
     </div>
   );
 }

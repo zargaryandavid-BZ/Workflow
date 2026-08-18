@@ -1181,7 +1181,7 @@ export function OrderFormBody({
             />
           </div>
           <div className="space-y-2">
-            <Label>Designer note</Label>
+            <Label htmlFor={`${idPrefix}-designer-note`}>Designer note</Label>
             {designerNoteHistory && designerNoteHistory.length > 0 ? (
               <div className="min-w-0 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
                 {designerNoteHistory.map((entry, i) => (
@@ -1207,11 +1207,14 @@ export function OrderFormBody({
             ) : null}
             {!readOnly ? (
               <div>
-                <Label htmlFor={`${idPrefix}-designer-note`}>
-                  {designerNoteHistory && designerNoteHistory.length > 0
-                    ? "Add new note"
-                    : "Note for designer"}
-                </Label>
+                {designerNoteHistory && designerNoteHistory.length > 0 ? (
+                  <Label
+                    htmlFor={`${idPrefix}-designer-note`}
+                    className="mb-1.5 block"
+                  >
+                    Add new note
+                  </Label>
+                ) : null}
                 <Textarea
                   id={`${idPrefix}-designer-note`}
                   value={designerNote}
@@ -1223,8 +1226,8 @@ export function OrderFormBody({
             ) : null}
           </div>
           <p className="text-[11px] text-slate-400">
-            The <span className="font-medium">Production note</span> below is
-            what the production floor sees.
+            The <span className="font-medium">Production notes</span> section
+            below is what the floor sees on the Job Ticket.
           </p>
         </div>
       ) : null}

@@ -365,11 +365,9 @@ export function CardDetailModal({
     const formFields = resolveOrderFormFields(fields);
     setData(json);
     setTitle(json.order.title);
-    setItemName(
-      typeof json.order.specs?.webhook_item_title === "string"
-        ? json.order.specs.webhook_item_title
-        : ""
-    );
+    // Same string as the board card title (item title, else order title for
+    // single-item webhooks that only stamped webhook_order_title).
+    setItemName(partCardTitle(json.order) ?? "");
     const rawNote = json.order.internal_note ?? "";
     setNoteHistory(parseNoteHistory(rawNote));
     setNewNote("");
@@ -1348,16 +1346,17 @@ export function CardDetailModal({
 
   async function saveItemName() {
     if (!data?.order) return;
-    const current =
-      typeof data.order.specs?.webhook_item_title === "string"
-        ? data.order.specs.webhook_item_title
-        : "";
+    const current = partCardTitle(data.order) ?? "";
     const next = itemName.trim();
     if (next === current.trim()) return;
-    const nextSpecs = {
+    const nextSpecs: Record<string, unknown> = {
       ...(data.order.specs ?? {}),
       webhook_item_title: next || null,
     };
+    // Single-item cards also show webhook_order_title — keep both in sync.
+    if (typeof data.order.specs?.webhook_item_index !== "number") {
+      nextSpecs.webhook_order_title = next || null;
+    }
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
         method: "PATCH",

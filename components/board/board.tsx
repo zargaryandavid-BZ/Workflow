@@ -2831,7 +2831,7 @@ export function Board({
     <div className="flex h-full w-full max-w-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div
         ref={toolbarShellRef}
-        className="relative z-40 w-full min-w-0 overflow-x-auto overflow-y-visible px-3 py-2"
+        className="relative z-[100] w-full min-w-0 overflow-x-auto overflow-y-visible px-3 py-2"
       >
         <div
           ref={toolbarInnerRef}
@@ -2936,7 +2936,7 @@ export function Board({
               <div
                 role="listbox"
                 aria-label="Matching multi-part orders"
-                className="absolute left-0 right-0 top-full z-[100] mt-1 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+                className="absolute left-0 right-0 top-full z-[200] mt-1 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
               >
                 {orderGroupSuggestions.map((suggestion) => (
                   <div key={suggestion.key} className="border-b border-slate-100 last:border-b-0">
@@ -3054,7 +3054,7 @@ export function Board({
             >
               <CalendarDays className="h-4 w-4" />
             </summary>
-            <div className="absolute right-0 z-50 mt-1 w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+            <div className="absolute right-0 z-[200] mt-1 w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
               <button
                 type="button"
                 className={cn(
@@ -3212,7 +3212,7 @@ export function Board({
             >
               <Layers className="h-4 w-4" />
             </summary>
-            <div className="absolute right-0 z-50 mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+            <div className="absolute right-0 z-[200] mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
               <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
                 <input
                   type="checkbox"
@@ -3356,7 +3356,7 @@ export function Board({
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
       >
-        <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-hidden">
+        <div className="relative z-0 min-h-0 min-w-0 w-full max-w-full flex-1 overflow-hidden">
         <div
           ref={boardScrollRef}
           onPointerDown={handleBoardPointerDown}
