@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  AlertTriangle,
   CalendarClock,
   ChevronDown,
   ChevronUp,
@@ -26,6 +27,7 @@ import { cn, formatDateShort } from "@/lib/utils";
 import type { CustomField, Designer, OrderWithRelations } from "@/lib/types";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
+import { isRushOrder } from "@/lib/order-rush";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { MoveMenuSections } from "./move-menu-sections";
 import {
@@ -58,6 +60,23 @@ interface GroupedOrderCardProps {
   onMoveGroup?: (orders: OrderWithRelations[], targetColumnId: string) => void;
   /** When set and this group contains the order, expand + highlight. */
   highlightedOrderId?: string | null;
+}
+
+function designerNameForGroupItem(
+  order: OrderWithRelations,
+  designers: Designer[]
+): string {
+  const designerId =
+    typeof order.specs?.designer_id === "string"
+      ? order.specs.designer_id.trim()
+      : "";
+  if (designerId) {
+    const fromTeam = designers.find((d) => d.id === designerId)?.name?.trim();
+    if (fromTeam) return fromTeam;
+  }
+  return typeof order.specs?.designer_name === "string"
+    ? order.specs.designer_name.trim()
+    : "";
 }
 
 export function GroupedOrderCard({
@@ -131,6 +150,7 @@ export function GroupedOrderCard({
   const dueDate = rep.due_date;
 
   const shortKey = entry.key.replace(/^ORD-\d{4}-/, "");
+  const hasRush = orders.some((o) => isRushOrder(o));
   const repFieldValues = fieldValuesByOrder[rep.id] ?? {};
   const customerName = customerNameFromOrder(rep, repFieldValues, customFields);
   const displayCustomerName = customerName === "there" ? null : customerName;
@@ -262,6 +282,14 @@ export function GroupedOrderCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {hasRush ? (
+              <span
+                className="inline-flex shrink-0 items-center"
+                title="Rush order"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              </span>
+            ) : null}
             {priority === "high" || priority === "urgent" ? (
               <Badge
                 className={cn("px-2 py-0 text-[11px]", PRIORITY_STYLES[priority])}
@@ -368,13 +396,18 @@ export function GroupedOrderCard({
                           {formatDateShort(order.due_date)}
                         </span>
                       ) : null}
-                      {typeof order.specs?.designer_name === "string" &&
-                      order.specs.designer_name.trim() ? (
-                        <span className="flex items-center gap-0.5 rounded-full bg-[var(--primary)]/10 px-1.5 py-px font-semibold text-[var(--primary)]">
+                      {(() => {
+                        const designerName = designerNameForGroupItem(
+                          order,
+                          designers
+                        );
+                        return designerName ? (
+                        <span className="flex min-w-0 items-center gap-0.5 rounded-full bg-[var(--primary)]/10 px-1.5 py-px font-semibold text-[var(--primary)]">
                           <User className="h-3.5 w-3.5 shrink-0" />
-                          {order.specs.designer_name.trim()}
+                          <span className="min-w-0 truncate">{designerName}</span>
                         </span>
-                      ) : null}
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                   <ExternalLink className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-slate-500" />

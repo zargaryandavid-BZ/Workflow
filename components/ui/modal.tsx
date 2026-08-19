@@ -55,7 +55,7 @@ export function Modal({
     >
       <div
         className={cn(
-          "relative my-auto w-full max-w-lg rounded-xl bg-white shadow-2xl",
+          "relative my-auto w-full min-w-0 max-w-lg rounded-xl bg-white shadow-2xl",
           className
         )}
         onMouseDown={(e) => e.stopPropagation()}
@@ -75,7 +75,7 @@ export function Modal({
             </button>
           </div>
         </div>
-        <div className="px-5 py-2">{children}</div>
+        <div className="min-w-0 px-5 py-2">{children}</div>
         {footer ? (
           <div className="flex w-full min-w-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-t border-slate-200 px-4 py-3">
             {footer}

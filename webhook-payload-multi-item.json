@@ -7,6 +7,7 @@
   "order_number": "ORD-2026-500",
   "title": "Acme Corp — Mixed Print Order",
   "priority": "high",
+  "rush": false,
   "due_date": "2026-07-24",
   "description": "Parent order production notes.",
   "notes": "Internal: split ship — labels first, cards next week.",

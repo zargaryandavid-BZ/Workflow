@@ -476,12 +476,14 @@ export function computeAnalyticsStats(input: ComputeInput): AnalyticsStats {
     const skus = skuRowCount(o.specs);
     const designerId =
       typeof o.specs?.designer_id === "string" ? o.specs.designer_id : null;
-    const designerName =
-      typeof o.specs?.designer_name === "string"
+    const designerName = designerId
+      ? profileNames.get(designerId) ??
+        (typeof o.specs?.designer_name === "string"
+          ? o.specs.designer_name
+          : null)
+      : typeof o.specs?.designer_name === "string"
         ? o.specs.designer_name
-        : designerId
-          ? profileNames.get(designerId) ?? "Unnamed"
-          : null;
+        : null;
     if (!designerId && !designerName) {
       unassignedCount += 1;
       unassignedSkuCount += skus;

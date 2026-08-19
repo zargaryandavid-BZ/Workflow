@@ -64,12 +64,12 @@ export function DueDateFields({
     mode === "after_approval" && Boolean(materializedDueDate?.trim());
 
   return (
-    <div className="space-y-1.5">
+    <div className="min-w-0 space-y-1.5">
       <Label htmlFor={`${idPrefix}-due-mode`}>
         Due date
         {required ? <span className="ml-0.5 text-red-500">*</span> : null}
       </Label>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="min-w-0 space-y-2">
         <Select
           id={`${idPrefix}-due-mode`}
           value={mode}
@@ -79,7 +79,9 @@ export function DueDateFields({
               e.target.value === "after_approval" ? "after_approval" : "fixed"
             )
           }
-          className={readOnly ? "bg-slate-50" : undefined}
+          className={
+            readOnly ? "min-w-0 max-w-full bg-slate-50" : "min-w-0 max-w-full"
+          }
         >
           <option value="fixed">Fixed date</option>
           <option value="after_approval">Working days after approval</option>
@@ -96,14 +98,14 @@ export function DueDateFields({
             aria-invalid={error ? true : undefined}
             className={
               error
-                ? "border-red-400 focus:border-red-500 focus:ring-red-500/30"
+                ? "min-w-0 border-red-400 focus:border-red-500 focus:ring-red-500/30"
                 : readOnly
-                  ? "bg-slate-50"
-                  : undefined
+                  ? "min-w-0 bg-slate-50"
+                  : "min-w-0"
             }
           />
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Input
               id={`${idPrefix}-due-days`}
               type="number"
@@ -128,9 +130,9 @@ export function DueDateFields({
                   onProcessingDaysChange(DEFAULT_PROCESSING_DAYS);
                 }
               }}
-              className={`w-24 shrink-0 ${readOnly ? "bg-slate-50" : ""}`}
+              className={`w-16 shrink-0 ${readOnly ? "bg-slate-50" : ""}`}
             />
-            <span className="whitespace-nowrap text-sm text-slate-600">
+            <span className="min-w-0 text-sm text-slate-600">
               working days
             </span>
           </div>
@@ -138,7 +140,7 @@ export function DueDateFields({
       </div>
 
       {mode === "after_approval" ? (
-        <p className="text-xs text-sky-700">
+        <p className="break-words text-xs text-sky-700">
           {hint?.trim() || afterApprovalLabel(days)}
         </p>
       ) : null}

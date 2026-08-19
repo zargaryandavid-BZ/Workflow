@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { onApprovalResult } from "@/lib/automation";
+import { expireOtherApprovalRequests } from "@/lib/notifications";
 import type { JobNotification } from "@/lib/types";
 
 export async function POST(
@@ -52,6 +53,8 @@ export async function POST(
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
   }
+
+  await expireOtherApprovalRequests(supabase, note.order_id, note.id);
 
   await onApprovalResult(supabase, {
     tenantId: ctx.tenant.id,

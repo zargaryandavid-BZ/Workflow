@@ -51,6 +51,22 @@ function appUrl() {
   return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 }
 
+/** Once an approval round is replaced or decided, its other open links are stale. */
+export async function expireOtherApprovalRequests(
+  client: Client,
+  orderId: string,
+  exceptNotificationId: string
+) {
+  const { error } = await client
+    .from("job_notifications")
+    .update({ status: "expired" })
+    .eq("order_id", orderId)
+    .eq("type", "customer_approval")
+    .in("status", ["pending", "sent"])
+    .neq("id", exceptNotificationId);
+  if (error) throw new Error(error.message);
+}
+
 async function resolveCustomerContact(
   client: Client,
   order: Order,
@@ -461,6 +477,14 @@ export async function saveNotificationRequest(
 
   if (error) throw new Error(error.message);
 
+  if (params.type === "customer_approval") {
+    await expireOtherApprovalRequests(
+      client,
+      params.order.id,
+      notification.id as string
+    );
+  }
+
   // Freeze the files for this approval round so the history keeps the exact
   // file the customer saw, even after the live file is later replaced.
   if (params.type === "customer_approval") {
@@ -586,6 +610,14 @@ export async function createNotification(
     .single();
 
   if (error) throw new Error(error.message);
+
+  if (params.type === "customer_approval") {
+    await expireOtherApprovalRequests(
+      client,
+      params.order.id,
+      notification.id as string
+    );
+  }
 
   if (params.type === "customer_approval") {
     try {
@@ -736,6 +768,14 @@ export async function respondToNotification(
       status: 409,
     };
   }
+  if (notification.status === "expired") {
+    return {
+      ok: false as const,
+      error:
+        "This request was replaced or closed. Please use the newest link.",
+      status: 410,
+    };
+  }
   if (
     notification.token_expires_at &&
     new Date(notification.token_expires_at).getTime() < Date.now()
@@ -877,6 +917,14 @@ export async function respondToNotification(
       responded_at: new Date().toISOString(),
     })
     .eq("id", notification.id);
+
+  if (notification.type === "customer_approval") {
+    await expireOtherApprovalRequests(
+      admin,
+      notification.order_id,
+      notification.id
+    );
+  }
 
   return { ok: true as const, type: notification.type as NotificationType };
 }

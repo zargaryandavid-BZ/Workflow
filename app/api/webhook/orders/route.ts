@@ -11,6 +11,8 @@ import {
   type WebhookCreateResult,
   type WebhookOrderPayload,
 } from "@/lib/webhook-order";
+import { handleWebhookV2 } from "@/lib/webhook-v2";
+import { isCrmWebhookV2 } from "@/lib/webhook-v2-parse";
 import { cancelOrdersFromWebhook } from "@/lib/webhook-cancel-order";
 
 /**
@@ -114,6 +116,40 @@ export async function POST(request: Request) {
       errorMessage: "Invalid JSON",
     });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (isCrmWebhookV2(body)) {
+    try {
+      const result = await handleWebhookV2(adminClient, {
+        tenantId: activeConfig.tenant_id,
+        payload: body,
+      });
+      await touchWebhookLastUsed(adminClient, activeConfig.id);
+      await logWebhookHistory({
+        requestPayload: body as WebhookOrderPayload,
+        requestRaw: null,
+        responsePayload: result.body,
+        responseStatus: result.httpStatus,
+        success: result.httpStatus < 400,
+        errorMessage:
+          result.httpStatus >= 400 && typeof result.body.error === "string"
+            ? result.body.error
+            : null,
+      });
+      return NextResponse.json(result.body, { status: result.httpStatus });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Server error";
+      console.error("[webhook/orders] v2 error:", message);
+      await logWebhookHistory({
+        requestPayload: body as WebhookOrderPayload,
+        requestRaw: null,
+        responsePayload: { error: message },
+        responseStatus: 500,
+        success: false,
+        errorMessage: message,
+      });
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
   }
 
   // Cancellation event — the CRM cancelled this order. Pull its board job(s)

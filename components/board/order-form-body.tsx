@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CircleHelp,
@@ -159,6 +159,13 @@ export interface OrderFormBodyProps {
   hideOwnerField?: boolean;
   /** Hide customer name/contact fields (shown in the modal header dropdown instead). */
   hideCustomerSection?: boolean;
+  /**
+   * Connected-mode orders: hide Workflow custom print fields and the v1 CRM
+   * ProductSpecsSection. SKUs / qty / notes stay.
+   */
+  hidePrintCustomFields?: boolean;
+  /** Rendered inside the print-fields card when custom print fields are hidden. */
+  printFieldsSlot?: ReactNode;
   tags?: Tag[];
   tagId?: string;
   onTagIdChange?: (value: string) => void;
@@ -369,6 +376,8 @@ export function OrderFormBody({
   onApplicationDaysChange,
   hideOwnerField = false,
   hideCustomerSection = false,
+  hidePrintCustomFields = false,
+  printFieldsSlot,
   tags = [],
   tagId = "",
   onTagIdChange,
@@ -953,7 +962,7 @@ export function OrderFormBody({
           </button>
         </div>
 
-        {useCascadingProductMaterials && productField && materialsField ? (
+        {!hidePrintCustomFields && useCascadingProductMaterials && productField && materialsField ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ProductMaterialsFields
               categoryField={categoryField}
@@ -1005,6 +1014,7 @@ export function OrderFormBody({
           </div>
         ) : null}
 
+        {hidePrintCustomFields ? printFieldsSlot : (
         <ProductSpecsSection
           specs={productSpecs}
           fieldOptions={productSpecFieldOptions}
@@ -1012,8 +1022,9 @@ export function OrderFormBody({
           onChange={onProductSpecChange}
           onToggle={onProductToggleChange}
         />
+        )}
 
-        {visiblePrintFields.length > 0 ? (
+        {!hidePrintCustomFields && visiblePrintFields.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {visiblePrintFields.map((field) => {
               const filteredOptions =
@@ -1095,12 +1106,12 @@ export function OrderFormBody({
       <div className="border-t border-slate-200" />
 
       {(!hideEmpty || designerId || designTask || !designerFieldReadOnly) ? (
-      <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+      <div className="min-w-0 space-y-3 overflow-hidden rounded-xl border border-blue-100 bg-blue-50/50 p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-400">
           For Designer
         </p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="min-w-0">
             <Label htmlFor={`${idPrefix}-designer`}>
               Assigned designer
             </Label>
@@ -1120,7 +1131,7 @@ export function OrderFormBody({
               ))}
             </Select>
           </div>
-          <div>
+          <div className="min-w-0">
             <Label htmlFor={`${idPrefix}-design-task`}>
               <span className="inline-flex items-center gap-1">
                 {designTask && /^https?:\/\//i.test(designTask.trim()) ? (
@@ -1155,7 +1166,9 @@ export function OrderFormBody({
               value={designTask}
               onChange={(e) => onDesignTaskChange(e.target.value)}
               placeholder="e.g. …/26-0098_Customer"
-              className={readOnly ? "bg-slate-50" : undefined}
+              className={
+                readOnly ? "min-w-0 max-w-full bg-slate-50" : "min-w-0 max-w-full"
+              }
             />
           </div>
         </div>

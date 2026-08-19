@@ -33,11 +33,11 @@ export function FastActionButtonBar({
   if (visible.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-slate-200 p-3">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 p-3">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
         Fast Buttons
       </p>
-      <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         {visible.map((btn) => (
           <FastActionButtonPill
             key={btn.id}
@@ -100,7 +100,7 @@ function FastActionButtonPill({
       onClick={handleClick}
       disabled={loading}
       className={cn(
-        "inline-flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-opacity disabled:opacity-50",
+        "inline-flex w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-3 py-1 text-center text-xs font-medium break-words transition-opacity disabled:opacity-50",
         FAST_ACTION_COLOR_CLASSES[color]
       )}
     >

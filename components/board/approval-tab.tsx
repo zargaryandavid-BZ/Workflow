@@ -349,16 +349,26 @@ export function ApprovalTab({
   }
 
   const latest = notes[0];
-  // Manual follow-up after a customer Approve shouldn't replace the headline
-  // status / primary actions (Move to production, etc.).
+  const decisions = notes
+    .filter(
+      (n) =>
+        n.status === "responded" &&
+        (n.customer_response === "approved" ||
+          n.customer_response === "changes_requested")
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.responded_at ?? b.created_at).getTime() -
+        new Date(a.responded_at ?? a.created_at).getTime()
+    );
+  const latestDecision = decisions[0];
+  // A decision closes every approval request that existed at that moment.
+  // A request created after the decision starts a new approval round.
   const statusNote =
-    latest.channel === "manual" && latest.status !== "responded"
-      ? notes.find(
-          (n) =>
-            n.status === "responded" &&
-            (n.customer_response === "approved" ||
-              n.customer_response === "changes_requested")
-        ) ?? latest
+    latestDecision &&
+    new Date(latestDecision.responded_at ?? latestDecision.created_at).getTime() >=
+      new Date(latest.created_at).getTime()
+      ? latestDecision
       : latest;
   const history = [...notes].sort(
     (a, b) =>
@@ -497,6 +507,25 @@ export function ApprovalTab({
         className: "text-slate-600",
         time: null,
       };
+    }
+    const closingDecision = decisions.find(
+      (decision) =>
+        decision.id !== note.id &&
+        new Date(decision.responded_at ?? decision.created_at).getTime() >=
+          new Date(note.created_at).getTime()
+    );
+    if (closingDecision) {
+      return closingDecision.customer_response === "approved"
+        ? {
+            label: "✅ Closed · Customer approved",
+            className: "text-emerald-600",
+            time: closingDecision.responded_at,
+          }
+        : {
+            label: "❌ Closed · Changes requested",
+            className: "text-red-600",
+            time: closingDecision.responded_at,
+          };
     }
     if (note.status === "expired") {
       return {

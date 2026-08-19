@@ -47,9 +47,8 @@ export function assertAllowedCatalogUrl(raw: string): URL {
   return parsed;
 }
 
-export async function fetchCatalogLists(
-  rawUrl?: string | null
-): Promise<CatalogOptionLists> {
+/** Fetch raw CRM catalog JSON (v1 or v2). Caller validates schema. */
+export async function fetchCatalogJson(rawUrl?: string | null): Promise<unknown> {
   const urlText =
     typeof rawUrl === "string" && rawUrl.trim()
       ? rawUrl.trim()
@@ -65,13 +64,23 @@ export async function fetchCatalogLists(
 
   const res = await fetch(catalogUrl.toString(), {
     headers,
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(15_000),
     cache: "no-store",
   });
   if (!res.ok) {
     throw new Error(`Catalog request failed (${res.status})`);
   }
-  const catalogJson: unknown = await res.json();
+  return res.json();
+}
+
+export async function fetchCatalogLists(
+  rawUrl?: string | null
+): Promise<CatalogOptionLists> {
+  const urlText =
+    typeof rawUrl === "string" && rawUrl.trim()
+      ? rawUrl.trim()
+      : DEFAULT_CRM_CATALOG_URL;
+  const catalogJson = await fetchCatalogJson(urlText);
   const lists = parseCatalogPayload(catalogJson);
   if (
     lists.categories.length === 0 &&

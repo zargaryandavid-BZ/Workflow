@@ -49,6 +49,8 @@ export type CreateOrderInput = {
   dueProcessingDays?: number | null;
   specs?: Record<string, unknown>;
   customFieldValues?: { customFieldId: string; value: unknown }[];
+  integrationMode?: "local" | "connected";
+  crmSnapshot?: Record<string, unknown> | null;
 };
 
 export type CreateOrderResult =
@@ -70,6 +72,18 @@ function productFromCustomFieldValues(
   if (typeof row.value === "string") return row.value.trim() || null;
   if (row.value == null) return null;
   return String(row.value).trim() || null;
+}
+
+function productNameFromSnapshot(
+  snapshot: Record<string, unknown> | null | undefined
+): string | null {
+  if (!snapshot) return null;
+  const items = snapshot.line_items;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const first = items[0] as Record<string, unknown> | undefined;
+  if (!first) return null;
+  const name = first.product_name ?? first.name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
 }
 
 export async function createOrder(
@@ -156,10 +170,16 @@ export async function createOrder(
     return { error: "No columns found", status: 400 };
   }
 
-  const product = productFromCustomFieldValues(
-    (productField as { id: string } | null)?.id,
-    body.customFieldValues
-  );
+  const productFromSnapshot =
+    body.integrationMode === "connected" && body.crmSnapshot
+      ? productNameFromSnapshot(body.crmSnapshot)
+      : null;
+  const product =
+    productFromSnapshot ??
+    productFromCustomFieldValues(
+      (productField as { id: string } | null)?.id,
+      body.customFieldValues
+    );
   const routed = await resolveColumnForNewJobByProduct(
     supabase,
     tenantId,
@@ -279,6 +299,13 @@ export async function createOrder(
       position,
       created_by: createdBy,
       last_moved_at: new Date().toISOString(),
+      ...(body.integrationMode === "connected"
+        ? {
+            integration_mode: "connected",
+            crm_snapshot: body.crmSnapshot ?? { line_items: [] },
+            user_overrides: {},
+          }
+        : { integration_mode: "local" }),
     })
     .select("*")
     .single();

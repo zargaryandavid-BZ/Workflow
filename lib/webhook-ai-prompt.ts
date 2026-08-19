@@ -47,6 +47,8 @@ export function buildWebhookFieldOptionsFromCustomFields(
 ): Record<string, string[]> {
   const nameToKey: Record<string, string> = {
     product: "product",
+    category: "product_category",
+    "product category": "product_category",
     materials: "materials",
     sides: "sides",
     color: "color_mode",
@@ -105,87 +107,122 @@ export function buildWebhookAiPrompt(opts: {
     return `### \`${label}\`\n${formatOptionList(values)}`;
   }).join("\n\n");
 
-  return `You build JSON payloads for the BazaarPrinting Workflow webhook.
+  return `You are mapping another system's order data into ONE JSON body for the BazaarPrinting Workflow webhook.
 
-GOAL
-When an order is created/updated in our CRM, send ONE POST body that includes
-EVERY available field so Workflow cards show: source label, title, product specs,
-quantity/price, designer/owner, notes, and the financial globe (payment info).
+Your job: given an order from the source system, output a single POST body that Workflow can ingest. Do not invent missing required identity fields. Do not wrap the JSON in markdown. Do not add extra top-level keys.
 
+================================================================================
 ENDPOINT
+================================================================================
 POST ${opts.webhookUrl}
-Header: Content-Type: application/json
-Header: x-webhook-secret: <secret from Settings → Integrations>
-Body: JSON only. No extra wrapper keys.
+Content-Type: application/json
+x-webhook-secret: <secret from Workflow Settings → Integrations → Webhook>
 
-RULES
-1. Prefer \`items[]\` when the order has one or more line items (each line → one board card).
-2. Always send order-level identity + billing + title when available.
-3. Map CRM dropdown values to the ACCEPTED VALUES lists below. Prefer exact matches.
-4. Never send "None", "None (inactive)", "N/A", or "-" for empty selects — omit the field or send "".
-5. Booleans must be true/false, not "yes"/"no".
-6. Dates must be YYYY-MM-DD and today or future.
-7. Money: numbers preferred (deposit/balance/unit_price). Strings like "$100" are OK.
-8. \`design_task\` = http(s) URL only (Drive/job folder). Non-URL notes go in \`description\` or \`notes\`.
-9. Line comments / SKU comments → per-SKU \`comment\` (or \`description\`) so they land in Notes.
-10. If only one line exists, still use \`items: [ {...} ]\` for consistency.
+Body = the JSON object below. No { "data": ... } wrapper.
 
-REQUIRED WHEN AVAILABLE (do not drop these)
+================================================================================
+HOW WORKFLOW TURNS THE PAYLOAD INTO CARDS
+================================================================================
+- One webhook POST = one CRM order.
+- Each entry in items[] becomes ONE board card.
+- One line item → still send items: [ { ... } ] (do not flatten unless you must).
+- Multi-item cards are titled like ORD-2026-0486-1, ORD-2026-0486-2.
+- Re-sending the same order_number updates the existing cards (due date / rush). Do not create duplicates.
+
+================================================================================
+HARD RULES
+================================================================================
+1. Map source dropdowns to the ACCEPTED VALUES lists below. Prefer exact matches. Fuzzy match is OK for minor typos; never invent a new product name.
+2. Empty selects: omit the field or send "". Never send "None", "None (inactive)", "N/A", or "-".
+3. Booleans: send true/false. For rush only, also accepted: 1, "true", "yes", "rush".
+4. Dates: YYYY-MM-DD. due_date should be today or a future date when set.
+5. Money: numbers preferred (deposit, balance, unit_price). "$100" is OK.
+6. design_task = http(s) URL only (Google Drive / job folder). Non-URL notes go in description or notes.
+7. title is the human job name shown after the source label (CRM | …). NEVER put order_number in title. Omit title rather than repeating the order number.
+8. CRM order_number for source "crm" must look like ORD-YYYY-#### (example: ORD-2026-0486).
+
+================================================================================
+ALWAYS SEND WHEN THE SOURCE SYSTEM HAS THE VALUE
+================================================================================
 Order level:
-- source: one of ${sourceHint} (or a configured Integrations source key)
+- source: one of ${sourceHint}
 - customer_name
 - customer_contact (email)
 - customer_phone
 - order_number
-- title (human title shown as: Source | <title>)  ← NEVER put order_number here
-- priority: normal|high|low|urgent
-- due_date
-- description (order description)
-- notes (CRM Attention / Internal Notes → every sub-card; alias internal_note)
-- items[].line_item_comment (CRM Line Item Comment → that sub-order Notes only)
-- category (board TAG name when it matches a tag; also fills Category dropdown if product_category omitted)
-- product_category (dropdown Category — Apparel, Labels & Stickers, …; prefer this over category)
-- source_url (CRM order page URL)  ← required for globe Source link
-- payment_status: partial|full     ← required for payment globe
+- title (human title — not the order number)
+- priority: normal | high | low | urgent
+- rush: true | false
+    true → amber attention triangle on the card
+    aliases: is_rush, rush_order, rush_status
+    does NOT change priority — a rush job can stay priority "normal"
+- is_key_account: true | false  → gold star on the card
+- due_date (YYYY-MM-DD) when known
+- due_date_mode: "fixed" | "after_approval"
+- due_processing_days: number of Mon–Fri days when after_approval
+- due_date_label: human text e.g. "5 working days after approval"
+- due_date_status: "set" | "pending_approval" | "none"
+- due_anchor_at: ISO timestamp when the calendar due was materialized
+- description (customer-facing order description)
+- notes (internal / attention notes on every sub-card; alias internal_note)
+- production_notes (floor / job ticket notes)
+- category (board TAG name if it matches a tag)
+- product_category (Category dropdown; prefer this over category)
+- source_url (CRM order page URL — needed for the billing globe Source link)
+- payment_status: partial | full  (paid / complete also map to full)
 - deposit
 - balance
 - request_owner_email / request_owner_name / request_owner_phone (or owner_*)
 - designer_email or designer (name)
 - designer_information
 
-Each items[] entry:
-- title (line title)
-- category (board TAG when it matches a tag; also fills Category if product_category omitted)
-- product_category (Category dropdown; prefer this over category)
-- product
-- materials
-- finished_size  OR width + height (Workflow builds "W x H" if finished_size omitted)
-- sides, color_mode, roll_direction, lamination / finishing
+Each items[] line:
+- title (short line name, e.g. "Roll Labels")
+- rush (optional per line; inherits order-level rush if omitted)
+- category / product_category
+- product, materials
+- finished_size  OR width + height (Workflow builds "W x H in")
+- sides, color_mode, roll_direction, lamination / finishing, die
 - special_effects: string or string[]
 - unit_price, quantity
 - spot_uv, foil, die_cut, application, need_a_design, perforation (booleans)
-- order_qty (if known; else SKU quantities are summed)
+- order_qty (else SKU quantities are summed)
 - artwork_url (public URL)
-- description / notes
+- description / notes / production_notes / line_item_comment
 - skus: [{ sku_name, quantity, artwork_url, comment }]
 
-FINANCIAL GLOBE
-If payment fields are missing, Workflow shows NO globe.
-Always include at least one of: source_url, payment_status, deposit, balance.
+================================================================================
+RUSH / ATTENTION ICON
+================================================================================
+Send "rush": true when the source order is a rush job.
+That is what puts the attention triangle on the Workflow card.
+Do not use priority=high as a substitute unless the job is actually high priority.
 
-TITLE
-- Order \`title\` = CRM order title / job name
-- Do NOT use order_number as title
-- Item \`title\` = line product short name
+================================================================================
+BILLING GLOBE
+================================================================================
+If source_url, payment_status, deposit, and balance are all missing, Workflow shows NO globe.
+Always include at least one of them when known.
 
-ACCEPTED SELECT VALUES (tenant configuration — keep these in sync)
+================================================================================
+DUE DATES
+================================================================================
+- Known calendar due → due_date: "YYYY-MM-DD", due_date_mode: "fixed", due_date_status: "set"
+- Due after approval (no calendar date yet) → omit/empty due_date, due_date_mode: "after_approval", due_processing_days: N, due_date_status: "pending_approval", due_date_label: "N working days after approval"
+- When the source later materializes the date, re-POST the same order_number with the new due_date.
+
+================================================================================
+ACCEPTED SELECT VALUES (keep these in sync with Workflow Settings → Fields)
+================================================================================
 
 ${sections}
 
+================================================================================
 OUTPUT
-Return ONLY valid JSON for the webhook body (no markdown, no commentary).
+================================================================================
+Return ONLY the JSON body. No markdown fences. No commentary.
 
-TEMPLATE (fill from CRM order data)
+TEMPLATE — fill from the source order; drop keys you do not have:
 {
   "source": "crm",
   "customer_name": "",
@@ -194,9 +231,14 @@ TEMPLATE (fill from CRM order data)
   "order_number": "",
   "title": "",
   "priority": "normal",
+  "rush": false,
+  "is_key_account": false,
   "due_date": "YYYY-MM-DD",
+  "due_date_mode": "fixed",
+  "due_date_status": "set",
   "description": "",
   "notes": "",
+  "production_notes": "",
   "category": "",
   "product_category": "",
   "source_url": "",
@@ -231,10 +273,12 @@ TEMPLATE (fill from CRM order data)
       "application": false,
       "need_a_design": false,
       "perforation": false,
+      "rush": false,
       "order_qty": 0,
       "artwork_url": "",
       "description": "",
       "notes": "",
+      "production_notes": "",
       "skus": [
         { "sku_name": "", "quantity": 0, "artwork_url": "", "comment": "" }
       ]

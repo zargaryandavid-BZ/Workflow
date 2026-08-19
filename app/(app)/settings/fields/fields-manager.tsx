@@ -39,10 +39,10 @@ function parseOptionsText(text: string): string[] {
 
 export function FieldsManager({
   initialFields,
-  initialCatalogUrl = "",
+  catalogUrl = "",
 }: {
   initialFields: CustomField[];
-  initialCatalogUrl?: string;
+  catalogUrl?: string;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -54,15 +54,6 @@ export function FieldsManager({
   const [syncing, setSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [applyingImport, setApplyingImport] = useState(false);
-  const [catalogUrl, setCatalogUrl] = useState(() => {
-    if (initialCatalogUrl.trim()) return initialCatalogUrl;
-    if (typeof window === "undefined") return "";
-    try {
-      return localStorage.getItem("workflow.catalogImportUrl")?.trim() ?? "";
-    } catch {
-      return "";
-    }
-  });
   const [importError, setImportError] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -133,15 +124,6 @@ export function FieldsManager({
     if (!res.ok) {
       setImportError(json.error ?? "Analyze failed");
       return;
-    }
-    if (typeof json.catalogUrl === "string" && json.catalogUrl.trim()) {
-      const saved = json.catalogUrl.trim();
-      setCatalogUrl(saved);
-      try {
-        localStorage.setItem("workflow.catalogImportUrl", saved);
-      } catch {
-        /* ignore */
-      }
     }
     setReview({
       aiUsed: Boolean(json.aiUsed),
@@ -271,29 +253,18 @@ export function FieldsManager({
       ) : null}
 
       <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-4">
-        <div>
-          <p className="text-sm font-medium text-slate-700">
-            Import from Catalog{" "}
-            <span className="font-normal text-slate-400">(optional)</span>
-          </p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Paste a CRM catalog API URL, or leave blank for the default CRM feed.
-            Import analyzes catalog vs your Category / Product / Materials options,
-            highlights possible duplicates (rules + AI when configured), then you
-            choose what to keep. Nothing is saved until you confirm.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <div className="min-w-0 flex-1">
-            <Label htmlFor="catalog-url">Catalog API URL</Label>
-            <Input
-              id="catalog-url"
-              type="url"
-              value={catalogUrl}
-              onChange={(e) => setCatalogUrl(e.target.value)}
-              placeholder="https://your-crm.vercel.app/api/catalog"
-              disabled={importing}
-            />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-700">
+              Import from Catalog{" "}
+              <span className="font-normal text-slate-400">(optional)</span>
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Uses the CRM Catalog URL above (or the default CRM feed if blank).
+              Import analyzes catalog vs your Category / Product / Materials options,
+              highlights possible duplicates (rules + AI when configured), then you
+              choose what to keep. Nothing is saved until you confirm.
+            </p>
           </div>
           <Button
             type="button"

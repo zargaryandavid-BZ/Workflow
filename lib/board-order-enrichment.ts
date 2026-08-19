@@ -5,6 +5,7 @@ import {
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import {
+  designerNamesByOrder,
   thumbnailUrlsByOrder,
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
@@ -58,21 +59,16 @@ export async function enrichBoardOrders(
       orders.map((o) => o.created_by).filter((id): id is string => Boolean(id))
     ),
   ];
-  const designerIdsNeeded: string[] = [];
-  const designerNameByOrderPre: Record<string, string> = {};
-  for (const o of orders) {
-    const specs = o.specs as Record<string, unknown> | null;
-    const storedName =
-      typeof specs?.designer_name === "string" ? specs.designer_name.trim() : "";
-    if (storedName) {
-      designerNameByOrderPre[o.id] = storedName;
-    } else {
-      const id =
-        typeof specs?.designer_id === "string" ? specs.designer_id.trim() : "";
-      if (id) designerIdsNeeded.push(id);
-    }
-  }
-  const uniqueDesignerIds = [...new Set(designerIdsNeeded)];
+  const uniqueDesignerIds = [
+    ...new Set(
+      orders
+        .map((o) => {
+          const id = (o.specs as Record<string, unknown> | null)?.designer_id;
+          return typeof id === "string" ? id.trim() : "";
+        })
+        .filter(Boolean)
+    ),
+  ];
 
   const [
     valuesRes,
@@ -231,9 +227,6 @@ export async function enrichBoardOrders(
     if (specName) ownerNameByOrder[o.id] = specName;
   }
 
-  const designerNameByOrder: Record<string, string> = {
-    ...designerNameByOrderPre,
-  };
   const designerNameById = new Map(
     (
       (
@@ -243,16 +236,7 @@ export async function enrichBoardOrders(
       ).data ?? []
     ).map((p) => [p.id, p.full_name?.trim() || "Designer"])
   );
-  for (const o of orders) {
-    if (designerNameByOrder[o.id]) continue;
-    const specs = o.specs as Record<string, unknown> | null;
-    const id =
-      typeof specs?.designer_id === "string" ? specs.designer_id.trim() : "";
-    if (id) {
-      const name = designerNameById.get(id);
-      if (name) designerNameByOrder[o.id] = name;
-    }
-  }
+  const designerNameByOrder = designerNamesByOrder(orders, designerNameById);
 
   const shippingSignByOrder: Record<string, BoardShippingSign> = {};
   // Table may be missing until migration 0044 is applied.

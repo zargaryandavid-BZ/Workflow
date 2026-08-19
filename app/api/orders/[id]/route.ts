@@ -20,6 +20,7 @@ import {
   mergeSkuImagesWithAssets,
   pruneOrphanedSkuImages,
 } from "@/lib/sku-images";
+import { withCanonicalDesignerName } from "@/lib/order-designer";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
   canEditOrderDetails,
@@ -485,6 +486,13 @@ export async function PATCH(
       : nextSpecs;
   } else if (staffDue) {
     updates.specs = mergeDueSpecsIntoOrderSpecs(existingSpecs, staffDue.specs);
+  }
+
+  if (updates.specs && typeof updates.specs === "object") {
+    updates.specs = await withCanonicalDesignerName(
+      supabase,
+      updates.specs as Record<string, unknown>
+    );
   }
 
   if (body.customFieldValues) {

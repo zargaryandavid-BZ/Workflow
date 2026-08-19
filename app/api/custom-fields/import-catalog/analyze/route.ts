@@ -25,11 +25,26 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { url?: string };
   const typedUrl =
     typeof body.url === "string" && body.url.trim() ? body.url.trim() : "";
-  const resolvedUrl = typedUrl || DEFAULT_CRM_CATALOG_URL;
+
+  const supabase = await createClient();
+  const { data: tenantRow } = await supabase
+    .from("tenants")
+    .select("crm_catalog_url, catalog_import_url")
+    .eq("id", ctx.tenant.id)
+    .maybeSingle();
+
+  const storedUrl =
+    (typeof tenantRow?.crm_catalog_url === "string"
+      ? tenantRow.crm_catalog_url.trim()
+      : "") ||
+    (typeof tenantRow?.catalog_import_url === "string"
+      ? tenantRow.catalog_import_url.trim()
+      : "");
+  const resolvedUrl = typedUrl || storedUrl || DEFAULT_CRM_CATALOG_URL;
 
   let lists;
   try {
-    lists = await fetchCatalogLists(typedUrl || null);
+    lists = await fetchCatalogLists(resolvedUrl);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to fetch catalog";
     const status =
@@ -39,7 +54,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status });
   }
 
-  const supabase = await createClient();
   const { data: existingFields, error: listError } = await supabase
     .from("custom_fields")
     .select("id, name, field_type, options, position")
@@ -69,16 +83,16 @@ export async function POST(request: Request) {
     );
   }
 
-  // Remember successful URL so the field is pre-filled next time.
+  // Remember the successful URL in the single catalog-URL columns.
   const { error: saveUrlError } = await supabase
     .from("tenants")
-    .update({ catalog_import_url: resolvedUrl })
+    .update({
+      crm_catalog_url: resolvedUrl,
+      catalog_import_url: resolvedUrl,
+    })
     .eq("id", ctx.tenant.id);
   if (saveUrlError) {
-    console.warn(
-      "catalog_import_url save failed (run migration 0075?):",
-      saveUrlError.message
-    );
+    console.warn("catalog URL save failed:", saveUrlError.message);
   }
 
   return NextResponse.json({

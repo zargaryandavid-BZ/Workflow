@@ -22,6 +22,7 @@ import {
   Archive,
   CalendarClock,
   CalendarDays,
+  Check,
   Layers,
   LayoutDashboard,
   List,
@@ -109,6 +110,7 @@ import type {
   Designer,
   ButtonAutomation,
   FastActionButton,
+  IntegrationMode,
   OrderTagSummary,
   OrderWithRelations,
   Role,
@@ -119,6 +121,7 @@ import {
   priorityScoreFromSpecs,
 } from "@/lib/order-priority-score";
 import { isApplicationEnabled } from "@/lib/order-application";
+import { isRushOrder } from "@/lib/order-rush";
 import { calendarDaysUntilDue } from "@/lib/board-due-date";
 import { columnsIncludedInBoardHealth } from "@/lib/board-health";
 import {
@@ -216,6 +219,7 @@ interface BoardProps {
   currentUserId: string;
   currentUserName: string;
   customFields: CustomField[];
+  tenantIntegrationMode?: IntegrationMode;
   designers: Designer[];
   notifyColumns: NotifyColumnConfig[];
   smsConfigured: boolean;
@@ -246,6 +250,7 @@ export function Board({
   currentUserId,
   currentUserName,
   customFields,
+  tenantIntegrationMode = "local",
   designers,
   notifyColumns,
   smsConfigured,
@@ -2581,7 +2586,7 @@ export function Board({
           daysToDue: order.due_date
             ? calendarDaysUntilDue(order.due_date, businessToday)
             : null,
-          isRush: /rush/i.test(order.tag?.name ?? ""),
+          isRush: isRushOrder(order),
           hasApplication: isApplicationEnabled(
             order.specs,
             customFields,
@@ -2831,7 +2836,7 @@ export function Board({
     <div className="flex h-full w-full max-w-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div
         ref={toolbarShellRef}
-        className="relative z-[100] w-full min-w-0 overflow-x-auto overflow-y-visible px-3 py-2"
+        className="relative z-40 w-full min-w-0 overflow-x-auto overflow-y-visible px-3 py-2"
       >
         <div
           ref={toolbarInnerRef}
@@ -3213,16 +3218,23 @@ export function Board({
               <Layers className="h-4 w-4" />
             </summary>
             <div className="absolute right-0 z-[200] mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-              <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-                <input
-                  type="checkbox"
-                  className="rounded border-slate-300"
-                  checked={groupedView}
-                  onChange={(e) => setGroupedView(e.target.checked)}
-                />
+              <button
+                type="button"
+                aria-pressed={groupedView}
+                onClick={() => {
+                  setGroupedView((enabled) => !enabled);
+                  if (boardViewMenuRef.current) {
+                    boardViewMenuRef.current.open = false;
+                  }
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white">
+                  {groupedView ? <Check className="h-3 w-3" /> : null}
+                </span>
                 <Layers className="h-3.5 w-3.5 shrink-0 text-slate-500" />
                 Group
-              </label>
+              </button>
               {canAnimateWarnings ? (
                 <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
                   <input
@@ -3522,6 +3534,7 @@ export function Board({
         columns={columns}
         owners={owners}
         customFields={customFields}
+        tenantIntegrationMode={tenantIntegrationMode}
         designers={designersWithLoad}
         currentUserId={currentUserId}
         onCreated={() => {

@@ -18,6 +18,10 @@ import {
   filterValidCustomFieldValues,
 } from "@/lib/custom-field-values.server";
 import { selectOptionsForWebhookField } from "@/lib/webhook-field-options";
+import {
+  RUSH_ORDER_TAG_NAME,
+  webhookRushFromPayload,
+} from "@/lib/order-rush";
 import { parseWebhookSourceKey } from "@/lib/webhook-source-styles";
 import {
   hasBillingInfo,
@@ -265,6 +269,10 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   payment?: string;
   deposit?: number | string;
   balance?: number | string;
+  rush?: boolean | string | number;
+  is_rush?: boolean | string | number;
+  rush_order?: boolean | string | number;
+  rush_status?: boolean | string | number;
 }
 
 export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerInput {
@@ -278,6 +286,15 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   customer_phone?: string;
   /** CRM starred / key account (customers.priority_stars >= 1). */
   is_key_account?: boolean;
+  /**
+   * Rush / attention job. When true, the card shows the rush (attention)
+   * triangle and the Rush Order tag is applied if no other tag is set.
+   * Aliases: `is_rush`, `rush_order`, `rush_status`.
+   */
+  rush?: boolean | string | number;
+  is_rush?: boolean | string | number;
+  rush_order?: boolean | string | number;
+  rush_status?: boolean | string | number;
   order_number?: string;
   /**
    * Human-readable title after the source label (`CRM | …`).
@@ -1267,6 +1284,10 @@ function mergeItemWithOrder(
     comment: item.comment,
     category: firstNonEmpty(item.category, order.category),
     category_name: firstNonEmpty(item.category_name, order.category_name),
+    rush: item.rush ?? order.rush,
+    is_rush: item.is_rush ?? order.is_rush,
+    rush_order: item.rush_order ?? order.rush_order,
+    rush_status: item.rush_status ?? order.rush_status,
     designer_email: firstNonEmpty(item.designer_email, order.designer_email),
     designer_id: firstNonEmpty(item.designer_id, order.designer_id),
     designer: firstNonEmpty(item.designer, order.designer),
@@ -2432,7 +2453,8 @@ async function updateExistingOrdersDue(
   tenantId: string,
   existing: { id: string; title: string; specs: Record<string, unknown> }[],
   dueDate: string | null,
-  dueSpecs: OrderDueSpecs
+  dueSpecs: OrderDueSpecs,
+  rush?: boolean
 ): Promise<void> {
   await Promise.all(
     existing.map(async (order) => {
@@ -2460,6 +2482,8 @@ async function updateExistingOrdersDue(
 
       // Absolute date from CRM wins; merge/replace due keys cleanly.
       const nextSpecs = mergeDueSpecsIntoOrderSpecs(order.specs, nextDueSpecs);
+      if (rush === true) nextSpecs.rush = true;
+      else if (rush === false) nextSpecs.rush = false;
       if (nextDueDate && nextDueSpecs.due_date_status === "set") {
         // Keep prior human label only when CRM omitted one.
         if (!nextDueSpecs.due_date_label && order.specs.due_date_label) {
@@ -2498,6 +2522,8 @@ interface CreateSingleJobParams {
   orderContact: string;
   /** CRM starred / key account — stored in specs so the board can flag it. */
   isKeyAccount?: boolean;
+  /** CRM rush / attention job — triangle icon + Rush Order tag. */
+  isRush?: boolean;
   item: WebhookItem;
   priority: string;
   dueDate: string | null;
@@ -2561,6 +2587,7 @@ async function createSingleWebhookJob(
     tagId,
     ownerId,
     isKeyAccount,
+    isRush,
     requestOwnerSpecs,
     designerId,
     designerName,
@@ -2672,6 +2699,7 @@ async function createSingleWebhookJob(
     specs.webhook_order_title = sharedTitle;
   }
   if (isKeyAccount) specs.is_key_account = true;
+  if (isRush) specs.rush = true;
   // Always stamp for idempotent due-date updates on later CRM webhooks.
   specs.webhook_order_number = webhookOrderNumber;
   // Per-line display title (card + "Line item name"). Always stamp so single-item
@@ -2861,7 +2889,8 @@ export async function createOrderFromWebhook(
       tenantId,
       existingOrders,
       dueDate,
-      dueSpecs
+      dueSpecs,
+      webhookRushFromPayload(body as Record<string, unknown>)
     );
     const sorted = [...existingOrders].sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { numeric: true })
@@ -2990,9 +3019,13 @@ export async function createOrderFromWebhook(
       : shortBaseOrderNumber;
 
     const itemTagName = item.category ?? item.category_name;
-    const tagId = itemTagName
+    let tagId = itemTagName
       ? await resolveTagId(client, tenantId, itemTagName)
       : defaultTagId;
+    const isRush = webhookRushFromPayload(item as Record<string, unknown>) === true;
+    if (isRush && !tagId) {
+      tagId = await resolveTagId(client, tenantId, RUSH_ORDER_TAG_NAME);
+    }
 
     const designerInput = mergeDesignerInput(body, item);
     const {
@@ -3065,6 +3098,7 @@ export async function createOrderFromWebhook(
       customerName: customerInfo.customerName,
       orderContact: customerInfo.orderContact,
       isKeyAccount: body.is_key_account === true,
+      isRush,
       item,
       priority,
       dueDate,

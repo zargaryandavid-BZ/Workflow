@@ -401,7 +401,7 @@ export async function loadOrderExportData(
       designerId ? profileEmail(designerId) : null,
     ]);
 
-  const designerName = designerNameFromSpecs || designerProfileName;
+  const designerName = designerProfileName || designerNameFromSpecs;
   const assignedToName = designerName || ownerProfileName || "—";
   const assignedToEmail = designerEmail || ownerEmail;
 

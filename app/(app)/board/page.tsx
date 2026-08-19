@@ -212,6 +212,9 @@ export default async function BoardPage({
       currentUserId={ctx.userId}
       currentUserName={ctx.fullName ?? ctx.email ?? "Unknown"}
       customFields={(fieldsRes.data ?? []) as CustomField[]}
+      tenantIntegrationMode={
+        ctx.tenant.integration_mode === "connected" ? "connected" : "local"
+      }
       designers={designers}
       notifyColumns={notifyColumns}
       smsConfigured={isSmsConfigured()}

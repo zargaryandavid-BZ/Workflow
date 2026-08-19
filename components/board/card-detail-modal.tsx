@@ -24,6 +24,8 @@ import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
+import { ConnectedSpecsSection } from "./connected-specs-section";
+import { isConnectedOrder } from "@/lib/connected-specs";
 import { NudgeButton } from "./nudge-button";
 import { ComboStockControl } from "./combo-stock-control";
 import { isComboOrder, getComboStock } from "@/lib/combo-stock";
@@ -2142,8 +2144,8 @@ export function CardDetailModal({
             />
             )
           ) : (
-        <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className="space-y-4 md:col-span-2">
+        <div className="mt-4 grid min-w-0 grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="min-w-0 space-y-4 md:col-span-2">
             {editLockedReason ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 {editLockedReason}
@@ -2179,8 +2181,25 @@ export function CardDetailModal({
                 }}
               />
             ) : null}
+            {data.order && isConnectedOrder(data.order) ? (
+              <ConnectedSpecsSection
+                order={data.order}
+                onOrderPatch={(patch) => {
+                  setData((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          order: { ...prev.order, ...patch },
+                        }
+                      : prev
+                  );
+                  onChanged(patch);
+                }}
+              />
+            ) : null}
             <OrderFormBody
               idPrefix="edit"
+              hidePrintCustomFields={isConnectedOrder(data.order)}
               productSpecs={data.order.specs ?? null}
               onProductSpecChange={(key, value) =>
                 setData((prev) =>
@@ -2303,7 +2322,7 @@ export function CardDetailModal({
             ) : null}
           </div>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {(!isViewOnly && (isDirty() || saving)) ||
             (isViewOnly && canEditDueDate && (isDueDateDirty() || saving)) ? (
               <div className="flex flex-col gap-2">
@@ -2335,7 +2354,7 @@ export function CardDetailModal({
                 </Button>
               </div>
             ) : null}
-            <div className="rounded-lg border border-slate-200 p-3">
+            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 p-3">
               <Label htmlFor="sidebar-priority">Priority</Label>
               <Select
                 id="sidebar-priority"
@@ -2367,7 +2386,7 @@ export function CardDetailModal({
                 />
               </div>
             ) : null}
-            <div className="rounded-lg border border-slate-200 p-3">
+            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 p-3">
               <DueDateFields
                 idPrefix="sidebar"
                 mode={dueDateMode}
@@ -2403,7 +2422,7 @@ export function CardDetailModal({
               />
             </div>
             {tags.length > 0 ? (
-              <div className="rounded-lg border border-slate-200 p-3">
+              <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Tag
                 </p>
@@ -2411,7 +2430,7 @@ export function CardDetailModal({
                   <select
                     value={tagId}
                     onChange={(e) => setTagId(e.target.value)}
-                    className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    className="w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
                   >
                     <option value="">— None —</option>
                     {tags.map((tag) => (
@@ -2494,7 +2513,7 @@ export function CardDetailModal({
               />
             ) : null}
 
-            <div className="rounded-lg border border-slate-200">
+            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200">
               <button
                 type="button"
                 onClick={() => setActivityOpen((o) => !o)}
@@ -2548,7 +2567,7 @@ export function CardDetailModal({
                   {activityFilter === "all" ? (
                     <ul className="space-y-2 border-t border-slate-100 px-3 py-2">
                       {data.activity.map((log) => (
-                        <li key={log.id} className="text-xs text-slate-500">
+                        <li key={log.id} className="min-w-0 break-words text-xs text-slate-500">
                           <span className="font-medium text-slate-700">
                             {describeActivity(log)}
                           </span>

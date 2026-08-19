@@ -121,16 +121,20 @@ export function computeDesignerLeaderboard(input: {
         : "";
     if (!designerId) continue;
 
+    const teamName = counts.get(designerId)?.name?.trim();
     const designerName =
-      typeof o.specs?.designer_name === "string"
+      teamName ||
+      profileNames.get(designerId)?.trim() ||
+      (typeof o.specs?.designer_name === "string"
         ? o.specs.designer_name.trim()
-        : profileNames.get(designerId) ?? "Unnamed";
+        : "") ||
+      "Unnamed";
     const row = counts.get(designerId) ?? {
-      name: designerName || "Unnamed",
+      name: designerName,
       orderCount: 0,
       skuCount: 0,
     };
-    if (designerName) row.name = designerName;
+    if (!teamName) row.name = designerName;
     row.orderCount += 1;
     row.skuCount += skus;
     counts.set(designerId, row);

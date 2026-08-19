@@ -91,6 +91,9 @@ export interface CrmOrder {
   due_date_label?: string | null;
   due_date_status?: "set" | "pending_approval" | "none" | null;
   priority?: string | null;
+  /** Rush / attention job — Workflow card triangle. */
+  rush?: boolean | null;
+  is_rush?: boolean | null;
   /** Client-facing Order Description (Customer Note). */
   description?: string | null;
   /** Floor / Job Ticket production notes. */
@@ -183,6 +186,7 @@ export async function sendToWorkflow(
     customer_phone: customer.phone ?? undefined,
     order_number: order.order_number ?? order.id,
     priority: order.priority ?? "normal",
+    rush: order.rush === true || order.is_rush === true,
     ...buildDueFieldsForWebhook(order),
     product: mappedProduct,
     product_category: mappedProduct

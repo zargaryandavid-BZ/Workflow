@@ -69,25 +69,30 @@ export async function thumbnailUrlsByOrder(
   return thumbnailsByOrder;
 }
 
+/** Display name follows `designer_id`; stored `designer_name` is only a fallback. */
+export function resolveDesignerDisplayName(
+  specs: Record<string, unknown> | null | undefined,
+  designerNameById: Map<string, string>
+): string {
+  const id =
+    typeof specs?.designer_id === "string" ? specs.designer_id.trim() : "";
+  if (id) {
+    const resolved = designerNameById.get(id)?.trim();
+    if (resolved) return resolved;
+  }
+  const stored =
+    typeof specs?.designer_name === "string" ? specs.designer_name.trim() : "";
+  return stored;
+}
+
 export function designerNamesByOrder(
   orders: { id: string; specs?: Record<string, unknown> | null }[],
   designerNameById: Map<string, string>
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const order of orders) {
-    const specs = order.specs ?? {};
-    const stored =
-      typeof specs.designer_name === "string" ? specs.designer_name.trim() : "";
-    if (stored) {
-      out[order.id] = stored;
-      continue;
-    }
-    const id =
-      typeof specs.designer_id === "string" ? specs.designer_id.trim() : "";
-    if (id) {
-      const resolved = designerNameById.get(id);
-      if (resolved) out[order.id] = resolved;
-    }
+    const name = resolveDesignerDisplayName(order.specs, designerNameById);
+    if (name) out[order.id] = name;
   }
   return out;
 }

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { FieldsSettingsClient } from "./fields-settings-client";
-import type { CustomField } from "@/lib/types";
+import type { CustomField, IntegrationMode } from "@/lib/types";
 
 export default async function FieldsSettingsPage() {
   const ctx = await getTenantContext();
@@ -10,7 +10,7 @@ export default async function FieldsSettingsPage() {
   if (ctx.role !== "admin") redirect("/board");
 
   const supabase = await createClient();
-  const [{ data }, { data: tenantRow }] = await Promise.all([
+  const [{ data }, { data: tenantRow }, { data: cacheRow }] = await Promise.all([
     supabase
       .from("custom_fields")
       .select("*")
@@ -18,16 +18,33 @@ export default async function FieldsSettingsPage() {
       .order("position", { ascending: true }),
     supabase
       .from("tenants")
-      .select("catalog_import_url")
+      .select("catalog_import_url, crm_catalog_url, integration_mode")
       .eq("id", ctx.tenant.id)
+      .maybeSingle(),
+    supabase
+      .from("catalog_cache")
+      .select("cached_at")
+      .eq("tenant_id", ctx.tenant.id)
       .maybeSingle(),
   ]);
 
+  const row = tenantRow as {
+    catalog_import_url?: string | null;
+    crm_catalog_url?: string | null;
+    integration_mode?: IntegrationMode | null;
+  } | null;
+
   const savedCatalogUrl =
-    typeof (tenantRow as { catalog_import_url?: string | null } | null)
-      ?.catalog_import_url === "string"
-      ? (tenantRow as { catalog_import_url: string }).catalog_import_url.trim()
-      : "";
+    (typeof row?.crm_catalog_url === "string" ? row.crm_catalog_url.trim() : "") ||
+    (typeof row?.catalog_import_url === "string"
+      ? row.catalog_import_url.trim()
+      : "");
+  const integrationMode: IntegrationMode =
+    row?.integration_mode === "connected" ? "connected" : "local";
+  const catalogCachedAt =
+    typeof (cacheRow as { cached_at?: string } | null)?.cached_at === "string"
+      ? (cacheRow as { cached_at: string }).cached_at
+      : null;
 
   return (
     <div>
@@ -38,7 +55,9 @@ export default async function FieldsSettingsPage() {
       </p>
       <FieldsSettingsClient
         initialFields={(data ?? []) as CustomField[]}
-        initialCatalogUrl={savedCatalogUrl}
+        catalogUrl={savedCatalogUrl}
+        integrationMode={integrationMode}
+        catalogCachedAt={catalogCachedAt}
       />
     </div>
   );

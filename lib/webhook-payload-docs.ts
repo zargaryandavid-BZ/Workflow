@@ -136,6 +136,7 @@ function fullSingleItemExample(year: number, due: string): string {
   "order_number": "ORD-${year}-013-3",
   "title": "Acme Corp — Roll Labels Order",
   "priority": "normal",
+  "rush": false,
   "due_date": "${due}",
   "description": "Rush if possible — ship to LA warehouse.",
   "notes": "Internal: confirm ship date with warehouse.",
@@ -187,6 +188,7 @@ function fullMultiItemExample(year: number, due: string): string {
   "order_number": "ORD-${year}-013-3",
   "title": "Acme Corp — Mixed Print Order",
   "priority": "high",
+  "rush": false,
   "due_date": "${due}",
   "description": "Order-level production notes.",
   "notes": "Internal: split ship — labels first.",
@@ -278,6 +280,7 @@ const ITEM_FIELDS_MD = `
 | \`foil\` | No | boolean | \`true\` / \`false\` |
 | \`die_cut\` | No | boolean | \`true\` / \`false\` |
 | \`application\` | No | boolean | \`true\` / \`false\` |
+| \`rush\` | No | boolean | \`true\` shows the rush (attention) triangle. Aliases: \`is_rush\`, \`rush_order\`, \`rush_status\` |
 | \`need_a_design\` | No | boolean | \`true\` / \`false\` |
 | \`perforation\` | No | boolean | \`true\` / \`false\` |
 | \`order_qty\` | No | number | Auto-calculated from SKUs when omitted |
@@ -380,6 +383,7 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`order_number\` | No | string | Your reference e.g. \`"ORD-${year}-001"\` — auto-generated (\`WH-…\`) if omitted |
 | \`title\` | No | string | Order title after source label — **leave empty/omit for blank** (order # still shows) |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
+| \`rush\` | No | boolean | \`true\` shows the rush (attention) triangle on the card. Aliases: \`is_rush\`, \`rush_order\`, \`rush_status\` |
 | \`due_date\` | No | string | \`"YYYY-MM-DD"\` absolute due when known; \`""\` if not materialized yet |
 | \`due_date_mode\` | No | string | \`"fixed"\` \\| \`"after_approval"\` |
 | \`due_processing_days\` | No | number | Working days (Mon–Fri) when after approval |
@@ -481,6 +485,8 @@ ${optionsBlock(lamination)}
 
 ### Boolean fields
 \`spot_uv\`, \`foil\`, \`die_cut\`, \`application\`, \`need_a_design\`, \`perforation\` — send \`true\` or \`false\`. Omitting is treated as \`false\`.
+
+\`rush\` (aliases: \`is_rush\`, \`rush_order\`, \`rush_status\`) — \`true\` puts the rush (attention) triangle on the card. Also accepts \`1\`, \`"true"\`, \`"yes"\`, \`"rush"\`. Does not change \`priority\`.
 
 ---
 
@@ -594,6 +600,12 @@ export function buildWebhookPayloadDocsHtml(
       "No",
       "string",
       "<code>normal</code> · <code>high</code> · <code>low</code> · <code>urgent</code> (default: normal)",
+    ],
+    [
+      "rush",
+      "No",
+      "boolean",
+      "<code>true</code> shows the rush (attention) triangle on the card. Aliases: <code>is_rush</code>, <code>rush_order</code>, <code>rush_status</code>. Also accepted as <code>1</code>, <code>\"true\"</code>, <code>\"yes\"</code>, <code>\"rush\"</code>.",
     ],
     [
       "due_date",
@@ -778,6 +790,12 @@ export function buildWebhookPayloadDocsHtml(
     ["foil", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["die_cut", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["application", "No", "boolean", "<code>true</code> / <code>false</code>"],
+    [
+      "rush",
+      "No",
+      "boolean",
+      "<code>true</code> shows the rush (attention) triangle. Aliases: <code>is_rush</code>, <code>rush_order</code>, <code>rush_status</code>",
+    ],
     ["need_a_design", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["perforation", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["order_qty", "No", "number", "Auto-calculated from SKUs when omitted"],
@@ -1001,6 +1019,7 @@ export function buildWebhookPayloadDocsHtml(
     ${optionsListHtml("lamination", lamination)}
     <h3>Boolean fields</h3>
     <p><code>spot_uv</code>, <code>foil</code>, <code>die_cut</code>, <code>application</code>, <code>need_a_design</code>, <code>perforation</code> — send <code>true</code> or <code>false</code>. Omitting is treated as <code>false</code>.</p>
+    <p><code>rush</code> (aliases: <code>is_rush</code>, <code>rush_order</code>, <code>rush_status</code>) — <code>true</code> puts the rush (attention) triangle on the card. Also accepts <code>1</code>, <code>"true"</code>, <code>"yes"</code>, <code>"rush"</code>. Does not change <code>priority</code>.</p>
 
     <h2>Response format</h2>
     <h3>Multi-item (<code>items[]</code> present)</h3>

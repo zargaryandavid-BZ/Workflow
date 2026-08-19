@@ -7,6 +7,7 @@
   "order_number": "ORD-2026-001",
   "title": "Acme Corp — Roll Labels Order",
   "priority": "normal",
+  "rush": false,
   "due_date": "2026-07-24",
   "description": "Rush if possible — ship to LA warehouse.",
   "notes": "Internal: confirm ship date with warehouse.",

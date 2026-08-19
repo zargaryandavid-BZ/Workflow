@@ -13,6 +13,7 @@ import {
   type ActiveWarning,
 } from "@/lib/card-warning-rules";
 import { calendarDaysUntilDue } from "@/lib/board-due-date";
+import { isRushOrder } from "@/lib/order-rush";
 import { businessDateString } from "@/lib/board-order-filters";
 import {
   DEFAULT_EMERGENCY_BALANCE,
@@ -325,7 +326,7 @@ export function evaluateBoardHealth(opts: {
         hoursHere,
         workingDaysHere,
         daysToDue,
-        isRush: /rush/i.test(order.tag?.name ?? ""),
+        isRush: isRushOrder(order),
         hasApplication: Boolean(
           order.specs &&
             typeof order.specs === "object" &&

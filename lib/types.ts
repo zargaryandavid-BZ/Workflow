@@ -24,6 +24,45 @@ export type CustomFieldType =
   | "date"
   | "checkbox";
 
+/** Tenant / order source of product specifications. */
+export type IntegrationMode = "local" | "connected";
+
+export type CrmSpecType =
+  | "text"
+  | "number"
+  | "select"
+  | "multi_select"
+  | "dimensions"
+  | "boolean";
+
+export type CrmSpecOption = {
+  option_id: string;
+  label: string;
+};
+
+export type CrmSpec = {
+  key: string;
+  label: string;
+  type: CrmSpecType;
+  display_value: string | null;
+  value: unknown;
+};
+
+export type CrmLineItem = {
+  product_id?: string | null;
+  product_name?: string | null;
+  specifications?: CrmSpec[];
+};
+
+export type CrmSnapshot = {
+  line_items?: CrmLineItem[];
+};
+
+export type UserSpecOverride = {
+  display_value: string;
+  value: unknown;
+};
+
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export type AutomationTrigger =
@@ -68,6 +107,10 @@ export interface Tenant {
   emergency_balance?: EmergencyBalanceConfig | Record<string, unknown> | null;
   /** Last successful Settings → Fields catalog import URL. */
   catalog_import_url?: string | null;
+  /** Default for new orders. Existing orders keep their own `integration_mode`. */
+  integration_mode?: IntegrationMode;
+  /** CRM v2 catalog feed URL used by Connected mode. */
+  crm_catalog_url?: string | null;
 }
 
 export interface Profile {
@@ -215,6 +258,10 @@ export interface OrderSpecs {
    * company priority changes); `manual` = card override (never auto-updated).
    */
   priority_source?: "customer" | "manual" | null;
+  /** CRM starred / key account — gold star on the board card. */
+  is_key_account?: boolean;
+  /** CRM rush / attention job — triangle icon on the board card. */
+  rush?: boolean;
   [key: string]: unknown;
 }
 
@@ -243,6 +290,18 @@ export interface Order {
    * Empty string means webhook with no/unknown source → Integrations "other" style.
    */
   webhook_source: string | null;
+  /** CRM order id when ingested from webhook (unique per tenant when set). */
+  crm_order_id?: string | null;
+  crm_updated_at?: string | null;
+  /** Full CRM order snapshot (line items + specs) as received. */
+  crm_snapshot?: CrmSnapshot | null;
+  /** Sticky per-key spec edits. CRM webhooks must not overwrite these keys. */
+  user_overrides?: Record<string, UserSpecOverride> | null;
+  /**
+   * Frozen at create time. `connected` renders from crm_snapshot + user_overrides.
+   * `local` / null uses custom_field_values.
+   */
+  integration_mode?: IntegrationMode | null;
 }
 
 export type CardWarningColor = "amber" | "orange" | "red" | "purple" | "blue" | "pink";

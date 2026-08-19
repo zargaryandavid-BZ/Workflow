@@ -3,23 +3,36 @@
 import { useState } from "react";
 import { FieldsManager } from "./fields-manager";
 import { LinkedDropdownsTab } from "./linked-dropdowns-tab";
+import { CrmConnectionCard } from "./crm-connection-card";
 import { cn } from "@/lib/utils";
-import type { CustomField } from "@/lib/types";
+import type { CustomField, IntegrationMode } from "@/lib/types";
 
 type Tab = "fields" | "links";
 
 export function FieldsSettingsClient({
   initialFields,
-  initialCatalogUrl = "",
+  catalogUrl: initialCatalogUrl = "",
+  integrationMode = "local",
+  catalogCachedAt = null,
 }: {
   initialFields: CustomField[];
-  initialCatalogUrl?: string;
+  catalogUrl?: string;
+  integrationMode?: IntegrationMode;
+  catalogCachedAt?: string | null;
 }) {
   const [tab, setTab] = useState<Tab>("fields");
+  const [catalogUrl, setCatalogUrl] = useState(initialCatalogUrl);
   const selectFields = initialFields.filter((f) => f.field_type === "select");
 
   return (
     <div className="space-y-4">
+      <CrmConnectionCard
+        integrationMode={integrationMode}
+        catalogUrl={catalogUrl}
+        onCatalogUrlChange={setCatalogUrl}
+        catalogCachedAt={catalogCachedAt}
+      />
+
       <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
         <button
           type="button"
@@ -50,7 +63,7 @@ export function FieldsSettingsClient({
       {tab === "fields" ? (
         <FieldsManager
           initialFields={initialFields}
-          initialCatalogUrl={initialCatalogUrl}
+          catalogUrl={catalogUrl}
         />
       ) : (
         <LinkedDropdownsTab selectFields={selectFields} />

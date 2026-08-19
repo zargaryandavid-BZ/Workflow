@@ -22,6 +22,7 @@ import {
   Tag,
   Truck,
   User,
+  AlertTriangle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -105,6 +106,7 @@ import { ActionButton, type ActionButtonResult } from "./action-button";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import { ApplicationIcon } from "./application-icon";
 import { isApplicationEnabled } from "@/lib/order-application";
+import { isRushOrder } from "@/lib/order-rush";
 import type { TimeChip } from "@/lib/time-chips";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 
@@ -310,6 +312,10 @@ export function OrderCard({
     customFields,
     fieldValues
   );
+  const isRush = isRushOrder(order);
+  const isHighPriority =
+    order.priority === "high" || order.priority === "urgent";
+  const showRushChip = isRush || isHighPriority;
   const isReprint = order.specs?.reprint === true;
   const isLocked = order.specs?.locked === true;
   const isKeyAccount = order.specs?.is_key_account === true;
@@ -601,7 +607,6 @@ export function OrderCard({
     : dueStatus.kind === "pending_approval"
       ? dueStatus.label
       : "—";
-  const isRush = order.priority === "high" || order.priority === "urgent";
   const ownerLabel = isOwnerUnassigned
     ? "Unassigned"
     : ownerName?.trim() || "—";
@@ -735,6 +740,14 @@ export function OrderCard({
                     title="Application"
                   />
                 ) : null}
+                {isRush ? (
+                  <span
+                    className="inline-flex shrink-0 items-center"
+                    title="Rush order"
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  </span>
+                ) : null}
                 {isReprint ? (
                   <span
                     className="shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-amber-700"
@@ -841,18 +854,10 @@ export function OrderCard({
           </div>
 
           {/* Always-visible staff meta — owner / designer / due / rush / entered */}
-          <p
-            className="mt-1.5 w-full text-left text-[11px] leading-snug text-slate-600 [overflow-wrap:anywhere]"
-            title={[
-              `Owner: ${ownerLabel}`,
-              `Designer: ${designerLabel}`,
-              `Due: ${dueLabel}`,
-              isRush ? `Rush: ${order.priority}` : "Rush: no",
-              `Entered: ${enteredLabel}`,
-            ].join(" · ")}
-          >
+          <p className="mt-1.5 w-full text-left text-[11px] leading-snug text-slate-600">
             <span
               className={cn(
+                "whitespace-nowrap",
                 isOwnerUnassigned ? "font-medium text-amber-800" : "text-slate-600"
               )}
             >
@@ -862,7 +867,10 @@ export function OrderCard({
             <span className="text-slate-300"> · </span>
             <span
               className={cn(
-                isDesignerUnassigned ? "font-medium text-amber-800" : "text-slate-600"
+                "whitespace-nowrap",
+                isDesignerUnassigned
+                  ? "font-medium text-amber-800"
+                  : "text-slate-600"
               )}
             >
               <span className="font-medium text-slate-500">Designer:</span>{" "}
@@ -874,14 +882,18 @@ export function OrderCard({
               {dueLabel}
             </span>
             <span className="text-slate-300"> · </span>
-            {isRush ? (
+            {showRushChip ? (
               <span
                 className={cn(
-                  "inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-semibold",
-                  PRIORITY_STYLES[order.priority]
+                  "inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
+                  isHighPriority
+                    ? PRIORITY_STYLES[order.priority]
+                    : "bg-amber-100 text-amber-800"
                 )}
               >
-                Rush · {order.priority}
+                <AlertTriangle className="h-3 w-3" />
+                Rush
+                {isHighPriority ? ` · ${order.priority}` : ""}
               </span>
             ) : (
               <span>

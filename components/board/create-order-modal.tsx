@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
+import { ConnectedCreateSpecs } from "./connected-create-specs";
 import {
   prepareSkusForSave,
   validateSkus,
@@ -25,7 +26,10 @@ import {
   DEFAULT_APPLICATION_DAYS,
   isApplicationCustomFieldOn,
 } from "@/lib/order-application";
-import type { BoardColumn, CustomField, Designer } from "@/lib/types";
+import { buildCrmSnapshot, findCatalogProduct } from "@/lib/crm-catalog-v2";
+import { useCatalogCache } from "@/lib/use-catalog-cache";
+import type { SpecEditValue } from "./connected-spec-inputs";
+import type { BoardColumn, CustomField, Designer, IntegrationMode } from "@/lib/types";
 
 interface CreateOrderModalProps {
   open: boolean;
@@ -34,6 +38,7 @@ interface CreateOrderModalProps {
   columns: BoardColumn[];
   owners: OrderOwner[];
   customFields: CustomField[];
+  tenantIntegrationMode?: IntegrationMode;
   designers: Designer[];
   currentUserId: string;
   onCreated: () => void;
@@ -75,10 +80,13 @@ export function CreateOrderModal({
   columns,
   owners,
   customFields,
+  tenantIntegrationMode = "local",
   designers,
   currentUserId,
   onCreated,
 }: CreateOrderModalProps) {
+  const connected = tenantIntegrationMode === "connected";
+  const catalog = useCatalogCache();
   const [title, setTitle] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [productionNotes, setProductionNotes] = useState("");
@@ -102,6 +110,10 @@ export function CreateOrderModal({
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [pendingImagesBySkuId, setPendingImagesBySkuId] = useState<
     Record<string, PendingSkuImage[]>
+  >({});
+  const [connectedProductId, setConnectedProductId] = useState("");
+  const [connectedSpecValues, setConnectedSpecValues] = useState<
+    Record<string, SpecEditValue>
   >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +145,8 @@ export function CreateOrderModal({
     setFieldValues({});
     setSkus([]);
     setPendingImagesBySkuId({});
+    setConnectedProductId("");
+    setConnectedSpecValues({});
     setError(null);
   }
 
@@ -158,8 +172,11 @@ export function CreateOrderModal({
       return;
     }
 
+    const validationFields = connected
+      ? { ...resolved, printFields: [] }
+      : resolved;
     const validationError = validateOrderFormFields(
-      resolved,
+      validationFields,
       fieldValues,
       customerName,
       customerContact,
@@ -186,6 +203,28 @@ export function CreateOrderModal({
     if (skuError) {
       setError(skuError);
       return;
+    }
+
+    const product = connected
+      ? findCatalogProduct(catalog, connectedProductId, null)
+      : null;
+    if (connected && !product) {
+      setError("Select a product from the CRM catalog.");
+      return;
+    }
+
+    const productField = resolved.printFields.find(
+      (f) => f.name.trim().toLowerCase() === "product"
+    );
+    const connectedResolved = connected
+      ? {
+          ...resolved,
+          printFields: productField ? [productField] : [],
+        }
+      : resolved;
+    const connectedFieldValues = { ...fieldValues };
+    if (connected && product && productField) {
+      connectedFieldValues[productField.id] = product.name;
     }
 
     setLoading(true);
@@ -218,12 +257,18 @@ export function CreateOrderModal({
           : {}),
       },
       customFieldValues: buildCustomFieldPayload(
-        resolved,
-        fieldValues,
+        connectedResolved,
+        connectedFieldValues,
         skus,
         customerName,
         customerContact
       ),
+      ...(connected && product
+        ? {
+            integrationMode: "connected" as const,
+            crmSnapshot: buildCrmSnapshot(product, connectedSpecValues),
+          }
+        : {}),
     });
 
     if (json.error) {
@@ -243,7 +288,6 @@ export function CreateOrderModal({
         setError(
           `Order created, but some SKU images failed: ${uploadError}. Open the card to retry uploads.`
         );
-        // Still close after a successful create — images can be re-added on the card.
         revokeAllPending(pendingImagesBySkuId);
         setPendingImagesBySkuId({});
         onCreated();
@@ -322,6 +366,21 @@ export function CreateOrderModal({
           onDueProcessingDaysChange={setDueProcessingDays}
           dueDateRequired
           hideEmpty={false}
+          hidePrintCustomFields={connected}
+          printFieldsSlot={
+            connected ? (
+              <ConnectedCreateSpecs
+                catalog={catalog}
+                productId={connectedProductId}
+                onProductIdChange={(id) => {
+                  setConnectedProductId(id);
+                  setConnectedSpecValues({});
+                }}
+                values={connectedSpecValues}
+                onValuesChange={setConnectedSpecValues}
+              />
+            ) : null
+          }
         />
 
         {error ? (
