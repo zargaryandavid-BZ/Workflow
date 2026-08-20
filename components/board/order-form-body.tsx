@@ -48,6 +48,14 @@ import {
 import { categoryForProduct, productsForCategory } from "@/lib/product-data";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
 import { formatDesignerOptionLabel } from "@/lib/designer-load";
+import {
+  formatSetSizeValue,
+  findMatchingSetSizeOption,
+  isSetSizeKey,
+  lookupCatalogMap,
+  normalizeSpecSelectOptions,
+  parseSetSizeValue,
+} from "@/lib/product-spec-options";
 import type {
   Tag,
   CustomField,
@@ -175,18 +183,20 @@ function humanizeSpecKey(k: string): string {
   return k.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
 }
 
-type SpecFieldOptions = Record<string, { value?: string; label?: string }[]>;
+type SpecFieldOptions = Record<string, unknown>;
 
 function ProductSpecsSection({
   specs,
   fieldOptions,
   toggles,
+  sizeHint,
   onChange,
   onToggle,
 }: {
   specs?: Record<string, unknown> | null;
   fieldOptions?: SpecFieldOptions | null;
   toggles?: { key: string; label: string }[] | null;
+  sizeHint?: { width: unknown; height: unknown };
   onChange?: (key: string, value: string) => void;
   onToggle?: (label: string, checked: boolean) => void;
 }) {
@@ -223,14 +233,23 @@ function ProductSpecsSection({
       {foKeys.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {foKeys.map((k) => {
-            const options = (fieldOptions?.[k] ?? [])
-              .map((o) => ({
-                value: String(o.value ?? o.label ?? ""),
-                label: String(o.label ?? o.value ?? ""),
-              }))
-              .filter((o) => o.value);
-            const current = sel[k] != null ? String(sel[k]) : "";
-            const known = options.some((o) => o.value === current || o.label === current);
+            const options = normalizeSpecSelectOptions(fieldOptions?.[k]);
+            const fromSpecs = sel[k] != null ? String(sel[k]).trim() : "";
+            const fromSize = isSetSizeKey(k)
+              ? formatSetSizeValue(sizeHint?.width, sizeHint?.height)
+              : "";
+            const currentRaw = fromSpecs || fromSize;
+            const matched = isSetSizeKey(k)
+              ? findMatchingSetSizeOption(options, currentRaw)
+              : options.find(
+                  (o) => o.value === currentRaw || o.label === currentRaw
+                ) ?? null;
+            const current = matched?.value ?? currentRaw;
+            const known = Boolean(matched);
+            const customLabel =
+              isSetSizeKey(k) && fromSize && !known
+                ? `Custom ${fromSize.replace(/x/gi, " × ")}`
+                : current;
             return (
               <label key={k} className="block">
                 <span className="mb-1 block text-xs font-medium text-slate-500">
@@ -241,8 +260,14 @@ function ProductSpecsSection({
                   onChange={(e) => onChange?.(k, e.target.value)}
                   disabled={!onChange}
                 >
-                  <option value="">—</option>
-                  {!known && current ? <option value={current}>{current}</option> : null}
+                  <option value="">
+                    {isSetSizeKey(k) && options.length > 0
+                      ? "Choose set size…"
+                      : "—"}
+                  </option>
+                  {!known && current ? (
+                    <option value={current}>{customLabel}</option>
+                  ) : null}
                   {options.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -485,6 +510,8 @@ export function OrderFormBody({
   const materialsField =
     printFields.find((f) => f.name === "Materials") ??
     printFields.find((f) => f.name.trim().toLowerCase() === "materials");
+  const widthField = findOrderFormField(customFields, "Width");
+  const heightField = findOrderFormField(customFields, "Height");
   const useCascadingProductMaterials = Boolean(productField && materialsField);
   const cascadingFieldIds = useCascadingProductMaterials
     ? new Set(
@@ -521,7 +548,9 @@ export function OrderFormBody({
   const materialOptionsOverride = (() => {
     if (!productField || !materialsField) return null;
     const product = String(fieldValues[productField.id] ?? "").trim();
-    const fromCrm = crmCatalog ? catalogLookup(crmCatalog.materialsByProduct, product) : null;
+    const fromCrm = crmCatalog
+      ? lookupCatalogMap(crmCatalog.materialsByProduct, product)
+      : null;
     if (fromCrm) return product ? fromCrm : [];
     const linked = linkedTargetOptions(
       fieldLinks,
@@ -542,23 +571,13 @@ export function OrderFormBody({
   const productSpecFieldOptions: SpecFieldOptions | null = (() => {
     const map = crmCatalog?.fieldOptionsByProduct;
     if (!map || !currentProductName) return null;
-    if (map[currentProductName]) return map[currentProductName] as SpecFieldOptions;
-    const norm = currentProductName.trim().toLowerCase();
-    for (const k of Object.keys(map)) {
-      if (k.trim().toLowerCase() === norm) return map[k] as SpecFieldOptions;
-    }
-    return null;
+    return lookupCatalogMap(map, currentProductName);
   })();
 
   const productToggles: { key: string; label: string }[] | null = (() => {
     const map = crmCatalog?.optionTogglesByProduct;
     if (!map || !currentProductName) return null;
-    if (map[currentProductName]) return map[currentProductName];
-    const norm = currentProductName.trim().toLowerCase();
-    for (const k of Object.keys(map)) {
-      if (k.trim().toLowerCase() === norm) return map[k];
-    }
-    return null;
+    return lookupCatalogMap(map, currentProductName);
   })();
 
   function handleCategoryLinkedChange(value: unknown) {
@@ -1019,7 +1038,18 @@ export function OrderFormBody({
           specs={productSpecs}
           fieldOptions={productSpecFieldOptions}
           toggles={productToggles}
-          onChange={onProductSpecChange}
+          sizeHint={{
+            width: widthField ? fieldValues[widthField.id] : "",
+            height: heightField ? fieldValues[heightField.id] : "",
+          }}
+          onChange={(key, value) => {
+            onProductSpecChange?.(key, value);
+            if (!isSetSizeKey(key) || readOnly) return;
+            const parsed = parseSetSizeValue(value);
+            if (!parsed) return;
+            if (widthField) onFieldValueChange(widthField.id, parsed.width);
+            if (heightField) onFieldValueChange(heightField.id, parsed.height);
+          }}
           onToggle={onProductToggleChange}
         />
         )}

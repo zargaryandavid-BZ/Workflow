@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import {
+  listCustomerOrderSummaries,
   updateCustomerByAdmin,
   updateCustomerDefaultPriority,
 } from "@/lib/customers";
@@ -8,6 +9,46 @@ import { canSetBoardTagAndPriority } from "@/lib/permissions";
 import { parsePriorityScore } from "@/lib/order-priority-score";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const ctx = await getTenantContext();
+  if (!ctx) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = await createClient();
+  const { data: customer, error } = await supabase
+    .from("customers")
+    .select(
+      "id, tenant_id, name, email, phone, company, preferred_channel, default_priority_score, created_at, updated_at"
+    )
+    .eq("id", id)
+    .eq("tenant_id", ctx.tenant.id)
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (!customer) {
+    return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+  }
+
+  try {
+    const orders = await listCustomerOrderSummaries(
+      supabase,
+      ctx.tenant.id,
+      id
+    );
+    return NextResponse.json({ customer, orders });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to load customer";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
 export async function PATCH(
   request: Request,

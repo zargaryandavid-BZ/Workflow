@@ -4,7 +4,12 @@ import {
   CUSTOMER_NAME_FIELD_NAME,
 } from "@/lib/constants";
 import { normalizeSmsPhone } from "@/lib/sms";
-import type { Customer, PreferredChannel } from "@/lib/types";
+import type {
+  Customer,
+  CustomerOrderSummary,
+  CustomerWithStats,
+  PreferredChannel,
+} from "@/lib/types";
 import { normalizePreferredChannel } from "@/lib/preferred-channel";
 import {
   parsePriorityScore,
@@ -781,6 +786,62 @@ export async function updateCustomerByAdmin(
   return updated as Customer;
 }
 
+/** Staff create from Customers page — never merges into an existing record. */
+export async function createCustomerManually(
+  client: Client,
+  tenantId: string,
+  input: AdminCustomerUpdateInput
+): Promise<Customer> {
+  const validationError = validateAdminCustomerUpdate(input);
+  if (validationError) throw new Error(validationError);
+
+  const email = normalizeEmail(input.email);
+  const phone = normalizePhone(input.phone);
+  const name = input.name.trim();
+  const company = input.company?.trim() || null;
+  const preferred_channel = normalizePreferredChannel(input.preferred_channel);
+  const default_priority_score =
+    input.default_priority_score === undefined
+      ? null
+      : parsePriorityScore(input.default_priority_score);
+
+  if (email) {
+    const emailMatch = await findCustomerByEmail(client, tenantId, email);
+    if (emailMatch) {
+      throw new Error("Another customer already uses this email");
+    }
+  }
+  if (phone) {
+    const phoneMatch = await findCustomerByPhone(client, tenantId, phone);
+    if (phoneMatch) {
+      throw new Error("Another customer already uses this phone number");
+    }
+  }
+
+  const { data: created, error } = await client
+    .from("customers")
+    .insert({
+      tenant_id: tenantId,
+      name,
+      email,
+      phone,
+      company,
+      preferred_channel,
+      default_priority_score,
+    })
+    .select(CUSTOMER_SELECT)
+    .single();
+
+  if (error || !created) {
+    if (isUniqueViolation(error)) {
+      throw new Error("Email or phone is already used by another customer");
+    }
+    throw new Error(error?.message ?? "Failed to create customer");
+  }
+
+  return created as Customer;
+}
+
 /**
  * Apply company default priority to open orders that are unset or still
  * customer-sourced. Manual card overrides are never changed.
@@ -898,4 +959,160 @@ export async function getCustomerDefaultPriorityScore(
   return parsePriorityScore(
     (data as { default_priority_score?: unknown } | null)?.default_priority_score
   );
+}
+
+export const CUSTOMERS_PAGE_SIZE = 50;
+
+function ilikeContains(raw: string): string | null {
+  const q = raw
+    .trim()
+    .replace(/[,()"\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return null;
+  const escaped = q.replace(/[%_]/g, (ch) => `\\${ch}`);
+  return `%${escaped}%`;
+}
+
+async function orderStatsForCustomers(
+  client: Client,
+  tenantId: string,
+  customerIds: string[]
+): Promise<Map<string, { order_count: number; last_order_at: string | null }>> {
+  const stats = new Map<
+    string,
+    { order_count: number; last_order_at: string | null }
+  >();
+  if (customerIds.length === 0) return stats;
+
+  const PAGE = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await client
+      .from("orders")
+      .select("customer_id, created_at")
+      .eq("tenant_id", tenantId)
+      .in("customer_id", customerIds)
+      .is("removed_at", null)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as {
+      customer_id: string | null;
+      created_at: string;
+    }[];
+    for (const row of rows) {
+      if (!row.customer_id) continue;
+      const current = stats.get(row.customer_id) ?? {
+        order_count: 0,
+        last_order_at: null as string | null,
+      };
+      current.order_count += 1;
+      if (!current.last_order_at || row.created_at > current.last_order_at) {
+        current.last_order_at = row.created_at;
+      }
+      stats.set(row.customer_id, current);
+    }
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+  return stats;
+}
+
+export async function listCustomersPage(
+  client: Client,
+  tenantId: string,
+  options?: { page?: number; limit?: number; q?: string }
+): Promise<{
+  customers: CustomerWithStats[];
+  total: number;
+  page: number;
+  limit: number;
+}> {
+  const limit = Math.min(
+    100,
+    Math.max(1, options?.limit ?? CUSTOMERS_PAGE_SIZE)
+  );
+  const page = Math.max(1, options?.page ?? 1);
+  const from = (page - 1) * limit;
+  const pattern = ilikeContains(options?.q ?? "");
+
+  let query = client
+    .from("customers")
+    .select(CUSTOMER_SELECT, { count: "exact" })
+    .eq("tenant_id", tenantId);
+
+  if (pattern) {
+    query = query.or(
+      `name.ilike."${pattern}",email.ilike."${pattern}",phone.ilike."${pattern}",company.ilike."${pattern}"`
+    );
+  }
+
+  const { data, error, count } = await query
+    .order("name", { ascending: true })
+    .range(from, from + limit - 1);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as Customer[];
+  const stats = await orderStatsForCustomers(
+    client,
+    tenantId,
+    rows.map((c) => c.id)
+  );
+
+  return {
+    customers: rows.map((c) => {
+      const s = stats.get(c.id);
+      return {
+        ...c,
+        order_count: s?.order_count ?? 0,
+        last_order_at: s?.last_order_at ?? null,
+      };
+    }),
+    total: count ?? 0,
+    page,
+    limit,
+  };
+}
+
+export async function listCustomerOrderSummaries(
+  client: Client,
+  tenantId: string,
+  customerId: string
+): Promise<CustomerOrderSummary[]> {
+  const [{ data: orders, error: ordersError }, { data: columns, error: colError }] =
+    await Promise.all([
+      client
+        .from("orders")
+        .select("id, title, created_at, column_id")
+        .eq("tenant_id", tenantId)
+        .eq("customer_id", customerId)
+        .is("removed_at", null)
+        .order("created_at", { ascending: false }),
+      client
+        .from("board_columns")
+        .select("id, name")
+        .eq("tenant_id", tenantId),
+    ]);
+  if (ordersError) throw new Error(ordersError.message);
+  if (colError) throw new Error(colError.message);
+
+  const columnNameById = new Map(
+    ((columns ?? []) as { id: string; name: string }[]).map((c) => [
+      c.id,
+      c.name,
+    ])
+  );
+
+  return ((orders ?? []) as {
+    id: string;
+    title: string;
+    created_at: string;
+    column_id: string;
+  }[]).map((order) => ({
+    id: order.id,
+    title: order.title,
+    created_at: order.created_at,
+    column_id: order.column_id,
+    column_name: columnNameById.get(order.column_id) ?? null,
+  }));
 }

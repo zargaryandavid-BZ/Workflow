@@ -6,6 +6,10 @@ import {
   nestedFieldOptions,
   normalizeSpecSelectOptions,
   parseSetSizeValue,
+  productCatalogAliases,
+  lookupCatalogMap,
+  preferLinkedCatalogName,
+  findMatchingSetSizeOption,
 } from "./product-spec-options.ts";
 
 describe("set size helpers", () => {
@@ -18,6 +22,7 @@ describe("set size helpers", () => {
 
   it("formats and parses WxH", () => {
     assert.equal(formatSetSizeValue("2", "4.5"), "2x4.5");
+    assert.equal(formatSetSizeValue("5.375 in", "2.3 in"), "5.375x2.3");
     assert.deepEqual(parseSetSizeValue("2x4.5"), {
       width: "2",
       height: "4.5",
@@ -58,5 +63,49 @@ describe("set size helpers", () => {
       { SET_SIZE: [{ value: "2x3" }] }
     );
     assert.equal(nestedFieldOptions({ name: "Roll Labels" }), null);
+  });
+
+  it("aliases Labels (Roll) to Roll Labels", () => {
+    assert.deepEqual(productCatalogAliases("Labels (Roll)"), [
+      "labels (roll)",
+      "roll labels",
+    ]);
+    assert.deepEqual(productCatalogAliases("Roll Labels"), [
+      "roll labels",
+      "labels (roll)",
+    ]);
+    const map = { "Roll Labels": { SET_SIZE: [1] } };
+    assert.deepEqual(lookupCatalogMap(map, "Labels (Roll)"), {
+      SET_SIZE: [1],
+    });
+    assert.equal(lookupCatalogMap(map, "Vinyl Labels / 54'' Rolls"), null);
+    assert.deepEqual(lookupCatalogMap(map, "🏷️ Roll Labels"), {
+      SET_SIZE: [1],
+    });
+    assert.equal(
+      preferLinkedCatalogName("Labels (Roll)", ["Roll Labels", "Labels (Sheet)"]),
+      "Roll Labels"
+    );
+    assert.equal(
+      preferLinkedCatalogName("Labels (Roll)", [
+        "Labels (Roll)",
+        "Roll Labels",
+      ]),
+      "Roll Labels"
+    );
+    assert.equal(
+      preferLinkedCatalogName("Business Cards", ["Business Cards", "Roll Labels"]),
+      "Business Cards"
+    );
+    assert.deepEqual(
+      findMatchingSetSizeOption(
+        [
+          { value: "2x3.65", label: "2x3.65" },
+          { value: "2.5x3.5", label: "2.5x3.5" },
+        ],
+        "2.50 x 3.50"
+      )?.value,
+      "2.5x3.5"
+    );
   });
 });

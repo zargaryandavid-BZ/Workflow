@@ -141,6 +141,32 @@ describe("parseCatalogV2", () => {
     assert.equal(findCatalogProduct(parsed, "p1", null)?.name, "Roll Labels");
   });
 
+  it("maps options.field_options when specifications is missing", () => {
+    const parsed = parseCatalogV2({
+      schema_version: 2,
+      products: [
+        {
+          id: "roll-labels",
+          name: "Roll Labels",
+          options: {
+            field_options: {
+              SET_SIZE: [{ value: "2x3.65", label: "2x3.65" }],
+            },
+          },
+        },
+      ],
+    });
+    assert.equal(parsed.products[0].specifications[0].key, "SET_SIZE");
+    assert.equal(
+      parsed.products[0].specifications[0].options?.[0].label,
+      "2x3.65"
+    );
+    assert.equal(
+      findCatalogProduct(parsed, null, "Labels (Roll)")?.name,
+      "Roll Labels"
+    );
+  });
+
   it("maps spec_fields when specifications is missing", () => {
     const parsed = parseCatalogV2({
       schema_version: 2,

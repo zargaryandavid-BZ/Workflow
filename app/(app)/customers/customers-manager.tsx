@@ -1,15 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Mail, Pencil, Phone, Search, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Mail,
+  Pencil,
+  Phone,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 import { CardDetailModal } from "@/components/board/card-detail-modal";
 import { PriorityScoreBadge } from "@/components/board/priority-score-badge";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
-import { canSetBoardTagAndPriority } from "@/lib/permissions";
+import { CUSTOMERS_PAGE_SIZE } from "@/lib/customers";
+import {
+  canEditManualOrders,
+  canSetBoardTagAndPriority,
+} from "@/lib/permissions";
 import {
   PRIORITY_SCORES,
   parsePriorityScore,
@@ -26,7 +39,18 @@ import type {
 } from "@/lib/types";
 import type { OrderOwner } from "@/components/board/order-form-body";
 
-function customerToForm(c: CustomerWithStats) {
+const EMPTY_CUSTOMER_FORM = {
+  name: "",
+  email: "",
+  phone: "",
+  company: "",
+  preferred_channel: "sms" as PreferredChannel,
+  default_priority_score: null as PriorityScore | null,
+};
+
+type CustomerForm = typeof EMPTY_CUSTOMER_FORM;
+
+function customerToForm(c: CustomerWithStats): CustomerForm {
   return {
     name: c.name ?? "",
     email: c.email ?? "",
@@ -39,17 +63,129 @@ function customerToForm(c: CustomerWithStats) {
   };
 }
 
+function CustomerFormFields({
+  form,
+  setForm,
+  setPriorityDraft,
+  canSetPriority,
+  error,
+  idPrefix,
+}: {
+  form: CustomerForm;
+  setForm: Dispatch<SetStateAction<CustomerForm>>;
+  setPriorityDraft: (score: PriorityScore | null) => void;
+  canSetPriority: boolean;
+  error: string | null;
+  idPrefix: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label htmlFor={`${idPrefix}-name`}>Name</Label>
+        <Input
+          id={`${idPrefix}-name`}
+          value={form.name}
+          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          required
+        />
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}-email`}>Email</Label>
+        <Input
+          id={`${idPrefix}-email`}
+          type="email"
+          value={form.email}
+          onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+          placeholder="hello@example.com"
+        />
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}-phone`}>Phone</Label>
+        <Input
+          id={`${idPrefix}-phone`}
+          type="tel"
+          value={form.phone}
+          onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+          placeholder="+1 310 555 0100"
+        />
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}-company`}>Company</Label>
+        <Input
+          id={`${idPrefix}-company`}
+          value={form.company}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, company: e.target.value }))
+          }
+        />
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}-preferred-channel`}>
+          Default communication channel
+        </Label>
+        <select
+          id={`${idPrefix}-preferred-channel`}
+          value={form.preferred_channel}
+          onChange={(e) =>
+            setForm((f) => ({
+              ...f,
+              preferred_channel: e.target.value as PreferredChannel,
+            }))
+          }
+          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+        >
+          <option value="sms">SMS</option>
+          <option value="email">Email</option>
+        </select>
+        <p className="mt-1 text-xs text-slate-500">
+          Used for missing info and approval notifications. Falls back if that
+          contact method is missing.
+        </p>
+      </div>
+      {canSetPriority ? (
+        <div>
+          <Label htmlFor={`${idPrefix}-priority`}>Board priority</Label>
+          <select
+            id={`${idPrefix}-priority`}
+            value={form.default_priority_score ?? ""}
+            onChange={(e) => {
+              const next = parsePriorityScore(e.target.value);
+              setForm((f) => ({
+                ...f,
+                default_priority_score: next,
+              }));
+              setPriorityDraft(next);
+            }}
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+          >
+            <option value="">None</option>
+            {PRIORITY_SCORES.map((score) => (
+              <option key={score} value={score}>
+                {score}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            Applies to this customer&apos;s open orders (and new ones). Manual
+            card priority is never overwritten.
+          </p>
+        </div>
+      ) : null}
+      <p className="text-xs text-slate-500">
+        At least one of email or phone is required.
+      </p>
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+    </div>
+  );
+}
+
 export function CustomersManager({
-  customers,
-  ordersByCustomer,
   customFields,
   owners,
   columns,
   designers,
   role,
 }: {
-  customers: CustomerWithStats[];
-  ordersByCustomer: Record<string, CustomerOrderSummary[]>;
   customFields: CustomField[];
   owners: OrderOwner[];
   columns: BoardColumn[];
@@ -58,18 +194,23 @@ export function CustomersManager({
 }) {
   const router = useRouter();
   const isAdmin = role === "admin";
+  const canCreate = canEditManualOrders(role);
   const canSetPriority = canSetBoardTagAndPriority(role);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [customers, setCustomers] = useState<CustomerWithStats[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [ordersByCustomer, setOrdersByCustomer] = useState<
+    Record<string, CustomerOrderSummary[]>
+  >({});
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [selected, setSelected] = useState<CustomerWithStats | null>(null);
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    company: "",
-    preferred_channel: "sms" as PreferredChannel,
-    default_priority_score: null as PriorityScore | null,
-  });
+  const [form, setForm] = useState(EMPTY_CUSTOMER_FORM);
   const [saving, setSaving] = useState(false);
   const [savingPriority, setSavingPriority] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,16 +221,52 @@ export function CustomersManager({
   );
 
   const selectedOrders = selected ? (ordersByCustomer[selected.id] ?? []) : [];
+  const totalPages = Math.max(1, Math.ceil(total / CUSTOMERS_PAGE_SIZE));
+  const from = total === 0 ? 0 : (page - 1) * CUSTOMERS_PAGE_SIZE + 1;
+  const to = Math.min(page * CUSTOMERS_PAGE_SIZE, total);
 
-  const filteredCustomers = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter(
-      (c) =>
-        (c.name ?? "").toLowerCase().includes(q) ||
-        (c.phone ?? "").toLowerCase().includes(q)
-    );
-  }, [customers, query]);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [query]);
+
+  async function loadCustomers(nextPage: number, q: string) {
+    setLoading(true);
+    setLoadError(null);
+    const params = new URLSearchParams({
+      page: String(nextPage),
+      limit: String(CUSTOMERS_PAGE_SIZE),
+    });
+    if (q) params.set("q", q);
+    const res = await fetch(`/api/customers?${params}`);
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      customers?: CustomerWithStats[];
+      total?: number;
+      page?: number;
+    };
+    if (!res.ok) {
+      setLoadError(json.error ?? "Failed to load customers");
+      setCustomers([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
+    setCustomers(json.customers ?? []);
+    setTotal(json.total ?? 0);
+    if (typeof json.page === "number" && json.page !== nextPage) {
+      setPage(json.page);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    void loadCustomers(page, debouncedQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load on page/search only
+  }, [page, debouncedQuery]);
 
   useEffect(() => {
     if (selected) {
@@ -101,8 +278,34 @@ export function CustomersManager({
     }
   }, [selected]);
 
-  function openCustomer(c: CustomerWithStats) {
+  async function openCustomer(c: CustomerWithStats) {
+    setCreating(false);
     setSelected(c);
+    if (ordersByCustomer[c.id]) return;
+    setOrdersLoading(true);
+    const res = await fetch(`/api/customers/${c.id}`);
+    const json = (await res.json().catch(() => ({}))) as {
+      orders?: CustomerOrderSummary[];
+    };
+    if (res.ok && json.orders) {
+      setOrdersByCustomer((prev) => ({ ...prev, [c.id]: json.orders ?? [] }));
+    }
+    setOrdersLoading(false);
+  }
+
+  function openCreate() {
+    setSelected(null);
+    setEditing(false);
+    setCreating(true);
+    setForm(EMPTY_CUSTOMER_FORM);
+    setPriorityDraft(null);
+    setError(null);
+  }
+
+  function closeCreate() {
+    setCreating(false);
+    setForm(EMPTY_CUSTOMER_FORM);
+    setError(null);
   }
 
   function closeModal() {
@@ -116,12 +319,15 @@ export function CustomersManager({
     const next = {
       ...selected,
       ...customer,
-      order_count: selected.order_count,
-      last_order_at: selected.last_order_at,
+      order_count: customer.order_count ?? selected.order_count,
+      last_order_at: customer.last_order_at ?? selected.last_order_at,
     };
     setSelected(next);
     setForm(customerToForm(next));
     setPriorityDraft(parsePriorityScore(next.default_priority_score));
+    setCustomers((list) =>
+      list.map((row) => (row.id === next.id ? { ...row, ...next } : row))
+    );
   }
 
   async function saveCustomer() {
@@ -160,6 +366,53 @@ export function CustomersManager({
 
     setEditing(false);
     router.refresh();
+  }
+
+  async function createCustomer() {
+    setSaving(true);
+    setError(null);
+
+    const res = await fetch("/api/customers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name,
+        email: form.email.trim() || null,
+        phone: form.phone.trim() || null,
+        company: form.company.trim() || null,
+        preferred_channel: form.preferred_channel,
+        default_priority_score: canSetPriority
+          ? form.default_priority_score
+          : null,
+      }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      customer?: CustomerWithStats;
+    };
+
+    setSaving(false);
+
+    if (!res.ok) {
+      setError(json.error ?? "Failed to add customer");
+      return;
+    }
+
+    if (json.customer) {
+      const created: CustomerWithStats = {
+        ...json.customer,
+        order_count: json.customer.order_count ?? 0,
+        last_order_at: json.customer.last_order_at ?? null,
+      };
+      setCreating(false);
+      setForm(EMPTY_CUSTOMER_FORM);
+      setQuery("");
+      setDebouncedQuery("");
+      setPage(1);
+      setSelected(created);
+      void loadCustomers(1, "");
+    }
   }
 
   async function savePriorityOnly() {
@@ -259,17 +512,17 @@ export function CustomersManager({
 
   return (
     <div>
-      {customers.length > 0 && (
-        <div className="relative mb-3">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter by name or phone…"
-            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+            className="h-10 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
           />
-          {query && (
+          {query ? (
             <button
               type="button"
               onClick={() => setQuery("")}
@@ -278,22 +531,29 @@ export function CustomersManager({
             >
               <X className="h-4 w-4" />
             </button>
-          )}
+          ) : null}
         </div>
-      )}
+        {canCreate ? (
+          <Button type="button" className="shrink-0" onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            Add customer
+          </Button>
+        ) : null}
+      </div>
       <div className="rounded-lg border border-slate-200 bg-white">
-        {customers.length === 0 ? (
+        {loading && customers.length === 0 ? (
+          <p className="p-4 text-sm text-slate-400">Loading customers…</p>
+        ) : loadError ? (
+          <p className="p-4 text-sm text-red-600">{loadError}</p>
+        ) : customers.length === 0 ? (
           <p className="p-4 text-sm text-slate-400">
-            No customers yet. They will appear here when orders include a
-            customer name and contact.
-          </p>
-        ) : filteredCustomers.length === 0 ? (
-          <p className="p-4 text-sm text-slate-400">
-            No customers match &ldquo;{query}&rdquo;.
+            {debouncedQuery
+              ? `No customers match “${debouncedQuery}”.`
+              : "No customers yet. Use Add customer, or they will appear here when orders include a customer name and contact."}
           </p>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {filteredCustomers.map((c) => {
+            {customers.map((c) => {
               const contact = c.email ?? c.phone;
               const score = parsePriorityScore(c.default_priority_score);
               return (
@@ -336,6 +596,39 @@ export function CustomersManager({
           </ul>
         )}
       </div>
+
+      {total > 0 ? (
+        <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-500">
+          <p>
+            {from}–{to} of {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            <span className="tabular-nums">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages || loading}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <Modal
         open={selected !== null}
@@ -417,109 +710,14 @@ export function CustomersManager({
         {selected ? (
           <div className="space-y-4">
             {editing ? (
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="customer-name">Name</Label>
-                  <Input
-                    id="customer-name"
-                    value={form.name}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, name: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="customer-email">Email</Label>
-                  <Input
-                    id="customer-email"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, email: e.target.value }))
-                    }
-                    placeholder="hello@example.com"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="customer-phone">Phone</Label>
-                  <Input
-                    id="customer-phone"
-                    type="tel"
-                    value={form.phone}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, phone: e.target.value }))
-                    }
-                    placeholder="+1 310 555 0100"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="customer-company">Company</Label>
-                  <Input
-                    id="customer-company"
-                    value={form.company}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, company: e.target.value }))
-                    }
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="customer-preferred-channel">
-                    Default communication channel
-                  </Label>
-                  <select
-                    id="customer-preferred-channel"
-                    value={form.preferred_channel}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        preferred_channel: e.target.value as PreferredChannel,
-                      }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
-                  >
-                    <option value="sms">SMS</option>
-                    <option value="email">Email</option>
-                  </select>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Used for missing info and approval notifications. Falls back
-                    if that contact method is missing.
-                  </p>
-                </div>
-                <div>
-                  <Label htmlFor="customer-priority">Board priority</Label>
-                  <select
-                    id="customer-priority"
-                    value={form.default_priority_score ?? ""}
-                    onChange={(e) => {
-                      const next = parsePriorityScore(e.target.value);
-                      setForm((f) => ({
-                        ...f,
-                        default_priority_score: next,
-                      }));
-                      setPriorityDraft(next);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
-                  >
-                    <option value="">None</option>
-                    {PRIORITY_SCORES.map((score) => (
-                      <option key={score} value={score}>
-                        {score}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Applies to this customer&apos;s open orders (and new ones).
-                    Manual card priority is never overwritten.
-                  </p>
-                </div>
-                <p className="text-xs text-slate-500">
-                  At least one of email or phone is required.
-                </p>
-                {error ? (
-                  <p className="text-sm text-red-600">{error}</p>
-                ) : null}
-              </div>
+              <CustomerFormFields
+                form={form}
+                setForm={setForm}
+                setPriorityDraft={setPriorityDraft}
+                canSetPriority={canSetPriority}
+                error={error}
+                idPrefix="customer-edit"
+              />
             ) : (
               <div className="text-sm text-slate-600">
                 {selected.email ? (
@@ -595,7 +793,9 @@ export function CustomersManager({
                 <p className="mb-2 text-sm font-semibold text-slate-700">
                   Order history
                 </p>
-                {selectedOrders.length === 0 ? (
+                {ordersLoading ? (
+                  <p className="text-sm text-slate-400">Loading orders…</p>
+                ) : selectedOrders.length === 0 ? (
                   <p className="text-sm text-slate-400">No orders linked yet.</p>
                 ) : (
                   <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -639,6 +839,41 @@ export function CustomersManager({
             ) : null}
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={creating}
+        onClose={closeCreate}
+        title="Add customer"
+        className="max-w-lg"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={closeCreate}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void createCustomer()}
+              disabled={saving}
+            >
+              {saving ? "Adding…" : "Add customer"}
+            </Button>
+          </>
+        }
+      >
+        <CustomerFormFields
+          form={form}
+          setForm={setForm}
+          setPriorityDraft={setPriorityDraft}
+          canSetPriority={canSetPriority}
+          error={error}
+          idPrefix="customer-create"
+        />
       </Modal>
 
       <CardDetailModal

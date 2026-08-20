@@ -31,6 +31,7 @@ import {
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import { categoryForProduct } from "@/lib/product-data";
 import { findMatchingOption } from "@/lib/field-links";
+import { preferLinkedCatalogName } from "@/lib/product-spec-options";
 import {
   mergeDueSpecsIntoOrderSpecs,
   recomputeDueFromProcessingDays,
@@ -1483,6 +1484,18 @@ function resolveSelectField(
 ): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
+
+  if (fieldName.toLowerCase() === "product") {
+    const preferred = preferLinkedCatalogName(trimmed, options);
+    if (preferred) {
+      if (preferred !== trimmed) {
+        corrections.push(
+          `"${fieldName}": "${trimmed}" → "${preferred}" (catalog)`
+        );
+      }
+      return preferred;
+    }
+  }
 
   // CRM often sends "None" / "None (inactive)" for empty dropdowns.
   if (NONE_SENTINELS.has(trimmed.toLowerCase())) {

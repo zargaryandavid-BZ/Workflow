@@ -4,6 +4,7 @@ import type {
   CrmSpecType,
   CrmSnapshot,
 } from "./types.ts";
+import { productCatalogAliases } from "./product-spec-options.ts";
 
 export const CRM_V2_SCHEMA_ERROR =
   "CRM catalog does not support v2 schema. Upgrade CRM first.";
@@ -118,7 +119,26 @@ function productSpecifications(product: Record<string, unknown>): CatalogV2SpecD
   if (fromSpecs.length > 0) return fromSpecs;
   const fromSpecFields = parseSpecDefList(product.spec_fields);
   if (fromSpecFields.length > 0) return fromSpecFields;
-  return parseSpecDefList(product.fields);
+  const fromFields = parseSpecDefList(product.fields);
+  if (fromFields.length > 0) return fromFields;
+  return specsFromOptionsBag(product.options);
+}
+
+function specsFromOptionsBag(raw: unknown): CatalogV2SpecDef[] {
+  if (!isRecord(raw)) return [];
+  const fo = raw.field_options;
+  if (!isRecord(fo)) return [];
+  const out: CatalogV2SpecDef[] = [];
+  for (const [key, optionsRaw] of Object.entries(fo)) {
+    const options = parseOptions(optionsRaw);
+    out.push({
+      key,
+      label: humanizeKey(key),
+      type: "select",
+      ...(options.length > 0 ? { options } : {}),
+    });
+  }
+  return out;
 }
 
 export function humanizeKey(key: string): string {
@@ -161,10 +181,6 @@ export function parseCatalogV2(payload: unknown): CatalogV2 {
   return { schema_version: 2, products, raw: payload };
 }
 
-function normName(value: string): string {
-  return value.trim().toLowerCase();
-}
-
 export function findCatalogProduct(
   catalog: CatalogV2 | null | undefined,
   productId?: string | null,
@@ -180,8 +196,12 @@ export function findCatalogProduct(
   if (!name) return null;
   const exact = catalog.products.find((p) => p.name === name);
   if (exact) return exact;
-  const needle = normName(name);
-  return catalog.products.find((p) => normName(p.name) === needle) ?? null;
+  const aliases = new Set(productCatalogAliases(name));
+  return (
+    catalog.products.find((p) =>
+      productCatalogAliases(p.name).some((alias) => aliases.has(alias))
+    ) ?? null
+  );
 }
 
 export function findSpecDef(
