@@ -3,11 +3,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSmsPhone } from "@/lib/sms";
 import {
   findOrderForInboundSms,
+  findPendingComboStockOrderForPhone,
   insertOrderSmsMessage,
   validateTwilioSignature,
 } from "@/lib/order-sms";
+import { addOrderTag } from "@/lib/order-tags";
 import { logActivity } from "@/lib/automation";
 import {
+  comboStockCardTag,
   getComboStock,
   parseStockReply,
   withComboStock,
@@ -40,25 +43,20 @@ export async function POST(request: Request) {
   });
 
   const signature = request.headers.get("x-twilio-signature") ?? "";
-  const url = (() => {
-    const proto = request.headers.get("x-forwarded-proto") ?? "https";
-    const host =
-      request.headers.get("x-forwarded-host") ??
-      request.headers.get("host") ??
-      "";
-    return `${proto}://${host}/api/webhooks/twilio/sms`;
-  })();
-
-  if (
-    process.env.NODE_ENV === "production" &&
-    !validateTwilioSignature({
+  const signatureUrls = twilioWebhookUrls(request);
+  const signatureOk = signatureUrls.some((url) =>
+    validateTwilioSignature({
       authToken,
       signature,
       url,
       params,
     })
-  ) {
-    console.error("[twilio-sms] invalid signature");
+  );
+
+  if (process.env.NODE_ENV === "production" && !signatureOk) {
+    console.error("[twilio-sms] invalid signature", {
+      tried: signatureUrls,
+    });
     return new NextResponse("Forbidden", { status: 403 });
   }
 
@@ -71,7 +69,11 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
-  const match = await findOrderForInboundSms(admin, from);
+  const reply = parseStockReply(body);
+  const match = reply
+    ? ((await findPendingComboStockOrderForPhone(admin, from)) ??
+      (await findOrderForInboundSms(admin, from)))
+    : await findOrderForInboundSms(admin, from);
   if (!match) {
     console.warn("[twilio-sms] no order for phone", normalizeSmsPhone(from));
     return twimlOk();
@@ -103,7 +105,6 @@ export async function POST(request: Request) {
 
   // Combo stock check: if this order is awaiting a warehouse reply and the body
   // is 1/2/3, apply it (1 = in stock, 2 = ordered, 3 = can't get).
-  const reply = parseStockReply(body);
   if (reply) {
     const { data: order } = await admin
       .from("orders")
@@ -129,10 +130,13 @@ export async function POST(request: Request) {
           warehouse_stock_confirmed_by: "combo_stock_sms",
         };
       }
-      await admin
-        .from("orders")
-        .update({ specs: nextSpecs })
-        .eq("id", match.orderId);
+      await addOrderTag(
+        admin,
+        match.orderId,
+        match.tenantId,
+        comboStockCardTag(reply),
+        nextSpecs
+      );
       await logActivity(admin, {
         tenantId: match.tenantId,
         orderId: match.orderId,
@@ -144,6 +148,27 @@ export async function POST(request: Request) {
   }
 
   return twimlOk();
+}
+
+function twilioWebhookUrls(request: Request): string[] {
+  const path = "/api/webhooks/twilio/sms";
+  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    "";
+  const urls = new Set<string>();
+  if (host) {
+    urls.add(`${proto}://${host}${path}`);
+    urls.add(`${proto}://${host}${path}/`);
+  }
+  const app = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
+  if (app) {
+    urls.add(`${app}${path}`);
+    urls.add(`${app}${path}/`);
+  }
+  urls.add(`https://workflow-rho-one.vercel.app${path}`);
+  return [...urls];
 }
 
 function twimlOk() {

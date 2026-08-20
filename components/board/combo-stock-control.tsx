@@ -108,8 +108,8 @@ export function ComboStockControl({
 
       <p className="text-[11px] text-slate-500">
         This combo needs base stock before it leaves In&nbsp;Progress. Text{" "}
-        {COMBO_STOCK_CONTACT_NAME} to confirm — they reply 1&nbsp;=&nbsp;in
-        stock, 2&nbsp;=&nbsp;ordered, 3&nbsp;=&nbsp;can&rsquo;t get.
+        {COMBO_STOCK_CONTACT_NAME}
+        {" to confirm — they reply 1 = in stock, 2 = ordered, 3 = can't get."}
       </p>
 
       <button

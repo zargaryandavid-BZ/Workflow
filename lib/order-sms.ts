@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHmac, timingSafeEqual } from "crypto";
 import { normalizeSmsPhone } from "@/lib/sms";
 import type { OrderSmsMessage, SmsDirection } from "@/lib/order-sms-types";
+import { getComboStock } from "@/lib/combo-stock";
 
 export type { OrderSmsMessage, SmsDirection } from "@/lib/order-sms-types";
 
@@ -109,6 +110,42 @@ export async function listOrderSmsMessages(
       ? (nameById.get(r.actor_user_id) ?? null)
       : null,
   }));
+}
+
+/**
+ * A 1/2/3 warehouse reply should land on the latest *pending* combo-stock
+ * check sent to this phone, not whatever outbound SMS was last (proof, RTS, …).
+ */
+export async function findPendingComboStockOrderForPhone(
+  client: Client,
+  fromPhone: string
+): Promise<{ tenantId: string; orderId: string } | null> {
+  const phone = normalizeSmsPhone(fromPhone);
+  const { data: outs } = await client
+    .from("order_sms_messages")
+    .select("tenant_id, order_id")
+    .eq("direction", "outbound")
+    .eq("phone", phone)
+    .ilike("body", "%stock check%")
+    .order("created_at", { ascending: false })
+    .limit(25);
+
+  for (const row of outs ?? []) {
+    const rec = row as { tenant_id: string; order_id: string };
+    const { data: order } = await client
+      .from("orders")
+      .select("id, tenant_id, specs")
+      .eq("id", rec.order_id)
+      .maybeSingle();
+    if (!order) continue;
+    const stock = getComboStock({
+      specs: (order as { specs?: Record<string, unknown> | null }).specs,
+    });
+    if (stock?.status === "pending") {
+      return { tenantId: rec.tenant_id, orderId: rec.order_id };
+    }
+  }
+  return null;
 }
 
 /**

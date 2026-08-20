@@ -3,10 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { isSmsConfigured, sendSms, normalizeSmsPhone } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
+import { addOrderTag } from "@/lib/order-tags";
 import { logActivity } from "@/lib/automation";
 import {
   COMBO_STOCK_PHONE,
   buildComboStockSms,
+  comboStockCardTag,
   getComboStock,
   withComboStock,
   type ComboStock,
@@ -80,7 +82,13 @@ export async function POST(
     override_by: null,
   };
   const nextSpecs = withComboStock(specs, stock);
-  await supabase.from("orders").update({ specs: nextSpecs }).eq("id", orderId);
+  await addOrderTag(
+    supabase,
+    orderId,
+    ctx.tenant.id,
+    comboStockCardTag("pending"),
+    nextSpecs
+  );
 
   await logActivity(supabase, {
     tenantId: ctx.tenant.id,
@@ -146,7 +154,13 @@ export async function PATCH(
         ctx.userId,
     };
   }
-  await supabase.from("orders").update({ specs: nextSpecs }).eq("id", orderId);
+  await addOrderTag(
+    supabase,
+    orderId,
+    ctx.tenant.id,
+    comboStockCardTag(status),
+    nextSpecs
+  );
 
   await logActivity(supabase, {
     tenantId: ctx.tenant.id,

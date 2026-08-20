@@ -103,14 +103,25 @@ export function isComboOrder(
   );
 }
 
+/** Card tag shown after a warehouse 1/2/3 reply (or a manager override). */
+export function comboStockCardTag(
+  status: ComboStockStatus
+): "Texted" | "In stock" | "Ordered" | "Can't get" {
+  if (status === "in_stock") return "In stock";
+  if (status === "ordered") return "Ordered";
+  if (status === "cant_get") return "Can't get";
+  return "Texted";
+}
+
 /** The text sent to the warehouse contact. */
 export function buildComboStockSms(
   orderNumber: string,
   product: string
 ): string {
   const item = product?.trim() ? ` (${product.trim()})` : "";
+  const who = COMBO_STOCK_CONTACT_NAME;
   return (
-    `Bazaar stock check — combo order ${orderNumber}${item}. ` +
+    `${who}: stock check for combo ${orderNumber}${item}. ` +
     `Reply 1 = in stock, 2 = ordered, 3 = can't get.`
   );
 }
