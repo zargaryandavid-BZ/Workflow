@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Car,
   CheckCircle2,
@@ -158,6 +158,34 @@ export function ShippingTab({
   const [staffNotesSaved, setStaffNotesSaved] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
   const [labelError, setLabelError] = useState<string | null>(null);
+  const longPortalUrl = appUrl
+    ? `${appUrl.replace(/\/$/, "")}/shipping/${shippingRequest.token}`
+    : null;
+  const [portalUrl, setPortalUrl] = useState(longPortalUrl);
+
+  useEffect(() => {
+    setPortalUrl(longPortalUrl);
+    if (!shippingRequest.token) return;
+    let cancelled = false;
+    fetch("/api/short-links", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: `/shipping/${shippingRequest.token}` }),
+    })
+      .then(async (res) =>
+        res.ok ? ((await res.json()) as { url?: string }) : null
+      )
+      .then((data) => {
+        if (cancelled || !data?.url?.trim()) return;
+        setPortalUrl(data.url.trim());
+      })
+      .catch(() => {
+        /* keep long URL */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [longPortalUrl, shippingRequest.token]);
 
   const boxes = Array.isArray(shippingRequest.boxes)
     ? shippingRequest.boxes
@@ -176,9 +204,6 @@ export function ShippingTab({
     shippingRequest.client_choice === "delivery" && !isCurri;
   const rate = shippingRequest.fedex_selection;
   const address = shippingRequest.delivery_address;
-  const portalUrl = appUrl
-    ? `${appUrl.replace(/\/$/, "")}/shipping/${shippingRequest.token}`
-    : null;
   const money = formatMoney(rate?.totalCharge, rate?.currency);
   const transit = formatTransit(rate?.transitDays);
 

@@ -5,6 +5,7 @@ import {
   mergeDueSpecsIntoOrderSpecs,
 } from "@/lib/due-date";
 import { sendApprovalEmail } from "@/lib/email";
+import { ensureShortCustomerUrl } from "@/lib/short-link";
 import type { ApprovalStatus, BoardColumn, Order } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -99,8 +100,11 @@ export async function createApprovalForOrder(
     approval = inserted;
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const approvalUrl = `${appUrl}/approve/${approval.token}`;
+  const approvalUrl = await ensureShortCustomerUrl(
+    client,
+    order.tenant_id,
+    `/approve/${approval.token}`
+  );
 
   if (approval.customer_email) {
     await sendApprovalEmail({

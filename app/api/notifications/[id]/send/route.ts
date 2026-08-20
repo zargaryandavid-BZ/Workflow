@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
+  NOTIFICATION_TOKEN_TTL_MS,
   createNotification,
   dispatchNotification,
 } from "@/lib/notifications";
@@ -64,10 +65,38 @@ export async function POST(
   }
 
   try {
-    // Already sent or customer already answered → create a new history row
-    // (resend). Expire old "sent" links so they stop working; keep "responded"
-    // rows intact for Communication history.
-    if (typed.status === "sent" || typed.status === "responded") {
+    // Reminder while still waiting: reuse the same token so the previous
+    // SMS/email link keeps working. A new token is only for a new round
+    // after the customer already answered.
+    if (typed.status === "sent") {
+      const expiresAt = new Date(
+        Date.now() + NOTIFICATION_TOKEN_TTL_MS
+      ).toISOString();
+      await supabase
+        .from("job_notifications")
+        .update({ token_expires_at: expiresAt })
+        .eq("id", typed.id)
+        .eq("tenant_id", ctx.tenant.id);
+
+      const result = await dispatchNotification(supabase, {
+        notification: typed,
+        order: order as Order,
+        tenantName: ctx.tenant.name,
+        channel: body.channel,
+        toEmail: body.toEmail ?? null,
+        toPhone: body.toPhone ?? null,
+        actorUserId: ctx.userId,
+      });
+      return NextResponse.json({
+        ok: true,
+        resent: true,
+        reused: true,
+        notificationId: typed.id,
+        ...result,
+      });
+    }
+
+    if (typed.status === "responded") {
       const { notification: neu, actionUrl, warning } = await createNotification(
         supabase,
         {
@@ -81,17 +110,6 @@ export async function POST(
           createdBy: ctx.userId,
         }
       );
-
-      if (typed.status === "sent") {
-        await supabase
-          .from("job_notifications")
-          .update({
-            status: "expired",
-            token_expires_at: new Date().toISOString(),
-          })
-          .eq("id", typed.id)
-          .eq("tenant_id", ctx.tenant.id);
-      }
 
       return NextResponse.json({
         ok: true,

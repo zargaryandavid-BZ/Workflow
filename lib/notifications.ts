@@ -30,6 +30,7 @@ import {
   listOrderGroupMembers,
 } from "@/lib/ready-to-ship-group";
 import { resolveCustomerApprovalActionUrl } from "@/lib/approval-group";
+import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { syncCustomerFromNotification } from "@/lib/customers";
 import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
@@ -45,10 +46,15 @@ import type {
 
 type Client = SupabaseClient;
 
-const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const NOTIFICATION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const TOKEN_TTL_MS = NOTIFICATION_TOKEN_TTL_MS;
 
-function appUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+async function respondCustomerUrl(
+  client: Client,
+  tenantId: string,
+  token: string
+): Promise<string> {
+  return ensureShortCustomerUrl(client, tenantId, `/respond/${token}`);
 }
 
 /** Once an approval round is replaced or decided, its other open links are stale. */
@@ -127,7 +133,11 @@ async function deliverNotification(
           params.order,
           params.notification.token
         )
-      : `${appUrl()}/respond/${params.notification.token}`;
+      : await respondCustomerUrl(
+          client,
+          params.order.tenant_id,
+          params.notification.token
+        );
   const { customerEmail, customerPhone, customerName } =
     await resolveCustomerContact(
       client,
@@ -529,7 +539,11 @@ export async function saveNotificationRequest(
           params.order,
           (notification as JobNotification).token
         )
-      : `${appUrl()}/respond/${notification.token}`;
+      : await respondCustomerUrl(
+          client,
+          params.order.tenant_id,
+          notification.token as string
+        );
 
   return {
     notification: notification as JobNotification,
@@ -564,7 +578,11 @@ export async function dispatchNotification(
           params.order,
           params.notification.token
         )
-      : `${appUrl()}/respond/${params.notification.token}`;
+      : await respondCustomerUrl(
+          client,
+          params.order.tenant_id,
+          params.notification.token
+        );
   return {
     actionUrl,
     warning: delivery.error ?? null,
@@ -634,7 +652,11 @@ export async function createNotification(
           params.order,
           (notification as JobNotification).token
         )
-      : `${appUrl()}/respond/${notification.token}`;
+      : await respondCustomerUrl(
+          client,
+          params.order.tenant_id,
+          notification.token as string
+        );
   let warning: string | null = null;
 
   if (

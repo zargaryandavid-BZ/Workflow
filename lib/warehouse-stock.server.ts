@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isSmsConfigured, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { logActivity } from "@/lib/automation";
+import { ensureShortCustomerUrl, appOrigin } from "@/lib/short-link";
 import type { WarehouseStockSpecs } from "@/lib/warehouse-stock";
 
 type Client = SupabaseClient;
@@ -18,9 +19,7 @@ export function warehouseSmsRecipient(): string | null {
 }
 
 function appBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "http://localhost:3000"
-  );
+  return appOrigin();
 }
 
 function asRecord(specs: unknown): Record<string, unknown> {
@@ -28,9 +27,13 @@ function asRecord(specs: unknown): Record<string, unknown> {
   return { ...(specs as Record<string, unknown>) };
 }
 
-/** Public no-login confirm link. Token = `${orderId}~${secret}`. */
+/** Public no-login confirm path. Token = `${orderId}~${secret}`. */
+export function warehouseConfirmPath(orderId: string, secret: string): string {
+  return `/warehouse-confirm/${orderId}~${secret}`;
+}
+
 export function warehouseConfirmUrl(orderId: string, secret: string): string {
-  return `${appBaseUrl()}/warehouse-confirm/${orderId}~${secret}`;
+  return `${appBaseUrl()}${warehouseConfirmPath(orderId, secret)}`;
 }
 
 export function parseWarehouseConfirmToken(
@@ -109,7 +112,11 @@ export async function requestWarehouseStockConfirmation(
   const to = warehouseSmsRecipient();
   const label =
     opts.orderNumber?.trim() || opts.title?.trim() || "an order";
-  const url = warehouseConfirmUrl(opts.orderId, secret);
+  const url = await ensureShortCustomerUrl(
+    client,
+    opts.tenantId,
+    warehouseConfirmPath(opts.orderId, secret)
+  );
   const bodyText =
     `${opts.tenantName}: Combo order ${label} needs application and is heading to ` +
     `Ready-to-Ship. Confirm the containers are in stock before we release it: ${url}`;

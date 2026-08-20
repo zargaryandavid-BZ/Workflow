@@ -5,6 +5,7 @@ import {
   type GroupOrderMember,
 } from "@/lib/ready-to-ship-group";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
+import { ensureShortCustomerUrl, appOrigin } from "@/lib/short-link";
 import type { CustomerResponse, NotificationStatus } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -30,10 +31,7 @@ export type ApprovalGroupItemSummary = {
 };
 
 function appUrl() {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
-    /\/$/,
-    ""
-  );
+  return appOrigin();
 }
 
 /** Ensure a stable portal row exists for this order group; return its token. */
@@ -88,14 +86,21 @@ export async function ensureApprovalGroupPortal(
   };
 }
 
+export function approvalGroupRespondPath(
+  portalToken: string,
+  itemId?: string | null
+): string {
+  const base = `/respond/g/${portalToken}`;
+  const item = itemId?.trim();
+  if (!item) return base;
+  return `${base}?item=${encodeURIComponent(item)}`;
+}
+
 export function approvalGroupRespondUrl(
   portalToken: string,
   itemId?: string | null
 ): string {
-  const base = `${appUrl()}/respond/g/${portalToken}`;
-  const item = itemId?.trim();
-  if (!item) return base;
-  return `${base}?item=${encodeURIComponent(item)}`;
+  return `${appUrl()}${approvalGroupRespondPath(portalToken, itemId)}`;
 }
 
 /**
@@ -115,15 +120,17 @@ export async function resolveCustomerApprovalActionUrl(
   notificationToken: string
 ): Promise<string> {
   const members = await listOrderGroupMembers(client, order.tenant_id, order);
-  if (members.length <= 1) {
-    return `${appUrl()}/respond/${notificationToken}`;
-  }
   const key = orderGroupKey(order);
-  if (!key) {
-    return `${appUrl()}/respond/${notificationToken}`;
+  let longPath = `/respond/${notificationToken}`;
+  if (members.length > 1 && key) {
+    const portal = await ensureApprovalGroupPortal(
+      client,
+      order.tenant_id,
+      key
+    );
+    longPath = approvalGroupRespondPath(portal.token, order.id);
   }
-  const portal = await ensureApprovalGroupPortal(client, order.tenant_id, key);
-  return approvalGroupRespondUrl(portal.token, order.id);
+  return ensureShortCustomerUrl(client, order.tenant_id, longPath);
 }
 
 function statusFromNotification(row: {

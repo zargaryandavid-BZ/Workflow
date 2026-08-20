@@ -14,11 +14,11 @@ import {
 } from "@/lib/warehouse-stock";
 import { requestWarehouseStockConfirmation } from "@/lib/warehouse-stock.server";
 import {
-  appBaseUrl,
   ensureShippingRequestForSend,
   parseShippingBoxes,
   sendPickupReadyNotifications,
   sendShippingPortalNotifications,
+  shippingPortalPublicUrl,
 } from "@/lib/shipping";
 import { getMessageTemplates } from "@/lib/message-templates.server";
 import {
@@ -141,7 +141,11 @@ export async function POST(
   }
   const { shippingReq, reused, superseded } = ensured;
 
-  const portalUrl = `${appBaseUrl()}/shipping/${shippingReq.token}`;
+  const portalUrl = await shippingPortalPublicUrl(
+    supabase,
+    ctx.tenant.id,
+    shippingReq.token
+  );
   const templates = await getMessageTemplates(supabase, ctx.tenant.id);
   const orderNumber = exportData.orderNumberDisplay || exportData.orderNumber;
 

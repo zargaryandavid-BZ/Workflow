@@ -16,6 +16,7 @@ import {
 import { sendTransactionalEmail } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
 import type { MessageTemplateMap } from "@/lib/message-templates";
+import { ensureShortCustomerUrl, appOrigin } from "@/lib/short-link";
 import type { ShippingBox, ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
 
 type ShippingRequestRow = {
@@ -373,8 +374,13 @@ export async function sendPickupReadyNotifications(args: {
 }
 
 export function appBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    "http://localhost:3000"
-  );
+  return appOrigin();
+}
+
+export async function shippingPortalPublicUrl(
+  client: SupabaseClient,
+  tenantId: string,
+  token: string
+): Promise<string> {
+  return ensureShortCustomerUrl(client, tenantId, `/shipping/${token}`);
 }

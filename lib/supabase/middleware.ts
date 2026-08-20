@@ -8,6 +8,8 @@ const PUBLIC_PATHS = [
   "/approve",
   "/respond",
   "/shipping",
+  "/warehouse-confirm",
+  "/l",
   "/auth",
 ];
 
@@ -20,6 +22,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/notifications/asset",
   "/api/approvals/decide",
   "/api/shipping/",
+  "/api/warehouse-confirm/",
   "/api/webhooks/",
   "/api/auth/",
 ];
