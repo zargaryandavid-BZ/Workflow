@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, FileText, Mail, MessageSquare, StickyNote } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -249,64 +249,34 @@ function NotifyRow({
   return (
     <div className="space-y-2 border-t border-slate-100 pt-3">
       <p className="text-sm font-medium text-slate-700">{label}</p>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            onClick={() => toggleChannel("email")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              wantEmail
-                ? "border-blue-500 bg-blue-50 text-blue-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            <Mail className="h-4 w-4" />
-            Email
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleChannel("sms")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              wantSms
-                ? "border-blue-500 bg-blue-50 text-blue-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            <MessageSquare className="h-4 w-4" />
-            SMS
-          </button>
-        </div>
-
-        {hasSelection && !(wantEmail && wantSms) ? (
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-            <Input
-              type={wantEmail ? "email" : "tel"}
-              value={wantEmail ? email : phone}
-              onChange={(e) =>
-                wantEmail ? setEmail(e.target.value) : setPhone(e.target.value)
-              }
-              placeholder={
-                wantEmail ? "customer@example.com" : "+1 555 123 4567"
-              }
-              className="h-9 min-w-0 flex-1 sm:max-w-xs"
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={sending}
-              onClick={send}
-              className="shrink-0"
-            >
-              {sending ? "Sending…" : sendLabel}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-
-      {wantEmail && wantSms ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => toggleChannel("email")}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
+            wantEmail
+              ? "border-blue-500 bg-blue-50 text-blue-700"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50"
+          )}
+        >
+          <Mail className="h-4 w-4" />
+          Email
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleChannel("sms")}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
+            wantSms
+              ? "border-blue-500 bg-blue-50 text-blue-700"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50"
+          )}
+        >
+          <MessageSquare className="h-4 w-4" />
+          SMS
+        </button>
+        {wantEmail ? (
           <Input
             type="email"
             value={email}
@@ -314,6 +284,8 @@ function NotifyRow({
             placeholder="customer@example.com"
             className="h-9 min-w-0 flex-1"
           />
+        ) : null}
+        {wantSms ? (
           <Input
             type="tel"
             value={phone}
@@ -321,6 +293,8 @@ function NotifyRow({
             placeholder="+1 555 123 4567"
             className="h-9 min-w-0 flex-1"
           />
+        ) : null}
+        {hasSelection ? (
           <Button
             type="button"
             size="sm"
@@ -330,8 +304,8 @@ function NotifyRow({
           >
             {sending ? "Sending…" : sendLabel}
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );
@@ -528,74 +502,6 @@ function HistoryEntry({
   );
 }
 
-function InternalCommentForm({
-  orderId,
-  columnId,
-  onSaved,
-}: {
-  orderId: string;
-  columnId: string;
-  onSaved: () => void;
-}) {
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    if (!note.trim()) return;
-    setError(null);
-    setSaving(true);
-    try {
-      const res = await fetch("/api/notifications/comment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, staffNote: note.trim(), columnId }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? "Failed to save note");
-        return;
-      }
-      setNote("");
-      onSaved();
-    } catch {
-      setError("Failed to save note");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form onSubmit={save} className="space-y-2">
-      <textarea
-        ref={textareaRef}
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        rows={3}
-        placeholder="Add an internal note (not sent to customer)…"
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 resize-none"
-      />
-      {error ? (
-        <p className="text-xs text-red-600">{error}</p>
-      ) : null}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-400">
-          Visible to staff only — not sent to the customer.
-        </p>
-        <Button
-          type="submit"
-          size="sm"
-          disabled={saving || !note.trim()}
-        >
-          {saving ? "Saving…" : "Save note"}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
 export function MissingInfoTab({
   notes,
   customer,
@@ -654,17 +560,6 @@ export function MissingInfoTab({
             a notification is created.
           </p>
         ) : null}
-
-        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
-            Add internal note
-          </p>
-          <InternalCommentForm
-            orderId={orderId}
-            columnId={sourceColumnId}
-            onSaved={onSent}
-          />
-        </div>
       </div>
     );
   }
@@ -690,17 +585,6 @@ export function MissingInfoTab({
           ) : null}
         </div>
       ) : null}
-
-      <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
-          Add internal note
-        </p>
-        <InternalCommentForm
-          orderId={orderId}
-          columnId={sourceColumnId}
-          onSaved={onSent}
-        />
-      </div>
 
       <div>
         <p className="mb-3 text-sm font-semibold text-slate-700">

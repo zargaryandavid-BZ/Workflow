@@ -19,7 +19,7 @@
  * colors stay identical everywhere.
  */
 
-export type StageGroupId = "design" | "production" | "postproduction";
+export type StageGroupId = "start" | "design" | "production" | "postproduction";
 
 export interface StageGroupMeta {
   id: StageGroupId;
@@ -33,14 +33,22 @@ export interface StageGroupMeta {
   dotClassName: string;
 }
 
-/** Canonical top-to-bottom pipeline order: Design → Production → Post-production. */
+/** Canonical top-to-bottom pipeline order: Start → Design → Production → Post-production. */
 export const STAGE_GROUP_ORDER: StageGroupId[] = [
+  "start",
   "design",
   "production",
   "postproduction",
 ];
 
 export const STAGE_GROUP_META: Record<StageGroupId, StageGroupMeta> = {
+  start: {
+    id: "start",
+    label: "",
+    headerClassName: "",
+    sectionClassName: "",
+    dotClassName: "border-slate-300",
+  },
   design: {
     id: "design",
     label: "Design / Prepress",
@@ -75,6 +83,10 @@ export function stageKey(name: string): string {
 
 // Canonical membership, keyed by normalized name. Display order is NOT taken
 // from these sets — it follows the caller's column order within each group.
+const START_KEYS = new Set(
+  ["Start (Create Order)", "Start"].map(stageKey)
+);
+
 const DESIGN_KEYS = new Set(
   [
     "In Progress",
@@ -141,6 +153,7 @@ export function classifyStage(col: {
 
   const key = stageKey(col.name);
 
+  if (START_KEYS.has(key)) return { group: "start", matched: true };
   if (DESIGN_KEYS.has(key)) return { group: "design", matched: true };
   if (PRODUCTION_KEYS.has(key)) return { group: "production", matched: true };
   if (POSTPRODUCTION_KEYS.has(key))
@@ -186,6 +199,7 @@ export function groupStageColumns<T extends { id: string; name: string }>(
   columns: T[]
 ): GroupedStageSection<T>[] {
   const buckets: Record<StageGroupId, T[]> = {
+    start: [],
     design: [],
     production: [],
     postproduction: [],

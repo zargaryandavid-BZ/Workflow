@@ -182,64 +182,36 @@ function NotifyRow({
   const hasSelection = wantEmail || wantSms;
 
   return (
-    <div className="space-y-2 border-t border-slate-100 pt-3">
+    <div className="space-y-2">
       <p className="text-sm font-medium text-slate-700">{title}</p>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            onClick={() => toggleChannel("email")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              wantEmail
-                ? "border-blue-500 bg-blue-50 text-blue-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            <Mail className="h-4 w-4" />
-            Email
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleChannel("sms")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
-              wantSms
-                ? "border-blue-500 bg-blue-50 text-blue-700"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            <MessageSquare className="h-4 w-4" />
-            SMS
-          </button>
-        </div>
-        {hasSelection && !(wantEmail && wantSms) ? (
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-            <Input
-              type={wantEmail ? "email" : "tel"}
-              value={wantEmail ? email : phone}
-              onChange={(e) =>
-                wantEmail ? setEmail(e.target.value) : setPhone(e.target.value)
-              }
-              placeholder={
-                wantEmail ? "customer@example.com" : "+1 555 123 4567"
-              }
-              className="h-9 min-w-0 flex-1 sm:max-w-xs"
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={sending}
-              onClick={send}
-              className="shrink-0"
-            >
-              {sending ? "Sending…" : sendLabel}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      {wantEmail && wantSms ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => toggleChannel("email")}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
+            wantEmail
+              ? "border-blue-500 bg-blue-50 text-blue-700"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50"
+          )}
+        >
+          <Mail className="h-4 w-4" />
+          Email
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleChannel("sms")}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium",
+            wantSms
+              ? "border-blue-500 bg-blue-50 text-blue-700"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50"
+          )}
+        >
+          <MessageSquare className="h-4 w-4" />
+          SMS
+        </button>
+        {wantEmail ? (
           <Input
             type="email"
             value={email}
@@ -247,6 +219,8 @@ function NotifyRow({
             placeholder="customer@example.com"
             className="h-9 min-w-0 flex-1"
           />
+        ) : null}
+        {wantSms ? (
           <Input
             type="tel"
             value={phone}
@@ -254,6 +228,8 @@ function NotifyRow({
             placeholder="+1 555 123 4567"
             className="h-9 min-w-0 flex-1"
           />
+        ) : null}
+        {hasSelection ? (
           <Button
             type="button"
             size="sm"
@@ -263,8 +239,8 @@ function NotifyRow({
           >
             {sending ? "Sending…" : sendLabel}
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );
@@ -548,63 +524,8 @@ export function ApprovalTab({
     };
   }
 
-  const latestStatus = entryStatus(statusNote);
-
   return (
     <div className="space-y-5">
-      <div className="text-sm">
-        <span className="font-medium text-slate-700">Status: </span>
-        <span className={latestStatus.className}>{latestStatus.label}</span>
-        {latestStatus.time ? (
-          <span className="text-slate-500">
-            {" "}
-            — {formatDateTime(latestStatus.time)}
-          </span>
-        ) : null}
-      </div>
-
-      {(statusNote.status === "sent" || statusNote.status === "pending") &&
-      statusNote.channel !== "manual" ? (
-        <div className="text-sm text-slate-600">
-          <p>
-            <span className="font-medium text-slate-700">Sent: </span>
-            {formatDateTime(statusNote.created_at)} via{" "}
-            {channelLabel(statusNote.channel)}
-          </p>
-          <p className="mt-1">
-            <span className="font-medium text-slate-700">To: </span>
-            {sentToLabel(statusNote, customer, contactEmail, contactPhone)}
-          </p>
-          {showCustomerLink(statusNote) ? (
-            <div className="mt-3">
-              <CustomerLinkRow token={statusNote.token} orderId={orderId} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {statusNote.status === "responded" && statusNote.customer_note ? (
-        <div>
-          <p className="text-sm font-medium text-slate-700">
-            Customer last response:
-          </p>
-          <blockquote className="mt-1 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            &ldquo;{statusNote.customer_note}&rdquo;
-          </blockquote>
-        </div>
-      ) : null}
-
-      {statusNote.staff_note &&
-      statusNote.status !== "responded" &&
-      statusNote.channel !== "manual" ? (
-        <div>
-          <p className="text-sm font-medium text-slate-700">Note to customer:</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
-            {statusNote.staff_note}
-          </p>
-        </div>
-      ) : null}
-
       {renderLatestActions()}
 
       {history.length > 0 ? (
@@ -679,6 +600,18 @@ export function ApprovalTab({
                   ) : note.channel === "manual" ? (
                     <p className="mt-3 text-slate-500">
                       Manual follow-up — no message sent.
+                    </p>
+                  ) : null}
+
+                  {note.channel !== "manual" && note.channel !== "none" ? (
+                    <p className="mt-3 text-sm text-slate-600">
+                      <span className="font-medium text-slate-700">To: </span>
+                      {sentToLabel(
+                        note,
+                        customer,
+                        contactEmail,
+                        contactPhone
+                      )}
                     </p>
                   ) : null}
 

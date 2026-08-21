@@ -1422,8 +1422,7 @@ export function OrderFormBody({
         </div>
       ) : null}
 
-      {(!hideEmpty || (noteHistory && noteHistory.length > 0) || !readOnly) ? (
-        <div className="min-w-0 space-y-3 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+      <div className="min-w-0 space-y-3 overflow-hidden rounded-xl border border-amber-200 bg-amber-50/60 p-4">
           <div className="flex items-center gap-2">
             <AlertTriangle
               className="h-4 w-4 shrink-0 text-amber-600"
@@ -1475,10 +1474,13 @@ export function OrderFormBody({
                 placeholder="Internal notes visible only to the team…"
                 className="border-amber-200 bg-white focus-visible:ring-amber-400"
               />
+              <p className="mt-1.5 text-[11px] text-amber-700/80">
+                Staff only — not sent to the customer. Save the order to keep the
+                note.
+              </p>
             </div>
           ) : null}
         </div>
-      ) : null}
 
       {!hideCustomerSection ? (
         <>

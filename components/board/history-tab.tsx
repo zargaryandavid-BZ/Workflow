@@ -44,6 +44,14 @@ function ChannelIcon({ channel }: { channel: string }) {
   if (channel === "sms") {
     return <MessageSquare className="h-3.5 w-3.5 shrink-0" />;
   }
+  if (channel === "both") {
+    return (
+      <span className="inline-flex items-center">
+        <Mail className="h-3.5 w-3.5 shrink-0" />
+        <MessageSquare className="-ml-0.5 h-3.5 w-3.5 shrink-0" />
+      </span>
+    );
+  }
   return <Mail className="h-3.5 w-3.5 shrink-0" />;
 }
 
@@ -233,6 +241,59 @@ type TimelineActivity = {
 
 type TimelineItem = TimelineSms | TimelineActivity;
 
+const SAME_SEND_MS = 120_000;
+
+function normalizeMessageBody(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function respondPath(value: string): string | null {
+  const match = value.match(/\/respond\/[a-z0-9-]+/i);
+  return match ? match[0].toLowerCase() : null;
+}
+
+function sameOutboundSend(
+  sms: OrderSmsMessage,
+  activityMsg: SentMessageEntry,
+  reconstructedBody: string | null
+): boolean {
+  if (sms.direction !== "outbound") return false;
+  const delta = Math.abs(
+    new Date(sms.created_at).getTime() -
+      new Date(activityMsg.created_at).getTime()
+  );
+  if (delta > SAME_SEND_MS) return false;
+
+  const smsBody = normalizeMessageBody(sms.body);
+  const bodies = [activityMsg.messageBody, reconstructedBody]
+    .filter((b): b is string => Boolean(b?.trim()))
+    .map(normalizeMessageBody);
+  if (bodies.some((b) => b === smsBody || b.includes(smsBody) || smsBody.includes(b))) {
+    return true;
+  }
+
+  const smsLink = respondPath(sms.body);
+  if (
+    smsLink &&
+    bodies.some((b) => respondPath(b) === smsLink)
+  ) {
+    return true;
+  }
+
+  return activityMsg.channel === "both" && delta <= 30_000;
+}
+
+function mergeRecipient(existing: string | null, phone: string): string {
+  const parts = (existing ?? "")
+    .split(/[·,]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.some((p) => p.replace(/\s+/g, "") === phone.replace(/\s+/g, ""))) {
+    return existing ?? phone;
+  }
+  return parts.length > 0 ? `${parts.join(" · ")} · ${phone}` : phone;
+}
+
 function SmsComposer({
   orderId,
   contactPhone,
@@ -328,59 +389,82 @@ function SmsComposer({
   );
 }
 
-function SmsTimelineCard({ message }: { message: OrderSmsMessage }) {
-  const outbound = message.direction === "outbound";
+function CommunicationRow({
+  createdAt,
+  owner,
+  channel,
+  title,
+  to,
+  subject,
+  body,
+  reconstructed,
+  inbound,
+}: {
+  createdAt: string;
+  owner: string;
+  channel: string;
+  title?: string | null;
+  to?: string | null;
+  subject?: string | null;
+  body?: string | null;
+  reconstructed?: boolean;
+  inbound?: boolean;
+}) {
   return (
-    <article
-      className={cn(
-        "rounded-lg border p-4 shadow-sm",
-        outbound
-          ? "border-sky-200 bg-sky-50/50"
-          : "border-violet-200 bg-violet-50/40"
-      )}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                outbound
-                  ? "bg-sky-100 text-sky-700"
-                  : "bg-violet-100 text-violet-700"
-              )}
-            >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              SMS
-            </span>
-            <h3 className="text-sm font-semibold text-slate-800">
-              {outbound ? "SMS sent" : "Customer replied SMS"}
-            </h3>
-          </div>
-          <p className="mt-1 text-xs text-slate-500">
-            {outbound ? "To" : "From"}: {message.phone}
-          </p>
-        </div>
-        <div className="text-right text-xs text-slate-400">
-          <div>{formatDateTime(message.created_at)}</div>
-          {outbound && message.actor_name ? (
-            <div className="mt-0.5">by {message.actor_name}</div>
-          ) : !outbound ? (
-            <div className="mt-0.5">by Customer</div>
-          ) : null}
-        </div>
+    <li className={cn("px-4 py-3", inbound && "bg-violet-50/40")}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p className="text-sm text-slate-800">
+          <span className="font-semibold">{formatDateTime(createdAt)}</span>
+          <span className="mx-1.5 text-slate-300">·</span>
+          <span className="font-medium text-slate-700">{owner}</span>
+        </p>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+            inbound
+              ? "bg-violet-100 text-violet-700"
+              : channel === "sms"
+                ? "bg-sky-50 text-sky-700"
+                : channel === "email"
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-slate-100 text-slate-600"
+          )}
+        >
+          <ChannelIcon channel={inbound ? "sms" : channel} />
+          {inbound ? "SMS reply" : channelLabel(channel)}
+        </span>
       </div>
-      <pre
-        className={cn(
-          "mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-md px-3 py-2 text-xs leading-relaxed",
-          outbound
-            ? "bg-white text-slate-700"
-            : "bg-white text-slate-800"
-        )}
-      >
-        {message.body}
-      </pre>
-    </article>
+      {title ? (
+        <p className="mt-0.5 text-xs font-medium text-slate-600">{title}</p>
+      ) : null}
+      {to ? (
+        <p className="mt-0.5 text-xs text-slate-500">
+          {inbound ? "From" : "To"}: {to}
+        </p>
+      ) : null}
+      {subject ? (
+        <p className="mt-1 text-xs font-medium text-slate-600">
+          Subject: {subject}
+        </p>
+      ) : null}
+      {body ? (
+        <>
+          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
+            {body}
+          </pre>
+          {reconstructed ? (
+            <p className="mt-1.5 text-[11px] italic text-slate-400">
+              Reconstructed from current templates (exact wording at send time
+              was not stored).
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-slate-400">
+          Message body was not stored for this send.
+        </p>
+      )}
+    </li>
   );
 }
 
@@ -433,17 +517,52 @@ export function HistoryTab(props: HistoryTabProps) {
     return true;
   });
 
+  const activityWithBody = activityMessages.map((msg) => ({
+    msg,
+    reconstructed: reconstructMessage(msg, activity, props),
+  }));
+
+  const coveredSmsIds = new Set<string>();
+  const mergedActivity = activityWithBody.map(({ msg, reconstructed }) => {
+    let next = msg;
+    for (const sms of smsMessages) {
+      if (coveredSmsIds.has(sms.id)) continue;
+      if (
+        !sameOutboundSend(sms, msg, reconstructed.messageBody)
+      ) {
+        continue;
+      }
+      coveredSmsIds.add(sms.id);
+      const baseTo =
+        next.to ??
+        (next.channel === "sms"
+          ? contactPhone
+          : next.channel === "email"
+            ? contactEmail
+            : [contactEmail, contactPhone].filter(Boolean).join(" · ") ||
+              null);
+      next = {
+        ...next,
+        to: mergeRecipient(baseTo, sms.phone),
+        channel: next.channel === "email" ? "both" : next.channel,
+      };
+    }
+    return { msg: next, reconstructed };
+  });
+
   const timeline: TimelineItem[] = [
-    ...smsMessages.map(
-      (message): TimelineSms => ({
-        kind: "sms",
-        id: `sms-${message.id}`,
-        created_at: message.created_at,
-        message,
-      })
-    ),
-    ...activityMessages.map(
-      (msg): TimelineActivity => ({
+    ...smsMessages
+      .filter((message) => !coveredSmsIds.has(message.id))
+      .map(
+        (message): TimelineSms => ({
+          kind: "sms",
+          id: `sms-${message.id}`,
+          created_at: message.created_at,
+          message,
+        })
+      ),
+    ...mergedActivity.map(
+      ({ msg }): TimelineActivity => ({
         kind: "activity",
         id: `act-${msg.id}`,
         created_at: msg.created_at,
@@ -452,7 +571,7 @@ export function HistoryTab(props: HistoryTabProps) {
     ),
   ].sort(
     (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
 
   return (
@@ -467,94 +586,68 @@ export function HistoryTab(props: HistoryTabProps) {
           </p>
         ) : null}
         {smsLoading && timeline.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-400">
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-400">
             Loading communication…
-          </p>
+          </div>
         ) : timeline.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            No messages yet. SMS you send and customer replies both show here
-            (replies need Twilio inbound configured).
+            Nothing sent to the client yet. Email, SMS, and customer replies
+            all show here.
           </div>
         ) : (
-          timeline.map((item) => {
-            if (item.kind === "sms") {
-              return (
-                <SmsTimelineCard key={item.id} message={item.message} />
-              );
-            }
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <ul className="divide-y divide-slate-100">
+              {timeline.map((item) => {
+                if (item.kind === "sms") {
+                  const inbound = item.message.direction !== "outbound";
+                  return (
+                    <CommunicationRow
+                      key={item.id}
+                      createdAt={item.message.created_at}
+                      owner={
+                        inbound
+                          ? "Customer"
+                          : item.message.actor_name?.trim() || "Team"
+                      }
+                      channel="sms"
+                      title={inbound ? "Customer replied" : "SMS sent"}
+                      to={item.message.phone}
+                      body={item.message.body}
+                      inbound={inbound}
+                    />
+                  );
+                }
 
-            const msg = item.msg;
-            const content = reconstructMessage(msg, activity, props);
-            const to =
-              msg.to ??
-              (msg.channel === "sms"
-                ? contactPhone
-                : msg.channel === "email"
-                  ? contactEmail
-                  : [contactEmail, contactPhone].filter(Boolean).join(" · ") ||
-                    null);
+                const msg = item.msg;
+                const content = reconstructMessage(msg, activity, props);
+                const to =
+                  msg.to ??
+                  (msg.channel === "sms"
+                    ? contactPhone
+                    : msg.channel === "email"
+                      ? contactEmail
+                      : [contactEmail, contactPhone]
+                          .filter(Boolean)
+                          .join(" · ") || null);
 
-            return (
-              <article
-                key={item.id}
-                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                          msg.channel === "sms"
-                            ? "bg-sky-50 text-sky-700"
-                            : msg.channel === "email"
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-slate-100 text-slate-600"
-                        )}
-                      >
-                        <ChannelIcon channel={msg.channel} />
-                        {channelLabel(msg.channel)}
-                      </span>
-                      <h3 className="text-sm font-semibold text-slate-800">
-                        {msg.channel === "sms" ? "SMS sent" : msg.title}
-                      </h3>
-                    </div>
-                    {to ? (
-                      <p className="mt-1 text-xs text-slate-500">To: {to}</p>
-                    ) : null}
-                  </div>
-                  <div className="text-right text-xs text-slate-400">
-                    <div>{formatDateTime(msg.created_at)}</div>
-                    <div className="mt-0.5">by {msg.actor_name}</div>
-                  </div>
-                </div>
-
-                {content.subject ? (
-                  <p className="mt-3 text-xs font-medium text-slate-600">
-                    Subject: {content.subject}
-                  </p>
-                ) : null}
-
-                {content.messageBody ? (
-                  <>
-                    <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
-                      {content.messageBody}
-                    </pre>
-                    {content.reconstructed ? (
-                      <p className="mt-2 text-[11px] italic text-slate-400">
-                        Reconstructed from current templates (exact wording at
-                        send time was not stored).
-                      </p>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="mt-2 text-xs text-slate-400">
-                    Message body was not stored for this send.
-                  </p>
-                )}
-              </article>
-            );
-          })
+                return (
+                  <CommunicationRow
+                    key={item.id}
+                    createdAt={msg.created_at}
+                    owner={msg.actor_name?.trim() || "Team"}
+                    channel={msg.channel}
+                    title={
+                      msg.channel === "sms" ? "SMS sent" : msg.title
+                    }
+                    to={to}
+                    subject={content.subject}
+                    body={content.messageBody}
+                    reconstructed={content.reconstructed}
+                  />
+                );
+              })}
+            </ul>
+          </div>
         )}
       </div>
 

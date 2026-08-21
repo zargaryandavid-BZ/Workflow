@@ -25,11 +25,11 @@ interface MoveMenuSectionsProps<T extends MoveMenuColumn> {
 }
 
 /**
- * Renders a "Move to" stage list split into 3 labeled, color-tinted sections
- * (Design / Prepress · Production · Post-production). Grouping + colors come
- * from the central config in `@/lib/stage-groups`, so every menu that uses this
- * component stays visually identical. Display-only: click behavior is whatever
- * the caller does in `onSelect` — grouping never changes it.
+ * Renders a "Move to" stage list: Start (ungrouped) then Design / Prepress,
+ * Production, and Post-production. Grouping + colors come from the central
+ * config in `@/lib/stage-groups`, so every menu that uses this component stays
+ * visually identical. Display-only: click behavior is whatever the caller does
+ * in `onSelect` — grouping never changes it.
  */
 export function MoveMenuSections<T extends MoveMenuColumn>({
   columns,
@@ -47,15 +47,17 @@ export function MoveMenuSections<T extends MoveMenuColumn>({
           key={section.group.id}
           className={cn("py-1", section.group.sectionClassName)}
         >
-          <p
-            className={cn(
-              "px-3 py-1 text-[10px] font-semibold uppercase tracking-wider",
-              section.group.headerClassName,
-              headerClassName
-            )}
-          >
-            {section.group.label}
-          </p>
+          {section.group.label ? (
+            <p
+              className={cn(
+                "px-3 py-1 text-[10px] font-semibold uppercase tracking-wider",
+                section.group.headerClassName,
+                headerClassName
+              )}
+            >
+              {section.group.label}
+            </p>
+          ) : null}
           {section.columns.map((col) => (
             <button
               key={col.id}

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
+import { ProofLayerLegend } from "@/components/respond/proof-layer-legend";
 import {
   RESPOND_ACCEPT,
   RESPOND_MAX_BYTES,
@@ -317,6 +318,8 @@ export function RespondForm({
             </p>
           </div>
         ) : null}
+
+        <ProofLayerLegend />
 
         <p className="text-sm font-medium text-slate-700">
           Please review and confirm below:
