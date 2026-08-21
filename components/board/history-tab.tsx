@@ -283,7 +283,10 @@ function sameOutboundSend(
   return activityMsg.channel === "both" && delta <= 30_000;
 }
 
-function mergeRecipient(existing: string | null, phone: string): string {
+function mergeRecipient(
+  existing: string | null | undefined,
+  phone: string
+): string {
   const parts = (existing ?? "")
     .split(/[·,]/)
     .map((p) => p.trim())
