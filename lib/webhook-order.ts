@@ -2905,6 +2905,52 @@ export async function createOrderFromWebhook(
       dueSpecs,
       webhookRushFromPayload(body as Record<string, unknown>)
     );
+    // CRM is the source of truth for contact info. Previously a CRM re-fire only
+    // refreshed the due date on an existing card — so a phone/email added in the CRM
+    // AFTER the order was created never reached the board (and the board has no way to
+    // add it), leaving the card stuck on "contact information missing". Refresh the
+    // Customer Name / Customer Contact custom fields here too so a re-push flows through.
+    if (customerInfo.customerName || customerInfo.orderContact) {
+      try {
+        const contactFields = await resolveCustomFields(client, tenantId);
+        const nameField = contactFields.get(CUSTOMER_NAME_FIELD_NAME);
+        const contactField = contactFields.get(CUSTOMER_CONTACT_FIELD_NAME);
+        const contactRows: { custom_field_id: string; value: unknown }[] = [];
+        if (nameField && customerInfo.customerName) {
+          contactRows.push({ custom_field_id: nameField.id, value: customerInfo.customerName });
+        }
+        if (contactField && customerInfo.orderContact) {
+          contactRows.push({ custom_field_id: contactField.id, value: customerInfo.orderContact });
+        }
+        if (contactRows.length > 0) {
+          await Promise.all(
+            existingOrders.map(async (order) => {
+              const { error } = await client
+                .from("custom_field_values")
+                .upsert(
+                  contactRows.map((r) => ({
+                    order_id: order.id,
+                    custom_field_id: r.custom_field_id,
+                    value: r.value,
+                  })),
+                  { onConflict: "order_id,custom_field_id" }
+                );
+              if (error) {
+                console.error("[webhook/orders] existing-order contact refresh error:", {
+                  order_id: order.id,
+                  message: error.message,
+                });
+              }
+            })
+          );
+        }
+      } catch (err) {
+        console.error(
+          "[webhook/orders] existing-order contact refresh failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
     const sorted = [...existingOrders].sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { numeric: true })
     );
