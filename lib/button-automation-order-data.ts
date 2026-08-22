@@ -49,6 +49,7 @@ export interface OrderExportSkuRow {
   name: string;
   qty: number | null;
   imageLinks: string[];
+  imageFiles: { name: string; url: string }[];
 }
 
 export interface OrderExportSpecRow {
@@ -232,14 +233,25 @@ function buildSkuRows(
   skus: SkuItem[],
   imagesBySkuId: Record<string, OrderSkuImageWithUrl[]>
 ): OrderExportSkuRow[] {
-  return skus.map((sku, index) => ({
-    index: index + 1,
-    name: sku.name.trim() || `SKU ${index + 1}`,
-    qty: sku.qty,
-    imageLinks: (imagesBySkuId[sku.id] ?? [])
-      .map((img) => img.signed_url)
-      .filter((url): url is string => Boolean(url)),
-  }));
+  return skus.map((sku, index) => {
+    const imageFiles = (imagesBySkuId[sku.id] ?? [])
+      .map((img) => {
+        const url = img.signed_url?.trim() ?? "";
+        if (!url) return null;
+        return {
+          name: (img.file_name || "").trim() || `Artwork ${img.position + 1}`,
+          url,
+        };
+      })
+      .filter((f): f is { name: string; url: string } => Boolean(f));
+    return {
+      index: index + 1,
+      name: sku.name.trim() || `SKU ${index + 1}`,
+      qty: sku.qty,
+      imageLinks: imageFiles.map((f) => f.url),
+      imageFiles,
+    };
+  });
 }
 
 function formatOrderNumberDisplay(
@@ -358,6 +370,25 @@ export async function loadOrderExportData(
     (assets ?? []) as Asset[],
     { soleSkuId: skus.length === 1 ? skus[0].id : null }
   );
+  const unsignedAssetImages = skuImages.filter(
+    (img) =>
+      img.from_asset &&
+      img.storage_path?.trim() &&
+      !/^https?:\/\//i.test(img.signed_url ?? "")
+  );
+  if (unsignedAssetImages.length > 0) {
+    const signedAssets = await attachSignedUrlsToSkuImages(
+      supabase,
+      unsignedAssetImages
+    ).catch(() => [] as OrderSkuImageWithUrl[]);
+    const urlById = new Map(
+      signedAssets.map((img) => [img.id, img.signed_url] as const)
+    );
+    for (const img of skuImages) {
+      const signed = urlById.get(img.id);
+      if (signed) img.signed_url = signed;
+    }
+  }
 
   const imagesBySkuId: Record<string, OrderSkuImageWithUrl[]> = {};
   for (const img of skuImages) {

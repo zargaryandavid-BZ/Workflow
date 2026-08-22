@@ -209,7 +209,15 @@ export function buildFullOrderWebhookPayload(
     isApplicationEnabled(order.specs, data.customFields, data.fieldValues) ||
     fieldBool(data, "Application");
 
+  // Pulse uses orderId (also order_id / orderNumber / order_ref / workflowOrderId)
+  // as the job ticket number instead of auto-assigning. Send the board/CRM
+  // number (e.g. 0499-1), never the internal UUID.
+  const crmOrderId = (data.orderNumber || order.title || "").trim();
+
   return {
+    orderId: crmOrderId,
+    order_id: crmOrderId,
+    orderNumber: crmOrderId,
     tenantName: data.tenantName || "",
     customer,
     dueDate: asIsoDate(order.due_date),
@@ -242,20 +250,52 @@ export function buildFullOrderWebhookPayload(
     productionNotes,
     internalNotes,
     facility: resolveFacility(data),
-    skus: (data.skuRows ?? []).map((row) => ({
-      name: row.name || "",
-      quantity: row.qty,
-      artworkUrl: row.imageLinks[0] ?? "",
-    })),
+    skus: (data.skuRows ?? []).map((row) => {
+      const files =
+        row.imageFiles?.length > 0
+          ? row.imageFiles
+          : (row.imageLinks ?? []).filter(Boolean).map((url, i) => ({
+              name: i === 0 ? "Card artwork" : `Artwork ${i + 1}`,
+              url,
+            }));
+      const links = files.map((f) => f.url);
+      return {
+        name: row.name || "",
+        quantity: row.qty,
+        artworkUrl: links[0] ?? "",
+        imageUrl: links[0] ?? "",
+        thumbnailUrl: links[1] ?? links[0] ?? "",
+        images: links,
+        artworkFiles: files,
+      };
+    }),
+    // Every file on the ticket (Pulse may only read artworkUrl on each SKU).
+    artworkFiles: (data.skuRows ?? []).flatMap((row) =>
+      (row.imageFiles?.length
+        ? row.imageFiles
+        : (row.imageLinks ?? []).filter(Boolean).map((url, i) => ({
+            name: i === 0 ? "Card artwork" : `Artwork ${i + 1}`,
+            url,
+          }))
+      ).map((f) => ({
+        name: f.name,
+        url: f.url,
+        sku: row.name || "",
+      }))
+    ),
     // Extra Workflow context (ignored by Pulse if unused)
-    workflowOrderId: order.id || "",
-    workflowOrderNumber: data.orderNumber || "",
+    workflowOrderId: crmOrderId,
+    workflowOrderNumber: crmOrderId,
     workflowColumn: data.columnName || "",
+    workflowInternalId: order.id || "",
   };
 }
 
 export function buildFullOrderWebhookTestPayload(): Record<string, unknown> {
   return {
+    orderId: "WF-TEST-001",
+    order_id: "WF-TEST-001",
+    orderNumber: "WF-TEST-001",
     tenantName: "Workflow Integration Test",
     customer: "Workflow Pulse Test",
     dueDate: "2026-09-01",
@@ -294,10 +334,15 @@ export function buildFullOrderWebhookTestPayload(): Record<string, unknown> {
         name: "Test SKU",
         quantity: 100,
         artworkUrl: "",
+        imageUrl: "",
+        thumbnailUrl: "",
+        images: [],
+        artworkFiles: [],
       },
     ],
-    workflowOrderId: "test",
+    workflowOrderId: "WF-TEST-001",
     workflowOrderNumber: "WF-TEST-001",
     workflowColumn: "Test",
+    workflowInternalId: "test",
   };
 }
