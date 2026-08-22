@@ -9,10 +9,29 @@ export interface WebhookSourceStyles {
   other: { label: string; color: string };
 }
 
+/** Bazaar portal Order Sync — payload `source: "portal"`. */
+export const PORTAL_WEBHOOK_SOURCE_STYLE: WebhookSourceStyleEntry = {
+  key: "portal",
+  label: "Portal",
+  color: "#0d9488",
+};
+
 export const DEFAULT_WEBHOOK_SOURCE_STYLES: WebhookSourceStyles = {
-  sources: [],
+  sources: [PORTAL_WEBHOOK_SOURCE_STYLE],
   other: { label: "Webhook", color: "#64748b" },
 };
+
+/** Append Portal if missing (do not overwrite a custom portal row). */
+export function ensurePortalSourceStyle(
+  styles: WebhookSourceStyles
+): WebhookSourceStyles {
+  const hasPortal = styles.sources.some((s) => s.key === "portal");
+  if (hasPortal) return styles;
+  return {
+    ...styles,
+    sources: [...styles.sources, { ...PORTAL_WEBHOOK_SOURCE_STYLE }],
+  };
+}
 
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -35,9 +54,52 @@ function normalizeKey(key: string): string {
   return key.trim().toLowerCase();
 }
 
+/** Payload keys that mean Bazaar portal Order Sync (must match `portal` style). */
+const PORTAL_SOURCE_ALIASES = new Set([
+  "portal",
+  "partner",
+  "partner portal",
+  "broker portal",
+  "bazaar",
+  "bazaar portal",
+]);
+
 export function parseWebhookSourceKey(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim();
+}
+
+/** Map aliases like "Partner Portal" to the saved `portal` source row. */
+export function canonicalizeWebhookSourceKey(
+  raw: string | null | undefined
+): string {
+  const key = normalizeKey(raw ?? "");
+  if (!key) return "";
+  if (PORTAL_SOURCE_ALIASES.has(key)) return "portal";
+  return key;
+}
+
+/** Source used for board color/label — infers portal on older cards. */
+export function effectiveWebhookSource(order: {
+  webhook_source?: string | null;
+  title?: string | null;
+  specs?: Record<string, unknown> | null;
+}): string | null {
+  const stamped = canonicalizeWebhookSourceKey(order.webhook_source);
+  if (stamped) return stamped;
+
+  const specs = order.specs ?? {};
+  if (
+    typeof specs.bazaar_broker_id === "string" &&
+    specs.bazaar_broker_id.trim()
+  ) {
+    return "portal";
+  }
+  const title = (order.title ?? "").trim();
+  if (/^bz-\d+/i.test(title) || /^\[[^\]]+\]\s*bz-\d+/i.test(title)) {
+    return "portal";
+  }
+  return order.webhook_source == null ? null : "";
 }
 
 /** Normalize / validate inbound source_styles from API or DB. */
@@ -92,7 +154,7 @@ export function resolveWebhookSourceStyle(
 ): { label: string; color: string } | null {
   if (webhookSource == null) return null;
   const cfg = styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES;
-  const key = normalizeKey(webhookSource);
+  const key = canonicalizeWebhookSourceKey(webhookSource);
   if (key) {
     const match = cfg.sources.find((s) => s.key === key);
     if (match) return { label: match.label, color: match.color };
@@ -111,16 +173,17 @@ export function hexToCardBackground(hex: string, strength = 0.14): string {
 }
 
 /**
- * Card background for specific webhook sources (e.g. website / WEB).
- * Returns null for manual, unknown, or sources not in `tintKeys`.
+ * Card background for webhook sources that use a soft tint from Source labels.
+ * Website + portal (Bazaar Order Sync). CRM/manual stay untinted.
+ * Returns null for sources not in `tintKeys` or without a saved color.
  */
 export function webhookSourceCardBackground(
   webhookSource: string | null | undefined,
   styles: WebhookSourceStyles | null | undefined,
-  tintKeys: readonly string[] = ["website"]
+  tintKeys: readonly string[] = ["website", "portal"]
 ): string | null {
   if (webhookSource == null) return null;
-  const key = normalizeKey(webhookSource);
+  const key = canonicalizeWebhookSourceKey(webhookSource);
   if (!key || !tintKeys.map(normalizeKey).includes(key)) return null;
   const cfg = styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES;
   const match = cfg.sources.find((s) => s.key === key);

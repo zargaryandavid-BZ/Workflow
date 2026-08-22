@@ -27,6 +27,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
 import { FEEDBACK_COUNT_CHANGED_EVENT } from "@/lib/feedback";
@@ -176,7 +177,7 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
 
     async function loadCount() {
       try {
-        const res = await fetch("/api/feedback/count");
+        const res = await fetchRetryingStale404("/api/feedback/count");
         if (!res.ok) return;
         const json = (await res.json()) as { count?: number };
         if (!cancelled && typeof json.count === "number") {

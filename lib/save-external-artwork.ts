@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseBazaarPortalInboundKeys } from "@/lib/bazaar-portal-keys";
+import { canonicalizeWebhookSourceKey } from "@/lib/webhook-source-styles";
 
 const BUCKET = "order-assets";
 const FETCH_USER_AGENT = "BazaarPrinting-WorkflowApp/1.0";
@@ -9,6 +11,16 @@ export function isExternalHttpUrl(url: string | null | undefined): boolean {
     trimmed &&
       (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
   );
+}
+
+/** Bazaar Order Sync artwork download — requires partner osk_ header. */
+export function isBazaarPortalArtworkUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return /\/api\/v1\/production\/files\/\d+\/?$/.test(u.pathname);
+  } catch {
+    return false;
+  }
 }
 
 function extFromContentType(contentType: string, fileName: string): string {
@@ -49,6 +61,43 @@ export interface SaveExternalArtworkResult {
   }[];
 }
 
+async function resolvePortalOskForOrder(
+  admin: SupabaseClient,
+  tenantId: string,
+  orderId: string
+): Promise<string | null> {
+  const { data: order } = await admin
+    .from("orders")
+    .select("specs, webhook_source")
+    .eq("id", orderId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  const source = canonicalizeWebhookSourceKey(
+    (order as { webhook_source?: string | null } | null)?.webhook_source
+  );
+  const specs = ((order as { specs?: Record<string, unknown> } | null)?.specs ??
+    {}) as Record<string, unknown>;
+  const brokerId =
+    typeof specs.bazaar_broker_id === "string"
+      ? specs.bazaar_broker_id.trim()
+      : "";
+  if (source !== "portal" && !brokerId) return null;
+  if (!brokerId) return null;
+
+  const { data: cfg } = await admin
+    .from("webhook_configs")
+    .select("bazaar_portal_inbound_keys")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  const { keys } = parseBazaarPortalInboundKeys(
+    (cfg as { bazaar_portal_inbound_keys?: unknown } | null)
+      ?.bazaar_portal_inbound_keys
+  );
+  return keys[brokerId] ?? null;
+}
+
 export async function saveAllExternalArtwork(params: {
   admin: SupabaseClient;
   tenantId: string;
@@ -76,12 +125,28 @@ export async function saveAllExternalArtwork(params: {
     return { saved: 0, failed: 0, results: [] };
   }
 
+  const portalOsk = targets.some((a) =>
+    isBazaarPortalArtworkUrl(a.external_url!.trim())
+  )
+    ? await resolvePortalOskForOrder(admin, tenantId, orderId)
+    : null;
+
   const results = await Promise.allSettled(
     targets.map(async (asset) => {
       const externalUrl = asset.external_url!.trim();
-      const res = await fetch(externalUrl, {
-        headers: { "User-Agent": FETCH_USER_AGENT },
-      });
+      const headers: Record<string, string> = {
+        "User-Agent": FETCH_USER_AGENT,
+      };
+      if (isBazaarPortalArtworkUrl(externalUrl)) {
+        if (!portalOsk) {
+          throw new Error(
+            "Missing osk_ for portal artwork — add Partner keys in Workflow Integrations"
+          );
+        }
+        headers["x-webhook-secret"] = portalOsk;
+      }
+
+      const res = await fetch(externalUrl, { headers });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status} fetching ${externalUrl}`);
       }
@@ -109,7 +174,7 @@ export async function saveAllExternalArtwork(params: {
         .from("assets")
         .update({
           storage_path: storagePath,
-          external_url: null,
+          // Keep external_url so portal re-fire can idempotently skip re-insert.
           mime_type: contentType.split(";")[0]?.trim() || null,
           size: buffer.byteLength,
         })
@@ -126,7 +191,7 @@ export async function saveAllExternalArtwork(params: {
   );
 
   const mapped = results.map((result, index) => {
-    const asset = targets[index];
+    const asset = targets[index]!;
     if (result.status === "fulfilled") {
       return {
         assetId: asset.id,

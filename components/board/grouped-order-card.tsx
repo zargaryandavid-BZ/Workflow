@@ -25,7 +25,10 @@ import {
 import { customerNameFromOrder } from "@/lib/notification-messages";
 import { cn, formatDateShort } from "@/lib/utils";
 import type { CustomField, Designer, OrderWithRelations } from "@/lib/types";
-import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import {
+  effectiveWebhookSource,
+  type WebhookSourceStyles,
+} from "@/lib/webhook-source-styles";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 import { isRushOrder } from "@/lib/order-rush";
 import { WebhookSourceLabel } from "./webhook-source-label";
@@ -262,7 +265,7 @@ export function GroupedOrderCard({
         <div className="flex items-start justify-between gap-1.5">
           <div className="min-w-0 flex-1">
             <WebhookSourceLabel
-              webhookSource={rep.webhook_source}
+              webhookSource={effectiveWebhookSource(rep)}
               sourceStyles={webhookSourceStyles}
               orderTitle={sharedOrderTitle(rep)}
             />

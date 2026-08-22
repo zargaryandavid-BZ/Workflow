@@ -112,15 +112,31 @@ export function itemLabel(order: OrderWithRelations): string {
 export function sharedOrderTitle(
   order: {
     title?: string;
+    webhook_source?: string | null;
     specs?: Record<string, unknown> | null;
   }
 ): string | null {
-  const t = order.specs?.webhook_order_title;
+  const specs = order.specs ?? null;
+  // Portal cards: show partner/broker name after "Portal |"
+  if (
+    (order.webhook_source ?? "").trim().toLowerCase() === "portal" ||
+    (typeof order.specs?.bazaar_broker_id === "string" &&
+      order.specs.bazaar_broker_id.trim())
+  ) {
+    const company = specs?.company_name;
+    if (typeof company === "string" && company.trim()) return company.trim();
+  }
+  const t = specs?.webhook_order_title;
   if (typeof t !== "string") return null;
   const title = t.trim();
   if (!title) return null;
   // Legacy backfill stored ORD-YYYY-#### here — hide those from the label.
   if (/^ord-\d{4}-\S+$/i.test(title)) return null;
+  // Hide BZ-* refs from the source label (card title already shows the ref).
+  if (/^bz-\d+/i.test(title)) return null;
+  // "[Partner] BZ-123" → Partner
+  const bracket = title.match(/^\[([^\]]+)\]/);
+  if (bracket?.[1]?.trim()) return bracket[1].trim();
   return title;
 }
 

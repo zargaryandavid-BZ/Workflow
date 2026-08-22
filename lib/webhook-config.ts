@@ -1,23 +1,46 @@
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WebhookConfig } from "@/lib/types";
+import { parseBazaarPortalInboundKeys } from "@/lib/bazaar-portal-keys";
 import {
   DEFAULT_WEBHOOK_SOURCE_STYLES,
+  ensurePortalSourceStyle,
   normalizeWebhookSourceStyles,
 } from "@/lib/webhook-source-styles";
 
 type Client = SupabaseClient;
 
 function asWebhookConfig(row: Record<string, unknown>): WebhookConfig {
+  const parsedKeys = parseBazaarPortalInboundKeys(row.bazaar_portal_inbound_keys);
   return {
     ...(row as unknown as WebhookConfig),
     excluded_products: Array.isArray(row.excluded_products)
       ? (row.excluded_products as string[])
       : [],
-    source_styles: normalizeWebhookSourceStyles(
-      row.source_styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES
+    source_styles: ensurePortalSourceStyle(
+      normalizeWebhookSourceStyles(
+        row.source_styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES
+      )
     ),
+    bazaar_api_url:
+      typeof row.bazaar_api_url === "string" ? row.bazaar_api_url : null,
+    bazaar_portal_inbound_keys: parsedKeys.keys,
+    bazaar_portal_partner_labels: parsedKeys.labels,
+    bazaar_portal_sync_enabled: row.bazaar_portal_sync_enabled === true,
   };
+}
+
+function sourceStylesMissingPortal(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return true;
+  const sources = (raw as { sources?: unknown }).sources;
+  if (!Array.isArray(sources)) return true;
+  return !sources.some(
+    (s) =>
+      s &&
+      typeof s === "object" &&
+      typeof (s as { key?: unknown }).key === "string" &&
+      String((s as { key: string }).key).trim().toLowerCase() === "portal"
+  );
 }
 
 const SECRET_PREFIX = "wh_live_";
@@ -45,7 +68,25 @@ export async function ensureWebhookConfig(
     .maybeSingle();
 
   if (existing) {
-    return asWebhookConfig(existing as Record<string, unknown>);
+    const row = existing as Record<string, unknown>;
+    // Persist Portal source label once if missing (migration 0083 + runtime backfill).
+    if (sourceStylesMissingPortal(row.source_styles)) {
+      const nextStyles = ensurePortalSourceStyle(
+        normalizeWebhookSourceStyles(
+          row.source_styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES
+        )
+      );
+      const { data: updated, error: updateError } = await client
+        .from("webhook_configs")
+        .update({ source_styles: nextStyles })
+        .eq("id", row.id as string)
+        .select("*")
+        .single();
+      if (!updateError && updated) {
+        return asWebhookConfig(updated as Record<string, unknown>);
+      }
+    }
+    return asWebhookConfig(row);
   }
 
   const { data: created, error } = await client

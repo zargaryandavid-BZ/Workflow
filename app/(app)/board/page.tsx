@@ -21,6 +21,7 @@ import type {
 } from "@/lib/types";
 import {
   DEFAULT_WEBHOOK_SOURCE_STYLES,
+  ensurePortalSourceStyle,
   normalizeWebhookSourceStyles,
   type WebhookSourceStyles,
 } from "@/lib/webhook-source-styles";
@@ -80,9 +81,11 @@ export default async function BoardPage({
         .maybeSingle(),
     ]);
 
-  const webhookSourceStyles: WebhookSourceStyles = normalizeWebhookSourceStyles(
-    (webhookRes.data as { source_styles?: unknown } | null)?.source_styles ??
-      DEFAULT_WEBHOOK_SOURCE_STYLES
+  const webhookSourceStyles: WebhookSourceStyles = ensurePortalSourceStyle(
+    normalizeWebhookSourceStyles(
+      (webhookRes.data as { source_styles?: unknown } | null)?.source_styles ??
+        DEFAULT_WEBHOOK_SOURCE_STYLES
+    )
   );
 
   const allBoardColumns = (columnsRes.data ?? []) as BoardColumn[];

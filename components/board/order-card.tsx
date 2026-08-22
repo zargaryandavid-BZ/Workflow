@@ -97,9 +97,13 @@ import {
   shippingTagClass,
 } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
-import { webhookSourceCardBackground } from "@/lib/webhook-source-styles";
+import {
+  effectiveWebhookSource,
+  webhookSourceCardBackground,
+} from "@/lib/webhook-source-styles";
 import { MoveMenuSections } from "./move-menu-sections";
-import { partCardTitle } from "@/lib/group-orders";
+import { partCardTitle, sharedOrderTitle } from "@/lib/group-orders";
+import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
@@ -324,10 +328,11 @@ export function OrderCard({
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
     !activeWarning ? shippingCardBorderColor(shippingSign) : null;
-  const webhookCardBg =
-    !isDesignerUnassigned
-      ? webhookSourceCardBackground(order.webhook_source, webhookSourceStyles)
-      : null;
+  const webhookSourceKey = effectiveWebhookSource(order);
+  const webhookCardBg = webhookSourceCardBackground(
+    webhookSourceKey,
+    webhookSourceStyles
+  );
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -626,11 +631,13 @@ export function OrderCard({
         activeWarning && animateWarnings && !highlighted
           ? ""
           : "shadow-sm transition-shadow hover:shadow-md",
-        isDesignerUnassigned
+        isDesignerUnassigned && !webhookCardBg
           ? UNASSIGNED_DESIGNER_CARD_CLASS
-          : webhookCardBg
-            ? ""
-            : "bg-white",
+          : isDesignerUnassigned
+            ? "border-amber-300 hover:border-amber-400"
+            : webhookCardBg
+              ? ""
+              : "bg-white",
         !emergencySeverity && !shippingBorderColor && !activeWarning
           ? "border-slate-200"
           : "",
@@ -701,6 +708,11 @@ export function OrderCard({
         <div className="min-w-0 flex-1">
           {/* 1) Order/part # + item title  2) Customer  3) Spec detail */}
           <div className="min-w-0 w-full text-left">
+            <WebhookSourceLabel
+              webhookSource={webhookSourceKey}
+              sourceStyles={webhookSourceStyles}
+              orderTitle={sharedOrderTitle(order)}
+            />
             <div className="mb-0.5 flex w-full min-w-0 items-center justify-start gap-1.5 text-left">
               <span
                 className={cn(

@@ -85,5 +85,46 @@ export async function POST(
     });
   }
 
+  // Portal → Bazaar status (fire-and-forget).
+  void (async () => {
+    try {
+      const { data: fullOrder } = await supabase
+        .from("orders")
+        .select("id, title, webhook_source, specs")
+        .eq("id", body.order_id)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      const { data: col } = await supabase
+        .from("board_columns")
+        .select("name")
+        .eq("id", button.destination_column_id)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (!fullOrder || !col?.name) return;
+      const { notifyBazaarPortalStatus } = await import(
+        "@/lib/bazaar-portal-sync"
+      );
+      await notifyBazaarPortalStatus({
+        client: supabase,
+        tenantId,
+        order: {
+          id: fullOrder.id as string,
+          title: String(fullOrder.title ?? ""),
+          webhook_source:
+            (fullOrder.webhook_source as string | null | undefined) ?? null,
+          specs:
+            (fullOrder.specs as Record<string, unknown> | null | undefined) ??
+            {},
+        },
+        columnName: col.name as string,
+      });
+    } catch (err: unknown) {
+      console.error(
+        "[FastActionBtn] bazaar-portal-sync:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  })();
+
   return NextResponse.json({ ok: true });
 }

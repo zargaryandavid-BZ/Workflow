@@ -6,6 +6,7 @@ import {
 } from "@/lib/webhook-config";
 import {
   createOrderFromWebhook,
+  isBazaarConnectionTestPayload,
   secretsMatch,
   WebhookValidationError,
   type WebhookCreateResult,
@@ -116,6 +117,23 @@ export async function POST(request: Request) {
       errorMessage: "Invalid JSON",
     });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (isBazaarConnectionTestPayload(body)) {
+    await touchWebhookLastUsed(adminClient, activeConfig.id);
+    const response = {
+      ok: true,
+      connection_test: true,
+      created: false,
+    };
+    await logWebhookHistory({
+      requestPayload: body,
+      requestRaw: null,
+      responsePayload: response,
+      responseStatus: 200,
+      success: true,
+    });
+    return NextResponse.json(response);
   }
 
   if (isCrmWebhookV2(body)) {
