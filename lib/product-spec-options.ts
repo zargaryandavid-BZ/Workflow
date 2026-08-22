@@ -4,7 +4,14 @@ export type SpecSelectOption = { value: string; label: string };
 
 export function isSetSizeKey(key: string): boolean {
   const norm = key.replace(/[\s-]+/g, "_").toUpperCase();
-  return norm === "SET_SIZE" || norm === "SET_SIZE_3";
+  if (norm === "FONT_SIZE") return false;
+  // SET_SIZE / SET_SIZE_3 plus catalog size dropdowns (LABEL_SIZE, SHEET_SIZE…).
+  return (
+    norm === "SET_SIZE" ||
+    norm === "SET_SIZE_3" ||
+    norm === "SIZE" ||
+    /_SIZE$/.test(norm)
+  );
 }
 
 function dimensionToken(value: unknown): string {
@@ -33,6 +40,7 @@ export function parseSetSizeValue(
   const m = raw
     .trim()
     .replace(/["']/g, "")
+    .replace(/\s*(in(?:ches?)?|mm|cm)\s*$/i, "")
     .match(/^([\d.]+)\s*[x×]\s*([\d.]+)(?:\s*[x×]\s*([\d.]+))?$/i);
   if (!m) return null;
   if (m[3]) return { width: m[1], height: m[2], depth: m[3] };

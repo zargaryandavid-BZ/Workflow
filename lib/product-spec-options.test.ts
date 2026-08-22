@@ -17,7 +17,10 @@ describe("set size helpers", () => {
     assert.equal(isSetSizeKey("SET_SIZE"), true);
     assert.equal(isSetSizeKey("SET SIZE"), true);
     assert.equal(isSetSizeKey("set-size"), true);
+    assert.equal(isSetSizeKey("LABEL_SIZE"), true);
+    assert.equal(isSetSizeKey("Label Size"), true);
     assert.equal(isSetSizeKey("ROLL_DIRECTION"), false);
+    assert.equal(isSetSizeKey("FONT_SIZE"), false);
   });
 
   it("formats and parses WxH", () => {
@@ -30,6 +33,10 @@ describe("set size helpers", () => {
     assert.deepEqual(parseSetSizeValue("2 × 4.5"), {
       width: "2",
       height: "4.5",
+    });
+    assert.deepEqual(parseSetSizeValue("4.75x4.75 in"), {
+      width: "4.75",
+      height: "4.75",
     });
     assert.equal(parseSetSizeValue(""), null);
   });
@@ -98,6 +105,16 @@ describe("set size helpers", () => {
       "Business Cards"
     );
     assert.deepEqual(
+      findMatchingSetSizeOption(
+        [
+          { value: "4.75x4.75 in", label: "4.75x4.75 in" },
+          { value: "2x3.65", label: "2x3.65" },
+        ],
+        "4.75x4.75"
+      )?.value,
+      "4.75x4.75 in"
+    );
+    assert.equal(
       findMatchingSetSizeOption(
         [
           { value: "2x3.65", label: "2x3.65" },
