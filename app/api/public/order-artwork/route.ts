@@ -35,18 +35,20 @@ async function resolveArtworkUrl(
   asset: AssetRow,
   admin: ReturnType<typeof createAdminClient>
 ): Promise<string | null> {
+  // Prefer stored bytes when present: portal external_url is auth-gated (osk_).
+  const path = asset.storage_path?.trim();
+  if (path) {
+    const { data: signed, error } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrl(path, SIGNED_URL_TTL_SEC);
+
+    if (error || !signed) return null;
+    return signed.signedUrl;
+  }
+
   const external = asset.external_url?.trim();
   if (external) return external;
-
-  const path = asset.storage_path?.trim();
-  if (!path) return null;
-
-  const { data: signed, error } = await admin.storage
-    .from(BUCKET)
-    .createSignedUrl(path, SIGNED_URL_TTL_SEC);
-
-  if (error || !signed) return null;
-  return signed.signedUrl;
+  return null;
 }
 
 export async function GET(request: NextRequest) {

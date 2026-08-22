@@ -83,6 +83,10 @@ export function skuImagesFromAssets(
     const skuId = (asset.sku_key?.trim() || soleSkuId) ?? "";
     if (!skuId) continue;
 
+    // Prefer stored bytes when present: external_url is kept after download for
+    // idempotency, but portal artwork URLs are auth-gated (osk_ header) and 401
+    // in the browser. `/api/assets/[id]` serves a signed storage URL.
+    const hasStorage = Boolean(asset.storage_path?.trim());
     const external = asset.external_url?.trim() || null;
     out.push({
       id: asset.id,
@@ -95,7 +99,7 @@ export function skuImagesFromAssets(
       storage_path: asset.storage_path ?? "",
       position: position++,
       created_at: asset.created_at,
-      signed_url: external || `/api/assets/${asset.id}`,
+      signed_url: !hasStorage && external ? external : `/api/assets/${asset.id}`,
       from_asset: true,
     });
   }

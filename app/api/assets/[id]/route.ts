@@ -25,27 +25,30 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Prefer stored bytes when present: external_url is retained after download
+  // for idempotency, but portal artwork URLs are auth-gated (osk_ header) and
+  // would 401 in a browser.
+  if (asset.storage_path) {
+    const { data: signed, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(asset.storage_path, 60, { download: asset.file_name });
+
+    if (error || !signed) {
+      return NextResponse.json(
+        { error: error?.message ?? "Could not sign URL" },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.redirect(signed.signedUrl);
+  }
+
   const externalUrl = (asset as { external_url?: string | null }).external_url;
   if (externalUrl?.trim()) {
     return NextResponse.redirect(externalUrl);
   }
 
-  if (!asset.storage_path) {
-    return NextResponse.json({ error: "Asset has no file" }, { status: 400 });
-  }
-
-  const { data: signed, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrl(asset.storage_path, 60, { download: asset.file_name });
-
-  if (error || !signed) {
-    return NextResponse.json(
-      { error: error?.message ?? "Could not sign URL" },
-      { status: 400 }
-    );
-  }
-
-  return NextResponse.redirect(signed.signedUrl);
+  return NextResponse.json({ error: "Asset has no file" }, { status: 400 });
 }
 
 export async function DELETE(
