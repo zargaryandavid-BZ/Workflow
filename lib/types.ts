@@ -401,6 +401,15 @@ export interface WebhookConfig {
   label: string;
   excluded_products: string[];
   source_styles: WebhookSourceStyles;
+  /** Bazaar API base for portal status callbacks (Settings → Integrations). */
+  bazaar_api_url?: string | null;
+  /** brokerId → osk_ inbound key map. */
+  /** Map of Bazaar brokerId -> osk_ inbound key for portal status callbacks. */
+  bazaar_portal_inbound_keys?: Record<string, string> | null;
+  /** Optional display names for Partner keys rows (same brokerIds). */
+  bazaar_portal_partner_labels?: Record<string, string> | null;
+  /** When false (default), never POST portal status to Bazaar. */
+  bazaar_portal_sync_enabled?: boolean;
   created_at: string;
   last_used_at: string | null;
 }

@@ -46,7 +46,7 @@ import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { createClient } from "@/lib/supabase/client";
-import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { fetchRetryingStale404, fetchWithAuth, isStaleNext404 } from "@/lib/fetch-with-auth";
 import {
   canDragInColumn,
   canDropIn,
@@ -1281,8 +1281,13 @@ export function Board({
           await new Promise((r) => setTimeout(r, 600));
           res = await fetchWithAuth(url);
         }
-        // Retry once on transient upstream / server errors (e.g. Supabase timeouts).
-        if (res.status === 500 || res.status === 503) {
+        // Retry once on transient upstream / server errors (e.g. Supabase
+        // timeouts) or a Turbopack HTML 404 while the route is compiling.
+        if (
+          res.status === 500 ||
+          res.status === 503 ||
+          isStaleNext404(res)
+        ) {
           await new Promise((r) => setTimeout(r, 600));
           res = await fetchWithAuth(url);
         }
@@ -1637,7 +1642,7 @@ export function Board({
     let cancelled = false;
     async function runIdle() {
       try {
-        const res = await fetch("/api/automations/run-idle-moves", {
+        const res = await fetchRetryingStale404("/api/automations/run-idle-moves", {
           method: "POST",
           cache: "no-store",
         });

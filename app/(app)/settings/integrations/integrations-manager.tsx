@@ -2,13 +2,14 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Check, Copy, Loader2, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/utils";
 import { buildWebhookAiPrompt } from "@/lib/webhook-ai-prompt";
 import { buildWebhookPayloadDocs, buildWebhookPayloadDocsHtml } from "@/lib/webhook-payload-docs";
 import {
   DEFAULT_WEBHOOK_SOURCE_STYLES,
+  ensurePortalSourceStyle,
   isHexColor,
   normalizeWebhookSourceStyles,
   type WebhookSourceStyleEntry,
@@ -84,8 +85,10 @@ export function IntegrationsManager({
   const [exclusionMessage, setExclusionMessage] = useState<string | null>(null);
   const [exclusionError, setExclusionError] = useState<string | null>(null);
   const [sourceStyles, setSourceStyles] = useState<WebhookSourceStyles>(() =>
-    normalizeWebhookSourceStyles(
-      initialConfig?.source_styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES
+    ensurePortalSourceStyle(
+      normalizeWebhookSourceStyles(
+        initialConfig?.source_styles ?? DEFAULT_WEBHOOK_SOURCE_STYLES
+      )
     )
   );
   const [savingSourceStyles, setSavingSourceStyles] = useState(false);
@@ -219,10 +222,14 @@ export function IntegrationsManager({
   }
 
   function removeSourceRow(index: number) {
-    setSourceStyles((prev) => ({
-      ...prev,
-      sources: prev.sources.filter((_, i) => i !== index),
-    }));
+    setSourceStyles((prev) => {
+      const row = prev.sources[index];
+      if (row && row.key.trim().toLowerCase() === "portal") return prev;
+      return {
+        ...prev,
+        sources: prev.sources.filter((_, i) => i !== index),
+      };
+    });
   }
 
   async function saveSourceStyles() {
@@ -269,7 +276,11 @@ export function IntegrationsManager({
       }
       const next = json.config as WebhookConfig;
       setConfig(next);
-      setSourceStyles(normalizeWebhookSourceStyles(next.source_styles));
+      setSourceStyles(
+        ensurePortalSourceStyle(
+          normalizeWebhookSourceStyles(next.source_styles)
+        )
+      );
       setSourceStylesMessage("Source styles saved");
       setTimeout(() => setSourceStylesMessage(null), 3000);
       router.refresh();
@@ -479,6 +490,8 @@ export function IntegrationsManager({
         </div>
           </section>
 
+          <BazaarPortalSyncSection config={config} setConfig={setConfig} setError={setError} setMessage={setMessage} />
+
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5">
               <h2 className="text-base font-semibold text-slate-800">
@@ -594,8 +607,15 @@ export function IntegrationsManager({
                 <p className="mt-1 max-w-xl text-sm text-slate-500">
                   Callers send a <code className="text-xs">source</code> key in
                   the webhook payload. Matching keys show a small colored label
-                  above the customer name on cards. Unknown or missing sources
-                  use the Other style. Manual cards never show a label.
+                  above the customer name on cards.{" "}
+                  <strong className="font-medium text-slate-600">
+                    website
+                  </strong>{" "}
+                  and{" "}
+                  <strong className="font-medium text-slate-600">portal</strong>{" "}
+                  also tint the card background with the chosen color. Unknown
+                  or missing sources use the Other style. Manual and CRM cards
+                  stay untinted.
                 </p>
               </div>
               <Button type="button" variant="secondary" size="sm" onClick={addSourceRow}>
@@ -635,7 +655,13 @@ export function IntegrationsManager({
                       updateSourceRow(index, { key: e.target.value })
                     }
                     placeholder="e.g. crm"
-                    className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                    readOnly={row.key.trim().toLowerCase() === "portal"}
+                    title={
+                      row.key.trim().toLowerCase() === "portal"
+                        ? "Portal key must stay \"portal\" so board colors match"
+                        : undefined
+                    }
+                    className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400 read-only:bg-slate-50 read-only:text-slate-500"
                   />
                   <input
                     type="text"
@@ -673,8 +699,13 @@ export function IntegrationsManager({
                   <button
                     type="button"
                     onClick={() => removeSourceRow(index)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
-                    title="Remove source"
+                    disabled={row.key.trim().toLowerCase() === "portal"}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                    title={
+                      row.key.trim().toLowerCase() === "portal"
+                        ? "Portal source is required"
+                        : "Remove source"
+                    }
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -1002,3 +1033,376 @@ export function IntegrationsManager({
     </div>
   );
 }
+
+function BazaarPortalSyncSection({
+  config,
+  setConfig,
+  setError,
+  setMessage,
+}: {
+  config: WebhookConfig | null;
+  setConfig: (c: WebhookConfig | null) => void;
+  setError: (s: string | null) => void;
+  setMessage: (s: string | null) => void;
+}) {
+  const [apiUrl, setApiUrl] = useState(config?.bazaar_api_url ?? "");
+  const [enabled, setEnabled] = useState(
+    config?.bazaar_portal_sync_enabled === true
+  );
+  const [rows, setRows] = useState<
+    Array<{ brokerId: string; osk: string; label: string }>
+  >(() => {
+    const map = config?.bazaar_portal_inbound_keys ?? {};
+    const labels = config?.bazaar_portal_partner_labels ?? {};
+    const entries = Object.entries(map);
+    if (entries.length === 0) {
+      return [{ brokerId: "", osk: "", label: "" }];
+    }
+    return entries.map(([brokerId, osk]) => ({
+      brokerId,
+      osk,
+      label: labels[brokerId] ?? "",
+    }));
+  });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [localStatus, setLocalStatus] = useState<{
+    kind: "ok" | "err";
+    text: string;
+  } | null>(null);
+
+  const callbackUrl = apiUrl.trim()
+    ? `${apiUrl.trim().replace(/\/$/, "")}/api/v1/production/status`
+    : "";
+
+  async function save() {
+    if (!config) return;
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    setLocalStatus(null);
+    const keyMap: Record<string, { osk: string; label: string }> = {};
+    for (const r of rows) {
+      const id = r.brokerId.trim();
+      const osk = r.osk.trim();
+      if (!id && !osk && !r.label.trim()) continue;
+      if (!id || !osk.startsWith("osk_")) {
+        const text =
+          "Each partner row needs brokerId (left) and an osk_… inbound key (right)";
+        setError(text);
+        setLocalStatus({ kind: "err", text });
+        setSaving(false);
+        return;
+      }
+      keyMap[id] = { osk, label: r.label.trim() };
+    }
+    try {
+      const res = await fetch("/api/webhook-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bazaar_api_url: apiUrl.trim() || null,
+          bazaar_portal_inbound_keys: keyMap,
+          bazaar_portal_sync_enabled: enabled,
+        }),
+      });
+      const json = (await res.json()) as {
+        config?: WebhookConfig;
+        error?: string;
+      };
+      if (!res.ok) {
+        const text = json.error ?? "Failed to save Bazaar portal sync";
+        setError(text);
+        setLocalStatus({ kind: "err", text });
+        return;
+      }
+      if (json.config) {
+        setConfig(json.config);
+        const labels = json.config.bazaar_portal_partner_labels ?? {};
+        const keys = json.config.bazaar_portal_inbound_keys ?? {};
+        const nextRows = Object.entries(keys).map(([brokerId, osk]) => ({
+          brokerId,
+          osk,
+          label: labels[brokerId] ?? "",
+        }));
+        setRows(
+          nextRows.length > 0
+            ? nextRows
+            : [{ brokerId: "", osk: "", label: "" }]
+        );
+      }
+      setMessage("Bazaar portal status sync saved");
+      setLocalStatus({ kind: "ok", text: "Saved — partner names kept" });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Save failed";
+      setError(text);
+      setLocalStatus({ kind: "err", text });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function testFirstRow() {
+    const row = rows.find((r) => r.osk.trim().startsWith("osk_"));
+    if (!apiUrl.trim() || !row) {
+      const text =
+        "Set Bazaar API URL and at least one osk_… inbound key to test";
+      setError(text);
+      setLocalStatus({ kind: "err", text });
+      return;
+    }
+    setTesting(true);
+    setError(null);
+    setMessage(null);
+    setLocalStatus({
+      kind: "ok",
+      text: "Testing connection to Bazaar… please wait",
+    });
+    try {
+      const res = await fetch("/api/webhook-config/test-bazaar-portal-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bazaar_api_url: apiUrl.trim(),
+          osk_key: row.osk.trim(),
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.ok) {
+        const text =
+          json.message ?? json.error ?? `Connection test failed (HTTP ${res.status})`;
+        setError(text);
+        setLocalStatus({ kind: "err", text });
+        return;
+      }
+      const text = json.message ?? "Connection OK";
+      setMessage(text);
+      setLocalStatus({ kind: "ok", text });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Test failed";
+      setError(text);
+      setLocalStatus({ kind: "err", text });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  if (!config) return null;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-slate-50/80 p-5 shadow-sm">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-800">
+            Bazaar portal status sync
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            Paste from Bazaar Admin → Partners → Integrations → Order Sync →{" "}
+            <strong className="font-medium text-slate-700">
+              Paste into Workflow
+            </strong>
+            . Field labels match that panel. Leave sync disabled until Test
+            connection succeeds.
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={() => setEnabled((v) => !v)}
+            className={`inline-flex items-center gap-3 rounded-lg border px-3 py-2 text-sm font-semibold shadow-sm transition-colors ${
+              enabled
+                ? "border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            <span
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                enabled ? "bg-emerald-500" : "bg-slate-300"
+              }`}
+              aria-hidden
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  enabled ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </span>
+            <span>{enabled ? "Sync on" : "Sync off"}</span>
+          </button>
+          <p className="text-[11px] text-slate-500">
+            Click to toggle · Save to apply
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Bazaar API URL
+          </p>
+          <input
+            type="url"
+            value={apiUrl}
+            onChange={(e) => setApiUrl(e.target.value)}
+            placeholder="https://api.bazaarprinting.com or http://localhost:3002"
+            className="w-full rounded-md border border-slate-200 px-3 py-2 font-mono text-sm text-slate-800"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Copy from Admin → <em>Bazaar API URL</em>. Use localhost only when
+            Workflow runs on the same machine as the API.
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Status callback URL
+          </p>
+          <input
+            type="text"
+            readOnly
+            value={callbackUrl || "— set Bazaar API URL above —"}
+            className="w-full rounded-md border border-slate-100 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Reference only (matches Admin → <em>Status callback URL</em>). Workflow
+            POSTs here automatically — you do not paste this separately.
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Partner keys — one row per partner
+          </p>
+          <div className="mb-1.5 hidden gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 sm:grid sm:grid-cols-[minmax(7rem,1fr)_minmax(10rem,1.2fr)_minmax(14rem,2fr)_2rem]">
+            <span>Partner name</span>
+            <span>brokerId (left)</span>
+            <span>osk_… inbound key (right)</span>
+            <span />
+          </div>
+          <div className="space-y-2">
+            {rows.map((row, i) => (
+              <div
+                key={i}
+                className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(7rem,1fr)_minmax(10rem,1.2fr)_minmax(14rem,2fr)_2rem] sm:items-center"
+              >
+                <input
+                  value={row.label}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...row, label: e.target.value };
+                    setRows(next);
+                  }}
+                  placeholder="Partner name"
+                  title="Optional note — copy Partner name from Admin"
+                  className="rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-800"
+                />
+                <input
+                  value={row.brokerId}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...row, brokerId: e.target.value };
+                    setRows(next);
+                  }}
+                  placeholder="brokerId"
+                  title="Copy brokerId from Admin Paste into Workflow"
+                  className="rounded-md border border-slate-200 px-2 py-1.5 font-mono text-xs text-slate-800"
+                />
+                <input
+                  value={row.osk}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...row, osk: e.target.value };
+                    setRows(next);
+                  }}
+                  placeholder="osk_…"
+                  title="Copy osk_… inbound key from Admin"
+                  className="rounded-md border border-slate-200 px-2 py-1.5 font-mono text-xs text-slate-800"
+                />
+                <button
+                  type="button"
+                  className="justify-self-start rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 sm:justify-self-center"
+                  onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                  aria-label="Remove row"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
+            onClick={() =>
+              setRows([...rows, { brokerId: "", osk: "", label: "" }])
+            }
+          >
+            <Plus className="h-4 w-4" /> Add partner
+          </button>
+          <p className="mt-2 text-xs text-slate-500">
+            Partner name is saved with the row (for your notes).{" "}
+            <strong className="font-medium text-slate-600">brokerId</strong> and{" "}
+            <strong className="font-medium text-slate-600">osk_…</strong> must
+            match Admin → Paste into Workflow. Same webhook URL also receives CRM
+            orders (<code className="text-[11px]">source: crm</code>) — only
+            portal cards use these keys.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+          <Button type="button" size="sm" onClick={save} disabled={saving || testing}>
+            {saving ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </span>
+            ) : (
+              "Save"
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={testFirstRow}
+            disabled={testing || saving}
+          >
+            {testing ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Testing…
+              </span>
+            ) : (
+              "Test connection"
+            )}
+          </Button>
+          {localStatus ? (
+            <p
+              className={`w-full text-sm sm:w-auto ${
+                testing
+                  ? "text-slate-600"
+                  : localStatus.kind === "ok"
+                    ? "text-emerald-700"
+                    : "text-red-700"
+              }`}
+            >
+              {testing ? "… " : localStatus.kind === "ok" ? "✓ " : "✗ "}
+              {localStatus.text}
+            </p>
+          ) : null}
+          {testing || saving ? (
+            <div className="h-1 w-full overflow-hidden rounded bg-slate-100">
+              <div className="h-full w-1/3 animate-pulse rounded bg-slate-400" />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
