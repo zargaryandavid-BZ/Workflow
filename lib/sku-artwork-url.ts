@@ -17,10 +17,14 @@ export function artworkUrlFromAsset(
   signedUrlByPath: Map<string, string>
 ): string {
   if (!asset) return "";
-  const external = asset.external_url?.trim();
-  if (external && isExternalHttpUrl(external)) return external;
+  // Prefer stored bytes when present: external_url is kept after download for
+  // idempotency, but portal artwork URLs are auth-gated (osk_ header) and would
+  // 401 for Pulse/job-ticket consumers. Fall back to external_url only when the
+  // bytes have not been downloaded into storage yet.
   const path = asset.storage_path?.trim();
   if (path) return signedUrlByPath.get(path) ?? "";
+  const external = asset.external_url?.trim();
+  if (external && isExternalHttpUrl(external)) return external;
   return "";
 }
 

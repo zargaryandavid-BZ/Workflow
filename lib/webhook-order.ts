@@ -22,7 +22,10 @@ import {
   RUSH_ORDER_TAG_NAME,
   webhookRushFromPayload,
 } from "@/lib/order-rush";
-import { parseWebhookSourceKey } from "@/lib/webhook-source-styles";
+import {
+  canonicalizeWebhookSourceKey,
+  parseWebhookSourceKey,
+} from "@/lib/webhook-source-styles";
 import {
   hasBillingInfo,
   parseWebhookBilling,
@@ -231,6 +234,16 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   order_qty?: number | string;
   artwork_url?: string;
   /**
+   * Portal Order Sync: extra design files. Each `url` is fetched with the
+   * partner `osk_…` header (same key as status callbacks).
+   */
+  artwork_files?: Array<{
+    id?: number;
+    name?: string;
+    url?: string;
+    type?: string;
+  }>;
+  /**
    * Client-facing description (Order Description / Customer Note).
    * Visible on the card; not the same as production or designer notes.
    */
@@ -282,6 +295,19 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
    * source styles for the board label color. Unknown/missing uses the "other" style.
    */
   source?: string;
+  /** Display label from Bazaar (e.g. "Partner Portal") — used if `source` is omitted. */
+  source_label?: string;
+  /** Bazaar Order Sync "Test connection" — auth only, never create a card. */
+  bazaar_connection_test?: boolean | string | number;
+  /** Bazaar partner/broker id (Order Sync) — used for status callbacks. */
+  bazaar_broker_id?: string;
+  company_name?: string;
+  company?: {
+    id?: string;
+    name?: string;
+    slug?: string;
+    kind?: string;
+  };
   customer_name?: string;
   customer_contact?: string;
   customer_phone?: string;
@@ -348,6 +374,15 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   order_qty?: number | string;
   artwork_url?: string;
   /**
+   * Portal Order Sync: design files (GET with osk_). Also accepted on items[].
+   */
+  artwork_files?: Array<{
+    id?: number;
+    name?: string;
+    url?: string;
+    type?: string;
+  }>;
+  /**
    * Client-facing Order Description (Customer Note) on every card when set
    * at order level. Prefer `items[].description` per line.
    */
@@ -395,6 +430,17 @@ export function secretsMatch(provided: string, stored: string): boolean {
   const b = Buffer.from(stored);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+/** Bazaar Admin → Order Sync "Test connection" probe. Must not create a board card. */
+export function isBazaarConnectionTestPayload(
+  body: WebhookOrderPayload | Record<string, unknown> | null | undefined
+): boolean {
+  if (!body || typeof body !== "object") return false;
+  const flag = (body as { bazaar_connection_test?: unknown }).bazaar_connection_test;
+  if (flag === true || flag === 1) return true;
+  if (typeof flag === "string" && flag.trim().toLowerCase() === "true") return true;
+  return false;
 }
 
 function fileNameFromUrl(url: string): string {
@@ -1097,6 +1143,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       perforation: body.perforation,
       order_qty: body.order_qty,
       artwork_url: body.artwork_url,
+      artwork_files: body.artwork_files,
       description: body.description,
       internal_note: body.internal_note ?? body.notes,
       notes: body.notes,
@@ -1266,6 +1313,10 @@ function mergeItemWithOrder(
     perforation: item.perforation ?? order.perforation,
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: firstNonEmpty(item.artwork_url, order.artwork_url),
+    artwork_files:
+      Array.isArray(item.artwork_files) && item.artwork_files.length > 0
+        ? item.artwork_files
+        : order.artwork_files,
     description: firstNonEmpty(item.description, order.description),
     // Keep Internal notes separate from production notes.
     internal_note: firstNonEmpty(item.internal_note, item.notes, order.internal_note, order.notes),
@@ -1854,6 +1905,8 @@ async function insertExternalAsset(
     orderId: string;
     externalUrl: string;
     skuKey?: string | null;
+    /** Prefer portal `artwork_files[].name` over URL basename (often just a file id). */
+    fileName?: string | null;
     /**
      * Mark this asset as a locked internal reference. Webhook (CRM) artwork is
      * always locked: designers can't delete/replace it and it is never sent to
@@ -1863,11 +1916,25 @@ async function insertExternalAsset(
     isLocked?: boolean;
   }
 ): Promise<string | null> {
+  // Idempotent on re-fire: same order + URL (kept after download) must not duplicate.
+  const { data: existingAsset } = await client
+    .from("assets")
+    .select("id")
+    .eq("tenant_id", params.tenantId)
+    .eq("order_id", params.orderId)
+    .eq("external_url", params.externalUrl)
+    .maybeSingle();
+  if (existingAsset?.id) return null;
+
+  const explicitName =
+    typeof params.fileName === "string" ? params.fileName.trim() : "";
   const row = {
     tenant_id: params.tenantId,
     order_id: params.orderId,
     sku_key: params.skuKey ?? null,
-    file_name: fileNameFromUrl(params.externalUrl),
+    file_name: explicitName
+      ? explicitName.split("/").pop() || explicitName
+      : fileNameFromUrl(params.externalUrl),
     storage_path: null,
     external_url: params.externalUrl,
     mime_type: null,
@@ -2523,6 +2590,221 @@ async function updateExistingOrdersDue(
   );
 }
 
+/**
+ * Portal partner edited an order → Order Sync re-fires the same BZ-* number.
+ * Refresh product specs + custom fields on existing cards (do not create duplicates).
+ */
+async function refreshPortalOrdersFromWebhook(params: {
+  client: Client;
+  tenantId: string;
+  existing: { id: string; title: string; specs: Record<string, unknown> }[];
+  body: WebhookOrderPayload;
+  items: WebhookItem[];
+  customerName: string;
+  orderContact: string;
+}): Promise<void> {
+  const { client, tenantId, existing, body, items, customerName, orderContact } =
+    params;
+  const fields = await resolveCustomFields(client, tenantId);
+  const sorted = [...existing].sort((a, b) =>
+    a.title.localeCompare(b.title, undefined, { numeric: true })
+  );
+  const baseOrderNumber = resolveOrderNumber(body);
+  const orderLevelTitle = resolveOrderLevelTitle(body, baseOrderNumber);
+  const payloadTitle =
+    typeof body.title === "string" ? body.title.trim() : "";
+  const itemParentLabel =
+    payloadTitle && !isOrderNumberLikeTitle(payloadTitle, baseOrderNumber)
+      ? payloadTitle
+      : shortOrderCardBase(baseOrderNumber);
+  const portalCompanyName =
+    (typeof body.company_name === "string" && body.company_name.trim()) ||
+    (typeof body.company?.name === "string" && body.company.name.trim()) ||
+    null;
+  const portalBrokerId =
+    (typeof body.bazaar_broker_id === "string" && body.bazaar_broker_id.trim()) ||
+    (typeof body.company?.id === "string" && body.company.id.trim()) ||
+    null;
+  const rushTagId = await resolveTagId(client, tenantId, RUSH_ORDER_TAG_NAME);
+
+  // Pair by index only — never reuse items[0] for trailing cards (wrong specs/art).
+  // Excess board cards (more cards than payload lines) are left untouched.
+  for (let i = 0; i < sorted.length && i < items.length; i++) {
+    const order = sorted[i]!;
+    const item = items[i]!;
+    const ir = item as Record<string, unknown>;
+    // Re-read specs after updateExistingOrdersDue so due_* keys are not wiped.
+    const { data: freshRow } = await client
+      .from("orders")
+      .select("specs, tag_id")
+      .eq("id", order.id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    const baseSpecs =
+      freshRow?.specs && typeof freshRow.specs === "object"
+        ? (freshRow.specs as Record<string, unknown>)
+        : (order.specs ?? {});
+    const currentTagId =
+      typeof freshRow?.tag_id === "string" ? freshRow.tag_id : null;
+    const nextSpecs: Record<string, unknown> = { ...baseSpecs };
+
+    if (
+      ir.spec_selections &&
+      typeof ir.spec_selections === "object" &&
+      !Array.isArray(ir.spec_selections) &&
+      Object.keys(ir.spec_selections as object).length
+    ) {
+      nextSpecs.spec_selections = ir.spec_selections;
+    }
+    if (Array.isArray(ir.product_options)) {
+      nextSpecs.product_options = ir.product_options;
+    }
+    if (typeof ir.turnaround === "string" && ir.turnaround.trim()) {
+      nextSpecs.turnaround = ir.turnaround.trim().toUpperCase();
+    }
+    if (typeof ir.turnaround_label === "string" && ir.turnaround_label.trim()) {
+      nextSpecs.turnaround_label = ir.turnaround_label.trim();
+    }
+
+    // Keep board title/customer in sync with CRM-style portal payloads
+    // (product as item title; partner name stays on company_name / Portal | …).
+    const jobTitle = resolveItemTitle(item, itemParentLabel, i, sorted.length);
+    if (jobTitle.trim()) nextSpecs.webhook_item_title = jobTitle.trim();
+    if (orderLevelTitle.trim()) nextSpecs.webhook_order_title = orderLevelTitle.trim();
+    else delete nextSpecs.webhook_order_title;
+    if (portalCompanyName) nextSpecs.company_name = portalCompanyName;
+    if (portalBrokerId) nextSpecs.bazaar_broker_id = portalBrokerId;
+    if (items.length > 1) nextSpecs.webhook_item_index = i;
+
+    const corrections: string[] = [];
+    const merged = mergeItemWithOrder(body, item);
+    const specFields = normalizeSpecFields(merged);
+    const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(
+      (item.skus ?? body.skus) as WebhookSkuPayload[] | undefined
+    );
+    const skus = prepareSkusForSave(rawSkus);
+    // Board card qty reads specs.skus first — keep SKUs in sync on portal re-fire.
+    if (skus.length > 0) {
+      nextSpecs.skus = skus;
+    }
+
+    const wasRush = baseSpecs.rush === true;
+    const isRush =
+      webhookRushFromPayload(ir) === true ||
+      webhookRushFromPayload(body as Record<string, unknown>) === true;
+    if (isRush) nextSpecs.rush = true;
+    else delete nextSpecs.rush;
+
+    const patch: Record<string, unknown> = {
+      specs: nextSpecs,
+      updated_at: new Date().toISOString(),
+    };
+    if (isRush) patch.priority = "high";
+    else if (wasRush) patch.priority = "normal";
+
+    if (isRush && !wasRush && rushTagId && !currentTagId) {
+      patch.tag_id = rushTagId;
+    } else if (wasRush && !isRush && rushTagId && currentTagId === rushTagId) {
+      patch.tag_id = null;
+    }
+
+    const { error } = await client
+      .from("orders")
+      .update(patch)
+      .eq("id", order.id)
+      .eq("tenant_id", tenantId);
+    if (error) {
+      console.error("[webhook/orders] portal specs refresh error:", {
+        order_id: order.id,
+        message: error.message,
+      });
+    }
+
+    const rows = buildCustomFieldValues(
+      fields,
+      specFields,
+      customerName,
+      orderContact,
+      skus,
+      corrections
+    );
+    if (rows.length > 0) {
+      const { error: cfErr } = await client.from("custom_field_values").upsert(
+        rows.map((r) => ({
+          order_id: order.id,
+          custom_field_id: r.customFieldId,
+          value: r.value,
+        })),
+        { onConflict: "order_id,custom_field_id" }
+      );
+      if (cfErr) {
+        console.error("[webhook/orders] portal custom-field refresh error:", {
+          order_id: order.id,
+          message: cfErr.message,
+        });
+      }
+    }
+
+    // Ingest new/updated portal artwork URLs on re-fire (idempotent inserts).
+    if (typeof item.artwork_url === "string" && item.artwork_url.trim()) {
+      const primaryUrl = item.artwork_url.trim();
+      const matchingFile = Array.isArray(item.artwork_files)
+        ? item.artwork_files.find(
+            (af) => typeof af?.url === "string" && af.url.trim() === primaryUrl
+          )
+        : undefined;
+      await insertExternalAsset(client, {
+        tenantId,
+        orderId: order.id,
+        externalUrl: primaryUrl,
+        fileName:
+          typeof matchingFile?.name === "string" ? matchingFile.name : null,
+        isLocked: true,
+      });
+    }
+    for (const af of Array.isArray(item.artwork_files) ? item.artwork_files : []) {
+      const url = typeof af?.url === "string" ? af.url.trim() : "";
+      if (!url) continue;
+      if (
+        typeof item.artwork_url === "string" &&
+        item.artwork_url.trim() === url
+      ) {
+        continue;
+      }
+      await insertExternalAsset(client, {
+        tenantId,
+        orderId: order.id,
+        externalUrl: url,
+        fileName: typeof af?.name === "string" ? af.name : null,
+        isLocked: true,
+      });
+    }
+    for (const [skuId, url] of artworkBySkuId) {
+      await insertExternalAsset(client, {
+        tenantId,
+        orderId: order.id,
+        externalUrl: url,
+        skuKey: skuId,
+        isLocked: true,
+      });
+    }
+    void import("@/lib/save-external-artwork")
+      .then(({ saveAllExternalArtwork }) =>
+        saveAllExternalArtwork({
+          admin: client,
+          tenantId,
+          orderId: order.id,
+        })
+      )
+      .catch((err) => {
+        console.error(
+          "[webhook/orders] portal artwork refresh failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
+  }
+}
+
 interface CreateSingleJobParams {
   client: Client;
   tenantId: string;
@@ -2571,6 +2853,12 @@ interface CreateSingleJobParams {
   billing: OrderBillingInfo | null;
   /** Company default board priority (1–5) when set on the customer. */
   customerPriorityScore?: number | null;
+  /** When set, do not re-route by product (keep siblings together on portal append). */
+  skipProductRouting?: boolean;
+  /** Bazaar Order Sync partner id (portal source). */
+  portalBrokerId?: string | null;
+  /** Partner/broker display name for Portal | Name label. */
+  portalCompanyName?: string | null;
 }
 
 async function createSingleWebhookJob(
@@ -2613,6 +2901,9 @@ async function createSingleWebhookJob(
     webhookSource,
     billing,
     customerPriorityScore = null,
+    portalBrokerId = null,
+    portalCompanyName = null,
+    skipProductRouting = false,
   } = params;
 
   const {
@@ -2646,11 +2937,13 @@ async function createSingleWebhookJob(
       : productRaw != null
         ? String(productRaw).trim()
         : "";
-  const routed = await resolveColumnForNewJobByProduct(
-    client,
-    tenantId,
-    product || null
-  );
+  const routed = skipProductRouting
+    ? null
+    : await resolveColumnForNewJobByProduct(
+        client,
+        tenantId,
+        product || null
+      );
 
   let effectiveColumnId = columnId;
   let effectiveColumnName = columnName;
@@ -2731,6 +3024,10 @@ async function createSingleWebhookJob(
     specs.priority_score = customerPriorityScore;
     specs.priority_source = "customer";
   }
+  if (webhookSource.trim().toLowerCase() === "portal") {
+    if (portalBrokerId) specs.bazaar_broker_id = portalBrokerId;
+    if (portalCompanyName) specs.company_name = portalCompanyName;
+  }
 
   const { data: order, error: orderError } = await client
     .from("orders")
@@ -2788,14 +3085,44 @@ async function createSingleWebhookJob(
   }
 
   if (typeof item.artwork_url === "string" && item.artwork_url.trim()) {
+    const primaryUrl = item.artwork_url.trim();
+    const matchingFile = Array.isArray(item.artwork_files)
+      ? item.artwork_files.find(
+          (af) => typeof af?.url === "string" && af.url.trim() === primaryUrl
+        )
+      : undefined;
     const assetError = await insertExternalAsset(client, {
       tenantId,
       orderId,
-      externalUrl: item.artwork_url.trim(),
+      externalUrl: primaryUrl,
+      fileName: typeof matchingFile?.name === "string" ? matchingFile.name : null,
       isLocked: true,
     });
     if (assetError) {
       warnings.push(`Order artwork could not be saved: ${assetError}`);
+    }
+  }
+
+  const artworkFiles = Array.isArray(item.artwork_files) ? item.artwork_files : [];
+  for (const af of artworkFiles) {
+    const url = typeof af?.url === "string" ? af.url.trim() : "";
+    if (!url) continue;
+    // Skip duplicate of primary artwork_url
+    if (
+      typeof item.artwork_url === "string" &&
+      item.artwork_url.trim() === url
+    ) {
+      continue;
+    }
+    const assetError = await insertExternalAsset(client, {
+      tenantId,
+      orderId,
+      externalUrl: url,
+      fileName: typeof af?.name === "string" ? af.name : null,
+      isLocked: true,
+    });
+    if (assetError) {
+      warnings.push(`Order artwork file could not be saved: ${assetError}`);
     }
   }
 
@@ -2812,6 +3139,30 @@ async function createSingleWebhookJob(
         `SKU artwork could not be saved (sku ${skuId}): ${assetError}`
       );
     }
+  }
+
+  // Portal artwork URLs need osk_ — pull bytes into Workflow storage in background.
+  if (webhookSource.trim().toLowerCase() === "portal") {
+    void import("@/lib/save-external-artwork")
+      .then(({ saveAllExternalArtwork }) =>
+        saveAllExternalArtwork({ admin: client, tenantId, orderId })
+      )
+      .then((result) => {
+        if (result.failed > 0) {
+          console.warn("[webhook/orders] portal artwork save partial", {
+            orderId,
+            saved: result.saved,
+            failed: result.failed,
+            results: result.results,
+          });
+        }
+      })
+      .catch((err) => {
+        console.error(
+          "[webhook/orders] portal artwork save failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
   }
 
   try {
@@ -2857,6 +3208,11 @@ export async function createOrderFromWebhook(
   config: WebhookConfig,
   body: WebhookOrderPayload
 ): Promise<WebhookCreateResult> {
+  if (isBazaarConnectionTestPayload(body)) {
+    throw new WebhookValidationError(
+      "Connection test only — no order is created"
+    );
+  }
   const customerInfo = parseWebhookCustomerInfo(body);
   validateItemsArray(body.items);
   const baseOrderNumber = resolveOrderNumber(body);
@@ -2881,7 +3237,21 @@ export async function createOrderFromWebhook(
     typeof body.description === "string" ? body.description.trim() : null;
 
   const tenantId = config.tenant_id;
-  let webhookSource = parseWebhookSourceKey(body.source).toLowerCase();
+  let webhookSource = canonicalizeWebhookSourceKey(
+    parseWebhookSourceKey(body.source)
+  );
+  if (!webhookSource) {
+    webhookSource = canonicalizeWebhookSourceKey(
+      parseWebhookSourceKey(body.source_label)
+    );
+  }
+  if (
+    !webhookSource &&
+    typeof body.bazaar_broker_id === "string" &&
+    body.bazaar_broker_id.trim()
+  ) {
+    webhookSource = "portal";
+  }
   // CRM orders are ORD-YYYY-… — stamp source when the payload omitted it.
   if (!webhookSource && /^ord-\d{4}-/i.test(baseOrderNumber)) {
     webhookSource = "crm";
@@ -2905,34 +3275,159 @@ export async function createOrderFromWebhook(
       dueSpecs,
       webhookRushFromPayload(body as Record<string, unknown>)
     );
-    const sorted = [...existingOrders].sort((a, b) =>
-      a.title.localeCompare(b.title, undefined, { numeric: true })
-    );
-    const warning =
-      "Updated due date on existing order(s); no new cards created.";
-    if (sorted.length === 1 && items.length <= 1) {
+    // CRM is the source of truth for contact info. Previously a CRM re-fire only
+    // refreshed the due date on an existing card — so a phone/email added in the CRM
+    // AFTER the order was created never reached the board (and the board has no way to
+    // add it), leaving the card stuck on "contact information missing". Refresh the
+    // Customer Name / Customer Contact custom fields here too so a re-push flows through.
+    if (customerInfo.customerName || customerInfo.orderContact) {
+      try {
+        const contactFields = await resolveCustomFields(client, tenantId);
+        const nameField = contactFields.get(CUSTOMER_NAME_FIELD_NAME);
+        const contactField = contactFields.get(CUSTOMER_CONTACT_FIELD_NAME);
+        const contactRows: { custom_field_id: string; value: unknown }[] = [];
+        if (nameField && customerInfo.customerName) {
+          contactRows.push({ custom_field_id: nameField.id, value: customerInfo.customerName });
+        }
+        if (contactField && customerInfo.orderContact) {
+          contactRows.push({ custom_field_id: contactField.id, value: customerInfo.orderContact });
+        }
+        if (contactRows.length > 0) {
+          await Promise.all(
+            existingOrders.map(async (order) => {
+              const { error } = await client
+                .from("custom_field_values")
+                .upsert(
+                  contactRows.map((r) => ({
+                    order_id: order.id,
+                    custom_field_id: r.custom_field_id,
+                    value: r.value,
+                  })),
+                  { onConflict: "order_id,custom_field_id" }
+                );
+              if (error) {
+                console.error("[webhook/orders] existing-order contact refresh error:", {
+                  order_id: order.id,
+                  message: error.message,
+                });
+              }
+            })
+          );
+        }
+      } catch (err) {
+        console.error(
+          "[webhook/orders] existing-order contact refresh failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+
+    // Portal Order Sync re-fire (partner edited the order): refresh product specs
+    // + Product Specifications custom fields on the existing card(s).
+    if (webhookSource === "portal") {
+      try {
+        await refreshPortalOrdersFromWebhook({
+          client,
+          tenantId,
+          existing: existingOrders,
+          body,
+          items,
+          customerName: customerInfo.customerName,
+          orderContact: customerInfo.orderContact,
+        });
+      } catch (err) {
+        console.error(
+          "[webhook/orders] portal product refresh failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+
+    const needsExtraPortalLines =
+      webhookSource === "portal" && items.length > existingOrders.length;
+
+    if (!needsExtraPortalLines) {
+      const sorted = [...existingOrders].sort((a, b) =>
+        a.title.localeCompare(b.title, undefined, { numeric: true })
+      );
+      const warning =
+        webhookSource === "portal"
+          ? "Updated existing portal order(s); no new cards created."
+          : "Updated due date on existing order(s); no new cards created.";
+      if (sorted.length === 1 && items.length <= 1) {
+        return {
+          isMultiItem: false,
+          orderId: sorted[0].id,
+          orderNumber: baseOrderNumber,
+          ownerId: null,
+          ownerName: null,
+          warning,
+        };
+      }
       return {
-        isMultiItem: false,
-        orderId: sorted[0].id,
+        isMultiItem: true,
         orderNumber: baseOrderNumber,
+        jobs: sorted.map((o, index) => ({
+          order_id: o.id,
+          item_index: index,
+          title: o.title,
+        })),
         ownerId: null,
         ownerName: null,
         warning,
       };
     }
-    return {
-      isMultiItem: true,
-      orderNumber: baseOrderNumber,
-      jobs: sorted.map((o, index) => ({
-        order_id: o.id,
-        item_index: index,
-        title: o.title,
-      })),
-      ownerId: null,
-      ownerName: null,
-      warning,
-    };
+
+    // Promote single-line title BZ-100 → BZ-100-1 before creating BZ-100-2+.
+    if (existingOrders.length === 1 && items.length > 1) {
+      const only = existingOrders[0]!;
+      if (
+        only.title === shortBaseOrderNumber ||
+        only.title === baseOrderNumber
+      ) {
+        const nextTitle = `${shortBaseOrderNumber}-1`;
+        const nextSpecs = {
+          ...only.specs,
+          webhook_item_index: 0,
+        };
+        const { error: renameErr } = await client
+          .from("orders")
+          .update({
+            title: nextTitle,
+            specs: nextSpecs,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", only.id)
+          .eq("tenant_id", tenantId);
+        if (renameErr) {
+          console.error("[webhook/orders] portal line-1 rename error:", {
+            order_id: only.id,
+            message: renameErr.message,
+          });
+        } else {
+          only.title = nextTitle;
+          only.specs = nextSpecs;
+        }
+      }
+    }
   }
+
+  const startCreateIndex =
+    existingOrders.length > 0 && webhookSource === "portal"
+      ? existingOrders.length
+      : 0;
+  const refreshedExistingJobs: WebhookCreatedJob[] =
+    startCreateIndex > 0
+      ? [...existingOrders]
+          .sort((a, b) =>
+            a.title.localeCompare(b.title, undefined, { numeric: true })
+          )
+          .map((o, index) => ({
+            order_id: o.id,
+            item_index: index,
+            title: o.title,
+          }))
+      : [];
 
   const { data: firstCol } = await client
     .from("board_columns")
@@ -2942,8 +3437,34 @@ export async function createOrderFromWebhook(
     .limit(1)
     .maybeSingle();
 
-  const columnId = (firstCol as { id: string; name: string } | null)?.id;
-  const columnName = (firstCol as { id: string; name: string } | null)?.name ?? null;
+  let columnId = (firstCol as { id: string; name: string } | null)?.id;
+  let columnName =
+    (firstCol as { id: string; name: string } | null)?.name ?? null;
+
+  // Portal append: place new line cards with their siblings, not column 1.
+  if (startCreateIndex > 0 && existingOrders[0]?.id) {
+    const { data: sibling } = await client
+      .from("orders")
+      .select("column_id")
+      .eq("id", existingOrders[0].id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    const siblingColumnId =
+      typeof sibling?.column_id === "string" ? sibling.column_id : null;
+    if (siblingColumnId) {
+      const { data: siblingCol } = await client
+        .from("board_columns")
+        .select("id, name")
+        .eq("id", siblingColumnId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (siblingCol?.id) {
+        columnId = siblingCol.id as string;
+        columnName = (siblingCol.name as string | null) ?? columnName;
+      }
+    }
+  }
+
   if (!columnId) {
     throw new Error("No columns found for tenant");
   }
@@ -3023,11 +3544,14 @@ export async function createOrderFromWebhook(
       ? splitAggregatedLineNotes(orderMisroutedDesignTask, items.length)
       : null;
 
-  for (let i = 0; i < items.length; i++) {
+  // When appending portal lines on re-fire, treat as multi-item for titles.
+  const createAsMultiItem = isMultiItem || startCreateIndex > 0;
+
+  for (let i = startCreateIndex; i < items.length; i++) {
     const rawItem = items[i];
     const item = mergeItemWithOrder(body, rawItem);
     const jobTitle = resolveItemTitle(item, itemParentLabel, i, items.length);
-    const cardTitle = isMultiItem
+    const cardTitle = createAsMultiItem
       ? `${shortBaseOrderNumber}-${i + 1}`
       : shortBaseOrderNumber;
 
@@ -3088,6 +3612,15 @@ export async function createOrderFromWebhook(
         : null;
     const billing = hasBillingInfo(mergedBilling) ? mergedBilling : null;
 
+    const portalBrokerId =
+      (typeof body.bazaar_broker_id === "string" && body.bazaar_broker_id.trim()) ||
+      (typeof body.company?.id === "string" && body.company.id.trim()) ||
+      null;
+    const portalCompanyName =
+      (typeof body.company_name === "string" && body.company_name.trim()) ||
+      (typeof body.company?.name === "string" && body.company.name.trim()) ||
+      null;
+
     const { attention: combinedAttention, suppressMisroutedDesignTask } =
       resolveCardAttentionNotes({
         items,
@@ -3144,6 +3677,9 @@ export async function createOrderFromWebhook(
       webhookSource,
       billing,
       customerPriorityScore,
+      portalBrokerId,
+      portalCompanyName,
+      skipProductRouting: startCreateIndex > 0,
     });
 
     nextPosition += 1000;
@@ -3151,8 +3687,14 @@ export async function createOrderFromWebhook(
     createdJobs.push({
       order_id: result.orderId,
       item_index: i,
-      title: jobTitle,
+      title: result.title,
     });
+  }
+
+  if (startCreateIndex > 0) {
+    allWarnings.unshift(
+      `Updated existing portal order(s); created ${createdJobs.length} new line card(s).`
+    );
   }
 
   if (allCorrections.length > 0) {
@@ -3192,12 +3734,13 @@ export async function createOrderFromWebhook(
 
   const warning =
     allWarnings.length > 0 ? allWarnings.join("; ") : undefined;
+  const allJobs = [...refreshedExistingJobs, ...createdJobs];
 
-  if (isMultiItem) {
+  if (createAsMultiItem || allJobs.length > 1) {
     return {
       isMultiItem: true,
       orderNumber: baseOrderNumber,
-      jobs: createdJobs,
+      jobs: allJobs,
       ownerId: responseOwnerId,
       ownerName: responseOwnerName,
       warning,
@@ -3206,7 +3749,7 @@ export async function createOrderFromWebhook(
 
   return {
     isMultiItem: false,
-    orderId: createdJobs[0].order_id,
+    orderId: allJobs[0]!.order_id,
     orderNumber: baseOrderNumber,
     ownerId: responseOwnerId,
     ownerName: responseOwnerName,

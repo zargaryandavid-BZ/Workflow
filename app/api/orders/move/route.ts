@@ -289,6 +289,22 @@ export async function POST(request: Request) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[NotifRule] failed:", message);
       }
+      try {
+        const { notifyBazaarPortalStatus } = await import(
+          "@/lib/bazaar-portal-sync"
+        );
+        await notifyBazaarPortalStatus({
+          client: supabase,
+          tenantId,
+          order: movedOrder,
+          columnName: typedColumn.name,
+        });
+      } catch (err: unknown) {
+        console.error(
+          "[move] bazaar-portal-sync failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
     });
   }
 

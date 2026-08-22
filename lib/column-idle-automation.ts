@@ -121,6 +121,18 @@ async function systemMoveOrder(
     console.error("[idle-move] fireNotificationRules", err);
   }
 
+  try {
+    const { notifyBazaarPortalStatus } = await import("@/lib/bazaar-portal-sync");
+    await notifyBazaarPortalStatus({
+      client,
+      tenantId: order.tenant_id,
+      order: moved,
+      columnName: toColumn.name,
+    });
+  } catch (err) {
+    console.error("[idle-move] bazaar-portal-sync", err);
+  }
+
   return true;
 }
 

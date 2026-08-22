@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HeartPulse, Sparkles } from "lucide-react";
+import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import {
   BOARD_HEALTH_META,
@@ -56,7 +57,9 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/board/health", { cache: "no-store" });
+      const res = await fetchRetryingStale404("/api/board/health", {
+        cache: "no-store",
+      });
       if (!res.ok) return;
       const data = (await res.json()) as BoardHealthResult;
       if (typeof data.level === "number") setHealth(data);
@@ -71,7 +74,7 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
     setAnalyzing(true);
     setAnalyzeError(null);
     try {
-      const res = await fetch("/api/board/health/analyze", {
+      const res = await fetchRetryingStale404("/api/board/health/analyze", {
         method: "POST",
         cache: "no-store",
       });

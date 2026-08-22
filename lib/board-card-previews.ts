@@ -44,17 +44,18 @@ export async function thumbnailUrlsByOrder(
   const pathsToSign: { path: string; orderId: string }[] = [];
 
   for (const asset of assets) {
-    const external = asset.external_url?.trim();
-    if (external && isImageExternalUrl(external)) {
-      (thumbnailsByOrder[asset.order_id] ??= []).push(external);
-      continue;
-    }
-
+    // Prefer stored bytes when present (portal external_url is auth-gated).
     if (
       asset.storage_path &&
       isImageFileName(asset.file_name, asset.mime_type)
     ) {
       pathsToSign.push({ path: asset.storage_path, orderId: asset.order_id });
+      continue;
+    }
+
+    const external = asset.external_url?.trim();
+    if (external && isImageExternalUrl(external)) {
+      (thumbnailsByOrder[asset.order_id] ??= []).push(external);
     }
   }
 
