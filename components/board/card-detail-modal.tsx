@@ -330,6 +330,8 @@ export function CardDetailModal({
   const [customerContact, setCustomerContact] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
   const [skus, setSkus] = useState<SkuItem[]>([]);
+  const [syncingProofs, setSyncingProofs] = useState(false);
+  const [proofMsg, setProofMsg] = useState<string | null>(null);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
   const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "history">(
@@ -2416,6 +2418,50 @@ export function CardDetailModal({
               tagId={tagId}
               onTagIdChange={isViewOnly ? undefined : setTagId}
             />
+
+            {orderId && !isViewOnly ? (
+              <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <Button
+                  type="button"
+                  disabled={syncingProofs}
+                  onClick={async () => {
+                    if (!orderId) return;
+                    setSyncingProofs(true);
+                    setProofMsg(null);
+                    try {
+                      const res = await fetch(
+                        `/api/orders/${orderId}/sync-proofs`,
+                        { method: "POST" }
+                      );
+                      const j = await res.json();
+                      if (!res.ok) {
+                        setProofMsg(j.error || "Sync failed.");
+                      } else {
+                        setProofMsg(
+                          `Filled ${j.filled} of ${j.matched} matched · ${j.totalFiles} file(s) in Proofs` +
+                            (j.unfilledSkus?.length
+                              ? ` · ${j.unfilledSkus.length} version(s) still without a file`
+                              : "")
+                        );
+                        await load({ silent: true });
+                      }
+                    } catch {
+                      setProofMsg("Sync failed.");
+                    } finally {
+                      setSyncingProofs(false);
+                    }
+                  }}
+                >
+                  {syncingProofs ? "Syncing proofs…" : "Sync proofs from Drive"}
+                </Button>
+                <p className="text-xs text-slate-500">
+                  Pulls finished files from this order's Drive “Proofs” folder into the matching version image slots. Won’t overwrite slots that already have an image.
+                </p>
+                {proofMsg ? (
+                  <p className="text-xs text-slate-700">{proofMsg}</p>
+                ) : null}
+              </div>
+            ) : null}
 
             {saveError ? (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
