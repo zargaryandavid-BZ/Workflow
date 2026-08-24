@@ -15,17 +15,22 @@ import type { Order } from "@/lib/types";
 const CRM_ORDER_NUMBER_RE = /^ORD-\d{4}-\S+$/i;
 
 /**
- * True for any "Fulfilled" column — covers "Fulfilled: Review Required",
- * "Fulfilled: Review Not Required", and "Finished: Fulfilled".
+ * True for any terminal "fulfilled" column. Real boards name these either
+ * "Fulfilled: …" or "Finished: …" (e.g. "Finished: No Review Request",
+ * "Finished: Review Required"), so we match both roots. Anchored to the start
+ * so mid-pipeline names like "Design Finished" never trigger.
  */
 export function isFulfilledStage(columnName: string | null | undefined): boolean {
   if (!columnName) return false;
-  return /fulfil/i.test(columnName);
+  return /fulfil/i.test(columnName) || /^\s*finished\b/i.test(columnName);
 }
 
 /** Which review variant of the fulfilled stage, if the name says so. */
 export function reviewStateFromStage(columnName: string): "required" | "not_required" | null {
-  if (/not\s*required/i.test(columnName)) return "not_required";
+  // "No Review Request" / "No Review Required" / "Review Not Required" all mean no review.
+  if (/no\s*review/i.test(columnName) || /not\s*required/i.test(columnName)) {
+    return "not_required";
+  }
   if (/review\s*required/i.test(columnName)) return "required";
   return null;
 }
