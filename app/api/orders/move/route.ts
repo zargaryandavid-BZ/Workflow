@@ -69,6 +69,19 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+  // Locked cards are frozen — only an admin or the person who locked it can move it.
+  if (
+    typedOrder.locked_by &&
+    typedOrder.locked_by !== ctx.userId &&
+    ctx.role !== "admin"
+  ) {
+    return NextResponse.json(
+      {
+        error: `This order is locked${typedOrder.locked_by_name ? ` by ${typedOrder.locked_by_name}` : ""} and can't be moved until it's unlocked.`,
+      },
+      { status: 423 },
+    );
+  }
 
   if (!toColumnRes.data) {
     return NextResponse.json({ error: "Column not found" }, { status: 404 });

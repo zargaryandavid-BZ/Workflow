@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Lock,
   AlertTriangle,
   CalendarClock,
   ChevronDown,
@@ -154,6 +155,8 @@ export function GroupedOrderCard({
 
   const shortKey = entry.key.replace(/^ORD-\d{4}-/, "");
   const hasRush = orders.some((o) => isRushOrder(o));
+  const lockedOrder = orders.find((o) => Boolean((o as { locked_by?: string | null }).locked_by));
+  const hasLock = Boolean(lockedOrder);
   const repFieldValues = fieldValuesByOrder[rep.id] ?? {};
   const customerName = customerNameFromOrder(rep, repFieldValues, customFields);
   const displayCustomerName = customerName === "there" ? null : customerName;
@@ -291,6 +294,14 @@ export function GroupedOrderCard({
                 title="Rush order"
               >
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              </span>
+            ) : null}
+            {hasLock ? (
+              <span
+                className="inline-flex shrink-0 items-center"
+                title={`Locked${(lockedOrder as { locked_by_name?: string | null } | undefined)?.locked_by_name ? ` by ${(lockedOrder as { locked_by_name?: string | null }).locked_by_name}` : ""}${(lockedOrder as { lock_reason?: string | null } | undefined)?.lock_reason ? ` — ${(lockedOrder as { lock_reason?: string | null }).lock_reason}` : ""}`}
+              >
+                <Lock className="h-3.5 w-3.5 text-amber-600" />
               </span>
             ) : null}
             {priority === "high" || priority === "urgent" ? (

@@ -86,6 +86,11 @@ create table if not exists public.orders (
   created_by uuid references auth.users (id) on delete set null,
   -- Webhook payload `source` key; null for cards created manually in the app.
   webhook_source text,
+  -- Order lock (2026-08-24): a member freezes a card with a reason; only admin + the locker can unlock.
+  locked_by uuid references auth.users (id) on delete set null,
+  locked_by_name text,
+  lock_reason text,
+  locked_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
