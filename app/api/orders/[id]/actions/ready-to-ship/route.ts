@@ -33,7 +33,7 @@ import type {
   ShippingWeightUnit,
 } from "@/lib/types";
 
-const CHANNELS: NotificationChannel[] = ["email", "sms", "manual"];
+const CHANNELS: NotificationChannel[] = ["email", "sms", "both", "manual"];
 
 /**
  * Ready-to-ship notify: creates a shipping portal link and sends one SMS/email.
@@ -62,7 +62,7 @@ export async function POST(
 
   if (!body.channel || !CHANNELS.includes(body.channel)) {
     return NextResponse.json(
-      { error: "channel must be email, sms, or manual" },
+      { error: "channel must be email, sms, both, or manual" },
       { status: 422 }
     );
   }
@@ -138,6 +138,13 @@ export async function POST(
       { status: 422 }
     );
   }
+  // "both" = notify by email AND SMS together; send to whichever destinations exist.
+  if (body.channel === "both" && !email && !phone) {
+    return NextResponse.json(
+      { error: "Customer email or phone number is required." },
+      { status: 422 }
+    );
+  }
 
   const ensured = await ensureShippingRequestForSend(supabase, {
     tenantId: ctx.tenant.id,
@@ -179,7 +186,7 @@ export async function POST(
   if (body.channel !== "manual") {
     const templates = await getMessageTemplates(supabase, ctx.tenant.id);
     const emailOverrides =
-      body.channel === "email"
+      body.channel === "email" || body.channel === "both"
         ? {
             emailSubject: body.subject?.trim() || null,
             emailBody: body.messageBody?.trim() || null,
@@ -191,8 +198,8 @@ export async function POST(
           const config = resolveFedExConfig(settings);
           const [street, cityLine, hours] = pickupLocationFromConfig(config);
           return sendPickupReadyNotifications({
-            email: body.channel === "email" ? email : null,
-            phone: body.channel === "sms" ? phone : null,
+            email: body.channel === "email" || body.channel === "both" ? email : null,
+            phone: body.channel === "sms" || body.channel === "both" ? phone : null,
             customerName: exportData.customerName,
             orderNumber: orderLabel,
             portalUrl,
@@ -204,8 +211,8 @@ export async function POST(
           });
         })()
       : await sendShippingPortalNotifications({
-          email: body.channel === "email" ? email : null,
-          phone: body.channel === "sms" ? phone : null,
+          email: body.channel === "email" || body.channel === "both" ? email : null,
+          phone: body.channel === "sms" || body.channel === "both" ? phone : null,
           customerName: exportData.customerName,
           orderNumber: orderLabel,
           portalUrl,
