@@ -5,6 +5,7 @@ import { logActivity, onEnterColumn } from "@/lib/automation";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { canMove } from "@/lib/permissions";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
+import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import {
   isShipStageKind,
   requiresStockConfirmationBeforeShip,
@@ -302,6 +303,18 @@ export async function POST(request: Request) {
       } catch (err: unknown) {
         console.error(
           "[move] bazaar-portal-sync failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
+      // Net-terms: on entering a Fulfilled stage, have the CRM issue the invoice
+      // and start the Net-N clock from today. No-op for non-net orders (CRM decides).
+      try {
+        if (isFulfilledStage(typedColumn.name)) {
+          await notifyCrmOrderFulfilled(movedOrder, typedColumn.name);
+        }
+      } catch (err: unknown) {
+        console.error(
+          "[move] net-terms-fulfill failed:",
           err instanceof Error ? err.message : err
         );
       }
