@@ -696,7 +696,8 @@ export function Board({
   }, [tenantId]);
   const [animateWarnings, setAnimateWarnings] = useState(true);
   const dueFilterMenuRef = useRef<HTMLDetailsElement | null>(null);
-  const boardViewMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const boardViewMenuRef = useRef<HTMLDivElement | null>(null);
+  const [boardViewMenuOpen, setBoardViewMenuOpen] = useState(false);
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
     missingFields: MissingField[];
@@ -706,11 +707,13 @@ export function Board({
   useEffect(() => {
     function onPointerDown(e: MouseEvent) {
       const target = e.target as Node;
-      for (const ref of [dueFilterMenuRef, boardViewMenuRef]) {
-        const el = ref.current;
-        if (el?.open && !el.contains(target)) {
-          el.open = false;
-        }
+      const due = dueFilterMenuRef.current;
+      if (due?.open && !due.contains(target)) {
+        due.open = false;
+      }
+      const bv = boardViewMenuRef.current;
+      if (bv && !bv.contains(target)) {
+        setBoardViewMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", onPointerDown);
@@ -3209,10 +3212,13 @@ export function Board({
             </div>
           ) : null}
           <DesignerLeaderboardButton />
-          <details ref={boardViewMenuRef} className="relative shrink-0">
-            <summary
+          <div ref={boardViewMenuRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setBoardViewMenuOpen((v) => !v)}
+              aria-expanded={boardViewMenuOpen}
               className={cn(
-                "flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border transition-colors [&::-webkit-details-marker]:hidden",
+                "flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border transition-colors",
                 groupedView
                   ? "border-blue-400 bg-blue-50 text-blue-700"
                   : "border-slate-300 text-slate-600 hover:bg-slate-50"
@@ -3221,39 +3227,39 @@ export function Board({
               title="Group cards and warning animation"
             >
               <Layers className="h-4 w-4" />
-            </summary>
-            <div className="absolute right-0 z-[200] mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-              <button
-                type="button"
-                aria-pressed={groupedView}
-                onClick={() => {
-                  setGroupedView((enabled) => !enabled);
-                  if (boardViewMenuRef.current) {
-                    boardViewMenuRef.current.open = false;
-                  }
-                }}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white">
-                  {groupedView ? <Check className="h-3 w-3" /> : null}
-                </span>
-                <Layers className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                Group
-              </button>
-              {canAnimateWarnings ? (
-                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300"
-                    checked={animateWarnings}
-                    onChange={(e) => setAnimateWarnings(e.target.checked)}
-                  />
-                  <Activity className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                  Animate
-                </label>
-              ) : null}
-            </div>
-          </details>
+            </button>
+            {boardViewMenuOpen ? (
+              <div className="absolute right-0 z-[200] mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                <button
+                  type="button"
+                  aria-pressed={groupedView}
+                  onClick={() => {
+                    setGroupedView((enabled) => !enabled);
+                    setBoardViewMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white">
+                    {groupedView ? <Check className="h-3 w-3" /> : null}
+                  </span>
+                  <Layers className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                  Group
+                </button>
+                {canAnimateWarnings ? (
+                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300"
+                      checked={animateWarnings}
+                      onChange={(e) => setAnimateWarnings(e.target.checked)}
+                    />
+                    <Activity className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                    Animate
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
           {filtersActive ? (
             <button
               type="button"
