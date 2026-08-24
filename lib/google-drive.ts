@@ -31,6 +31,23 @@ export function sanitizeDriveFolderName(name: string): string {
 }
 
 /**
+ * Line-item / part titles go straight into a Drive folder name, so strip the
+ * characters that are illegal in Windows / Drive-synced folder names
+ * (`/ \\ : * ? " < > |`), collapse whitespace, and cap the length so the folder
+ * name stays tidy. Returns "" when nothing printable is left (caller falls back
+ * to the legacy index-based name).
+ */
+export function sanitizeDriveItemTitle(title: string): string {
+  return title
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/[\u0000-\u001f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120)
+    .trim();
+}
+
+/**
  * Short code for folder names: ORD-2026-0098 → 26-0098.
  * Leaves already-short values (e.g. 26-0098, 0098) as-is.
  */
@@ -126,6 +143,34 @@ async function findOrCreateFolder(
   return createFolder(drive, parentId, name);
 }
 
+/**
+ * Item folder lookup with backward-compatible fallback. Prefers the new
+ * title-based folder name; if it does not exist yet, looks up any legacy
+ * `{code}_{customer}_{index}` folder created before this rename so we reuse it
+ * (never orphan or duplicate an existing order's folder). Only creates a new
+ * folder — under the new name — when neither is found. Never renames.
+ */
+async function findOrCreateItemFolder(
+  drive: ReturnType<typeof driveClient>,
+  parentId: string,
+  name: string,
+  legacyName: string,
+  sharedDriveId: string | null
+): Promise<{ id: string; webViewLink: string }> {
+  const existing = await findChildFolder(drive, parentId, name, sharedDriveId);
+  if (existing) return existing;
+  if (legacyName && legacyName !== name) {
+    const legacy = await findChildFolder(
+      drive,
+      parentId,
+      legacyName,
+      sharedDriveId
+    );
+    if (legacy) return legacy;
+  }
+  return createFolder(drive, parentId, name);
+}
+
 function pickLink(
   target: GdriveLinkTarget,
   refs: Omit<DriveFolderRefs, "linkUrl">
@@ -157,13 +202,24 @@ function resolveSharedDriveId(settings: GdriveSettings): string | null {
  * XXXX = ordernumber_customername (e.g. 26-0098_Acme Corp).
  * Y is the 1-based item index (defaults to 1).
  *
+ * The per-item folder is named after the line-item / part title when one is
+ * supplied (e.g. `26-0098_100 Cap Labels — PO 117481-1`) instead of the bare
+ * `_Y` index, which carried no meaning. Falls back to `{code}_{customer}_Y`
+ * when no title is available. Existing `_Y` folders are still reused via a
+ * legacy-name lookup, so this rename never orphans or duplicates.
+ *
  * @param itemIndex 1-based part number; defaults to 1 when omitted.
+ * @param itemTitle line-item / part title; when present, names the item folder.
+ * @param appendIndex append the `_Y` suffix to the title-based name to keep it
+ *   unique (used when two parts of the same order share a title).
  */
 export async function ensureOrderDriveFolders(
   settings: GdriveSettings,
   customerName: string,
   orderKey: string,
-  itemIndex?: number | null
+  itemIndex?: number | null,
+  itemTitle?: string | null,
+  appendIndex?: boolean
 ): Promise<DriveFolderRefs> {
   if (!isGdriveConfigured(settings)) {
     throw new Error("Google Drive is not configured");
@@ -186,10 +242,20 @@ export async function ensureOrderDriveFolders(
 
   // XXXX — Designer folder (shared across items on the same order)
   const designerFolderName = sanitizeDriveFolderName(`${code}_${customer}`);
-  // XXXX_Y — per-item working folder
-  const itemFolderName = sanitizeDriveFolderName(
+  // Legacy per-item name (`{code}_{customer}_Y`) — kept for backward-compatible
+  // lookup so orders whose folders predate this rename are reused, not orphaned.
+  const legacyItemFolderName = sanitizeDriveFolderName(
     `${code}_${customer}${suffix}`
   );
+  // XXXX_Y — per-item working folder. Name after the line-item / part title
+  // when available; otherwise fall back to the legacy index-based name.
+  const cleanTitle =
+    typeof itemTitle === "string" ? sanitizeDriveItemTitle(itemTitle) : "";
+  const itemFolderName = cleanTitle
+    ? sanitizeDriveFolderName(
+        appendIndex ? `${code}_${cleanTitle}${suffix}` : `${code}_${cleanTitle}`
+      )
+    : legacyItemFolderName;
   // FinalProd_Y — Final production
   const finalFolderName = sanitizeDriveFolderName(`${finalLabel}${suffix}`);
 
@@ -199,10 +265,11 @@ export async function ensureOrderDriveFolders(
     designerFolderName,
     sharedDriveId
   );
-  const itemFolder = await findOrCreateFolder(
+  const itemFolder = await findOrCreateItemFolder(
     drive,
     designerFolder.id,
     itemFolderName,
+    legacyItemFolderName,
     sharedDriveId
   );
   const finalFolder = await findOrCreateFolder(
