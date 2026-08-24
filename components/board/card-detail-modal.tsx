@@ -332,6 +332,8 @@ export function CardDetailModal({
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [syncingProofs, setSyncingProofs] = useState(false);
   const [proofMsg, setProofMsg] = useState<string | null>(null);
+  const [settingUpFolders, setSettingUpFolders] = useState(false);
+  const [folderMsg, setFolderMsg] = useState<string | null>(null);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
   const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "history">(
@@ -2421,6 +2423,43 @@ export function CardDetailModal({
 
             {orderId && !isViewOnly ? (
               <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={settingUpFolders}
+                  onClick={async () => {
+                    if (!orderId) return;
+                    setSettingUpFolders(true);
+                    setFolderMsg(null);
+                    try {
+                      const res = await fetch(
+                        `/api/orders/${orderId}/setup-artwork-folders`,
+                        { method: "POST" }
+                      );
+                      const j = await res.json();
+                      if (!res.ok) {
+                        setFolderMsg(j.error || "Could not create folders.");
+                      } else {
+                        setFolderMsg(
+                          `Ready — ${j.versionFolders} version folder(s) + a Proofs folder` +
+                            (j.created ? ` (${j.created} new)` : " (all already existed)")
+                        );
+                      }
+                    } catch {
+                      setFolderMsg("Could not create folders.");
+                    } finally {
+                      setSettingUpFolders(false);
+                    }
+                  }}
+                >
+                  {settingUpFolders ? "Creating folders…" : "Set up artwork folders in Drive"}
+                </Button>
+                <p className="text-xs text-slate-500">
+                  Creates one working subfolder per version + a “Proofs” folder in this order's Drive folder, so designers drop files into the right place. Safe to re-run.
+                </p>
+                {folderMsg ? (
+                  <p className="text-xs text-slate-700">{folderMsg}</p>
+                ) : null}
                 <Button
                   type="button"
                   disabled={syncingProofs}
