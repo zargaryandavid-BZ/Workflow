@@ -1,0 +1,61 @@
+/**
+ * Net-terms invoice trigger — Workflow -> CRM.
+ *
+ * When an order's card enters a "Fulfilled" stage on the board, tell the CRM.
+ * For Net-terms orders the CRM issues the invoice at that moment and starts the
+ * Net-N clock from today (see CRM POST /api/webhook/order-fulfilled).
+ *
+ * No-op unless CRM_FULFILL_WEBHOOK_URL + CRM_FULFILL_SECRET are set and the card
+ * carries a CRM order number (ORD-YYYY-####). Idempotency lives in the CRM, so
+ * re-entering a fulfilled column never re-sends.
+ */
+import type { Order } from "@/lib/types";
+
+/** CRM reference codes look like ORD-2026-0298. */
+const CRM_ORDER_NUMBER_RE = /^ORD-\d{4}-\S+$/i;
+
+/**
+ * True for any "Fulfilled" column — covers "Fulfilled: Review Required",
+ * "Fulfilled: Review Not Required", and "Finished: Fulfilled".
+ */
+export function isFulfilledStage(columnName: string | null | undefined): boolean {
+  if (!columnName) return false;
+  return /fulfil/i.test(columnName);
+}
+
+/** Which review variant of the fulfilled stage, if the name says so. */
+export function reviewStateFromStage(columnName: string): "required" | "not_required" | null {
+  if (/not\s*required/i.test(columnName)) return "not_required";
+  if (/review\s*required/i.test(columnName)) return "required";
+  return null;
+}
+
+function orderNumberFromCard(order: Order): string {
+  const raw = (order.specs as Record<string, unknown> | null | undefined)?.webhook_order_number;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+export async function notifyCrmOrderFulfilled(order: Order, columnName: string): Promise<void> {
+  const url = process.env.CRM_FULFILL_WEBHOOK_URL;
+  const secret = process.env.CRM_FULFILL_SECRET;
+  if (!url || !secret) return;
+
+  const orderNumber = orderNumberFromCard(order);
+  if (!CRM_ORDER_NUMBER_RE.test(orderNumber)) return;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-fulfill-secret": secret },
+    body: JSON.stringify({
+      order_number: orderNumber,
+      fulfilled_at: new Date().toISOString(),
+      stage: columnName,
+      review_state: reviewStateFromStage(columnName),
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error("[net-terms-fulfill] CRM responded", res.status, text.slice(0, 300));
+  }
+}
