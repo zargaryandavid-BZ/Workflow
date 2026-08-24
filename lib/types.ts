@@ -290,6 +290,11 @@ export interface Order {
    * Empty string means webhook with no/unknown source → Integrations "other" style.
    */
   webhook_source: string | null;
+  /** Order lock — set when a member freezes the card; only admin + locker can clear. */
+  locked_by?: string | null;
+  locked_by_name?: string | null;
+  lock_reason?: string | null;
+  locked_at?: string | null;
   /** CRM order id when ingested from webhook (unique per tenant when set). */
   crm_order_id?: string | null;
   crm_updated_at?: string | null;
