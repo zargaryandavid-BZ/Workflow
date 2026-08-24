@@ -48,36 +48,70 @@ function escapeQuery(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-/** Find or create the order's "Proofs" subfolder under its designer folder. */
-export async function findOrCreateProofsFolder(
+/** Find or create a named child folder under a parent (idempotent). */
+export async function ensureChildFolder(
   { drive, sharedDriveId }: ProofsDrive,
-  designerFolderId: string
-): Promise<{ id: string; webViewLink: string }> {
-  const name = sanitizeDriveFolderName(PROOFS_FOLDER_NAME);
+  parentId: string,
+  rawName: string
+): Promise<{ id: string; name: string; webViewLink: string; created: boolean }> {
+  const name = sanitizeDriveFolderName(rawName) || "Untitled";
   const q = [
     `name='${escapeQuery(name)}'`,
-    `'${escapeQuery(designerFolderId)}' in parents`,
+    `'${escapeQuery(parentId)}' in parents`,
     `mimeType='${FOLDER_MIME}'`,
     "trashed=false",
   ].join(" and ");
   const found = await drive.files.list({
     q,
-    fields: "files(id,webViewLink)",
+    fields: "files(id,name,webViewLink)",
     pageSize: 1,
     ...driveListParams(sharedDriveId),
   });
   const hit = found.data.files?.[0];
-  if (hit?.id) return { id: hit.id, webViewLink: hit.webViewLink ?? "" };
+  if (hit?.id) return { id: hit.id, name, webViewLink: hit.webViewLink ?? "", created: false };
 
   const created = await drive.files.create({
-    requestBody: { name, mimeType: FOLDER_MIME, parents: [designerFolderId] },
-    fields: "id,webViewLink",
+    requestBody: { name, mimeType: FOLDER_MIME, parents: [parentId] },
+    fields: "id,name,webViewLink",
     supportsAllDrives: true,
   });
-  return {
-    id: created.data.id!,
-    webViewLink: created.data.webViewLink ?? "",
-  };
+  return { id: created.data.id!, name, webViewLink: created.data.webViewLink ?? "", created: true };
+}
+
+/** Find or create the order's "Proofs" subfolder under its designer folder. */
+export async function findOrCreateProofsFolder(
+  client: ProofsDrive,
+  designerFolderId: string
+): Promise<{ id: string; webViewLink: string }> {
+  const f = await ensureChildFolder(client, designerFolderId, PROOFS_FOLDER_NAME);
+  return { id: f.id, webViewLink: f.webViewLink };
+}
+
+/**
+ * Ensure one working subfolder per version name under the designer folder, plus
+ * the shared "Proofs" folder. De-dupes repeated version names. Idempotent.
+ */
+export async function ensureArtworkFolderTree(
+  client: ProofsDrive,
+  designerFolderId: string,
+  versionNames: string[]
+): Promise<{
+  proofs: { id: string; webViewLink: string };
+  versions: { name: string; id: string; webViewLink: string; created: boolean }[];
+}> {
+  const proofsFull = await ensureChildFolder(client, designerFolderId, PROOFS_FOLDER_NAME);
+  const seen = new Set<string>();
+  const versions: { name: string; id: string; webViewLink: string; created: boolean }[] = [];
+  for (const raw of versionNames) {
+    const name = (raw || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const f = await ensureChildFolder(client, designerFolderId, name);
+    versions.push({ name: f.name, id: f.id, webViewLink: f.webViewLink, created: f.created });
+  }
+  return { proofs: { id: proofsFull.id, webViewLink: proofsFull.webViewLink }, versions };
 }
 
 export type ProofFile = {
