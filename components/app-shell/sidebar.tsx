@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Link2,
   ListChecks,
+  ListOrdered,
   Plug,
   Package,
   HardDrive,
@@ -45,6 +46,7 @@ type NavItem = {
 
 const nav: NavItem[] = [
   { href: "/board", label: "Board", icon: LayoutGrid },
+  { href: "/queue", label: "Designer Queue", icon: ListOrdered },
   {
     href: "/analytics",
     label: "Analytics",
