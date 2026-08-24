@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
+import { parseEmailList } from "@/lib/email-list";
 import type {
   NotificationChannel,
   NotificationType,
@@ -32,6 +33,8 @@ export async function POST(request: Request) {
     toPhone?: string;
     subject?: string;
     messageBody?: string;
+    ccEmails?: string[] | string;
+    saveCcToAccount?: boolean;
   };
 
   if (
@@ -43,6 +46,18 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json(
       { error: "orderId, a valid type and channel are required" },
+      { status: 400 }
+    );
+  }
+
+  // Normalize CC recipients from either an array or a comma/space-separated string.
+  const ccRaw = Array.isArray(body.ccEmails)
+    ? body.ccEmails.join(",")
+    : (body.ccEmails ?? "");
+  const { valid: ccEmails, invalid: ccInvalid } = parseEmailList(ccRaw);
+  if (ccInvalid.length > 0) {
+    return NextResponse.json(
+      { error: `Not a valid email: ${ccInvalid.join(", ")}` },
       { status: 400 }
     );
   }
@@ -69,6 +84,8 @@ export async function POST(request: Request) {
         staffNote: body.staffNote ?? null,
         toEmail: body.toEmail ?? null,
         toPhone: body.toPhone ?? null,
+        ccEmails: body.ccEmails !== undefined ? ccEmails : undefined,
+        saveCcToAccount: body.saveCcToAccount ?? false,
         createdBy: ctx.userId,
         subject: body.subject ?? null,
         messageBody: body.messageBody ?? null,
