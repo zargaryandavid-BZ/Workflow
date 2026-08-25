@@ -129,6 +129,8 @@ proxy.ts                        Session middleware helper [see Known issues](#kn
 | `approvals` | Legacy customer approval records |
 | `automation_rules` | Column-move and notification automations |
 | `activity_log` | Audit trail per order |
+| `die_manufacturers` | Die shop contacts (Settings) |
+| `die_requests` | Die quote/order requests (`sent` → `quoted` → `ordered`) |
 
 **Storage buckets:** `order-assets` (private), `column-images` (public).
 
@@ -329,6 +331,7 @@ Defined in `lib/types.ts` → `MemberRole`. Permissions enforced in API routes (
 ### Public (unauthenticated) access
 
 - `/respond/[token]`, `/approve/[token]` — RPC functions with `security definer` validate token.
+- `/die/[token]` — die manufacturer quote/order portal; `/api/die/[token]/quote` and `/api/die/[token]/file`.
 - `/api/notifications/respond`, `/api/notifications/asset` — service role after token check.
 
 ## Storage
@@ -360,6 +363,7 @@ Full reference: [API routes](#api-routes).
 | Team | `GET /api/team`, `POST .../invite`, `PATCH/DELETE .../[id]` |
 | Tenant | `POST /api/tenant/switch`, `POST /api/onboarding` |
 | Auth | `POST /api/auth/signout` |
+| Die orders | `POST /api/die-requests`, `PATCH /api/die-requests/[id]`, `POST /api/die-requests/[id]/confirm`, `GET /api/die-requests/quoted-count`, public `POST /api/die/[token]/quote` |
 | CRM export | `GET /api/export/board-columns` (webhook secret) |
 
 ## Legacy approval system
@@ -868,6 +872,13 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `0026_role_or_individual_picker.sql` | Support tables/columns for role-or-individual targeting |
 | `0027_notification_rule_trigger.sql` | `trigger` column on `notification_rules` |
 | `0028_notification_rule_sms_phone.sql` | `sms_to_phone` column on `notification_rules` |
+| `0084_die_requests.sql` | `die_requests` (`sent` / `quoted`) |
+| `0085_die_manufacturers.sql` | Manufacturers + `manufacturer_id` on requests |
+| `0086_die_manufacturer_contact_name.sql` | `contact_name` |
+| `0087_die_request_files.sql` | `files` jsonb |
+| `0088_die_manufacturer_contact_2.sql` | Second contact |
+| `0089_die_request_ordered.sql` | Status `ordered` + `ordered_at` |
+| `0090_die_allow_own_date.sql` | Manufacturer may offer own due date |
 
 **Note:** There is no `0010_*.sql` in the repo. `sku_key`, `drop_in_roles`, and extended `member_role` values are in `setup.sql` only.
 
@@ -1571,15 +1582,13 @@ Legacy approval page using `get_approval_by_token` RPC. Also shows `OrderReview`
 
 ## Settings pages
 
-| Route | Manager component | Purpose |
-| --- | --- | --- |
-| `/settings/team` | `team-manager.tsx` | Invite members, change roles, revoke |
+| `/settings` | Settings hub | Grouped links to all admin settings |
 | `/settings/automations` | `automations-manager.tsx` | Notify rules + approval result moves |
 | `/settings/fields` | `fields-manager.tsx` | Custom field CRUD |
 | `/settings/columns` | `columns-manager.tsx` | Column CRUD, reorder, images, drop roles, visibility |
 | `/settings/button-automation` | `fast-action-buttons-manager.tsx` + `notification-rules-manager.tsx` | Fast action buttons + column notification rules |
 
-All settings live under `app/(app)/settings/` with shared `layout.tsx` (admin nav).
+All settings live under `app/(app)/settings/` with shared `layout.tsx`. The left sidebar shows **Settings**; `/settings` is the grouped hub (Board setup, Automations, Connections, Records, Ops).
 
 ---
 
@@ -1587,7 +1596,7 @@ All settings live under `app/(app)/settings/` with shared `layout.tsx` (admin na
 
 | Component | Path | Role |
 | --- | --- | --- |
-| `Sidebar` | `app-shell/sidebar.tsx` | Nav links by role |
+| `Sidebar` | `app-shell/sidebar.tsx` | Work links + Settings; Die Order for admin / AM / pre-prod |
 | `Topbar` | `app-shell/topbar.tsx` | Tenant switcher, user menu |
 | `Providers` | `providers.tsx` | React Query provider |
 

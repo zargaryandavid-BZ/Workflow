@@ -4,142 +4,108 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
-  Archive,
+  Activity,
   AlertTriangle,
+  Archive,
   BarChart3,
+  ChevronDown,
   Clock,
+  Columns3,
+  Factory,
+  FolderOpen,
+  FormInput,
   LayoutGrid,
   Link2,
-  ListChecks,
   ListOrdered,
-  Plug,
-  Package,
-  HardDrive,
+  Mail,
   MessageSquarePlus,
+  MousePointerClick,
+  Plug,
+  Printer,
+  Scissors,
+  Settings,
   Tag,
   Trash2,
-  Workflow,
-  MousePointerClick,
-  ShieldAlert,
+  Truck,
   UserCog,
-  Columns3,
-  Mail,
-  Printer,
   Users,
   X,
+  Zap,
+  type LucideIcon,
 } from "lucide-react";
 import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
 import { FEEDBACK_COUNT_CHANGED_EVENT } from "@/lib/feedback";
+import { SETTINGS_NAV_GROUPS } from "@/lib/settings-nav";
 import { TimerWidget } from "@/components/time/TimerWidget";
+
+type NavChild = { href: string; label: string; icon: LucideIcon };
 
 type NavItem = {
   href: string;
   label: string;
-  icon: typeof LayoutGrid;
+  icon: LucideIcon;
   /** When true, only admins see the item (unless `visibleTo` is set). */
   adminOnly?: boolean;
   /** If set, item is shown only when the role is in this list. */
   visibleTo?: Role[];
+  /** Click expands these instead of navigating. */
+  children?: NavChild[];
 };
+
+const SETTINGS_CHILD_ICONS: Record<string, LucideIcon> = {
+  "/settings/columns": Columns3,
+  "/settings/fields": FormInput,
+  "/settings/tags": Tag,
+  "/settings/card-warnings": AlertTriangle,
+  "/settings/automations": Zap,
+  "/settings/button-automation": MousePointerClick,
+  "/settings/message-templates": Mail,
+  "/settings/integrations": Plug,
+  "/settings/gdrive": FolderOpen,
+  "/settings/shipping": Truck,
+  "/settings/die-manufacturers": Factory,
+  "/settings/workspace-links": Link2,
+  "/settings/archive": Archive,
+  "/settings/removed-orders": Trash2,
+  "/settings/emergency-balance": Activity,
+  "/settings/team": UserCog,
+};
+
+const settingsChildren: NavChild[] = SETTINGS_NAV_GROUPS.flatMap((group) =>
+  group.items.map((item) => ({
+    href: item.href,
+    label: item.label,
+    icon: SETTINGS_CHILD_ICONS[item.href] ?? Settings,
+  }))
+);
 
 const nav: NavItem[] = [
   { href: "/board", label: "Board", icon: LayoutGrid },
   { href: "/queue", label: "Designer Queue", icon: ListOrdered },
+  { href: "/customers", label: "Customers", icon: Users },
+  {
+    href: "/die-order",
+    label: "Die Order",
+    icon: Scissors,
+    visibleTo: ["admin", "account_manager", "preprod_owner"],
+  },
+  { href: "/time", label: "Time (beta)", icon: Clock },
   {
     href: "/analytics",
     label: "Analytics",
     icon: BarChart3,
     visibleTo: ["admin", "account_manager"],
   },
-  { href: "/time", label: "Time (beta)", icon: Clock },
-  { href: "/customers", label: "Customers", icon: Users },
+  { href: "/feedback", label: "Feedback", icon: MessageSquarePlus },
   {
-    href: "/settings/columns",
-    label: "Columns",
-    icon: Columns3,
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
     adminOnly: true,
+    children: settingsChildren,
   },
-  {
-    href: "/settings/fields",
-    label: "Custom Fields",
-    icon: ListChecks,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/tags",
-    label: "Tags",
-    icon: Tag,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/automations",
-    label: "Automations",
-    icon: Workflow,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/workspace-links",
-    label: "Workspace links",
-    icon: Link2,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/button-automation",
-    label: "Button Automation",
-    icon: MousePointerClick,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/message-templates",
-    label: "SMS / Email templates",
-    icon: Mail,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/card-warnings",
-    label: "Card Warnings",
-    icon: ShieldAlert,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/emergency-balance",
-    label: "Emergency Balance",
-    icon: AlertTriangle,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/integrations",
-    label: "Integrations",
-    icon: Plug,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/shipping",
-    label: "Shipping",
-    icon: Package,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/gdrive",
-    label: "GDrive",
-    icon: HardDrive,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/archive",
-    label: "Archive",
-    icon: Archive,
-    adminOnly: true,
-  },
-  {
-    href: "/settings/removed-orders",
-    label: "Removed Orders",
-    icon: Trash2,
-    adminOnly: true,
-  },
-  { href: "/settings/team", label: "Team", icon: UserCog, adminOnly: true },
 ];
 
 function navItemVisible(item: NavItem, role: Role): boolean {
@@ -148,21 +114,17 @@ function navItemVisible(item: NavItem, role: Role): boolean {
   return true;
 }
 
-const feedbackNav = {
-  href: "/feedback",
-  label: "Feedback",
-  icon: MessageSquarePlus,
-};
-
 interface SidebarProps {
   role: Role;
   open: boolean;
   onClose: () => void;
+  dieQuotedCount?: number;
 }
 
-export function Sidebar({ role, open, onClose }: SidebarProps) {
+export function Sidebar({ role, open, onClose, dieQuotedCount = 0 }: SidebarProps) {
   const pathname = usePathname();
   const [feedbackCount, setFeedbackCount] = useState<number | null>(null);
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
   // Defer timer + feedback fetches until after first paint so they don't
   // compete with the board's column-order requests on cold start.
   const [sidebarReady, setSidebarReady] = useState(false);
@@ -210,25 +172,42 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
     };
   }, [pathname, sidebarReady]);
 
+  useEffect(() => {
+    setOpenMenus((prev) => {
+      const next = { ...prev };
+      for (const item of nav) {
+        if (!item.children) continue;
+        if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
+          next[item.href] = true;
+        }
+      }
+      return next;
+    });
+  }, [pathname]);
+
   function handleNavClick() {
     onClose();
   }
 
-  function navLinkClass(href: string) {
+  function toggleMenu(href: string) {
+    setOpenMenus((prev) => ({ ...prev, [href]: !isMenuOpen(href) }));
+  }
+
+  function isMenuOpen(href: string): boolean {
+    if (openMenus[href] != null) return openMenus[href];
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  function navLinkClass(href: string, opts?: { nested?: boolean }) {
     const active = pathname === href || pathname.startsWith(`${href}/`);
     return cn(
-      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+      "flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
+      opts?.nested ? "gap-2 px-2 py-1.5 text-[13px]" : "px-3 py-2",
       active
         ? "bg-blue-50 text-[var(--primary)]"
         : "text-slate-600 hover:bg-slate-100"
     );
   }
-
-  const FeedbackIcon = feedbackNav.icon;
-  const feedbackLabel =
-    feedbackCount != null
-      ? `${feedbackNav.label} (${feedbackCount})`
-      : feedbackNav.label;
 
   return (
     <aside
@@ -268,6 +247,67 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
             .filter((item) => navItemVisible(item, role))
             .map((item) => {
               const Icon = item.icon;
+              const isFeedback = item.href === "/feedback";
+              const isDieOrder = item.href === "/die-order";
+              const label =
+                isFeedback && feedbackCount != null
+                  ? `${item.label} (${feedbackCount})`
+                  : isDieOrder && dieQuotedCount > 0
+                    ? `${item.label} (${dieQuotedCount} quotes)`
+                    : item.label;
+
+              if (item.children && item.children.length > 0) {
+                const expanded = isMenuOpen(item.href);
+                return (
+                  <div key={item.href}>
+                    <button
+                      type="button"
+                      onClick={() => toggleMenu(item.href)}
+                      className={cn(navLinkClass(item.href), "w-full")}
+                      aria-expanded={expanded}
+                      aria-controls={`nav-sub-${item.href.replace(/\W+/g, "-")}`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-left">
+                        {item.label}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 shrink-0 text-slate-400 transition-transform",
+                          expanded && "rotate-180"
+                        )}
+                      />
+                    </button>
+                    {expanded ? (
+                      <div
+                        id={`nav-sub-${item.href.replace(/\W+/g, "-")}`}
+                        className="mb-1 ml-4 mt-0.5 space-y-0.5 border-l border-slate-200 pl-2"
+                      >
+                        {item.children.map((child) => {
+                          const ChildIcon = child.icon;
+                          return (
+                            <Link
+                              key={child.href}
+                              href={child.href}
+                              prefetch={false}
+                              onClick={handleNavClick}
+                              className={navLinkClass(child.href, {
+                                nested: true,
+                              })}
+                            >
+                              <ChildIcon className="h-3.5 w-3.5 shrink-0" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {child.label}
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
+
               return (
                 <Link
                   key={item.href}
@@ -275,37 +315,36 @@ export function Sidebar({ role, open, onClose }: SidebarProps) {
                   prefetch={false}
                   onClick={handleNavClick}
                   className={navLinkClass(item.href)}
+                  title={isFeedback || isDieOrder ? label : undefined}
+                  aria-label={isFeedback || isDieOrder ? label : undefined}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 truncate">{item.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  {isFeedback && feedbackCount != null ? (
+                    <span
+                      className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-semibold tabular-nums text-slate-600"
+                      aria-hidden
+                    >
+                      {feedbackCount}
+                    </span>
+                  ) : null}
+                  {isDieOrder && dieQuotedCount > 0 ? (
+                    <span
+                      className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white"
+                      aria-hidden
+                    >
+                      {dieQuotedCount}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
         </nav>
-        <div className="mt-auto border-t border-slate-200 p-3">
-          <Link
-            href={feedbackNav.href}
-            prefetch={false}
-            onClick={handleNavClick}
-            className={navLinkClass(feedbackNav.href)}
-            title={feedbackLabel}
-            aria-label={feedbackLabel}
-          >
-            <FeedbackIcon className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{feedbackNav.label}</span>
-            {feedbackCount != null ? (
-              <span
-                className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-semibold tabular-nums text-slate-600"
-                aria-hidden
-              >
-                {feedbackCount}
-              </span>
-            ) : null}
-          </Link>
-        </div>
-        {sidebarReady ? <TimerWidget /> : null}
-        <div className="border-t border-slate-200 p-3 text-xs text-slate-400">
-          {role === "admin" ? "Admin" : "Member"}
+        <div className="mt-auto">
+          {sidebarReady ? <TimerWidget /> : null}
+          <div className="border-t border-slate-200 p-3 text-xs text-slate-400">
+            {role === "admin" ? "Admin" : "Member"}
+          </div>
         </div>
       </div>
     </aside>

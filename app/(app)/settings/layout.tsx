@@ -5,7 +5,7 @@ export default function SettingsLayout({
 }) {
   return (
     <div className="board-scroll h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-6">{children}</div>
+      <div className="mx-auto max-w-6xl px-6 py-6">{children}</div>
     </div>
   );
 }

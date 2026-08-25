@@ -8,6 +8,7 @@ import {
 } from "@/lib/board-column-sort";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
+import type { DieAlert } from "@/lib/die-request";
 import type { OrderWithRelations } from "@/lib/types";
 
 export const PAGE_SIZE = 25;
@@ -20,6 +21,7 @@ export interface ColumnOrdersResponse {
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
   shippingSignByOrder: Record<string, BoardShippingSign>;
+  dieAlertByOrder: Record<string, DieAlert>;
   approvalDateByOrder: Record<string, string>;
   hasMore: boolean;
   total: number;
@@ -175,6 +177,7 @@ export async function GET(req: NextRequest) {
       ownerNameByOrder: {},
       designerNameByOrder: {},
       shippingSignByOrder: {},
+      dieAlertByOrder: {},
       approvalDateByOrder: {},
       hasMore: false,
       total,

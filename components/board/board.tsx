@@ -153,6 +153,7 @@ import type { ColumnOrdersResponse } from "@/app/api/board/column-orders/route";
 import type { SearchOrdersResponse } from "@/app/api/board/search-orders/route";
 import type { BoardOrderEnrichment } from "@/lib/board-order-enrichment";
 import type { BoardShippingSign } from "@/lib/board-shipping";
+import type { DieAlert } from "@/lib/die-request";
 import {
   countDesignerLoads,
   designerLoadColumnIds,
@@ -321,6 +322,9 @@ export function Board({
   >({});
   const [shippingSignByOrder, setShippingSignByOrder] = useState<
     Record<string, BoardShippingSign>
+  >({});
+  const [dieAlertByOrder, setDieAlertByOrder] = useState<
+    Record<string, DieAlert>
   >({});
   const [approvalDateByOrder, setApprovalDateByOrder] = useState<
     Record<string, string>
@@ -847,6 +851,7 @@ export function Board({
             ownerNameByOrder: data.ownerNameByOrder,
             designerNameByOrder: data.designerNameByOrder,
             shippingSignByOrder: data.shippingSignByOrder ?? {},
+            dieAlertByOrder: data.dieAlertByOrder ?? {},
             approvalDateByOrder: data.approvalDateByOrder ?? {},
           });
 
@@ -1359,6 +1364,10 @@ export function Board({
         setShippingSignByOrder((prev) => ({
           ...prev,
           ...(data.shippingSignByOrder ?? {}),
+        }));
+        setDieAlertByOrder((prev) => ({
+          ...prev,
+          ...(data.dieAlertByOrder ?? {}),
         }));
         setApprovalDateByOrder((prev) => ({
           ...prev,
@@ -2549,6 +2558,9 @@ export function Board({
   const displayShippingSignByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.shippingSignByOrder
     : shippingSignByOrder;
+  const displayDieAlertByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.dieAlertByOrder
+    : dieAlertByOrder;
   const displayApprovalDateByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.approvalDateByOrder
     : approvalDateByOrder;
@@ -3330,6 +3342,7 @@ export function Board({
           notificationBadgeByOrder={displayNotificationBadgeByOrder}
           ownerNameByOrder={displayOwnerNameByOrder}
           shippingSignByOrder={displayShippingSignByOrder}
+          dieAlertByOrder={displayDieAlertByOrder}
           approvalDateByOrder={displayApprovalDateByOrder}
           groupSizeByOrder={groupSizeByOrder}
           warningRules={warningRules}
@@ -3419,6 +3432,7 @@ export function Board({
                 ownerNameByOrder={displayOwnerNameByOrder}
                 groupSizeByOrder={groupSizeByOrder}
                 shippingSignByOrder={displayShippingSignByOrder}
+                dieAlertByOrder={displayDieAlertByOrder}
                 approvalDateByOrder={displayApprovalDateByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
@@ -3515,6 +3529,7 @@ export function Board({
               notificationBadge={displayNotificationBadgeByOrder[activeOrder.id]}
               ownerName={displayOwnerNameByOrder[activeOrder.id]}
               shippingSign={displayShippingSignByOrder[activeOrder.id]}
+              dieAlert={displayDieAlertByOrder[activeOrder.id]}
               approvalDate={displayApprovalDateByOrder[activeOrder.id] ?? null}
               warningRules={warningRules}
               animateWarnings={animateWarnings}

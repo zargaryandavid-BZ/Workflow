@@ -3,7 +3,10 @@
 import { cn } from "@/lib/utils";
 import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
 import type { PriorityScore } from "@/lib/order-priority-score";
+import { formatShortOrderNumber } from "@/lib/board-order-filters";
 import { PriorityScoreBadge } from "./priority-score-badge";
+
+export { formatShortOrderNumber };
 
 interface OrderNumberLabelProps {
   orderId: string;
@@ -14,10 +17,6 @@ interface OrderNumberLabelProps {
   priorityScore?: PriorityScore | null;
   className?: string;
   groupClassName?: string;
-}
-
-export function formatShortOrderNumber(title: string) {
-  return title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1");
 }
 
 /** Order # — green when the Artwork / Final production Drive folder has files. */

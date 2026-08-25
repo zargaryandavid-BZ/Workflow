@@ -34,10 +34,13 @@ export async function GET(request: Request) {
     }
     const { members } = await loadTeamMembers(ctx.tenant.id);
     const designers = (members ?? [])
-      .filter((m) => (m as { role?: string }).role === "designer")
+      .filter((m) => m.role === "designer")
       .map((m) => ({
-        id: (m as { user_id: string }).user_id,
-        name: (m as { full_name?: string | null }).full_name?.trim() || "Designer",
+        id: m.user_id,
+        name:
+          m.profile?.full_name?.trim() ||
+          m.email?.split("@")[0]?.trim() ||
+          "Designer",
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return NextResponse.json({ designers, self: ctx.userId, canAssign: isManager });

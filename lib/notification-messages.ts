@@ -184,7 +184,7 @@ export function buildBrandedEmailLayout(params: {
 <body style="margin:0!important;padding:0!important;background-color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;background-color:#ffffff;width:100%;">
     <tr>
-      <td align="center" style="margin:0;padding:0;">
+      <td align="center" valign="top" style="margin:0;padding:0;vertical-align:top;">
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;max-width:520px;width:100%;background:#ffffff;">
           <tr>
             <td style="margin:0;padding:10px 16px;background:#2563EB;">
@@ -416,7 +416,7 @@ export function buildGoogleReviewFeedbackEmailHtml(
 }
 
 function emailParagraph(html: string) {
-  return `<p style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">${html}</p>`;
+  return `<div style="margin:0 0 12px; font-size:14px; color:#374151; line-height:1.7;">${html}</div>`;
 }
 
 /** Linkify URLs before inserting <br/> so hrefs are not polluted by escaped markup. */

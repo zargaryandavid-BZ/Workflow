@@ -31,6 +31,7 @@ import {
   CARD_BADGE_STYLES,
   type CardNotificationBadge,
 } from "@/lib/card-badges";
+import { DIE_ALERT_CLASS, type DieAlert } from "@/lib/die-request";
 import {
   UNASSIGNED_DESIGNER_CARD_CLASS,
   UNASSIGNED_DESIGNER_TEXT_CLASS,
@@ -161,6 +162,8 @@ interface OrderCardProps {
   approvalDate?: string | null;
   /** Client shipping choice after they responded on the portal. */
   shippingSign?: BoardShippingSign;
+  /** Alarm when the confirmed die due date is at risk. */
+  dieAlert?: DieAlert;
   groupSize?: number;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
@@ -223,6 +226,7 @@ export function OrderCard({
   ownerName,
   approvalDate = null,
   shippingSign,
+  dieAlert,
   groupSize,
   emergencySeverity = null,
   emergencyReasons = [],
@@ -912,6 +916,21 @@ export function OrderCard({
                 <span className="font-medium text-slate-500">Rush:</span> no
               </span>
             )}
+            {dieAlert ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
+                    DIE_ALERT_CLASS[dieAlert.level]
+                  )}
+                  title={`Confirmed die due ${dieAlert.confirmedDueDate}`}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  {dieAlert.label}
+                </span>
+              </>
+            ) : null}
             <span className="text-slate-300"> · </span>
             <span className="inline-flex items-center gap-0.5">
               <Clock className="h-3 w-3 shrink-0 text-slate-400" />

@@ -80,6 +80,15 @@ export function canViewAnalytics(role: Role): boolean {
   return role === "admin" || role === "account_manager";
 }
 
+/** Die Order page (admin, account manager, pre-production). */
+export function canViewDieOrder(role: Role): boolean {
+  return (
+    role === "admin" ||
+    role === "account_manager" ||
+    role === "preprod_owner"
+  );
+}
+
 /** Manual board create (no webhook) — shown as the "Manual" source label. */
 export function isManualCreatedOrder(order: {
   webhook_source?: string | null;

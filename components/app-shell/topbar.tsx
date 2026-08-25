@@ -18,6 +18,7 @@ interface TopbarProps {
   sidebarOpen: boolean;
   onMenuToggle: () => void;
   boardHealthVisible?: boolean;
+  dieQuotedCount?: number;
 }
 
 function avatarLetter(fullName: string | null, email: string | null) {
@@ -37,6 +38,7 @@ export function Topbar({
   sidebarOpen,
   onMenuToggle,
   boardHealthVisible = true,
+  dieQuotedCount = 0,
 }: TopbarProps) {
   const router = useRouter();
   const [openTenant, setOpenTenant] = useState(false);
@@ -71,11 +73,23 @@ export function Topbar({
         <button
           type="button"
           onClick={onMenuToggle}
-          className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
-          aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+          className="relative rounded-md p-2 text-slate-600 hover:bg-slate-100"
+          aria-label={
+            sidebarOpen
+              ? "Close menu"
+              : dieQuotedCount > 0
+                ? `Open menu, ${dieQuotedCount} die quote${dieQuotedCount === 1 ? "" : "s"} waiting`
+                : "Open menu"
+          }
           aria-expanded={sidebarOpen}
         >
           <Menu className="h-5 w-5" />
+          {dieQuotedCount > 0 ? (
+            <span
+              className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"
+              aria-hidden
+            />
+          ) : null}
         </button>
         <div className="relative min-w-0">
         <button

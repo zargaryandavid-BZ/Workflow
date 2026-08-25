@@ -17,6 +17,7 @@ import {
   Tag,
   Truck,
   User,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -65,6 +66,7 @@ import {
   type PriorityScore,
 } from "@/lib/order-priority-score";
 import type { BoardShippingSign } from "@/lib/board-shipping";
+import { DIE_ALERT_CLASS, type DieAlert } from "@/lib/die-request";
 import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { OrderCardTimeChips } from "./order-card-time-chips";
@@ -101,6 +103,7 @@ interface BoardTableProps {
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   shippingSignByOrder?: Record<string, BoardShippingSign>;
+  dieAlertByOrder?: Record<string, DieAlert>;
   approvalDateByOrder?: Record<string, string>;
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
@@ -155,6 +158,7 @@ export function BoardTable({
   notificationBadgeByOrder,
   ownerNameByOrder,
   shippingSignByOrder = {},
+  dieAlertByOrder = {},
   approvalDateByOrder = {},
   groupSizeByOrder = {},
   warningRules = [],
@@ -471,6 +475,7 @@ export function BoardTable({
             const ownerName = ownerNameByOrder[order.id];
             const isOwnerUnassigned = !order.created_by;
             const shippingSign = shippingSignByOrder[order.id];
+            const dieAlert = dieAlertByOrder[order.id];
             const column = columns.find((c) => c.id === order.column_id);
             const columnKind = column?.kind ?? null;
             const columnName = column?.name ?? null;
@@ -715,6 +720,18 @@ export function BoardTable({
                           <Truck className="h-2.5 w-2.5" />
                         )}
                         {shippingSign.label}
+                      </span>
+                    ) : null}
+                    {dieAlert ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold",
+                          DIE_ALERT_CLASS[dieAlert.level]
+                        )}
+                        title={`Confirmed die due ${dieAlert.confirmedDueDate}`}
+                      >
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        {dieAlert.label}
                       </span>
                     ) : null}
                     <OrderBillingGlobe specs={order.specs} role={role} />

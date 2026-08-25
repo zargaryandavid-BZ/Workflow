@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/app-shell/sidebar";
 import { Topbar } from "@/components/app-shell/topbar";
+import { useDieQuotedCount } from "@/components/app-shell/use-die-quoted-count";
 import type { Role } from "@/lib/types";
 
 interface AppShellProps {
@@ -27,6 +28,7 @@ export function AppShell({
   // Closed by default. Overlay drawer on all breakpoints so the board never
   // gets horizontally clipped when the nav opens (esp. tablet / iPad).
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const dieQuotedCount = useDieQuotedCount(role);
 
   return (
     <div className="flex h-screen w-full max-w-full overflow-hidden overscroll-none">
@@ -43,6 +45,7 @@ export function AppShell({
         role={role}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        dieQuotedCount={dieQuotedCount}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -55,6 +58,7 @@ export function AppShell({
           sidebarOpen={sidebarOpen}
           onMenuToggle={() => setSidebarOpen((open) => !open)}
           boardHealthVisible={boardHealthVisible}
+          dieQuotedCount={dieQuotedCount}
         />
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
       </div>

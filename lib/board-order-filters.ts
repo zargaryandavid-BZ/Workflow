@@ -57,6 +57,21 @@ export function isOrderNumberQuery(q: string): boolean {
   return /^0*\d{1,8}(-\d+)?$/i.test(q.trim());
 }
 
+/** Same short number shown on board cards (`ORD-2026-0509` → `509`). */
+export function formatShortOrderNumber(title: string) {
+  return title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1");
+}
+
+/** Strip `#`, `ORD-YYYY-`, and leading zeros so `0467-2` and `467-2` match. */
+export function compactOrderNumberToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "")
+    .replace(/^ord-\d{4}-/, "")
+    .replace(/^0+(\d)/, "$1");
+}
+
 /**
  * Searchable order-number tokens for a card: title, CRM webhook order number,
  * short base (`ORD-2026-0509` → `0509`), and part suffix (`0509-11`).
@@ -66,7 +81,7 @@ export function orderNumberSearchHaystack(order: {
   title: string;
   specs?: Record<string, unknown> | null;
 }): string {
-  const parts: string[] = [order.title];
+  const parts: string[] = [order.title, formatShortOrderNumber(order.title)];
   const specs = order.specs ?? null;
   const won =
     typeof specs?.webhook_order_number === "string"
@@ -90,6 +105,21 @@ export function orderNumberSearchHaystack(order: {
       : "";
   if (itemTitle) parts.push(itemTitle);
   return parts.join(" ").toLowerCase();
+}
+
+export function orderMatchesNumberSearch(
+  order: { title: string; specs?: Record<string, unknown> | null },
+  q: string
+): boolean {
+  const raw = q.trim().replace(/^#/, "").toLowerCase();
+  if (!raw) return false;
+  const haystack = orderNumberSearchHaystack(order);
+  if (haystack.includes(raw)) return true;
+  const compactQ = compactOrderNumberToken(raw);
+  if (!compactQ) return false;
+  return haystack
+    .split(/\s+/)
+    .some((token) => compactOrderNumberToken(token).includes(compactQ));
 }
 
 /** Local calendar date as YYYY-MM-DD (machine / browser timezone). */

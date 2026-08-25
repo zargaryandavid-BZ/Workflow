@@ -23,6 +23,8 @@ import {
   boardShippingSignFromRequest,
   type BoardShippingSign,
 } from "@/lib/board-shipping";
+import { dieAlertsByOrder } from "@/lib/die-requests.server";
+import type { DieAlert } from "@/lib/die-request";
 
 export interface BoardOrderEnrichment {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
@@ -32,6 +34,8 @@ export interface BoardOrderEnrichment {
   designerNameByOrder: Record<string, string>;
   /** Latest shipping portal state for the order. */
   shippingSignByOrder: Record<string, BoardShippingSign>;
+  /** Confirmed die due-date alarms. */
+  dieAlertByOrder: Record<string, DieAlert>;
   /** ISO date when customer last approved (customer_approval + approved). */
   approvalDateByOrder: Record<string, string>;
 }
@@ -43,6 +47,7 @@ const emptyEnrichment = (): BoardOrderEnrichment => ({
   ownerNameByOrder: {},
   designerNameByOrder: {},
   shippingSignByOrder: {},
+  dieAlertByOrder: {},
   approvalDateByOrder: {},
 });
 
@@ -253,6 +258,8 @@ export async function enrichBoardOrders(
     }
   }
 
+  const dieAlertByOrder = await dieAlertsByOrder(supabase, orderIds);
+
   return {
     fieldValuesByOrder,
     thumbnailByOrder,
@@ -260,6 +267,7 @@ export async function enrichBoardOrders(
     ownerNameByOrder,
     designerNameByOrder,
     shippingSignByOrder,
+    dieAlertByOrder,
     approvalDateByOrder,
   };
 }

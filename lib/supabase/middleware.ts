@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   "/respond",
   "/shipping",
   "/warehouse-confirm",
+  "/die",
   "/l",
   "/auth",
 ];
@@ -23,6 +24,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/approvals/decide",
   "/api/shipping/",
   "/api/warehouse-confirm/",
+  "/api/die/",
   "/api/webhooks/",
   "/api/auth/",
 ];
