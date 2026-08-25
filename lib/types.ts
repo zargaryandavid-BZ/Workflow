@@ -195,6 +195,8 @@ export interface Customer {
   preferred_channel: PreferredChannel;
   /** Default board priority 1–5 for new orders from this customer. */
   default_priority_score?: number | null;
+  /** Additional approval/notification recipients (CC) applied to every order. */
+  cc_emails?: string[] | null;
   created_at: string;
   updated_at?: string;
 }
@@ -253,6 +255,8 @@ export interface OrderSpecs {
   due_date_status?: "set" | "pending_approval" | "none" | null;
   /** Board priority score 1–5 shown as a colored circle before the order number. */
   priority_score?: number | null;
+  /** Extra approval/notification recipients (CC) saved on THIS order. */
+  notify_cc_emails?: string[] | null;
   /**
    * How priority_score was set: `customer` = company default (may sync when
    * company priority changes); `manual` = card override (never auto-updated).
@@ -290,6 +294,11 @@ export interface Order {
    * Empty string means webhook with no/unknown source → Integrations "other" style.
    */
   webhook_source: string | null;
+  /** Order lock — set when a member freezes the card; only admin + locker can clear. */
+  locked_by?: string | null;
+  locked_by_name?: string | null;
+  lock_reason?: string | null;
+  locked_at?: string | null;
   /** CRM order id when ingested from webhook (unique per tenant when set). */
   crm_order_id?: string | null;
   crm_updated_at?: string | null;

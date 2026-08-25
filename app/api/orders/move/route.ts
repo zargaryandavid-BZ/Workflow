@@ -5,6 +5,7 @@ import { logActivity, onEnterColumn } from "@/lib/automation";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { canMove } from "@/lib/permissions";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
+import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import {
   isShipStageKind,
   requiresStockConfirmationBeforeShip,
@@ -66,6 +67,19 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Removed orders cannot be moved" },
       { status: 400 }
+    );
+  }
+  // Locked cards are frozen — only an admin or the person who locked it can move it.
+  if (
+    typedOrder.locked_by &&
+    typedOrder.locked_by !== ctx.userId &&
+    ctx.role !== "admin"
+  ) {
+    return NextResponse.json(
+      {
+        error: `This order is locked${typedOrder.locked_by_name ? ` by ${typedOrder.locked_by_name}` : ""} and can't be moved until it's unlocked.`,
+      },
+      { status: 423 },
     );
   }
 
@@ -302,6 +316,18 @@ export async function POST(request: Request) {
       } catch (err: unknown) {
         console.error(
           "[move] bazaar-portal-sync failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
+      // Net-terms: on entering a Fulfilled stage, have the CRM issue the invoice
+      // and start the Net-N clock from today. No-op for non-net orders (CRM decides).
+      try {
+        if (isFulfilledStage(typedColumn.name)) {
+          await notifyCrmOrderFulfilled(movedOrder, typedColumn.name);
+        }
+      } catch (err: unknown) {
+        console.error(
+          "[move] net-terms-fulfill failed:",
           err instanceof Error ? err.message : err
         );
       }

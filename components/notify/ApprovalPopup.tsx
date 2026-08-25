@@ -18,6 +18,7 @@ import {
   resolvePreferredNotifyChannel,
 } from "@/lib/preferred-channel";
 import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import { formatEmailList, mergeEmailLists, parseEmailList } from "@/lib/email-list";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
@@ -79,6 +80,16 @@ export function ApprovalPopup({
         )
   );
   const [email, setEmail] = useState(contact.email ?? "");
+  // Additional approval recipients (CC): account-level (saved on the customer,
+  // applied to every order) + order-level (saved on this order previously).
+  const initialCc = useMemo(() => {
+    const account = order.customer?.cc_emails ?? [];
+    const orderLevel = order.specs?.notify_cc_emails ?? [];
+    const primary = (contact.email ?? "").trim().toLowerCase();
+    return mergeEmailLists(account, orderLevel).filter((e) => e !== primary);
+  }, [order.customer?.cc_emails, order.specs?.notify_cc_emails, contact.email]);
+  const [ccEmails, setCcEmails] = useState(() => formatEmailList(initialCc));
+  const [saveCcToAccount, setSaveCcToAccount] = useState(true);
   const [phone, setPhone] = useState(contact.phone ?? "");
   const [subject, setSubject] = useState(() => approvalSubject(order.title));
   const [emailMessage, setEmailMessage] = useState(() =>
@@ -128,6 +139,13 @@ export function ApprovalPopup({
         setError("Customer email is required.");
         return;
       }
+      if (wantEmail && ccEmails.trim()) {
+        const { invalid } = parseEmailList(ccEmails);
+        if (invalid.length > 0) {
+          setError(`Not a valid email: ${invalid.join(", ")}`);
+          return;
+        }
+      }
       if (wantSms) {
         const smsError = validateSmsRecipient(phone);
         if (smsError) {
@@ -174,6 +192,8 @@ export function ApprovalPopup({
                 })
               : undefined,
           toEmail: wantEmail ? email.trim() || undefined : undefined,
+          ccEmails: wantEmail ? parseEmailList(ccEmails).valid : undefined,
+          saveCcToAccount: wantEmail ? saveCcToAccount : undefined,
           toPhone: wantSms ? phone.trim() || undefined : undefined,
         }
       );
@@ -311,6 +331,38 @@ export function ApprovalPopup({
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="customer@example.com"
                   />
+                </div>
+              ) : null}
+
+              {wantEmail ? (
+                <div>
+                  <Label htmlFor="approval-cc">
+                    Also send to (CC){" "}
+                    <span className="font-normal text-slate-400">optional</span>
+                  </Label>
+                  <Input
+                    id="approval-cc"
+                    type="text"
+                    value={ccEmails}
+                    onChange={(e) => setCcEmails(e.target.value)}
+                    placeholder="jane@company.com, ops@company.com"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Separate multiple addresses with commas. Everyone here also
+                    gets the approval request.
+                  </p>
+                  <label className="mt-2 flex items-start gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={saveCcToAccount}
+                      onChange={(e) => setSaveCcToAccount(e.target.checked)}
+                    />
+                    <span>
+                      Save these to {customerName || "this customer"} so every
+                      future order includes them.
+                    </span>
+                  </label>
                 </div>
               ) : null}
 

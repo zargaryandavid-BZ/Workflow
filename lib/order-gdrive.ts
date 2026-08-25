@@ -52,6 +52,20 @@ function partIndexFromOrder(
   return fallbackIndex;
 }
 
+/**
+ * Human-friendly line-item / part title for the Drive item-folder name
+ * (e.g. "100 Cap Labels — PO 117481-1"). Uses specs.webhook_item_title (the CRM
+ * product name), matching how the board surfaces the card's display title.
+ * Returns "" when none is set, so the caller falls back to the index suffix.
+ */
+function partTitleFromOrder(order: OrderForGdrive): string {
+  const fromSpecs = order.specs?.webhook_item_title;
+  if (typeof fromSpecs === "string" && fromSpecs.trim()) {
+    return fromSpecs.trim();
+  }
+  return "";
+}
+
 async function resolveCustomerName(
   client: Client,
   tenantId: string,
@@ -171,7 +185,7 @@ async function upsertDesignTaskLink(
  *
  * Layout:
  *   `{code}_{Customer}/`              ← Designer folder (shared)
- *     `{code}_{Customer}_Y/`          ← item folder
+ *     `{code}_{Part title}/`          ← item folder (falls back to `_Y` index)
  *       `{FinalProd}_Y/`              ← Final production
  *
  * - Artwork (GDrive link) ← link_target (default Final production)
@@ -216,15 +230,29 @@ export async function attachGdriveFoldersToOrders(
     let firstJobUrl = "";
     const warnings: string[] = [];
 
+    // Count part titles across this batch so we only append the `_index` suffix
+    // when two line items of the same order share a title (keeps names unique).
+    const titleCounts = new Map<string, number>();
+    for (const o of orders) {
+      const t = partTitleFromOrder(o).toLowerCase();
+      if (t) titleCounts.set(t, (titleCounts.get(t) ?? 0) + 1);
+    }
+
     for (let i = 0; i < orders.length; i++) {
       const order = orders[i];
       const itemIndex = partIndexFromOrder(order, i + 1);
+      const itemTitle = partTitleFromOrder(order);
+      const titleCollides =
+        itemTitle.length > 0 &&
+        (titleCounts.get(itemTitle.toLowerCase()) ?? 0) > 1;
       try {
         const refs = await ensureOrderDriveFolders(
           settings,
           customerName,
           orderKey,
-          itemIndex
+          itemIndex,
+          itemTitle || null,
+          titleCollides
         );
         if (!firstLinkUrl) firstLinkUrl = refs.linkUrl;
         if (!firstJobUrl) firstJobUrl = refs.jobUrl;

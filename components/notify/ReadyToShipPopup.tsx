@@ -28,7 +28,7 @@ import type {
   ShippingWeightUnit,
 } from "@/lib/types";
 
-type Channel = "email" | "sms" | "manual";
+type Channel = "email" | "sms" | "both" | "manual";
 
 interface CheckResult {
   siblingCount: number;
@@ -112,6 +112,8 @@ export function ReadyToShipPopup({
     if (initial === "manual") return "";
     return destinationForChannel(contact, initial);
   });
+  // Second destination used only in "both" (email + SMS) mode; `to` holds the email.
+  const [bothPhone, setBothPhone] = useState(() => contact.phone ?? "");
   const [subject, setSubject] = useState(() =>
     shippingPortalSubject(order.title)
   );
@@ -240,7 +242,21 @@ export function ReadyToShipPopup({
       return;
     }
 
-    if (channel !== "manual") {
+    if (channel === "both") {
+      const emailDest = to.trim();
+      const phoneDest = bothPhone.trim();
+      if (!emailDest && !phoneDest) {
+        setError("Customer email or phone number is required.");
+        return;
+      }
+      if (phoneDest) {
+        const smsError = validateSmsRecipient(phoneDest);
+        if (smsError) {
+          setError(smsError);
+          return;
+        }
+      }
+    } else if (channel !== "manual") {
       const destination = to.trim();
       if (!destination) {
         setError(
@@ -270,10 +286,22 @@ export function ReadyToShipPopup({
         dimUnit,
         weightUnit,
         fulfillment,
-        subject: channel === "email" ? subject.trim() : undefined,
-        messageBody: channel === "email" ? emailMessage : undefined,
-        toEmail: channel === "email" ? to.trim() || undefined : undefined,
-        toPhone: channel === "sms" ? to.trim() || undefined : undefined,
+        subject:
+          channel === "email" || channel === "both" ? subject.trim() : undefined,
+        messageBody:
+          channel === "email" || channel === "both" ? emailMessage : undefined,
+        toEmail:
+          channel === "email"
+            ? to.trim() || undefined
+            : channel === "both"
+              ? to.trim() || undefined
+              : undefined,
+        toPhone:
+          channel === "sms"
+            ? to.trim() || undefined
+            : channel === "both"
+              ? bothPhone.trim() || undefined
+              : undefined,
       });
 
       if (!ok) {
@@ -302,6 +330,12 @@ export function ReadyToShipPopup({
             ? `Pickup-ready notice sent to ${customerName}`
             : `Notification sent to ${customerName}`
         );
+      } else if (channel === "both") {
+        onSent(
+          fulfillment === "pickup"
+            ? `Pickup-ready notice sent to ${customerName} by email + SMS`
+            : `Notification sent to ${customerName} by email + SMS`
+        );
       } else {
         onSent(
           fulfillment === "pickup"
@@ -326,10 +360,15 @@ export function ReadyToShipPopup({
     setChannel(next);
     if (next === "email") setTo(contact.email ?? "");
     else if (next === "sms") setTo(contact.phone ?? "");
+    else if (next === "both") {
+      setTo(contact.email ?? "");
+      setBothPhone(contact.phone ?? "");
+    }
     setError(null);
   }
 
   const isManual = channel === "manual";
+  const showsEmailFields = channel === "email" || channel === "both";
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
@@ -599,6 +638,20 @@ export function ReadyToShipPopup({
               </button>
               <button
                 type="button"
+                onClick={() => switchChannel("both")}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                  channel === "both"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                )}
+              >
+                <Mail className="h-4 w-4" />
+                <MessageSquare className="h-4 w-4" />
+                Email + SMS
+              </button>
+              <button
+                type="button"
                 onClick={() => switchChannel("manual")}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
@@ -622,14 +675,20 @@ export function ReadyToShipPopup({
           ) : (
             <>
               <div>
-                <Label htmlFor="rts-to">To</Label>
+                <Label htmlFor="rts-to">
+                  {channel === "sms"
+                    ? "To (phone)"
+                    : channel === "both"
+                      ? "Email"
+                      : "To"}
+                </Label>
                 <Input
                   id="rts-to"
-                  type={channel === "email" ? "email" : "tel"}
+                  type={showsEmailFields ? "email" : "tel"}
                   value={to}
                   onChange={(e) => setTo(e.target.value)}
                   placeholder={
-                    channel === "email"
+                    showsEmailFields
                       ? "customer@example.com"
                       : "+1 555 123 4567"
                   }
@@ -642,7 +701,26 @@ export function ReadyToShipPopup({
                 ) : null}
               </div>
 
-              {channel === "email" ? (
+              {channel === "both" ? (
+                <div>
+                  <Label htmlFor="rts-to-phone">Phone (SMS)</Label>
+                  <Input
+                    id="rts-to-phone"
+                    type="tel"
+                    value={bothPhone}
+                    onChange={(e) => setBothPhone(e.target.value)}
+                    placeholder="+1 555 123 4567"
+                  />
+                  {!smsConfigured ? (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Twilio is not configured. Add Twilio credentials to
+                      .env.local and restart.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showsEmailFields ? (
                 <>
                   <div>
                     <Label htmlFor="rts-subject">Subject</Label>

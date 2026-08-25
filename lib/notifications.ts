@@ -32,6 +32,7 @@ import {
 import { resolveCustomerApprovalActionUrl } from "@/lib/approval-group";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { syncCustomerFromNotification } from "@/lib/customers";
+import { mergeEmailLists } from "@/lib/email-list";
 import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
@@ -121,6 +122,10 @@ async function deliverNotification(
     staffNote?: string | null;
     toEmail?: string | null;
     toPhone?: string | null;
+    /** Extra approval recipients (CC) beyond the primary customer email. */
+    ccEmails?: string[] | null;
+    /** When true, persist ccEmails onto the customer for future orders. */
+    saveCcToAccount?: boolean | null;
     subject?: string | null;
     messageBody?: string | null;
     actorUserId?: string | null;
@@ -176,6 +181,22 @@ async function deliverNotification(
   });
   if (syncedCustomerId && syncedCustomerId !== params.order.customer_id) {
     params.order = { ...params.order, customer_id: syncedCustomerId };
+  }
+
+  // Persist the CC list onto THIS order so re-opening the popup pre-fills it,
+  // even if the send later fails. Only when the caller passed a cc list.
+  const ccList = mergeEmailLists(params.ccEmails ?? []);
+  if (params.ccEmails !== undefined && params.ccEmails !== null) {
+    const nextSpecs = { ...(params.order.specs ?? {}), notify_cc_emails: ccList };
+    const { error: specsErr } = await client
+      .from("orders")
+      .update({ specs: nextSpecs })
+      .eq("id", params.order.id);
+    if (specsErr) {
+      console.error("[notification-cc] failed to save order cc list:", specsErr.message);
+    } else {
+      params.order = { ...params.order, specs: nextSpecs };
+    }
   }
 
   const wantEmail =
@@ -278,8 +299,9 @@ async function deliverNotification(
           : params.notification.type === "ready_to_ship" && params.messageBody
             ? ensureReadyToShipOrderLink(params.messageBody, actionUrl)
             : undefined;
+      const emailRecipients = mergeEmailLists([customerEmail], ccList);
       const emailResult = await sendNotificationEmail({
-        to: customerEmail,
+        to: emailRecipients.join(","),
         type: params.notification.type,
         orderTitle: params.order.title,
         tenantName: params.tenantName,
@@ -294,7 +316,7 @@ async function deliverNotification(
       });
       if (emailResult.sent) {
         sentParts.push("email");
-        sentToEmail = customerEmail;
+        sentToEmail = emailRecipients.join(", ");
         sentSubject = resolvedSubject ?? null;
         sentEmailBody = textBody ?? params.messageBody ?? null;
       } else {
@@ -395,6 +417,36 @@ async function deliverNotification(
       phone: sentToPhone,
     },
   });
+
+  // Save the CC list onto the customer so every future order pre-fills them.
+  if (
+    params.saveCcToAccount &&
+    ccList.length > 0 &&
+    params.order.customer_id
+  ) {
+    try {
+      const { data: cust } = await client
+        .from("customers")
+        .select("cc_emails")
+        .eq("id", params.order.customer_id)
+        .maybeSingle();
+      const existing = Array.isArray((cust as { cc_emails?: string[] } | null)?.cc_emails)
+        ? ((cust as { cc_emails?: string[] }).cc_emails as string[])
+        : [];
+      const merged = mergeEmailLists(existing, ccList);
+      if (merged.length !== existing.length) {
+        const { error: accErr } = await client
+          .from("customers")
+          .update({ cc_emails: merged })
+          .eq("id", params.order.customer_id);
+        if (accErr) {
+          console.error("[notification-cc] failed to save account cc list:", accErr.message);
+        }
+      }
+    } catch (err) {
+      console.error("[notification-cc] account cc save threw:", err);
+    }
+  }
 
   if (errors.length > 0) {
     return {
@@ -605,6 +657,10 @@ export async function createNotification(
     /** Optional staff override for the destination address/number. */
     toEmail?: string | null;
     toPhone?: string | null;
+    /** Extra approval recipients (CC) beyond the primary customer email. */
+    ccEmails?: string[] | null;
+    /** When true, persist ccEmails onto the customer for future orders. */
+    saveCcToAccount?: boolean | null;
     createdBy?: string | null;
     subject?: string | null;
     messageBody?: string | null;
@@ -672,6 +728,8 @@ export async function createNotification(
       staffNote: params.staffNote,
       toEmail: params.toEmail,
       toPhone: params.toPhone,
+      ccEmails: params.ccEmails,
+      saveCcToAccount: params.saveCcToAccount,
       subject: params.subject,
       messageBody:
         (params.channel === "email" || params.channel === "both") &&

@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Lock,
   Loader2,
   MessageSquare,
   Trash2,
@@ -329,6 +330,10 @@ export function CardDetailModal({
   const [customerContact, setCustomerContact] = useState("");
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
   const [skus, setSkus] = useState<SkuItem[]>([]);
+  const [syncingProofs, setSyncingProofs] = useState(false);
+  const [proofMsg, setProofMsg] = useState<string | null>(null);
+  const [settingUpFolders, setSettingUpFolders] = useState(false);
+  const [folderMsg, setFolderMsg] = useState<string | null>(null);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
   const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "history">(
@@ -359,6 +364,55 @@ export function CardDetailModal({
   const [smsError, setSmsError] = useState<string | null>(null);
   const smsRef = useRef<HTMLDivElement>(null);
   const isAdmin = role === "admin";
+
+  // ── Order lock ──────────────────────────────────────────────────────────────
+  const lockedBy = data?.order?.locked_by ?? null;
+  const lockedByName = data?.order?.locked_by_name ?? null;
+  const lockReason = data?.order?.lock_reason ?? null;
+  const isLocked = Boolean(lockedBy);
+  const isLockedByOther = isLocked && lockedBy !== userId;
+  const canUnlock = isLocked && (isAdmin || lockedBy === userId);
+  const isLockedOut = isLockedByOther && !isAdmin;
+  const [lockBusy, setLockBusy] = useState(false);
+
+  async function lockOrder() {
+    if (!orderId) return;
+    const reason = window.prompt("Why are you locking this order? Everyone will see this reason.");
+    if (reason == null) return;
+    if (!reason.trim()) { setSaveError("A reason is required to lock the order."); return; }
+    setLockBusy(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setSaveError(j.error ?? "Failed to lock the order.");
+        return;
+      }
+      await load({ silent: true });
+    } finally {
+      setLockBusy(false);
+    }
+  }
+
+  async function unlockOrder() {
+    if (!orderId) return;
+    setLockBusy(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/lock`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setSaveError(j.error ?? "Failed to unlock the order.");
+        return;
+      }
+      await load({ silent: true });
+    } finally {
+      setLockBusy(false);
+    }
+  }
 
   const customFieldsRef = useRef(customFields);
   customFieldsRef.current = customFields;
@@ -1682,6 +1736,28 @@ export function CardDetailModal({
     </span>
   );
 
+  if (isLockedOut && data?.order) {
+    return (
+      <Modal open={open} onClose={handleClose} title="🔒 Locked order">
+        <div className="space-y-3 p-4">
+          <p className="text-sm text-slate-700">
+            This order is locked{lockedByName ? ` by ${lockedByName}` : ""}. You can&apos;t open or
+            edit it until the lock is removed.
+          </p>
+          {lockReason ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <span className="font-semibold">Reason: </span>
+              {lockReason}
+            </div>
+          ) : null}
+          <p className="text-xs text-slate-500">
+            Only {lockedByName ?? "the person who locked it"} or an admin can remove this lock.
+          </p>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <>
     <Modal
@@ -1731,6 +1807,38 @@ export function CardDetailModal({
             ) : null}
             {orderId && data && mode !== "view" ? (
               <NudgeButton orderId={orderId} />
+            ) : null}
+            {orderId && data ? (
+              isLocked ? (
+                canUnlock ? (
+                  <button
+                    type="button"
+                    onClick={() => void unlockOrder()}
+                    disabled={lockBusy || loading || saving}
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    title={lockReason ? `Locked: ${lockReason}` : "Unlock this order"}
+                  >
+                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                    {lockBusy ? "Unlocking…" : "Unlock"}
+                  </button>
+                ) : (
+                  <span className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-sm font-medium text-amber-700" title={lockReason ?? undefined}>
+                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                    Locked{lockedByName ? ` by ${lockedByName}` : ""}
+                  </span>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void lockOrder()}
+                  disabled={lockBusy || loading || saving}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Lock this order so nobody works it by mistake"
+                >
+                  <Lock className="h-3.5 w-3.5 shrink-0" />
+                  {lockBusy ? "Locking…" : "Lock"}
+                </button>
+              )
             ) : null}
             {orderId && data && isAdmin ? (
               <button
@@ -2312,6 +2420,87 @@ export function CardDetailModal({
               tagId={tagId}
               onTagIdChange={isViewOnly ? undefined : setTagId}
             />
+
+            {orderId && !isViewOnly ? (
+              <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={settingUpFolders}
+                  onClick={async () => {
+                    if (!orderId) return;
+                    setSettingUpFolders(true);
+                    setFolderMsg(null);
+                    try {
+                      const res = await fetch(
+                        `/api/orders/${orderId}/setup-artwork-folders`,
+                        { method: "POST" }
+                      );
+                      const j = await res.json();
+                      if (!res.ok) {
+                        setFolderMsg(j.error || "Could not create folders.");
+                      } else {
+                        setFolderMsg(
+                          `Ready — ${j.versionFolders} version folder(s) + a Proofs folder` +
+                            (j.created ? ` (${j.created} new)` : " (all already existed)")
+                        );
+                      }
+                    } catch {
+                      setFolderMsg("Could not create folders.");
+                    } finally {
+                      setSettingUpFolders(false);
+                    }
+                  }}
+                >
+                  {settingUpFolders ? "Creating folders…" : "Set up artwork folders in Drive"}
+                </Button>
+                <p className="text-xs text-slate-500">
+                  Creates one working subfolder per version + a “Proofs” folder in this order's Drive folder, so designers drop files into the right place. Safe to re-run.
+                </p>
+                {folderMsg ? (
+                  <p className="text-xs text-slate-700">{folderMsg}</p>
+                ) : null}
+                <Button
+                  type="button"
+                  disabled={syncingProofs}
+                  onClick={async () => {
+                    if (!orderId) return;
+                    setSyncingProofs(true);
+                    setProofMsg(null);
+                    try {
+                      const res = await fetch(
+                        `/api/orders/${orderId}/sync-proofs`,
+                        { method: "POST" }
+                      );
+                      const j = await res.json();
+                      if (!res.ok) {
+                        setProofMsg(j.error || "Sync failed.");
+                      } else {
+                        setProofMsg(
+                          `Filled ${j.filled} of ${j.matched} matched · ${j.totalFiles} file(s) in Proofs` +
+                            (j.unfilledSkus?.length
+                              ? ` · ${j.unfilledSkus.length} version(s) still without a file`
+                              : "")
+                        );
+                        await load({ silent: true });
+                      }
+                    } catch {
+                      setProofMsg("Sync failed.");
+                    } finally {
+                      setSyncingProofs(false);
+                    }
+                  }}
+                >
+                  {syncingProofs ? "Syncing proofs…" : "Sync proofs from Drive"}
+                </Button>
+                <p className="text-xs text-slate-500">
+                  Pulls finished files from this order's Drive “Proofs” folder into the matching version image slots. Won’t overwrite slots that already have an image.
+                </p>
+                {proofMsg ? (
+                  <p className="text-xs text-slate-700">{proofMsg}</p>
+                ) : null}
+              </div>
+            ) : null}
 
             {saveError ? (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
