@@ -9,7 +9,6 @@ import {
   SKU_IMAGE_RAW_MAX_BYTES,
   uploadSizeError,
 } from "@/lib/order-assets";
-import { MAX_SKU_IMAGES } from "@/lib/sku-images";
 import type { OrderSkuImageWithUrl } from "@/lib/types";
 
 function isImagePreview(fileName: string, mimeType?: string | null): boolean {
@@ -43,7 +42,7 @@ export function SkuImageUpload({
   const dragIndexRef = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
 
-  const canUpload = !disabled && images.length < MAX_SKU_IMAGES;
+  const canUpload = !disabled;
 
   const prevInitialIdsRef = useRef(initialImages.map((i) => i.id).join(","));
   useEffect(() => {
@@ -62,7 +61,7 @@ export function SkuImageUpload({
   }
 
   async function handleFiles(files: FileList | File[]) {
-    const fileArray = Array.from(files).slice(0, MAX_SKU_IMAGES - images.length);
+    const fileArray = Array.from(files);
     if (!fileArray.length) return;
 
     setUploading(true);
@@ -245,16 +244,13 @@ export function SkuImageUpload({
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
-            className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-300 text-slate-400 transition-colors hover:border-blue-400 hover:text-blue-500 disabled:opacity-50"
-            title={`Add image (${images.length}/${MAX_SKU_IMAGES})`}
+            className="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 transition-colors hover:border-blue-400 hover:text-blue-500 disabled:opacity-50"
+            title="Add image"
           >
             {uploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <>
-                <Plus className="h-4 w-4" />
-                <span className="text-[10px]">{images.length}/{MAX_SKU_IMAGES}</span>
-              </>
+              <Plus className="h-4 w-4" />
             )}
           </button>
         ) : null}
@@ -330,7 +326,7 @@ export function SkuPendingImagePicker({
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  const canUpload = !disabled && files.length < MAX_SKU_IMAGES;
+  const canUpload = !disabled;
 
   useEffect(() => {
     return () => {
@@ -339,7 +335,7 @@ export function SkuPendingImagePicker({
   }, []);
 
   async function handleFiles(list: FileList | File[]) {
-    const fileArray = Array.from(list).slice(0, MAX_SKU_IMAGES - files.length);
+    const fileArray = Array.from(list);
     if (!fileArray.length) return;
 
     setProcessing(true);
@@ -422,18 +418,13 @@ export function SkuPendingImagePicker({
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={processing}
-            className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-300 text-slate-400 transition-colors hover:border-blue-400 hover:text-blue-500 disabled:opacity-50"
-            title={`Add image (${files.length}/${MAX_SKU_IMAGES})`}
+            className="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 transition-colors hover:border-blue-400 hover:text-blue-500 disabled:opacity-50"
+            title="Add image"
           >
             {processing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <>
-                <Plus className="h-4 w-4" />
-                <span className="text-[10px]">
-                  {files.length}/{MAX_SKU_IMAGES}
-                </span>
-              </>
+              <Plus className="h-4 w-4" />
             )}
           </button>
         ) : null}

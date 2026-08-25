@@ -4,7 +4,6 @@ import { getTenantContext } from "@/lib/auth";
 import { ORDER_ASSETS_BUCKET, SKU_IMAGE_MAX_BYTES, uploadSizeError } from "@/lib/order-assets";
 import {
   attachSignedUrlsToSkuImages,
-  MAX_SKU_IMAGES,
   mergeSkuImagesWithAssets,
   skuImageStoragePath,
 } from "@/lib/sku-images";
@@ -155,13 +154,6 @@ export async function POST(
     .select("id", { count: "exact", head: true })
     .eq("sku_id", skuId)
     .eq("order_id", orderId);
-
-  if ((count ?? 0) >= MAX_SKU_IMAGES) {
-    return NextResponse.json(
-      { error: `Maximum ${MAX_SKU_IMAGES} images per SKU` },
-      { status: 422 }
-    );
-  }
 
   const position = count ?? 0;
   const storagePath = skuImageStoragePath(
