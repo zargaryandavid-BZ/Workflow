@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ImageIcon, X } from "lucide-react";
 import { useEffect, useState, type MouseEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 
@@ -19,6 +19,11 @@ interface ImageLightboxProps {
   images?: ImageLightboxItem[];
   initialIndex?: number;
   onClose: () => void;
+  /** Pin the current picture as the Kanban card image (autosaves). */
+  onShowOnCard?: (index: number) => void;
+  showOnCardBusy?: boolean;
+  /** Index of the picture currently pinned on the Kanban card. */
+  cardImageIndex?: number;
 }
 
 /** Prevent the click that closed the overlay from falling through to the board. */
@@ -42,6 +47,9 @@ export function ImageLightbox({
   images,
   initialIndex = 0,
   onClose,
+  onShowOnCard,
+  showOnCardBusy = false,
+  cardImageIndex = 0,
 }: ImageLightboxProps) {
   const items: ImageLightboxItem[] =
     images && images.length > 0
@@ -190,6 +198,26 @@ export function ImageLightbox({
             <p className="text-xs font-medium tabular-nums text-white/55">
               {index + 1} / {items.length}
             </p>
+          ) : null}
+          {onShowOnCard ? (
+            <button
+              type="button"
+              disabled={showOnCardBusy || index === cardImageIndex}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onShowOnCard(index);
+              }}
+              onPointerDown={stop}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-lg hover:bg-slate-100 disabled:cursor-default disabled:opacity-80"
+            >
+              <ImageIcon className="h-3.5 w-3.5" />
+              {index === cardImageIndex
+                ? "Showing on order card"
+                : showOnCardBusy
+                  ? "Saving…"
+                  : "Show this pic on the order card"}
+            </button>
           ) : null}
         </div>
       </div>

@@ -114,14 +114,98 @@ function parseSpecDefList(raw: unknown): CatalogV2SpecDef[] {
   return out;
 }
 
+/** CRM catalog product arrays used as select options when field_options is empty. */
+const PRODUCT_OPTION_LIST_KEY: Record<string, string> = {
+  MATERIAL: "materials",
+  MATERIALS: "materials",
+  FINISHING: "finishing",
+  SPECIAL_EFFECTS: "special_effects",
+  DIE: "dies",
+};
+
+function lookupBagValue(
+  bag: Record<string, unknown> | null | undefined,
+  key: string
+): unknown {
+  if (!bag) return undefined;
+  if (key in bag) return bag[key];
+  const upper = key.toUpperCase();
+  const lower = key.toLowerCase();
+  for (const [k, v] of Object.entries(bag)) {
+    if (k === key || k.toUpperCase() === upper || k.toLowerCase() === lower) {
+      return v;
+    }
+  }
+  return undefined;
+}
+
+function optionsForCatalogField(
+  product: Record<string, unknown>,
+  optionsBag: Record<string, unknown> | null,
+  key: string
+): CrmSpecOption[] {
+  const fo = optionsBag && isRecord(optionsBag.field_options)
+    ? optionsBag.field_options
+    : null;
+  const fromFo = parseOptions(lookupBagValue(fo, key));
+  if (fromFo.length > 0) return fromFo;
+
+  const productKey = PRODUCT_OPTION_LIST_KEY[key.toUpperCase()];
+  if (productKey) {
+    const fromProduct = parseOptions(product[productKey]);
+    if (fromProduct.length > 0) return fromProduct;
+  }
+  return [];
+}
+
+function enrichSpecDefs(
+  product: Record<string, unknown>,
+  defs: CatalogV2SpecDef[],
+  optionsBag?: Record<string, unknown> | null
+): CatalogV2SpecDef[] {
+  const bag =
+    optionsBag ?? (isRecord(product.options) ? product.options : null);
+  const labels =
+    bag && isRecord(bag.field_labels) ? bag.field_labels : null;
+  return defs.map((def) => {
+    const labelFromBag =
+      asString(lookupBagValue(labels, def.key)) ??
+      asString(lookupBagValue(labels, def.key.toLowerCase()));
+    const existing = def.options ?? [];
+    const extra = optionsForCatalogField(product, bag, def.key);
+    const options = existing.length > 0 ? existing : extra;
+    const type: CrmSpecType =
+      (def.type === "select" || def.type === "multi_select") &&
+      options.length === 0
+        ? "text"
+        : def.type;
+    return {
+      ...def,
+      label: labelFromBag ?? def.label,
+      type,
+      ...(options.length > 0 ? { options } : {}),
+    };
+  });
+}
+
 function productSpecifications(product: Record<string, unknown>): CatalogV2SpecDef[] {
+  const optionsBag = isRecord(product.options) ? product.options : null;
   const fromSpecs = parseSpecDefList(product.specifications);
-  if (fromSpecs.length > 0) return fromSpecs;
+  if (fromSpecs.length > 0) return enrichSpecDefs(product, fromSpecs, optionsBag);
   const fromSpecFields = parseSpecDefList(product.spec_fields);
-  if (fromSpecFields.length > 0) return fromSpecFields;
+  if (fromSpecFields.length > 0) {
+    return enrichSpecDefs(product, fromSpecFields, optionsBag);
+  }
   const fromFields = parseSpecDefList(product.fields);
-  if (fromFields.length > 0) return fromFields;
-  return specsFromOptionsBag(product.options);
+  if (fromFields.length > 0) return enrichSpecDefs(product, fromFields, optionsBag);
+  if (optionsBag) {
+    const fromOptFields = parseSpecDefList(optionsBag.fields);
+    if (fromOptFields.length > 0) {
+      return enrichSpecDefs(product, fromOptFields, optionsBag);
+    }
+    return specsFromOptionsBag(optionsBag);
+  }
+  return [];
 }
 
 function specsFromOptionsBag(raw: unknown): CatalogV2SpecDef[] {

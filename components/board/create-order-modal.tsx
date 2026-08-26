@@ -11,7 +11,6 @@ import {
   type PendingSkuImage,
   type SkuItem,
 } from "./sku-editor";
-import { createOrderAction } from "@/lib/actions/create-order";
 import {
   DEFAULT_PROCESSING_DAYS,
   type DueDateMode,
@@ -41,7 +40,7 @@ interface CreateOrderModalProps {
   tenantIntegrationMode?: IntegrationMode;
   designers: Designer[];
   currentUserId: string;
-  onCreated: () => void;
+  onCreated: (order?: { id?: string; column_id?: string }) => void;
 }
 
 function revokeAllPending(
@@ -228,79 +227,91 @@ export function CreateOrderModal({
     }
 
     setLoading(true);
-    const json = await createOrderAction({
-      title,
-      internalNote: internalNote || null,
-      columnId,
-      ownerId: ownerId || null,
-      priority,
-      dueDate:
-        dueDateMode === "fixed" && dueDate ? dueDate.slice(0, 10) : null,
-      dueDateMode,
-      dueProcessingDays:
-        dueDateMode === "after_approval" ? dueProcessingDays : null,
-      specs: {
-        skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
-        designer_id: designerId || null,
-        designer_name:
-          designers.find((d) => d.id === designerId)?.name ?? null,
-        design_task: designTask || null,
-        production_notes: productionNotes.trim() || null,
-        ...(isApplicationCustomFieldOn(customFields, fieldValues)
-          ? {
-              application: true,
-              application_days: Math.max(
-                1,
-                Math.floor(applicationDays) || DEFAULT_APPLICATION_DAYS
-              ),
-            }
-          : {}),
-      },
-      customFieldValues: buildCustomFieldPayload(
-        connectedResolved,
-        connectedFieldValues,
-        skus,
-        customerName,
-        customerContact
-      ),
-      ...(connected && product
-        ? {
-            integrationMode: "connected" as const,
-            crmSnapshot: buildCrmSnapshot(product, connectedSpecValues),
-          }
-        : {}),
-    });
-
-    if (json.error) {
-      setLoading(false);
-      setError(json.error);
-      return;
-    }
-
-    const orderId = json.order?.id as string | undefined;
-    if (orderId && Object.keys(pendingImagesBySkuId).length > 0) {
-      const uploadError = await uploadPendingSkuImages(
-        orderId,
-        pendingImagesBySkuId
-      );
-      if (uploadError) {
-        setLoading(false);
-        setError(
-          `Order created, but some SKU images failed: ${uploadError}. Open the card to retry uploads.`
-        );
-        revokeAllPending(pendingImagesBySkuId);
-        setPendingImagesBySkuId({});
-        onCreated();
+    try {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          internalNote: internalNote || null,
+          columnId,
+          ownerId: ownerId || null,
+          priority,
+          dueDate:
+            dueDateMode === "fixed" && dueDate ? dueDate.slice(0, 10) : null,
+          dueDateMode,
+          dueProcessingDays:
+            dueDateMode === "after_approval" ? dueProcessingDays : null,
+          specs: {
+            skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
+            designer_id: designerId || null,
+            designer_name:
+              designers.find((d) => d.id === designerId)?.name ?? null,
+            design_task: designTask || null,
+            production_notes: productionNotes.trim() || null,
+            ...(isApplicationCustomFieldOn(customFields, fieldValues)
+              ? {
+                  application: true,
+                  application_days: Math.max(
+                    1,
+                    Math.floor(applicationDays) || DEFAULT_APPLICATION_DAYS
+                  ),
+                }
+              : {}),
+          },
+          customFieldValues: buildCustomFieldPayload(
+            connectedResolved,
+            connectedFieldValues,
+            skus,
+            customerName,
+            customerContact
+          ),
+          ...(connected && product
+            ? {
+                integrationMode: "connected" as const,
+                crmSnapshot: buildCrmSnapshot(product, connectedSpecValues),
+              }
+            : {}),
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        order?: { id?: string; column_id?: string };
+        gdriveFolderUrl?: string;
+        gdriveOpenOnCreate?: boolean;
+      };
+      if (!res.ok || json.error) {
+        setError(json.error ?? "Failed to create order");
         return;
       }
-    }
 
-    setLoading(false);
-    if (json.gdriveFolderUrl && json.gdriveOpenOnCreate) {
-      window.open(json.gdriveFolderUrl, "_blank", "noopener,noreferrer");
+      const orderId = json.order?.id;
+      if (orderId && Object.keys(pendingImagesBySkuId).length > 0) {
+        const uploadError = await uploadPendingSkuImages(
+          orderId,
+          pendingImagesBySkuId
+        );
+        if (uploadError) {
+          setError(
+            `Order created, but some SKU images failed: ${uploadError}. Open the card to retry uploads.`
+          );
+          revokeAllPending(pendingImagesBySkuId);
+          setPendingImagesBySkuId({});
+          onCreated(json.order);
+          return;
+        }
+      }
+
+      if (json.gdriveFolderUrl && json.gdriveOpenOnCreate) {
+        window.open(json.gdriveFolderUrl, "_blank", "noopener,noreferrer");
+      }
+      reset();
+      onCreated(json.order);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create order");
+    } finally {
+      setLoading(false);
     }
-    reset();
-    onCreated();
   }
 
   const columnName = columns.find((c) => c.id === columnId)?.name;

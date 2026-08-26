@@ -16,12 +16,13 @@ import {
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
+import type { BoardThumbnail } from "@/lib/card-image";
 import type { BoardColumn, CustomField, OrderWithRelations } from "@/lib/types";
 
 export interface SearchOrdersResponse {
   orders: OrderWithRelations[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string[]>;
+  thumbnailByOrder: Record<string, BoardThumbnail[]>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;

@@ -26,6 +26,7 @@ import { effectiveDropRoles, parseDropRoles } from "@/lib/columns";
 import { BOARD_ROLES, COLUMN_ACCENT, ROLE_ABBR } from "@/lib/constants";
 import { canAssignDesignerOnBoard, canSetBoardTagAndPriority } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import type { BoardThumbnail } from "@/lib/card-image";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
@@ -66,7 +67,11 @@ interface ColumnProps {
   onSortModeChange: (mode: ColumnSortMode) => void;
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string[]>;
+  thumbnailByOrder: Record<string, BoardThumbnail[]>;
+  onCardThumbnailsChange?: (
+    orderId: string,
+    thumbnails: BoardThumbnail[]
+  ) => void;
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
@@ -178,6 +183,7 @@ export function Column({
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
+  onCardThumbnailsChange,
   designerNameByOrder,
   notificationBadgeByOrder,
   ownerNameByOrder,
@@ -473,6 +479,7 @@ export function Column({
                     customFields={customFields}
                     fieldValues={fieldValuesByOrder[entry.order.id]}
                     thumbnails={thumbnailByOrder[entry.order.id]}
+                    onCardThumbnailsChange={onCardThumbnailsChange}
                     designerName={designerNameByOrder[entry.order.id]}
                     designers={designers}
                     onAssignDesigner={
@@ -554,6 +561,7 @@ export function Column({
                   customFields={customFields}
                   fieldValues={fieldValuesByOrder[order.id]}
                   thumbnails={thumbnailByOrder[order.id]}
+                  onCardThumbnailsChange={onCardThumbnailsChange}
                   designerName={designerNameByOrder[order.id]}
                   designers={designers}
                   onAssignDesigner={

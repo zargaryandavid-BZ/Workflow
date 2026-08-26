@@ -1241,7 +1241,7 @@ export function OrderFormBody({
                         minute: "2-digit",
                       })}
                     </p>
-                    <p className="min-w-0 break-all whitespace-pre-wrap text-sm text-slate-900">
+                    <p className="min-w-0 break-words whitespace-pre-wrap text-sm text-slate-900">
                       {entry.text}
                     </p>
                   </div>

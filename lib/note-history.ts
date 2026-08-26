@@ -77,3 +77,29 @@ export function noteHistoryFromPlainText(
     appendNoteEntry([], trimmed, author)
   );
 }
+
+function normalizeNoteCompare(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Merge CRM/webhook designer notes into ticket history (`specs.designer_notes`).
+ * Skips a duplicate of text already stored.
+ */
+export function mergeWebhookDesignerNotes(
+  existingRaw: string | null | undefined,
+  incoming: string | null | undefined,
+  author = "CRM"
+): string | null {
+  const history = parseNoteHistory(existingRaw);
+  const incomingTrim = incoming?.trim() ?? "";
+  if (!incomingTrim) {
+    return serializeNoteHistory(history);
+  }
+  const incomingNorm = normalizeNoteCompare(incomingTrim);
+  const already = history.some(
+    (entry) => normalizeNoteCompare(entry.text) === incomingNorm
+  );
+  if (already) return serializeNoteHistory(history);
+  return serializeNoteHistory(appendNoteEntry(history, incomingTrim, author));
+}

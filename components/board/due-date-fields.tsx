@@ -69,7 +69,7 @@ export function DueDateFields({
         Due date
         {required ? <span className="ml-0.5 text-red-500">*</span> : null}
       </Label>
-      <div className="min-w-0 space-y-2">
+      <div className="grid min-w-0 grid-cols-2 items-center gap-2">
         <Select
           id={`${idPrefix}-due-mode`}
           value={mode}
@@ -80,7 +80,7 @@ export function DueDateFields({
             )
           }
           className={
-            readOnly ? "min-w-0 max-w-full bg-slate-50" : "min-w-0 max-w-full"
+            readOnly ? "min-w-0 bg-slate-50" : "min-w-0"
           }
         >
           <option value="fixed">Fixed date</option>
@@ -105,7 +105,7 @@ export function DueDateFields({
             }
           />
         ) : (
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <Input
               id={`${idPrefix}-due-days`}
               type="number"
@@ -132,7 +132,7 @@ export function DueDateFields({
               }}
               className={`w-16 shrink-0 ${readOnly ? "bg-slate-50" : ""}`}
             />
-            <span className="min-w-0 text-sm text-slate-600">
+            <span className="min-w-0 truncate text-sm text-slate-600">
               working days
             </span>
           </div>

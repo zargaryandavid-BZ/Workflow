@@ -50,11 +50,18 @@ import { fetchRetryingStale404, fetchWithAuth, isStaleNext404 } from "@/lib/fetc
 import {
   canDragInColumn,
   canDropIn,
+  canEditOrderDetails,
   canLeaveColumn,
   canMove,
   canSetBoardTagAndPriority,
   canUseBoardActionButtons,
 } from "@/lib/permissions";
+import {
+  CARD_IMAGE_CHANGED_EVENT,
+  preferCardImage,
+  type BoardThumbnail,
+  type CardImageSource,
+} from "@/lib/card-image";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
@@ -309,7 +316,7 @@ export function Board({
     Record<string, Record<string, unknown>>
   >({});
   const [thumbnailByOrder, setThumbnailByOrder] = useState<
-    Record<string, string[]>
+    Record<string, BoardThumbnail[]>
   >({});
   const [notificationBadgeByOrder, setNotificationBadgeByOrder] = useState<
     Record<string, CardNotificationBadge>
@@ -1936,6 +1943,70 @@ export function Board({
     }
   }
 
+  function handleCardThumbnailsChange(
+    orderId: string,
+    thumbnails: BoardThumbnail[]
+  ) {
+    setThumbnailByOrder((prev) => ({ ...prev, [orderId]: thumbnails }));
+    setSearchEnrichments((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        thumbnailByOrder: { ...prev.thumbnailByOrder, [orderId]: thumbnails },
+      };
+    });
+  }
+
+  useEffect(() => {
+    function onCardImageChanged(event: Event) {
+      const detail = (event as CustomEvent<{
+        orderId?: string;
+        source?: CardImageSource;
+        id?: string;
+        url?: string | null;
+      }>).detail;
+      if (!detail?.orderId || !detail.id || !detail.source) return;
+      const orderId = detail.orderId;
+      const imageId = detail.id;
+      const source = detail.source;
+      const preferred = { source, id: imageId };
+      const url = detail.url;
+      setThumbnailByOrder((prev) => {
+        const list = prev[orderId] ?? [];
+        let next = preferCardImage(list, preferred);
+        if (next[0]?.id !== imageId && typeof url === "string" && url) {
+          next = [
+            { url, id: imageId, source },
+            ...list.filter((t) => t.id !== imageId),
+          ];
+        }
+        return { ...prev, [orderId]: next };
+      });
+      setSearchEnrichments((prev) => {
+        if (!prev) return prev;
+        const list = prev.thumbnailByOrder[orderId] ?? [];
+        let next = preferCardImage(list, preferred);
+        if (next[0]?.id !== imageId && typeof url === "string" && url) {
+          next = [
+            { url, id: imageId, source },
+            ...list.filter((t) => t.id !== imageId),
+          ];
+        }
+        return {
+          ...prev,
+          thumbnailByOrder: {
+            ...prev.thumbnailByOrder,
+            [orderId]: next,
+          },
+        };
+      });
+    }
+    window.addEventListener(CARD_IMAGE_CHANGED_EVENT, onCardImageChanged);
+    return () => {
+      window.removeEventListener(CARD_IMAGE_CHANGED_EVENT, onCardImageChanged);
+    };
+  }, []);
+
   async function handleSetTag(
     order: OrderWithRelations,
     tag: OrderTagSummary | null
@@ -3439,6 +3510,11 @@ export function Board({
                 customFields={customFields}
                 fieldValuesByOrder={displayFieldValuesByOrder}
                 thumbnailByOrder={displayThumbnailByOrder}
+                onCardThumbnailsChange={
+                  canEditOrderDetails(role)
+                    ? handleCardThumbnailsChange
+                    : undefined
+                }
                 designerNameByOrder={displayDesignerNameByOrder}
                 notificationBadgeByOrder={displayNotificationBadgeByOrder}
                 ownerNameByOrder={displayOwnerNameByOrder}
@@ -3577,10 +3653,13 @@ export function Board({
         tenantIntegrationMode={tenantIntegrationMode}
         designers={designersWithLoad}
         currentUserId={currentUserId}
-        onCreated={() => {
+        onCreated={(order) => {
+          const createdColumnId = order?.column_id ?? createColumn;
           setCreateColumn(null);
-          // Re-fetch the column the new order was created in.
-          if (createColumn) void fetchColumnOrders(createColumn, 0);
+          if (createdColumnId) void fetchColumnOrders(createdColumnId, 0);
+          if (createColumn && createColumn !== createdColumnId) {
+            void fetchColumnOrders(createColumn, 0);
+          }
           router.refresh();
         }}
       />

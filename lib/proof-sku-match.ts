@@ -65,7 +65,8 @@ export type MatchResult = {
 export function matchProofsToSkus(
   files: ProofFile[],
   skus: SkuItem[],
-  cardSizeToken = ""
+  cardSizeToken = "",
+  extraNamesBySkuId: Record<string, string[]> = {}
 ): MatchResult {
   const byToken = new Map<string, ProofFile[]>();
   for (const f of files) {
@@ -77,13 +78,25 @@ export function matchProofsToSkus(
 
   const matches: ProofMatch[] = [];
   const usedFileIds = new Set<string>();
-  const unfilledSkus: { id: string; name: string }[] = [];
+  let unfilledSkus: { id: string; name: string }[] = [];
   const size = cardSizeToken.replace(/\s+/g, "").toLowerCase();
 
   for (const sku of skus) {
-    const t = versionToken(sku.name);
-    const candidates = (t && byToken.get(t)) || [];
-    const fresh = candidates.filter((c) => !usedFileIds.has(c.id));
+    const aliases = [
+      sku.name,
+      ...(extraNamesBySkuId[sku.id] ?? []),
+    ].filter((n) => n.trim());
+    const tokens = [
+      ...new Set(aliases.map((n) => versionToken(n)).filter(Boolean)),
+    ];
+    const fresh: ProofFile[] = [];
+    for (const t of tokens) {
+      for (const c of byToken.get(t) ?? []) {
+        if (!usedFileIds.has(c.id) && !fresh.some((f) => f.id === c.id)) {
+          fresh.push(c);
+        }
+      }
+    }
     if (fresh.length === 0) {
       unfilledSkus.push({ id: sku.id, name: sku.name });
       continue;
@@ -95,6 +108,21 @@ export function matchProofsToSkus(
     matches.push({ skuId: sku.id, skuName: sku.name, file: preferred });
   }
 
-  const unmatched = files.filter((f) => !usedFileIds.has(f.id));
+  let unmatched = files.filter((f) => !usedFileIds.has(f.id));
+
+  // One SKU + leftover job-folder files (VDP PDF, dieline) → attach those so
+  // the card still gets pictures. Do NOT dump leftovers when this SKU already
+  // matched a named proof — that would put sibling strain files / shared
+  // dielines on every split CRM line (e.g. 708-1 ZOAP vs 708-2 WHITE WIDOW).
+  if (skus.length === 1 && unmatched.length > 0 && matches.length === 0) {
+    const sku = skus[0]!;
+    for (const file of unmatched) {
+      usedFileIds.add(file.id);
+      matches.push({ skuId: sku.id, skuName: sku.name, file });
+    }
+    unmatched = [];
+    unfilledSkus = unfilledSkus.filter((s) => s.id !== sku.id);
+  }
+
   return { matches, unmatched, unfilledSkus };
 }

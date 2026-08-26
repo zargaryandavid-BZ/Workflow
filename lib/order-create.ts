@@ -315,13 +315,16 @@ export async function createOrder(
   }
 
   if (fieldValues.length > 0) {
-    await supabase.from("custom_field_values").insert(
+    const { error: cfvError } = await supabase.from("custom_field_values").insert(
       fieldValues.map((v) => ({
         order_id: order.id,
         custom_field_id: v.customFieldId,
         value: v.value,
       }))
     );
+    if (cfvError) {
+      return { error: cfvError.message, status: 400 };
+    }
   }
 
   const { data: column } = await supabase

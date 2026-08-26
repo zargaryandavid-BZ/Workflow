@@ -141,7 +141,43 @@ describe("parseCatalogV2", () => {
     assert.equal(findCatalogProduct(parsed, "p1", null)?.name, "Roll Labels");
   });
 
-  it("maps options.field_options when specifications is missing", () => {
+  it("maps options.fields plus product materials, not only field_options", () => {
+    const parsed = parseCatalogV2({
+      schema_version: 2,
+      products: [
+        {
+          id: "roll-labels",
+          name: "Roll Labels",
+          materials: [{ id: "bopp-clear", name: "Clear BOPP" }],
+          finishing: [{ id: "fin-matte-lam", name: "Matte Lamination" }],
+          options: {
+            fields: [
+              { key: "CUSTOM_SIZE", type: "dimensions" },
+              { key: "MATERIAL", type: "select" },
+              { key: "SET_SIZE", type: "select" },
+              { key: "FINISHING", type: "select" },
+              { key: "DIE", type: "select" },
+            ],
+            field_labels: { material: "Label Material" },
+            field_options: {
+              SET_SIZE: [{ value: "2x3.65", label: "2x3.65" }],
+            },
+          },
+        },
+      ],
+    });
+    const specs = parsed.products[0].specifications;
+    const byKey = Object.fromEntries(specs.map((s) => [s.key, s]));
+    assert.equal(specs.length, 5);
+    assert.equal(byKey.MATERIAL?.label, "Label Material");
+    assert.equal(byKey.MATERIAL?.options?.[0]?.label, "Clear BOPP");
+    assert.equal(byKey.SET_SIZE?.options?.[0]?.label, "2x3.65");
+    assert.equal(byKey.FINISHING?.options?.[0]?.label, "Matte Lamination");
+    assert.equal(byKey.CUSTOM_SIZE?.type, "dimensions");
+    assert.equal(byKey.DIE?.type, "text");
+  });
+
+  it("maps options.field_options when specifications and fields are missing", () => {
     const parsed = parseCatalogV2({
       schema_version: 2,
       products: [

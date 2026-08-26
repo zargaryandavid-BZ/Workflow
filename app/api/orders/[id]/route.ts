@@ -21,6 +21,9 @@ import {
   pruneOrphanedSkuImages,
 } from "@/lib/sku-images";
 import { withCanonicalDesignerName } from "@/lib/order-designer";
+import { preserveDesignTaskUrl } from "@/lib/design-task";
+import { preserveCardImage } from "@/lib/card-image";
+import { preserveFinishedCustomerSms } from "@/lib/finished-order-sms";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
   canEditOrderDetails,
@@ -484,6 +487,16 @@ export async function PATCH(
     updates.specs = staffDue
       ? mergeDueSpecsIntoOrderSpecs(nextSpecs, staffDue.specs)
       : nextSpecs;
+    updates.specs = preserveFinishedCustomerSms(
+      existingSpecs,
+      preserveCardImage(
+        existingSpecs,
+        preserveDesignTaskUrl(
+          existingSpecs,
+          updates.specs as Record<string, unknown>
+        )
+      )
+    );
   } else if (staffDue) {
     updates.specs = mergeDueSpecsIntoOrderSpecs(existingSpecs, staffDue.specs);
   }

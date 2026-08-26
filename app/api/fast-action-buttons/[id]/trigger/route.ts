@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
+import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import type { Order } from "@/lib/types";
 
 export async function POST(
@@ -127,6 +128,17 @@ export async function POST(
           await notifyCrmOrderFulfilled(fullOrder as unknown as Order, col.name as string);
         } catch (e) {
           console.error("[FastActionBtn] net-terms-fulfill:", e instanceof Error ? e.message : e);
+        }
+        try {
+          await notifyCustomerOrderFinished(
+            fullOrder as unknown as Order,
+            col.name as string
+          );
+        } catch (e) {
+          console.error(
+            "[FastActionBtn] finished-sms:",
+            e instanceof Error ? e.message : e
+          );
         }
       }
     } catch (err: unknown) {

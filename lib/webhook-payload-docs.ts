@@ -307,7 +307,7 @@ const NOTES_MD = `
 - \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores both email and phone. Existing customers are reused — no duplicates.
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
 - **Owner** (\`owner_*\` / \`request_owner_*\`) must be an **account manager** on your team to set the Owner dropdown. Free-text \`request_owner_name\`, \`request_owner_contact\`, and \`request_owner_phone\` are always saved on the card when provided.
-- \`designer_information\` / \`designer_notes\` / \`notes_for_designer\` fill the **Designer Information** custom field only.
+- \`designer_information\` / \`designer_notes\` / \`notes_for_designer\` fill the ticket **Designer note** and the **Designer Information** custom field.
 - \`description\` → **Order Description (Customer Note)** — client-facing.
 - \`production_notes\` / \`notes_for_production\` (legacy: \`line_item_comment\`, and older \`notes\`) → **Production notes** on the Job Ticket.
 - **Internal notes are not set by webhook** — staff add them in the app.
@@ -404,7 +404,7 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`designer_email\` | No | string | Team member email — sets **Assigned Designer** |
 | \`designer_id\` | No | string | Team member UUID — sets **Assigned Designer** |
 | \`designer\` | No | string | Email, UUID, or display name — sets **Assigned Designer** |
-| \`designer_information\` | No | string | Designer Information custom field (also \`designer_notes\`) |
+| \`designer_information\` | No | string | Ticket Designer note + Designer Information custom field (also \`designer_notes\`) |
 | \`design_task\` | No | string | http(s) URL → Design files; non-URL → Order Description |
 | \`category\` | No | string | Tag name (also accepts \`category_name\`) |
 | \`source_url\` | No | string | CRM / source order URL — card globe popover **Source** link (aliases: \`source_link\`, \`order_url\`) |
@@ -704,7 +704,7 @@ export function buildWebhookPayloadDocsHtml(
       "designer_information",
       "No",
       "string",
-      "Designer Information custom field (also <code>designer_notes</code>)",
+      "Ticket <strong>Designer note</strong> + Designer Information custom field (also <code>designer_notes</code>)",
     ],
     [
       "design_task",

@@ -5,10 +5,15 @@ import {
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import {
+  boardThumbnailsByOrder,
   designerNamesByOrder,
-  thumbnailUrlsByOrder,
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
+import {
+  parseCardImageRef,
+  preferCardImage,
+  type BoardThumbnail,
+} from "@/lib/card-image";
 import type {
   CustomerResponse,
   FedExRateOption,
@@ -28,7 +33,7 @@ import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 
 export interface BoardOrderEnrichment {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string[]>;
+  thumbnailByOrder: Record<string, BoardThumbnail[]>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
@@ -95,17 +100,19 @@ export async function enrichBoardOrders(
       Promise.all([
         supabase
           .from("order_sku_images")
-          .select("order_id, storage_path, file_name, mime_type, position, created_at")
+          .select("id, order_id, storage_path, file_name, mime_type, position, created_at")
           .in("order_id", orderIds)
           .order("position", { ascending: true }),
         supabase
           .from("assets")
-          .select("order_id, storage_path, external_url, file_name, mime_type, created_at")
+          .select("id, order_id, storage_path, external_url, file_name, mime_type, created_at")
           .in("order_id", orderIds)
           .order("created_at", { ascending: true }),
-      ]).then(([skuImagesRes, assetsRes]) => {
+      ]).then(async ([skuImagesRes, assetsRes]) => {
         // SKU images first (by position), then general assets as fallback
         const skuRows = (skuImagesRes.data ?? []).map((r) => ({
+          id: r.id as string,
+          source: "sku_image" as const,
           order_id: r.order_id as string,
           storage_path: r.storage_path as string | null,
           external_url: null,
@@ -113,9 +120,15 @@ export async function enrichBoardOrders(
           mime_type: r.mime_type as string | null,
           created_at: r.created_at as string,
         })) as OrderAssetPreviewRow[];
-        const assetRows = (assetsRes.data ?? []) as OrderAssetPreviewRow[];
-        const combined = [...skuRows, ...assetRows];
-        return thumbnailUrlsByOrder(combined, async (paths) => {
+        const assetRows = (assetsRes.data ?? []).map((r) => ({
+          ...(r as OrderAssetPreviewRow),
+          id: r.id as string,
+          source: "asset" as const,
+        }));
+        // CRM webhook assets first so split line cards show the matching
+        // catalog pic, not a shared Drive dieline/VDP thumbnail.
+        const combined = [...assetRows, ...skuRows];
+        const thumbs = await boardThumbnailsByOrder(combined, async (paths) => {
           const { data: signed } = await supabase.storage
             .from("order-assets")
             .createSignedUrls(paths, 3600);
@@ -127,6 +140,13 @@ export async function enrichBoardOrders(
               .map((s) => [s.path as string, s.signedUrl])
           );
         });
+        for (const order of orders) {
+          thumbs[order.id] = preferCardImage(
+            thumbs[order.id] ?? [],
+            parseCardImageRef(order.specs)
+          );
+        }
+        return thumbs;
       }),
 
       supabase

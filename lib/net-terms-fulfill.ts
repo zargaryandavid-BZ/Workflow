@@ -25,13 +25,26 @@ export function isFulfilledStage(columnName: string | null | undefined): boolean
 }
 
 /** Which review variant of the fulfilled stage, if the name says so. */
-export function reviewStateFromStage(columnName: string): "required" | "not_required" | null {
-  // "No Review Request" / "No Review Required" / "Review Not Required" all mean no review.
+export function reviewStateFromStage(
+  columnName: string
+): "required" | "not_required" | null {
+  // "No Review Request" / "No Review Required" / "Review Not Required"
   if (/no\s*review/i.test(columnName) || /not\s*required/i.test(columnName)) {
     return "not_required";
   }
-  if (/review\s*required/i.test(columnName)) return "required";
+  // "Review Required" / "Review Request"
+  if (/review\s*(required|request)/i.test(columnName)) return "required";
   return null;
+}
+
+/** Which finished-column SMS to send, or null if this is not a Finished/Fulfilled stage. */
+export type FinishedCustomerSmsKind = "review" | "no_review";
+
+export function finishedCustomerSmsKind(
+  columnName: string | null | undefined
+): FinishedCustomerSmsKind | null {
+  if (!isFulfilledStage(columnName) || !columnName) return null;
+  return reviewStateFromStage(columnName) === "required" ? "review" : "no_review";
 }
 
 function orderNumberFromCard(order: Order): string {

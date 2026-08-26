@@ -1,3 +1,5 @@
+import type { BoardThumbnail, CardImageSource } from "@/lib/card-image";
+
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 
 export function isImageFileName(
@@ -20,13 +22,32 @@ export function isImageExternalUrl(url: string): boolean {
   } catch {
     // fall through
   }
-  return /(\.(png|jpe?g|gif|webp|svg)(\?|$)|googleusercontent\.com|drive\.google\.com.*[?&]id=)/i.test(
-    trimmed
-  );
+  if (
+    /(\.(png|jpe?g|gif|webp|svg)(\?|$)|googleusercontent\.com|drive\.google\.com.*[?&]id=)/i.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
+  // CRM file APIs often have no extension (`/files/<id>`). Still preview
+  // those; skip known non-image documents so PDFs don't show as a blank tile.
+  try {
+    const last = new URL(trimmed).pathname.split("/").pop() ?? "";
+    const dot = last.lastIndexOf(".");
+    const ext = dot >= 0 ? last.slice(dot + 1).toLowerCase() : "";
+    if (["pdf", "ai", "eps", "zip", "psd", "tif", "tiff"].includes(ext)) {
+      return false;
+    }
+    return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+  } catch {
+    return false;
+  }
 }
 
 export interface OrderAssetPreviewRow {
   order_id: string;
+  id?: string;
+  source?: CardImageSource;
   storage_path: string | null;
   external_url?: string | null;
   file_name: string;
@@ -34,39 +55,68 @@ export interface OrderAssetPreviewRow {
   created_at: string;
 }
 
-/** All previewable images per order — storage signed URLs and external URLs, in upload order. */
-export async function thumbnailUrlsByOrder(
+/** Previewable images per order with ids so the board can pin a card picture. */
+export async function boardThumbnailsByOrder(
   assets: OrderAssetPreviewRow[],
   signPaths: (paths: string[]) => Promise<Map<string, string>>
-): Promise<Record<string, string[]>> {
-  const thumbnailsByOrder: Record<string, string[]> = {};
-  // storage_path → order_id, preserving insertion order per order
-  const pathsToSign: { path: string; orderId: string }[] = [];
+): Promise<Record<string, BoardThumbnail[]>> {
+  const thumbnailsByOrder: Record<string, BoardThumbnail[]> = {};
+  const pathsToSign: {
+    path: string;
+    orderId: string;
+    id: string;
+    source: CardImageSource;
+  }[] = [];
 
   for (const asset of assets) {
+    const source = asset.source ?? "asset";
+    const id = asset.id?.trim() ?? "";
     // Prefer stored bytes when present (portal external_url is auth-gated).
     if (
       asset.storage_path &&
       isImageFileName(asset.file_name, asset.mime_type)
     ) {
-      pathsToSign.push({ path: asset.storage_path, orderId: asset.order_id });
+      if (!id) continue;
+      pathsToSign.push({
+        path: asset.storage_path,
+        orderId: asset.order_id,
+        id,
+        source,
+      });
       continue;
     }
 
     const external = asset.external_url?.trim();
-    if (external && isImageExternalUrl(external)) {
-      (thumbnailsByOrder[asset.order_id] ??= []).push(external);
+    if (external && isImageExternalUrl(external) && id) {
+      (thumbnailsByOrder[asset.order_id] ??= []).push({
+        url: external,
+        id,
+        source,
+      });
     }
   }
 
   if (pathsToSign.length > 0) {
     const signed = await signPaths(pathsToSign.map((p) => p.path));
-    for (const { path, orderId } of pathsToSign) {
+    for (const { path, orderId, id, source } of pathsToSign) {
       const url = signed.get(path);
-      if (url) (thumbnailsByOrder[orderId] ??= []).push(url);
+      if (url) (thumbnailsByOrder[orderId] ??= []).push({ url, id, source });
     }
   }
 
+  return thumbnailsByOrder;
+}
+
+/** All previewable images per order — storage signed URLs and external URLs, in upload order. */
+export async function thumbnailUrlsByOrder(
+  assets: OrderAssetPreviewRow[],
+  signPaths: (paths: string[]) => Promise<Map<string, string>>
+): Promise<Record<string, string[]>> {
+  const byOrder = await boardThumbnailsByOrder(assets, signPaths);
+  const thumbnailsByOrder: Record<string, string[]> = {};
+  for (const [orderId, thumbs] of Object.entries(byOrder)) {
+    thumbnailsByOrder[orderId] = thumbs.map((t) => t.url);
+  }
   return thumbnailsByOrder;
 }
 

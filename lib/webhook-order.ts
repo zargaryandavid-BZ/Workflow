@@ -11,7 +11,7 @@ import {
   isValidCustomerContact,
   validateDueDate,
 } from "@/lib/order-form";
-import { prepareSkusForSave, type SkuItem } from "@/lib/skus";
+import { prepareSkusForSave, normalizeSkus, type SkuItem } from "@/lib/skus";
 import { normalizeSmsPhone } from "@/lib/sms";
 import { fuzzyMatch } from "@/lib/fuzzyMatch";
 import {
@@ -35,6 +35,14 @@ import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import { categoryForProduct } from "@/lib/product-data";
 import { findMatchingOption } from "@/lib/field-links";
 import { preferLinkedCatalogName } from "@/lib/product-spec-options";
+import {
+  mergeWebhookDesignerNotes,
+} from "@/lib/note-history";
+import {
+  resolveWebhookItemMedia,
+  skuArtworkRefs,
+  type WebhookArtworkRef,
+} from "@/lib/webhook-artwork";
 import {
   mergeDueSpecsIntoOrderSpecs,
   recomputeDueFromProcessingDays,
@@ -184,6 +192,24 @@ export interface WebhookSkuPayload {
   sku_name?: string;
   quantity?: number | string;
   artwork_url?: string;
+  /** CRM catalog / product image (aliases of artwork_url). */
+  image_url?: string;
+  imageUrl?: string;
+  thumbnail_url?: string;
+  thumbnailUrl?: string;
+  images?: unknown;
+  artwork_files?: Array<{
+    id?: number;
+    name?: string;
+    url?: string;
+    type?: string;
+  }>;
+  artworkFiles?: Array<{
+    id?: number;
+    name?: string;
+    url?: string;
+    type?: string;
+  }>;
   /**
    * Line Item Comment for this SKU → Notes for production on the card /
    * Job Ticket (aliases: `comment`, `line_item_comment`).
@@ -786,10 +812,10 @@ function normalizeWebhookSkus(
   raw: WebhookSkuPayload[] | undefined
 ): {
   skus: SkuItem[];
-  artworkBySkuId: Map<string, string>;
+  artworkBySkuId: Map<string, WebhookArtworkRef[]>;
   skuComments: { index: number; name: string; comment: string }[];
 } {
-  const artworkBySkuId = new Map<string, string>();
+  const artworkBySkuId = new Map<string, WebhookArtworkRef[]>();
   const skuComments: { index: number; name: string; comment: string }[] = [];
   if (!Array.isArray(raw)) {
     return { skus: [], artworkBySkuId, skuComments };
@@ -834,8 +860,9 @@ function normalizeWebhookSkus(
         comment,
       });
     }
-    if (typeof item.artwork_url === "string" && item.artwork_url.trim()) {
-      artworkBySkuId.set(id, item.artwork_url.trim());
+    const refs = skuArtworkRefs(item);
+    if (hasSku && refs.length > 0) {
+      artworkBySkuId.set(id, refs);
     }
   }
 
@@ -1959,6 +1986,72 @@ async function insertExternalAsset(
   return null;
 }
 
+async function insertWebhookArtwork(
+  client: Client,
+  params: {
+    tenantId: string;
+    orderId: string;
+    item: WebhookItem;
+    artworkBySkuId: Map<string, WebhookArtworkRef[]>;
+    soleSkuId: string | null;
+  }
+): Promise<string[]> {
+  const warnings: string[] = [];
+  const seen = new Set<string>();
+  const soleSkuId = params.soleSkuId?.trim() || null;
+
+  const add = async (
+    url: string,
+    fileName: string | null | undefined,
+    skuKey: string | null
+  ) => {
+    const href = url.trim();
+    if (!href || seen.has(href)) return;
+    seen.add(href);
+    const assetError = await insertExternalAsset(client, {
+      tenantId: params.tenantId,
+      orderId: params.orderId,
+      externalUrl: href,
+      skuKey,
+      fileName: typeof fileName === "string" ? fileName : null,
+      isLocked: true,
+    });
+    if (assetError) {
+      warnings.push(`Artwork could not be saved: ${assetError}`);
+    }
+  };
+
+  if (typeof params.item.artwork_url === "string" && params.item.artwork_url.trim()) {
+    const primaryUrl = params.item.artwork_url.trim();
+    const matchingFile = Array.isArray(params.item.artwork_files)
+      ? params.item.artwork_files.find(
+          (af) => typeof af?.url === "string" && af.url.trim() === primaryUrl
+        )
+      : undefined;
+    await add(
+      primaryUrl,
+      typeof matchingFile?.name === "string" ? matchingFile.name : null,
+      soleSkuId
+    );
+  }
+
+  for (const af of Array.isArray(params.item.artwork_files)
+    ? params.item.artwork_files
+    : []) {
+    const url = typeof af?.url === "string" ? af.url.trim() : "";
+    if (!url) continue;
+    await add(url, typeof af?.name === "string" ? af.name : null, soleSkuId);
+  }
+
+  for (const [skuId, refs] of params.artworkBySkuId) {
+    for (const ref of refs) {
+      await add(ref.url, ref.fileName, skuId);
+    }
+  }
+
+  return warnings;
+}
+
 async function insertCustomFieldValues(
   client: Client,
   tenantId: string,
@@ -2525,6 +2618,120 @@ async function findExistingWebhookOrders(
 }
 
 /**
+ * CRM / portal re-fire: copy designer_notes onto the ticket Designer note
+ * field (`specs.designer_notes`). Previously they only filled the hidden
+ * "Designer Information" custom field, so cards like 702 never showed them.
+ */
+async function refreshExistingOrderDesignerNotes(
+  client: Client,
+  tenantId: string,
+  existing: { id: string; title: string; specs: Record<string, unknown> }[],
+  body: WebhookOrderPayload,
+  items: WebhookItem[]
+): Promise<void> {
+  const sorted = [...existing].sort((a, b) =>
+    a.title.localeCompare(b.title, undefined, { numeric: true })
+  );
+  for (let i = 0; i < sorted.length && i < items.length; i++) {
+    const order = sorted[i]!;
+    const notes = resolveDesignNotes(mergeItemWithOrder(body, items[i]!));
+    if (!notes) continue;
+
+    const { data: freshRow } = await client
+      .from("orders")
+      .select("specs")
+      .eq("id", order.id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    const specs =
+      freshRow?.specs && typeof freshRow.specs === "object"
+        ? (freshRow.specs as Record<string, unknown>)
+        : (order.specs ?? {});
+    const existingRaw =
+      typeof specs.designer_notes === "string" ? specs.designer_notes : null;
+    const next = mergeWebhookDesignerNotes(existingRaw, notes);
+    if (!next || next === existingRaw) continue;
+
+    const { error } = await client
+      .from("orders")
+      .update({
+        specs: { ...specs, designer_notes: next },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id)
+      .eq("tenant_id", tenantId);
+    if (error) {
+      console.error("[webhook/orders] designer notes refresh error:", {
+        order_id: order.id,
+        message: error.message,
+      });
+    }
+  }
+}
+
+async function refreshExistingOrderArtwork(
+  client: Client,
+  tenantId: string,
+  existing: { id: string; title: string; specs: Record<string, unknown> }[],
+  body: WebhookOrderPayload,
+  items: WebhookItem[]
+): Promise<void> {
+  const sorted = [...existing].sort((a, b) =>
+    a.title.localeCompare(b.title, undefined, { numeric: true })
+  );
+  for (let i = 0; i < sorted.length && i < items.length; i++) {
+    const order = sorted[i]!;
+    const rawItem = items[i]!;
+    const storedTitle =
+      typeof order.specs.webhook_item_title === "string"
+        ? order.specs.webhook_item_title.trim()
+        : "";
+    const jobTitle =
+      storedTitle ||
+      resolveItemTitle(
+        mergeItemWithOrder(body, rawItem),
+        "",
+        i,
+        items.length
+      );
+    const media = resolveWebhookItemMedia(rawItem, body, {
+      jobTitle,
+      totalItems: items.length,
+    });
+    const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(
+      media.skus as WebhookSkuPayload[] | undefined
+    );
+    const existingSkus = normalizeSkus(order.specs.skus);
+    const remapped = new Map<string, WebhookArtworkRef[]>();
+    for (let s = 0; s < rawSkus.length; s++) {
+      const refs = artworkBySkuId.get(rawSkus[s]!.id);
+      if (!refs?.length) continue;
+      const target =
+        existingSkus.find((e) =>
+          e.name.trim() &&
+          rawSkus[s]!.name.trim() &&
+          e.name.trim().toLowerCase() === rawSkus[s]!.name.trim().toLowerCase()
+        ) ?? existingSkus[s];
+      const skuId = target?.id ?? rawSkus[s]!.id;
+      remapped.set(skuId, [...(remapped.get(skuId) ?? []), ...refs]);
+    }
+    const soleSkuId =
+      existingSkus.length === 1
+        ? existingSkus[0]!.id
+        : rawSkus.length === 1
+          ? rawSkus[0]!.id
+          : null;
+    await insertWebhookArtwork(client, {
+      tenantId,
+      orderId: order.id,
+      item: { ...rawItem, ...media },
+      artworkBySkuId: remapped,
+      soleSkuId,
+    });
+  }
+}
+
+/**
  * When CRM re-fires a webhook (e.g. after-approval due materializes), update
  * existing cards instead of creating duplicates.
  */
@@ -2678,9 +2885,22 @@ async function refreshPortalOrdersFromWebhook(params: {
 
     const corrections: string[] = [];
     const merged = mergeItemWithOrder(body, item);
+    const media = resolveWebhookItemMedia(item, body, {
+      jobTitle,
+      totalItems: items.length,
+    });
     const specFields = normalizeSpecFields(merged);
+    const designNotes = resolveDesignNotes(merged);
+    if (designNotes) {
+      nextSpecs.designer_notes = mergeWebhookDesignerNotes(
+        typeof nextSpecs.designer_notes === "string"
+          ? nextSpecs.designer_notes
+          : null,
+        designNotes
+      );
+    }
     const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(
-      (item.skus ?? body.skus) as WebhookSkuPayload[] | undefined
+      media.skus as WebhookSkuPayload[] | undefined
     );
     const skus = prepareSkusForSave(rawSkus);
     // Board card qty reads specs.skus first — keep SKUs in sync on portal re-fire.
@@ -2745,49 +2965,14 @@ async function refreshPortalOrdersFromWebhook(params: {
       }
     }
 
-    // Ingest new/updated portal artwork URLs on re-fire (idempotent inserts).
-    if (typeof item.artwork_url === "string" && item.artwork_url.trim()) {
-      const primaryUrl = item.artwork_url.trim();
-      const matchingFile = Array.isArray(item.artwork_files)
-        ? item.artwork_files.find(
-            (af) => typeof af?.url === "string" && af.url.trim() === primaryUrl
-          )
-        : undefined;
-      await insertExternalAsset(client, {
-        tenantId,
-        orderId: order.id,
-        externalUrl: primaryUrl,
-        fileName:
-          typeof matchingFile?.name === "string" ? matchingFile.name : null,
-        isLocked: true,
-      });
-    }
-    for (const af of Array.isArray(item.artwork_files) ? item.artwork_files : []) {
-      const url = typeof af?.url === "string" ? af.url.trim() : "";
-      if (!url) continue;
-      if (
-        typeof item.artwork_url === "string" &&
-        item.artwork_url.trim() === url
-      ) {
-        continue;
-      }
-      await insertExternalAsset(client, {
-        tenantId,
-        orderId: order.id,
-        externalUrl: url,
-        fileName: typeof af?.name === "string" ? af.name : null,
-        isLocked: true,
-      });
-    }
-    for (const [skuId, url] of artworkBySkuId) {
-      await insertExternalAsset(client, {
-        tenantId,
-        orderId: order.id,
-        externalUrl: url,
-        skuKey: skuId,
-        isLocked: true,
-      });
-    }
+    // Ingest matching CRM/portal artwork on re-fire (idempotent inserts).
+    await insertWebhookArtwork(client, {
+      tenantId,
+      orderId: order.id,
+      item: { ...item, ...media },
+      artworkBySkuId,
+      soleSkuId: skus.length === 1 ? skus[0]!.id : null,
+    });
     void import("@/lib/save-external-artwork")
       .then(({ saveAllExternalArtwork }) =>
         saveAllExternalArtwork({
@@ -2997,6 +3182,9 @@ async function createSingleWebhookJob(
   if (designerId) specs.designer_id = designerId;
   if (designerName) specs.designer_name = designerName;
   if (designTaskUrl) specs.design_task = designTaskUrl;
+  if (designNotes) {
+    specs.designer_notes = mergeWebhookDesignerNotes(null, designNotes);
+  }
   if (productionNotesText) specs.production_notes = productionNotesText;
   if (customerFacingNoteText) specs.customer_facing_note = customerFacingNoteText;
   if (billing) specs.billing = billing;
@@ -3084,62 +3272,14 @@ async function createSingleWebhookJob(
     warnings.push(`Custom fields could not be saved: ${cfvError}`);
   }
 
-  if (typeof item.artwork_url === "string" && item.artwork_url.trim()) {
-    const primaryUrl = item.artwork_url.trim();
-    const matchingFile = Array.isArray(item.artwork_files)
-      ? item.artwork_files.find(
-          (af) => typeof af?.url === "string" && af.url.trim() === primaryUrl
-        )
-      : undefined;
-    const assetError = await insertExternalAsset(client, {
-      tenantId,
-      orderId,
-      externalUrl: primaryUrl,
-      fileName: typeof matchingFile?.name === "string" ? matchingFile.name : null,
-      isLocked: true,
-    });
-    if (assetError) {
-      warnings.push(`Order artwork could not be saved: ${assetError}`);
-    }
-  }
-
-  const artworkFiles = Array.isArray(item.artwork_files) ? item.artwork_files : [];
-  for (const af of artworkFiles) {
-    const url = typeof af?.url === "string" ? af.url.trim() : "";
-    if (!url) continue;
-    // Skip duplicate of primary artwork_url
-    if (
-      typeof item.artwork_url === "string" &&
-      item.artwork_url.trim() === url
-    ) {
-      continue;
-    }
-    const assetError = await insertExternalAsset(client, {
-      tenantId,
-      orderId,
-      externalUrl: url,
-      fileName: typeof af?.name === "string" ? af.name : null,
-      isLocked: true,
-    });
-    if (assetError) {
-      warnings.push(`Order artwork file could not be saved: ${assetError}`);
-    }
-  }
-
-  for (const [skuId, url] of artworkBySkuId) {
-    const assetError = await insertExternalAsset(client, {
-      tenantId,
-      orderId,
-      externalUrl: url,
-      skuKey: skuId,
-      isLocked: true,
-    });
-    if (assetError) {
-      warnings.push(
-        `SKU artwork could not be saved (sku ${skuId}): ${assetError}`
-      );
-    }
-  }
+  const artWarnings = await insertWebhookArtwork(client, {
+    tenantId,
+    orderId,
+    item,
+    artworkBySkuId,
+    soleSkuId: skus.length === 1 ? skus[0]!.id : null,
+  });
+  warnings.push(...artWarnings);
 
   // Portal artwork URLs need osk_ — pull bytes into Workflow storage in background.
   if (webhookSource.trim().toLowerCase() === "portal") {
@@ -3320,6 +3460,36 @@ export async function createOrderFromWebhook(
           err instanceof Error ? err.message : String(err)
         );
       }
+    }
+
+    try {
+      await refreshExistingOrderDesignerNotes(
+        client,
+        tenantId,
+        existingOrders,
+        body,
+        items
+      );
+    } catch (err) {
+      console.error(
+        "[webhook/orders] existing-order designer notes refresh failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+
+    try {
+      await refreshExistingOrderArtwork(
+        client,
+        tenantId,
+        existingOrders,
+        body,
+        items
+      );
+    } catch (err) {
+      console.error(
+        "[webhook/orders] existing-order artwork refresh failed:",
+        err instanceof Error ? err.message : String(err)
+      );
     }
 
     // Portal Order Sync re-fire (partner edited the order): refresh product specs
@@ -3549,8 +3719,15 @@ export async function createOrderFromWebhook(
 
   for (let i = startCreateIndex; i < items.length; i++) {
     const rawItem = items[i];
-    const item = mergeItemWithOrder(body, rawItem);
-    const jobTitle = resolveItemTitle(item, itemParentLabel, i, items.length);
+    const merged = mergeItemWithOrder(body, rawItem);
+    const jobTitle = resolveItemTitle(merged, itemParentLabel, i, items.length);
+    const item = {
+      ...merged,
+      ...resolveWebhookItemMedia(rawItem, body, {
+        jobTitle,
+        totalItems: items.length,
+      }),
+    };
     const cardTitle = createAsMultiItem
       ? `${shortBaseOrderNumber}-${i + 1}`
       : shortBaseOrderNumber;

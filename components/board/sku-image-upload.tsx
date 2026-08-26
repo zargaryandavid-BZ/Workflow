@@ -9,6 +9,7 @@ import {
   SKU_IMAGE_RAW_MAX_BYTES,
   uploadSizeError,
 } from "@/lib/order-assets";
+import { CARD_IMAGE_CHANGED_EVENT } from "@/lib/card-image";
 import type { OrderSkuImageWithUrl } from "@/lib/types";
 
 function isImagePreview(fileName: string, mimeType?: string | null): boolean {
@@ -37,6 +38,7 @@ export function SkuImageUpload({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [cardImageBusy, setCardImageBusy] = useState(false);
 
   // drag-to-reorder state
   const dragIndexRef = useRef<number | null>(null);
@@ -149,6 +151,49 @@ export function SkuImageUpload({
     reordered.splice(to, 0, moved);
     setImages(reordered);
     void saveOrder(reordered);
+  }
+
+  async function showPicOnCard(imageId: string, fromAsset?: boolean) {
+    setCardImageBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/card-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: fromAsset ? "asset" : "sku_image",
+          id: imageId,
+        }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(json.error ?? "Could not set card picture");
+        return;
+      }
+      setImages((prev) => {
+        const i = prev.findIndex((img) => img.id === imageId);
+        if (i <= 0) return prev;
+        const next = [...prev];
+        const [picked] = next.splice(i, 1);
+        next.unshift(picked);
+        return next;
+      });
+      const picked = images.find((img) => img.id === imageId);
+      window.dispatchEvent(
+        new CustomEvent(CARD_IMAGE_CHANGED_EVENT, {
+          detail: {
+            orderId,
+            source: fromAsset ? "asset" : "sku_image",
+            id: imageId,
+            url: picked?.signed_url ?? null,
+          },
+        })
+      );
+    } catch {
+      setError("Could not set card picture");
+    } finally {
+      setCardImageBusy(false);
+    }
   }
 
   return (
@@ -297,6 +342,16 @@ export function SkuImageUpload({
               }))}
               initialIndex={startIndex}
               onClose={() => setLightboxIndex(null)}
+              onShowOnCard={
+                disabled
+                  ? undefined
+                  : (i) => {
+                      const img = previewImages[i];
+                      if (!img) return;
+                      void showPicOnCard(img.id, img.from_asset);
+                    }
+              }
+              showOnCardBusy={cardImageBusy}
             />
           );
         })()

@@ -13,6 +13,7 @@ import {
   Lock,
   Loader2,
   MessageSquare,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
@@ -61,14 +62,11 @@ import {
   isApplicationCustomFieldOn,
   mergeApplicationIntoOrderSpecs,
 } from "@/lib/order-application";
+import { preserveDesignTaskUrl } from "@/lib/design-task";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
-import {
-  effectiveWebhookSource,
-  type WebhookSourceStyles,
-} from "@/lib/webhook-source-styles";
-import { WebhookSourceLabel } from "./webhook-source-label";
-import { partCardTitle, sharedOrderTitle } from "@/lib/group-orders";
+import { type WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import { partCardTitle } from "@/lib/group-orders";
 import {
   canEditManualOrders,
   canEditOrderDetails,
@@ -265,7 +263,6 @@ export function CardDetailModal({
   appUrl = "",
   tags = [],
   notifyColumns = [],
-  webhookSourceStyles,
   onNotifyColumn,
   groupSize,
   groupSameColumnCount,
@@ -305,6 +302,8 @@ export function CardDetailModal({
 
   const [title, setTitle] = useState("");
   const [itemName, setItemName] = useState("");
+  const [editingItemName, setEditingItemName] = useState(false);
+  const itemNameInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [noteHistory, setNoteHistory] = useState<NoteEntry[]>([]);
   const [newNote, setNewNote] = useState("");
   const [productionNoteHistory, setProductionNoteHistory] = useState<
@@ -427,6 +426,7 @@ export function CardDetailModal({
     // Same string as the board card title (item title, else order title for
     // single-item webhooks that only stamped webhook_order_title).
     setItemName(partCardTitle(json.order) ?? "");
+    setEditingItemName(false);
     const rawNote = json.order.internal_note ?? "";
     setNoteHistory(parseNoteHistory(rawNote));
     setNewNote("");
@@ -795,23 +795,26 @@ export function CardDetailModal({
       previousSpecs: data?.order.specs,
     });
     const nextDue = staffDue.dueDate;
-    const nextSpecs = mergeDueSpecsIntoOrderSpecs(
-      mergeApplicationIntoOrderSpecs(
-        {
-          ...(data?.order.specs ?? {}),
-          skus: savedSkus,
-          designer_id: designerId || null,
-          designer_name:
-            designers.find((d) => d.id === designerId)?.name ?? null,
-          design_task: nextDesignTask || null,
-          production_notes: nextProductionNotesJson,
-          customer_facing_note: customerFacingNote.trim() || null,
-          designer_notes: nextDesignerNotesJson,
-        },
-        applicationOn,
-        applicationDays
-      ),
-      staffDue.specs
+    const nextSpecs = preserveDesignTaskUrl(
+      (data?.order.specs ?? {}) as Record<string, unknown>,
+      mergeDueSpecsIntoOrderSpecs(
+        mergeApplicationIntoOrderSpecs(
+          {
+            ...(data?.order.specs ?? {}),
+            skus: savedSkus,
+            designer_id: designerId || null,
+            designer_name:
+              designers.find((d) => d.id === designerId)?.name ?? null,
+            design_task: nextDesignTask || null,
+            production_notes: nextProductionNotesJson,
+            customer_facing_note: customerFacingNote.trim() || null,
+            designer_notes: nextDesignerNotesJson,
+          },
+          applicationOn,
+          applicationDays
+        ),
+        staffDue.specs
+      )
     );
     const customFieldValues = buildCustomFieldPayload(
       resolved,
@@ -1168,7 +1171,6 @@ export function CardDetailModal({
           skus: prepareSkusForSave(skus, { pendingArtworkIds: [] }),
           designer_id: nextDesignerId || null,
           designer_name: name,
-          design_task: designTask || null,
         };
 
     try {
@@ -1436,6 +1438,14 @@ export function CardDetailModal({
     }
   }
 
+  useEffect(() => {
+    if (!editingItemName) return;
+    const el = itemNameInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [editingItemName]);
+
   const [archivingBoard, setArchivingBoard] = useState(false);
   const isBoardArchived = data?.order.specs?.archived === true;
 
@@ -1480,35 +1490,58 @@ export function CardDetailModal({
 
   const modalTitle = (
     <span className="flex min-w-0 flex-col items-start gap-0.5">
-      {/* Title / source — left, above order number */}
-      <WebhookSourceLabel
-        webhookSource={
-          data?.order ? effectiveWebhookSource(data.order) : null
-        }
-        sourceStyles={webhookSourceStyles}
-        orderTitle={
-          data?.order
-            ? sharedOrderTitle(data.order) ??
-              (isViewOnly
-                ? partCardTitle(
-                    data.order,
-                    productFromOrder(fieldValues, modalCustomFields)
-                  )
-                : null)
-            : null
-        }
-        className="mb-0 flex min-w-0 max-w-full items-baseline gap-1 text-[10px] font-semibold leading-tight tracking-wide"
-      />
+      {data?.order && isViewOnly && itemName.trim() ? (
+        <span className="w-full min-w-0 whitespace-normal break-words text-[13px] font-semibold leading-snug text-slate-800">
+          {itemName}
+        </span>
+      ) : null}
       {!isViewOnly && data?.order ? (
-        <input
-          type="text"
-          value={itemName}
-          onChange={(e) => setItemName(e.target.value)}
-          onBlur={saveItemName}
-          placeholder="Line item name"
-          aria-label="Line item name"
-          className="min-w-0 max-w-[min(100%,22rem)] truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[13px] font-semibold text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
-        />
+        editingItemName ? (
+          <textarea
+            ref={itemNameInputRef}
+            value={itemName}
+            onChange={(e) => setItemName(e.target.value)}
+            onBlur={() => {
+              void saveItemName();
+              setEditingItemName(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                (e.currentTarget as HTMLTextAreaElement).blur();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setItemName(partCardTitle(data.order) ?? "");
+                setEditingItemName(false);
+              }
+            }}
+            placeholder="Line item name"
+            aria-label="Line item name"
+            rows={1}
+            className="max-w-full min-w-[8rem] resize-none rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[13px] font-semibold leading-snug text-slate-800 [field-sizing:content] [overflow-wrap:anywhere] focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+          />
+        ) : (
+          <span className="flex min-w-0 max-w-full items-start gap-1">
+            <span
+              className={cn(
+                "min-w-0 whitespace-normal break-words text-[13px] font-semibold leading-snug",
+                itemName.trim() ? "text-slate-800" : "text-slate-400"
+              )}
+            >
+              {itemName.trim() || "Line item name"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditingItemName(true)}
+              className="mt-0.5 shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              title="Edit line item name"
+              aria-label="Edit line item name"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        )
       ) : null}
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         {/* Order number + copy — Manual titles are editable inline */}
@@ -1519,7 +1552,7 @@ export function CardDetailModal({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Order title"
             aria-label="Order title"
-            className="min-w-0 max-w-[min(100%,20rem)] truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 text-sm font-semibold text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            className="w-full min-w-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-sm font-semibold leading-snug text-slate-800 [overflow-wrap:anywhere] focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
           />
         ) : (
           <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">

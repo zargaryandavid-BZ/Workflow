@@ -43,7 +43,7 @@ export function WebhookSourceLabel({
         }
         title={`Card source: CRM · ${title}`}
       >
-        <span className="min-w-0 truncate text-[13px] font-semibold normal-case tracking-normal text-slate-700">
+        <span className="min-w-0 whitespace-normal break-words text-[13px] font-semibold normal-case tracking-normal text-slate-700">
           {title}
         </span>
       </span>
@@ -68,7 +68,7 @@ export function WebhookSourceLabel({
       {title ? (
         <>
           <span className="shrink-0 font-normal text-slate-400">|</span>
-          <span className="min-w-0 truncate text-[13px] font-semibold normal-case tracking-normal text-slate-700">
+          <span className="min-w-0 whitespace-normal break-words text-[13px] font-semibold normal-case tracking-normal text-slate-700">
             {title}
           </span>
         </>

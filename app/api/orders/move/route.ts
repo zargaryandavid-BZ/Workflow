@@ -6,6 +6,7 @@ import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { canMove } from "@/lib/permissions";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
+import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import {
   isShipStageKind,
   requiresStockConfirmationBeforeShip,
@@ -328,6 +329,16 @@ export async function POST(request: Request) {
       } catch (err: unknown) {
         console.error(
           "[move] net-terms-fulfill failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
+      try {
+        if (isFulfilledStage(typedColumn.name)) {
+          await notifyCustomerOrderFinished(movedOrder, typedColumn.name);
+        }
+      } catch (err: unknown) {
+        console.error(
+          "[move] finished-sms failed:",
           err instanceof Error ? err.message : err
         );
       }

@@ -19,6 +19,8 @@ export const MESSAGE_TEMPLATE_KEYS = [
   "pickup_ready_email_subject",
   "pickup_ready_email_body",
   "pickup_ready_sms",
+  "finished_review_sms",
+  "finished_no_review_sms",
   "team_invite_email_subject",
   "team_invite_email_body",
   "password_reset_email_subject",
@@ -157,6 +159,27 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
     ],
   },
   {
+    id: "finished_order",
+    title: "Order finished",
+    description:
+      "SMS sent automatically when a card enters a Finished column — review columns include a Google review link.",
+    keys: [
+      { key: "finished_review_sms", label: "Finished + review SMS", kind: "sms" },
+      {
+        key: "finished_no_review_sms",
+        label: "Finished (no review) SMS",
+        kind: "sms",
+      },
+    ],
+    variables: [
+      "{{customer_name}}",
+      "{{order_number}}",
+      "{{review_link}}",
+      "{{brand}}",
+      "{{team_name}}",
+    ],
+  },
+  {
     id: "team_invite",
     title: "Team invite",
     description: "Email sent when inviting a teammate to Workflow.",
@@ -261,6 +284,11 @@ Thank you,
 {{team_name}}`,
   pickup_ready_sms:
     "Hi, this is Bazaar Printing. Your order {{order_number}} is ready for pickup at {{pickup_location}}. {{pickup_hours}} View order: {{portal_url}}",
+
+  finished_review_sms:
+    "Hi {{customer_name}}, this is Bazaar Printing. Your order {{order_number}} is finished. We'd love a quick review: {{review_link}}",
+  finished_no_review_sms:
+    "Hi {{customer_name}}, this is Bazaar Printing. Your order {{order_number}} is finished. Thank you for your business!",
 
   team_invite_email_subject:
     "You've been invited to join {{tenant_name}} on Workflow",

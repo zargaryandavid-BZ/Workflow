@@ -14,6 +14,7 @@ import { formatTimeInColumn } from "@/lib/card-warning-rules";
 import { calendarDaysUntilDue } from "@/lib/board-due-date";
 import { formatDateShort } from "@/lib/utils";
 import { priorityScoreFromSpecs } from "@/lib/order-priority-score";
+import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
 
 type GroupBy = "none" | "designer" | "owner";
 const UNASSIGNED = "Unassigned";
@@ -33,7 +34,7 @@ interface Props {
   columns: BoardColumn[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string[]>;
+  thumbnailByOrder: Record<string, BoardThumbnail[]>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
   onOpenOrder: (order: OrderWithRelations) => void;
@@ -88,7 +89,7 @@ export function BoardListView({
         priority: priorityScoreFromSpecs(o.specs) ?? 0,
         daysToDue,
         inCol: formatTimeInColumn(o.last_moved_at, Date.now()),
-        thumb: thumbnailByOrder[o.id]?.[0] ?? null,
+        thumb: firstThumbnailUrl(thumbnailByOrder[o.id]) ?? null,
       };
     });
     const dir = asc ? 1 : -1;

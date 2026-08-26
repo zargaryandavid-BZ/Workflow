@@ -26,6 +26,11 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import {
+  preferCardImage,
+  type BoardThumbnail,
+} from "@/lib/card-image";
 import {
   CARD_BADGE_LABELS,
   CARD_BADGE_STYLES,
@@ -128,7 +133,12 @@ interface OrderCardProps {
   customFields?: CustomField[];
   fieldValues?: Record<string, unknown>;
   /** Signed URLs of all image assets — shown as a gallery in compact mode. */
-  thumbnails?: string[];
+  thumbnails?: BoardThumbnail[];
+  /** Persist which gallery picture is shown on this card. */
+  onCardThumbnailsChange?: (
+    orderId: string,
+    thumbnails: BoardThumbnail[]
+  ) => void;
   /** Resolved designer display name (from specs or team list). */
   designerName?: string;
   /** Designers with live load counts — enables admin right-click assign. */
@@ -214,6 +224,7 @@ export function OrderCard({
   customFields = [],
   fieldValues = {},
   thumbnails,
+  onCardThumbnailsChange,
   designerName: designerNameProp,
   designers = [],
   onAssignDesigner,
@@ -373,6 +384,7 @@ export function OrderCard({
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [cardImageBusy, setCardImageBusy] = useState(false);
 
   // Right-click on designer chip (admin / account manager)
   const [designerMenuOpen, setDesignerMenuOpen] = useState(false);
@@ -386,6 +398,35 @@ export function OrderCard({
   const [dueExactValue, setDueExactValue] = useState("");
   const dueMenuRef = useRef<HTMLDivElement>(null);
   const dueExactChangedAtRef = useRef(0);
+
+  async function showPicOnCard(index: number) {
+    const list = thumbnails ?? [];
+    const picked = list[index];
+    if (!picked?.id || !onCardThumbnailsChange) return;
+    const previous = list;
+    const next = preferCardImage(list, {
+      source: picked.source,
+      id: picked.id,
+    });
+    onCardThumbnailsChange(order.id, next);
+    setLightboxOpen(false);
+    setCardImageBusy(true);
+    try {
+      const res = await fetchWithAuth(`/api/orders/${order.id}/card-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: picked.source, id: picked.id }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error ?? "Failed to set card picture");
+      }
+    } catch {
+      onCardThumbnailsChange(order.id, previous);
+    } finally {
+      setCardImageBusy(false);
+    }
+  }
 
   const hasMoveMenu =
     availableColumns.length > 0 && Boolean(onMoveToColumn);
@@ -692,7 +733,7 @@ export function OrderCard({
             }
           >
             <Image
-              src={thumbnails[0]}
+              src={thumbnails[0].url}
               alt=""
               width={80}
               height={80}
@@ -720,7 +761,7 @@ export function OrderCard({
               sourceStyles={webhookSourceStyles}
               orderTitle={sharedOrderTitle(order)}
             />
-            <div className="mb-0.5 flex w-full min-w-0 items-center justify-start gap-1.5 text-left">
+            <div className="mb-0.5 flex w-full min-w-0 flex-wrap items-start justify-start gap-1.5 text-left">
               <span
                 className={cn(
                   "inline-flex shrink-0 items-center justify-start gap-1.5 text-left text-[15px] font-bold leading-none",
@@ -826,8 +867,7 @@ export function OrderCard({
                     </span>
                   ) : null}
                   <span
-                    className="min-w-0 flex-1 truncate text-left text-[15px] font-bold leading-snug text-slate-900"
-                    title={cardTitle}
+                    className="min-w-0 flex-1 whitespace-normal break-words text-left text-[15px] font-bold leading-snug text-slate-900"
                   >
                     {cardTitle}
                   </span>
@@ -1543,12 +1583,21 @@ export function OrderCard({
 
       {lightboxOpen && thumbnails && thumbnails.length > 0 ? (
         <ImageLightbox
-          images={thumbnails.map((src, i) => ({
-            src,
+          images={thumbnails.map((thumb, i) => ({
+            src: thumb.url,
             label: `${order.title} · ${i + 1}/${thumbnails.length}`,
           }))}
           initialIndex={0}
           onClose={() => setLightboxOpen(false)}
+          onShowOnCard={
+            onCardThumbnailsChange
+              ? (index) => {
+                  void showPicOnCard(index);
+                }
+              : undefined
+          }
+          showOnCardBusy={cardImageBusy}
+          cardImageIndex={0}
         />
       ) : null}
     </div>

@@ -159,6 +159,7 @@ const OPERATIONAL_SPEC_KEYS = new Set([
   "due_anchor_at",
   "due_date_label",
   "due_date_status",
+  "card_image",
 ]);
 
 function jsonStable(value: unknown): string {

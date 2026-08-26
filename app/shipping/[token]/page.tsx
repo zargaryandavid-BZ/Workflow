@@ -1,8 +1,9 @@
 import { Package } from "lucide-react";
 import {
-  thumbnailUrlsByOrder,
+  boardThumbnailsByOrder,
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
+import { parseCardImageRef, preferCardImage } from "@/lib/card-image";
 import { buildRespondOrderRows } from "@/lib/respond-order";
 import { defaultDeliveryAddress } from "@/lib/shipping-address";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -79,21 +80,24 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
     return null;
   }
 
-  const [skuImagesRes, assetsRes] = await Promise.all([
+  const [skuImagesRes, assetsRes, orderRes] = await Promise.all([
     admin
       .from("order_sku_images")
-      .select("order_id, storage_path, file_name, mime_type, position, created_at")
+      .select("id, order_id, storage_path, file_name, mime_type, position, created_at")
       .eq("order_id", orderId)
       .order("position", { ascending: true }),
     admin
       .from("assets")
-      .select("order_id, storage_path, external_url, file_name, mime_type, created_at")
+      .select("id, order_id, storage_path, external_url, file_name, mime_type, created_at")
       .eq("order_id", orderId)
       .order("created_at", { ascending: true }),
+    admin.from("orders").select("specs").eq("id", orderId).maybeSingle(),
   ]);
 
   const skuRows: OrderAssetPreviewRow[] = (skuImagesRes.data ?? []).map(
     (r) => ({
+      id: r.id as string,
+      source: "sku_image" as const,
       order_id: r.order_id as string,
       storage_path: r.storage_path as string | null,
       external_url: null,
@@ -102,8 +106,12 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
       created_at: r.created_at as string,
     })
   );
-  const assetRows = (assetsRes.data ?? []) as OrderAssetPreviewRow[];
-  const byOrder = await thumbnailUrlsByOrder(
+  const assetRows = (assetsRes.data ?? []).map((r) => ({
+    ...(r as OrderAssetPreviewRow),
+    id: r.id as string,
+    source: "asset" as const,
+  }));
+  const byOrder = await boardThumbnailsByOrder(
     [...skuRows, ...assetRows],
     async (paths) => {
       const { data: signed } = await admin.storage
@@ -116,7 +124,11 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
       );
     }
   );
-  return byOrder[orderId]?.[0] ?? null;
+  const preferred = preferCardImage(
+    byOrder[orderId] ?? [],
+    parseCardImageRef(orderRes.data?.specs)
+  );
+  return preferred[0]?.url ?? null;
 }
 
 /** Fallback contact from the order's linked customer row. */

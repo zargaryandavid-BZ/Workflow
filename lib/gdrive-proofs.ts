@@ -121,7 +121,7 @@ export type ProofFile = {
   thumbnailLink: string | null;
 };
 
-/** List every non-folder file directly inside the Proofs folder. */
+/** List every non-folder file directly inside a folder (Proofs or designer root). */
 export async function listProofFiles(
   { drive, sharedDriveId }: ProofsDrive,
   proofsFolderId: string

@@ -87,6 +87,7 @@ import {
 } from "@/lib/board-column-sort";
 import { isStartColumn } from "@/lib/board-columns";
 import type { TimeChip } from "@/lib/time-chips";
+import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
 
 interface ColumnOption {
   id: string;
@@ -103,7 +104,7 @@ interface BoardTableProps {
   onApplySortToAllColumns: (mode: ColumnSortMode) => void;
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
-  thumbnailByOrder: Record<string, string[]>;
+  thumbnailByOrder: Record<string, BoardThumbnail[]>;
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
   ownerNameByOrder: Record<string, string>;
@@ -471,7 +472,7 @@ export function BoardTable({
 
           {visibleOrders.map((order) => {
             const fieldValues = fieldValuesByOrder[order.id] ?? {};
-            const thumbnail = thumbnailByOrder[order.id]?.[0];
+            const thumbnail = firstThumbnailUrl(thumbnailByOrder[order.id]);
             const designerName =
               designerNameByOrder[order.id]?.trim() ||
               (typeof order.specs?.designer_name === "string"
@@ -612,7 +613,7 @@ export function BoardTable({
                         </span>
                         {cardTitle ? (
                           <span
-                            className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight text-slate-700"
+                            className="min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-slate-700"
                             title={cardTitle}
                           >
                             {cardTitle}

@@ -1,4 +1,4 @@
-import { findMatchingOption, normalizeOptionKey } from "./field-links";
+import { findMatchingOption, normalizeOptionKey } from "./field-links.ts";
 
 export type SpecSelectOption = { value: string; label: string };
 
