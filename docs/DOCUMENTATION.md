@@ -363,7 +363,7 @@ Full reference: [API routes](#api-routes).
 | Team | `GET /api/team`, `POST .../invite`, `PATCH/DELETE .../[id]` |
 | Tenant | `POST /api/tenant/switch`, `POST /api/onboarding` |
 | Auth | `POST /api/auth/signout` |
-| Die orders | `POST /api/die-requests`, `PATCH /api/die-requests/[id]`, `POST /api/die-requests/[id]/confirm`, `GET /api/die-requests/quoted-count`, public `POST /api/die/[token]/quote` |
+| Die orders | `POST /api/die-requests`, `PATCH /api/die-requests/[id]`, `POST /api/die-requests/[id]/confirm`, `GET /api/die-requests/quoted-count`, public `POST /api/die/[token]/quote`. Board cards show Die requested / Die manuf. waiting / Die ordered - DD.MM |
 | CRM export | `GET /api/export/board-columns` (webhook secret) |
 
 ## Legacy approval system

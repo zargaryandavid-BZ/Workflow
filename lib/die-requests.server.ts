@@ -4,10 +4,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   dieRequestAlert,
   parseDieRequestFiles,
+  pickDieBoardStatus,
   worstDieAlert,
   type DieAlert,
+  type DieBoardStatus,
   type DieRequest,
   type DieRequestFile,
+  type DieRequestStatus,
 } from "@/lib/die-request";
 
 export async function listDieRequests(
@@ -107,40 +110,84 @@ function mapDieRequestRow(row: Record<string, unknown>): DieRequest {
   };
 }
 
-export async function dieAlertsByOrder(
+export async function dieBoardStateByOrder(
   supabase: SupabaseClient,
   orderIds: string[]
-): Promise<Record<string, DieAlert>> {
-  const result: Record<string, DieAlert> = {};
-  if (orderIds.length === 0) return result;
+): Promise<{
+  dieAlertByOrder: Record<string, DieAlert>;
+  dieStatusByOrder: Record<string, DieBoardStatus>;
+}> {
+  const dieAlertByOrder: Record<string, DieAlert> = {};
+  const dieStatusByOrder: Record<string, DieBoardStatus> = {};
+  if (orderIds.length === 0) return { dieAlertByOrder, dieStatusByOrder };
 
   const { data, error } = await supabase
     .from("die_requests")
-    .select("order_id, status, required_date, confirmed_due_date")
-    .in("order_id", orderIds)
-    .in("status", ["quoted", "ordered"]);
+    .select("order_id, status, required_date, confirmed_due_date, created_at")
+    .in("order_id", orderIds);
 
-  if (error) return result;
+  if (error) return { dieAlertByOrder, dieStatusByOrder };
 
-  const grouped = new Map<string, DieAlert[]>();
+  const statusRows = new Map<
+    string,
+    Array<{
+      status: DieRequestStatus;
+      confirmed_due_date: string | null;
+      created_at: string;
+    }>
+  >();
+  const alertRows = new Map<string, DieAlert[]>();
+
   for (const row of data ?? []) {
+    const orderId = String(row.order_id);
+    const status: DieRequestStatus =
+      row.status === "ordered"
+        ? "ordered"
+        : row.status === "quoted"
+          ? "quoted"
+          : "sent";
+    const list = statusRows.get(orderId) ?? [];
+    list.push({
+      status,
+      confirmed_due_date: row.confirmed_due_date
+        ? String(row.confirmed_due_date).slice(0, 10)
+        : null,
+      created_at: String(row.created_at ?? ""),
+    });
+    statusRows.set(orderId, list);
+
     const alert = dieRequestAlert({
-      status: String(row.status) === "ordered" ? "ordered" : "quoted",
+      status,
       required_date: String(row.required_date),
       confirmed_due_date: row.confirmed_due_date
         ? String(row.confirmed_due_date)
         : null,
     });
-    if (!alert) continue;
-    const list = grouped.get(row.order_id as string) ?? [];
-    list.push(alert);
-    grouped.set(row.order_id as string, list);
+    if (alert) {
+      const alerts = alertRows.get(orderId) ?? [];
+      alerts.push(alert);
+      alertRows.set(orderId, alerts);
+    }
   }
-  for (const [orderId, alerts] of grouped) {
+
+  for (const [orderId, rows] of statusRows) {
+    const status = pickDieBoardStatus(rows);
+    if (status) dieStatusByOrder[orderId] = status;
+  }
+  for (const [orderId, alerts] of alertRows) {
     const worst = worstDieAlert(alerts);
-    if (worst) result[orderId] = worst;
+    if (worst) dieAlertByOrder[orderId] = worst;
   }
-  return result;
+  return { dieAlertByOrder, dieStatusByOrder };
+}
+
+/** @deprecated use dieBoardStateByOrder */
+export async function dieAlertsByOrder(
+  supabase: SupabaseClient,
+  orderIds: string[]
+): Promise<Record<string, DieAlert>> {
+  const { dieAlertByOrder } = await dieBoardStateByOrder(supabase, orderIds);
+  return dieAlertByOrder;
 }
 
 function dieFilesFromRow(row: Record<string, unknown>): DieRequestFile[] {

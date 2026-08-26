@@ -184,6 +184,53 @@ export function worstDieAlert(alerts: DieAlert[]): DieAlert | null {
   )[0];
 }
 
+export type DieBoardStatus = {
+  status: DieRequestStatus;
+  label: string;
+};
+
+const DIE_STATUS_RANK: Record<DieRequestStatus, number> = {
+  sent: 1,
+  quoted: 2,
+  ordered: 3,
+};
+
+/** `2026-08-28` → `28.08` */
+export function formatDieDayMonth(ymd: string | null | undefined): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd ?? "").trim());
+  if (!m) return null;
+  return `${m[3]}.${m[2]}`;
+}
+
+export function dieBoardStatusLabel(
+  req: Pick<DieRequest, "status" | "confirmed_due_date">
+): string {
+  if (req.status === "ordered") {
+    const day = formatDieDayMonth(req.confirmed_due_date);
+    return day ? `Die ordered - ${day}` : "Die ordered";
+  }
+  if (req.status === "quoted") return "Die manuf. waiting";
+  return "Die requested";
+}
+
+export function pickDieBoardStatus(
+  rows: Array<Pick<DieRequest, "status" | "confirmed_due_date" | "created_at">>
+): DieBoardStatus | null {
+  if (rows.length === 0) return null;
+  const best = [...rows].sort((a, b) => {
+    const rank = DIE_STATUS_RANK[b.status] - DIE_STATUS_RANK[a.status];
+    if (rank !== 0) return rank;
+    return String(b.created_at).localeCompare(String(a.created_at));
+  })[0];
+  return { status: best.status, label: dieBoardStatusLabel(best) };
+}
+
+export const DIE_BOARD_STATUS_CLASS: Record<DieRequestStatus, string> = {
+  sent: "bg-amber-100 text-amber-800",
+  quoted: "bg-sky-100 text-sky-800",
+  ordered: "bg-blue-100 text-blue-800",
+};
+
 export const DIE_ALERT_CLASS: Record<DieAlertLevel, string> = {
   overdue: "bg-red-100 text-red-800",
   due_today: "bg-red-100 text-red-800",

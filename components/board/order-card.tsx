@@ -31,7 +31,7 @@ import {
   CARD_BADGE_STYLES,
   type CardNotificationBadge,
 } from "@/lib/card-badges";
-import { DIE_ALERT_CLASS, type DieAlert } from "@/lib/die-request";
+import { DIE_ALERT_CLASS, DIE_BOARD_STATUS_CLASS, type DieAlert, type DieBoardStatus } from "@/lib/die-request";
 import {
   UNASSIGNED_DESIGNER_CARD_CLASS,
   UNASSIGNED_DESIGNER_TEXT_CLASS,
@@ -164,6 +164,8 @@ interface OrderCardProps {
   shippingSign?: BoardShippingSign;
   /** Alarm when the confirmed die due date is at risk. */
   dieAlert?: DieAlert;
+  /** Die request lifecycle from /die-order. */
+  dieStatus?: DieBoardStatus;
   groupSize?: number;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
@@ -227,6 +229,7 @@ export function OrderCard({
   approvalDate = null,
   shippingSign,
   dieAlert,
+  dieStatus,
   groupSize,
   emergencySeverity = null,
   emergencyReasons = [],
@@ -916,6 +919,24 @@ export function OrderCard({
                 <span className="font-medium text-slate-500">Rush:</span> no
               </span>
             )}
+            {dieStatus ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-semibold",
+                    DIE_BOARD_STATUS_CLASS[dieStatus.status]
+                  )}
+                  title={
+                    dieStatus.status === "ordered"
+                      ? `${dieStatus.label} delivery date`
+                      : dieStatus.label
+                  }
+                >
+                  {dieStatus.label}
+                </span>
+              </>
+            ) : null}
             {dieAlert ? (
               <>
                 <span className="text-slate-300"> · </span>

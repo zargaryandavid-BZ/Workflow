@@ -66,7 +66,12 @@ import {
   type PriorityScore,
 } from "@/lib/order-priority-score";
 import type { BoardShippingSign } from "@/lib/board-shipping";
-import { DIE_ALERT_CLASS, type DieAlert } from "@/lib/die-request";
+import {
+  DIE_ALERT_CLASS,
+  DIE_BOARD_STATUS_CLASS,
+  type DieAlert,
+  type DieBoardStatus,
+} from "@/lib/die-request";
 import { shippingTagClass } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { OrderCardTimeChips } from "./order-card-time-chips";
@@ -104,6 +109,7 @@ interface BoardTableProps {
   ownerNameByOrder: Record<string, string>;
   shippingSignByOrder?: Record<string, BoardShippingSign>;
   dieAlertByOrder?: Record<string, DieAlert>;
+  dieStatusByOrder?: Record<string, DieBoardStatus>;
   approvalDateByOrder?: Record<string, string>;
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
@@ -159,6 +165,7 @@ export function BoardTable({
   ownerNameByOrder,
   shippingSignByOrder = {},
   dieAlertByOrder = {},
+  dieStatusByOrder = {},
   approvalDateByOrder = {},
   groupSizeByOrder = {},
   warningRules = [],
@@ -476,6 +483,7 @@ export function BoardTable({
             const isOwnerUnassigned = !order.created_by;
             const shippingSign = shippingSignByOrder[order.id];
             const dieAlert = dieAlertByOrder[order.id];
+            const dieStatus = dieStatusByOrder[order.id];
             const column = columns.find((c) => c.id === order.column_id);
             const columnKind = column?.kind ?? null;
             const columnName = column?.name ?? null;
@@ -720,6 +728,21 @@ export function BoardTable({
                           <Truck className="h-2.5 w-2.5" />
                         )}
                         {shippingSign.label}
+                      </span>
+                    ) : null}
+                    {dieStatus ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold",
+                          DIE_BOARD_STATUS_CLASS[dieStatus.status]
+                        )}
+                        title={
+                          dieStatus.status === "ordered"
+                            ? `${dieStatus.label} delivery date`
+                            : dieStatus.label
+                        }
+                      >
+                        {dieStatus.label}
                       </span>
                     ) : null}
                     {dieAlert ? (

@@ -28,7 +28,7 @@ import { canAssignDesignerOnBoard, canSetBoardTagAndPriority } from "@/lib/permi
 import { cn } from "@/lib/utils";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
-import type { DieAlert } from "@/lib/die-request";
+import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type {
   BoardColumn,
   ButtonAutomation,
@@ -72,6 +72,7 @@ interface ColumnProps {
   ownerNameByOrder: Record<string, string>;
   shippingSignByOrder?: Record<string, BoardShippingSign>;
   dieAlertByOrder?: Record<string, DieAlert>;
+  dieStatusByOrder?: Record<string, DieBoardStatus>;
   approvalDateByOrder?: Record<string, string>;
   groupSizeByOrder?: Record<string, number>;
   warningRules?: CardWarningRule[];
@@ -182,6 +183,7 @@ export function Column({
   ownerNameByOrder,
   shippingSignByOrder = {},
   dieAlertByOrder = {},
+  dieStatusByOrder = {},
   approvalDateByOrder = {},
   groupSizeByOrder = {},
   warningRules = [],
@@ -518,6 +520,7 @@ export function Column({
                     ownerName={ownerNameByOrder[entry.order.id]}
                     shippingSign={shippingSignByOrder[entry.order.id]}
                     dieAlert={dieAlertByOrder[entry.order.id]}
+                    dieStatus={dieStatusByOrder[entry.order.id]}
                     approvalDate={approvalDateByOrder[entry.order.id] ?? null}
                     groupSize={groupSizeByOrder[entry.order.id]}
                     warningRules={warningRules}
@@ -596,6 +599,7 @@ export function Column({
                   ownerName={ownerNameByOrder[order.id]}
                   shippingSign={shippingSignByOrder[order.id]}
                   dieAlert={dieAlertByOrder[order.id]}
+                  dieStatus={dieStatusByOrder[order.id]}
                   approvalDate={approvalDateByOrder[order.id] ?? null}
                   groupSize={groupSizeByOrder[order.id]}
                   warningRules={warningRules}

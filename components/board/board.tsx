@@ -153,7 +153,7 @@ import type { ColumnOrdersResponse } from "@/app/api/board/column-orders/route";
 import type { SearchOrdersResponse } from "@/app/api/board/search-orders/route";
 import type { BoardOrderEnrichment } from "@/lib/board-order-enrichment";
 import type { BoardShippingSign } from "@/lib/board-shipping";
-import type { DieAlert } from "@/lib/die-request";
+import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import {
   countDesignerLoads,
   designerLoadColumnIds,
@@ -325,6 +325,9 @@ export function Board({
   >({});
   const [dieAlertByOrder, setDieAlertByOrder] = useState<
     Record<string, DieAlert>
+  >({});
+  const [dieStatusByOrder, setDieStatusByOrder] = useState<
+    Record<string, DieBoardStatus>
   >({});
   const [approvalDateByOrder, setApprovalDateByOrder] = useState<
     Record<string, string>
@@ -852,6 +855,7 @@ export function Board({
             designerNameByOrder: data.designerNameByOrder,
             shippingSignByOrder: data.shippingSignByOrder ?? {},
             dieAlertByOrder: data.dieAlertByOrder ?? {},
+            dieStatusByOrder: data.dieStatusByOrder ?? {},
             approvalDateByOrder: data.approvalDateByOrder ?? {},
           });
 
@@ -1368,6 +1372,10 @@ export function Board({
         setDieAlertByOrder((prev) => ({
           ...prev,
           ...(data.dieAlertByOrder ?? {}),
+        }));
+        setDieStatusByOrder((prev) => ({
+          ...prev,
+          ...(data.dieStatusByOrder ?? {}),
         }));
         setApprovalDateByOrder((prev) => ({
           ...prev,
@@ -2561,6 +2569,9 @@ export function Board({
   const displayDieAlertByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.dieAlertByOrder
     : dieAlertByOrder;
+  const displayDieStatusByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.dieStatusByOrder
+    : dieStatusByOrder;
   const displayApprovalDateByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.approvalDateByOrder
     : approvalDateByOrder;
@@ -3343,6 +3354,7 @@ export function Board({
           ownerNameByOrder={displayOwnerNameByOrder}
           shippingSignByOrder={displayShippingSignByOrder}
           dieAlertByOrder={displayDieAlertByOrder}
+          dieStatusByOrder={displayDieStatusByOrder}
           approvalDateByOrder={displayApprovalDateByOrder}
           groupSizeByOrder={groupSizeByOrder}
           warningRules={warningRules}
@@ -3433,6 +3445,7 @@ export function Board({
                 groupSizeByOrder={groupSizeByOrder}
                 shippingSignByOrder={displayShippingSignByOrder}
                 dieAlertByOrder={displayDieAlertByOrder}
+                dieStatusByOrder={displayDieStatusByOrder}
                 approvalDateByOrder={displayApprovalDateByOrder}
                 warningRules={warningRules}
                 animateWarnings={animateWarnings}
@@ -3530,6 +3543,7 @@ export function Board({
               ownerName={displayOwnerNameByOrder[activeOrder.id]}
               shippingSign={displayShippingSignByOrder[activeOrder.id]}
               dieAlert={displayDieAlertByOrder[activeOrder.id]}
+              dieStatus={displayDieStatusByOrder[activeOrder.id]}
               approvalDate={displayApprovalDateByOrder[activeOrder.id] ?? null}
               warningRules={warningRules}
               animateWarnings={animateWarnings}

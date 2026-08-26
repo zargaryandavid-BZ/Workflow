@@ -15,7 +15,7 @@ import {
 } from "@/lib/constants";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import type { BoardShippingSign } from "@/lib/board-shipping";
-import type { DieAlert } from "@/lib/die-request";
+import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type { BoardColumn, CustomField, OrderWithRelations } from "@/lib/types";
 
 export interface SearchOrdersResponse {
@@ -27,6 +27,7 @@ export interface SearchOrdersResponse {
   designerNameByOrder: Record<string, string>;
   shippingSignByOrder: Record<string, BoardShippingSign>;
   dieAlertByOrder: Record<string, DieAlert>;
+  dieStatusByOrder: Record<string, DieBoardStatus>;
   approvalDateByOrder: Record<string, string>;
 }
 
@@ -47,6 +48,7 @@ const emptyResponse = (): SearchOrdersResponse => ({
   designerNameByOrder: {},
   shippingSignByOrder: {},
   dieAlertByOrder: {},
+  dieStatusByOrder: {},
   approvalDateByOrder: {},
 });
 
