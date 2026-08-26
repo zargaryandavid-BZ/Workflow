@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
+import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
+import type { Order } from "@/lib/types";
 
 export async function POST(
   request: Request,
@@ -118,6 +120,15 @@ export async function POST(
         },
         columnName: col.name as string,
       });
+      // Net-terms invoice on ship — a button move into a Fulfilled/Finished
+      // column must fire the CRM fulfill ping too (not only drag via /api/orders/move).
+      if (isFulfilledStage(col.name as string)) {
+        try {
+          await notifyCrmOrderFulfilled(fullOrder as unknown as Order, col.name as string);
+        } catch (e) {
+          console.error("[FastActionBtn] net-terms-fulfill:", e instanceof Error ? e.message : e);
+        }
+      }
     } catch (err: unknown) {
       console.error(
         "[FastActionBtn] bazaar-portal-sync:",
