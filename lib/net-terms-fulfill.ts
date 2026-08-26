@@ -6,13 +6,12 @@
  * Net-N clock from today (see CRM POST /api/webhook/order-fulfilled).
  *
  * No-op unless CRM_FULFILL_WEBHOOK_URL + CRM_FULFILL_SECRET are set and the card
- * carries a CRM order number (ORD-YYYY-####). Idempotency lives in the CRM, so
+ * carries a non-empty order number (whatever format the CRM uses today — e.g.
+ * "675-1" or "ORD-2026-0298"). The CRM matches it against job_tickets.reference_code
+ * and safely no-ops if there is no such order. Idempotency lives in the CRM, so
  * re-entering a fulfilled column never re-sends.
  */
 import type { Order } from "@/lib/types";
-
-/** CRM reference codes look like ORD-2026-0298. */
-const CRM_ORDER_NUMBER_RE = /^ORD-\d{4}-\S+$/i;
 
 /**
  * True for any terminal "fulfilled" column. Real boards name these either
@@ -46,7 +45,7 @@ export async function notifyCrmOrderFulfilled(order: Order, columnName: string):
   if (!url || !secret) return;
 
   const orderNumber = orderNumberFromCard(order);
-  if (!CRM_ORDER_NUMBER_RE.test(orderNumber)) return;
+  if (!orderNumber) return;
 
   const res = await fetch(url, {
     method: "POST",
