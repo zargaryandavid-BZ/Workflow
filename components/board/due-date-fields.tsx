@@ -84,7 +84,7 @@ export function DueDateFields({
           }
         >
           <option value="fixed">Fixed date</option>
-          <option value="after_approval">Working days after approval</option>
+          <option value="after_approval">After Approval</option>
         </Select>
 
         {mode === "fixed" ? (
@@ -132,9 +132,7 @@ export function DueDateFields({
               }}
               className={`w-16 shrink-0 ${readOnly ? "bg-slate-50" : ""}`}
             />
-            <span className="min-w-0 truncate text-sm text-slate-600">
-              working days
-            </span>
+            <span className="shrink-0 text-sm text-slate-600">wd</span>
           </div>
         )}
       </div>

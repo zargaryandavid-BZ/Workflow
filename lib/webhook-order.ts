@@ -23,6 +23,14 @@ import {
   webhookRushFromPayload,
 } from "@/lib/order-rush";
 import {
+  DIE_REQUEST_TAG_NAME,
+  ensureNamedTag,
+} from "@/lib/tags";
+import {
+  firstMatchingTagId,
+  webhookItemTagHaystack,
+} from "@/lib/tag-exact-word";
+import {
   canonicalizeWebhookSourceKey,
   parseWebhookSourceKey,
 } from "@/lib/webhook-source-styles";
@@ -1631,28 +1639,71 @@ function resolveKnownSelectAlias(
   const key = incoming.trim().toLowerCase().replace(/\s+/g, " ");
   if (fieldName === "product") {
     const map: Record<string, string> = {
+      // Sticker aliases
       "die cut / kiss cut stickers": "Diecut Stickers",
       "die-cut / kiss-cut stickers": "Diecut Stickers",
       "die cut stickers": "Diecut Stickers",
       "kiss cut stickers": "Diecut Stickers",
       "diecut stickers": "Diecut Stickers",
+      // Label aliases — CRM uses "Roll Labels", Workflow uses "Labels (Roll)"
+      "roll labels": "Labels (Roll)",
+      "labels (roll)": "Labels (Roll)",
+      "sheet labels": "Labels (Sheet)",
+      "labels (sheet)": "Labels (Sheet)",
     };
     return map[key] ?? null;
   }
   if (fieldName === "materials") {
     const map: Record<string, string> = {
+      // Holographic aliases
       "holographic label (rainbow holographic bopp)": "Holo BOPP",
       "rainbow holographic bopp": "Holo BOPP",
       "holographic label": "Holo BOPP",
       "holo bopp": "Holo BOPP",
+      // BOPP with glue-type suffix — must map to base BOPP, not Vinyl
+      // (fuzzy match incorrectly picks "White Vinyl - Aggressive Glue" otherwise)
+      "white bopp (aggressive glue)": "White BOPP",
+      "white bopp (regular glue)": "White BOPP",
+      "clear bopp (aggressive glue)": "Clear BOPP",
+      "clear bopp (regular glue)": "Clear BOPP",
+      "silver bopp (aggressive glue)": "Silver BOPP",
+      "silver bopp (regular glue)": "Silver BOPP",
     };
     return map[key] ?? null;
   }
   if (fieldName === "lamination" || fieldName === "finishing") {
     const map: Record<string, string> = {
+      // Long → short (CRM sends full name, tenant field uses short)
       "matte lamination": "Matte",
       "gloss lamination": "Gloss",
       "soft touch lamination": "Soft Touch",
+      // Short → long (CRM sends short name, tenant field uses full name)
+      "gloss": "Gloss Lamination",
+      "matte": "Matte Lamination",
+      "soft touch": "Soft Touch Lamination",
+      "soft touch (non-scratch)": "Soft Touch Lamination (Non-Scratch)",
+      "soft touch non-scratch": "Soft Touch Lamination (Non-Scratch)",
+      "rainbow holographic": "Rainbow Holographic Lamination",
+      "rainbow holo lamination": "Rainbow Holographic Lamination",
+      "holo lamination": "Rainbow Holographic Lamination",
+    };
+    return map[key] ?? null;
+  }
+  if (fieldName === "sides") {
+    const map: Record<string, string> = {
+      // Numeric → descriptive (CRM sends "1 Side"/"2 Sides", field has "Single-sided"/"Double-sided")
+      "1 side": "Single-sided",
+      "1-side": "Single-sided",
+      "one side": "Single-sided",
+      "single sided": "Single-sided",
+      "single-sided": "Single-sided",
+      "simplex": "Single-sided",
+      "2 sides": "Double-sided",
+      "2-sides": "Double-sided",
+      "two sides": "Double-sided",
+      "double sided": "Double-sided",
+      "double-sided": "Double-sided",
+      "duplex": "Double-sided",
     };
     return map[key] ?? null;
   }
@@ -1664,7 +1715,8 @@ function resolveMultiSelectField(
   raw: unknown,
   options: string[],
   fieldName: string,
-  corrections: string[]
+  corrections: string[],
+  keepUnmatched = false
 ): string | null {
   const parts: string[] = [];
   if (Array.isArray(raw)) {
@@ -1684,7 +1736,7 @@ function resolveMultiSelectField(
 
   const matched: string[] = [];
   for (const part of parts) {
-    const resolved = resolveSelectField(part, options, fieldName, corrections);
+    const resolved = resolveSelectField(part, options, fieldName, corrections, keepUnmatched);
     if (resolved) matched.push(resolved);
   }
   return matched.length > 0 ? matched.join(", ") : null;
@@ -1791,7 +1843,9 @@ function resolveWebhookFieldValue(
         ? selectOptionsForWebhookField(webhookKey, field.options)
         : [];
     if (options.length > 0) {
-      return resolveMultiSelectField(raw, options, webhookKey, corrections);
+      // keepUnmatched=true: store unrecognized special-effect values as-is
+      // to prevent data loss (e.g. "Scodix Raised UV — 50 Microns")
+      return resolveMultiSelectField(raw, options, webhookKey, corrections, true);
     }
     return formatSpecialEffects(
       raw as string[] | string | null | undefined
@@ -2545,6 +2599,28 @@ async function resolveTagId(
   return (tag as { id: string } | null)?.id ?? null;
 }
 
+async function listTenantTags(
+  client: Client,
+  tenantId: string
+): Promise<Array<{ id: string; name: string }>> {
+  const { data } = await client
+    .from("tags")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .order("name", { ascending: true });
+  return ((data ?? []) as { id: string; name: string }[]).filter(
+    (t) => t.id && t.name?.trim()
+  );
+}
+
+function tagIdFromItemExactWord(
+  item: WebhookItem,
+  jobTitle: string | null | undefined,
+  tags: Array<{ id: string; name: string }>
+): string | null {
+  return firstMatchingTagId(webhookItemTagHaystack(item, jobTitle), tags);
+}
+
 export interface WebhookCreatedJob {
   order_id: string;
   item_index: number;
@@ -2833,6 +2909,14 @@ async function refreshPortalOrdersFromWebhook(params: {
     (typeof body.company?.id === "string" && body.company.id.trim()) ||
     null;
   const rushTagId = await resolveTagId(client, tenantId, RUSH_ORDER_TAG_NAME);
+  await ensureNamedTag(
+    client,
+    tenantId,
+    DIE_REQUEST_TAG_NAME,
+    "#0ea5e9",
+    "Die service line — order the die from the manufacturer"
+  );
+  const tenantTags = await listTenantTags(client, tenantId);
 
   // Pair by index only — never reuse items[0] for trailing cards (wrong specs/art).
   // Excess board cards (more cards than payload lines) are left untouched.
@@ -2922,7 +3006,12 @@ async function refreshPortalOrdersFromWebhook(params: {
     if (isRush) patch.priority = "high";
     else if (wasRush) patch.priority = "normal";
 
-    if (isRush && !wasRush && rushTagId && !currentTagId) {
+    const wordTagId = !currentTagId
+      ? tagIdFromItemExactWord(item, jobTitle, tenantTags)
+      : null;
+    if (wordTagId && !currentTagId) {
+      patch.tag_id = wordTagId;
+    } else if (isRush && !wasRush && rushTagId && !currentTagId) {
       patch.tag_id = rushTagId;
     } else if (wasRush && !isRush && rushTagId && currentTagId === rushTagId) {
       patch.tag_id = null;
@@ -3686,6 +3775,14 @@ export async function createOrderFromWebhook(
     tenantId,
     orderTagName
   );
+  await ensureNamedTag(
+    client,
+    tenantId,
+    DIE_REQUEST_TAG_NAME,
+    "#0ea5e9",
+    "Die service line — order the die from the manufacturer"
+  );
+  const tenantTags = await listTenantTags(client, tenantId);
 
   const orderLevelBilling = parseWebhookBilling({
     source_url: body.source_url,
@@ -3735,7 +3832,13 @@ export async function createOrderFromWebhook(
     const itemTagName = item.category ?? item.category_name;
     let tagId = itemTagName
       ? await resolveTagId(client, tenantId, itemTagName)
-      : defaultTagId;
+      : null;
+    if (!tagId) {
+      tagId = tagIdFromItemExactWord(item, jobTitle, tenantTags);
+    }
+    if (!tagId) {
+      tagId = defaultTagId;
+    }
     const isRush = webhookRushFromPayload(item as Record<string, unknown>) === true;
     if (isRush && !tagId) {
       tagId = await resolveTagId(client, tenantId, RUSH_ORDER_TAG_NAME);

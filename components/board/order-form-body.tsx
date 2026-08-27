@@ -172,6 +172,8 @@ export interface OrderFormBodyProps {
    * ProductSpecsSection. SKUs / qty / notes stay.
    */
   hidePrintCustomFields?: boolean;
+  /** When false, do not auto-fill Category from Product (card detail). */
+  autoInferCategory?: boolean;
   /** Rendered inside the print-fields card when custom print fields are hidden. */
   printFieldsSlot?: ReactNode;
   tags?: Tag[];
@@ -402,6 +404,7 @@ export function OrderFormBody({
   hideOwnerField = false,
   hideCustomerSection = false,
   hidePrintCustomFields = false,
+  autoInferCategory = true,
   printFieldsSlot,
   tags = [],
   tagId = "",
@@ -1020,6 +1023,7 @@ export function OrderFormBody({
                     }
                   : undefined
               }
+              autoInferCategory={autoInferCategory}
               onProductChange={handleProductLinkedChange}
               onMaterialsChange={(v) =>
                 handleLinkedFieldChange(materialsField.id, v)

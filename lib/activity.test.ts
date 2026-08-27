@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveActivityActorName } from "./activity.ts";
+import {
+  formatStayDuration,
+  isColumnMoveActivity,
+  mergeActivityById,
+  resolveActivityActorName,
+} from "./activity.ts";
 
 type TestActivity = Parameters<typeof resolveActivityActorName>[0];
 
@@ -74,4 +79,36 @@ test("labels customer, automation, webhook, warehouse, and system activity", () 
     "Alex"
   );
   assert.equal(resolveActivityActorName(activity("customer_merged"), names), "System");
+});
+
+test("treats staff, automation, approval, and customer-reply column changes as moves", () => {
+  assert.equal(isColumnMoveActivity(activity("moved")), true);
+  assert.equal(isColumnMoveActivity(activity("idle_auto_moved")), true);
+  assert.equal(
+    isColumnMoveActivity(activity("approved", null, { movedTo: "col-2" })),
+    true
+  );
+  assert.equal(
+    isColumnMoveActivity(activity("customer_replied", null, { toName: "Hold" })),
+    true
+  );
+  assert.equal(
+    isColumnMoveActivity(
+      activity("customer_replied", null, { type: "ready_to_ship" })
+    ),
+    false
+  );
+  assert.equal(isColumnMoveActivity(activity("created")), false);
+});
+
+test("formats stay duration with leftover hours and minutes", () => {
+  assert.equal(formatStayDuration(43 * 60_000), "43m");
+  assert.equal(formatStayDuration(90 * 60_000), "1h 30m");
+  assert.equal(formatStayDuration(26 * 60 * 60_000), "1d 2h");
+});
+
+test("mergeActivityById keeps unique rows", () => {
+  const a = activity("moved");
+  const b = { ...activity("updated"), id: "other" };
+  assert.equal(mergeActivityById([a], [a, b]).length, 2);
 });

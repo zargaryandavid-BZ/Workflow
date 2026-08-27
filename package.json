@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types lib/activity.test.ts lib/due-date.test.ts lib/designer-load.test.ts lib/field-links.test.ts lib/import-catalog.test.ts lib/connected-specs.test.ts lib/order-rush.test.ts lib/design-task.test.ts lib/proof-sku-match.test.ts lib/card-image.test.ts lib/net-terms-fulfill.test.ts lib/note-history.test.ts lib/webhook-artwork.test.ts lib/die-order-autofill.test.ts lib/sku-approval.test.ts lib/drive-folder-names.test.ts",
+    "test": "node --test --experimental-strip-types lib/activity.test.ts lib/due-date.test.ts lib/designer-load.test.ts lib/field-links.test.ts lib/import-catalog.test.ts lib/connected-specs.test.ts lib/order-rush.test.ts lib/design-task.test.ts lib/proof-sku-match.test.ts lib/card-image.test.ts lib/net-terms-fulfill.test.ts lib/note-history.test.ts lib/webhook-artwork.test.ts lib/die-order-autofill.test.ts lib/sku-approval.test.ts lib/drive-folder-names.test.ts lib/tag-exact-word.test.ts",
     "resequence-positions": "npx tsx scripts/resequence-positions.ts",
     "seed:custom-fields": "npx tsx scripts/seed-custom-fields.ts",
     "merge-duplicate-customers": "npx tsx scripts/merge-duplicate-customers.ts",

@@ -34,7 +34,7 @@ import { isComboOrder, getComboStock } from "@/lib/combo-stock";
 import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
-import { describeActivity, sentMessagesFromActivity, type ActivityLogEntry } from "@/lib/activity";
+import { describeActivity, formatStayDuration, isColumnMoveActivity, sentMessagesFromActivity, type ActivityLogEntry } from "@/lib/activity";
 import { customerContactFromOrder, productFromOrder } from "@/lib/notification-messages";
 import { groupSkuImagesBySkuId } from "@/lib/sku-images";
 import {
@@ -207,15 +207,6 @@ function mergeSilentDetail(
   };
 }
 
-function formatDuration(ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
-}
-
 /** Treat empty-ish values as equal so open ticket isn't falsely dirty. */
 function fieldValuesEqual(
   current: unknown,
@@ -223,7 +214,9 @@ function fieldValuesEqual(
   fieldType: string
 ): boolean {
   if (fieldType === "checkbox") {
-    return Boolean(current) === Boolean(saved);
+    const asBool = (v: unknown) =>
+      v === true || v === 1 || v === "1" || v === "true" || v === "yes";
+    return asBool(current) === asBool(saved);
   }
   if (fieldType === "number") {
     const a =
@@ -234,7 +227,12 @@ function fieldValuesEqual(
       saved === "" || saved === undefined || saved === null
         ? null
         : Number(saved);
-    if (a === null && b === null) return true;
+    if (
+      (a === null || (typeof a === "number" && Number.isNaN(a))) &&
+      (b === null || (typeof b === "number" && Number.isNaN(b)))
+    ) {
+      return true;
+    }
     if (a === null || b === null) return false;
     return a === b;
   }
@@ -243,6 +241,27 @@ function fieldValuesEqual(
   const b = saved === undefined || saved === null ? "" : String(saved).trim();
   return a === b;
 }
+
+type TicketEditBaseline = {
+  title: string;
+  newNote: string;
+  productionNotes: string;
+  designerNote: string;
+  customerFacingNote: string;
+  priority: string;
+  applicationDays: number;
+  ownerId: string;
+  dueDate: string;
+  dueDateMode: DueDateMode;
+  dueProcessingDays: number;
+  tagId: string;
+  designerId: string;
+  designTask: string;
+  customerName: string;
+  customerContact: string;
+  fieldValues: Record<string, unknown>;
+  skus: ReturnType<typeof prepareSkusForSave>;
+};
 
 export function CardDetailModal({
   orderId,
@@ -354,6 +373,7 @@ export function CardDetailModal({
   );
   /** SKUs snapshot from last load — used for dirty check without re-minting ids. */
   const baselineSkusRef = useRef<ReturnType<typeof normalizeSkus>>([]);
+  const ticketBaselineRef = useRef<TicketEditBaseline | null>(null);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [copiedCustomerField, setCopiedCustomerField] = useState<string | null>(null);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
@@ -469,8 +489,10 @@ export function CardDetailModal({
     const normalizedSkus = normalizeSkus(json.order.specs?.skus);
     setSkus(normalizedSkus);
     baselineSkusRef.current = normalizedSkus;
-    setDesignerId((json.order.specs?.designer_id as string) ?? "");
-    setDesignTask((json.order.specs?.design_task as string) ?? "");
+    const nextDesignerId = (json.order.specs?.designer_id as string) ?? "";
+    const nextDesignTask = (json.order.specs?.design_task as string) ?? "";
+    setDesignerId(nextDesignerId);
+    setDesignTask(nextDesignTask);
     const map: Record<string, unknown> = {};
     for (const v of json.values) {
       if (validFieldIds.has(v.custom_field_id)) {
@@ -499,6 +521,36 @@ export function CardDetailModal({
     setPersistedSkuIds(
       new Set(normalizeSkus(json.order.specs?.skus).map((s) => s.id))
     );
+
+    const dueSpecs = readOrderDueSpecs(json.order.specs);
+    ticketBaselineRef.current = {
+      title: json.order.title,
+      newNote: "",
+      productionNotes: "",
+      designerNote: "",
+      customerFacingNote:
+        typeof json.order.specs?.customer_facing_note === "string"
+          ? json.order.specs.customer_facing_note
+          : "",
+      priority: json.order.priority,
+      applicationDays:
+        applicationDaysFromSpecs(json.order.specs) ?? DEFAULT_APPLICATION_DAYS,
+      ownerId: json.order.created_by ?? "",
+      dueDate: dateInputValue(json.order.due_date),
+      dueDateMode:
+        dueSpecs.due_date_mode === "after_approval"
+          ? "after_approval"
+          : "fixed",
+      dueProcessingDays:
+        dueSpecs.due_processing_days ?? DEFAULT_PROCESSING_DAYS,
+      tagId: json.order.tag_id ?? "",
+      designerId: nextDesignerId,
+      designTask: nextDesignTask,
+      customerName: name,
+      customerContact: contact,
+      fieldValues: { ...map },
+      skus: prepareSkusForSave(normalizedSkus, { pendingArtworkIds: [] }),
+    };
   }, []);
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
@@ -592,6 +644,7 @@ export function CardDetailModal({
       setActivityFilter("all");
       setPersistedSkuIds(new Set());
       baselineSkusRef.current = [];
+      ticketBaselineRef.current = null;
     }
   }, [open, orderId, load]);
 
@@ -606,17 +659,13 @@ export function CardDetailModal({
   }, [saving]);
 
   function isDueDateDirty(): boolean {
-    if (!data) return false;
-    const order = data.order;
-    if (dateInputValue(dueDate) !== dateInputValue(order.due_date)) return true;
-    const dueSpecs = readOrderDueSpecs(order.specs);
-    const prevMode =
-      dueSpecs.due_date_mode === "after_approval" ? "after_approval" : "fixed";
-    if (dueDateMode !== prevMode) return true;
+    const b = ticketBaselineRef.current;
+    if (!data || !b) return false;
+    if (dateInputValue(dueDate) !== dateInputValue(b.dueDate)) return true;
+    if (dueDateMode !== b.dueDateMode) return true;
     if (
       dueDateMode === "after_approval" &&
-      dueProcessingDays !==
-        (dueSpecs.due_processing_days ?? DEFAULT_PROCESSING_DAYS)
+      dueProcessingDays !== b.dueProcessingDays
     ) {
       return true;
     }
@@ -704,6 +753,14 @@ export function CardDetailModal({
         );
         setDueDate(dateInputValue(rollback.due_date));
         return false;
+      }
+      if (ticketBaselineRef.current) {
+        ticketBaselineRef.current = {
+          ...ticketBaselineRef.current,
+          dueDate: nextDue ?? "",
+          dueDateMode,
+          dueProcessingDays,
+        };
       }
       onChanged();
       return true;
@@ -923,6 +980,32 @@ export function CardDetailModal({
       }
       return next;
     });
+    ticketBaselineRef.current = {
+      title: nextTitle,
+      newNote: "",
+      productionNotes: "",
+      designerNote: "",
+      customerFacingNote: customerFacingNote.trim(),
+      priority: nextPriority,
+      applicationDays,
+      ownerId: ownerId || "",
+      dueDate: nextDue ?? "",
+      dueDateMode,
+      dueProcessingDays,
+      tagId: tagId || "",
+      designerId: designerId || "",
+      designTask: nextDesignTask,
+      customerName: nextCustomerName,
+      customerContact: nextCustomerContact,
+      fieldValues: (() => {
+        const next = { ...fieldValues };
+        for (const row of customFieldValues) {
+          next[row.customFieldId] = row.value;
+        }
+        return next;
+      })(),
+      skus: savedSkus,
+    };
     onChanged(boardPatch);
 
     try {
@@ -977,82 +1060,48 @@ export function CardDetailModal({
   }
 
   function isDirty(): boolean {
-    if (!data) return false;
-    const order = data.order;
-    if (title !== order.title) return true;
+    const b = ticketBaselineRef.current;
+    if (!data || !b) return false;
+    if (title !== b.title) return true;
     if (newNote.trim()) return true;
     if (productionNotes.trim()) return true;
-    if (priority !== order.priority) return true;
+    if (designerNote.trim()) return true;
+    if (priority !== b.priority) return true;
     if (
       isApplicationCustomFieldOn(customFields, fieldValues) &&
-      applicationDays !==
-        (applicationDaysFromSpecs(order.specs) ?? DEFAULT_APPLICATION_DAYS)
+      applicationDays !== b.applicationDays
     ) {
       return true;
     }
-    if ((ownerId || "") !== (order.created_by ?? "")) return true;
-    if (dateInputValue(dueDate) !== dateInputValue(order.due_date)) return true;
-    {
-      const dueSpecs = readOrderDueSpecs(order.specs);
-      const prevMode =
-        dueSpecs.due_date_mode === "after_approval"
-          ? "after_approval"
-          : "fixed";
-      if (dueDateMode !== prevMode) return true;
-      if (
-        dueDateMode === "after_approval" &&
-        dueProcessingDays !==
-          (dueSpecs.due_processing_days ?? DEFAULT_PROCESSING_DAYS)
-      ) {
-        return true;
-      }
-    }
-    if ((tagId || "") !== (order.tag_id ?? "")) return true;
-    if ((designerId || "") !== String(order.specs?.designer_id ?? "")) return true;
-    if ((designTask || "") !== String(order.specs?.design_task ?? "")) return true;
-    if (productionNotes.trim()) return true;
+    if ((ownerId || "") !== (b.ownerId || "")) return true;
+    if (isDueDateDirty()) return true;
+    if ((tagId || "") !== (b.tagId || "")) return true;
+    if ((designerId || "") !== (b.designerId || "")) return true;
+    if ((designTask || "") !== (b.designTask || "")) return true;
     if (
-      customerFacingNote.trim() !==
-      String(order.specs?.customer_facing_note ?? "").trim()
+      customerFacingNote.trim() !== String(b.customerFacingNote ?? "").trim()
     ) {
       return true;
     }
-    if (designerNote.trim()) return true;
+    if (customerName.trim() !== b.customerName.trim()) return true;
+    if (customerContact.trim() !== b.customerContact.trim()) return true;
 
-    const savedSkus = prepareSkusForSave(baselineSkusRef.current, {
-      pendingArtworkIds: [],
-    });
     const currentSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
-    if (JSON.stringify(currentSkus) !== JSON.stringify(savedSkus)) return true;
+    if (JSON.stringify(currentSkus) !== JSON.stringify(b.skus)) return true;
 
     const formFields = resolved;
-    const savedValues: Record<string, unknown> = {};
-    for (const v of data.values) {
-      savedValues[v.custom_field_id] = v.value;
-    }
-    if (formFields.customerNameField) {
-      const id = formFields.customerNameField.id;
-      const savedName = String(savedValues[id] ?? order.customer?.name ?? "").trim();
-      if (customerName.trim() !== savedName) return true;
-    }
-    if (formFields.customerContactField) {
-      const id = formFields.customerContactField.id;
-      const savedContact = String(
-        savedValues[id] ??
-          order.customer?.email ??
-          order.customer?.phone ??
-          ""
-      ).trim();
-      if (customerContact.trim() !== savedContact) return true;
-    }
     for (const field of [
       ...formFields.printFields,
       ...(formFields.orderQtyField ? [formFields.orderQtyField] : []),
       ...(formFields.artworkField ? [formFields.artworkField] : []),
     ]) {
-      const current = fieldValues[field.id];
-      const saved = savedValues[field.id];
-      if (!fieldValuesEqual(current, saved, field.field_type)) {
+      if (
+        !fieldValuesEqual(
+          fieldValues[field.id],
+          b.fieldValues[field.id],
+          field.field_type
+        )
+      ) {
         return true;
       }
     }
@@ -1192,6 +1241,12 @@ export function CardDetailModal({
           ? { ...prev, order: { ...prev.order, specs: nextSpecs } }
           : prev
       );
+      if (ticketBaselineRef.current) {
+        ticketBaselineRef.current = {
+          ...ticketBaselineRef.current,
+          designerId: nextDesignerId,
+        };
+      }
       onChanged({ specs: nextSpecs });
     } catch {
       setDesignerId(prevId);
@@ -1255,6 +1310,12 @@ export function CardDetailModal({
             : s
         )
       );
+      if (ticketBaselineRef.current) {
+        ticketBaselineRef.current = {
+          ...ticketBaselineRef.current,
+          skus: savedSkus,
+        };
+      }
       setData((prev) =>
         prev
           ? {
@@ -2374,6 +2435,7 @@ export function CardDetailModal({
             <OrderFormBody
               idPrefix="edit"
               hidePrintCustomFields={isConnectedOrder(data.order)}
+              autoInferCategory={false}
               productSpecs={data.order.specs ?? null}
               onProductSpecChange={(key, value) =>
                 setData((prev) =>
@@ -2838,16 +2900,25 @@ export function CardDetailModal({
                     </ul>
                   ) : (() => {
                     const moveEvents = data.activity
-                      .filter((l) => l.action === "moved")
+                      .filter((l) => isColumnMoveActivity(l))
                       .slice()
                       .reverse();
                     const createdAt = data.order.created_at;
+                    const lastMove = moveEvents[moveEvents.length - 1];
+                    const lastTo =
+                      lastMove &&
+                      (((lastMove.metadata ?? {}).toName as string | undefined) ||
+                        ((lastMove.metadata ?? {}).to as string | undefined));
+                    const currentStayMs = lastMove
+                      ? Date.now() - new Date(lastMove.created_at).getTime()
+                      : Date.now() - new Date(createdAt).getTime();
                     return (
                       <ul className="space-y-0 border-t border-slate-100 px-3 py-2">
                         {moveEvents.length === 0 ? (
                           <li className="text-xs text-slate-400">No column moves yet.</li>
                         ) : (
-                          moveEvents.map((log, idx) => {
+                          <>
+                          {moveEvents.map((log, idx) => {
                             const prevTime = idx === 0
                               ? new Date(createdAt).getTime()
                               : new Date(moveEvents[idx - 1].created_at).getTime();
@@ -2855,15 +2926,12 @@ export function CardDetailModal({
                             const meta = log.metadata ?? {};
                             const from = (meta.fromName as string | undefined) ?? "—";
                             const to = (meta.toName as string | undefined) ?? "—";
-                            const isLast = idx === moveEvents.length - 1;
                             return (
                               <li key={log.id} className="flex gap-2 pb-3 last:pb-0">
                                 {/* Timeline spine */}
                                 <div className="flex flex-col items-center">
                                   <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-slate-400" />
-                                  {!isLast ? (
-                                    <span className="mt-0.5 w-px flex-1 bg-slate-200" />
-                                  ) : null}
+                                  <span className="mt-0.5 w-px flex-1 bg-slate-200" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-xs font-medium text-slate-700">
@@ -2878,14 +2946,34 @@ export function CardDetailModal({
                                   <p className="text-[11px] text-slate-500">
                                     Stayed{" "}
                                     <span className="font-medium text-slate-700">
-                                      {formatDuration(duration)}
+                                      {formatStayDuration(duration)}
                                     </span>{" "}
                                     in <span className="font-medium">{from}</span>
                                   </p>
                                 </div>
                               </li>
                             );
-                          })
+                          })}
+                          {lastTo ? (
+                            <li className="flex gap-2 pb-0">
+                              <div className="flex flex-col items-center">
+                                <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-medium text-slate-700">
+                                  Now in {lastTo}
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                  Stayed{" "}
+                                  <span className="font-medium text-slate-700">
+                                    {formatStayDuration(currentStayMs)}
+                                  </span>{" "}
+                                  so far
+                                </p>
+                              </div>
+                            </li>
+                          ) : null}
+                          </>
                         )}
                       </ul>
                     );

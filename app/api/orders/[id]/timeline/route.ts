@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { enrichActivityLog } from "@/lib/activity";
-import { ACTIVITY_LOG_LIMIT } from "@/lib/constants";
+import { columnMoveColumnIds, enrichActivityLog, isColumnMoveActivity, mergeActivityById } from "@/lib/activity";
+import { ACTIVITY_LOG_LIMIT, ACTIVITY_MOVE_LOG_LIMIT } from "@/lib/constants";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import type {
   ActivityLog,
@@ -31,6 +31,7 @@ export async function GET(
   const [
     order,
     activityResult,
+    moveActivityResult,
     approvalsResult,
     notificationResult,
     notesResult,
@@ -42,6 +43,19 @@ export async function GET(
       .eq("order_id", id)
       .order("created_at", { ascending: false })
       .limit(ACTIVITY_LOG_LIMIT),
+    supabase
+      .from("activity_log")
+      .select("*")
+      .eq("order_id", id)
+      .in("action", [
+        "moved",
+        "idle_auto_moved",
+        "approved",
+        "rejected",
+        "customer_replied",
+      ])
+      .order("created_at", { ascending: false })
+      .limit(ACTIVITY_MOVE_LOG_LIMIT),
     supabase
       .from("approvals")
       .select("*")
@@ -63,7 +77,6 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const activity = activityResult.data;
   const approvals = approvalsResult.data;
   const notificationRows = notificationResult.data;
   const notesRows = notesResult.data;
@@ -85,7 +98,10 @@ export async function GET(
   }[];
   const notificationIds = missingInfoList.map((n) => n.id as string);
 
-  const activityRows = (activity ?? []) as ActivityLog[];
+  const activityRows = mergeActivityById(
+    (activityResult.data ?? []) as ActivityLog[],
+    (moveActivityResult.data ?? []) as ActivityLog[]
+  );
   const profileIds = new Set<string>();
   const columnIds = new Set<string>();
   for (const n of [...allNotifications, ...notesList]) {
@@ -94,10 +110,8 @@ export async function GET(
   if (order.created_by) profileIds.add(order.created_by);
   for (const log of activityRows) {
     if (log.actor) profileIds.add(log.actor);
-    if (log.action === "moved") {
-      const meta = log.metadata ?? {};
-      if (typeof meta.from === "string") columnIds.add(meta.from);
-      if (typeof meta.to === "string") columnIds.add(meta.to);
+    if (isColumnMoveActivity(log)) {
+      for (const colId of columnMoveColumnIds(log)) columnIds.add(colId);
     }
   }
 

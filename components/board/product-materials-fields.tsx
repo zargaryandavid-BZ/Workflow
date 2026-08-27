@@ -29,6 +29,11 @@ interface Props {
    * Product via linked-dropdown side effects.
    */
   onCategorySync?: (value: string) => void;
+  /**
+   * When false, do not auto-write Category from Product on mount (opening an
+   * existing ticket must not count as an unsaved edit).
+   */
+  autoInferCategory?: boolean;
   /** Prefer link/catalog inference from the parent when provided. */
   inferCategoryFromProduct?: (productName: string) => string | null;
   onProductChange: (value: unknown) => void;
@@ -69,6 +74,7 @@ export function ProductMaterialsFields({
   onCategoryChange,
   onCategorySync,
   inferCategoryFromProduct,
+  autoInferCategory = true,
   onProductChange,
   onMaterialsChange,
   readOnly = false,
@@ -141,12 +147,13 @@ export function ProductMaterialsFields({
     setCategory(match);
   }
 
-  // Fill Category whenever Product is set (webhook orders, Apparel → Apparel, …).
+  // Fill Category whenever Product is set (create/webhook drafts). Skip on
+  // existing tickets so opening the card does not mark the form dirty.
   useEffect(() => {
-    if (readOnly || !product.trim()) return;
+    if (!autoInferCategory || readOnly || !product.trim()) return;
     syncCategoryFromProduct(product);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow sync
-  }, [product, storedCategory, readOnly, categoryOptions.join("\0")]);
+  }, [product, storedCategory, readOnly, autoInferCategory, categoryOptions.join("\0")]);
 
   function handleCategoryChange(next: string) {
     onCategoryChange?.(next);

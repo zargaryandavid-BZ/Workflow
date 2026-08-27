@@ -118,3 +118,6 @@ export const CATEGORY_FIELD_NAME = "Category";
 
 /** Max activity entries kept per order (display + storage). */
 export const ACTIVITY_LOG_LIMIT = 50;
+
+/** Column-move rows are kept beyond the general activity cap. */
+export const ACTIVITY_MOVE_LOG_LIMIT = 500;

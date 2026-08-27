@@ -13,7 +13,14 @@ export const TAG_COLORS = [
   "#64748b",
 ] as const;
 
+export const DIE_REQUEST_TAG_NAME = "DIE REQUEST";
+
 export const DEFAULT_TAGS = [
+  {
+    name: DIE_REQUEST_TAG_NAME,
+    color: "#0ea5e9",
+    description: "Die service line — order the die from the manufacturer",
+  },
   {
     name: "Rush Order",
     color: "#ef4444",
@@ -63,4 +70,46 @@ export async function seedDefaultTags(
   const { error } = await supabase.from("tags").insert(rows);
   if (error) throw new Error(error.message);
   return rows.length;
+}
+
+/** Create a named tag if this tenant does not already have it. */
+export async function ensureNamedTag(
+  supabase: SupabaseClient,
+  tenantId: string,
+  name: string,
+  color: string,
+  description?: string
+): Promise<string | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const { data: existing } = await supabase
+    .from("tags")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .ilike("name", trimmed)
+    .maybeSingle();
+  if (existing?.id) return existing.id as string;
+
+  const { data: last } = await supabase
+    .from("tags")
+    .select("position")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const position = ((last?.position as number | null) ?? -1) + 1;
+
+  const { data: created, error } = await supabase
+    .from("tags")
+    .insert({
+      tenant_id: tenantId,
+      name: trimmed,
+      color,
+      description: description ?? null,
+      position,
+    })
+    .select("id")
+    .single();
+  if (error || !created?.id) return existing?.id ?? null;
+  return created.id as string;
 }

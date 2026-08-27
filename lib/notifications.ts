@@ -1020,7 +1020,10 @@ export async function respondToNotification(
           .maybeSingle();
         await admin
           .from("orders")
-          .update({ column_id: target })
+          .update({
+            column_id: target,
+            last_moved_at: new Date().toISOString(),
+          })
           .eq("id", notification.order_id);
         await logActivity(admin, {
           tenantId: notification.tenant_id,
@@ -1029,6 +1032,8 @@ export async function respondToNotification(
           action: "customer_replied",
           metadata: {
             via: "customer",
+            from: (order as { column_id?: string }).column_id ?? null,
+            to: target,
             toName: (column as { name: string } | null)?.name ?? null,
             note: params.note?.trim() || null,
           },

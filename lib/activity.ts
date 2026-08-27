@@ -25,6 +25,8 @@ const CUSTOMER_ACTIONS = new Set([
   "combo_stock_reply",
 ]);
 
+const COLUMN_MOVE_ACTIONS = new Set(["moved", "idle_auto_moved"]);
+
 const MESSAGE_ACTIONS = new Set([
   "emailed",
   "texted",
@@ -38,6 +40,57 @@ function metaString(
 ): string | null {
   const value = meta[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function isColumnMoveActivity(
+  log: Pick<ActivityLog, "action" | "metadata">
+): boolean {
+  if (COLUMN_MOVE_ACTIONS.has(log.action)) return true;
+  const meta = (log.metadata ?? {}) as Record<string, unknown>;
+  if (log.action === "customer_replied") {
+    return Boolean(meta.to || meta.toName || meta.from || meta.fromName);
+  }
+  if (log.action === "approved" || log.action === "rejected") {
+    return Boolean(meta.movedTo || meta.to || meta.toName);
+  }
+  return false;
+}
+
+export function columnMoveColumnIds(
+  log: Pick<ActivityLog, "action" | "metadata">
+): string[] {
+  const meta = (log.metadata ?? {}) as Record<string, unknown>;
+  const ids: string[] = [];
+  for (const key of ["from", "to", "movedTo"] as const) {
+    const value = meta[key];
+    if (typeof value === "string" && value.trim()) ids.push(value.trim());
+  }
+  return ids;
+}
+
+export function formatStayDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0m";
+  const totalMinutes = Math.floor(ms / 60_000);
+  if (totalMinutes < 1) return "0m";
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+  return parts.join(" ");
+}
+
+export function mergeActivityById(
+  primary: ActivityLog[],
+  extra: ActivityLog[]
+): ActivityLog[] {
+  const byId = new Map<string, ActivityLog>();
+  for (const row of [...primary, ...extra]) {
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+  return [...byId.values()];
 }
 
 export function resolveActivityActorName(
@@ -170,9 +223,13 @@ export function describeActivity(log: ActivityLog): string {
   switch (log.action) {
     case "created":
       return "Order created";
-    case "moved": {
+    case "moved":
+    case "idle_auto_moved": {
+      const fromName = meta.fromName as string | undefined;
       const toName = meta.toName as string | undefined;
-      return toName ? `Moved to ${toName}` : "Moved";
+      if (fromName && toName) return `${fromName} → ${toName}`;
+      if (toName) return `Moved to ${toName}`;
+      return log.action === "idle_auto_moved" ? "Moved by automation" : "Moved";
     }
     case "updated": {
       type ChangeEntry = { field: string; from?: unknown; to?: unknown };
@@ -205,10 +262,18 @@ export function describeActivity(log: ActivityLog): string {
       const column = meta.column as string | undefined;
       return column ? `Approval requested (${column})` : "Approval requested";
     }
-    case "approved":
-      return "Approved by customer";
-    case "rejected":
-      return "Rejected by customer";
+    case "approved": {
+      const toName = meta.toName as string | undefined;
+      return toName
+        ? `Approved by customer · moved to ${toName}`
+        : "Approved by customer";
+    }
+    case "rejected": {
+      const toName = meta.toName as string | undefined;
+      return toName
+        ? `Rejected by customer · moved to ${toName}`
+        : "Rejected by customer";
+    }
     case "missing_info_saved":
       return "Missing info note saved";
     case "customer_notified":
@@ -295,10 +360,8 @@ export async function enrichActivityLog(
 
   for (const log of entries) {
     if (log.actor) actorIds.add(log.actor);
-    if (log.action === "moved") {
-      const meta = log.metadata ?? {};
-      if (typeof meta.from === "string") columnIds.add(meta.from);
-      if (typeof meta.to === "string") columnIds.add(meta.to);
+    if (isColumnMoveActivity(log)) {
+      for (const id of columnMoveColumnIds(log)) columnIds.add(id);
     }
   }
 
@@ -336,13 +399,20 @@ export async function enrichActivityLog(
   return entries
     .map((log) => {
       const meta = { ...(log.metadata ?? {}) };
-      if (log.action === "moved") {
-        if (!meta.toName && typeof meta.to === "string") {
-          meta.toName = columnNameById.get(meta.to) ?? meta.to;
+      if (isColumnMoveActivity(log)) {
+        const toId =
+          typeof meta.to === "string"
+            ? meta.to
+            : typeof meta.movedTo === "string"
+              ? meta.movedTo
+              : null;
+        if (!meta.toName && toId) {
+          meta.toName = columnNameById.get(toId) ?? toId;
         }
         if (!meta.fromName && typeof meta.from === "string") {
           meta.fromName = columnNameById.get(meta.from) ?? meta.from;
         }
+        if (!meta.to && toId) meta.to = toId;
       }
 
       const actor_name = resolveActivityActorName(

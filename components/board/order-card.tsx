@@ -58,7 +58,6 @@ import {
   cn,
   dateInputValue,
   formatDateShort,
-  formatDateTime,
   localDateInputValue,
 } from "@/lib/utils";
 import { getComboStock, COMBO_STOCK_LABELS } from "@/lib/combo-stock";
@@ -664,7 +663,6 @@ export function OrderCard({
     ? "Unassigned"
     : ownerName?.trim() || "—";
   const designerLabel = designerName ?? "Unassigned";
-  const enteredLabel = formatDateTime(order.created_at) || "—";
 
   return (
     <div
@@ -992,12 +990,6 @@ export function OrderCard({
                 </span>
               </>
             ) : null}
-            <span className="text-slate-300"> · </span>
-            <span className="inline-flex items-center gap-0.5">
-              <Clock className="h-3 w-3 shrink-0 text-slate-400" />
-              <span className="font-medium text-slate-500">Entered</span>{" "}
-              {enteredLabel}
-            </span>
           </p>
 
           {shippingSign ? (

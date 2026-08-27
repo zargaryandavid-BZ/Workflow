@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ACTIVITY_LOG_LIMIT } from "@/lib/constants";
+import { isColumnMoveActivity } from "@/lib/activity";
 import {
   materializeAfterApprovalDue,
   mergeDueSpecsIntoOrderSpecs,
@@ -14,22 +15,25 @@ async function trimActivityLog(client: Client, orderId: string) {
   while (true) {
     const { data: stale } = await client
       .from("activity_log")
-      .select("id")
+      .select("id, action, metadata")
       .eq("order_id", orderId)
       .order("created_at", { ascending: false })
       .range(ACTIVITY_LOG_LIMIT, ACTIVITY_LOG_LIMIT + 200);
 
     if (!stale?.length) break;
 
-    await client
-      .from("activity_log")
-      .delete()
-      .in(
-        "id",
-        stale.map((row) => row.id as string)
-      );
+    const toDelete = stale.filter((row) => !isColumnMoveActivity(row as { action: string; metadata: Record<string, unknown> }));
+    if (toDelete.length > 0) {
+      await client
+        .from("activity_log")
+        .delete()
+        .in(
+          "id",
+          toDelete.map((row) => row.id as string)
+        );
+    }
 
-    if (stale.length <= 200) break;
+    if (stale.length <= 200 || toDelete.length === 0) break;
   }
 }
 
@@ -296,8 +300,11 @@ export async function onApprovalResult(
     : null;
 
   const updates: Record<string, unknown> = {};
-  if (target) {
+  const fromColumnId = (order as Order | null)?.column_id ?? null;
+  const willMove = Boolean(target && target !== fromColumnId);
+  if (willMove && target) {
     updates.column_id = target;
+    updates.last_moved_at = new Date().toISOString();
   }
 
   if (params.result === "approved" && order) {
@@ -319,6 +326,37 @@ export async function onApprovalResult(
     await client.from("orders").update(updates).eq("id", params.orderId);
   }
 
+  let fromName: string | null = null;
+  let toName: string | null = null;
+  if (willMove && target && order) {
+    const ids = [fromColumnId, target].filter(Boolean) as string[];
+    const { data: cols } = await client
+      .from("board_columns")
+      .select("id, name")
+      .in("id", ids);
+    const nameById = new Map(
+      ((cols ?? []) as { id: string; name: string | null }[]).map((c) => [
+        c.id,
+        c.name,
+      ])
+    );
+    fromName = fromColumnId ? nameById.get(fromColumnId) ?? null : null;
+    toName = nameById.get(target) ?? null;
+    await logActivity(client, {
+      tenantId: params.tenantId,
+      orderId: params.orderId,
+      actor: null,
+      action: "moved",
+      metadata: {
+        via: "customer",
+        from: fromColumnId,
+        to: target,
+        fromName,
+        toName,
+      },
+    });
+  }
+
   await logActivity(client, {
     tenantId: params.tenantId,
     orderId: params.orderId,
@@ -326,7 +364,11 @@ export async function onApprovalResult(
     action: params.result === "approved" ? "approved" : "rejected",
     metadata: {
       via: "customer",
+      from: fromColumnId,
+      to: target,
       movedTo: target,
+      fromName,
+      toName,
       ...(updates.due_date
         ? { due_date_materialized: updates.due_date }
         : {}),
