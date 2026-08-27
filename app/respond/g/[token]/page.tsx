@@ -11,11 +11,13 @@ import {
 } from "@/lib/ready-to-ship-group";
 import {
   buildRespondOrderRows,
-  fetchRespondOrderAssets,
-  fetchRespondSkuImages,
   skusForRespond,
   type RespondOrderAsset,
 } from "@/lib/respond-order";
+import {
+  fetchRespondOrderAssets,
+  fetchRespondSkuImages,
+} from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
 import { orderMetaChips } from "@/lib/respond-page";
 import type { OrderSpecs } from "@/lib/types";

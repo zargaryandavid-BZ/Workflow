@@ -4,13 +4,15 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildRespondOrderRows,
-  fetchRespondOrderAssets,
-  fetchRespondSkuImages,
   skusForRespond,
   type RespondOrderAsset,
   type RespondOrderRow,
   type RespondSkuImage,
 } from "@/lib/respond-order";
+import {
+  fetchRespondOrderAssets,
+  fetchRespondSkuImages,
+} from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";

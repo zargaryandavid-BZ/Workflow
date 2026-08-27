@@ -3,10 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { OrderReview } from "@/components/respond/order-review";
 import {
   buildRespondOrderRows,
-  fetchRespondOrderAssets,
-  fetchRespondSkuImages,
   skusForRespond,
 } from "@/lib/respond-order";
+import {
+  fetchRespondOrderAssets,
+  fetchRespondSkuImages,
+} from "@/lib/respond-order-server";
 import { ApprovalForm } from "./approval-form";
 import type { ApprovalStatus, OrderSpecs } from "@/lib/types";
 
