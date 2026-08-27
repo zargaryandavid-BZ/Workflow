@@ -6,6 +6,7 @@ import { isValidEmail } from "@/lib/die-manufacturers";
 import {
   collectDieUploadFiles,
   parseDieRequestFiles,
+  parseOptionalDieDim,
   type DieRequestFile,
 } from "@/lib/die-request";
 import {
@@ -29,8 +30,10 @@ export async function PATCH(
   const form = await request.formData();
   const manufacturerId = String(form.get("manufacturerId") ?? "").trim();
   const comment = String(form.get("comment") ?? "").trim() || null;
+  const productName = String(form.get("productName") ?? "").trim() || null;
   const widthRaw = String(form.get("width") ?? "").trim();
   const heightRaw = String(form.get("height") ?? "").trim();
+  const depthRaw = String(form.get("depth") ?? "").trim();
   const requiredDate = String(form.get("requiredDate") ?? "").trim();
   const allowOwnDate =
     form.get("allowOwnDate") === "true" || form.get("allowOwnDate") === "on";
@@ -49,17 +52,18 @@ export async function PATCH(
     );
   }
 
-  const width = widthRaw ? Number(widthRaw) : null;
-  const height = heightRaw ? Number(heightRaw) : null;
-  if (
-    (widthRaw && (!Number.isFinite(width) || (width ?? 0) <= 0)) ||
-    (heightRaw && (!Number.isFinite(height) || (height ?? 0) <= 0))
-  ) {
+  const widthParsed = parseOptionalDieDim(widthRaw);
+  const heightParsed = parseOptionalDieDim(heightRaw);
+  const depthParsed = parseOptionalDieDim(depthRaw);
+  if (!widthParsed.ok || !heightParsed.ok || !depthParsed.ok) {
     return NextResponse.json(
-      { error: "Width and height must be positive numbers." },
+      { error: "Width, height, and depth must be positive numbers." },
       { status: 422 }
     );
   }
+  const width = widthParsed.value;
+  const height = heightParsed.value;
+  const depth = depthParsed.value;
 
   const supabase = await createClient();
   const { data: existing } = await supabase
@@ -116,6 +120,8 @@ export async function PATCH(
   const patch: Record<string, unknown> = {
     width,
     height,
+    depth,
+    product_name: productName,
     required_date: requiredDate,
     allow_own_date: allowOwnDate,
     manufacturer_id: manufacturerId,
@@ -152,6 +158,8 @@ export async function PATCH(
       {
         error: /allow_own_date/i.test(error.message)
           ? "Run migration 0090_die_allow_own_date.sql in Supabase, then try again."
+          : /depth|product_name/i.test(error.message)
+          ? "Run migration 0091_die_request_depth_product.sql in Supabase, then try again."
           : /files/i.test(error.message)
           ? "Run migration 0087_die_request_files.sql in Supabase, then try again."
           : error.message,

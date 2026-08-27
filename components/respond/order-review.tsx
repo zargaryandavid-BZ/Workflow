@@ -1,4 +1,6 @@
-import { Download, FileText } from "lucide-react";
+"use client";
+
+import { Check, Download, FileText, X } from "lucide-react";
 import {
   isRespondImageAsset,
   respondAssetUrl,
@@ -8,7 +10,9 @@ import {
   type RespondSkuImage,
 } from "@/lib/respond-order";
 import { formatFileSize } from "@/lib/respond-page";
+import { skuLabel } from "@/lib/sku-approval";
 import type { SkuItem } from "@/lib/skus";
+import { useSkuDecision } from "@/components/respond/sku-decision-context";
 
 interface OrderReviewProps {
   token: string;
@@ -88,6 +92,69 @@ function AssetPreview({
   );
 }
 
+function SkuDecisionControls({ skuId }: { skuId: string }) {
+  const skuUi = useSkuDecision();
+  const decision = skuUi.byId[skuId];
+
+  if (skuUi.mode === "result") {
+    if (!decision) return null;
+    const approved = decision === "approved";
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+          approved
+            ? "bg-emerald-100 text-emerald-800"
+            : "bg-red-100 text-red-800"
+        }`}
+      >
+        {approved ? (
+          <Check className="h-3 w-3" />
+        ) : (
+          <X className="h-3 w-3" />
+        )}
+        {approved ? "Approved" : "Not approved"}
+      </span>
+    );
+  }
+
+  if (skuUi.mode !== "choose" || !skuUi.onChange) return null;
+
+  return (
+    <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
+      <label
+        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${
+          decision === "approved"
+            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+            : "border-slate-200 bg-white text-slate-600"
+        }`}
+      >
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 accent-emerald-600"
+          checked={decision === "approved"}
+          onChange={() => skuUi.onChange?.(skuId, "approved")}
+        />
+        Approve
+      </label>
+      <label
+        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${
+          decision === "rejected"
+            ? "border-red-300 bg-red-50 text-red-800"
+            : "border-slate-200 bg-white text-slate-600"
+        }`}
+      >
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5 accent-red-600"
+          checked={decision === "rejected"}
+          onChange={() => skuUi.onChange?.(skuId, "rejected")}
+        />
+        Not approved
+      </label>
+    </div>
+  );
+}
+
 export function OrderReview({
   token,
   rows,
@@ -96,6 +163,7 @@ export function OrderReview({
   skuImages = {},
   heading,
 }: OrderReviewProps) {
+  const skuUi = useSkuDecision();
   const assetsBySku = new Map<string, RespondOrderAsset>();
   const orderAssets: RespondOrderAsset[] = [];
   for (const asset of assets) {
@@ -143,20 +211,36 @@ export function OrderReview({
               const artwork = assetsBySku.get(sku.id);
               const galleryImages = skuImages[sku.id] ?? [];
               const hasArtwork = Boolean(artwork) || galleryImages.length > 0;
+              const number = index + 1;
+              const decision = skuUi.byId[sku.id];
+              const resultBorder =
+                skuUi.mode === "result" && decision === "approved"
+                  ? "border-emerald-200 bg-emerald-50/70"
+                  : skuUi.mode === "result" && decision === "rejected"
+                    ? "border-red-200 bg-red-50/70"
+                    : skuUi.mode === "choose" && decision === "approved"
+                      ? "border-emerald-200 bg-white"
+                      : skuUi.mode === "choose" && decision === "rejected"
+                        ? "border-red-200 bg-white"
+                        : "border-slate-100 bg-slate-50";
               return (
                 <li
                   key={sku.id}
-                  className="rounded-lg border border-slate-100 bg-slate-50 p-3"
+                  className={`rounded-lg border p-3 ${resultBorder}`}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800">
-                        {sku.name.trim() || `SKU ${index + 1}`}
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        SKU {number}
+                      </p>
+                      <p className="mt-0.5 text-sm font-medium text-slate-800">
+                        {sku.name.trim() || skuLabel(number)}
                       </p>
                       {sku.qty != null ? (
                         <p className="text-xs text-slate-500">Qty: {sku.qty}</p>
                       ) : null}
                     </div>
+                    <SkuDecisionControls skuId={sku.id} />
                   </div>
                   {hasArtwork ? (
                     <div className="mt-2">

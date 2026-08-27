@@ -1195,7 +1195,7 @@ export function OrderFormBody({
               readOnly={readOnly}
               value={designTask}
               onChange={(e) => onDesignTaskChange(e.target.value)}
-              placeholder="e.g. …/26-0098_Customer"
+              placeholder="e.g. …/0269_Customer_1"
               className={
                 readOnly ? "min-w-0 max-w-full bg-slate-50" : "min-w-0 max-w-full"
               }
@@ -1410,7 +1410,7 @@ export function OrderFormBody({
                   onChange={(e) =>
                     onFieldValueChange(artworkField.id, e.target.value)
                   }
-                  placeholder="e.g. …/FinalProd_1"
+                  placeholder="e.g. …/0269_Customer_1_FinalProd"
                   className={cn(
                     "min-w-0 flex-1 bg-white",
                     readOnly ? "bg-slate-50" : undefined

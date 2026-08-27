@@ -59,7 +59,7 @@ export default async function DiePortalPage({
   }
 
   const withComment =
-    "status, width, height, required_date, allow_own_date, file_name, file_path, file_mime, files, quoted_price, time_estimate, confirmed_due_date, client_note, comment, order:orders(title), tenant:tenants(name)";
+    "status, width, height, depth, product_name, required_date, allow_own_date, file_name, file_path, file_mime, files, quoted_price, time_estimate, confirmed_due_date, client_note, comment, order:orders(title), tenant:tenants(name)";
   const withoutComment =
     "status, width, height, required_date, file_name, file_path, file_mime, quoted_price, time_estimate, confirmed_due_date, client_note, order:orders(title), tenant:tenants(name)";
 
@@ -70,7 +70,7 @@ export default async function DiePortalPage({
     .maybeSingle();
 
   const retry =
-    first.error && /comment|files|allow_own_date/i.test(first.error.message)
+    first.error && /comment|files|allow_own_date|depth|product_name/i.test(first.error.message)
       ? await admin
           .from("die_requests")
           .select(withoutComment)
@@ -128,6 +128,8 @@ export default async function DiePortalPage({
           tenantName,
           width: data.width == null ? null : Number(data.width),
           height: data.height == null ? null : Number(data.height),
+          depth: data.depth == null ? null : Number(data.depth),
+          productName: data.product_name ? String(data.product_name) : null,
           requiredDate: String(data.required_date).slice(0, 10),
           fileName: files[0]?.name ?? null,
           files: files.map((file, i) => ({

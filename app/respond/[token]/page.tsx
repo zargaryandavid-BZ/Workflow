@@ -12,6 +12,7 @@ import {
   type RespondSkuImage,
 } from "@/lib/respond-order";
 import { OrderReview } from "@/components/respond/order-review";
+import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
 import {
@@ -33,6 +34,11 @@ import type {
   OrderSpecs,
 } from "@/lib/types";
 import type { SkuItem } from "@/lib/skus";
+import {
+  decisionsBySkuId,
+  parseSkuApprovalNote,
+  skuLabel,
+} from "@/lib/sku-approval";
 
 interface NotificationRow {
   notification_id: string;
@@ -249,7 +255,9 @@ export default async function RespondPage({
             label:
               notifSkus.length === 1
                 ? itemTitle
-                : sku.name.trim() || `Item ${index + 1}`,
+                : sku.name.trim()
+                  ? `SKU ${index + 1} — ${sku.name.trim()}`
+                  : `SKU ${index + 1}`,
           }))
         : [{ skuKey: null, label: itemTitle }]
       : [];
@@ -395,17 +403,35 @@ export default async function RespondPage({
     const isRejected = response === "changes_requested";
     const customerNote = notification.customer_note?.trim() || null;
     const staffNote = notification.staff_note?.trim() || null;
+    const parsedSku = parseSkuApprovalNote(customerNote);
+    const skuDecisionById = decisionsBySkuId(notifSkus, parsedSku.entries);
+    const mixed =
+      parsedSku.entries.some((e) => e.decision === "approved") &&
+      parsedSku.entries.some((e) => e.decision === "rejected");
 
-    const statusTitle = isApproved
-      ? "Approved"
-      : isRejected
-        ? "Not approved"
-        : "Response received";
-    const statusBody = isApproved
-      ? "Your approval has been recorded. Thank you!"
-      : isRejected
-        ? "Your feedback was received. Our team will be in touch shortly."
-        : "We already received your response. Thank you!";
+    const statusTitle = mixed
+      ? "Partial approval"
+      : isApproved
+        ? "Approved"
+        : isRejected
+          ? "Not approved"
+          : "Response received";
+    const statusBody = mixed
+      ? "We recorded which SKUs were approved and which need changes. Our team will be in touch shortly."
+      : isApproved
+        ? "Your approval has been recorded. Thank you!"
+        : isRejected
+          ? "Your feedback was received. Our team will be in touch shortly."
+          : "We already received your response. Thank you!";
+
+    const reviewWithSkuStatus =
+      parsedSku.entries.length > 0 ? (
+        <SkuDecisionProvider mode="result" byId={skuDecisionById}>
+          {orderReview}
+        </SkuDecisionProvider>
+      ) : (
+        orderReview
+      );
 
     return (
       <RespondCard orderTitle={headerTitle} footer={footer}>
@@ -421,13 +447,36 @@ export default async function RespondPage({
           >
             <h1 className="text-lg font-semibold">{statusTitle}</h1>
             <p className="mt-1 text-sm opacity-90">{statusBody}</p>
-            {customerNote ? (
+            {parsedSku.entries.length > 0 ? (
+              <ul className="mt-3 space-y-1.5 text-left">
+                {parsedSku.entries.map((entry) => (
+                  <li
+                    key={`${entry.index}-${entry.name}`}
+                    className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
+                      entry.decision === "approved"
+                        ? "bg-white/80 text-emerald-900"
+                        : "bg-white/80 text-red-900"
+                    }`}
+                  >
+                    <span className="min-w-0 truncate font-medium">
+                      {skuLabel(entry.index, entry.name)}
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold uppercase tracking-wide">
+                      {entry.decision === "approved"
+                        ? "Approved"
+                        : "Not approved"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {parsedSku.comment ? (
               <div className="mt-3 rounded-md bg-white/70 px-3 py-2 text-left">
                 <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                   {isRejected ? "Reason for rejection" : "Your note"}
                 </p>
                 <p className="mt-1 whitespace-pre-wrap text-sm">
-                  &ldquo;{customerNote}&rdquo;
+                  &ldquo;{parsedSku.comment}&rdquo;
                 </p>
               </div>
             ) : null}
@@ -444,7 +493,7 @@ export default async function RespondPage({
             </div>
           ) : null}
 
-          {orderReview}
+          {reviewWithSkuStatus}
         </div>
       </RespondCard>
     );
@@ -463,6 +512,9 @@ export default async function RespondPage({
         metaChips={metaChips}
         tenantName={notification.tenant_name}
         orderReview={orderReview}
+        approvalSkus={
+          notification.type === "customer_approval" ? notifSkus : undefined
+        }
       />
     </RespondCard>
   );

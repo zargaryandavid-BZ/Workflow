@@ -7,19 +7,22 @@ export function dieQuoteSubject(orderNumber: string): string {
 
 export function buildDieQuoteEmailBody(params: {
   orderNumber: string;
-  width: string;
-  height: string;
+  size: string;
   requiredDate: string;
   quoteUrl: string;
   comment?: string | null;
   contactName?: string | null;
+  productName?: string | null;
 }): string {
   const lines = [
     params.contactName?.trim()
       ? `Hi ${params.contactName.trim()},`
       : null,
     `Please review this die request for order ${params.orderNumber}.`,
-    `Size: ${params.width} × ${params.height}`,
+    params.productName?.trim()
+      ? `Product: ${params.productName.trim()}`
+      : null,
+    `Size: ${params.size}`,
     `Required date: ${params.requiredDate}`,
   ];
   if (params.comment?.trim()) {
@@ -39,21 +42,24 @@ export function dieOrderConfirmSubject(orderNumber: string): string {
 
 export function buildDieOrderConfirmEmailBody(params: {
   orderNumber: string;
-  width: string;
-  height: string;
+  size: string;
   confirmedDueDate: string;
   price: string;
   timeEstimate: string;
   orderUrl: string;
   comment?: string | null;
   contactName?: string | null;
+  productName?: string | null;
 }): string {
   const lines = [
     params.contactName?.trim()
       ? `Hi ${params.contactName.trim()},`
       : null,
     `Please proceed with this die for order ${params.orderNumber}.`,
-    `Size: ${params.width} × ${params.height}`,
+    params.productName?.trim()
+      ? `Product: ${params.productName.trim()}`
+      : null,
+    `Size: ${params.size}`,
     `Confirmed due date: ${params.confirmedDueDate}`,
     `Agreed price: ${params.price}`,
     `Time: ${params.timeEstimate}`,
@@ -81,14 +87,14 @@ export function buildDieOrderConfirmSmsBody(params: {
 
 export function buildDieOrderConfirmEmailHtml(params: {
   orderNumber: string;
-  width: string;
-  height: string;
+  size: string;
   confirmedDueDate: string;
   price: string;
   timeEstimate: string;
   orderUrl: string;
   comment?: string | null;
   contactName?: string | null;
+  productName?: string | null;
 }): string {
   const extra = [
     params.comment?.trim() ? row("Comment", params.comment.trim()) : "",
@@ -100,7 +106,10 @@ export function buildDieOrderConfirmEmailHtml(params: {
     greeting,
     `<div style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.5;">Please proceed with this die for order <strong>${escapeHtml(params.orderNumber)}</strong>.</div>`,
     `<table cellpadding="0" cellspacing="0" role="presentation" style="width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin:0 0 16px;">`,
-    row("Size", `${params.width} × ${params.height}`),
+    params.productName?.trim()
+      ? row("Product", params.productName.trim())
+      : "",
+    row("Size", params.size),
     row("Confirmed due date", params.confirmedDueDate),
     row("Agreed price", params.price),
     row("Time", params.timeEstimate),
@@ -129,12 +138,12 @@ export function buildDieQuoteSmsBody(params: {
 
 export function buildDieQuoteEmailHtml(params: {
   orderNumber: string;
-  width: string;
-  height: string;
+  size: string;
   requiredDate: string;
   quoteUrl: string;
   comment?: string | null;
   contactName?: string | null;
+  productName?: string | null;
 }): string {
   const extra = [
     params.comment?.trim() ? row("Comment", params.comment.trim()) : "",
@@ -146,7 +155,10 @@ export function buildDieQuoteEmailHtml(params: {
     greeting,
     `<div style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.5;">Please review this die request for order <strong>${escapeHtml(params.orderNumber)}</strong>.</div>`,
     `<table cellpadding="0" cellspacing="0" role="presentation" style="width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin:0 0 16px;">`,
-    row("Size", `${params.width} × ${params.height}`),
+    params.productName?.trim()
+      ? row("Product", params.productName.trim())
+      : "",
+    row("Size", params.size),
     row("Required date", params.requiredDate),
     extra,
     `</table>`,

@@ -27,6 +27,8 @@ export interface DieRequest {
   token: string;
   width: number | null;
   height: number | null;
+  depth: number | null;
+  product_name: string | null;
   required_date: string;
   allow_own_date: boolean;
   to_email: string;
@@ -103,6 +105,27 @@ export function formatDieDaysToDeliver(span: {
   const label = `${w}/${c}`;
   if (span.calendar < 0) return `${label} overdue`;
   return `${label} working/calendar`;
+}
+
+export function formatDieSize(
+  width: number | string | null | undefined,
+  height: number | string | null | undefined,
+  depth?: number | string | null | undefined
+): string {
+  const parts = [width, height, depth]
+    .map((v) => (v == null || v === "" ? "" : String(v).trim()))
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(" × ") : "—";
+}
+
+export function parseOptionalDieDim(
+  raw: string
+): { ok: true; value: number | null } | { ok: false } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: true, value: null };
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0) return { ok: false };
+  return { ok: true, value: n };
 }
 
 export function formatDieQuotedPrice(price: number | null): string {

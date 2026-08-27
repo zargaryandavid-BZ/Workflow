@@ -26,6 +26,10 @@ type OrderHit = {
   dueDate: string | null;
   customerName: string | null;
   email: string | null;
+  productName: string | null;
+  width: string | null;
+  height: string | null;
+  depth: string | null;
 };
 
 export function DieOrderClient({
@@ -41,8 +45,10 @@ export function DieOrderClient({
   const [orderPickerOpen, setOrderPickerOpen] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [order, setOrder] = useState<OrderHit | null>(null);
+  const [productName, setProductName] = useState("");
   const [width, setWidth] = useState("");
   const [height, setHeight] = useState("");
+  const [depth, setDepth] = useState("");
   const [requiredDate, setRequiredDate] = useState("");
   const [manufacturerId, setManufacturerId] = useState(
     manufacturers[0]?.id ?? ""
@@ -89,6 +95,10 @@ export function DieOrderClient({
     setOrderQuery(orderNumber);
     setHits([]);
     setOrderPickerOpen(false);
+    setProductName(hit.productName ?? "");
+    setWidth(hit.width ?? "");
+    setHeight(hit.height ?? "");
+    setDepth(hit.depth ?? "");
     if (hit.dueDate && !requiredDate) {
       setRequiredDate(hit.dueDate.slice(0, 10));
     }
@@ -126,8 +136,10 @@ export function DieOrderClient({
       const form = new FormData();
       form.set("orderId", order.id);
       form.set("manufacturerId", manufacturerId);
+      form.set("productName", productName);
       form.set("width", width);
       form.set("height", height);
+      form.set("depth", depth);
       form.set("requiredDate", requiredDate);
       form.set("allowOwnDate", allowOwnDate ? "true" : "false");
       form.set("comment", comment);
@@ -142,8 +154,10 @@ export function DieOrderClient({
       );
       setOrder(null);
       setOrderQuery("");
+      setProductName("");
       setWidth("");
       setHeight("");
+      setDepth("");
       setComment("");
       setFiles([]);
       setAllowOwnDate(false);
@@ -182,7 +196,7 @@ export function DieOrderClient({
         )}
       >
         <h2 className="text-sm font-semibold text-slate-800">New die request</h2>
-        <div className="flex min-w-0 flex-nowrap items-end gap-2">
+        <div className="flex min-w-0 flex-wrap items-end gap-2">
           <div className="relative z-40 w-[7.5rem] shrink-0">
             <Label htmlFor="die-order">Order number</Label>
             <Input
@@ -191,6 +205,10 @@ export function DieOrderClient({
               value={orderQuery}
               onChange={(e) => {
                 setOrder(null);
+                setProductName("");
+                setWidth("");
+                setHeight("");
+                setDepth("");
                 setOrderQuery(e.target.value);
                 setOrderPickerOpen(true);
               }}
@@ -230,7 +248,12 @@ export function DieOrderClient({
                           <span className="font-medium tabular-nums">
                             {number}
                           </span>
-                          {hit.customerName ? (
+                          {hit.productName ? (
+                            <span className="text-slate-500">
+                              {" "}
+                              · {hit.productName}
+                            </span>
+                          ) : hit.customerName ? (
                             <span className="text-slate-500">
                               {" "}
                               · {hit.customerName}
@@ -243,6 +266,16 @@ export function DieOrderClient({
                 )}
               </ul>
             ) : null}
+          </div>
+          <div className="min-w-[8rem] w-[11rem] shrink-0">
+            <Label htmlFor="die-product">Product</Label>
+            <Input
+              id="die-product"
+              className="mt-1.5"
+              value={productName}
+              onChange={(e) => setProductName(e.target.value)}
+              placeholder="From order"
+            />
           </div>
           <div className="w-[5.5rem] shrink-0">
             <Label htmlFor="die-x">Width (X)</Label>
@@ -266,6 +299,18 @@ export function DieOrderClient({
               step="0.001"
               value={height}
               onChange={(e) => setHeight(e.target.value)}
+            />
+          </div>
+          <div className="w-[5.5rem] shrink-0">
+            <Label htmlFor="die-z">Depth (Z)</Label>
+            <Input
+              id="die-z"
+              className="mt-1.5"
+              type="number"
+              min="0"
+              step="0.001"
+              value={depth}
+              onChange={(e) => setDepth(e.target.value)}
             />
           </div>
           <div className="relative z-40 w-[9.5rem] shrink-0">

@@ -17,6 +17,7 @@ import {
   dieRequestFiles,
   formatDieDateMoved,
   formatDieQuotedPrice,
+  formatDieSize,
   isDieFileImage,
   type DieRequest,
 } from "@/lib/die-request";
@@ -37,6 +38,8 @@ export function DieRequestCard({
   const [height, setHeight] = useState(
     req.height != null ? String(req.height) : ""
   );
+  const [depth, setDepth] = useState(req.depth != null ? String(req.depth) : "");
+  const [productName, setProductName] = useState(req.product_name ?? "");
   const [requiredDate, setRequiredDate] = useState(req.required_date);
   const [manufacturerId, setManufacturerId] = useState(
     req.manufacturer_id ?? manufacturers[0]?.id ?? ""
@@ -56,6 +59,8 @@ export function DieRequestCard({
   function startEdit() {
     setWidth(req.width != null ? String(req.width) : "");
     setHeight(req.height != null ? String(req.height) : "");
+    setDepth(req.depth != null ? String(req.depth) : "");
+    setProductName(req.product_name ?? "");
     setRequiredDate(req.required_date);
     setManufacturerId(req.manufacturer_id ?? manufacturers[0]?.id ?? "");
     setComment(req.comment ?? "");
@@ -71,8 +76,10 @@ export function DieRequestCard({
     try {
       const form = new FormData();
       form.set("manufacturerId", manufacturerId);
+      form.set("productName", productName);
       form.set("width", width);
       form.set("height", height);
+      form.set("depth", depth);
       form.set("requiredDate", requiredDate);
       form.set("allowOwnDate", allowOwnDate ? "true" : "false");
       form.set("comment", comment);
@@ -166,9 +173,18 @@ export function DieRequestCard({
               : `Sent to ${req.to_email}`}
           </p>
 
-          {editing ? (
+            {editing ? (
             <div className="mt-3 space-y-2">
-              <div className="flex min-w-0 items-end gap-2">
+              <div className="flex min-w-0 flex-wrap items-end gap-2">
+                <div className="min-w-[8rem] w-[11rem] shrink-0">
+                  <Label htmlFor={`edit-product-${req.id}`}>Product</Label>
+                  <Input
+                    id={`edit-product-${req.id}`}
+                    className="mt-1.5"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                  />
+                </div>
                 <div className="w-[5.5rem] shrink-0">
                   <Label htmlFor={`edit-x-${req.id}`}>Width (X)</Label>
                   <Input
@@ -191,6 +207,18 @@ export function DieRequestCard({
                     step="0.001"
                     value={height}
                     onChange={(e) => setHeight(e.target.value)}
+                  />
+                </div>
+                <div className="w-[5.5rem] shrink-0">
+                  <Label htmlFor={`edit-z-${req.id}`}>Depth (Z)</Label>
+                  <Input
+                    id={`edit-z-${req.id}`}
+                    className="mt-1.5"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={depth}
+                    onChange={(e) => setDepth(e.target.value)}
                   />
                 </div>
                 <div className="w-[9.5rem] shrink-0">
@@ -299,9 +327,8 @@ export function DieRequestCard({
           ) : (
             <>
               <p className="mt-2 text-slate-600">
-                {req.width != null && req.height != null
-                  ? `${req.width} × ${req.height}`
-                  : "No size"}
+                {req.product_name ? `${req.product_name} · ` : null}
+                {formatDieSize(req.width, req.height, req.depth)}
                 {" · required "}
                 {formatDate(req.required_date)}
                 {req.allow_own_date ? " · own date allowed" : ""}

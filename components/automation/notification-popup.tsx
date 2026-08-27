@@ -53,6 +53,7 @@ export function NotificationPopup({
           orderId: order.id,
           type,
           channel: "manual",
+          groupOrderIds,
         }
       );
       if (ok) {

@@ -9,7 +9,7 @@ import {
   buildDieOrderConfirmSmsBody,
   dieOrderConfirmSubject,
 } from "@/lib/die-request-messages";
-import { formatDieQuotedPrice } from "@/lib/die-request";
+import { formatDieQuotedPrice, formatDieSize } from "@/lib/die-request";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { formatDate } from "@/lib/utils";
 
@@ -27,13 +27,28 @@ export async function POST(
 
   const { id } = await params;
   const supabase = await createClient();
-  const { data: req, error: findError } = await supabase
+  const withDepth =
+    "id, tenant_id, order_id, token, status, width, height, depth, product_name, comment, quoted_price, time_estimate, confirmed_due_date, manufacturer_id, to_email, order:orders(title)";
+  const withoutDepth =
+    "id, tenant_id, order_id, token, status, width, height, comment, quoted_price, time_estimate, confirmed_due_date, manufacturer_id, to_email, order:orders(title)";
+  let req: Record<string, unknown> | null = null;
+  const first = await supabase
     .from("die_requests")
-    .select(
-      "id, tenant_id, order_id, token, status, width, height, comment, quoted_price, time_estimate, confirmed_due_date, manufacturer_id, to_email, order:orders(title)"
-    )
+    .select(withDepth)
     .eq("id", id)
     .maybeSingle();
+  let findError = first.error;
+  if (first.error && /depth|product_name/i.test(first.error.message)) {
+    const retry = await supabase
+      .from("die_requests")
+      .select(withoutDepth)
+      .eq("id", id)
+      .maybeSingle();
+    req = (retry.data ?? null) as Record<string, unknown> | null;
+    findError = retry.error;
+  } else {
+    req = (first.data ?? null) as Record<string, unknown> | null;
+  }
 
   if (findError || !req || req.tenant_id !== ctx.tenant.id) {
     return NextResponse.json({ error: "Request not found" }, { status: 404 });
@@ -60,8 +75,13 @@ export async function POST(
   const order = req.order as { title?: string } | { title?: string }[] | null;
   const orderTitle =
     (Array.isArray(order) ? order[0]?.title : order?.title) ?? "Order";
-  const widthLabel = req.width != null ? String(req.width) : "—";
-  const heightLabel = req.height != null ? String(req.height) : "—";
+  const rec = req as Record<string, unknown>;
+  const sizeLabel = formatDieSize(
+    rec.width == null ? null : Number(rec.width),
+    rec.height == null ? null : Number(rec.height),
+    rec.depth == null ? null : Number(rec.depth)
+  );
+  const productName = rec.product_name ? String(rec.product_name) : null;
   const dueLabel =
     formatDate(String(req.confirmed_due_date).slice(0, 10)) ||
     String(req.confirmed_due_date).slice(0, 10);
@@ -125,8 +145,8 @@ export async function POST(
       html: (contactName) =>
         buildDieOrderConfirmEmailHtml({
           orderNumber: orderTitle,
-          width: widthLabel,
-          height: heightLabel,
+          productName,
+          size: sizeLabel,
           confirmedDueDate: dueLabel,
           price: priceLabel,
           timeEstimate: timeLabel,
@@ -137,8 +157,8 @@ export async function POST(
       text: (contactName) =>
         buildDieOrderConfirmEmailBody({
           orderNumber: orderTitle,
-          width: widthLabel,
-          height: heightLabel,
+          productName,
+          size: sizeLabel,
           confirmedDueDate: dueLabel,
           price: priceLabel,
           timeEstimate: timeLabel,

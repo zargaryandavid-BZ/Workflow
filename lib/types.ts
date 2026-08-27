@@ -780,7 +780,7 @@ export interface MaskedSecret {
 /**
  * Which Drive folder URL is saved on Artwork (GDrive link).
  * Layout is job folder + production subfolder; `customer` and `order` both
- * point at the job folder (`26-0098_Customer Name`).
+ * point at the job folder (`0269_Customer Name_1`).
  */
 export type GdriveLinkTarget = "customer" | "order" | "final";
 

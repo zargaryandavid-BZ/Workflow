@@ -155,6 +155,55 @@ export async function listProofFiles(
   return out;
 }
 
+/** List non-folder files in this folder and nested folders (capped depth). */
+export async function listProofFilesRecursive(
+  client: ProofsDrive,
+  folderId: string,
+  maxDepth = 2
+): Promise<ProofFile[]> {
+  const out: ProofFile[] = [];
+  const seen = new Set<string>();
+
+  async function walk(parentId: string, depth: number) {
+    const { drive, sharedDriveId } = client;
+    const folders: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const res = await drive.files.list({
+        q: [`'${escapeQuery(parentId)}' in parents`, "trashed=false"].join(
+          " and "
+        ),
+        fields: "nextPageToken, files(id,name,mimeType,thumbnailLink)",
+        pageSize: 200,
+        pageToken,
+        ...driveListParams(sharedDriveId),
+      });
+      for (const f of res.data.files ?? []) {
+        if (!f.id || !f.name) continue;
+        if (f.mimeType === FOLDER_MIME) {
+          if (depth < maxDepth) folders.push(f.id);
+          continue;
+        }
+        if (seen.has(f.id)) continue;
+        seen.add(f.id);
+        out.push({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType ?? "",
+          thumbnailLink: f.thumbnailLink ?? null,
+        });
+      }
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken);
+    for (const id of folders) {
+      await walk(id, depth + 1);
+    }
+  }
+
+  await walk(folderId, 0);
+  return out;
+}
+
 /**
  * Produce image bytes for a proof file suitable for a SKU gallery slot.
  * - Real images → download the bytes directly.

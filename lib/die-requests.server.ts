@@ -77,6 +77,8 @@ function mapDieRequestRow(row: Record<string, unknown>): DieRequest {
     token: String(row.token),
     width: row.width == null ? null : Number(row.width),
     height: row.height == null ? null : Number(row.height),
+    depth: row.depth == null ? null : Number(row.depth),
+    product_name: row.product_name ? String(row.product_name) : null,
     required_date: String(row.required_date).slice(0, 10),
     allow_own_date: Boolean(row.allow_own_date),
     to_email: String(row.to_email),

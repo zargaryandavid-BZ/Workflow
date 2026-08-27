@@ -72,3 +72,14 @@ export function isSoftNotificationBadge(
 ): boolean {
   return badge === "manual";
 }
+
+/** SMS / Manual / Waiting tags copy onto other group parts in the same column. */
+export function isSharedColumnRequestBadge(
+  badge: CardNotificationBadge
+): boolean {
+  return (
+    badge === "manual" ||
+    badge === "waiting_approval" ||
+    badge === "waiting"
+  );
+}

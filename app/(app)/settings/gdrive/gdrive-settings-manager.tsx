@@ -140,14 +140,9 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
         <p className="mt-2 text-xs text-slate-500">
           Folder layout:{" "}
           <code className="rounded bg-white px-1">
-            XXXX / XXXX_Y / {finalFolderName || "Final for Prod"}_Y
-          </code>{" "}
-          where{" "}
-          <code className="rounded bg-white px-1">XXXX</code> ={" "}
-          <code className="rounded bg-white px-1">
-            ordernumber_customername
-          </code>{" "}
-          (Designer folder) and Y is the item index. Status:{" "}
+            0269_Customer_1 / 0269_Customer_1_FinalProd
+          </code>
+          . Status:{" "}
           {settings.configured ? (
             <span className="text-emerald-700">credentials saved</span>
           ) : (
@@ -219,7 +214,7 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
       </label>
 
       <label className="block text-sm text-slate-600">
-        Production subfolder name (saved as Name_Y, e.g. FinalProd_1)
+        Production subfolder suffix (saved as OrderFolder_FinalProd)
         <input
           value={finalFolderName}
           onChange={(e) => setFinalFolderName(e.target.value)}
@@ -235,10 +230,10 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
           className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
         >
           <option value="final">
-            Final production ({finalFolderName || "Final for Prod"}_Y)
+            Final production (OrderFolder_FinalProd)
           </option>
-          <option value="order">Designer folder (XXXX)</option>
-          <option value="customer">Designer folder (XXXX)</option>
+          <option value="order">Main order folder (0269_Customer_1)</option>
+          <option value="customer">Main order folder (0269_Customer_1)</option>
         </select>
       </label>
 

@@ -11,13 +11,21 @@ import type {
   ApprovalItemStatus,
 } from "@/lib/approval-group";
 import type { OrderMetaChip } from "@/lib/respond-page";
+import type { SkuItem } from "@/lib/skus";
 import { cn } from "@/lib/utils";
 import { Printer } from "lucide-react";
+import {
+  decisionsBySkuId,
+  parseSkuApprovalNote,
+  skuLabel,
+} from "@/lib/sku-approval";
+import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 
 export type ApprovalGroupItemPayload = {
   summary: ApprovalGroupItemSummary;
   metaChips: OrderMetaChip[];
   productLabel: string;
+  approvalSkus: SkuItem[];
 };
 
 function shortStatusLabel(status: ApprovalItemStatus): string {
@@ -253,43 +261,19 @@ export function ApprovalGroupView({
                 staffNote={selected.summary.staffNote}
                 metaChips={selected.metaChips}
                 tenantName={tenantName}
+                approvalSkus={selected.approvalSkus}
                 onDecided={(decision) =>
                   onDecided(selected.summary.orderId, decision)
                 }
                 orderReview={selectedReview}
               />
             ) : (
-              <div className="space-y-5">
-                <div
-                  className={
-                    selected.summary.status === "approved"
-                      ? "rounded-lg bg-emerald-50 p-4 text-center text-emerald-800"
-                      : "rounded-lg bg-red-50 p-4 text-center text-red-800"
-                  }
-                >
-                  <h2 className="text-lg font-semibold">
-                    {selected.summary.status === "approved"
-                      ? "Approved"
-                      : "Not approved"}
-                  </h2>
-                  <p className="mt-1 text-sm opacity-90">
-                    {selected.summary.status === "approved"
-                      ? "Your approval has been recorded. Thank you!"
-                      : "Your feedback was received. Our team will be in touch shortly."}
-                  </p>
-                  {selected.summary.customerNote ? (
-                    <div className="mt-3 rounded-md bg-white/70 px-3 py-2 text-left">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        Your note
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm">
-                        &ldquo;{selected.summary.customerNote}&rdquo;
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-                {selectedReview}
-              </div>
+              <RespondedGroupItem
+                status={selected.summary.status}
+                customerNote={selected.summary.customerNote}
+                skus={selected.approvalSkus}
+                review={selectedReview}
+              />
             )}
           </main>
         </div>
@@ -298,6 +282,93 @@ export function ApprovalGroupView({
           {PORTAL_FOOTER}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RespondedGroupItem({
+  status,
+  customerNote,
+  skus,
+  review,
+}: {
+  status: ApprovalItemStatus;
+  customerNote: string | null;
+  skus: SkuItem[];
+  review: ReactNode;
+}) {
+  const parsed = parseSkuApprovalNote(customerNote);
+  const mixed =
+    parsed.entries.some((e) => e.decision === "approved") &&
+    parsed.entries.some((e) => e.decision === "rejected");
+  const approved = status === "approved";
+
+  const reviewNode =
+    parsed.entries.length > 0 ? (
+      <SkuDecisionProvider
+        mode="result"
+        byId={decisionsBySkuId(skus, parsed.entries)}
+      >
+        {review}
+      </SkuDecisionProvider>
+    ) : (
+      review
+    );
+
+  return (
+    <div className="space-y-5">
+      <div
+        className={
+          approved
+            ? "rounded-lg bg-emerald-50 p-4 text-center text-emerald-800"
+            : "rounded-lg bg-red-50 p-4 text-center text-red-800"
+        }
+      >
+        <h2 className="text-lg font-semibold">
+          {mixed ? "Partial approval" : approved ? "Approved" : "Not approved"}
+        </h2>
+        <p className="mt-1 text-sm opacity-90">
+          {mixed
+            ? "We recorded which SKUs were approved and which need changes. Our team will be in touch shortly."
+            : approved
+              ? "Your approval has been recorded. Thank you!"
+              : "Your feedback was received. Our team will be in touch shortly."}
+        </p>
+        {parsed.entries.length > 0 ? (
+          <ul className="mt-3 space-y-1.5 text-left">
+            {parsed.entries.map((entry) => (
+              <li
+                key={`${entry.index}-${entry.name}`}
+                className="flex items-center justify-between gap-2 rounded-md bg-white/80 px-3 py-2 text-sm"
+              >
+                <span className="min-w-0 truncate font-medium">
+                  {skuLabel(entry.index, entry.name)}
+                </span>
+                <span
+                  className={`shrink-0 text-xs font-semibold uppercase tracking-wide ${
+                    entry.decision === "approved"
+                      ? "text-emerald-800"
+                      : "text-red-800"
+                  }`}
+                >
+                  {entry.decision === "approved" ? "Approved" : "Not approved"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {parsed.comment ? (
+          <div className="mt-3 rounded-md bg-white/70 px-3 py-2 text-left">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+              Your note
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm">
+              &ldquo;{parsed.comment}&rdquo;
+            </p>
+          </div>
+        ) : null}
+      </div>
+      {reviewNode}
     </div>
   );
 }

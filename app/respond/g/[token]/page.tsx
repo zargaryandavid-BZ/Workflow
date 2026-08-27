@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   loadApprovalGroupItemSummaries,
+  ensureMissingGroupApprovalNotifications,
   type ApprovalGroupItemSummary,
 } from "@/lib/approval-group";
 import {
@@ -120,6 +121,7 @@ async function buildItem(
     summary,
     metaChips: orderMetaChips(fields, specs),
     productLabel: product,
+    approvalSkus: skusForRespond(specs),
   };
 
   const review =
@@ -222,6 +224,23 @@ export default async function ApprovalGroupPage({
   }
 
   const members = await listOrderGroupMembers(admin, portal.tenant_id, seed);
+  const columnIds = [
+    ...new Set(
+      members.map((m) => m.column_id).filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const kindById = new Map<string, string>();
+  if (columnIds.length > 0) {
+    const { data: cols } = await admin
+      .from("board_columns")
+      .select("id, kind")
+      .in("id", columnIds);
+    for (const col of cols ?? []) {
+      kindById.set(col.id as string, col.kind as string);
+    }
+  }
+  await ensureMissingGroupApprovalNotifications(admin, members, kindById);
+
   const fieldByOrderId = new Map<string, Record<string, unknown>>();
   await Promise.all(
     members.map(async (m) => {

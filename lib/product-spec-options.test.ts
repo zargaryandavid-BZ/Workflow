@@ -15,6 +15,7 @@ import {
 describe("set size helpers", () => {
   it("recognizes SET_SIZE keys", () => {
     assert.equal(isSetSizeKey("SET_SIZE"), true);
+    assert.equal(isSetSizeKey("SET_SIZE_3"), true);
     assert.equal(isSetSizeKey("SET SIZE"), true);
     assert.equal(isSetSizeKey("set-size"), true);
     assert.equal(isSetSizeKey("LABEL_SIZE"), true);
@@ -37,6 +38,11 @@ describe("set size helpers", () => {
     assert.deepEqual(parseSetSizeValue("4.75x4.75 in"), {
       width: "4.75",
       height: "4.75",
+    });
+    assert.deepEqual(parseSetSizeValue("4x6x2"), {
+      width: "4",
+      height: "6",
+      depth: "2",
     });
     assert.equal(parseSetSizeValue(""), null);
   });

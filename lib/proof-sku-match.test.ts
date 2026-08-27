@@ -75,6 +75,28 @@ describe("matchProofsToSkus", () => {
     assert.equal(result.unmatched.length, 2);
   });
 
+  it("matches CRACK DEN CAVIAR to caviar-crack-den filenames (any word order)", () => {
+    const result = matchProofsToSkus(
+      [
+        file("caviar-crack-den-sticker-600dpi.png"),
+        file("caviar-crack-den-spiral-600dpi.png"),
+      ],
+      [sku("s1", "CRACK DEN CAVIAR"), sku("s2", "THIS CAVIAR IS NOT")],
+      "",
+      {},
+      { attachLeftovers: true }
+    );
+    assert.ok(
+      result.matches.some(
+        (m) =>
+          m.skuId === "s1" &&
+          m.file.name === "caviar-crack-den-sticker-600dpi.png"
+      )
+    );
+    assert.equal(result.matches.length, 2);
+    assert.equal(result.unfilledSkus.length, 0);
+  });
+
   it("leaves unmatched files alone when the card has several SKUs", () => {
     const result = matchProofsToSkus(
       [file("shared-dieline.pdf")],

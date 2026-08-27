@@ -184,12 +184,11 @@ async function upsertDesignTaskLink(
  * Create Drive folders and save links on each card.
  *
  * Layout:
- *   `{code}_{Customer}/`              ← Designer folder (shared)
- *     `{code}_{Part title}/`          ← item folder (falls back to `_Y` index)
- *       `{FinalProd}_Y/`              ← Final production
+ *   `{code}_{Customer}_Y/`                 ← main order folder (e.g. 0269_Dessertz_1)
+ *     `{code}_{Customer}_Y_FinalProd/`     ← Final production
  *
  * - Artwork (GDrive link) ← link_target (default Final production)
- * - Design files (`specs.design_task`) ← Designer folder (XXXX)
+ * - Design files (`specs.design_task`) ← main order folder
  * No-ops when GDrive is disabled or not configured.
  */
 export async function attachGdriveFoldersToOrders(

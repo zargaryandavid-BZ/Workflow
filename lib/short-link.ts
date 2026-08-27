@@ -1,5 +1,8 @@
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { appOrigin } from "./app-url";
+
+export { appOrigin };
 
 /** Unambiguous alphabet (no 0/O, 1/I/l). */
 export const SHORT_LINK_ALPHABET =
@@ -7,13 +10,6 @@ export const SHORT_LINK_ALPHABET =
 export const SHORT_LINK_CODE_LENGTH = 7;
 
 type Client = SupabaseClient;
-
-export function appOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
-    /\/$/,
-    ""
-  );
-}
 
 export function randomShortCode(
   length = SHORT_LINK_CODE_LENGTH

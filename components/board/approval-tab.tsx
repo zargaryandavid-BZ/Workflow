@@ -13,6 +13,7 @@ import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
+import { parseSkuApprovalNote, skuLabel } from "@/lib/sku-approval";
 import type { ApprovalNote, BoardColumn, Customer } from "@/lib/types";
 
 interface ApprovalTabProps {
@@ -630,15 +631,51 @@ export function ApprovalTab({
                           ? ` · ${formatDateTime(note.responded_at)}`
                           : ""}
                       </p>
-                      {note.customer_note ? (
-                        <blockquote className="mt-2 rounded-md bg-white/80 px-3 py-2 text-slate-700">
-                          &ldquo;{note.customer_note}&rdquo;
-                        </blockquote>
-                      ) : (
-                        <p className="mt-2 text-slate-500">
-                          No note from customer.
-                        </p>
-                      )}
+                      {(() => {
+                        const parsed = parseSkuApprovalNote(note.customer_note);
+                        if (!parsed.entries.length && !parsed.comment) {
+                          return (
+                            <p className="mt-2 text-slate-500">
+                              No note from customer.
+                            </p>
+                          );
+                        }
+                        return (
+                          <div className="mt-2 space-y-2">
+                            {parsed.entries.length > 0 ? (
+                              <ul className="space-y-1">
+                                {parsed.entries.map((entry) => (
+                                  <li
+                                    key={`${entry.index}-${entry.name}`}
+                                    className="flex items-center justify-between gap-2 rounded-md bg-white/80 px-3 py-1.5 text-sm"
+                                  >
+                                    <span className="min-w-0 truncate text-slate-700">
+                                      {skuLabel(entry.index, entry.name)}
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        "shrink-0 text-xs font-semibold",
+                                        entry.decision === "approved"
+                                          ? "text-emerald-700"
+                                          : "text-red-700"
+                                      )}
+                                    >
+                                      {entry.decision === "approved"
+                                        ? "Approved"
+                                        : "Not approved"}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            {parsed.comment ? (
+                              <blockquote className="rounded-md bg-white/80 px-3 py-2 text-slate-700">
+                                &ldquo;{parsed.comment}&rdquo;
+                              </blockquote>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : null}
                 </div>

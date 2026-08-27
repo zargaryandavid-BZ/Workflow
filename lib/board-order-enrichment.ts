@@ -30,6 +30,7 @@ import {
 } from "@/lib/board-shipping";
 import { dieBoardStateByOrder } from "@/lib/die-requests.server";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
+import { orderGroupKey } from "@/lib/ready-to-ship-group";
 
 export interface BoardOrderEnrichment {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
@@ -227,6 +228,42 @@ export async function enrichBoardOrders(
   for (const [orderId, soft] of Object.entries(softBadgeByOrder)) {
     if (!notificationBadgeByOrder[orderId]) {
       notificationBadgeByOrder[orderId] = soft;
+    }
+  }
+
+  // Same group + same column share the SMS / Manual request tag.
+  const groupColumnIds = new Map<string, string[]>();
+  for (const order of orders) {
+    const key = orderGroupKey(order);
+    if (!key || !order.column_id) continue;
+    const bucket = `${order.column_id}::${key}`;
+    const list = groupColumnIds.get(bucket);
+    if (list) list.push(order.id);
+    else groupColumnIds.set(bucket, [order.id]);
+  }
+  for (const ids of groupColumnIds.values()) {
+    if (ids.length < 2) continue;
+    const shared =
+      ids
+        .map((id) => notificationBadgeByOrder[id])
+        .find((b) => b === "waiting_approval") ??
+      ids
+        .map((id) => notificationBadgeByOrder[id])
+        .find((b) => b === "waiting") ??
+      ids
+        .map((id) => notificationBadgeByOrder[id])
+        .find((b) => b === "manual");
+    if (!shared) continue;
+    for (const id of ids) {
+      const current = notificationBadgeByOrder[id];
+      if (
+        current === "approved" ||
+        current === "rejected" ||
+        current === "responded"
+      ) {
+        continue;
+      }
+      notificationBadgeByOrder[id] = shared;
     }
   }
 

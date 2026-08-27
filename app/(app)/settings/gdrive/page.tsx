@@ -52,14 +52,16 @@ export default async function GdriveSettingsPage() {
       <p className="mb-6 text-sm text-slate-500">
         Auto-create{" "}
         <code className="rounded bg-slate-100 px-1 text-xs">
-          26-0098_Customer / 26-0098_Customer_1 / FinalProd_1
+          0269_Customer_1 / 0269_Customer_1_FinalProd
         </code>{" "}
-        when jobs are created. Designer folder ={" "}
+        when jobs are created. Main folder ={" "}
         <code className="rounded bg-slate-100 px-1 text-xs">
-          ordernumber_customername
+          ordernumber_customername_Y
         </code>
         ; Final production ={" "}
-        <code className="rounded bg-slate-100 px-1 text-xs">FinalProd_Y</code>{" "}
+        <code className="rounded bg-slate-100 px-1 text-xs">
+          ordernumber_customername_Y_FinalProd
+        </code>{" "}
         (Y = item index).
       </p>
       <GdriveSettingsManager initialSettings={settings} loadError={loadError} />

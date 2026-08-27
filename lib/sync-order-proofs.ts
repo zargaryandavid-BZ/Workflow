@@ -7,6 +7,7 @@ import {
   proofsDriveClient,
   findOrCreateProofsFolder,
   listProofFiles,
+  listProofFilesRecursive,
   fetchPreviewBytes,
   type ProofFile,
 } from "@/lib/gdrive-proofs";
@@ -14,6 +15,7 @@ import { matchProofsToSkus, sizeToken } from "@/lib/proof-sku-match";
 import { normalizeSkus, type SkuItem } from "@/lib/skus";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import { skuImageStoragePath } from "@/lib/sku-images";
+import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
 
 export type SyncOrderProofsSuccess = {
   ok: true;
@@ -125,8 +127,15 @@ export async function syncOrderProofs(
 
   const proofsFolder = await findOrCreateProofsFolder(client, designerFolderId);
   const proofsFiles = await listProofFiles(client, proofsFolder.id);
-  const rootFiles = await listProofFiles(client, designerFolderId);
-  const files = mergeProofFiles(proofsFiles, rootFiles);
+  const treeFiles = await listProofFilesRecursive(client, designerFolderId, 2);
+  const files = mergeProofFiles(proofsFiles, treeFiles);
+
+  const members = await listOrderGroupMembers(supabase, tenantId, {
+    id: order.id as string,
+    title: String(order.title ?? ""),
+    specs,
+  });
+  const attachLeftovers = members.length <= 1;
 
   const { data: existing } = await supabase
     .from("order_sku_images")
@@ -147,7 +156,8 @@ export async function syncOrderProofs(
     files,
     skus,
     cardSize,
-    extraNamesBySkuId(skus, specs)
+    extraNamesBySkuId(skus, specs),
+    { attachLeftovers }
   );
 
   let filled = 0;

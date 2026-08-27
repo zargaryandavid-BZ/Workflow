@@ -13,7 +13,10 @@ import {
   PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
 } from "@/lib/portal-branding";
+import { appOrigin, isPublicAppUrl } from "@/lib/app-url";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
+
+export { isPublicAppUrl };
 
 const REPLY_LINK_PLACEHOLDER = "[REPLY_LINK]";
 
@@ -662,23 +665,8 @@ export function injectApprovalLink(message: string, approvalUrl: string) {
     .replaceAll("[reply link added on send]", approvalUrl);
 }
 
-export function isPublicAppUrl(url?: string): boolean {
-  const value = url ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
-  try {
-    const { hostname } = new URL(value);
-    return hostname !== "localhost" && hostname !== "127.0.0.1";
-  } catch {
-    return false;
-  }
-}
-
-/** Public customer respond URL for a notification token. */
 export function respondUrl(token: string): string {
-  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
-    /\/$/,
-    ""
-  );
-  return `${base}/respond/${token}`;
+  return `${appOrigin()}/respond/${token}`;
 }
 
 export function injectReplyLink(message: string, replyUrl: string) {

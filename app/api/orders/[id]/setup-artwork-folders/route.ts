@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { ensureGdriveSettings } from "@/lib/gdrive-settings";
 import { parseDriveIdFromUrl } from "@/lib/google-drive";
+import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import { proofsDriveClient, ensureArtworkFolderTree } from "@/lib/gdrive-proofs";
 import { normalizeSkus } from "@/lib/skus";
 
@@ -26,14 +27,28 @@ export async function POST(
   const supabase = await createClient();
   const { data: order, error: orderErr } = await supabase
     .from("orders")
-    .select("id, specs")
+    .select("id, title, customer_id, specs")
     .eq("id", orderId)
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
   if (orderErr) return NextResponse.json({ error: orderErr.message }, { status: 500 });
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
-  const specs = (order.specs ?? {}) as Record<string, unknown>;
+  await attachGdriveFoldersToOrders(supabase, ctx.tenant.id, [
+    {
+      id: order.id as string,
+      title: (order.title as string) ?? "",
+      customer_id: (order.customer_id as string | null) ?? null,
+      specs: (order.specs as Record<string, unknown> | null) ?? null,
+    },
+  ]);
+
+  const { data: refreshed } = await supabase
+    .from("orders")
+    .select("specs")
+    .eq("id", orderId)
+    .maybeSingle();
+  const specs = (refreshed?.specs ?? order.specs ?? {}) as Record<string, unknown>;
   const skus = normalizeSkus(specs.skus);
   if (skus.length === 0) {
     return NextResponse.json(

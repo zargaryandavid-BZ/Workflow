@@ -705,13 +705,29 @@ export async function createNotification(
 
   const extraNotificationIds: string[] = [];
   if (params.type === "customer_approval") {
-    const extraIds = [
-      ...new Set(
-        (params.groupOrderIds ?? []).filter(
-          (id) => typeof id === "string" && id && id !== params.order.id
-        )
-      ),
-    ];
+    const extraIds = new Set<string>(
+      (params.groupOrderIds ?? []).filter(
+        (id) => typeof id === "string" && id && id !== params.order.id
+      )
+    );
+    try {
+      const members = await listOrderGroupMembers(
+        client,
+        params.order.tenant_id,
+        params.order
+      );
+      for (const member of members) {
+        if (
+          member.id !== params.order.id &&
+          member.column_id &&
+          member.column_id === params.order.column_id
+        ) {
+          extraIds.add(member.id);
+        }
+      }
+    } catch (err) {
+      console.error("[approval-group] failed to load same-column siblings:", err);
+    }
     for (const orderId of extraIds) {
       const { data: extra, error: extraErr } = await client
         .from("job_notifications")
@@ -795,6 +811,12 @@ export async function createNotification(
     }
     warning = delivery.error ?? null;
   } else if (params.channel === "manual") {
+    if (extraNotificationIds.length > 0) {
+      await client
+        .from("job_notifications")
+        .update({ channel: "manual", status: "pending" })
+        .in("id", extraNotificationIds);
+    }
     await logActivity(client, {
       tenantId: params.order.tenant_id,
       orderId: params.order.id,

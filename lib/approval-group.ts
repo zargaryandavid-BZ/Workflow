@@ -6,6 +6,7 @@ import {
 } from "@/lib/ready-to-ship-group";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
 import { ensureShortCustomerUrl, appOrigin } from "@/lib/short-link";
+import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import type { CustomerResponse, NotificationStatus } from "@/lib/types";
 
 type Client = SupabaseClient;
@@ -204,6 +205,76 @@ async function latestApprovalByOrderId(
     });
   }
   return map;
+}
+
+const GROUP_APPROVAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function isOpenApprovalStatus(status: NotificationStatus | undefined): boolean {
+  return status === "pending" || status === "sent";
+}
+
+/**
+ * Group SMS/email used to create a request on only one part. The portal then
+ * showed the rest as Pending. Open a review round for every sibling still in
+ * an approval column so the customer can approve each item.
+ */
+export async function ensureMissingGroupApprovalNotifications(
+  client: Client,
+  members: GroupOrderMember[],
+  columnKindById: Map<string, string>
+): Promise<void> {
+  if (members.length < 2) return;
+
+  const latest = await latestApprovalByOrderId(
+    client,
+    members.map((m) => m.id)
+  );
+
+  const inApproval = members.filter(
+    (m) => columnKindById.get(m.column_id ?? "") === "approval"
+  );
+  if (inApproval.length === 0) return;
+
+  const template = inApproval
+    .map((m) => latest.get(m.id))
+    .find((n) => n && isOpenApprovalStatus(n.status));
+
+  const expiresAt = new Date(Date.now() + GROUP_APPROVAL_TTL_MS).toISOString();
+  const tenantId = members[0]!.tenant_id;
+
+  for (const member of inApproval) {
+    const existing = latest.get(member.id);
+    if (existing && isOpenApprovalStatus(existing.status)) continue;
+    if (existing?.status === "responded") continue;
+
+    const { data: inserted, error } = await client
+      .from("job_notifications")
+      .insert({
+        tenant_id: tenantId,
+        order_id: member.id,
+        type: "customer_approval",
+        channel: "none",
+        token_expires_at: expiresAt,
+        staff_note: template?.staff_note ?? existing?.staff_note ?? null,
+        status: "sent",
+        created_by: null,
+      })
+      .select("id")
+      .single();
+    if (error || !inserted?.id) {
+      console.error(
+        "[approval-group] failed to open review round for",
+        member.title,
+        error?.message
+      );
+      continue;
+    }
+    try {
+      await snapshotApprovalFiles(client, inserted.id as string);
+    } catch (err) {
+      console.error("[approval-snapshot] failed:", err);
+    }
+  }
 }
 
 export async function loadApprovalGroupItemSummaries(

@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { formatDate } from "@/lib/utils";
 import { isValidEmail, mapDieManufacturerRow } from "@/lib/die-manufacturers";
-import { collectDieUploadFiles } from "@/lib/die-request";
+import { collectDieUploadFiles, formatDieSize, parseOptionalDieDim } from "@/lib/die-request";
 import {
   primaryDieFileFields,
   storeDieRequestFiles,
@@ -31,8 +31,10 @@ export async function POST(request: Request) {
   const orderId = String(form.get("orderId") ?? "").trim();
   const manufacturerId = String(form.get("manufacturerId") ?? "").trim();
   const comment = String(form.get("comment") ?? "").trim() || null;
+  const productName = String(form.get("productName") ?? "").trim() || null;
   const widthRaw = String(form.get("width") ?? "").trim();
   const heightRaw = String(form.get("height") ?? "").trim();
+  const depthRaw = String(form.get("depth") ?? "").trim();
   const requiredDate = String(form.get("requiredDate") ?? "").trim();
   const allowOwnDate =
     form.get("allowOwnDate") === "true" || form.get("allowOwnDate") === "on";
@@ -51,17 +53,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const width = widthRaw ? Number(widthRaw) : null;
-  const height = heightRaw ? Number(heightRaw) : null;
-  if (
-    (widthRaw && (!Number.isFinite(width) || (width ?? 0) <= 0)) ||
-    (heightRaw && (!Number.isFinite(height) || (height ?? 0) <= 0))
-  ) {
+  const widthParsed = parseOptionalDieDim(widthRaw);
+  const heightParsed = parseOptionalDieDim(heightRaw);
+  const depthParsed = parseOptionalDieDim(depthRaw);
+  if (!widthParsed.ok || !heightParsed.ok || !depthParsed.ok) {
     return NextResponse.json(
-      { error: "Width and height must be positive numbers." },
+      { error: "Width, height, and depth must be positive numbers." },
       { status: 422 }
     );
   }
+  const width = widthParsed.value;
+  const height = heightParsed.value;
+  const depth = depthParsed.value;
 
   const supabase = await createClient();
   const { data: order } = await supabase
@@ -111,13 +114,13 @@ export async function POST(request: Request) {
   }
   const primary = primaryDieFileFields(stored.files);
 
-  const { data: inserted, error: insertError } = await supabase
-    .from("die_requests")
-    .insert({
+  const insertRow: Record<string, unknown> = {
       tenant_id: ctx.tenant.id,
       order_id: orderId,
       width,
       height,
+      depth,
+      product_name: productName,
       required_date: requiredDate,
       allow_own_date: allowOwnDate,
       to_email: toEmail,
@@ -129,9 +132,28 @@ export async function POST(request: Request) {
       file_mime: primary.file_mime,
       status: "sent",
       created_by: ctx.userId,
-    })
+    };
+
+  let { data: inserted, error: insertError } = await supabase
+    .from("die_requests")
+    .insert(insertRow)
     .select("id, token")
     .single();
+
+  if (
+    insertError &&
+    /depth|product_name/i.test(insertError.message)
+  ) {
+    delete insertRow.depth;
+    delete insertRow.product_name;
+    const retry = await supabase
+      .from("die_requests")
+      .insert(insertRow)
+      .select("id, token")
+      .single();
+    inserted = retry.data;
+    insertError = retry.error;
+  }
 
   if (insertError || !inserted) {
     const msg = insertError?.message ?? "Failed to save die request";
@@ -146,6 +168,8 @@ export async function POST(request: Request) {
           ? "Run migration 0087_die_request_files.sql in Supabase, then try again."
           : needs0085
           ? "Run migration 0085_die_manufacturers.sql in Supabase, then try again."
+          : /depth|product_name/i.test(msg)
+            ? "Run migration 0091_die_request_depth_product.sql in Supabase, then try again."
           : msg.includes("die_requests")
             ? "Run migration 0084_die_requests.sql in Supabase, then try again."
             : msg,
@@ -160,8 +184,7 @@ export async function POST(request: Request) {
     ctx.tenant.id,
     quotePath
   );
-  const widthLabel = width != null ? String(width) : "—";
-  const heightLabel = height != null ? String(height) : "—";
+  const sizeLabel = formatDieSize(width, height, depth);
 
   const requiredLabel = formatDate(requiredDate) || requiredDate;
   const notify = await notifyDieManufacturer({
@@ -171,8 +194,8 @@ export async function POST(request: Request) {
       html: (contactName) =>
         buildDieQuoteEmailHtml({
           orderNumber: order.title,
-          width: widthLabel,
-          height: heightLabel,
+          productName,
+          size: sizeLabel,
           requiredDate: requiredLabel,
           quoteUrl,
           comment,
@@ -181,8 +204,8 @@ export async function POST(request: Request) {
       text: (contactName) =>
         buildDieQuoteEmailBody({
           orderNumber: order.title,
-          width: widthLabel,
-          height: heightLabel,
+          productName,
+          size: sizeLabel,
           requiredDate: requiredLabel,
           quoteUrl,
           comment,

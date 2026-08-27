@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { normalizeEmergencyBalance } from "@/lib/emergency-balance";
 import { Board } from "@/components/board/board";
 import { isPublicAppUrl } from "@/lib/notification-messages";
+import { appOrigin } from "@/lib/app-url";
 import { isSmsConfigured } from "@/lib/sms";
 import { loadAccountManagerOwners } from "@/lib/order-owners";
 import { loadButtonAutomations } from "@/lib/button-automations.server";
@@ -228,7 +229,7 @@ export default async function BoardPage({
       webhookSourceStyles={webhookSourceStyles}
       timeChips={timeChips}
       initialOrderId={initialOrderId ?? null}
-      appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ""}
+      appUrl={appOrigin()}
     />
   );
 }

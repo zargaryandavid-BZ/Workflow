@@ -341,6 +341,7 @@ export function CardDetailModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmUnsaved, setConfirmUnsaved] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
@@ -581,6 +582,7 @@ export function CardDetailModal({
     }
     if (!open) {
       setSaveError(null);
+      setConfirmUnsaved(false);
       setData(null);
       setTitle("");
       setCustomerName("");
@@ -1316,9 +1318,32 @@ export function CardDetailModal({
     : { email: null, phone: null };
   const orderTags = data ? orderTagsFromSpecs(data.order.specs) : [];
 
-  async function handleClose() {
-    if (saving || removing) return;
-    // No browser confirm — Save / Cancel in the ticket already cover unsaved edits.
+  function hasUnsavedTicketEdits(): boolean {
+    if (!data) return false;
+    if (!isViewOnly) return isDirty();
+    return canEditDueDate && isDueDateDirty();
+  }
+
+  function handleClose() {
+    if (saving || removing || archiving) return;
+    if (confirmUnsaved || confirmRemove || confirmArchive) return;
+    if (hasUnsavedTicketEdits()) {
+      setConfirmUnsaved(true);
+      return;
+    }
+    onClose();
+  }
+
+  async function saveAndClose() {
+    const ok = await save();
+    if (!ok) return;
+    setConfirmUnsaved(false);
+    onClose();
+  }
+
+  function discardAndClose() {
+    revert();
+    setConfirmUnsaved(false);
     onClose();
   }
 
@@ -2874,6 +2899,56 @@ export function CardDetailModal({
         </>
       )}
     </Modal>
+
+    {confirmUnsaved ? (
+      <Modal
+        open
+        onClose={() => {
+          if (!saving) setConfirmUnsaved(false);
+        }}
+        overlayClassName="z-[110]"
+        title="Save changes?"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={discardAndClose}
+              disabled={saving}
+            >
+              Don&apos;t save
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setConfirmUnsaved(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void saveAndClose()}
+                disabled={saving}
+              >
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          This ticket has unsaved edits. Save them before closing, or discard
+          them?
+        </p>
+        {saveError ? (
+          <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+            {saveError}
+          </p>
+        ) : null}
+      </Modal>
+    ) : null}
 
     {confirmRemove ? (
       <Modal

@@ -8,6 +8,7 @@ import {
   dieDaysToDeliver,
   formatDieDaysToDeliver,
   formatDieQuotedPrice,
+  formatDieSize,
 } from "@/lib/die-request";
 import { formatDate } from "@/lib/utils";
 
@@ -18,6 +19,8 @@ export type DiePortalData = {
   tenantName: string;
   width: number | null;
   height: number | null;
+  depth: number | null;
+  productName: string | null;
   requiredDate: string;
   fileName: string | null;
   files: { name: string; index: number; isImage: boolean }[];
@@ -49,10 +52,7 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(data.status === "ordered");
 
-  const size =
-    data.width != null && data.height != null
-      ? `${data.width} × ${data.height}`
-      : "—";
+  const size = formatDieSize(data.width, data.height, data.depth);
   const matchingRequired = !offerOwnDate;
   const daysTarget = matchingRequired
     ? data.requiredDate
@@ -149,7 +149,7 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
       <dl className="grid grid-cols-3 gap-2">
         <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white px-3 py-2">
           <dt className="text-[10px] font-semibold uppercase tracking-wide text-black">
-            Size (X × Y)
+            Size (X × Y × Z)
           </dt>
           <dd className="mt-0.5 break-words text-sm font-medium text-black">
             {size}
@@ -310,10 +310,7 @@ function DiePortalJobDetails({
   quoteMode?: boolean;
 }) {
   const files = data.files ?? [];
-  const size =
-    data.width != null && data.height != null
-      ? `${data.width} × ${data.height}`
-      : "—";
+  const size = formatDieSize(data.width, data.height, data.depth);
   const due =
     data.confirmedDueDate ?? data.requiredDate;
   const timeLines = splitDieTimeEstimate(data.timeEstimate);
@@ -363,6 +360,17 @@ function DiePortalJobDetails({
         </a>
       ) : null}
 
+      {data.productName ? (
+        <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-black">
+            Product
+          </p>
+          <p className="mt-1 text-sm font-medium text-black">
+            {data.productName}
+          </p>
+        </div>
+      ) : null}
+
       {data.comment ? (
         <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-black">
@@ -378,7 +386,7 @@ function DiePortalJobDetails({
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white px-3 py-2">
             <dt className="text-[10px] font-semibold uppercase tracking-wide text-black">
-              Size (X × Y)
+              Size (X × Y × Z)
             </dt>
             <dd className="mt-0.5 break-words text-sm font-medium text-black">
               {size}

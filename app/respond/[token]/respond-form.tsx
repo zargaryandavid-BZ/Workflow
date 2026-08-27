@@ -18,6 +18,15 @@ import {
   type OrderMetaChip,
   type UploadSlot,
 } from "@/lib/respond-page";
+import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
+import {
+  formatSkuApprovalNote,
+  overallApprovalResponse,
+  skuLabel,
+  type SkuApprovalDecision,
+  type SkuApprovalEntry,
+} from "@/lib/sku-approval";
+import type { SkuItem } from "@/lib/skus";
 import type { CustomerResponse, NotificationType } from "@/lib/types";
 
 interface Props {
@@ -33,6 +42,8 @@ interface Props {
   metaChips?: OrderMetaChip[];
   tenantName?: string;
   orderReview?: React.ReactNode;
+  /** SKUs on this proof — customer marks approve/reject per SKU. */
+  approvalSkus?: SkuItem[];
   /** Fired after a successful customer_approval decision (group portal nav). */
   onDecided?: (decision: "approved" | "rejected") => void;
 }
@@ -145,6 +156,7 @@ export function RespondForm({
   metaChips = [],
   tenantName,
   orderReview,
+  approvalSkus = [],
   onDecided,
 }: Props) {
   const [note, setNote] = useState("");
@@ -155,6 +167,31 @@ export function RespondForm({
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [filesBySlot, setFilesBySlot] = useState<Record<number, File[]>>({});
+  const [skuChoices, setSkuChoices] = useState<
+    Record<string, SkuApprovalDecision | undefined>
+  >({});
+  const [submittedSkuEntries, setSubmittedSkuEntries] = useState<
+    SkuApprovalEntry[]
+  >([]);
+
+  const perSkuApproval =
+    type === "customer_approval" && approvalSkus.length > 0;
+
+  function skuEntriesFromChoices(): SkuApprovalEntry[] | null {
+    const entries: SkuApprovalEntry[] = [];
+    for (let i = 0; i < approvalSkus.length; i += 1) {
+      const sku = approvalSkus[i];
+      const decision = skuChoices[sku.id];
+      if (!decision) return null;
+      entries.push({
+        skuId: sku.id,
+        index: i + 1,
+        name: sku.name.trim(),
+        decision,
+      });
+    }
+    return entries;
+  }
 
   // Titled upload targets. Legacy links (no slots) fall back to one item slot.
   const itemHeading = itemTitle?.trim() || productLabel || "Your order";
@@ -193,7 +230,7 @@ export function RespondForm({
     }));
   }
 
-  async function respond(response: CustomerResponse) {
+  async function respond(response: CustomerResponse, noteOverride?: string) {
     if (type === "missing_info" && response === "info_submitted" && !canSend) {
       setError("Please attach a file or leave a comment before sending.");
       return;
@@ -228,7 +265,7 @@ export function RespondForm({
         body: JSON.stringify({
           token,
           response,
-          note: note.trim() || undefined,
+          note: (noteOverride ?? note).trim() || undefined,
         }),
       });
       const json = await res.json();
@@ -250,45 +287,137 @@ export function RespondForm({
     }
   }
 
+  function submitPerSku() {
+    const entries = skuEntriesFromChoices();
+    if (!entries) {
+      setError("Please check Approve or Not approved for each SKU.");
+      return;
+    }
+    const overall = overallApprovalResponse(entries);
+    if (overall === "changes_requested" && !note.trim()) {
+      setError("Please tell us why the proof was not approved.");
+      return;
+    }
+    setSubmittedSkuEntries(entries);
+    respond(overall, formatSkuApprovalNote(entries, note));
+  }
+
   if (done) {
     const approvalDone =
       type === "customer_approval" && doneKind === "approved";
     const rejectionDone =
       type === "customer_approval" && doneKind === "rejected";
+    const mixed =
+      submittedSkuEntries.length > 0 &&
+      submittedSkuEntries.some((e) => e.decision === "approved") &&
+      submittedSkuEntries.some((e) => e.decision === "rejected");
 
     return (
-      <div className="rounded-lg bg-emerald-50 p-6 text-center text-emerald-900">
-        <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
-        <h2 className="mt-3 text-lg font-semibold">
-          {approvalDone
-            ? "Thank you!"
-            : rejectionDone
-              ? "Feedback received"
-              : type === "ready_to_ship"
-                ? "Got it!"
-                : "Response received!"}
-        </h2>
-        <p className="mt-2 text-sm text-emerald-800">
-          {approvalDone
-            ? "Your approval has been recorded. We'll get started right away."
-            : rejectionDone
-              ? "Thank you for your feedback. Our team will be in touch shortly."
-              : type === "ready_to_ship"
-                ? "You're all set. Contact us anytime to arrange pickup or delivery. You can close this page."
-                : `Thank you — the ${tenantName ?? "team"} has been notified and will review your response shortly. You can close this page.`}
-        </p>
-      </div>
+      <SkuDecisionProvider
+        mode={submittedSkuEntries.length > 0 ? "result" : "off"}
+        byId={Object.fromEntries(
+          submittedSkuEntries.map((e) => [e.skuId, e.decision])
+        )}
+      >
+        <div
+          className={`rounded-lg p-6 text-center ${
+            approvalDone
+              ? "bg-emerald-50 text-emerald-900"
+              : rejectionDone
+                ? "bg-red-50 text-red-900"
+                : "bg-emerald-50 text-emerald-900"
+          }`}
+        >
+          <CheckCircle2
+            className={`mx-auto h-10 w-10 ${
+              approvalDone
+                ? "text-emerald-600"
+                : rejectionDone
+                  ? "text-red-600"
+                  : "text-emerald-600"
+            }`}
+          />
+          <h2 className="mt-3 text-lg font-semibold">
+            {approvalDone
+              ? "Thank you!"
+              : mixed
+                ? "Response received"
+                : rejectionDone
+                  ? "Feedback received"
+                  : type === "ready_to_ship"
+                    ? "Got it!"
+                    : "Response received!"}
+          </h2>
+          <p
+            className={`mt-2 text-sm ${
+              approvalDone || (!approvalDone && !rejectionDone)
+                ? "text-emerald-800"
+                : "text-red-800"
+            }`}
+          >
+            {approvalDone
+              ? "Your approval has been recorded. We'll get started right away."
+              : mixed
+                ? "We recorded which SKUs were approved and which need changes. Our team will be in touch shortly."
+                : rejectionDone
+                  ? "Thank you for your feedback. Our team will be in touch shortly."
+                  : type === "ready_to_ship"
+                    ? "You're all set. Contact us anytime to arrange pickup or delivery. You can close this page."
+                    : `Thank you — the ${tenantName ?? "team"} has been notified and will review your response shortly. You can close this page.`}
+          </p>
+          {submittedSkuEntries.length > 0 ? (
+            <ul className="mt-4 space-y-1.5 text-left">
+              {submittedSkuEntries.map((entry) => (
+                <li
+                  key={entry.skuId}
+                  className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
+                    entry.decision === "approved"
+                      ? "bg-emerald-100/80 text-emerald-900"
+                      : "bg-red-100/80 text-red-900"
+                  }`}
+                >
+                  <span className="min-w-0 truncate font-medium">
+                    {skuLabel(entry.index, entry.name)}
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold uppercase tracking-wide">
+                    {entry.decision === "approved" ? "Approved" : "Not approved"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        {orderReview ? <div className="mt-5">{orderReview}</div> : null}
+      </SkuDecisionProvider>
     );
   }
 
   if (type === "customer_approval") {
+    const review = perSkuApproval ? (
+      <SkuDecisionProvider
+        mode="choose"
+        byId={skuChoices}
+        onChange={(skuId, decision) => {
+          setSkuChoices((prev) => ({ ...prev, [skuId]: decision }));
+          setError(null);
+        }}
+      >
+        {orderReview}
+      </SkuDecisionProvider>
+    ) : (
+      orderReview
+    );
+
     return (
       <div className="space-y-5">
         <p className="text-sm leading-relaxed text-slate-600">
           Your print proof is ready for review.
+          {perSkuApproval
+            ? " Check Approve or Not approved for each SKU below."
+            : ""}
         </p>
 
-        {orderReview}
+        {review}
 
         {!orderReview && metaChips.length > 0 ? (
           <div className="grid grid-cols-2 gap-2">
@@ -322,7 +451,9 @@ export function RespondForm({
         <ProofLayerLegend />
 
         <p className="text-sm font-medium text-slate-700">
-          Please review and confirm below:
+          {perSkuApproval
+            ? "Please mark each SKU and confirm below:"
+            : "Please review and confirm below:"}
         </p>
         <div>
           <Label htmlFor="approval-comment">Comment</Label>
@@ -334,7 +465,11 @@ export function RespondForm({
               setNote(e.target.value);
               setError(null);
             }}
-            placeholder="Optional note — required if not approving"
+            placeholder={
+              perSkuApproval
+                ? "Optional note — required if any SKU is not approved"
+                : "Optional note — required if not approving"
+            }
             rows={4}
           />
         </div>
@@ -343,29 +478,39 @@ export function RespondForm({
             {error}
           </p>
         ) : null}
-        <div className="flex gap-3">
+        {perSkuApproval ? (
           <Button
-            className="flex-1"
-            onClick={() => respond("approved")}
+            className="w-full"
+            onClick={submitPerSku}
             disabled={loading}
           >
-            <Check className="h-4 w-4" /> Approve
+            <Check className="h-4 w-4" /> Submit review
           </Button>
-          <Button
-            variant="danger"
-            className="flex-1"
-            onClick={() => {
-              if (!note.trim()) {
-                setError("Please tell us why the proof was not approved.");
-                return;
-              }
-              respond("changes_requested");
-            }}
-            disabled={loading}
-          >
-            <X className="h-4 w-4" /> Not Approved
-          </Button>
-        </div>
+        ) : (
+          <div className="flex gap-3">
+            <Button
+              className="flex-1"
+              onClick={() => respond("approved")}
+              disabled={loading}
+            >
+              <Check className="h-4 w-4" /> Approve
+            </Button>
+            <Button
+              variant="danger"
+              className="flex-1"
+              onClick={() => {
+                if (!note.trim()) {
+                  setError("Please tell us why the proof was not approved.");
+                  return;
+                }
+                respond("changes_requested");
+              }}
+              disabled={loading}
+            >
+              <X className="h-4 w-4" /> Not Approved
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

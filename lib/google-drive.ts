@@ -3,14 +3,26 @@ import "server-only";
 import { google } from "googleapis";
 import type { GdriveLinkTarget, GdriveSettings } from "@/lib/types";
 import { isGdriveConfigured } from "@/lib/gdrive-settings";
+import {
+  buildDriveFolderPlan,
+  sanitizeDriveFolderName,
+  sanitizeDriveItemTitle,
+  shortDriveOrderCode,
+} from "@/lib/drive-folder-names";
+
+export {
+  sanitizeDriveFolderName,
+  sanitizeDriveItemTitle,
+  shortDriveOrderCode,
+};
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 export type DriveFolderRefs = {
-  /** Designer folder: e.g. 26-0098_Acme Corp */
+  /** Designer folder: e.g. 0269_Acme Corp */
   jobId: string;
   jobUrl: string;
-  /** Final production folder: e.g. FinalProd_1 */
+  /** Final production folder: e.g. 0269_Acme Corp_1_FinalProd */
   finalId: string;
   finalUrl: string;
   linkUrl: string;
@@ -18,49 +30,6 @@ export type DriveFolderRefs = {
 
 function normalizePrivateKey(key: string): string {
   return key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
-}
-
-/** Drive folder names cannot contain / — keep the rest printable. */
-export function sanitizeDriveFolderName(name: string): string {
-  const cleaned = name
-    .replace(/[\\/]+/g, "-")
-    .replace(/[\u0000-\u001f]/g, "")
-    .trim()
-    .slice(0, 200);
-  return cleaned || "Untitled";
-}
-
-/**
- * Line-item / part titles go straight into a Drive folder name, so strip the
- * characters that are illegal in Windows / Drive-synced folder names
- * (`/ \\ : * ? " < > |`), collapse whitespace, and cap the length so the folder
- * name stays tidy. Returns "" when nothing printable is left (caller falls back
- * to the legacy index-based name).
- */
-export function sanitizeDriveItemTitle(title: string): string {
-  return title
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/[\u0000-\u001f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 120)
-    .trim();
-}
-
-/**
- * Short code for folder names: ORD-2026-0098 → 26-0098.
- * Leaves already-short values (e.g. 26-0098, 0098) as-is.
- */
-export function shortDriveOrderCode(orderKey: string): string {
-  const trimmed = orderKey.trim();
-  if (!trimmed) return "order";
-  const withYear = /^ord-(\d{4})-(.+)$/i.exec(trimmed);
-  if (withYear) {
-    const yy = withYear[1].slice(2);
-    const rest = withYear[2].trim();
-    return rest ? `${yy}-${rest}` : `${yy}`;
-  }
-  return trimmed.replace(/^ORD-/i, "");
 }
 
 function driveClient(settings: GdriveSettings) {
@@ -132,50 +101,129 @@ async function createFolder(
   };
 }
 
-async function findOrCreateFolder(
+async function renameFolder(
+  drive: ReturnType<typeof driveClient>,
+  id: string,
+  name: string,
+  webViewLink: string
+): Promise<{ id: string; webViewLink: string }> {
+  const res = await drive.files.update({
+    fileId: id,
+    requestBody: { name },
+    fields: "id, name, webViewLink",
+    supportsAllDrives: true,
+  });
+  return {
+    id: res.data.id ?? id,
+    webViewLink:
+      res.data.webViewLink ??
+      webViewLink ??
+      `https://drive.google.com/drive/folders/${id}`,
+  };
+}
+
+async function findFirstChild(
+  drive: ReturnType<typeof driveClient>,
+  parentId: string,
+  names: string[],
+  sharedDriveId: string | null
+): Promise<{ id: string; webViewLink: string; matchedName: string } | null> {
+  for (const name of names) {
+    const found = await findChildFolder(drive, parentId, name, sharedDriveId);
+    if (found) return { ...found, matchedName: name };
+  }
+  return null;
+}
+
+async function maybeRenameFolder(
+  drive: ReturnType<typeof driveClient>,
+  folder: { id: string; webViewLink: string },
+  desiredName: string,
+  currentName: string
+): Promise<{ id: string; webViewLink: string }> {
+  if (currentName === desiredName) return folder;
+  try {
+    return await renameFolder(drive, folder.id, desiredName, folder.webViewLink);
+  } catch (err) {
+    console.warn(
+      `[gdrive] could not rename "${currentName}" → "${desiredName}":`,
+      err instanceof Error ? err.message : err
+    );
+    return folder;
+  }
+}
+
+async function moveFolderToParent(
+  drive: ReturnType<typeof driveClient>,
+  fileId: string,
+  fromParentId: string,
+  toParentId: string
+): Promise<void> {
+  if (fromParentId === toParentId) return;
+  await drive.files.update({
+    fileId,
+    addParents: toParentId,
+    removeParents: fromParentId,
+    supportsAllDrives: true,
+    fields: "id",
+  });
+}
+
+async function findOrCreatePreferredFolder(
   drive: ReturnType<typeof driveClient>,
   parentId: string,
   name: string,
+  aliases: string[],
   sharedDriveId: string | null
 ): Promise<{ id: string; webViewLink: string }> {
-  const existing = await findChildFolder(drive, parentId, name, sharedDriveId);
-  if (existing) return existing;
+  const existing = await findFirstChild(
+    drive,
+    parentId,
+    [name, ...aliases],
+    sharedDriveId
+  );
+  if (existing) {
+    return maybeRenameFolder(drive, existing, name, existing.matchedName);
+  }
   return createFolder(drive, parentId, name);
 }
 
-/**
- * Item folder lookup with backward-compatible fallback. Prefers the new
- * title-based folder name; if it does not exist yet, looks up any legacy
- * `{code}_{customer}_{index}` folder created before this rename so we reuse it
- * (never orphan or duplicate an existing order's folder). Only creates a new
- * folder — under the new name — when neither is found. Never renames.
- */
-async function findOrCreateItemFolder(
+async function ensureFolderWithAliases(
   drive: ReturnType<typeof driveClient>,
-  parentId: string,
+  destParentId: string,
   name: string,
-  legacyName: string,
+  aliases: string[],
+  extraParentIds: string[],
   sharedDriveId: string | null
 ): Promise<{ id: string; webViewLink: string }> {
-  const existing = await findChildFolder(drive, parentId, name, sharedDriveId);
-  if (existing) return existing;
-  if (legacyName && legacyName !== name) {
-    const legacy = await findChildFolder(
-      drive,
-      parentId,
-      legacyName,
-      sharedDriveId
-    );
-    if (legacy) return legacy;
+  const names = [name, ...aliases];
+  const here = await findFirstChild(drive, destParentId, names, sharedDriveId);
+  if (here) return maybeRenameFolder(drive, here, name, here.matchedName);
+
+  for (const parentId of extraParentIds) {
+    if (!parentId || parentId === destParentId) continue;
+    const found = await findFirstChild(drive, parentId, names, sharedDriveId);
+    if (!found) continue;
+    try {
+      await moveFolderToParent(drive, found.id, parentId, destParentId);
+    } catch (err) {
+      console.warn(
+        `[gdrive] could not move "${found.matchedName}" into the order folder:`,
+        err instanceof Error ? err.message : err
+      );
+      return maybeRenameFolder(drive, found, name, found.matchedName);
+    }
+    return maybeRenameFolder(drive, found, name, found.matchedName);
   }
-  return createFolder(drive, parentId, name);
+
+  return createFolder(drive, destParentId, name);
 }
 
 function pickLink(
   target: GdriveLinkTarget,
   refs: Omit<DriveFolderRefs, "linkUrl">
 ): string {
-  // Designer folder (XXXX) for "customer" / "order"; Final production for "final".
+  // Designer folder (XXXX_Y) for "customer" / "order"; Final production for "final".
   if (target === "final") return refs.finalUrl;
   return refs.jobUrl;
 }
@@ -195,23 +243,13 @@ function resolveSharedDriveId(settings: GdriveSettings): string | null {
 
 /**
  * Shared Drive root
- *   └── {code}_{Customer Name}/                 ← Designer folder (XXXX)
- *         └── {code}_{Customer Name}_Y/         ← item folder (XXXX_Y)
- *               └── {FinalProd}_Y/              ← Final production
+ *   └── {code}_{Customer}_Y/                    ← main order folder
+ *         └── {code}_{Customer}_Y_FinalProd/    ← Final production
  *
- * XXXX = ordernumber_customername (e.g. 26-0098_Acme Corp).
- * Y is the 1-based item index (defaults to 1).
- *
- * The per-item folder is named after the line-item / part title when one is
- * supplied (e.g. `26-0098_100 Cap Labels — PO 117481-1`) instead of the bare
- * `_Y` index, which carried no meaning. Falls back to `{code}_{customer}_Y`
- * when no title is available. Existing `_Y` folders are still reused via a
- * legacy-name lookup, so this rename never orphans or duplicates.
- *
- * @param itemIndex 1-based part number; defaults to 1 when omitted.
- * @param itemTitle line-item / part title; when present, names the item folder.
- * @param appendIndex append the `_Y` suffix to the title-based name to keep it
- *   unique (used when two parts of the same order share a title).
+ * Example: `0269_Dessertz_1` / `0269_Dessertz_1_FinalProd`.
+ * Year prefixes (`26-0269_…`) and old `Final for Prod_Y` names are reused and
+ * renamed. A shared `{code}_{Customer}` parent is still used when it already
+ * exists (older layout).
  */
 export async function ensureOrderDriveFolders(
   settings: GdriveSettings,
@@ -228,60 +266,75 @@ export async function ensureOrderDriveFolders(
   const drive = driveClient(settings);
   const rootId = settings.root_folder_id!.trim();
   const sharedDriveId = resolveSharedDriveId(settings);
-  const code = sanitizeDriveFolderName(shortDriveOrderCode(orderKey));
-  const customer = sanitizeDriveFolderName(customerName);
-  const finalLabel = sanitizeDriveFolderName(
-    settings.final_folder_name || "Final for Prod"
-  );
+  const plan = buildDriveFolderPlan({
+    orderKey,
+    customerName,
+    itemIndex,
+    itemTitle,
+    appendIndex,
+    finalFolderName: settings.final_folder_name,
+  });
 
-  const y =
-    typeof itemIndex === "number" && itemIndex >= 1
-      ? Math.floor(itemIndex)
-      : 1;
-  const suffix = `_${y}`;
-
-  // XXXX — Designer folder (shared across items on the same order)
-  const designerFolderName = sanitizeDriveFolderName(`${code}_${customer}`);
-  // Legacy per-item name (`{code}_{customer}_Y`) — kept for backward-compatible
-  // lookup so orders whose folders predate this rename are reused, not orphaned.
-  const legacyItemFolderName = sanitizeDriveFolderName(
-    `${code}_${customer}${suffix}`
-  );
-  // XXXX_Y — per-item working folder. Name after the line-item / part title
-  // when available; otherwise fall back to the legacy index-based name.
-  const cleanTitle =
-    typeof itemTitle === "string" ? sanitizeDriveItemTitle(itemTitle) : "";
-  const itemFolderName = cleanTitle
-    ? sanitizeDriveFolderName(
-        appendIndex ? `${code}_${cleanTitle}${suffix}` : `${code}_${cleanTitle}`
-      )
-    : legacyItemFolderName;
-  // FinalProd_Y — Final production
-  const finalFolderName = sanitizeDriveFolderName(`${finalLabel}${suffix}`);
-
-  const designerFolder = await findOrCreateFolder(
+  const designerAtRoot = await findFirstChild(
     drive,
     rootId,
-    designerFolderName,
+    [plan.designerName, ...plan.designerAliases],
     sharedDriveId
   );
-  const itemFolder = await findOrCreateItemFolder(
-    drive,
-    designerFolder.id,
-    itemFolderName,
-    legacyItemFolderName,
-    sharedDriveId
+
+  let designerFolder: { id: string; webViewLink: string };
+  let itemFolder: { id: string; webViewLink: string };
+
+  if (designerAtRoot) {
+    designerFolder = await maybeRenameFolder(
+      drive,
+      designerAtRoot,
+      plan.designerName,
+      designerAtRoot.matchedName
+    );
+    itemFolder = await findOrCreatePreferredFolder(
+      drive,
+      designerFolder.id,
+      plan.itemName,
+      plan.itemAliases,
+      sharedDriveId
+    );
+  } else {
+    const itemAtRoot = await findFirstChild(
+      drive,
+      rootId,
+      [plan.itemName, ...plan.itemAliases],
+      sharedDriveId
+    );
+    if (itemAtRoot) {
+      itemFolder = await maybeRenameFolder(
+        drive,
+        itemAtRoot,
+        plan.itemName,
+        itemAtRoot.matchedName
+      );
+      designerFolder = itemFolder;
+    } else {
+      itemFolder = await createFolder(drive, rootId, plan.itemName);
+      designerFolder = itemFolder;
+    }
+  }
+
+  const extraFinalParents = [designerFolder.id, rootId].filter(
+    (id, i, all) => id !== itemFolder.id && all.indexOf(id) === i
   );
-  const finalFolder = await findOrCreateFolder(
+  const finalFolder = await ensureFolderWithAliases(
     drive,
     itemFolder.id,
-    finalFolderName,
+    plan.finalName,
+    plan.finalAliases,
+    extraFinalParents,
     sharedDriveId
   );
 
   const refs = {
-    jobId: designerFolder.id,
-    jobUrl: designerFolder.webViewLink,
+    jobId: itemFolder.id,
+    jobUrl: itemFolder.webViewLink,
     finalId: finalFolder.id,
     finalUrl: finalFolder.webViewLink,
   };
