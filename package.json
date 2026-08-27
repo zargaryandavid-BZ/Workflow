@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "sh -c 'for p in 3000 3001; do lsof -ti tcp:$p | xargs kill -9 2>/dev/null || true; done; sleep 1; exec env -u TWILIO_ACCOUNT_SID -u TWILIO_AUTH_TOKEN -u TWILIO_PHONE_NUMBER next dev'",
+    "dev": "sh -c 'for p in 3000 3001; do lsof -ti tcp:$p | xargs kill -9 2>/dev/null || true; done; sleep 1; exec next dev'",
     "dev:clean": "npm run dev",
     "build": "next build",
     "start": "next start",

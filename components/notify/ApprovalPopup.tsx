@@ -32,6 +32,8 @@ interface Props {
   fieldValues: Record<string, unknown>;
   smsConfigured: boolean;
   publicAppUrl: boolean;
+  /** Sibling cards in a grouped drop — each gets an approval request. */
+  groupOrderIds?: string[];
   onClose: () => void;
   dismissing?: boolean;
   onSent: (toastMessage: string) => void;
@@ -44,6 +46,7 @@ export function ApprovalPopup({
   fieldValues,
   smsConfigured,
   publicAppUrl,
+  groupOrderIds = [],
   onClose,
   dismissing = false,
   onSent,
@@ -172,7 +175,10 @@ export function ApprovalPopup({
         wantEmail
           ? appendStaffNoteToEmail(emailMessage, staffNote)
           : undefined;
-      const { ok, data } = await postJsonWithTimeout<{ error?: string }>(
+      const { ok, data } = await postJsonWithTimeout<{
+        error?: string;
+        warning?: string | null;
+      }>(
         "/api/notifications/send",
         {
           orderId: order.id,
@@ -195,6 +201,10 @@ export function ApprovalPopup({
           ccEmails: wantEmail ? parseEmailList(ccEmails).valid : undefined,
           saveCcToAccount: wantEmail ? saveCcToAccount : undefined,
           toPhone: wantSms ? phone.trim() || undefined : undefined,
+          groupOrderIds:
+            groupOrderIds.length > 0
+              ? [...new Set([order.id, ...groupOrderIds])]
+              : undefined,
         }
       );
       if (!ok) {
@@ -206,6 +216,10 @@ export function ApprovalPopup({
                 ? "Email failed. Check INSTANTLY_API_KEY."
                 : "Failed to save")
         );
+        return;
+      }
+      if (data.warning) {
+        setError(data.warning);
         return;
       }
       if (isManual) {
@@ -246,7 +260,9 @@ export function ApprovalPopup({
               Request customer approval
             </h2>
             <p className="mt-0.5 text-sm text-slate-500">
-              {order.title}
+              {groupOrderIds.length > 1
+                ? `${order.title} · ${groupOrderIds.length} parts`
+                : order.title}
               {customerName !== "there" ? ` · ${customerName}` : ""}
             </p>
           </div>

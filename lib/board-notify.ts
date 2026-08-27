@@ -66,6 +66,16 @@ function buildSendBody(params: {
     };
   }
 
+  if (channel === "both") {
+    return {
+      orderId: order.id,
+      type,
+      channel,
+      toEmail: contact.email,
+      toPhone: contact.phone,
+    };
+  }
+
   return {
     orderId: order.id,
     type,

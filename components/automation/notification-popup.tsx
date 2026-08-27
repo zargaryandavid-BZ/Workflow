@@ -18,6 +18,7 @@ interface Props {
   fieldValues: Record<string, unknown>;
   smsConfigured: boolean;
   publicAppUrl: boolean;
+  groupOrderIds?: string[];
   onClose: () => void;
   onSaved: (message: string) => void;
 }
@@ -31,6 +32,7 @@ export function NotificationPopup({
   fieldValues,
   smsConfigured,
   publicAppUrl,
+  groupOrderIds,
   onClose,
   onSaved,
 }: Props) {
@@ -100,6 +102,7 @@ export function NotificationPopup({
         fieldValues={fieldValues}
         smsConfigured={smsConfigured}
         publicAppUrl={publicAppUrl}
+        groupOrderIds={groupOrderIds}
         onClose={dismissAsManual}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}

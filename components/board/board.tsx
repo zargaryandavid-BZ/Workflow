@@ -22,7 +22,6 @@ import {
   Archive,
   CalendarClock,
   CalendarDays,
-  Check,
   Layers,
   LayoutDashboard,
   List,
@@ -611,6 +610,7 @@ export function Board({
     order: OrderWithRelations;
     notifyColumn: NotifyColumnConfig;
     columnName: string;
+    groupOrders?: OrderWithRelations[];
   } | null>(null);
   const [groupedView, setGroupedView] = useState(false);
   const [boardView, setBoardView] = useState<"kanban" | "table" | "list">(
@@ -710,8 +710,6 @@ export function Board({
   }, [tenantId]);
   const [animateWarnings, setAnimateWarnings] = useState(true);
   const dueFilterMenuRef = useRef<HTMLDetailsElement | null>(null);
-  const boardViewMenuRef = useRef<HTMLDivElement | null>(null);
-  const [boardViewMenuOpen, setBoardViewMenuOpen] = useState(false);
   const [moveBlockedState, setMoveBlockedState] = useState<{
     orderId: string;
     missingFields: MissingField[];
@@ -724,10 +722,6 @@ export function Board({
       const due = dueFilterMenuRef.current;
       if (due?.open && !due.contains(target)) {
         due.open = false;
-      }
-      const bv = boardViewMenuRef.current;
-      if (bv && !bv.contains(target)) {
-        setBoardViewMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", onPointerDown);
@@ -2192,14 +2186,15 @@ export function Board({
       });
     }
 
-    const results = await Promise.all(
-      moves.map(({ order, position }) =>
-        requestOrderMove(
+    const results: Awaited<ReturnType<typeof requestOrderMove>>[] = [];
+    for (const { order, position } of moves) {
+      results.push(
+        await requestOrderMove(
           { orderId: order.id, toColumnId, position },
           { fromColumnId, columns }
         )
-      )
-    );
+      );
+    }
 
     const failedIdx = results.findIndex((r) => !r.ok);
     if (failedIdx !== -1) {
@@ -2229,6 +2224,7 @@ export function Board({
         order: { ...groupOrders[0], column_id: toColumnId },
         notifyColumn,
         columnName: toCol.name,
+        groupOrders: groupOrders.map((o) => ({ ...o, column_id: toColumnId })),
       });
     }
 
@@ -3306,54 +3302,38 @@ export function Board({
             </div>
           ) : null}
           <DesignerLeaderboardButton />
-          <div ref={boardViewMenuRef} className="relative shrink-0">
+          <button
+            type="button"
+            aria-pressed={groupedView}
+            onClick={() => setGroupedView((enabled) => !enabled)}
+            className={cn(
+              "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border transition-colors",
+              groupedView
+                ? "border-blue-400 bg-blue-50 text-blue-700"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50"
+            )}
+            aria-label="Group related cards"
+            title="Group related cards"
+          >
+            <Layers className="h-4 w-4" />
+          </button>
+          {canAnimateWarnings ? (
             <button
               type="button"
-              onClick={() => setBoardViewMenuOpen((v) => !v)}
-              aria-expanded={boardViewMenuOpen}
+              aria-pressed={animateWarnings}
+              onClick={() => setAnimateWarnings((enabled) => !enabled)}
               className={cn(
-                "flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border transition-colors",
-                groupedView
+                "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border transition-colors",
+                animateWarnings
                   ? "border-blue-400 bg-blue-50 text-blue-700"
                   : "border-slate-300 text-slate-600 hover:bg-slate-50"
               )}
-              aria-label="Board view options"
-              title="Group cards and warning animation"
+              aria-label="Animate warning cards"
+              title="Animate warning cards"
             >
-              <Layers className="h-4 w-4" />
+              <Activity className="h-4 w-4" />
             </button>
-            {boardViewMenuOpen ? (
-              <div className="absolute right-0 z-[200] mt-1 w-44 rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-                <button
-                  type="button"
-                  aria-pressed={groupedView}
-                  onClick={() => {
-                    setGroupedView((enabled) => !enabled);
-                    setBoardViewMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                >
-                  <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white">
-                    {groupedView ? <Check className="h-3 w-3" /> : null}
-                  </span>
-                  <Layers className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                  Group
-                </button>
-                {canAnimateWarnings ? (
-                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      className="rounded border-slate-300"
-                      checked={animateWarnings}
-                      onChange={(e) => setAnimateWarnings(e.target.checked)}
-                    />
-                    <Activity className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                    Animate
-                  </label>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+          ) : null}
           {filtersActive ? (
             <button
               type="button"
@@ -3794,6 +3774,7 @@ export function Board({
           fieldValues={fieldValuesByOrder[notifyPopup.order.id] ?? {}}
           smsConfigured={smsConfigured}
           publicAppUrl={publicAppUrl}
+          groupOrderIds={notifyPopup.groupOrders?.map((o) => o.id)}
           onClose={() => {
             setNotifyPopup(null);
             scheduleRefresh();

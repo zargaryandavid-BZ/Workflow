@@ -664,6 +664,8 @@ export async function createNotification(
     createdBy?: string | null;
     subject?: string | null;
     messageBody?: string | null;
+    /** Other cards in the same multi-part order — each gets its own approval row. */
+    groupOrderIds?: string[] | null;
   }
 ) {
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
@@ -698,6 +700,41 @@ export async function createNotification(
       await snapshotApprovalFiles(client, (notification as JobNotification).id);
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
+    }
+  }
+
+  const extraNotificationIds: string[] = [];
+  if (params.type === "customer_approval") {
+    const extraIds = [
+      ...new Set(
+        (params.groupOrderIds ?? []).filter(
+          (id) => typeof id === "string" && id && id !== params.order.id
+        )
+      ),
+    ];
+    for (const orderId of extraIds) {
+      const { data: extra, error: extraErr } = await client
+        .from("job_notifications")
+        .insert({
+          tenant_id: params.order.tenant_id,
+          order_id: orderId,
+          type: params.type,
+          channel: params.channel,
+          token_expires_at: expiresAt,
+          staff_note: params.staffNote ?? null,
+          status: "pending",
+          created_by: params.createdBy ?? null,
+        })
+        .select("*")
+        .single();
+      if (extraErr) throw new Error(extraErr.message);
+      extraNotificationIds.push(extra.id as string);
+      await expireOtherApprovalRequests(client, orderId, extra.id as string);
+      try {
+        await snapshotApprovalFiles(client, extra.id as string);
+      } catch (err) {
+        console.error("[approval-snapshot] failed:", err);
+      }
     }
   }
 
@@ -743,7 +780,19 @@ export async function createNotification(
         delivery.error ?? deliveryErrorMessage(params.channel)
       );
     }
-    // Partial success (e.g. email ok, SMS failed on channel "both").
+    const smsRequested =
+      params.channel === "sms" || params.channel === "both";
+    const smsSent =
+      delivery.channel === "sms" || delivery.channel === "both";
+    if (smsRequested && !smsSent) {
+      throw new Error(delivery.error ?? deliveryErrorMessage("sms"));
+    }
+    if (extraNotificationIds.length > 0 && delivery.channel) {
+      await client
+        .from("job_notifications")
+        .update({ channel: delivery.channel, status: "sent" })
+        .in("id", extraNotificationIds);
+    }
     warning = delivery.error ?? null;
   } else if (params.channel === "manual") {
     await logActivity(client, {

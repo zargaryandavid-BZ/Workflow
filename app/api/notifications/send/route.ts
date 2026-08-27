@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     messageBody?: string;
     ccEmails?: string[] | string;
     saveCcToAccount?: boolean;
+    groupOrderIds?: string[];
   };
 
   if (
@@ -89,6 +90,11 @@ export async function POST(request: Request) {
         createdBy: ctx.userId,
         subject: body.subject ?? null,
         messageBody: body.messageBody ?? null,
+        groupOrderIds: Array.isArray(body.groupOrderIds)
+          ? body.groupOrderIds.filter(
+              (id): id is string => typeof id === "string" && id.length > 0
+            )
+          : undefined,
       }
     );
     return NextResponse.json({
