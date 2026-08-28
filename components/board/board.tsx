@@ -38,6 +38,7 @@ import { OrderCard } from "./order-card";
 import { GroupedOrderCard } from "./grouped-order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
+import { MoveBlockedModal } from "./move-blocked-modal";
 import { FinishedCompletionSmsDialog } from "./finished-completion-sms-dialog";
 import type { GroupDueDateUpdate } from "./group-due-dates-modal";
 import type { ActionButtonResult } from "./action-button";
