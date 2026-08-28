@@ -26,6 +26,7 @@ import {
   validateSmsRecipient,
 } from "@/lib/sms";
 import type { NotificationRule, NotificationRuleRecipient } from "@/lib/types";
+import { isFinishedNoReviewStage } from "@/lib/net-terms-fulfill";
 
 function uniqueStrings(values: (string | null | undefined)[]): string[] {
   return [...new Set(values.filter((v): v is string => Boolean(v?.trim())))];
@@ -402,6 +403,8 @@ export async function fireNotificationRules(
     exportData.columnName = column.name as string;
   }
 
+  const holdCustomerFinishedSms = isFinishedNoReviewStage(exportData.columnName);
+
   const movedAt = new Date().toISOString();
   const templateContext = buildNotificationRuleTemplateContext(exportData, {
     columnId: newColumnId,
@@ -493,7 +496,11 @@ export async function fireNotificationRules(
       }
     }
 
-    if (rule.send_sms && phones.length > 0) {
+    if (
+      rule.send_sms &&
+      phones.length > 0 &&
+      !(holdCustomerFinishedSms && rule.recipient !== "staff")
+    ) {
       const smsText = normalizeFeedbackSmsText(
         renderNotificationRuleTemplate(rule.sms_body, templateContext),
         templateContext.order_number

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  finishedCompletionSmsSent,
   finishedCustomerSmsKind,
+  isFinishedNoReviewStage,
   isFulfilledStage,
   reviewStateFromStage,
 } from "./net-terms-fulfill.ts";
@@ -30,6 +32,38 @@ describe("reviewStateFromStage", () => {
     assert.equal(
       reviewStateFromStage("Finished: No Review Required"),
       "not_required"
+    );
+    assert.equal(
+      reviewStateFromStage("Finished - Not Review"),
+      "not_required"
+    );
+  });
+});
+
+describe("isFinishedNoReviewStage", () => {
+  it("matches explicit no-review finished columns only", () => {
+    assert.equal(isFinishedNoReviewStage("Finished: No Review Request"), true);
+    assert.equal(isFinishedNoReviewStage("Finished - Not Review"), true);
+    assert.equal(isFinishedNoReviewStage("Finished: Review Request"), false);
+    assert.equal(isFinishedNoReviewStage("Finished: Fulfilled"), false);
+    assert.equal(isFinishedNoReviewStage("In Progress"), false);
+  });
+});
+
+describe("finishedCompletionSmsSent", () => {
+  it("is true only after a send, not after skip", () => {
+    assert.equal(finishedCompletionSmsSent({}), false);
+    assert.equal(
+      finishedCompletionSmsSent({
+        finished_customer_sms: { skipped: true },
+      }),
+      false
+    );
+    assert.equal(
+      finishedCompletionSmsSent({
+        finished_customer_sms: { sent_at: "2026-08-28T00:00:00.000Z" },
+      }),
+      true
     );
   });
 });

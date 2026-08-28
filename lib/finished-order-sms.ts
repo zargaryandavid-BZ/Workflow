@@ -9,7 +9,9 @@ import { loadOrderExportData } from "@/lib/button-automation-order-data";
 import { getMessageTemplates } from "@/lib/message-templates.server";
 import { renderMessageTemplate } from "@/lib/message-templates";
 import {
+  FINISHED_CUSTOMER_SMS_SPEC_KEY,
   finishedCustomerSmsKind,
+  isFinishedNoReviewStage,
   type FinishedCustomerSmsKind,
 } from "@/lib/net-terms-fulfill";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
@@ -17,7 +19,7 @@ import { sendSms } from "@/lib/sms";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Order } from "@/lib/types";
 
-export const FINISHED_CUSTOMER_SMS_SPEC_KEY = "finished_customer_sms";
+export { FINISHED_CUSTOMER_SMS_SPEC_KEY };
 
 export const DEFAULT_GOOGLE_REVIEW_URL =
   "https://g.page/r/CX6v8SiBU70cEBM/review";
@@ -38,15 +40,44 @@ export function preserveFinishedCustomerSms(
 
 function alreadySent(specs: Record<string, unknown> | null | undefined): boolean {
   const raw = specs?.[FINISHED_CUSTOMER_SMS_SPEC_KEY];
-  return Boolean(raw && typeof raw === "object");
+  if (!raw || typeof raw !== "object") return false;
+  return typeof (raw as { sent_at?: unknown }).sent_at === "string";
+}
+
+export async function markFinishedCompletionSmsSkipped(
+  order: Order
+): Promise<void> {
+  const specs = (order.specs ?? {}) as Record<string, unknown>;
+  if (alreadySent(specs)) return;
+
+  const admin = createAdminClient();
+  await admin
+    .from("orders")
+    .update({
+      specs: {
+        ...specs,
+        [FINISHED_CUSTOMER_SMS_SPEC_KEY]: {
+          kind: "no_review",
+          skipped: true,
+          skipped_at: new Date().toISOString(),
+        },
+      },
+    })
+    .eq("id", order.id)
+    .eq("tenant_id", order.tenant_id);
 }
 
 export async function notifyCustomerOrderFinished(
   order: Order,
-  columnName: string
+  columnName: string,
+  opts?: { confirmed?: boolean }
 ): Promise<void> {
   const kind = finishedCustomerSmsKind(columnName);
   if (!kind) return;
+  // No-review / "not review" completion SMS is opt-in from the board popup.
+  if (isFinishedNoReviewStage(columnName) && opts?.confirmed !== true) {
+    return;
+  }
 
   const specs = (order.specs ?? {}) as Record<string, unknown>;
   if (alreadySent(specs)) return;

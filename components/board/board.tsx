@@ -38,7 +38,7 @@ import { OrderCard } from "./order-card";
 import { GroupedOrderCard } from "./grouped-order-card";
 import { CreateOrderModal } from "./create-order-modal";
 import { CardDetailModal } from "./card-detail-modal";
-import { MoveBlockedModal } from "./move-blocked-modal";
+import { FinishedCompletionSmsDialog } from "./finished-completion-sms-dialog";
 import type { GroupDueDateUpdate } from "./group-due-dates-modal";
 import type { ActionButtonResult } from "./action-button";
 import { Input, Select } from "@/components/ui/input";
@@ -64,6 +64,10 @@ import {
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
+import {
+  finishedCompletionSmsSent,
+  isFinishedNoReviewStage,
+} from "@/lib/net-terms-fulfill";
 import {
   getGroupKey,
   orderGroupSearchSuggestions,
@@ -366,6 +370,9 @@ export function Board({
     orderTitle: string;
     toColumnName: string;
     proceed: () => void;
+  } | null>(null);
+  const [finishedSmsPrompt, setFinishedSmsPrompt] = useState<{
+    orders: { id: string; title: string }[];
   } | null>(null);
 
   // Drop a due chip filter if settings hide that chip.
@@ -1753,6 +1760,18 @@ export function Board({
       : "Combo stock isn't confirmed yet — waiting on the warehouse. A manager can override.";
   }
 
+  function offerFinishedCompletionSms(
+    moved: OrderWithRelations[],
+    columnName: string
+  ) {
+    if (!isFinishedNoReviewStage(columnName)) return;
+    const pending = moved.filter((o) => !finishedCompletionSmsSent(o.specs));
+    if (pending.length === 0) return;
+    setFinishedSmsPrompt({
+      orders: pending.map((o) => ({ id: o.id, title: o.title })),
+    });
+  }
+
   async function handleContextMove(
     order: OrderWithRelations,
     toColumnId: string
@@ -1848,6 +1867,7 @@ export function Board({
         columnName: toCol.name,
       });
     }
+    offerFinishedCompletionSms([order], toCol.name);
   }
 
   function patchOrderFields(
@@ -2227,6 +2247,7 @@ export function Board({
         groupOrders: groupOrders.map((o) => ({ ...o, column_id: toColumnId })),
       });
     }
+    offerFinishedCompletionSms(groupOrders, toCol.name);
 
     flashToast(`Moved ${groupOrders.length} items to ${toCol.name}`);
   }
@@ -2514,6 +2535,12 @@ export function Board({
             notifyColumn,
             columnName: columnsById.get(overColumn)?.name ?? "",
           });
+        }
+        if (activeOrderForPatch) {
+          offerFinishedCompletionSms(
+            [activeOrderForPatch],
+            columnsById.get(overColumn)?.name ?? ""
+          );
         }
       }
     } finally {
@@ -3687,6 +3714,11 @@ export function Board({
                 });
                 rememberMove(detailId, fromColumnId, toColumnId);
                 refreshMoveColumns(fromColumnId, toColumnId);
+                const destName =
+                  columnsById.get(toColumnId)?.name ?? "";
+                if (existing) {
+                  offerFinishedCompletionSms([existing], destName);
+                }
                 return;
               }
             }
@@ -3841,6 +3873,13 @@ export function Board({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {finishedSmsPrompt ? (
+        <FinishedCompletionSmsDialog
+          orders={finishedSmsPrompt.orders}
+          onClose={() => setFinishedSmsPrompt(null)}
+        />
       ) : null}
     </div>
   );

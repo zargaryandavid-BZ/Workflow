@@ -28,8 +28,13 @@ export function isFulfilledStage(columnName: string | null | undefined): boolean
 export function reviewStateFromStage(
   columnName: string
 ): "required" | "not_required" | null {
-  // "No Review Request" / "No Review Required" / "Review Not Required"
-  if (/no\s*review/i.test(columnName) || /not\s*required/i.test(columnName)) {
+  // "No Review Request" / "No Review Required" / "Review Not Required" /
+  // "Finished - Not Review"
+  if (
+    /no\s*review/i.test(columnName) ||
+    /not\s*review/i.test(columnName) ||
+    /not\s*required/i.test(columnName)
+  ) {
     return "not_required";
   }
   // "Review Required" / "Review Request"
@@ -45,6 +50,26 @@ export function finishedCustomerSmsKind(
 ): FinishedCustomerSmsKind | null {
   if (!isFulfilledStage(columnName) || !columnName) return null;
   return reviewStateFromStage(columnName) === "required" ? "review" : "no_review";
+}
+
+/** Finished / Fulfilled columns that skip the Google review SMS unless staff opts in. */
+export function isFinishedNoReviewStage(
+  columnName: string | null | undefined
+): boolean {
+  return (
+    isFulfilledStage(columnName) &&
+    reviewStateFromStage(columnName ?? "") === "not_required"
+  );
+}
+
+export const FINISHED_CUSTOMER_SMS_SPEC_KEY = "finished_customer_sms";
+
+export function finishedCompletionSmsSent(
+  specs: Record<string, unknown> | null | undefined
+): boolean {
+  const raw = specs?.[FINISHED_CUSTOMER_SMS_SPEC_KEY];
+  if (!raw || typeof raw !== "object") return false;
+  return typeof (raw as { sent_at?: unknown }).sent_at === "string";
 }
 
 function orderNumberFromCard(order: Order): string {

@@ -37,6 +37,48 @@ function parseOptionsText(text: string): string[] {
   return lines;
 }
 
+function sortOptionsText(text: string, direction: "asc" | "desc"): string {
+  const options = parseOptionsText(text);
+  options.sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+  );
+  if (direction === "desc") options.reverse();
+  return options.join("\n");
+}
+
+function OptionsSortButtons({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        className="h-7 px-2 text-[11px]"
+        disabled={!parseOptionsText(value).length}
+        onClick={() => onChange(sortOptionsText(value, "asc"))}
+        title="Sort A to Z"
+      >
+        A–Z
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-7 px-2 text-[11px]"
+        disabled={!parseOptionsText(value).length}
+        onClick={() => onChange(sortOptionsText(value, "desc"))}
+        title="Sort Z to A"
+      >
+        Z–A
+      </Button>
+    </div>
+  );
+}
+
 export function FieldsManager({
   initialFields,
   catalogUrl = "",
@@ -327,7 +369,12 @@ export function FieldsManager({
         </div>
         {fieldType === "select" ? (
           <div>
-            <Label htmlFor="f-options">Options (one per line)</Label>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <Label htmlFor="f-options" className="mb-0">
+                Options (one per line)
+              </Label>
+              <OptionsSortButtons value={optionsText} onChange={setOptionsText} />
+            </div>
             <Textarea
               id="f-options"
               value={optionsText}
@@ -531,7 +578,12 @@ function FieldEditor({
         </div>
         {fieldType === "select" ? (
           <div>
-            <Label htmlFor="fe-options">Options (one per line)</Label>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <Label htmlFor="fe-options" className="mb-0">
+                Options (one per line)
+              </Label>
+              <OptionsSortButtons value={optionsText} onChange={setOptionsText} />
+            </div>
             <Textarea
               id="fe-options"
               value={optionsText}
@@ -542,7 +594,7 @@ function FieldEditor({
             />
             <p className="mt-1 text-xs text-slate-500">
               Put each Product / Materials choice on its own line so you can edit
-              them easily.
+              them easily. Use A–Z / Z–A to sort the list.
             </p>
           </div>
         ) : null}

@@ -19,15 +19,24 @@ function staffMembers(members: ColumnMember[]): ColumnMember[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function isCellChecked(col: BoardColumn, userId: string): boolean {
-  const mode = col.visibility_mode ?? "all";
-  if (mode === "all") return true;
-  if (mode === "roles") return false;
-  return (col.visibility_users_v2 ?? []).includes(userId);
+function normalizeStaffRole(role: string): string {
+  if (role === "pre_production_owner") return "preprod_owner";
+  return role;
 }
 
-function isCellDisabled(col: BoardColumn): boolean {
-  return (col.visibility_mode ?? "all") === "roles";
+function isCellChecked(col: BoardColumn, person: ColumnMember): boolean {
+  const mode = col.visibility_mode ?? "all";
+  if (mode === "all") return true;
+  if (mode === "individuals") {
+    return (col.visibility_users_v2 ?? []).includes(person.user_id);
+  }
+  const roles = col.visibility_roles ?? [];
+  const role = normalizeStaffRole(person.role);
+  return roles.includes(person.role) || roles.includes(role);
+}
+
+function visibleStaffIds(col: BoardColumn, staff: ColumnMember[]): string[] {
+  return staff.filter((p) => isCellChecked(col, p)).map((p) => p.user_id);
 }
 
 export function StaffVisibilityMatrix({
@@ -79,38 +88,20 @@ export function StaffVisibilityMatrix({
     onColumnUpdated(json.column);
   }
 
-  async function toggle(col: BoardColumn, userId: string) {
-    if (isCellDisabled(col) || pendingKey) return;
+  async function toggle(col: BoardColumn, person: ColumnMember) {
+    if (pendingKey) return;
 
-    const mode = col.visibility_mode ?? "all";
-    const checked = isCellChecked(col, userId);
+    const checked = isCellChecked(col, person);
+    const current = visibleStaffIds(col, staff);
+    const next = checked
+      ? current.filter((id) => id !== person.user_id)
+      : [...new Set([...current, person.user_id])];
 
-    if (mode === "all") {
-      // Unchecking someone under "everyone" → restrict to individuals except them
-      if (!checked) return;
-      const next = staffIds.filter((id) => id !== userId);
-      await persist(col, userId, "individuals", next);
+    if (staffIds.length > 0 && staffIds.every((id) => next.includes(id))) {
+      await persist(col, person.user_id, "all", []);
       return;
     }
-
-    // individuals
-    const current = col.visibility_users_v2 ?? [];
-    if (checked) {
-      const next = current.filter((id) => id !== userId);
-      await persist(col, userId, "individuals", next);
-      return;
-    }
-
-    const next = [...new Set([...current, userId])];
-    // If every staff member is selected, treat as open to all
-    if (
-      staffIds.length > 0 &&
-      staffIds.every((id) => next.includes(id))
-    ) {
-      await persist(col, userId, "all", []);
-      return;
-    }
-    await persist(col, userId, "individuals", next);
+    await persist(col, person.user_id, "individuals", next);
   }
 
   if (columns.length === 0) {
@@ -134,8 +125,8 @@ export function StaffVisibilityMatrix({
     <div className="space-y-3">
       <p className="text-sm text-slate-500">
         Rows are people, columns are stages. Checked means that person can see
-        the stage. Admins always see every column. Role-based columns are locked
-        here — edit them in the Columns tab.
+        the stage. Admins always see every column. Toggling a role-based column
+        here switches it to per-person visibility.
       </p>
 
       {error ? (
@@ -194,25 +185,19 @@ export function StaffVisibilityMatrix({
                   </span>
                 </td>
                 {columns.map((col) => {
-                  const disabled = isCellDisabled(col);
-                  const checked = isCellChecked(col, person.user_id);
+                  const checked = isCellChecked(col, person);
                   const busy = pendingKey === `${col.id}:${person.user_id}`;
                   return (
                     <td key={col.id} className="px-2 py-1.5 text-center">
                       <label
                         className={cn(
-                          "inline-flex h-8 w-8 items-center justify-center rounded-md",
-                          disabled
-                            ? "cursor-not-allowed opacity-40"
-                            : "cursor-pointer hover:bg-slate-50",
+                          "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md hover:bg-slate-50",
                           busy ? "opacity-60" : ""
                         )}
                         title={
-                          disabled
-                            ? "This column uses role visibility — edit in Columns tab"
-                            : checked
-                              ? `Hide ${col.name} from ${person.name}`
-                              : `Show ${col.name} to ${person.name}`
+                          checked
+                            ? `Hide ${col.name} from ${person.name}`
+                            : `Show ${col.name} to ${person.name}`
                         }
                       >
                         {busy ? (
@@ -222,8 +207,8 @@ export function StaffVisibilityMatrix({
                             type="checkbox"
                             className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
                             checked={checked}
-                            disabled={disabled || !!pendingKey}
-                            onChange={() => void toggle(col, person.user_id)}
+                            disabled={!!pendingKey}
+                            onChange={() => void toggle(col, person)}
                           />
                         )}
                       </label>
