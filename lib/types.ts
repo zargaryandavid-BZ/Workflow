@@ -791,6 +791,11 @@ export interface GdriveSettings {
   private_key: string | null;
   /** Parent folder (or Shared Drive id) where customer folders are created. */
   root_folder_id: string | null;
+  /**
+   * Parent for Final production folders. When set, `{code}_{Customer}_Y_FinalProd`
+   * is created here instead of inside the job folder.
+   */
+  final_root_folder_id: string | null;
   /** Shared Drive id for API corpora (often same as root_folder_id). */
   shared_drive_id: string | null;
   final_folder_name: string;
@@ -805,6 +810,7 @@ export interface GdriveSettingsPublic {
   client_email: string | null;
   private_key: MaskedSecret;
   root_folder_id: string | null;
+  final_root_folder_id: string | null;
   shared_drive_id: string | null;
   final_folder_name: string;
   link_target: GdriveLinkTarget;

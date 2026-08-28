@@ -25,6 +25,9 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
   const [rootFolderId, setRootFolderId] = useState(
     settings.root_folder_id ?? ""
   );
+  const [finalRootFolderId, setFinalRootFolderId] = useState(
+    settings.final_root_folder_id ?? ""
+  );
   const [sharedDriveId, setSharedDriveId] = useState(
     settings.shared_drive_id ?? ""
   );
@@ -46,6 +49,7 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
       enabled,
       client_email: clientEmail.trim() || null,
       root_folder_id: rootFolderId.trim() || null,
+      final_root_folder_id: finalRootFolderId.trim() || null,
       shared_drive_id: sharedDriveId.trim() || null,
       final_folder_name: finalFolderName.trim() || "Final for Prod",
       link_target: linkTarget,
@@ -138,10 +142,12 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
           </li>
         </ol>
         <p className="mt-2 text-xs text-slate-500">
-          Folder layout:{" "}
-          <code className="rounded bg-white px-1">
-            0269_Customer_1 / 0269_Customer_1_FinalProd
-          </code>
+          Folder layout: job folders under Root; Final production folders under
+          the Final production parent (or inside the job folder if that parent
+          is empty). Names look like{" "}
+          <code className="rounded bg-white px-1">3009_Customer_1</code>
+          {" / "}
+          <code className="rounded bg-white px-1">3009_Customer_1_FinalProd</code>
           . Status:{" "}
           {settings.configured ? (
             <span className="text-emerald-700">credentials saved</span>
@@ -199,6 +205,21 @@ export function GdriveSettingsManager({ initialSettings, loadError }: Props) {
           value={rootFolderId}
           onChange={(e) => setRootFolderId(e.target.value)}
           placeholder="From the Drive URL …/folders/THIS_ID"
+          className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+        />
+      </label>
+
+      <label className="block text-sm text-slate-600">
+        Final production folder ID
+        <p className="mt-0.5 text-xs text-slate-400">
+          Where <code className="text-slate-500">…_FinalProd</code> folders are
+          created. Paste a Drive folder URL or ID. Leave blank to keep Final
+          production inside each job folder.
+        </p>
+        <input
+          value={finalRootFolderId}
+          onChange={(e) => setFinalRootFolderId(e.target.value)}
+          placeholder="https://drive.google.com/drive/folders/…"
           className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
         />
       </label>

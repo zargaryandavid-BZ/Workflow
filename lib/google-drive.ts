@@ -242,14 +242,13 @@ function resolveSharedDriveId(settings: GdriveSettings): string | null {
 }
 
 /**
- * Shared Drive root
- *   └── {code}_{Customer}_Y/                    ← main order folder
- *         └── {code}_{Customer}_Y_FinalProd/    ← Final production
+ * Shared Drive root (job folders)
+ *   └── {code}_{Customer}_Y/
+ * Final production parent (Settings → Final production folder), else inside the job folder
+ *   └── {code}_{Customer}_Y_FinalProd/
  *
- * Example: `0269_Dessertz_1` / `0269_Dessertz_1_FinalProd`.
- * Year prefixes (`26-0269_…`) and old `Final for Prod_Y` names are reused and
- * renamed. A shared `{code}_{Customer}` parent is still used when it already
- * exists (older layout).
+ * Example: `3009_Bowboyz Ecotics_1` / `3009_Bowboyz Ecotics_1_FinalProd`.
+ * Year prefixes (`26-3009_…`) are reused and renamed.
  */
 export async function ensureOrderDriveFolders(
   settings: GdriveSettings,
@@ -320,12 +319,18 @@ export async function ensureOrderDriveFolders(
     }
   }
 
-  const extraFinalParents = [designerFolder.id, rootId].filter(
-    (id, i, all) => id !== itemFolder.id && all.indexOf(id) === i
+  const finalParentId =
+    settings.final_root_folder_id?.trim() || itemFolder.id;
+  const extraFinalParents = [
+    designerFolder.id,
+    itemFolder.id,
+    rootId,
+  ].filter(
+    (id, i, all) => Boolean(id) && id !== finalParentId && all.indexOf(id) === i
   );
   const finalFolder = await ensureFolderWithAliases(
     drive,
-    itemFolder.id,
+    finalParentId,
     plan.finalName,
     plan.finalAliases,
     extraFinalParents,

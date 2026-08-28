@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ARTWORK_FIELD_NAME, CUSTOMER_NAME_FIELD_NAME } from "@/lib/constants";
+import { driveOrderKeyFromTitle } from "@/lib/drive-folder-names";
 import {
   ensureGdriveSettings,
   isGdriveConfigured,
@@ -24,12 +25,7 @@ function orderKeyFromOrder(order: OrderForGdrive): string {
       ? order.specs.webhook_order_number.trim()
       : "";
   if (webhook) return webhook;
-
-  // e.g. "ORD-2026-0098-1" or "0098-1" → drop trailing part index
-  const match = order.title.trim().match(/^(.+)-(\d+)$/);
-  if (match) return match[1];
-
-  return order.title.trim() || "Untitled order";
+  return driveOrderKeyFromTitle(order.title);
 }
 
 /**
@@ -184,11 +180,13 @@ async function upsertDesignTaskLink(
  * Create Drive folders and save links on each card.
  *
  * Layout:
- *   `{code}_{Customer}_Y/`                 ← main order folder (e.g. 0269_Dessertz_1)
- *     `{code}_{Customer}_Y_FinalProd/`     ← Final production
+ *   `{code}_{Customer}_Y/`                 ← main order folder (e.g. 3009_Bowboyz Ecotics_1)
+ *   Final production parent (or inside the job folder):
+ *     `{code}_{Customer}_Y_FinalProd/`
  *
  * - Artwork (GDrive link) ← link_target (default Final production)
  * - Design files (`specs.design_task`) ← main order folder
+ * Final production is created under Settings → Final production folder when set.
  * No-ops when GDrive is disabled or not configured.
  */
 export async function attachGdriveFoldersToOrders(

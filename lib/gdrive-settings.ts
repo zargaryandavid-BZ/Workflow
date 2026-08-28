@@ -19,6 +19,17 @@ function maskSecret(value: string | null): MaskedSecret {
   return { set: true, preview: `${SECRET_MASK}${tail}` };
 }
 
+function coerceDriveFolderId(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const folders = /\/folders\/([A-Za-z0-9_-]+)/.exec(trimmed);
+  if (folders?.[1]) return folders[1];
+  const idParam = /[?&]id=([A-Za-z0-9_-]+)/.exec(trimmed);
+  if (idParam?.[1]) return idParam[1];
+  return trimmed;
+}
+
 function parseLinkTarget(v: unknown): GdriveLinkTarget {
   if (v === "customer" || v === "order" || v === "final") return v;
   return "final";
@@ -31,6 +42,7 @@ function rowToSettings(row: Record<string, unknown>): GdriveSettings {
     client_email: (row.client_email as string | null) ?? null,
     private_key: (row.private_key as string | null) ?? null,
     root_folder_id: (row.root_folder_id as string | null) ?? null,
+    final_root_folder_id: (row.final_root_folder_id as string | null) ?? null,
     shared_drive_id: (row.shared_drive_id as string | null) ?? null,
     final_folder_name:
       (row.final_folder_name as string | null)?.trim() || "Final for Prod",
@@ -49,6 +61,7 @@ export function toPublicGdriveSettings(
     client_email: settings.client_email,
     private_key: maskSecret(settings.private_key),
     root_folder_id: settings.root_folder_id,
+    final_root_folder_id: settings.final_root_folder_id,
     shared_drive_id: settings.shared_drive_id,
     final_folder_name: settings.final_folder_name,
     link_target: settings.link_target,
@@ -98,6 +111,7 @@ export type GdriveSettingsPatch = {
   client_email?: string | null;
   private_key?: string | null;
   root_folder_id?: string | null;
+  final_root_folder_id?: string | null;
   shared_drive_id?: string | null;
   final_folder_name?: string | null;
   link_target?: GdriveLinkTarget;
@@ -139,10 +153,15 @@ export function buildGdriveSettingsUpdate(
     updates.private_key = patch.private_key;
   }
   if (patch.root_folder_id !== undefined) {
-    updates.root_folder_id = patch.root_folder_id?.trim() || null;
+    updates.root_folder_id = coerceDriveFolderId(patch.root_folder_id);
+  }
+  if (patch.final_root_folder_id !== undefined) {
+    updates.final_root_folder_id = coerceDriveFolderId(
+      patch.final_root_folder_id
+    );
   }
   if (patch.shared_drive_id !== undefined) {
-    updates.shared_drive_id = patch.shared_drive_id?.trim() || null;
+    updates.shared_drive_id = coerceDriveFolderId(patch.shared_drive_id);
   }
   if (patch.final_folder_name !== undefined) {
     updates.final_folder_name =

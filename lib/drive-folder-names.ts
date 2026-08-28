@@ -26,13 +26,28 @@ export function sanitizeDriveItemTitle(title: string): string {
 }
 
 /**
- * Drop a leading `YY-` year prefix: `26-0269` → `0269`.
- * Leaves bare numbers (`0269`) and other shapes alone.
+ * Drop a leading `YY-` year prefix: `26-0269` → `0269`, `26-3009` → `3009`.
+ * Also strips it when a part suffix remains (`26-3009-1` → `3009-1`).
  */
 export function stripDriveYearPrefix(code: string): string {
   const trimmed = code.trim();
-  const match = /^(\d{2})-(\d{3,})$/.exec(trimmed);
-  return match ? match[2] : trimmed;
+  const match = /^(\d{2})-(\d{3,})(.*)$/.exec(trimmed);
+  return match ? `${match[2]}${match[3]}` : trimmed;
+}
+
+/**
+ * Order key for Drive (before shortening): keep `26-3009` intact.
+ * Do not treat `26-3009` as job `26` + part `3009`.
+ */
+export function driveOrderKeyFromTitle(title: string): string {
+  const trimmed = title.trim();
+  if (!trimmed) return "Untitled order";
+  if (/^\d{2}-\d{3,}$/.test(trimmed)) return trimmed;
+  const yearAndPart = /^(\d{2}-\d{3,})-(\d+)$/.exec(trimmed);
+  if (yearAndPart) return yearAndPart[1]!;
+  const match = trimmed.match(/^(.+)-(\d+)$/);
+  if (match) return match[1]!;
+  return trimmed;
 }
 
 /**
