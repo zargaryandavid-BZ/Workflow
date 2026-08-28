@@ -24,12 +24,13 @@ export async function POST(
   }
 
   const supabase = await createClient();
-  const { data: order } = await supabase
+  const { data: order, error: lookupErr } = await supabase
     .from("orders")
     .select("id, tenant_id, locked_by, locked_by_name")
     .eq("id", orderId)
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
+  if (lookupErr) return NextResponse.json({ error: lookupErr.message }, { status: 500 });
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
   // Already locked by someone else → do not silently override.
@@ -76,12 +77,13 @@ export async function DELETE(
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = await createClient();
-  const { data: order } = await supabase
+  const { data: order, error: lookupErr } = await supabase
     .from("orders")
     .select("id, tenant_id, locked_by, locked_by_name, lock_reason")
     .eq("id", orderId)
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
+  if (lookupErr) return NextResponse.json({ error: lookupErr.message }, { status: 500 });
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
   if (!order.locked_by) return NextResponse.json({ ok: true }); // already unlocked
 

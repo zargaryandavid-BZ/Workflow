@@ -102,20 +102,26 @@ export function DesignerQueue() {
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
-          {dirty && (
+          <div className="ml-auto flex items-center gap-2">
+            {dirty && <span className="text-xs font-medium text-amber-600">Unsaved changes</span>}
             <button
               type="button"
               onClick={() => void save()}
-              disabled={saving}
-              className="ml-auto rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              disabled={!dirty || saving}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
             >
-              {saving ? "Saving…" : "Save order"}
+              {saving ? "Saving…" : dirty ? "Save order" : "Saved"}
             </button>
-          )}
+          </div>
         </div>
       )}
 
       {msg && <p className="mb-3 text-sm text-emerald-600">{msg}</p>}
+      {canAssign && orders.length > 0 && (
+        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          Order the jobs top-to-bottom with ↑ ↓, then Save order.
+        </p>
+      )}
 
       {orders.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
@@ -136,11 +142,11 @@ export function DesignerQueue() {
                 </span>
                 {o.due_date && <span className="shrink-0 text-[11px] text-slate-400">{o.due_date}</span>}
                 {canAssign && (
-                  <span className="flex shrink-0 flex-col">
+                  <span className="flex shrink-0 items-center gap-1">
                     <button type="button" onClick={() => move(i, -1)} disabled={i === 0}
-                      className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30" aria-label="Move up">▲</button>
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30" aria-label="Move up">↑</button>
                     <button type="button" onClick={() => move(i, 1)} disabled={i === orders.length - 1}
-                      className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30" aria-label="Move down">▼</button>
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-30" aria-label="Move down">↓</button>
                   </span>
                 )}
               </li>
