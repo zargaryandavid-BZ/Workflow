@@ -6,6 +6,7 @@ import {
   PRODUCT_CATEGORY_NAMES,
   categoryForProduct,
   materialsForProduct,
+  productsForCategory,
   isCatchAllCategory,
 } from "@/lib/product-data";
 import {
