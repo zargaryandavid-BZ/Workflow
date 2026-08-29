@@ -283,11 +283,14 @@ const ITEM_FIELDS_MD = `
 | \`rush\` | No | boolean | \`true\` shows the rush (attention) triangle. Aliases: \`is_rush\`, \`rush_order\`, \`rush_status\` |
 | \`need_a_design\` | No | boolean | \`true\` / \`false\` |
 | \`perforation\` | No | boolean | \`true\` / \`false\` |
-| \`order_qty\` | No | number | Auto-calculated from SKUs when omitted |
+| \`order_qty\` | No | number | Print qty (\`quantity\`). SKU sum only when omitted |
+| \`sku_qty\` | No | number | Count of SKU rows — **not** print qty |
+| \`order_qty_details\` | No | string | Size/color breakdown notes |
 | \`artwork_url\` | No | string | Public URL — stored as external artwork asset |
 | \`description\` | No | string | Item-level **Order Description** |
 | \`notes\` | No | string | Item-level **Notes** tab (alias: \`internal_note\`) |
 | \`designer_information\` | No | string | Designer notes for this item |
+| \`item_folder_url\` | No | string | Existing CRM Google Drive Files folder for this line. When set, Workflow **does not create** a new folder — it attaches this URL to Artwork and Design files. Alias: \`files_url\`. |
 | \`designer_email\` | No | string | Overrides order-level assigned designer |
 | \`designer_id\` | No | string | Overrides order-level assigned designer |
 | \`designer\` | No | string | Overrides order-level assigned designer |
@@ -310,15 +313,16 @@ const NOTES_MD = `
 - \`designer_information\` / \`designer_notes\` / \`notes_for_designer\` fill the ticket **Designer note** and the **Designer Information** custom field.
 - \`description\` → **Order Description (Customer Note)** — client-facing.
 - \`production_notes\` / \`notes_for_production\` (legacy: \`line_item_comment\`, and older \`notes\`) → **Production notes** on the Job Ticket.
-- **Internal notes are not set by webhook** — staff add them in the app.
+- Order-level \`notes\` / \`internal_note\` → **Internal notes** on **every** card (CRM ticket Attention). Item \`notes\` / \`description\` are empty from CRM.
 - Per-SKU \`comment\` values that are unique are appended to **Production notes** (do not duplicate \`production_notes\`).
 - \`design_task\` must be an **http(s) URL** for Design files; non-URL text goes into Order Description.
+- \`item_folder_url\` / \`files_url\` — if the CRM already created the line Files folder, send that Drive URL. Workflow reuses it and does **not** create another folder tree.
 - \`notes\` / \`internal_note\` land on the card **Notes** tab.
 - Per-SKU \`description\` / \`comment\` values are combined into the **Notes** tab (together with \`notes\`).
 - \`description\` (order or item) fills **Order Description** only — not Notes.
 - Billing fields (\`source_url\`, \`payment_status\`, \`deposit\`, \`balance\`) power the card globe popover.
 - \`title\` is the label after the source (\`CRM | …\`). **Omit or send empty** to leave it blank — do not fall back to \`order_number\`.
-- **Not set via webhook:** Artwork GDrive link — staff fill this in the app.
+- **Artwork GDrive / Design files:** if \`items[].item_folder_url\` (or \`files_url\`) is a Drive folder URL, Workflow uses that folder. Otherwise it may create folders in Google Drive.
 - Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.
 - **⚠️ Rotate the webhook secret before going to production.** Settings → Integrations → Webhook → Regenerate.`;
 
@@ -798,7 +802,9 @@ export function buildWebhookPayloadDocsHtml(
     ],
     ["need_a_design", "No", "boolean", "<code>true</code> / <code>false</code>"],
     ["perforation", "No", "boolean", "<code>true</code> / <code>false</code>"],
-    ["order_qty", "No", "number", "Auto-calculated from SKUs when omitted"],
+    ["order_qty", "No", "number", "Print qty. SKU sum only when omitted"],
+    ["sku_qty", "No", "number", "Count of SKU rows — not print qty"],
+    ["order_qty_details", "No", "string", "Size/color breakdown notes"],
     [
       "artwork_url",
       "No",
@@ -1064,10 +1070,10 @@ export function buildWebhookPayloadDocsHtml(
       <li><strong>Owner</strong> (<code>owner_*</code> / <code>request_owner_*</code>) must be an <strong>account manager</strong> to set the Owner dropdown. Free-text request owner fields are saved on the card when provided.</li>
       <li><code>designer_information</code> fills the <strong>Designer Information</strong> custom field only.</li>
       <li><code>design_task</code> must be an http(s) URL for <strong>Design files</strong>; non-URL text goes into Order Description.</li>
-      <li><code>notes</code> / <code>internal_note</code> land on the card <strong>Notes</strong> tab.</li>
-      <li>Per-SKU <code>description</code> / <code>comment</code> values are combined into the <strong>Notes</strong> tab.</li>
+      <li><code>notes</code> / <code>internal_note</code> land on the card <strong>Notes</strong> tab (every line). Item <code>notes</code> are empty from CRM.</li>
+      <li>Per-SKU <code>comment</code> values that differ from <code>line_item_comment</code> go to <strong>Production notes</strong>.</li>
       <li><code>title</code> after the source label (<code>CRM | …</code>) — omit or send empty to leave blank; do not fall back to <code>order_number</code>.</li>
-      <li><strong>Not set via webhook:</strong> Artwork GDrive link — staff fill this in the app.</li>
+      <li><strong>Artwork GDrive / Design files:</strong> prefer <code>items[].files_url</code> (same as <code>item_folder_url</code>). Order-level <code>design_task</code> is empty from CRM.</li>
       <li>Cards land in the first board column. Copy Order Link appears after the card is moved out of that column.</li>
       <li><strong>⚠️ Rotate the webhook secret before going to production.</strong> Settings → Integrations → Webhook → Regenerate.</li>
     </ul>

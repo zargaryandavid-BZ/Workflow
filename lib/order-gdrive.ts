@@ -8,6 +8,7 @@ import {
   isGdriveConfigured,
 } from "@/lib/gdrive-settings";
 import { ensureOrderDriveFolders } from "@/lib/google-drive";
+import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
 
 type Client = SupabaseClient;
 
@@ -176,6 +177,18 @@ async function upsertDesignTaskLink(
   }
 }
 
+export async function linkExistingDriveFolderToOrder(
+  client: Client,
+  tenantId: string,
+  orderId: string,
+  folderUrl: string
+): Promise<void> {
+  const url = folderUrl.trim();
+  if (!url) return;
+  await upsertArtworkLink(client, tenantId, [orderId], url);
+  await upsertDesignTaskLink(client, [orderId], url);
+}
+
 /**
  * Create Drive folders and save links on each card.
  *
@@ -187,7 +200,10 @@ async function upsertDesignTaskLink(
  * - Artwork (GDrive link) ← link_target (default Final production)
  * - Design files (`specs.design_task`) ← main order folder
  * Final production is created under Settings → Final production folder when set.
- * No-ops when GDrive is disabled or not configured.
+ * When the webhook already sent a line-item Files folder URL, skip create and
+ * attach that existing folder to the card.
+ * No-ops when GDrive is disabled or not configured — except existing CRM
+ * folder URLs, which are still written onto Artwork / Design files.
  */
 export async function attachGdriveFoldersToOrders(
   client: Client,
@@ -195,6 +211,31 @@ export async function attachGdriveFoldersToOrders(
   orders: OrderForGdrive[]
 ): Promise<AttachGdriveResult | null> {
   if (orders.length === 0) return null;
+
+  const withCrmFolder = orders.filter((o) =>
+    driveFolderUrlFromOrderSpecs(o.specs)
+  );
+  const needsCreate = orders.filter(
+    (o) => !driveFolderUrlFromOrderSpecs(o.specs)
+  );
+
+  for (const order of withCrmFolder) {
+    const url = driveFolderUrlFromOrderSpecs(order.specs);
+    if (url) {
+      await linkExistingDriveFolderToOrder(client, tenantId, order.id, url);
+    }
+  }
+
+  if (needsCreate.length === 0) {
+    const url = driveFolderUrlFromOrderSpecs(withCrmFolder[0]?.specs) ?? "";
+    return url
+      ? {
+          linkUrl: url,
+          jobUrl: url,
+          openOnCreate: false,
+        }
+      : null;
+  }
 
   let settings;
   try {
@@ -216,7 +257,7 @@ export async function attachGdriveFoldersToOrders(
     return null;
   }
 
-  const primary = orders[0];
+  const primary = needsCreate[0];
   const customerName = await resolveCustomerName(client, tenantId, primary);
   // Shared parent uses the order key (not per-part title), so all items
   // land under the same Designer folder.
@@ -230,13 +271,13 @@ export async function attachGdriveFoldersToOrders(
     // Count part titles across this batch so we only append the `_index` suffix
     // when two line items of the same order share a title (keeps names unique).
     const titleCounts = new Map<string, number>();
-    for (const o of orders) {
+    for (const o of needsCreate) {
       const t = partTitleFromOrder(o).toLowerCase();
       if (t) titleCounts.set(t, (titleCounts.get(t) ?? 0) + 1);
     }
 
-    for (let i = 0; i < orders.length; i++) {
-      const order = orders[i];
+    for (let i = 0; i < needsCreate.length; i++) {
+      const order = needsCreate[i];
       const itemIndex = partIndexFromOrder(order, i + 1);
       const itemTitle = partTitleFromOrder(order);
       const titleCollides =

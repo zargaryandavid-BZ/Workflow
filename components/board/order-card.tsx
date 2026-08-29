@@ -39,8 +39,6 @@ import {
 import { DIE_ALERT_CLASS, DIE_BOARD_STATUS_CLASS, type DieAlert, type DieBoardStatus } from "@/lib/die-request";
 import {
   UNASSIGNED_DESIGNER_CARD_CLASS,
-  UNASSIGNED_DESIGNER_TEXT_CLASS,
-  UNASSIGNED_OWNER_TEXT_CLASS,
   ARTWORK_FIELD_NAME,
   PRIORITY_STYLES,
 } from "@/lib/constants";
@@ -910,53 +908,47 @@ export function OrderCard({
             ) : null}
           </div>
 
-          {/* Always-visible staff meta — owner / designer / due / rush / entered */}
+          {/* Staff meta — skip unassigned owner/designer; hide Rush when it is no */}
           <p className="mt-1.5 w-full text-left text-[11px] leading-snug text-slate-600">
-            <span
-              className={cn(
-                "whitespace-nowrap",
-                isOwnerUnassigned ? "font-medium text-amber-800" : "text-slate-600"
-              )}
-            >
-              <span className="font-medium text-slate-500">Owner:</span>{" "}
-              {ownerLabel}
-            </span>
-            <span className="text-slate-300"> · </span>
-            <span
-              className={cn(
-                "whitespace-nowrap",
-                isDesignerUnassigned
-                  ? "font-medium text-amber-800"
-                  : "text-slate-600"
-              )}
-            >
-              <span className="font-medium text-slate-500">Designer:</span>{" "}
-              {designerLabel}
-            </span>
-            <span className="text-slate-300"> · </span>
+            {!isOwnerUnassigned ? (
+              <>
+                <span className="whitespace-nowrap text-slate-600">
+                  <span className="font-medium text-slate-500">Owner:</span>{" "}
+                  {ownerLabel}
+                </span>
+                <span className="text-slate-300"> · </span>
+              </>
+            ) : null}
+            {!isDesignerUnassigned ? (
+              <>
+                <span className="whitespace-nowrap text-slate-600">
+                  <span className="font-medium text-slate-500">Designer:</span>{" "}
+                  {designerLabel}
+                </span>
+                <span className="text-slate-300"> · </span>
+              </>
+            ) : null}
             <span>
               <span className="font-medium text-slate-500">Due:</span>{" "}
               {dueLabel}
             </span>
-            <span className="text-slate-300"> · </span>
             {showRushChip ? (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
-                  isHighPriority
-                    ? PRIORITY_STYLES[order.priority]
-                    : "bg-amber-100 text-amber-800"
-                )}
-              >
-                <AlertTriangle className="h-3 w-3" />
-                Rush
-                {isHighPriority ? ` · ${order.priority}` : ""}
-              </span>
-            ) : (
-              <span>
-                <span className="font-medium text-slate-500">Rush:</span> no
-              </span>
-            )}
+              <>
+                <span className="text-slate-300"> · </span>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
+                    isHighPriority
+                      ? PRIORITY_STYLES[order.priority]
+                      : "bg-amber-100 text-amber-800"
+                  )}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  Rush
+                  {isHighPriority ? ` · ${order.priority}` : ""}
+                </span>
+              </>
+            ) : null}
             {dieStatus ? (
               <>
                 <span className="text-slate-300"> · </span>
@@ -1060,51 +1052,34 @@ export function OrderCard({
             <span className="truncate">{tag}</span>
           </span>
         ))}
-        <span
-          className={cn(
-            "flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold",
-            isDesignerUnassigned
-              ? UNASSIGNED_DESIGNER_TEXT_CLASS
-              : "bg-[var(--primary)]/10 text-[var(--primary)]",
-            canAssignDesigner && "cursor-context-menu"
-          )}
-          title={
-            canAssignDesigner
-              ? "Right-click to assign designer"
-              : "Assigned designer"
-          }
-          onContextMenu={handleDesignerContextMenu}
-          onPointerDown={(e) => {
-            if (canAssignDesigner) e.stopPropagation();
-          }}
-        >
-          <User
-            className={cn(
-              "h-[1em] w-[1em] shrink-0",
-              isDesignerUnassigned ? "text-amber-600" : "text-[var(--primary)]"
-            )}
-          />
-          <span className="min-w-0 truncate">{designerName ?? "Unassigned"}</span>
-        </span>
-        {isOwnerUnassigned || ownerName ? (
+        {!isDesignerUnassigned ? (
           <span
             className={cn(
               "flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold",
-              isOwnerUnassigned
-                ? UNASSIGNED_OWNER_TEXT_CLASS
-                : "bg-slate-100 text-slate-500"
+              "bg-[var(--primary)]/10 text-[var(--primary)]",
+              canAssignDesigner && "cursor-context-menu"
             )}
-            title={isOwnerUnassigned ? "No owner assigned" : "Order owner"}
+            title={
+              canAssignDesigner
+                ? "Right-click to assign designer"
+                : "Assigned designer"
+            }
+            onContextMenu={handleDesignerContextMenu}
+            onPointerDown={(e) => {
+              if (canAssignDesigner) e.stopPropagation();
+            }}
           >
-            <User
-              className={cn(
-                "h-[1em] w-[1em] shrink-0",
-                isOwnerUnassigned ? "text-amber-600" : "text-slate-400"
-              )}
-            />
-            <span className="min-w-0 truncate">
-              {isOwnerUnassigned ? "Unassigned" : ownerName}
-            </span>
+            <User className="h-[1em] w-[1em] shrink-0 text-[var(--primary)]" />
+            <span className="min-w-0 truncate">{designerName}</span>
+          </span>
+        ) : null}
+        {!isOwnerUnassigned && ownerName ? (
+          <span
+            className="flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold bg-slate-100 text-slate-500"
+            title="Order owner"
+          >
+            <User className="h-[1em] w-[1em] shrink-0 text-slate-400" />
+            <span className="min-w-0 truncate">{ownerName}</span>
           </span>
         ) : null}
       </div>

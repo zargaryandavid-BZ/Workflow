@@ -6,6 +6,7 @@ import {
 } from "@/lib/order-assets";
 import { skuIds, type SkuItem } from "@/lib/skus";
 import type { Asset, OrderSkuImage, OrderSkuImageWithUrl } from "@/lib/types";
+import { canonicalArtworkUrl } from "@/lib/webhook-artwork";
 
 export function skuImageStoragePath(
   tenantId: string,
@@ -86,6 +87,10 @@ export function skuImagesFromAssets(
     // in the browser. `/api/assets/[id]` serves a signed storage URL.
     const hasStorage = Boolean(asset.storage_path?.trim());
     const external = asset.external_url?.trim() || null;
+    const fingerprint =
+      (hasStorage ? `sp:${asset.storage_path!.trim()}` : "") ||
+      (external ? `url:${canonicalArtworkUrl(external)}` : "") ||
+      `id:${asset.id}`;
     out.push({
       id: asset.id,
       tenant_id: asset.tenant_id,
@@ -99,6 +104,7 @@ export function skuImagesFromAssets(
       created_at: asset.created_at,
       signed_url: !hasStorage && external ? external : `/api/assets/${asset.id}`,
       from_asset: true,
+      artwork_fingerprint: fingerprint,
     });
   }
 
@@ -112,12 +118,25 @@ export function mergeSkuImagesWithAssets(
   opts?: { soleSkuId?: string | null }
 ): OrderSkuImageWithUrl[] {
   const fromAssets = skuImagesFromAssets(assets, opts);
-  if (fromAssets.length === 0) return gallery;
-  const galleryIds = new Set(gallery.map((g) => g.id));
-  return [
+  const merged = [
     ...gallery,
-    ...fromAssets.filter((a) => !galleryIds.has(a.id)),
+    ...fromAssets.filter((a) => !gallery.some((g) => g.id === a.id)),
   ];
+  const seen = new Set<string>();
+  const out: OrderSkuImageWithUrl[] = [];
+  for (const img of merged) {
+    const fp =
+      img.artwork_fingerprint ||
+      (img.storage_path?.trim() ? `sp:${img.storage_path.trim()}` : "") ||
+      (img.signed_url && /^https?:\/\//i.test(img.signed_url)
+        ? `url:${canonicalArtworkUrl(img.signed_url)}`
+        : "") ||
+      `id:${img.id}`;
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    out.push(img);
+  }
+  return out;
 }
 
 export function groupSkuImagesBySkuId(

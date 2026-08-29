@@ -169,6 +169,72 @@ export function productCatalogAliases(name: string): string[] {
   return out;
 }
 
+/**
+ * CRM spec keys that duplicate Workflow print custom fields on the same card
+ * (e.g. Roll Labels COLOR_MODE vs the Color Mode dropdown).
+ */
+const SPEC_KEY_CUSTOM_FIELDS: Record<string, string[]> = {
+  COLOR_MODE: ["Color Mode", "Color"],
+  COLOR: ["Color Mode", "Color"],
+  ROLL_DIRECTION: ["Roll Direction"],
+  SET_SIZE: ["Width", "Height", "Finished Size"],
+  SET_SIZE_3: ["Width", "Height", "Finished Size"],
+  LABEL_SIZE: ["Width", "Height", "Finished Size"],
+  MATERIALS: ["Materials"],
+  FINISHING: ["Finishing"],
+  SIDES: ["Sides"],
+  DIE_METHOD: ["Die"],
+  DIE_NAME: ["Die"],
+  CUTTING_TYPE: ["Die"],
+  CUTTING: ["Die"],
+};
+
+export function specKeyCoveredByCustomFields(
+  specKey: string,
+  customFieldNames: string[]
+): boolean {
+  const aliases = SPEC_KEY_CUSTOM_FIELDS[specKey.replace(/[\s-]+/g, "_").toUpperCase()];
+  if (!aliases?.length || customFieldNames.length === 0) return false;
+  const names = new Set(customFieldNames.map((n) => n.trim().toLowerCase()));
+  if (isSetSizeKey(specKey)) {
+    const hasFinished = names.has("finished size");
+    const hasWxH = names.has("width") && names.has("height");
+    return hasFinished || hasWxH;
+  }
+  return aliases.some((a) => names.has(a.toLowerCase()));
+}
+
+/** Catalog option checkboxes. Hide-empty cards omit toggles that were not selected. */
+export function visibleCatalogToggles(
+  toggles: { key: string; label: string }[] | null | undefined,
+  selectedOptions: string[],
+  hideEmpty: boolean,
+  opts?: { customFieldNames?: string[]; hideCovered?: boolean }
+): { key: string; label: string }[] {
+  let list = (toggles ?? []).filter((t) => t.key !== "DESIGN_SERVICE");
+  if (opts?.hideCovered && (opts.customFieldNames?.length ?? 0) > 0) {
+    list = list.filter(
+      (t) => !specKeyCoveredByCustomFields(t.key, opts.customFieldNames ?? [])
+    );
+  }
+  if (!hideEmpty) return list;
+  return list.filter((t) =>
+    selectedOptions.some((o) => o.toLowerCase() === t.label.toLowerCase())
+  );
+}
+
+/** When hide-empty is on, catalog dropdowns with no CRM value stay off the card. */
+export function catalogSpecHasDisplayValue(value: string): boolean {
+  return value.trim() !== "";
+}
+
+/** "APPAREL_CLIENT_PROVIDED" → "Apparel client provided" (Product-label style). */
+export function sentenceCaseSpecLabel(key: string): string {
+  const words = key.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  if (!words) return "";
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function lookupCatalogMap<T>(
   map: Record<string, T> | undefined,
   productName: string

@@ -40,6 +40,18 @@ function trimStr(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/** Strip query/hash so the same file with a new signed token is one pic. */
+export function canonicalArtworkUrl(url: string): string {
+  const href = url.trim();
+  if (!href) return "";
+  try {
+    const parsed = new URL(href);
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "") || href;
+  } catch {
+    return href.split("?")[0]?.split("#")[0] ?? href;
+  }
+}
+
 function fileNameFromUrl(url: string): string {
   try {
     const path = new URL(url).pathname;
@@ -58,7 +70,8 @@ function pushArtworkRef(
 ) {
   const href = trimStr(url);
   if (!href) return;
-  if (out.some((r) => r.url === href)) return;
+  const key = canonicalArtworkUrl(href);
+  if (out.some((r) => canonicalArtworkUrl(r.url) === key)) return;
   const name = trimStr(fileName) || fileNameFromUrl(href) || null;
   out.push({ url: href, fileName: name });
 }

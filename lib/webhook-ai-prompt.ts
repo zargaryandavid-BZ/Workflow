@@ -186,10 +186,12 @@ Each items[] line:
 - special_effects: string or string[]
 - unit_price, quantity
 - spot_uv, foil, die_cut, application, need_a_design, perforation (booleans)
-- order_qty (else SKU quantities are summed)
+- quantity / order_qty (print qty). sku_qty is SKU **row count**, not print qty
+- order_qty_details (string size/color breakdown)
 - artwork_url (public URL)
-- description / notes / production_notes / line_item_comment
-- skus: [{ sku_name, quantity, artwork_url, comment }]
+- files_url / item_folder_url (existing CRM Google Drive Files folder — prefer files_url)
+- line_item_comment (this card only). Order-level notes go on every card as Internal notes
+- skus: [{ sku_name, quantity, artwork_url, comment }] (do not copy line_item_comment onto skus[0].comment)
 
 ================================================================================
 RUSH / ATTENTION ICON

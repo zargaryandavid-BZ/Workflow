@@ -39,14 +39,27 @@ import {
   parseWebhookBilling,
   type OrderBillingInfo,
 } from "@/lib/order-billing";
-import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
-import { categoryForProduct } from "@/lib/product-data";
+import {
+  attachGdriveFoldersToOrders,
+  linkExistingDriveFolderToOrder,
+} from "@/lib/order-gdrive";
+import { resolveWebhookLineFolderUrl } from "@/lib/webhook-line-folder";
+import { categoryForProduct, isCatchAllCategory } from "@/lib/product-data";
 import { findMatchingOption } from "@/lib/field-links";
 import { preferLinkedCatalogName } from "@/lib/product-spec-options";
 import {
+  parseWebhookNumericQty,
+  webhookPrintQty,
+  crmTicketStaffNote,
+  crmLineProductionNote,
+  withOrderQtyDetails,
+} from "@/lib/webhook-crm-parse";
+import {
   mergeWebhookDesignerNotes,
+  noteHistoryFromPlainText,
 } from "@/lib/note-history";
 import {
+  canonicalArtworkUrl,
   resolveWebhookItemMedia,
   skuArtworkRefs,
   type WebhookArtworkRef,
@@ -118,6 +131,7 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   roll_direction: "Roll Direction",
   order_qty: "Order QTY",
   quantity: "Quantity",
+  order_qty_details: "Order QTY details",
   width: "Width",
   height: "Height",
   unit_price: "Unit Price",
@@ -147,6 +161,7 @@ const WEBHOOK_FIELD_ALIASES: Record<string, string[]> = {
   roll_direction: ["Roll Direction", "Roll direction"],
   order_qty: ["Order QTY"],
   quantity: ["Quantity"],
+  order_qty_details: ["Order QTY details", "Order QTY Details"],
   width: ["Width"],
   height: ["Height"],
   unit_price: ["Unit Price", "Unit Price ($)"],
@@ -171,6 +186,13 @@ interface WebhookDesignerInput {
   /** Alias for `designer_information`. */
   notes_for_designer?: string;
   design_task?: string;
+  /** CRM Files / line-item Google Drive folder (do not create a second tree). */
+  item_folder_url?: string;
+  /** Alias for `item_folder_url`. */
+  files_url?: string;
+  gdrive_folder_url?: string;
+  drive_folder_url?: string;
+  folder_url?: string;
 }
 
 export interface WebhookOwnerInput {
@@ -244,6 +266,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   product_category?: string;
   finished_size?: string;
   die?: string;
+  /** Same as `die` — CRM Cutting field. */
+  cutting_type?: string;
   materials?: string;
   finishing?: string;
   sides?: string;
@@ -257,6 +281,13 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   unit_price?: string | number;
   /** Line-level quantity custom field (separate from order_qty / SKU sum). */
   quantity?: number | string;
+  /**
+   * Count of SKU rows on this line (1, 2, 3…). **Not** print quantity.
+   * Print qty is `quantity` / `order_qty`.
+   */
+  sku_qty?: number | string;
+  /** Size/color breakdown notes (string, not a number). */
+  order_qty_details?: string;
   /** Finishing multi-select names, e.g. `["Gold Foil", "Spot UV"]`. */
   special_effects?: string[] | string;
   spot_uv?: boolean;
@@ -267,6 +298,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
+  /** Catalog / product preview when no SKU file is attached. */
+  image_url?: string;
   /**
    * Portal Order Sync: extra design files. Each `url` is fetched with the
    * partner `osk_…` header (same key as status callbacks).
@@ -307,6 +340,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   comment?: string;
   category?: string;
   category_name?: string;
+  spec_selections?: Record<string, unknown>;
+  product_options?: string[];
   skus?: WebhookSkuPayload[];
   /** CRM / source order page URL — shown as Source in the card globe popover. */
   source_url?: string;
@@ -345,6 +380,10 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   customer_name?: string;
   customer_contact?: string;
   customer_phone?: string;
+  /** Digits-only phone for matching when `customer_phone` is formatted. */
+  customer_phone_digits?: string;
+  /** CRM `customers.id` (empty string if unlinked). Stored on card specs. */
+  crm_customer_id?: string;
   /** CRM starred / key account (customers.priority_stars >= 1). */
   is_key_account?: boolean;
   /**
@@ -511,40 +550,26 @@ function pickTrimmedNote(
 }
 
 /**
- * Order-level notes used only as a production fallback for older CRM payloads.
- * Webhook never writes Internal notes (staff add those in the app).
+ * Order-level notes used as staff Internal notes on every card.
+ * CRM ticket Attention / Internal Notes → top-level `notes`.
+ * Production floor text should use `production_notes`, not `notes`.
  */
 export function resolveSharedAttentionNote(
   order: WebhookOrderPayload
 ): string | null {
-  return pickTrimmedNote(
-    order.production_notes,
-    order.notes_for_production,
-    order.line_item_comment,
-    order.internal_note,
-    order.notes
-  );
+  return crmTicketStaffNote(order);
 }
 
 /**
  * Notes for production (Job Ticket production-notes box).
- * Prefers explicit production fields; falls back to legacy line_item_comment
- * and (last) `notes` when CRM still sends floor text there.
- * Does not write Internal notes — those are staff-only in the app.
+ * Prefers explicit production fields; falls back to `line_item_comment`.
+ * Does not use item `notes` / `description` (CRM sends those empty; ticket
+ * staff notes are order-level `notes`).
  */
 export function resolveItemProductionNotes(
   rawItem: WebhookItem
 ): string | null {
-  return pickTrimmedNote(
-    rawItem.production_notes,
-    rawItem.notes_for_production,
-    rawItem.line_item_comment,
-    rawItem.line_comment,
-    rawItem.comment,
-    // Legacy: older CRM payloads stuffed floor text into notes.
-    rawItem.notes,
-    rawItem.internal_note
-  );
+  return crmLineProductionNote(rawItem);
 }
 
 /**
@@ -808,8 +833,10 @@ export function resolveCardProductionNotes(opts: {
     typeof opts.orderProductionNotes === "string"
       ? opts.orderProductionNotes.trim()
       : "";
-  // Item production text wins; order-level only when item has none.
-  const base = itemProd || orderProd || null;
+  const base = withOrderQtyDetails(
+    itemProd || orderProd || null,
+    opts.item.order_qty_details
+  );
   return buildWebhookNotes({
     internalNote: base,
     skuComments: opts.skuComments,
@@ -1037,18 +1064,24 @@ interface WebhookCustomerInfo {
   orderContact: string;
 }
 
-function parseWebhookCustomerInfo(body: WebhookOrderPayload): WebhookCustomerInfo {
+export function parseWebhookCustomerInfo(body: WebhookOrderPayload): WebhookCustomerInfo {
   const customerName =
     typeof body.customer_name === "string" ? body.customer_name.trim() : "";
   const contactRaw =
     typeof body.customer_contact === "string" ? body.customer_contact.trim() : "";
   const phoneRaw =
     typeof body.customer_phone === "string" ? body.customer_phone.trim() : "";
+  const digitsRaw =
+    typeof body.customer_phone_digits === "string"
+      ? body.customer_phone_digits.trim()
+      : "";
 
   const customerEmail =
     parseContactEmail(contactRaw) ?? parseContactEmail(phoneRaw);
   const customerPhone =
-    parseContactPhone(phoneRaw) ?? parseContactPhone(contactRaw);
+    parseContactPhone(phoneRaw) ??
+    parseContactPhone(digitsRaw) ??
+    parseContactPhone(contactRaw);
 
   return {
     customerName,
@@ -1193,6 +1226,11 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       designer_notes: body.designer_notes,
       notes_for_designer: body.notes_for_designer,
       design_task: body.design_task,
+      item_folder_url: body.item_folder_url,
+      files_url: body.files_url,
+      gdrive_folder_url: body.gdrive_folder_url,
+      drive_folder_url: body.drive_folder_url,
+      folder_url: body.folder_url,
       owner_email: body.owner_email,
       owner_id: body.owner_id,
       owner_name: body.owner_name,
@@ -1270,6 +1308,8 @@ type WebhookSpecFields = {
   roll_direction?: string;
   order_qty?: number | string;
   quantity?: number | string;
+  order_qty_details?: string;
+  sku_qty?: number | string;
   width?: string;
   height?: string;
   unit_price?: number | string;
@@ -1311,7 +1351,7 @@ function mergeItemWithOrder(
       order.category_name
     ),
     finished_size: firstNonEmpty(item.finished_size, order.finished_size),
-    die: firstNonEmpty(item.die, order.die),
+    die: firstNonEmpty(item.die, item.cutting_type, order.die),
     materials: firstNonEmpty(item.materials, order.materials),
     finishing: firstNonEmpty(
       item.finishing,
@@ -1339,6 +1379,8 @@ function mergeItemWithOrder(
     height: item.height ?? order.height,
     unit_price: item.unit_price ?? order.unit_price,
     quantity: item.quantity ?? order.quantity,
+    sku_qty: item.sku_qty,
+    order_qty_details: firstNonEmpty(item.order_qty_details),
     special_effects: item.special_effects ?? order.special_effects,
     spot_uv: item.spot_uv ?? order.spot_uv,
     foil: item.foil ?? order.foil,
@@ -1352,10 +1394,11 @@ function mergeItemWithOrder(
       Array.isArray(item.artwork_files) && item.artwork_files.length > 0
         ? item.artwork_files
         : order.artwork_files,
-    description: firstNonEmpty(item.description, order.description),
-    // Keep Internal notes separate from production notes.
-    internal_note: firstNonEmpty(item.internal_note, item.notes, order.internal_note, order.notes),
-    notes: firstNonEmpty(item.notes, order.notes),
+    description: firstNonEmpty(item.description),
+    // Item notes/description are empty from CRM. Order-level `notes` is staff
+    // Internal notes on every card — do not copy onto the line as production text.
+    internal_note: firstNonEmpty(item.internal_note),
+    notes: firstNonEmpty(item.notes),
     production_notes: firstNonEmpty(
       item.production_notes,
       item.notes_for_production,
@@ -1387,7 +1430,18 @@ function mergeItemWithOrder(
       item.notes_for_designer,
       order.notes_for_designer
     ),
-    design_task: firstNonEmpty(item.design_task, order.design_task),
+    design_task: firstNonEmpty(item.design_task),
+    item_folder_url: firstNonEmpty(item.item_folder_url),
+    files_url: firstNonEmpty(item.files_url, item.item_folder_url),
+    gdrive_folder_url: firstNonEmpty(
+      item.gdrive_folder_url,
+      order.gdrive_folder_url
+    ),
+    drive_folder_url: firstNonEmpty(
+      item.drive_folder_url,
+      order.drive_folder_url
+    ),
+    folder_url: firstNonEmpty(item.folder_url, order.folder_url),
     owner_email: firstNonEmpty(item.owner_email, order.owner_email),
     owner_id: firstNonEmpty(item.owner_id, order.owner_id),
     owner_name: firstNonEmpty(item.owner_name, order.owner_name),
@@ -1502,20 +1556,26 @@ function mergeDesignerInput(
     designer_information:
       item.designer_information ?? order.designer_information,
     designer_notes: item.designer_notes ?? order.designer_notes,
-    design_task: item.design_task ?? order.design_task,
+    design_task: firstNonEmpty(item.design_task),
+    item_folder_url: firstNonEmpty(item.item_folder_url),
+    files_url: firstNonEmpty(item.files_url, item.item_folder_url),
+    gdrive_folder_url: item.gdrive_folder_url ?? order.gdrive_folder_url,
+    drive_folder_url: item.drive_folder_url ?? order.drive_folder_url,
+    folder_url: item.folder_url ?? order.folder_url,
   };
 }
 
 function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
   const width = formatDimension(item.width);
   const height = formatDimension(item.height);
+  const die = firstNonEmpty(item.die, item.cutting_type);
   return {
     product: item.product,
     product_category: item.product_category,
     finished_size:
       buildFinishedSizeFromDimensions(width, height, item.finished_size) ??
       undefined,
-    die: item.die,
+    die,
     materials: item.materials,
     finishing: item.finishing ?? item.lamination,
     lamination: item.lamination ?? item.finishing,
@@ -1524,8 +1584,10 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
     color_mode: item.color_mode ?? item.color,
     position: item.position,
     roll_direction: item.roll_direction,
-    order_qty: item.order_qty,
-    quantity: item.quantity,
+    order_qty: item.order_qty ?? item.quantity,
+    quantity: item.quantity ?? item.order_qty,
+    order_qty_details: firstNonEmpty(item.order_qty_details),
+    sku_qty: item.sku_qty,
     width: width ?? undefined,
     height: height ?? undefined,
     unit_price: item.unit_price,
@@ -1817,6 +1879,11 @@ function resolveWebhookFieldValue(
 
   if (raw === null || raw === undefined || raw === "") return null;
 
+  if (webhookKey === "sku_qty") {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isNaN(n) ? null : n;
+  }
+
   if (webhookKey === "order_qty" || webhookKey === "quantity") {
     const n = typeof raw === "number" ? raw : Number(raw);
     return Number.isNaN(n) ? null : n;
@@ -1898,27 +1965,14 @@ function buildCustomFieldValues(
   if (nameField && customerName) byFieldId.set(nameField.id, customerName);
   if (contactField && orderContact) byFieldId.set(contactField.id, orderContact);
 
-  const skuQtySum =
-    skus.length > 0
-      ? skus.reduce((sum, s) => sum + (s.qty ?? 0), 0)
-      : 0;
+  const printQty = webhookPrintQty(specFields, skus);
 
   for (const [webhookKey] of Object.entries(WEBHOOK_CUSTOM_FIELD_MAP)) {
     if (webhookKey === "color" && specFields.color_mode) continue;
     if (webhookKey === "finishing" && specFields.lamination) continue;
-    if (webhookKey === "order_qty" && skus.length > 0 && skuQtySum > 0) {
+    if (webhookKey === "sku_qty") continue;
+    if (webhookKey === "order_qty" || webhookKey === "quantity") {
       continue;
-    }
-    if (webhookKey === "quantity" && skus.length > 0 && skuQtySum > 0) {
-      // Prefer explicit quantity; SKU sum fills below when blank.
-      const explicit = specFields.quantity;
-      if (
-        explicit === null ||
-        explicit === undefined ||
-        explicit === ""
-      ) {
-        continue;
-      }
     }
     const field = fields.get(webhookKey);
     if (!field) continue;
@@ -1929,30 +1983,29 @@ function buildCustomFieldValues(
   }
 
   const orderQtyField = fields.get("order_qty");
-  if (orderQtyField && skus.length > 0 && skuQtySum > 0) {
-    byFieldId.set(orderQtyField.id, skuQtySum);
+  if (orderQtyField && printQty != null) {
+    byFieldId.set(orderQtyField.id, printQty);
   }
 
   const quantityField = fields.get("quantity");
-  if (quantityField && skus.length > 0 && skuQtySum > 0) {
-    const existing = byFieldId.get(quantityField.id);
-    if (existing === undefined || existing === null || existing === "") {
-      byFieldId.set(quantityField.id, skuQtySum);
-    }
+  if (quantityField && printQty != null) {
+    byFieldId.set(quantityField.id, printQty);
   }
 
-  // Infer Category from Product when product_category was not sent / matched.
+  // Infer Category from Product. CRM often sends "Other" (or a board tag) here.
   const categoryFieldDef = fields.get("product_category");
   const productFieldDef = fields.get("product");
-  if (categoryFieldDef && !byFieldId.has(categoryFieldDef.id)) {
-    const productVal = productFieldDef
-      ? byFieldId.get(productFieldDef.id)
-      : undefined;
-    const productStr =
-      (typeof productVal === "string" && productVal.trim()) ||
-      (typeof specFields.product === "string" ? specFields.product.trim() : "");
-    const inferred = categoryForProduct(productStr);
-    if (inferred) {
+  const productVal = productFieldDef
+    ? byFieldId.get(productFieldDef.id)
+    : undefined;
+  const productStr =
+    (typeof productVal === "string" && productVal.trim()) ||
+    (typeof specFields.product === "string" ? specFields.product.trim() : "");
+  const inferred = categoryForProduct(productStr);
+  if (categoryFieldDef && inferred) {
+    const current = byFieldId.get(categoryFieldDef.id);
+    const currentStr = current == null ? "" : String(current).trim();
+    if (!currentStr || isCatchAllCategory(currentStr)) {
       const matched =
         findMatchingOption(categoryFieldDef.options, inferred) ?? inferred;
       byFieldId.set(categoryFieldDef.id, matched);
@@ -2054,14 +2107,30 @@ async function insertWebhookArtwork(
   const seen = new Set<string>();
   const soleSkuId = params.soleSkuId?.trim() || null;
 
+  const { data: existingArts } = await client
+    .from("assets")
+    .select("external_url")
+    .eq("tenant_id", params.tenantId)
+    .eq("order_id", params.orderId);
+  for (const row of existingArts ?? []) {
+    const ext =
+      typeof (row as { external_url?: string | null }).external_url === "string"
+        ? (row as { external_url: string }).external_url.trim()
+        : "";
+    if (ext) seen.add(canonicalArtworkUrl(ext));
+  }
+
   const add = async (
     url: string,
     fileName: string | null | undefined,
     skuKey: string | null
   ) => {
     const href = url.trim();
-    if (!href || seen.has(href)) return;
-    seen.add(href);
+    if (!href) return;
+    if (!/^https?:\/\//i.test(href)) return;
+    const key = canonicalArtworkUrl(href);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
     const assetError = await insertExternalAsset(client, {
       tenantId: params.tenantId,
       orderId: params.orderId,
@@ -2079,7 +2148,9 @@ async function insertWebhookArtwork(
     const primaryUrl = params.item.artwork_url.trim();
     const matchingFile = Array.isArray(params.item.artwork_files)
       ? params.item.artwork_files.find(
-          (af) => typeof af?.url === "string" && af.url.trim() === primaryUrl
+          (af) =>
+            typeof af?.url === "string" &&
+            canonicalArtworkUrl(af.url) === canonicalArtworkUrl(primaryUrl)
         )
       : undefined;
     await add(
@@ -2087,6 +2158,12 @@ async function insertWebhookArtwork(
       typeof matchingFile?.name === "string" ? matchingFile.name : null,
       soleSkuId
     );
+  }
+
+  const catalogImage =
+    typeof params.item.image_url === "string" ? params.item.image_url.trim() : "";
+  if (catalogImage) {
+    await add(catalogImage, "product-preview", soleSkuId);
   }
 
   for (const af of Array.isArray(params.item.artwork_files)
@@ -3093,6 +3170,8 @@ interface CreateSingleJobParams {
   isKeyAccount?: boolean;
   /** CRM rush / attention job — triangle icon + Rush Order tag. */
   isRush?: boolean;
+  /** CRM `customers.id` stamped on specs for matching. */
+  crmCustomerId?: string | null;
   item: WebhookItem;
   priority: string;
   dueDate: string | null;
@@ -3112,7 +3191,7 @@ interface CreateSingleJobParams {
   designerName: string | null;
   /** Free-text notes for Designer Information custom field (not Design files). */
   designNotes: string | null;
-  /** http(s) link for Design files (`specs.design_task`); GDrive may overwrite. */
+  /** http(s) link for Design files (`specs.design_task`). CRM Files folder skips Drive create. */
   designTaskUrl: string | null;
   /** Non-URL design_task text — folded into Order Description. */
   misroutedDesignTask: string | null;
@@ -3163,6 +3242,7 @@ async function createSingleWebhookJob(
     ownerId,
     isKeyAccount,
     isRush,
+    crmCustomerId = null,
     requestOwnerSpecs,
     designerId,
     designerName,
@@ -3246,7 +3326,7 @@ async function createSingleWebhookJob(
   });
   // CRM description → Notes → Customer note. Order Description field retired.
   const customerFacingNoteText = orderDescriptionText;
-  const notesText: string | null = null;
+  const notesText = noteHistoryFromPlainText(internalNote, "CRM");
   const productionNotesText = resolveCardProductionNotes({
     item,
     skuComments,
@@ -3267,10 +3347,18 @@ async function createSingleWebhookJob(
     if (typeof ir.cutting_type === "string" && ir.cutting_type.trim()) {
       specs.cutting_type = ir.cutting_type.trim();
     }
+    const skuQty = parseWebhookNumericQty(ir.sku_qty);
+    if (skuQty != null) specs.sku_qty = skuQty;
+    const qtyDetails =
+      typeof ir.order_qty_details === "string" ? ir.order_qty_details.trim() : "";
+    if (qtyDetails) specs.order_qty_details = qtyDetails;
   }
   if (designerId) specs.designer_id = designerId;
   if (designerName) specs.designer_name = designerName;
-  if (designTaskUrl) specs.design_task = designTaskUrl;
+  if (designTaskUrl) {
+    specs.design_task = designTaskUrl;
+    specs.gdrive_item_folder_url = designTaskUrl;
+  }
   if (designNotes) {
     specs.designer_notes = mergeWebhookDesignerNotes(null, designNotes);
   }
@@ -3283,6 +3371,9 @@ async function createSingleWebhookJob(
   }
   if (isKeyAccount) specs.is_key_account = true;
   if (isRush) specs.rush = true;
+  if (typeof crmCustomerId === "string" && crmCustomerId.trim()) {
+    specs.crm_customer_id = crmCustomerId.trim();
+  }
   // Always stamp for idempotent due-date updates on later CRM webhooks.
   specs.webhook_order_number = webhookOrderNumber;
   // Per-line display title (card + "Line item name"). Always stamp so single-item
@@ -3313,15 +3404,7 @@ async function createSingleWebhookJob(
       column_id: effectiveColumnId,
       title: cardTitle,
       description: null,
-      internal_note: notesText
-        ? JSON.stringify([
-            {
-              author: "CRM",
-              date: new Date().toISOString(),
-              text: notesText,
-            },
-          ])
-        : null,
+      internal_note: notesText,
       customer_id: customerId,
       tag_id: tagId,
       priority,
@@ -3350,6 +3433,21 @@ async function createSingleWebhookJob(
 
   const orderId = order.id as string;
   const warnings: string[] = [];
+
+  if (designTaskUrl) {
+    try {
+      await linkExistingDriveFolderToOrder(
+        client,
+        tenantId,
+        orderId,
+        designTaskUrl
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[webhook/orders] existing Drive folder link failed:", message);
+      warnings.push(`Google Drive link: ${message}`);
+    }
+  }
 
   const cfvError = await insertCustomFieldValues(
     client,
@@ -3924,6 +4022,8 @@ export async function createOrderFromWebhook(
       customerName: customerInfo.customerName,
       orderContact: customerInfo.orderContact,
       isKeyAccount: body.is_key_account === true,
+      crmCustomerId:
+        typeof body.crm_customer_id === "string" ? body.crm_customer_id.trim() : "",
       isRush,
       item,
       priority,
@@ -3942,16 +4042,16 @@ export async function createOrderFromWebhook(
       designerId,
       designerName,
       designNotes: resolveDesignNotes(designerInput),
-      designTaskUrl: resolveDesignTaskUrl(designerInput),
+      designTaskUrl: resolveWebhookLineFolderUrl(
+        item as unknown as Record<string, unknown>,
+        body as unknown as Record<string, unknown>
+      ),
       misroutedDesignTask,
-      // Internal notes are staff-only — never set by webhook.
-      internalNote: null,
+      internalNote: combinedAttention,
       orderProductionNotes: pickTrimmedNote(
         body.production_notes,
         body.notes_for_production,
-        body.line_item_comment,
-        body.notes,
-        body.internal_note
+        body.line_item_comment
       ),
       corrections: allCorrections,
       webhookSource,

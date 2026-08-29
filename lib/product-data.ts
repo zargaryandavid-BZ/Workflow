@@ -254,16 +254,62 @@ export const PRODUCT_MATERIALS: Record<string, string[]> = {
   Other: [],
 };
 
-/** Category that contains a product, or null if unknown. */
-export function categoryForProduct(product: string | null | undefined): string | null {
-  const name = product?.trim();
-  if (!name) return null;
-  for (const [category, products] of Object.entries(PRODUCT_CATEGORIES)) {
-    if (products.some((p) => p.toLowerCase() === name.toLowerCase())) {
-      return category;
+const CATCH_ALL_CATEGORIES = new Set(["other", "none", "n/a"]);
+
+/** True for placeholder taxonomy like "Other" that should not win over a real category. */
+export function isCatchAllCategory(name: string | null | undefined): boolean {
+  const n = name?.trim().toLowerCase() ?? "";
+  return !n || CATCH_ALL_CATEGORIES.has(n);
+}
+
+/** CRM apparel SKUs (Premium Heavy Tee, etc.) are not the generic product name "Apparel". */
+const APPAREL_PRODUCT_NAME_RE =
+  /\b(tees?|t-shirts?|tshirts?|hoodies?|sweatshirts?|polos?|joggers?|crewnecks?|apparel)\b/i;
+
+function categoryFromProductsByCategory(
+  product: string,
+  productsByCategory?: Record<string, string[]> | null
+): string | null {
+  if (!productsByCategory) return null;
+  const needle = product.trim().toLowerCase();
+  if (!needle) return null;
+  const hits: string[] = [];
+  for (const [cat, list] of Object.entries(productsByCategory)) {
+    if (!Array.isArray(list)) continue;
+    if (list.some((p) => String(p).trim().toLowerCase() === needle)) {
+      hits.push(cat);
     }
   }
-  return null;
+  if (hits.length === 0) return null;
+  const apparel = hits.find((h) => h.trim().toLowerCase() === "apparel");
+  if (apparel) return apparel;
+  const real = hits.find((h) => !isCatchAllCategory(h));
+  return real ?? hits[0] ?? null;
+}
+
+/** Category that contains a product, or null if unknown. */
+export function categoryForProduct(
+  product: string | null | undefined,
+  productsByCategory?: Record<string, string[]> | null
+): string | null {
+  const name = product?.trim();
+  if (!name) return null;
+
+  let exact: string | null = null;
+  for (const [category, products] of Object.entries(PRODUCT_CATEGORIES)) {
+    if (products.some((p) => p.toLowerCase() === name.toLowerCase())) {
+      exact = category;
+      break;
+    }
+  }
+  if (exact && !isCatchAllCategory(exact)) return exact;
+
+  const fromCatalog = categoryFromProductsByCategory(name, productsByCategory);
+  if (fromCatalog && !isCatchAllCategory(fromCatalog)) return fromCatalog;
+
+  if (APPAREL_PRODUCT_NAME_RE.test(name)) return "Apparel";
+
+  return exact;
 }
 
 /**

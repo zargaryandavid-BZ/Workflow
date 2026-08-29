@@ -6,7 +6,7 @@ import {
   PRODUCT_CATEGORY_NAMES,
   categoryForProduct,
   materialsForProduct,
-  productsForCategory,
+  isCatchAllCategory,
 } from "@/lib/product-data";
 import {
   findMatchingOption,
@@ -56,6 +56,10 @@ interface Props {
    * categories) — e.g. the live CRM catalog. Null/undefined keeps the fallback.
    */
   categoryOptionsOverride?: string[] | null;
+  /**
+   * When set, Category is inferred from this product→category map (CRM catalog).
+   */
+  productsByCategory?: Record<string, string[]> | null;
 }
 
 function asString(value: unknown): string {
@@ -82,6 +86,7 @@ export function ProductMaterialsFields({
   productOptionsOverride = null,
   materialOptionsOverride = null,
   categoryOptionsOverride = null,
+  productsByCategory = null,
 }: Props) {
   const product = asString(productValue);
   const materials = asString(materialsValue);
@@ -133,7 +138,7 @@ export function ProductMaterialsFields({
     if (!setCategory) return;
     // Catalog map is the source of truth (Apparel → Apparel, etc.).
     // Field-link reverse lookup may refine the label; ignore if not in options.
-    const fromCatalog = categoryForProduct(productName);
+    const fromCatalog = categoryForProduct(productName, productsByCategory);
     const fromLinks = inferCategoryFromProduct?.(productName)?.trim() || null;
     const inferred = fromLinks || fromCatalog;
     if (!inferred) return;
@@ -147,10 +152,12 @@ export function ProductMaterialsFields({
     setCategory(match);
   }
 
-  // Fill Category whenever Product is set (create/webhook drafts). Skip on
-  // existing tickets so opening the card does not mark the form dirty.
+  // Fill Category from Product. Also replace catch-all "Other" on existing
+  // tickets (CRM often sends Other for apparel tees).
   useEffect(() => {
-    if (!autoInferCategory || readOnly || !product.trim()) return;
+    if (readOnly || !product.trim()) return;
+    const catchAll = isCatchAllCategory(storedCategory);
+    if (!autoInferCategory && !catchAll) return;
     syncCategoryFromProduct(product);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow sync
   }, [product, storedCategory, readOnly, autoInferCategory, categoryOptions.join("\0")]);

@@ -28,6 +28,7 @@ import {
   isEmptyFieldValue,
   isValidCustomerContact,
   orderFormFieldLabel,
+  formatFieldDisplayValue,
   resolveOrderFormFields,
   validateDueDate,
 } from "@/lib/order-form";
@@ -49,12 +50,16 @@ import { categoryForProduct, productsForCategory } from "@/lib/product-data";
 import { cn, dateInputValue, localDateInputValue } from "@/lib/utils";
 import { formatDesignerOptionLabel } from "@/lib/designer-load";
 import {
+  catalogSpecHasDisplayValue,
   formatSetSizeValue,
   findMatchingSetSizeOption,
   isSetSizeKey,
   lookupCatalogMap,
   normalizeSpecSelectOptions,
   parseSetSizeValue,
+  specKeyCoveredByCustomFields,
+  sentenceCaseSpecLabel,
+  visibleCatalogToggles,
 } from "@/lib/product-spec-options";
 import type {
   Tag,
@@ -181,10 +186,6 @@ export interface OrderFormBodyProps {
   onTagIdChange?: (value: string) => void;
 }
 
-function humanizeSpecKey(k: string): string {
-  return k.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
-}
-
 type SpecFieldOptions = Record<string, unknown>;
 
 function ProductSpecsSection({
@@ -194,6 +195,9 @@ function ProductSpecsSection({
   sizeHint,
   onChange,
   onToggle,
+  customFieldNames = [],
+  hideKeysCoveredByCustomFields = false,
+  hideEmpty = false,
 }: {
   specs?: Record<string, unknown> | null;
   fieldOptions?: SpecFieldOptions | null;
@@ -201,6 +205,9 @@ function ProductSpecsSection({
   sizeHint?: { width: unknown; height: unknown };
   onChange?: (key: string, value: string) => void;
   onToggle?: (label: string, checked: boolean) => void;
+  customFieldNames?: string[];
+  hideKeysCoveredByCustomFields?: boolean;
+  hideEmpty?: boolean;
 }) {
   const s = (specs && typeof specs === "object" ? specs : {}) as Record<string, unknown>;
   const selRaw = s.spec_selections;
@@ -208,20 +215,51 @@ function ProductSpecsSection({
     selRaw && typeof selRaw === "object" && !Array.isArray(selRaw)
       ? (selRaw as Record<string, unknown>)
       : {};
-  const foKeys = fieldOptions ? Object.keys(fieldOptions) : [];
+  const allFoKeys = fieldOptions ? Object.keys(fieldOptions) : [];
+  const hideCovered = hideKeysCoveredByCustomFields || hideEmpty;
+  const foKeys = allFoKeys.filter(
+    (k) => !hideCovered || !specKeyCoveredByCustomFields(k, customFieldNames)
+  );
+  const specCurrentValue = (k: string) => {
+    const fromSpecs = sel[k] != null ? String(sel[k]).trim() : "";
+    const fromSize = isSetSizeKey(k)
+      ? formatSetSizeValue(sizeHint?.width, sizeHint?.height)
+      : "";
+    return fromSpecs || fromSize;
+  };
+  const visibleFoKeys = hideEmpty
+    ? foKeys.filter((k) => catalogSpecHasDisplayValue(specCurrentValue(k)))
+    : foKeys;
   const opts = Array.isArray(s.product_options)
     ? (s.product_options as unknown[]).map(String).filter(Boolean)
     : [];
-  // Editable toggle checkboxes (Tear notch, Inside printing, Gusset, Hang hole…);
-  // "Design service" is handled by Workflow's native Need-a-design.
-  const toggleList = (toggles ?? []).filter((t) => t.key !== "DESIGN_SERVICE");
-  const cutting = typeof s.cutting_type === "string" ? s.cutting_type.trim() : "";
+  // Catalog option checkboxes. Hide-empty cards omit ones CRM did not select.
+  const toggleList = visibleCatalogToggles(toggles, opts, hideEmpty, {
+    customFieldNames,
+    hideCovered,
+  });
+  const cuttingRaw =
+    typeof s.cutting_type === "string" ? s.cutting_type.trim() : "";
+  const cutting =
+    cuttingRaw &&
+    !(hideCovered && specKeyCoveredByCustomFields("DIE_METHOD", customFieldNames)) &&
+    !(hideCovered && specKeyCoveredByCustomFields("CUTTING_TYPE", customFieldNames))
+      ? cuttingRaw
+      : "";
   // Stored spec values that have no catalog options (shown read-only).
-  const readonlyRows = Object.entries(sel).filter(
-    ([k, v]) => !foKeys.includes(k) && v != null && String(v).trim() !== "",
-  );
+  const readonlyRows = Object.entries(sel).filter(([k, v]) => {
+    if (v == null || String(v).trim() === "") return false;
+    if (allFoKeys.includes(k)) return false;
+    if (
+      hideCovered &&
+      specKeyCoveredByCustomFields(k, customFieldNames)
+    ) {
+      return false;
+    }
+    return true;
+  });
   if (
-    foKeys.length === 0 &&
+    visibleFoKeys.length === 0 &&
     toggleList.length === 0 &&
     readonlyRows.length === 0 &&
     opts.length === 0 &&
@@ -230,11 +268,10 @@ function ProductSpecsSection({
     return null;
   }
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-      <p className="text-sm font-semibold text-slate-700">Product Specifications</p>
-      {foKeys.length > 0 ? (
+    <div className="space-y-3">
+      {visibleFoKeys.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {foKeys.map((k) => {
+          {visibleFoKeys.map((k) => {
             const options = normalizeSpecSelectOptions(fieldOptions?.[k]);
             const fromSpecs = sel[k] != null ? String(sel[k]).trim() : "";
             const fromSize = isSetSizeKey(k)
@@ -254,8 +291,8 @@ function ProductSpecsSection({
                 : current;
             return (
               <label key={k} className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">
-                  {humanizeSpecKey(k)}
+                <span className="mb-1 block text-sm font-medium text-slate-700">
+                  {sentenceCaseSpecLabel(k)}
                 </span>
                 <Select
                   value={current}
@@ -306,11 +343,15 @@ function ProductSpecsSection({
         </div>
       ) : null}
       {readonlyRows.length > 0 ? (
-        <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {readonlyRows.map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2">
-              <span className="text-slate-500">{humanizeSpecKey(k)}</span>
-              <span className="text-right text-slate-800">{String(v)}</span>
+            <div key={k}>
+              <Label>{sentenceCaseSpecLabel(k)}</Label>
+              <Input
+                readOnly
+                value={formatFieldDisplayValue(v)}
+                className="bg-white text-slate-800"
+              />
             </div>
           ))}
         </div>
@@ -527,7 +568,19 @@ export function OrderFormBody({
   const visiblePrintFields = (hideEmpty
     ? printFields.filter((f) => !isEmptyFieldValue(fieldValues[f.id]))
     : printFields
-  ).filter((f) => !cascadingFieldIds.has(f.id));
+  )
+    .filter((f) => !cascadingFieldIds.has(f.id))
+    .filter((f) => {
+      if (!hideEmpty) return true;
+      const name = f.name.trim().toLowerCase();
+      if (name === "die cut") {
+        const dieField = findOrderFormField(customFields, "Die");
+        if (dieField && !isEmptyFieldValue(fieldValues[dieField.id])) {
+          return false;
+        }
+      }
+      return true;
+    });
 
   /** Prefer field_links for Category→Product when that link exists. */
   const productOptionsOverride = (() => {
@@ -1019,7 +1072,10 @@ export function OrderFormBody({
                       ) {
                         return fromLinks;
                       }
-                      return categoryForProduct(productName);
+                      return categoryForProduct(
+                        productName,
+                        crmCatalog?.productsByCategory
+                      );
                     }
                   : undefined
               }
@@ -1031,6 +1087,7 @@ export function OrderFormBody({
               productOptionsOverride={productOptionsOverride}
               categoryOptionsOverride={crmCatalog?.categories ?? null}
               materialOptionsOverride={materialOptionsOverride}
+              productsByCategory={crmCatalog?.productsByCategory ?? null}
               readOnly={readOnly}
               hideEmpty={hideEmpty}
             />
@@ -1042,6 +1099,9 @@ export function OrderFormBody({
           specs={productSpecs}
           fieldOptions={productSpecFieldOptions}
           toggles={productToggles}
+          customFieldNames={customFields.map((f) => f.name)}
+          hideKeysCoveredByCustomFields={!hidePrintCustomFields}
+          hideEmpty={hideEmpty}
           sizeHint={{
             width: widthField ? fieldValues[widthField.id] : "",
             height: heightField ? fieldValues[heightField.id] : "",

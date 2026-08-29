@@ -17,6 +17,16 @@ describe("skuArtworkRefs", () => {
     assert.equal(refs[0]?.url, "https://crm.example/zoap.png");
     assert.equal(refs[1]?.url, "https://crm.example/zoap-back.png");
   });
+
+  it("treats signed-URL variants of the same file as one pic", () => {
+    const refs = skuArtworkRefs({
+      artwork_url:
+        "https://xx.supabase.co/storage/v1/object/sign/art/tee.png?token=aaa",
+      image_url:
+        "https://xx.supabase.co/storage/v1/object/sign/art/tee.png?token=bbb",
+    });
+    assert.equal(refs.length, 1);
+  });
 });
 
 describe("resolveWebhookItemMedia", () => {

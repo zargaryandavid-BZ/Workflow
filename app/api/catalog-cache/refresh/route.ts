@@ -11,7 +11,7 @@ import {
   parseCatalogV2,
 } from "@/lib/crm-catalog-v2";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();

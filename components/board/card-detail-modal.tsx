@@ -2435,6 +2435,10 @@ export function CardDetailModal({
             <OrderFormBody
               idPrefix="edit"
               hidePrintCustomFields={isConnectedOrder(data.order)}
+              hideEmpty={
+                data.order.webhook_source != null &&
+                data.order.webhook_source !== ""
+              }
               autoInferCategory={false}
               productSpecs={data.order.specs ?? null}
               onProductSpecChange={(key, value) =>

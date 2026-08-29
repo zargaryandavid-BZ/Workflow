@@ -400,6 +400,8 @@ export interface OrderSkuImageWithUrl extends OrderSkuImage {
   signed_url: string | null;
   /** True when this preview is backed by `assets` (e.g. webhook artwork_url). */
   from_asset?: boolean;
+  /** Same file under different signed URLs / asset rows. */
+  artwork_fingerprint?: string;
 }
 
 export interface WebhookConfig {

@@ -10,6 +10,9 @@ import {
   lookupCatalogMap,
   preferLinkedCatalogName,
   findMatchingSetSizeOption,
+  specKeyCoveredByCustomFields,
+  sentenceCaseSpecLabel,
+  visibleCatalogToggles,
 } from "./product-spec-options.ts";
 
 describe("set size helpers", () => {
@@ -130,5 +133,64 @@ describe("set size helpers", () => {
       )?.value,
       "2.5x3.5"
     );
+  });
+});
+
+describe("spec key vs custom fields", () => {
+  it("hides CRM spec keys already shown as custom fields", () => {
+    const names = ["Color Mode", "Roll Direction", "Width", "Height"];
+    assert.equal(specKeyCoveredByCustomFields("COLOR_MODE", names), true);
+    assert.equal(specKeyCoveredByCustomFields("ROLL_DIRECTION", names), true);
+    assert.equal(specKeyCoveredByCustomFields("SET_SIZE", names), true);
+    assert.equal(specKeyCoveredByCustomFields("DIE_NAME", names), false);
+    assert.equal(specKeyCoveredByCustomFields("DIE_METHOD", ["Die"]), true);
+  });
+});
+
+describe("visibleCatalogToggles", () => {
+  const toggles = [
+    { key: "DOUBLE_SIDED", label: "Double-sided" },
+    { key: "DESIGN_SERVICE", label: "Design service" },
+    { key: "WINDOW", label: "Window" },
+  ];
+
+  it("shows every catalog toggle when hide-empty is off", () => {
+    assert.deepEqual(
+      visibleCatalogToggles(toggles, [], false).map((t) => t.label),
+      ["Double-sided", "Window"]
+    );
+  });
+
+  it("hides catalog toggles already shown as custom fields", () => {
+    assert.deepEqual(
+      visibleCatalogToggles(
+        [{ key: "ROLL_DIRECTION", label: "Roll direction" }],
+        ["Roll direction"],
+        false,
+        { customFieldNames: ["Roll Direction"], hideCovered: true }
+      ),
+      []
+    );
+  });
+
+  it("hides unselected toggles when hide-empty is on", () => {
+    assert.deepEqual(
+      visibleCatalogToggles(toggles, [], true),
+      []
+    );
+    assert.deepEqual(
+      visibleCatalogToggles(toggles, ["Window"], true).map((t) => t.label),
+      ["Window"]
+    );
+  });
+});
+
+describe("sentenceCaseSpecLabel", () => {
+  it("uses Product-style sentence case, not ALL CAPS", () => {
+    assert.equal(
+      sentenceCaseSpecLabel("APPAREL_CLIENT_PROVIDED"),
+      "Apparel client provided"
+    );
+    assert.equal(sentenceCaseSpecLabel("SET_SIZE_3"), "Set size 3");
   });
 });
