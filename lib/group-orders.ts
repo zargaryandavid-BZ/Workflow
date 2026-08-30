@@ -155,6 +155,7 @@ export function sharedOrderTitle(
 export function partCardTitle(
   order: {
     title?: string;
+    webhook_source?: string | null;
     specs?: Record<string, unknown> | null;
   },
   productFallback?: string | null
@@ -175,7 +176,16 @@ export function partCardTitle(
   }
 
   // Single-item order: the order-level title is this card's title.
-  return sharedOrderTitle(order);
+  const shared = sharedOrderTitle(order);
+  if (shared) return shared;
+  // Manual card (no webhook origin) has no webhook_order_title, so it would
+  // otherwise render blank and fall back to the customer name. Show the
+  // staff-typed order title instead. CRM/webhook cards are untouched.
+  if (!order.webhook_source) {
+    const typed = typeof order.title === "string" ? order.title.trim() : "";
+    if (typed && !/^ord-\d{4}-\S+$/i.test(typed)) return typed;
+  }
+  return null;
 }
 
 export interface OrderGroupSearchSuggestion {
