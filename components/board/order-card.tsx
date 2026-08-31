@@ -72,6 +72,8 @@ import {
 import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
+import { useActiveTimer } from "@/components/time/active-timer-context";
+import { CardTimerControl } from "./card-timer-control";
 import {
   getActiveWarning,
   CARD_WARNING_BORDER_COLORS,
@@ -683,6 +685,13 @@ export function OrderCard({
     : ownerName?.trim() || "—";
   const designerLabel = designerName ?? "Unassigned";
 
+  // Live work timer for this card (this user). Running → the card turns green
+  // with a ticking elapsed time; paused → a muted green.
+  const activeTimer = useActiveTimer();
+  const orderTimer = activeTimer.forOrder(order.id);
+  const timerRunning = orderTimer?.running ?? false;
+  const timerPaused = orderTimer?.paused ?? false;
+
   return (
     <div
       ref={setNodeRef}
@@ -710,13 +719,25 @@ export function OrderCard({
         activeWarning && animateWarnings && !highlighted
           ? `warning-${activeWarning.rule.color}`
           : "",
-        highlighted && "card-just-closed"
+        highlighted && "card-just-closed",
+        // Active work timer overrides the card fill so it's unmistakable.
+        timerRunning && "!border-emerald-500 !bg-emerald-100 ring-2 ring-emerald-300",
+        timerPaused && "!border-emerald-300 !bg-emerald-50"
       )}
       data-order-card=""
       data-order-id={order.id}
     >
       {/* padded content wrapper */}
       <div className="px-3 py-3.5">
+      <CardTimerControl
+        orderId={order.id}
+        timer={orderTimer}
+        busy={activeTimer.busyOrderId === order.id}
+        onStart={() => void activeTimer.start(order.id)}
+        onPause={(reason) => orderTimer && void activeTimer.pause(orderTimer.entry.id, reason)}
+        onResume={() => orderTimer && void activeTimer.resume(orderTimer.entry.id)}
+        onStop={() => orderTimer && void activeTimer.stop(orderTimer.entry.id)}
+      />
       {emergencySeverity ? (
         <span
           className="absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full ring-2 ring-white"

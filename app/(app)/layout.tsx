@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell/app-shell";
+import { ActiveTimerProvider } from "@/components/time/active-timer-context";
 import { normalizeEmergencyBalance } from "@/lib/emergency-balance";
 
 export default async function AppLayout({
@@ -29,7 +30,7 @@ export default async function AppLayout({
       fullName={ctx.fullName}
       boardHealthVisible={boardHealthVisible}
     >
-      {children}
+      <ActiveTimerProvider>{children}</ActiveTimerProvider>
     </AppShell>
   );
 }
