@@ -15,6 +15,8 @@ export type UserNotification = {
   actor_name: string | null;
   read_at: string | null;
   created_at: string;
+  /** Recipient display name — filled for admin team inbox. */
+  recipient_name?: string | null;
 };
 
 type NotifyClient = {

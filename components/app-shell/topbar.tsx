@@ -149,7 +149,11 @@ export function Topbar({
       </div>
 
       <div className="relative flex shrink-0 items-center gap-2">
-        <NotificationInbox userId={userId} />
+        <NotificationInbox
+          userId={userId}
+          tenantId={activeTenantId}
+          role={role}
+        />
         <button
           onClick={() => setOpenUser((o) => !o)}
           className={cn(

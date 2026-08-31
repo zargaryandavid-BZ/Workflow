@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import type { UserNotification } from "@/lib/user-notifications";
+import type { Role } from "@/lib/types";
 
 function formatStamp(iso: string): { time: string; date: string } {
   const d = new Date(iso);
@@ -23,10 +24,20 @@ function formatStamp(iso: string): { time: string; date: string } {
   };
 }
 
-export function NotificationInbox({ userId }: { userId: string }) {
+export function NotificationInbox({
+  userId,
+  tenantId,
+  role,
+}: {
+  userId: string;
+  tenantId: string;
+  role: Role;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<UserNotification[]>([]);
+
+  const isAdmin = role === "admin";
 
   const load = useCallback(async () => {
     try {
@@ -67,15 +78,19 @@ export function NotificationInbox({ userId }: { userId: string }) {
       if (token) await supabase.realtime.setAuth(token);
       if (cancelled) return;
 
+      const filter = isAdmin
+        ? `tenant_id=eq.${tenantId}`
+        : `user_id=eq.${userId}`;
+
       channel = supabase
-        .channel(`user-notifications-${userId}`)
+        .channel(`user-notifications-${isAdmin ? tenantId : userId}`)
         .on(
           "postgres_changes",
           {
             event: "*",
             schema: "public",
             table: "user_notifications",
-            filter: `user_id=eq.${userId}`,
+            filter,
           },
           () => {
             void load();
@@ -89,7 +104,7 @@ export function NotificationInbox({ userId }: { userId: string }) {
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [userId, load]);
+  }, [userId, tenantId, isAdmin, load]);
 
   const unreadCount = useMemo(
     () => items.filter((n) => !n.read_at).length,
@@ -181,7 +196,7 @@ export function NotificationInbox({ userId }: { userId: string }) {
           <div className="absolute right-0 z-50 mt-1 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
             <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Notifications
+                {isAdmin ? "All notifications" : "Notifications"}
               </p>
               {unreadCount > 0 ? (
                 <button
@@ -195,7 +210,9 @@ export function NotificationInbox({ userId }: { userId: string }) {
             </div>
             {items.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-slate-500">
-                You have no notifications yet.
+                {isAdmin
+                  ? "No notifications in this workspace yet."
+                  : "You have no notifications yet."}
               </p>
             ) : (
               <ul className="max-h-80 overflow-y-auto py-1">
@@ -219,6 +236,12 @@ export function NotificationInbox({ userId }: { userId: string }) {
                             <>
                               <span className="mx-1 text-slate-300">·</span>
                               {n.actor_name}
+                            </>
+                          ) : null}
+                          {isAdmin && n.recipient_name ? (
+                            <>
+                              <span className="mx-1 text-slate-300">·</span>
+                              For {n.recipient_name}
                             </>
                           ) : null}
                         </span>

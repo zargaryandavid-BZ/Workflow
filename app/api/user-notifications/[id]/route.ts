@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 
 function tableMissing(error: { message?: string; code?: string } | null): boolean {
@@ -21,13 +22,19 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const supabase = await createClient();
-  const { error } = await supabase
+  const isAdmin = ctx.role === "admin";
+  const supabase = isAdmin ? createAdminClient() : await createClient();
+  let query = supabase
     .from("user_notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("id", id)
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("user_id", ctx.userId);
+    .eq("tenant_id", ctx.tenant.id);
+
+  if (!isAdmin) {
+    query = query.eq("user_id", ctx.userId);
+  }
+
+  const { error } = await query;
 
   if (error) {
     if (tableMissing(error)) {
