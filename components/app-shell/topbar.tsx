@@ -8,10 +8,12 @@ import { cn, initials } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/constants";
 import type { Role } from "@/lib/types";
 import { BoardHealthButton } from "@/components/app-shell/board-health-button";
+import { NotificationInbox } from "@/components/app-shell/notification-inbox";
 
 interface TopbarProps {
   tenants: { id: string; name: string }[];
   activeTenantId: string;
+  userId: string;
   email: string | null;
   fullName: string | null;
   role: Role;
@@ -32,6 +34,7 @@ function avatarLetter(fullName: string | null, email: string | null) {
 export function Topbar({
   tenants,
   activeTenantId,
+  userId,
   email,
   fullName,
   role,
@@ -145,14 +148,22 @@ export function Topbar({
         <BoardHealthButton enabled={boardHealthVisible} />
       </div>
 
-      <div className="relative shrink-0">
+      <div className="relative flex shrink-0 items-center gap-2">
+        <NotificationInbox userId={userId} />
         <button
           onClick={() => setOpenUser((o) => !o)}
           className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white"
+            "flex items-center gap-2 rounded-md py-0.5 pl-1 pr-1.5 hover:bg-slate-100"
           )}
         >
-          {avatarLetter(fullName, email)}
+          {fullName?.trim() ? (
+            <span className="hidden max-w-[140px] truncate text-sm font-medium text-slate-700 sm:inline">
+              {fullName.trim()}
+            </span>
+          ) : null}
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white">
+            {avatarLetter(fullName, email)}
+          </span>
         </button>
         {openUser ? (
           <>

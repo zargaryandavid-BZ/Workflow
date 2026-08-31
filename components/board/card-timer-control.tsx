@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Play, Pause, Square, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/time-tracking";
@@ -33,6 +34,7 @@ interface CardTimerControlProps {
  * asks the reason. Paused → Resume + Stop.
  */
 export function CardTimerControl({
+  orderId,
   timer,
   workedSeconds,
   busy,
@@ -64,13 +66,16 @@ export function CardTimerControl({
           {hasWorked ? "Resume" : "Start"}
         </button>
         {hasWorked ? (
-          <span
-            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 tabular-nums"
-            title="Total time worked on this card"
+          <Link
+            href={`/time?tab=log&order=${encodeURIComponent(orderId)}`}
+            onClick={stop}
+            onPointerDown={stop}
+            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 tabular-nums hover:bg-slate-200"
+            title="Open this card's time on the Time page"
           >
             <Clock className="h-3 w-3" />
             {formatDuration(workedSeconds)}
-          </span>
+          </Link>
         ) : null}
       </div>
     );
@@ -98,7 +103,15 @@ export function CardTimerControl({
             <span className="inline-flex h-2 w-2 rounded-full bg-amber-500" />
           )}
         </span>
-        <span className="tabular-nums">{label}</span>
+        <Link
+          href={`/time?tab=active&entry=${encodeURIComponent(timer.entry.id)}`}
+          onClick={stop}
+          onPointerDown={stop}
+          className="tabular-nums hover:underline"
+          title="Open this timer on the Time page"
+        >
+          {label}
+        </Link>
         {timer.paused ? <span className="font-medium">· paused</span> : null}
 
         {timer.running ? (

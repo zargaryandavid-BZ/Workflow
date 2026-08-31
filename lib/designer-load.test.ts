@@ -4,6 +4,7 @@ import {
   countDesignerLoads,
   formatDesignerLoadSuffix,
   formatDesignerOptionLabel,
+  sortDesignersByLoad,
 } from "./designer-load.ts";
 
 describe("countDesignerLoads", () => {
@@ -47,5 +48,20 @@ describe("countDesignerLoads", () => {
     assert.deepEqual(counts.get(designerId), { load: 3, skuCount: 8 });
     assert.equal(formatDesignerLoadSuffix(3, 8), "(3)/8");
     assert.equal(formatDesignerOptionLabel("Manny", 3, 8), "Manny (3)/8");
+  });
+});
+
+describe("sortDesignersByLoad", () => {
+  it("orders by cards, then SKUs, then name", () => {
+    const sorted = sortDesignersByLoad([
+      { name: "Zed", load: 1, skuCount: 9 },
+      { name: "Ann", load: 3, skuCount: 2 },
+      { name: "Bo", load: 3, skuCount: 8 },
+      { name: "Cy", load: 3, skuCount: 8 },
+    ]);
+    assert.deepEqual(
+      sorted.map((d) => d.name),
+      ["Bo", "Cy", "Ann", "Zed"]
+    );
   });
 });

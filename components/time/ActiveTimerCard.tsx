@@ -98,7 +98,17 @@ export function ActiveTimerCard({
                 compact ? "text-xs" : "text-sm"
               )}
             >
-              {subject}
+              {entry.order_id ? (
+                <a
+                  href={`/time?tab=log&order=${encodeURIComponent(entry.order_id)}`}
+                  className="hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {subject}
+                </a>
+              ) : (
+                subject
+              )}
             </p>
           </div>
           <p
@@ -109,6 +119,7 @@ export function ActiveTimerCard({
           >
             {paused ? "Paused · " : ""}
             {entry.activity_type}
+            {entry.user_display_name ? ` · ${entry.user_display_name}` : ""}
             {entry.customer_name ? ` · ${entry.customer_name}` : ""}
           </p>
         </div>

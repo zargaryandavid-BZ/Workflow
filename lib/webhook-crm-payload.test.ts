@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { resolveWebhookLineFolderUrl } from "./webhook-line-folder.ts";
 import {
+  crmCustomerFacingNote,
+  crmDesignerNote,
   crmLineProductionNote,
+  crmOrderIdFromPayload,
   crmTicketStaffNote,
   webhookPrintQty,
   withOrderQtyDetails,
@@ -97,5 +100,37 @@ describe("CRM order webhook payload", () => {
       }),
       "Staff Attention / Internal Notes from the ticket."
     );
+  });
+
+  it("maps CRM For Customer / For Designer / For Prod note fields", () => {
+    const order = {
+      description: "For the customer",
+      notes_for_designer: "For the designer",
+      notes_for_production: "For production",
+      notes: "",
+      crm_order_id: "crm-ord-1",
+    };
+    const item = {
+      description: "",
+      notes_for_designer: "",
+      notes_for_production: "",
+    };
+    assert.equal(crmCustomerFacingNote(order, item), "For the customer");
+    assert.equal(crmDesignerNote(order), "For the designer");
+    assert.equal(
+      crmLineProductionNote({
+        ...item,
+        notes_for_production: order.notes_for_production,
+      }),
+      "For production"
+    );
+    assert.equal(crmOrderIdFromPayload(order), "crm-ord-1");
+  });
+
+  it("does not treat empty CRM notes as a value", () => {
+    assert.equal(crmCustomerFacingNote({ description: "" }), null);
+    assert.equal(crmDesignerNote({ notes_for_designer: "   " }), null);
+    assert.equal(crmLineProductionNote({ notes_for_production: "" }), null);
+    assert.equal(crmTicketStaffNote({ notes: "" }), null);
   });
 });

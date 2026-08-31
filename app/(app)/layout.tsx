@@ -26,6 +26,7 @@ export default async function AppLayout({
       role={ctx.role}
       tenants={tenants}
       activeTenantId={ctx.tenant.id}
+      userId={ctx.userId}
       email={ctx.email}
       fullName={ctx.fullName}
       boardHealthVisible={boardHealthVisible}

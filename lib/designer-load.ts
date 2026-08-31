@@ -51,6 +51,12 @@ function skuRowCountFromSpecs(specs: Record<string, unknown> | null | undefined)
   return Array.isArray(raw) ? raw.length : 0;
 }
 
+/** Count SKU line items on an order (same basis as designer load). */
+export function designerSkuRowCount(specs: unknown): number {
+  if (!specs || typeof specs !== "object") return 0;
+  return skuRowCountFromSpecs(specs as Record<string, unknown>);
+}
+
 /** Count cards + SKU rows per designer_id among orders in the given column ids. */
 export function countDesignerLoads(
   designerIds: string[],
@@ -101,4 +107,19 @@ export function formatDesignerLoadSuffix(
   const cards = typeof load === "number" ? load : 0;
   const skus = typeof skuCount === "number" ? skuCount : 0;
   return `(${cards})/${skus}`;
+}
+
+/** Busiest first (cards, then SKU rows), then name. */
+export function sortDesignersByLoad<
+  T extends { name: string; load?: number; skuCount?: number },
+>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const loadA = a.load ?? 0;
+    const loadB = b.load ?? 0;
+    if (loadB !== loadA) return loadB - loadA;
+    const skuA = a.skuCount ?? 0;
+    const skuB = b.skuCount ?? 0;
+    if (skuB !== skuA) return skuB - skuA;
+    return a.name.localeCompare(b.name);
+  });
 }

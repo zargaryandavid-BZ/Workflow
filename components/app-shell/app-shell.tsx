@@ -10,6 +10,7 @@ interface AppShellProps {
   role: Role;
   tenants: { id: string; name: string }[];
   activeTenantId: string;
+  userId: string;
   email: string | null;
   fullName: string | null;
   boardHealthVisible?: boolean;
@@ -20,6 +21,7 @@ export function AppShell({
   role,
   tenants,
   activeTenantId,
+  userId,
   email,
   fullName,
   boardHealthVisible = true,
@@ -52,6 +54,7 @@ export function AppShell({
         <Topbar
           tenants={tenants}
           activeTenantId={activeTenantId}
+          userId={userId}
           email={email}
           fullName={fullName}
           role={role}

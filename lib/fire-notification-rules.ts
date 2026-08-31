@@ -26,6 +26,10 @@ import {
   validateSmsRecipient,
 } from "@/lib/sms";
 import type { NotificationRule, NotificationRuleRecipient } from "@/lib/types";
+import {
+  isMissingInfoNotifyHoldColumn,
+  recipientsAfterMissingInfoHold,
+} from "@/lib/column-notify-hold";
 import { isFinishedNoReviewStage } from "@/lib/net-terms-fulfill";
 
 function uniqueStrings(values: (string | null | undefined)[]): string[] {
@@ -395,7 +399,7 @@ export async function fireNotificationRules(
   // Ensure column name reflects the destination column after move.
   const { data: column } = await supabase
     .from("board_columns")
-    .select("name")
+    .select("name, kind")
     .eq("id", newColumnId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -404,6 +408,10 @@ export async function fireNotificationRules(
   }
 
   const holdCustomerFinishedSms = isFinishedNoReviewStage(exportData.columnName);
+  const holdCustomerMissingInfo = isMissingInfoNotifyHoldColumn({
+    kind: (column as { kind?: string | null } | null)?.kind,
+    name: exportData.columnName,
+  });
 
   const movedAt = new Date().toISOString();
   const templateContext = buildNotificationRuleTemplateContext(exportData, {
@@ -462,9 +470,26 @@ export async function fireNotificationRules(
       staffProfiles = await loadStaffProfiles(supabase, tenantId, rule).catch(() => []);
     }
 
-    const { emails, phones: recipientPhones } = resolveRecipients(rule.recipient, exportData, staffProfiles);
-
-    const phones = resolveRuleSmsPhones(rule, templateContext, recipientPhones);
+    const resolved = resolveRecipients(rule.recipient, exportData, staffProfiles);
+    const afterHold = recipientsAfterMissingInfoHold({
+      holdCustomer: holdCustomerMissingInfo,
+      recipient: rule.recipient,
+      emails: resolved.emails,
+      phones: resolveRuleSmsPhones(rule, templateContext, resolved.phones),
+      customerEmail: exportData.customerEmail,
+      customerPhone: exportData.customerPhone,
+    });
+    if (
+      holdCustomerMissingInfo &&
+      (afterHold.emails.length < resolved.emails.length ||
+        afterHold.phones.length < resolved.phones.length)
+    ) {
+      console.log(
+        `[NotifRule] Holding customer notify for Missing Info — popup is the send gate (rule "${rule.name}")`
+      );
+    }
+    const emails = afterHold.emails;
+    const phones = afterHold.phones;
 
     console.log(
       `[NotifRule] rule "${rule.name}" recipient=${rule.recipient}` +

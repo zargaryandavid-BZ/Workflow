@@ -11,6 +11,7 @@ import {
   entrySubjectLabel,
   formatDuration,
   localDateString,
+  TIME_ENTRIES_CHANGED_EVENT,
   notifyTimeEntriesChanged,
   type ActivityType,
   type TimeEntry,
@@ -32,10 +33,17 @@ function fromLocalInputValue(value: string): string | null {
 
 interface TimeLogProps {
   highlightedEntryId?: string | null;
+  orderId?: string | null;
+  isAdmin?: boolean;
   onChanged?: () => void;
 }
 
-export function TimeLog({ highlightedEntryId, onChanged }: TimeLogProps) {
+export function TimeLog({
+  highlightedEntryId,
+  orderId,
+  isAdmin = false,
+  onChanged,
+}: TimeLogProps) {
   const [date, setDate] = useState(() => localDateString());
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [running, setRunning] = useState<TimeEntry[]>([]);
@@ -57,8 +65,16 @@ export function TimeLog({ highlightedEntryId, onChanged }: TimeLogProps) {
     setError(null);
     try {
       const [dayRes, runRes] = await Promise.all([
-        fetch(`/api/time-entries?date=${encodeURIComponent(date)}`),
-        fetch("/api/time-entries?running=true"),
+        fetch(
+          orderId
+            ? `/api/time-entries?order_id=${encodeURIComponent(orderId)}`
+            : `/api/time-entries?date=${encodeURIComponent(date)}`
+        ),
+        fetch(
+          isAdmin
+            ? "/api/time-entries?running=true&all=true"
+            : "/api/time-entries?running=true"
+        ),
       ]);
       const dayData = (await dayRes.json()) as {
         entries?: TimeEntry[];
@@ -72,7 +88,9 @@ export function TimeLog({ highlightedEntryId, onChanged }: TimeLogProps) {
       if (!runRes.ok) throw new Error(runData.error ?? "Failed to load timers");
 
       const dayEntries = dayData.entries ?? [];
-      const runEntries = runData.entries ?? [];
+      const runEntries = (runData.entries ?? []).filter((e) =>
+        orderId ? e.order_id === orderId : true
+      );
       setRunning(runEntries);
       // Completed for the day + any running that started today (avoid dupes)
       const runIds = new Set(runEntries.map((e) => e.id));
@@ -82,10 +100,19 @@ export function TimeLog({ highlightedEntryId, onChanged }: TimeLogProps) {
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, orderId, isAdmin]);
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    function onChangedEvent() {
+      void load();
+    }
+    window.addEventListener(TIME_ENTRIES_CHANGED_EVENT, onChangedEvent);
+    return () =>
+      window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChangedEvent);
   }, [load]);
 
   useEffect(() => {
@@ -259,33 +286,54 @@ export function TimeLog({ highlightedEntryId, onChanged }: TimeLogProps) {
 
   // Running that started on selected day (or all running when viewing today)
   const today = localDateString();
-  const visibleRunning =
-    date === today
+  const visibleRunning = orderId
+    ? running
+    : date === today
       ? running
       : running.filter((e) => localDateString(new Date(e.started_at)) === date);
 
+  const jobLabel =
+    orderId
+      ? running.find((e) => e.order_id === orderId)?.job_title ||
+        completed.find((e) => e.order_id === orderId)?.job_title ||
+        null
+      : null;
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="text-sm font-medium text-slate-700">
-          Date
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="mt-1 w-auto"
-          />
-        </label>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="mt-5"
-          onClick={() => setDate(localDateString())}
-        >
-          Today
-        </Button>
-      </div>
+      {orderId ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          Showing Start-button time for this board card
+          {jobLabel ? (
+            <span className="font-semibold"> · {jobLabel}</span>
+          ) : null}
+          .{" "}
+          <a href="/time?tab=log" className="underline hover:no-underline">
+            Show all today
+          </a>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-slate-700">
+            Date
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="mt-1 w-auto"
+            />
+          </label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mt-5"
+            onClick={() => setDate(localDateString())}
+          >
+            Today
+          </Button>
+        </div>
+      )}
 
       {error ? (
         <p className="text-sm text-red-600" role="alert">

@@ -40,6 +40,17 @@ export function serializeNoteHistory(entries: NoteEntry[]): string | null {
   return JSON.stringify(entries);
 }
 
+/** Entries present in `nextRaw` that were not in `prevRaw` (append-only history). */
+export function appendedNoteEntries(
+  prevRaw: string | null | undefined,
+  nextRaw: string | null | undefined
+): NoteEntry[] {
+  const prev = parseNoteHistory(prevRaw);
+  const next = parseNoteHistory(nextRaw);
+  if (next.length <= prev.length) return [];
+  return next.slice(prev.length);
+}
+
 export function appendNoteEntry(
   history: NoteEntry[],
   text: string,
@@ -83,10 +94,11 @@ function normalizeNoteCompare(value: string): string {
 }
 
 /**
- * Merge CRM/webhook designer notes into ticket history (`specs.designer_notes`).
- * Skips a duplicate of text already stored.
+ * Upsert the CRM-authored seed in a note history thread.
+ * Empty incoming does not clear staff (or existing CRM) entries.
+ * Re-syncs replace only the CRM seed — never staff-authored entries.
  */
-export function mergeWebhookDesignerNotes(
+export function upsertCrmSeedNote(
   existingRaw: string | null | undefined,
   incoming: string | null | undefined,
   author = "CRM"
@@ -97,9 +109,38 @@ export function mergeWebhookDesignerNotes(
     return serializeNoteHistory(history);
   }
   const incomingNorm = normalizeNoteCompare(incomingTrim);
+  const authorNorm = author.trim().toLowerCase() || "crm";
+  const crmIdx = history.findIndex(
+    (entry) => entry.author.trim().toLowerCase() === authorNorm
+  );
+  if (crmIdx >= 0) {
+    const current = history[crmIdx]!;
+    if (normalizeNoteCompare(current.text) === incomingNorm) {
+      return serializeNoteHistory(history);
+    }
+    const next = [...history];
+    next[crmIdx] = {
+      ...current,
+      text: incomingTrim,
+      date: new Date().toISOString(),
+    };
+    return serializeNoteHistory(next);
+  }
   const already = history.some(
     (entry) => normalizeNoteCompare(entry.text) === incomingNorm
   );
   if (already) return serializeNoteHistory(history);
   return serializeNoteHistory(appendNoteEntry(history, incomingTrim, author));
+}
+
+/**
+ * Merge CRM/webhook designer notes into ticket history (`specs.designer_notes`).
+ * Upserts the CRM seed; does not duplicate or wipe staff notes.
+ */
+export function mergeWebhookDesignerNotes(
+  existingRaw: string | null | undefined,
+  incoming: string | null | undefined,
+  author = "CRM"
+): string | null {
+  return upsertCrmSeedNote(existingRaw, incoming, author);
 }

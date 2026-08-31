@@ -8,7 +8,7 @@ import { ActiveTimerCard } from "@/components/time/ActiveTimerCard";
 import { NewTimerModal } from "@/components/time/NewTimerModal";
 import { TimeLog } from "@/components/time/TimeLog";
 import { TimeReports } from "@/components/time/TimeReports";
-import { type TimeEntry, notifyTimeEntriesChanged } from "@/lib/time-tracking";
+import { type TimeEntry, TIME_ENTRIES_CHANGED_EVENT, notifyTimeEntriesChanged } from "@/lib/time-tracking";
 import { cn } from "@/lib/utils";
 
 type Tab = "active" | "log" | "reports";
@@ -34,11 +34,14 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const entryParam = searchParams.get("entry");
+  const orderParam = searchParams.get("order");
 
   const tab: Tab =
     tabParam === "log" || tabParam === "reports" || tabParam === "active"
       ? tabParam
-      : "active";
+      : orderParam
+        ? "log"
+        : "active";
 
   const [running, setRunning] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,7 +54,10 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
 
   const refetchRunning = useCallback(async () => {
     try {
-      const res = await fetch("/api/time-entries?running=true");
+      const qs = isAdmin
+        ? "/api/time-entries?running=true&all=true"
+        : "/api/time-entries?running=true";
+      const res = await fetch(qs);
       const data = (await res.json()) as {
         entries?: TimeEntry[];
         error?: string;
@@ -64,10 +70,19 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     void refetchRunning();
+  }, [refetchRunning]);
+
+  useEffect(() => {
+    function onChanged() {
+      void refetchRunning();
+    }
+    window.addEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
+    return () =>
+      window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
   }, [refetchRunning]);
 
   useEffect(() => {
@@ -161,7 +176,8 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
           <div>
             <h1 className="text-xl font-semibold text-slate-900">Time (beta)</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Track time on board jobs and custom tasks
+              Same clock as the Start button on board cards. Start or pause there
+              and it shows up here.
             </p>
           </div>
           <Button type="button" onClick={() => setModalOpen(true)}>
@@ -201,6 +217,9 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
             ) : running.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 px-6 py-12 text-center">
                 <p className="text-sm text-slate-500">No timers running</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Press Start on a board card, or start a timer here.
+                </p>
                 <Button
                   type="button"
                   className="mt-4"
@@ -237,6 +256,8 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
         {tab === "log" ? (
           <TimeLog
             highlightedEntryId={entryParam}
+            orderId={orderParam}
+            isAdmin={isAdmin}
             onChanged={() => void refetchRunning()}
           />
         ) : null}

@@ -12,6 +12,17 @@ import {
   RUSH_ORDER_TAG_NAME,
   webhookRushFromPayload,
 } from "@/lib/order-rush";
+import {
+  crmCustomerFacingNote,
+  crmCustomerIdFromPayload,
+  crmDesignerNote,
+  crmLineProductionNote,
+} from "@/lib/webhook-crm-parse";
+import {
+  mergeWebhookDesignerNotes,
+  noteHistoryFromPlainText,
+  upsertCrmSeedNote,
+} from "@/lib/note-history";
 
 export {
   isCrmWebhookV2,
@@ -22,6 +33,82 @@ export {
 } from "@/lib/webhook-v2-parse";
 
 type Client = SupabaseClient;
+
+function firstLineItem(payload: WebhookV2Payload): Record<string, unknown> | null {
+  const first = payload.line_items[0];
+  return isRecord(first) ? first : null;
+}
+
+function v2CrmNotes(payload: WebhookV2Payload): {
+  customer: string | null;
+  designer: string | null;
+  production: string | null;
+  crmCustomerId: string | null;
+} {
+  const line = firstLineItem(payload);
+  const customer = crmCustomerFacingNote(
+    { description: asTrimmedString(payload.description) },
+    line ? { description: asTrimmedString(line.description) } : undefined
+  );
+  const designer = crmDesignerNote({
+    notes_for_designer: asTrimmedString(payload.notes_for_designer),
+    designer_notes: asTrimmedString(payload.designer_notes),
+    designer_information: asTrimmedString(payload.designer_information),
+  }) ??
+    (line
+      ? crmDesignerNote({
+          notes_for_designer: asTrimmedString(line.notes_for_designer),
+          designer_notes: asTrimmedString(line.designer_notes),
+          designer_information: asTrimmedString(line.designer_information),
+        })
+      : null);
+  const production =
+    crmLineProductionNote({
+      production_notes: asTrimmedString(payload.production_notes),
+      notes_for_production: asTrimmedString(payload.notes_for_production),
+    }) ??
+    (line
+      ? crmLineProductionNote({
+          production_notes: asTrimmedString(line.production_notes),
+          notes_for_production: asTrimmedString(line.notes_for_production),
+          comment: asTrimmedString(line.comment),
+        })
+      : null);
+  return {
+    customer,
+    designer,
+    production,
+    crmCustomerId: crmCustomerIdFromPayload(payload),
+  };
+}
+
+function applyV2NotesToSpecs(
+  specs: Record<string, unknown>,
+  payload: WebhookV2Payload,
+  mode: "create" | "update"
+): Record<string, unknown> {
+  const notes = v2CrmNotes(payload);
+  const next = { ...specs };
+  if (notes.customer) next.customer_facing_note = notes.customer;
+  if (notes.designer) {
+    const existing =
+      typeof next.designer_notes === "string" ? next.designer_notes : null;
+    const merged = mergeWebhookDesignerNotes(existing, notes.designer);
+    if (merged) next.designer_notes = merged;
+  }
+  if (notes.production) {
+    const existing =
+      typeof next.production_notes === "string" ? next.production_notes : null;
+    const merged =
+      mode === "create" && !existing
+        ? noteHistoryFromPlainText(notes.production, "CRM")
+        : upsertCrmSeedNote(existing, notes.production);
+    if (merged) next.production_notes = merged;
+  }
+  if (notes.crmCustomerId) next.crm_customer_id = notes.crmCustomerId;
+  next.crm_order_id = payload.crm_order_id;
+  return next;
+}
 
 export type WebhookV2HttpResult = {
   httpStatus: number;
@@ -188,14 +275,15 @@ export async function handleWebhookV2(
     };
   }
 
-  const { data: existing } = await client
+  const { data: existingRows } = await client
     .from("orders")
     .select(
-      "id, crm_updated_at, user_overrides, integration_mode, customer_id, due_date, tag_id, specs, customer:customers(name)"
+      "id, crm_updated_at, user_overrides, integration_mode, customer_id, due_date, tag_id, specs, description, customer:customers(name)"
     )
     .eq("tenant_id", tenantId)
-    .eq("crm_order_id", payload.crm_order_id)
-    .maybeSingle();
+    .eq("crm_order_id", payload.crm_order_id);
+
+  const existing = existingRows?.[0];
 
   if (existing) {
     const mode = (existing as { integration_mode?: string | null })
@@ -285,10 +373,14 @@ async function createConnectedOrder(
   const dueDate = asTrimmedString(payload.due_date);
   const isRush = webhookRushFromPayload(payload) === true;
 
-  const specs: Record<string, unknown> = {
-    skus: skusFromLineItems(payload),
-    webhook_order_number: orderNumber,
-  };
+  const specs = applyV2NotesToSpecs(
+    {
+      skus: skusFromLineItems(payload),
+      webhook_order_number: orderNumber,
+    },
+    payload,
+    "create"
+  );
   if (productName) specs.webhook_item_title = productName;
   if (owner.requestOwnerSpecs) {
     Object.assign(specs, owner.requestOwnerSpecs);
@@ -306,12 +398,14 @@ async function createConnectedOrder(
     tagId = (rushTag as { id: string } | null)?.id ?? null;
   }
 
+  const notes = v2CrmNotes(payload);
   const { data: order, error } = await client
     .from("orders")
     .insert({
       tenant_id: tenantId,
       column_id: column.id,
       title: orderNumber,
+      description: notes.customer,
       customer_id: customerId,
       tag_id: tagId,
       priority: "normal",
@@ -387,6 +481,7 @@ async function updateConnectedOrder(
       tag_id: string | null;
       specs: Record<string, unknown> | null;
       user_overrides: unknown;
+      description?: string | null;
       customer: { name: string } | { name: string }[] | null;
     };
     payload: WebhookV2Payload;
@@ -394,10 +489,18 @@ async function updateConnectedOrder(
 ): Promise<WebhookV2HttpResult> {
   const { tenantId, orderId, existing, payload } = params;
   const overrides = overrideKeysOf(existing.user_overrides);
+  const notes = v2CrmNotes(payload);
+  const nextSpecs = applyV2NotesToSpecs(
+    { ...(existing.specs ?? {}) },
+    payload,
+    "update"
+  );
   const updates: Record<string, unknown> = {
     crm_snapshot: payload,
     crm_updated_at: payload.crm_updated_at,
+    specs: nextSpecs,
   };
+  if (notes.customer) updates.description = notes.customer;
 
   const changes: Array<{ field: string; from?: unknown; to?: unknown }> = [
     { field: "Order refreshed from CRM — specifications updated" },
@@ -459,7 +562,8 @@ async function updateConnectedOrder(
   if (incomingRush !== undefined && !overrides.has("rush")) {
     const prevRush = existing.specs?.rush === true;
     if (incomingRush !== prevRush) {
-      updates.specs = { ...(existing.specs ?? {}), rush: incomingRush };
+      nextSpecs.rush = incomingRush;
+      updates.specs = nextSpecs;
       changes.push({
         field: "Rush order",
         from: prevRush ? "yes" : "no",

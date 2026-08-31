@@ -48,6 +48,43 @@ export function crmTicketStaffNote(order: {
   return pickTrimmedNote(order.internal_note, order.notes);
 }
 
+/** CRM "For Customer" → card Customer note (`specs.customer_facing_note`). */
+export function crmCustomerFacingNote(
+  order: { description?: string | null },
+  item?: { description?: string | null }
+): string | null {
+  return pickTrimmedNote(item?.description, order.description);
+}
+
+/** CRM "For Designer" → card Designer note (`specs.designer_notes`). */
+export function crmDesignerNote(input: {
+  designer_information?: string | null;
+  designer_notes?: string | null;
+  notes_for_designer?: string | null;
+}): string | null {
+  return pickTrimmedNote(
+    input.designer_information,
+    input.designer_notes,
+    input.notes_for_designer
+  );
+}
+
+export function crmOrderIdFromPayload(body: {
+  crm_order_id?: string | null;
+}): string | null {
+  return pickTrimmedNote(body.crm_order_id);
+}
+
+export function crmCustomerIdFromPayload(body: {
+  crm_customer_id?: string | null;
+  customer?: { crm_id?: string | null } | null;
+}): string | null {
+  return pickTrimmedNote(
+    body.crm_customer_id,
+    body.customer?.crm_id
+  );
+}
+
 /**
  * Production notes for one line. `line_item_comment` only.
  * Item `notes` / `description` are empty from CRM and must not be used.

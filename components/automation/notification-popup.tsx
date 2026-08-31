@@ -43,25 +43,30 @@ export function NotificationPopup({
     setMounted(true);
   }, []);
 
-  async function dismissAsManual() {
+  async function dismissWithoutSending() {
     if (dismissing) return;
     setDismissing(true);
+    const channel = type === "missing_info" ? "none" : "manual";
     try {
       const { ok } = await postJsonWithTimeout<{ error?: string }>(
         "/api/notifications/send",
         {
           orderId: order.id,
           type,
-          channel: "manual",
+          channel,
           groupOrderIds,
         }
       );
       if (ok) {
-        onSaved("Saved — manual follow-up");
+        onSaved(
+          type === "missing_info"
+            ? "Not sent to the customer"
+            : "Saved — manual follow-up"
+        );
         return;
       }
     } catch {
-      // Fall through and close without persisting manual mode.
+      // Fall through and close without persisting.
     }
     setDismissing(false);
     onClose();
@@ -79,7 +84,7 @@ export function NotificationPopup({
         fieldValues={fieldValues}
         smsConfigured={smsConfigured}
         publicAppUrl={publicAppUrl}
-        onClose={dismissAsManual}
+        onClose={dismissWithoutSending}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
       />
@@ -104,7 +109,7 @@ export function NotificationPopup({
         smsConfigured={smsConfigured}
         publicAppUrl={publicAppUrl}
         groupOrderIds={groupOrderIds}
-        onClose={dismissAsManual}
+        onClose={dismissWithoutSending}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
       />

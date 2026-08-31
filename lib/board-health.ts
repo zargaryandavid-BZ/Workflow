@@ -36,6 +36,14 @@ export interface BoardHealthCounts {
   attention: number;
 }
 
+/** Active Start / In Progress load — same (cards)/SKUs as assign designer. */
+export interface BoardHealthDesignerLoad {
+  id: string;
+  name: string;
+  load: number;
+  skuCount: number;
+}
+
 export interface BoardHealthResult {
   level: BoardHealthLevel;
   label: string;
@@ -52,6 +60,8 @@ export interface BoardHealthResult {
   };
   /** Label for the open-jobs footer (e.g. Ready to Ship). */
   throughLabel: string;
+  /** Designer load in Start + In Progress, same math as the assign menu. */
+  designers: BoardHealthDesignerLoad[];
 }
 
 export const BOARD_HEALTH_META: Record<
@@ -229,6 +239,7 @@ export function buildBoardHealthResult(
     visible?: boolean;
     show?: BoardHealthResult["show"];
     throughLabel?: string;
+    designers?: BoardHealthDesignerLoad[];
   }
 ): BoardHealthResult {
   const level = scoreBoardHealth(counts);
@@ -250,6 +261,7 @@ export function buildBoardHealthResult(
       stuck: true,
     },
     throughLabel: opts?.throughLabel ?? "Ready to Ship",
+    designers: opts?.designers ?? [],
   };
 }
 

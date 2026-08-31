@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { evaluateBoardHealth } from "@/lib/board-health";
+import {
+  evaluateBoardHealth,
+  type BoardHealthDesignerLoad,
+} from "@/lib/board-health";
 import { loadEnabledCardWarningRules } from "@/lib/card-warning-rules.server";
 import { normalizeWorkingDays } from "@/lib/card-warning-rules";
+import {
+  countDesignerLoads,
+  designerLoadColumnIds,
+  sortDesignersByLoad,
+} from "@/lib/designer-load";
 import { normalizeEmergencyBalance } from "@/lib/emergency-balance";
 import type { BoardColumn, CardWarningRule } from "@/lib/types";
 
@@ -35,13 +43,18 @@ export async function GET() {
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
-  const [columnsRes, rules] = await Promise.all([
+  const [columnsRes, rules, membershipsRes] = await Promise.all([
     supabase
       .from("board_columns")
       .select("id, name, kind")
       .eq("tenant_id", tenantId)
       .order("position", { ascending: true }),
     loadEnabledCardWarningRules(supabase, tenantId),
+    supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("role", "designer"),
   ]);
 
   const columns = (columnsRes.data ?? []) as Pick<
@@ -88,5 +101,46 @@ export async function GET() {
     emergencyBalance,
   });
 
-  return NextResponse.json(health);
+  const designerIds = (membershipsRes.data ?? []).map(
+    (m: { user_id: string }) => m.user_id
+  );
+  const designers: BoardHealthDesignerLoad[] =
+    designerIds.length === 0
+      ? []
+      : await (async () => {
+          const { data: profiles } = await supabase
+            .from("profiles")
+            .select("id, full_name")
+            .in("id", designerIds);
+          const nameById = new Map(
+            (
+              (profiles ?? []) as { id: string; full_name: string | null }[]
+            ).map((p) => [p.id, p.full_name])
+          );
+          const loadColIds = designerLoadColumnIds(columns);
+          const counts = countDesignerLoads(
+            designerIds,
+            orders.map((o) => ({
+              column_id: o.column_id,
+              specs:
+                o.specs && typeof o.specs === "object"
+                  ? (o.specs as Record<string, unknown>)
+                  : null,
+            })),
+            loadColIds
+          );
+          return sortDesignersByLoad(
+            designerIds.map((id) => {
+              const stats = counts.get(id);
+              return {
+                id,
+                name: nameById.get(id)?.trim() || "Designer",
+                load: stats?.load ?? 0,
+                skuCount: stats?.skuCount ?? 0,
+              };
+            })
+          );
+        })();
+
+  return NextResponse.json({ ...health, designers });
 }

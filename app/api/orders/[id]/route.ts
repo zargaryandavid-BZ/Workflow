@@ -46,6 +46,7 @@ import type {
   ShippingRequest,
   Tag,
 } from "@/lib/types";
+import { notifyDesignerOfSalesNote } from "@/lib/user-notifications";
 
 const ORDER_QTY_NAME_SET = new Set(
   ORDER_QTY_FIELD_ALIASES.map((n) => n.toLowerCase())
@@ -619,6 +620,22 @@ export async function PATCH(
     } catch {
       // order_sku_images table may not exist yet
     }
+  }
+
+  if (updates.specs && typeof updates.specs === "object") {
+    void notifyDesignerOfSalesNote({
+      client: supabase,
+      tenantId,
+      orderId: id,
+      orderTitle: String(
+        (updates.title as string | undefined) ?? existingOrder.title ?? "order"
+      ),
+      actorId: ctx.userId,
+      actorName: ctx.fullName?.trim() || ctx.email || "Sales",
+      actorRole: ctx.role,
+      previousSpecs: existingSpecs,
+      nextSpecs: updates.specs as Record<string, unknown>,
+    }).catch((err) => console.error("[user-notifications]", err));
   }
 
   // Fire-and-forget — do not await; client doesn't need activity log data

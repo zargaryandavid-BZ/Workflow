@@ -42,7 +42,11 @@ function customerNameFromJoin(order: OrderJoin): string | null {
   return c?.name?.trim() || null;
 }
 
-function mapEntry(row: RawEntry, nowMs = Date.now()): TimeEntry {
+function mapEntry(
+  row: RawEntry,
+  nowMs = Date.now(),
+  userNames?: Map<string, string>
+): TimeEntry {
   const liveTitle = row.order?.title?.trim() || null;
   const pausedSeconds = Number(row.paused_seconds) || 0;
   return {
@@ -67,6 +71,7 @@ function mapEntry(row: RawEntry, nowMs = Date.now()): TimeEntry {
     job_title: liveTitle ?? row.order_title,
     job_number: liveTitle ?? row.order_title,
     customer_name: customerNameFromJoin(row.order ?? null),
+    user_display_name: userNames?.get(row.user_id) ?? null,
   };
 }
 
@@ -87,13 +92,17 @@ export async function GET(request: Request) {
   const jobId = searchParams.get("job_id") ?? searchParams.get("order_id");
   const userIdParam = searchParams.get("user_id");
 
+  const all = searchParams.get("all") === "true";
   const isAdmin = ctx.role === "admin";
-  let filterUserId = ctx.userId;
+  let filterUserId: string | null = ctx.userId;
   if (userIdParam) {
     if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     filterUserId = userIdParam;
+  } else if (isAdmin && ((running && all) || Boolean(jobId))) {
+    // Admins: team Active Timers, or every entry on a board card.
+    filterUserId = null;
   }
 
   const supabase = await createClient();
@@ -101,8 +110,11 @@ export async function GET(request: Request) {
     .from("time_entries")
     .select(SELECT)
     .eq("tenant_id", ctx.tenant.id)
-    .eq("user_id", filterUserId)
     .order("started_at", { ascending: false });
+
+  if (filterUserId) {
+    query = query.eq("user_id", filterUserId);
+  }
 
   if (running) {
     query = query.is("ended_at", null);
@@ -137,9 +149,20 @@ export async function GET(request: Request) {
   }
 
   const nowMs = Date.now();
-  const entries = ((data ?? []) as unknown as RawEntry[]).map((row) =>
-    mapEntry(row, nowMs)
-  );
+  const rows = (data ?? []) as unknown as RawEntry[];
+  const userIds = [...new Set(rows.map((r) => r.user_id))];
+  const userNames = new Map<string, string>();
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", userIds);
+    for (const p of (profiles ?? []) as { id: string; full_name: string | null }[]) {
+      const name = p.full_name?.trim();
+      if (name) userNames.set(p.id, name);
+    }
+  }
+  const entries = rows.map((row) => mapEntry(row, nowMs, userNames));
 
   return NextResponse.json({ entries });
 }

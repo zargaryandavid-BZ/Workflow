@@ -53,11 +53,16 @@ import {
   webhookPrintQty,
   crmTicketStaffNote,
   crmLineProductionNote,
+  crmCustomerFacingNote,
+  crmDesignerNote,
+  crmOrderIdFromPayload,
+  crmCustomerIdFromPayload,
   withOrderQtyDetails,
 } from "@/lib/webhook-crm-parse";
 import {
   mergeWebhookDesignerNotes,
   noteHistoryFromPlainText,
+  upsertCrmSeedNote,
 } from "@/lib/note-history";
 import {
   canonicalArtworkUrl,
@@ -395,6 +400,8 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   customer_phone_digits?: string;
   /** CRM `customers.id` (empty string if unlinked). Stored on card specs. */
   crm_customer_id?: string;
+  /** CRM order id — stored on the card for idempotent re-sync. */
+  crm_order_id?: string;
   /** CRM starred / key account (customers.priority_stars >= 1). */
   is_key_account?: boolean;
   /**
@@ -935,15 +942,7 @@ function resolveDesignTaskUrl(input: WebhookDesignerInput): string | null {
  * buildWebhookOrderDescription), not Design files.
  */
 function resolveDesignNotes(input: WebhookDesignerInput): string | null {
-  for (const key of [
-    "designer_information",
-    "designer_notes",
-    "notes_for_designer",
-  ] as const) {
-    const raw = input[key];
-    if (typeof raw === "string" && raw.trim()) return raw.trim();
-  }
-  return null;
+  return crmDesignerNote(input);
 }
 
 /** Non-URL design_task text — CRM often sent line comments here by mistake. */
@@ -1405,7 +1404,7 @@ function mergeItemWithOrder(
       Array.isArray(item.artwork_files) && item.artwork_files.length > 0
         ? item.artwork_files
         : order.artwork_files,
-    description: firstNonEmpty(item.description),
+    description: firstNonEmpty(item.description, order.description),
     // Item notes/description are empty from CRM. Order-level `notes` is staff
     // Internal notes on every card — do not copy onto the line as production text.
     internal_note: firstNonEmpty(item.internal_note),
@@ -2740,14 +2739,15 @@ async function findExistingWebhookOrders(
   tenantId: string,
   webhookOrderNumber: string,
   shortBase: string,
-  itemCount: number
+  itemCount: number,
+  crmOrderId?: string | null
 ): Promise<{ id: string; title: string; specs: Record<string, unknown> }[]> {
   const titles =
     itemCount > 1
       ? Array.from({ length: itemCount }, (_, i) => `${shortBase}-${i + 1}`)
       : [shortBase];
 
-  const [{ data: bySpec }, { data: byTitle }] = await Promise.all([
+  const lookups = [
     client
       .from("orders")
       .select("id, title, specs")
@@ -2760,23 +2760,44 @@ async function findExistingWebhookOrders(
       .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .in("title", titles),
-  ]);
+  ];
+  const trimmedCrmId = crmOrderId?.trim() ?? "";
+  if (trimmedCrmId) {
+    lookups.push(
+      client
+        .from("orders")
+        .select("id, title, specs")
+        .eq("tenant_id", tenantId)
+        .is("removed_at", null)
+        .eq("crm_order_id", trimmedCrmId),
+      client
+        .from("orders")
+        .select("id, title, specs")
+        .eq("tenant_id", tenantId)
+        .is("removed_at", null)
+        .filter("specs->>crm_order_id", "eq", trimmedCrmId)
+    );
+  }
+
+  const results = await Promise.all(lookups);
 
   const byId = new Map<
     string,
     { id: string; title: string; specs: Record<string, unknown> }
   >();
-  for (const row of [...(bySpec ?? []), ...(byTitle ?? [])]) {
-    const id = row.id as string;
-    if (byId.has(id)) continue;
-    byId.set(id, {
-      id,
-      title: (row.title as string) ?? "",
-      specs: ((row.specs as Record<string, unknown> | null) ?? {}) as Record<
-        string,
-        unknown
-      >,
-    });
+  for (const res of results) {
+    for (const row of res.data ?? []) {
+      const id = row.id as string;
+      if (byId.has(id)) continue;
+      byId.set(id, {
+        id,
+        title: (row.title as string) ?? "",
+        specs: ((row.specs as Record<string, unknown> | null) ?? {}) as Record<
+          string,
+          unknown
+        >,
+      });
+    }
   }
   return [...byId.values()];
 }
@@ -2785,6 +2806,9 @@ async function findExistingWebhookOrders(
  * CRM / portal re-fire: copy designer_notes onto the ticket Designer note
  * field (`specs.designer_notes`). Previously they only filled the hidden
  * "Designer Information" custom field, so cards like 702 never showed them.
+ *
+ * Also maps Customer note, Production notes (CRM seed only), and CRM ids.
+ * Empty incoming fields do not clear staff-authored notes.
  */
 async function refreshExistingOrderDesignerNotes(
   client: Client,
@@ -2796,14 +2820,30 @@ async function refreshExistingOrderDesignerNotes(
   const sorted = [...existing].sort((a, b) =>
     a.title.localeCompare(b.title, undefined, { numeric: true })
   );
+  const crmOrderId = crmOrderIdFromPayload(body);
+  const crmCustomerId = crmCustomerIdFromPayload(body);
+  const orderProductionNotes = pickTrimmedNote(
+    body.production_notes,
+    body.notes_for_production,
+    body.line_item_comment
+  );
+  const orderCustomerNote = crmCustomerFacingNote(body);
+
   for (let i = 0; i < sorted.length && i < items.length; i++) {
     const order = sorted[i]!;
-    const notes = resolveDesignNotes(mergeItemWithOrder(body, items[i]!));
-    if (!notes) continue;
+    const merged = mergeItemWithOrder(body, items[i]!);
+    const designNotes = crmDesignerNote(merged) ?? resolveDesignNotes(merged);
+    const customerNote = crmCustomerFacingNote(body, merged) ?? orderCustomerNote;
+    const { skuComments } = normalizeWebhookSkus(merged.skus);
+    const productionPlain = resolveCardProductionNotes({
+      item: merged,
+      skuComments,
+      orderProductionNotes,
+    });
 
     const { data: freshRow } = await client
       .from("orders")
-      .select("specs")
+      .select("id, description, crm_order_id, specs")
       .eq("id", order.id)
       .eq("tenant_id", tenantId)
       .maybeSingle();
@@ -2811,21 +2851,80 @@ async function refreshExistingOrderDesignerNotes(
       freshRow?.specs && typeof freshRow.specs === "object"
         ? (freshRow.specs as Record<string, unknown>)
         : (order.specs ?? {});
-    const existingRaw =
-      typeof specs.designer_notes === "string" ? specs.designer_notes : null;
-    const next = mergeWebhookDesignerNotes(existingRaw, notes);
-    if (!next || next === existingRaw) continue;
+
+    const nextSpecs: Record<string, unknown> = { ...specs };
+    let specsChanged = false;
+
+    if (designNotes) {
+      const existingRaw =
+        typeof specs.designer_notes === "string" ? specs.designer_notes : null;
+      const next = mergeWebhookDesignerNotes(existingRaw, designNotes);
+      if (next && next !== existingRaw) {
+        nextSpecs.designer_notes = next;
+        specsChanged = true;
+      }
+    }
+
+    if (customerNote) {
+      const existingCustomer =
+        typeof specs.customer_facing_note === "string"
+          ? specs.customer_facing_note.trim()
+          : "";
+      if (existingCustomer !== customerNote) {
+        nextSpecs.customer_facing_note = customerNote;
+        specsChanged = true;
+      }
+    }
+
+    if (productionPlain) {
+      const existingProd =
+        typeof specs.production_notes === "string"
+          ? specs.production_notes
+          : null;
+      const nextProd = upsertCrmSeedNote(existingProd, productionPlain);
+      if (nextProd && nextProd !== existingProd) {
+        nextSpecs.production_notes = nextProd;
+        specsChanged = true;
+      }
+    }
+
+    if (crmOrderId && specs.crm_order_id !== crmOrderId) {
+      nextSpecs.crm_order_id = crmOrderId;
+      specsChanged = true;
+    }
+    if (crmCustomerId && specs.crm_customer_id !== crmCustomerId) {
+      nextSpecs.crm_customer_id = crmCustomerId;
+      specsChanged = true;
+    }
+
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (specsChanged) patch.specs = nextSpecs;
+    if (customerNote) {
+      const existingDesc =
+        typeof freshRow?.description === "string"
+          ? freshRow.description.trim()
+          : "";
+      if (existingDesc !== customerNote) patch.description = customerNote;
+    }
+    const existingCrmCol =
+      typeof freshRow?.crm_order_id === "string"
+        ? freshRow.crm_order_id.trim()
+        : "";
+    if (crmOrderId && existingCrmCol !== crmOrderId) {
+      patch.crm_order_id = crmOrderId;
+    }
+
+    if (Object.keys(patch).length <= 1) continue;
 
     const { error } = await client
       .from("orders")
-      .update({
-        specs: { ...specs, designer_notes: next },
-        updated_at: new Date().toISOString(),
-      })
+      .update(patch)
       .eq("id", order.id)
       .eq("tenant_id", tenantId);
     if (error) {
-      console.error("[webhook/orders] designer notes refresh error:", {
+      console.error("[webhook/orders] CRM notes refresh error:", {
         order_id: order.id,
         message: error.message,
       });
@@ -3183,6 +3282,8 @@ interface CreateSingleJobParams {
   isRush?: boolean;
   /** CRM `customers.id` stamped on specs for matching. */
   crmCustomerId?: string | null;
+  /** CRM order id stamped on the card + specs for re-sync. */
+  crmOrderId?: string | null;
   item: WebhookItem;
   priority: string;
   dueDate: string | null;
@@ -3279,6 +3380,7 @@ async function createSingleWebhookJob(
     isKeyAccount,
     isRush,
     crmCustomerId = null,
+    crmOrderId = null,
     requestOwnerSpecs,
     designerId,
     designerName,
@@ -3386,19 +3488,27 @@ async function createSingleWebhookJob(
 
   const itemDescription =
     typeof item.description === "string" ? item.description.trim() : null;
-  const orderDescriptionText = buildWebhookOrderDescription({
-    orderDescription,
-    itemDescription,
-    misroutedDesignTask,
-  });
-  // CRM description → Notes → Customer note. Order Description field retired.
+  const orderDescriptionText =
+    crmCustomerFacingNote(
+      { description: orderDescription },
+      { description: itemDescription }
+    ) ??
+    buildWebhookOrderDescription({
+      orderDescription,
+      itemDescription,
+      misroutedDesignTask,
+    });
+  // CRM description → Customer note (specs.customer_facing_note + orders.description).
   const customerFacingNoteText = orderDescriptionText;
   const notesText = noteHistoryFromPlainText(internalNote, "CRM");
-  const productionNotesText = resolveCardProductionNotes({
+  const productionNotesPlain = resolveCardProductionNotes({
     item,
     skuComments,
     orderProductionNotes,
   });
+  const productionNotesText = productionNotesPlain
+    ? noteHistoryFromPlainText(productionNotesPlain, "CRM")
+    : null;
 
   const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs, ...dueSpecs };
   // New quote-system per-product parameters from the CRM (combos, pouches, apparel,
@@ -3456,6 +3566,13 @@ async function createSingleWebhookJob(
   if (typeof crmCustomerId === "string" && crmCustomerId.trim()) {
     specs.crm_customer_id = crmCustomerId.trim();
   }
+  const stampedCrmOrderId =
+    typeof crmOrderId === "string" && crmOrderId.trim()
+      ? crmOrderId.trim()
+      : "";
+  if (stampedCrmOrderId) {
+    specs.crm_order_id = stampedCrmOrderId;
+  }
   // Always stamp for idempotent due-date updates on later CRM webhooks.
   specs.webhook_order_number = webhookOrderNumber;
   // Per-line display title (card + "Line item name"). Always stamp so single-item
@@ -3485,7 +3602,7 @@ async function createSingleWebhookJob(
       tenant_id: tenantId,
       column_id: effectiveColumnId,
       title: cardTitle,
-      description: null,
+      description: customerFacingNoteText,
       internal_note: notesText,
       customer_id: customerId,
       tag_id: tagId,
@@ -3496,6 +3613,7 @@ async function createSingleWebhookJob(
       created_by: ownerId,
       last_moved_at: new Date().toISOString(),
       webhook_source: webhookSource,
+      crm_order_id: stampedCrmOrderId || null,
     })
     .select("id, title")
     .single();
@@ -3642,8 +3760,11 @@ export async function createOrderFromWebhook(
     payloadTitle && !isOrderNumberLikeTitle(payloadTitle, baseOrderNumber)
       ? payloadTitle
       : shortBaseOrderNumber;
+  const crmOrderId = crmOrderIdFromPayload(body);
+  const crmCustomerId = crmCustomerIdFromPayload(body);
   const orderDescription =
-    typeof body.description === "string" ? body.description.trim() : null;
+    crmCustomerFacingNote(body) ??
+    (typeof body.description === "string" ? body.description.trim() : null);
 
   const tenantId = config.tenant_id;
   let webhookSource = canonicalizeWebhookSourceKey(
@@ -3673,7 +3794,8 @@ export async function createOrderFromWebhook(
     tenantId,
     baseOrderNumber,
     shortBaseOrderNumber,
-    items.length
+    items.length,
+    crmOrderId
   );
   if (existingOrders.length > 0) {
     await updateExistingOrdersDue(
@@ -3792,7 +3914,7 @@ export async function createOrderFromWebhook(
       const warning =
         webhookSource === "portal"
           ? "Updated existing portal order(s); no new cards created."
-          : "Updated due date on existing order(s); no new cards created.";
+          : "Updated existing order(s); no new cards created.";
       if (sorted.length === 1 && items.length <= 1) {
         return {
           isMultiItem: false,
@@ -4104,8 +4226,8 @@ export async function createOrderFromWebhook(
       customerName: customerInfo.customerName,
       orderContact: customerInfo.orderContact,
       isKeyAccount: body.is_key_account === true,
-      crmCustomerId:
-        typeof body.crm_customer_id === "string" ? body.crm_customer_id.trim() : "",
+      crmCustomerId: crmCustomerId ?? "",
+      crmOrderId: crmOrderId ?? "",
       isRush,
       item,
       priority,

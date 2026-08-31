@@ -14,7 +14,12 @@ import {
   type HealthColumn,
 } from "@/lib/board-health";
 import { businessDateString } from "@/lib/board-order-filters";
-import { isDesignerLoadColumn, isInProgressColumn, isStartColumn } from "@/lib/designer-load";
+import {
+  designerSkuRowCount,
+  isDesignerLoadColumn,
+  isInProgressColumn,
+  isStartColumn,
+} from "@/lib/designer-load";
 import type { EmergencyBalanceConfig } from "@/lib/emergency-balance";
 import { columnsForQuickFilter } from "@/lib/emergency-quick-filters";
 import { stageKey } from "@/lib/stage-groups";
@@ -45,7 +50,10 @@ export interface ColumnLatencyRow {
 export interface DesignerLatencyRow {
   designerId: string;
   name: string;
+  /** Active cards in Start + In Progress. */
   activeCount: number;
+  /** SKU rows on those cards — same as assign-designer load. */
+  skuCount: number;
   stuckCount: number;
   lateCount: number;
   avgHoursInColumn: number | null;
@@ -277,13 +285,20 @@ export function buildBoardHealthSituation(opts: {
 
   type DesAcc = {
     active: number;
+    skuCount: number;
     stuck: number;
     late: number;
     hours: number[];
   };
   const byDesigner = new Map<string, DesAcc>();
   for (const d of opts.designers) {
-    byDesigner.set(d.id, { active: 0, stuck: 0, late: 0, hours: [] });
+    byDesigner.set(d.id, {
+      active: 0,
+      skuCount: 0,
+      stuck: 0,
+      late: 0,
+      hours: [],
+    });
   }
 
   const allStuckHours: number[] = [];
@@ -367,6 +382,7 @@ export function buildBoardHealthSituation(opts: {
     if (did && byDesigner.has(did) && designerActiveIds.has(order.column_id)) {
       const dAcc = byDesigner.get(did)!;
       dAcc.active += 1;
+      dAcc.skuCount += designerSkuRowCount(order.specs);
       if (hoursHere != null) dAcc.hours.push(hoursHere);
       if (stuck) dAcc.stuck += 1;
       if (isLate) dAcc.late += 1;
@@ -404,6 +420,7 @@ export function buildBoardHealthSituation(opts: {
         designerId: d.id,
         name: d.name,
         activeCount: acc.active,
+        skuCount: acc.skuCount,
         stuckCount: acc.stuck,
         lateCount: acc.late,
         avgHoursInColumn: round1(avg(acc.hours)),
@@ -412,7 +429,11 @@ export function buildBoardHealthSituation(opts: {
     .filter((r) => r.activeCount > 0 || r.stuckCount > 0 || r.lateCount > 0)
     .sort((a, b) => {
       if (b.stuckCount !== a.stuckCount) return b.stuckCount - a.stuckCount;
-      return (b.avgHoursInColumn ?? 0) - (a.avgHoursInColumn ?? 0);
+      if ((b.avgHoursInColumn ?? 0) !== (a.avgHoursInColumn ?? 0)) {
+        return (b.avgHoursInColumn ?? 0) - (a.avgHoursInColumn ?? 0);
+      }
+      if (b.activeCount !== a.activeCount) return b.activeCount - a.activeCount;
+      return b.skuCount - a.skuCount;
     })
     .slice(0, 10);
 
@@ -461,7 +482,7 @@ export function buildBoardHealthAnalyzePrompt(
     "3) Design stage dwell: Start avg + In Progress avg (startColumnDwell / inProgressColumnDwell)",
     "4) Production floor dwell: Hrach avg, Apparel queue avg, Apparel production time (apparelProductionColumnDwell), and In Production avg",
     "5) Start-to-finish turnaround vs stuck idle time",
-    "6) Designer latency hotspots in Start + In Progress columns only (who / how long)",
+    "6) Designer latency hotspots in Start + In Progress columns only (who / cards / SKUs / how long). Use activeCount as cards and skuCount as SKU rows — same as the assign-designer load label Name (cards)/SKUs.",
     "7) End with a section titled exactly 'Next actions:' on its own line, then exactly three numbered next steps as '1. …' '2. …' '3. …' (no bullet characters in that section).",
     "Keep the whole reply under 280 words. No markdown headings with #. Use short paragraphs and • bullets only outside the Top 3 bottlenecks and Next actions sections.",
     "When citing designerLatency, say they are Start / In Progress column stats.",
@@ -546,7 +567,7 @@ export function formatSituationFallback(
   }
   if (topDes) {
     lines.push(
-      `• Highest designer latency (Start / In Progress): ${topDes.name} — ${topDes.stuckCount} stuck / ${topDes.lateCount} late` +
+      `• Highest designer latency (Start / In Progress): ${topDes.name} — ${topDes.activeCount} cards / ${topDes.skuCount} SKUs, ${topDes.stuckCount} stuck / ${topDes.lateCount} late` +
         (topDes.avgHoursInColumn != null
           ? `, avg ${topDes.avgHoursInColumn}h in column.`
           : ".")

@@ -6,9 +6,11 @@ import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import {
   BOARD_HEALTH_META,
+  type BoardHealthDesignerLoad,
   type BoardHealthLevel,
   type BoardHealthResult,
 } from "@/lib/board-health";
+import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 
 const EMPTY: BoardHealthResult = {
   level: 5,
@@ -30,6 +32,7 @@ const EMPTY: BoardHealthResult = {
     stuck: true,
   },
   throughLabel: "Ready to Ship",
+  designers: [],
 };
 
 interface BoardHealthButtonProps {
@@ -132,6 +135,7 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
   const c = result.counts;
   const show = result.show ?? EMPTY.show;
   const throughLabel = result.throughLabel ?? EMPTY.throughLabel;
+  const designers = result.designers ?? [];
 
   return (
     <div ref={wrapRef} className="relative shrink-0">
@@ -178,6 +182,21 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
               <HealthRow label="Stuck" count={c.stuck} tone="stuck" />
             ) : null}
           </div>
+          {designers.length > 0 ? (
+            <div className="mt-2 border-t border-slate-100 pt-2">
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Designer load
+              </p>
+              <div className="max-h-40 overflow-y-auto">
+                {designers.map((d) => (
+                  <DesignerLoadRow key={d.id} designer={d} />
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Start / In Progress cards / SKUs
+              </p>
+            </div>
+          ) : null}
           <p className="mt-2 text-[11px] text-slate-400">
             Open jobs through {throughLabel}: {c.open}
           </p>
@@ -224,6 +243,17 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function DesignerLoadRow({ designer }: { designer: BoardHealthDesignerLoad }) {
+  return (
+    <div className="flex items-center justify-between gap-2 py-1 text-sm">
+      <span className="truncate text-slate-700">{designer.name}</span>
+      <span className="shrink-0 tabular-nums text-slate-500">
+        {formatDesignerLoadSuffix(designer.load, designer.skuCount)}
+      </span>
     </div>
   );
 }
