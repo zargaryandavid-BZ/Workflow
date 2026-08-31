@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity, onEnterColumn } from "@/lib/automation";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
+import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
+import { resequenceDesignerQueue } from "@/lib/designer-queue.server";
 import { canMove } from "@/lib/permissions";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
@@ -247,6 +249,31 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  // When a card leaves the designer queue (finished or moved to another column),
+  // renumber that designer's remaining Start/In-Progress cards so the next in
+  // line becomes #1 instead of leaving a gap. Done inline so the board's refetch
+  // shows the new order immediately.
+  if (
+    isColumnChange &&
+    isDesignerQueueColumnName(typedFromColumn.name) &&
+    !isDesignerQueueColumnName(typedColumn.name)
+  ) {
+    const designerId = (typedOrder.specs as { designer_id?: unknown } | null)
+      ?.designer_id;
+    try {
+      await resequenceDesignerQueue(
+        supabase,
+        tenantId,
+        typeof designerId === "string" ? designerId : null
+      );
+    } catch (err: unknown) {
+      console.error(
+        "[move] designer queue resequence failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   if (isColumnChange) {
