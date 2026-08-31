@@ -686,13 +686,13 @@ export function OrderCard({
     : ownerName?.trim() || "—";
   const designerLabel = designerName ?? "Unassigned";
 
-  // Live work timer for this card (this user). Running → the card turns green
-  // with a ticking elapsed time; paused → a muted green.
+  // Live work timer for this card (this user). Only an actively-running timer
+  // colors the card green; paused (jumped to another job) leaves it colorless
+  // so the board shows at a glance what's actually being worked on right now.
   const activeTimer = useActiveTimer();
   const orderTimer = activeTimer.forOrder(order.id);
   const workedSeconds = activeTimer.workedTotalForOrder(order.id);
   const timerRunning = orderTimer?.running ?? false;
-  const timerPaused = orderTimer?.paused ?? false;
 
   return (
     <div
@@ -722,9 +722,8 @@ export function OrderCard({
           ? `warning-${activeWarning.rule.color}`
           : "",
         highlighted && "card-just-closed",
-        // Active work timer overrides the card fill so it's unmistakable.
-        timerRunning && "!border-emerald-500 !bg-emerald-100 ring-2 ring-emerald-300",
-        timerPaused && "!border-emerald-300 !bg-emerald-50"
+        // Only an actively-running timer colors the card; paused stays neutral.
+        timerRunning && "!border-emerald-500 !bg-emerald-100 ring-2 ring-emerald-300"
       )}
       data-order-card=""
       data-order-id={order.id}
