@@ -2035,6 +2035,7 @@ export function Board({
           o.id in posById
             ? {
                 ...o,
+                queue_rank: posById[o.id] + 1,
                 specs: {
                   ...(o.specs ?? {}),
                   designer_queue_pos: posById[o.id],
