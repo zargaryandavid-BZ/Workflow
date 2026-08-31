@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
+import { logActivity } from "@/lib/automation";
 import {
   durationSeconds,
   isActivityType,
@@ -244,7 +245,33 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ entry: mapEntry(data as unknown as RawEntry) });
+  const entry = mapEntry(data as unknown as RawEntry);
+
+  // Mirror pause/resume/finish into the card Activity feed (with the pause reason).
+  if (entry.order_id) {
+    let timerAction: string | null = null;
+    let timerMeta: Record<string, unknown> = {};
+    if (action === "pause") {
+      timerAction = "timer_paused";
+      timerMeta = { reason: patch.pause_reason ?? null };
+    } else if (action === "resume") {
+      timerAction = "timer_resumed";
+    } else if (body.ended_at !== undefined && body.ended_at !== null) {
+      timerAction = "timer_stopped";
+      timerMeta = { seconds: entry.duration_seconds };
+    }
+    if (timerAction) {
+      await logActivity(supabase, {
+        tenantId: ctx.tenant.id,
+        orderId: entry.order_id,
+        actor: ctx.userId,
+        action: timerAction,
+        metadata: timerMeta,
+      }).catch(() => {});
+    }
+  }
+
+  return NextResponse.json({ entry });
 }
 
 export async function DELETE(

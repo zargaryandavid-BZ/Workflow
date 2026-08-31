@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
+import { logActivity } from "@/lib/automation";
 import {
   durationSeconds,
   isActivityType,
@@ -220,6 +221,17 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Log to the card Activity feed so the timeline shows work started.
+  if (orderId) {
+    await logActivity(supabase, {
+      tenantId: ctx.tenant.id,
+      orderId,
+      actor: ctx.userId,
+      action: "timer_started",
+      metadata: {},
+    }).catch(() => {});
   }
 
   return NextResponse.json(
