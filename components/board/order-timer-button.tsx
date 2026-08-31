@@ -16,6 +16,7 @@ export function OrderTimerButton({ orderId }: { orderId: string | null }) {
     <CardTimerControl
       orderId={orderId}
       timer={timer}
+      workedSeconds={activeTimer.workedTotalForOrder(orderId)}
       busy={activeTimer.busyOrderId === orderId}
       onStart={() => void activeTimer.start(orderId)}
       onPause={(reason) => timer && void activeTimer.pause(timer.entry.id, reason)}
