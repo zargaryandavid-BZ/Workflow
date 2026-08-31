@@ -25,6 +25,8 @@ import {
   Pencil,
   Plus,
   Trash2,
+  GitMerge,
+  Undo2,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -123,9 +125,38 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
   const [columns, setColumns] = useState<BoardColumn[]>(initialColumns);
   const [editing, setEditing] = useState<BoardColumn | "new" | null>(null);
   const [deleting, setDeleting] = useState<BoardColumn | null>(null);
+  const [merging, setMerging] = useState<BoardColumn | null>(null);
+  const [undoPending, setUndoPending] = useState(0);
+  const [undoing, setUndoing] = useState(false);
   const [tab, setTab] = useState<"columns" | "staff">("columns");
 
   useEffect(() => setColumns(initialColumns), [initialColumns]);
+
+  const refreshUndoPending = async () => {
+    try {
+      const res = await fetch("/api/columns/merge/undo");
+      const json = (await res.json()) as { pending?: number };
+      setUndoPending(json.pending ?? 0);
+    } catch {
+      /* ignore */
+    }
+  };
+  useEffect(() => {
+    void refreshUndoPending();
+  }, []);
+
+  async function undoLastMerge() {
+    setUndoing(true);
+    try {
+      const res = await fetch("/api/columns/merge/undo", { method: "POST" });
+      if (res.ok) {
+        await refreshUndoPending();
+        router.refresh();
+      }
+    } finally {
+      setUndoing(false);
+    }
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -180,9 +211,22 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
           </button>
         </div>
         {tab === "columns" ? (
-          <Button onClick={() => setEditing("new")}>
-            <Plus className="h-4 w-4" /> Add column
-          </Button>
+          <div className="flex items-center gap-2">
+            {undoPending > 0 ? (
+              <Button
+                variant="ghost"
+                onClick={() => void undoLastMerge()}
+                disabled={undoing}
+                title="Recreate the merged column and move every card back to where it was"
+              >
+                <Undo2 className="h-4 w-4" />
+                {undoing ? "Undoing…" : `Undo merge (${undoPending})`}
+              </Button>
+            ) : null}
+            <Button onClick={() => setEditing("new")}>
+              <Plus className="h-4 w-4" /> Add column
+            </Button>
+          </div>
         ) : null}
       </div>
 
@@ -220,6 +264,7 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
                   orderCount={orderCounts[col.id] ?? 0}
                   onEdit={() => setEditing(col)}
                   onDelete={() => setDeleting(col)}
+                  onMerge={() => setMerging(col)}
                 />
               ))}
             </ul>
@@ -251,6 +296,20 @@ export function ColumnsManager({ initialColumns, orderCounts, members }: Props) 
           }}
         />
       ) : null}
+
+      {merging ? (
+        <MergeColumnDialog
+          column={merging}
+          columns={columns}
+          orderCount={orderCounts[merging.id] ?? 0}
+          onClose={() => setMerging(null)}
+          onMerged={() => {
+            setMerging(null);
+            void refreshUndoPending();
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -261,12 +320,14 @@ function SortableColumnRow({
   orderCount,
   onEdit,
   onDelete,
+  onMerge,
 }: {
   col: BoardColumn;
   index: number;
   orderCount: number;
   onEdit: () => void;
   onDelete: () => void;
+  onMerge: () => void;
 }) {
   const {
     attributes,
@@ -350,6 +411,15 @@ function SortableColumnRow({
           aria-label="Edit column"
         >
           <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onMerge}
+          className="rounded p-1.5 text-slate-400 hover:bg-blue-100 hover:text-blue-600"
+          aria-label="Merge column into another"
+          title="Merge this column into another (reversible)"
+        >
+          <GitMerge className="h-4 w-4" />
         </button>
         <button
           type="button"
@@ -717,6 +787,97 @@ function DeleteColumnDialog({
           This column is empty. Are you sure you want to delete it?
         </p>
       )}
+      {error ? (
+        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+          {error}
+        </p>
+      ) : null}
+    </Modal>
+  );
+}
+
+function MergeColumnDialog({
+  column,
+  columns,
+  orderCount,
+  onClose,
+  onMerged,
+}: {
+  column: BoardColumn;
+  columns: BoardColumn[];
+  orderCount: number;
+  onClose: () => void;
+  onMerged: () => void;
+}) {
+  const others = columns.filter((c) => c.id !== column.id);
+  const [toId, setToId] = useState(others[0]?.id ?? "");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const target = others.find((c) => c.id === toId);
+
+  async function confirmMerge() {
+    setError(null);
+    setLoading(true);
+    const res = await fetch("/api/columns/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fromColumnId: column.id, toColumnId: toId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setLoading(false);
+    if (!res.ok) {
+      setError(json.error ?? "Failed to merge");
+      return;
+    }
+    onMerged();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Merge "${column.name}" into another column`}
+      footer={
+        <>
+          <Button variant="ghost" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={confirmMerge} disabled={loading || !toId}>
+            {loading ? "Merging…" : "Merge"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-sm text-slate-600">
+          Moves{" "}
+          <span className="font-semibold text-slate-800">
+            {orderCount} job{orderCount === 1 ? "" : "s"}
+          </span>{" "}
+          into the column below, then removes{" "}
+          <span className="font-semibold text-slate-800">{column.name}</span>.
+          Each card keeps its designer, queue number, files, and history.
+        </p>
+        <div>
+          <Label htmlFor="merge-into">Merge into</Label>
+          <Select
+            id="merge-into"
+            value={toId}
+            onChange={(e) => setToId(e.target.value)}
+          >
+            {others.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+          Reversible: use <span className="font-semibold">Undo merge</span> at the
+          top to recreate {column.name}
+          {target ? ` and move every card back out of ${target.name}` : ""}.
+        </p>
+      </div>
       {error ? (
         <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
           {error}
