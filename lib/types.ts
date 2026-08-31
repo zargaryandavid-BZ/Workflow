@@ -311,6 +311,12 @@ export interface Order {
    * `local` / null uses custom_field_values.
    */
   integration_mode?: IntegrationMode | null;
+  /**
+   * Computed at fetch time (not stored): the card's 1-based position in its
+   * designer's Start + In Progress queue. null when the card has no designer or
+   * is outside those columns. Used for the on-card queue rank badge.
+   */
+  queue_rank?: number | null;
 }
 
 export type CardWarningColor = "amber" | "orange" | "red" | "purple" | "blue" | "pink";

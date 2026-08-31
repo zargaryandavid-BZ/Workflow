@@ -11,6 +11,8 @@ import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type { BoardThumbnail } from "@/lib/card-image";
 import type { OrderWithRelations } from "@/lib/types";
+import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
+import { rankDesignerQueue } from "@/lib/designer-queue-rank";
 
 export const PAGE_SIZE = 25;
 
@@ -194,6 +196,10 @@ export async function GET(req: NextRequest) {
 
     const enrichment = await enrichBoardOrders(supabase, orders);
 
+    // Designer queue rank (#N badge): only for Start / In Progress columns.
+    // Computed live so the badge works with zero stored data on any tenant.
+    await attachQueueRanks(supabase, tenantId, columnId, orders);
+
     const response: ColumnOrdersResponse = {
       orders,
       ...enrichment,
@@ -215,5 +221,87 @@ export async function GET(req: NextRequest) {
       },
       { status: transient ? 503 : 500 }
     );
+  }
+}
+
+/**
+ * Attach `queue_rank` to each order when the fetched column is Start / In
+ * Progress. Ranks a designer's cards across BOTH those columns so the number is
+ * their true queue position, honoring any saved order first. Mutates `orders`.
+ */
+async function attachQueueRanks(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  tenantId: string,
+  columnId: string,
+  orders: OrderWithRelations[]
+): Promise<void> {
+  if (orders.length === 0) return;
+
+  const { data: cols } = await supabase
+    .from("board_columns")
+    .select("id, name")
+    .eq("tenant_id", tenantId);
+  const columnsById = new Map<string, string>(
+    (cols ?? []).map((c: { id: string; name: string }) => [c.id, c.name])
+  );
+  const currentName = columnsById.get(columnId);
+  if (!isDesignerQueueColumnName(currentName)) return;
+
+  const queueColumnIds = (cols ?? [])
+    .filter((c: { name: string }) => isDesignerQueueColumnName(c.name))
+    .map((c: { id: string }) => c.id);
+  if (queueColumnIds.length === 0) return;
+
+  const designerIds = Array.from(
+    new Set(
+      orders
+        .map((o) => {
+          const d = (o.specs as { designer_id?: unknown } | null)?.designer_id;
+          return typeof d === "string" && d ? d : null;
+        })
+        .filter((d): d is string => Boolean(d))
+    )
+  );
+  if (designerIds.length === 0) return;
+
+  const { data: rows } = await supabase
+    .from("orders")
+    .select("id, priority, due_date, specs")
+    .eq("tenant_id", tenantId)
+    .in("column_id", queueColumnIds)
+    .in("specs->>designer_id", designerIds)
+    .is("removed_at", null)
+    .limit(4000);
+
+  const rankByOrder = rankDesignerQueue(
+    (rows ?? []).map(
+      (r: {
+        id: string;
+        priority: string | null;
+        due_date: string | null;
+        specs: unknown;
+      }) => {
+        const specs = (r.specs ?? {}) as Record<string, unknown>;
+        const posRaw = specs.designer_queue_pos;
+        const pos =
+          typeof posRaw === "number"
+            ? posRaw
+            : Number.isFinite(Number(posRaw))
+              ? Number(posRaw)
+              : null;
+        return {
+          id: r.id,
+          designerId: String(specs.designer_id ?? ""),
+          queuePos: pos,
+          priority: r.priority,
+          dueDate: r.due_date,
+        };
+      }
+    )
+  );
+
+  for (const o of orders) {
+    o.queue_rank = rankByOrder[o.id] ?? null;
   }
 }
