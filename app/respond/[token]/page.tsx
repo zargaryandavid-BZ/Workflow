@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  collectSkuApprovalImages,
+  imagesBySkuId,
   buildRespondOrderRows,
   skusForRespond,
   type RespondOrderAsset,
@@ -38,8 +40,9 @@ import type {
 import type { SkuItem } from "@/lib/skus";
 import {
   decisionsBySkuId,
+  imageDecisionsByKey,
   parseSkuApprovalNote,
-  skuLabel,
+  skuApprovalDisplayLines,
 } from "@/lib/sku-approval";
 
 interface NotificationRow {
@@ -266,6 +269,8 @@ export default async function RespondPage({
 
   let headerTitle = notification.order_title;
   let orderReview: React.ReactNode = null;
+  let reviewAssets: RespondOrderAsset[] = [];
+  let reviewSkuImages: Record<string, RespondSkuImage[]> = {};
 
   if (notification.type === "ready_to_ship") {
     const admin = createAdminClient();
@@ -384,6 +389,8 @@ export default async function RespondPage({
         skuImages={skuImages}
       />
     );
+    reviewAssets = assets;
+    reviewSkuImages = skuImages;
   }
 
   if (expired && !alreadyDone) {
@@ -406,10 +413,20 @@ export default async function RespondPage({
     const customerNote = notification.customer_note?.trim() || null;
     const staffNote = notification.staff_note?.trim() || null;
     const parsedSku = parseSkuApprovalNote(customerNote);
-    const skuDecisionById = decisionsBySkuId(notifSkus, parsedSku.entries);
+    const skuDecisionById = decisionsBySkuId(
+      notifSkus,
+      parsedSku.entries,
+      parsedSku.imageEntries
+    );
+    const imageByKey = imageDecisionsByKey(
+      notifSkus,
+      imagesBySkuId(notifSkus, reviewAssets, reviewSkuImages),
+      parsedSku.imageEntries
+    );
+    const displayLines = skuApprovalDisplayLines(parsedSku);
     const mixed =
-      parsedSku.entries.some((e) => e.decision === "approved") &&
-      parsedSku.entries.some((e) => e.decision === "rejected");
+      displayLines.some((e) => e.decision === "approved") &&
+      displayLines.some((e) => e.decision === "rejected");
 
     const statusTitle = mixed
       ? "Partial approval"
@@ -427,8 +444,12 @@ export default async function RespondPage({
           : "We already received your response. Thank you!";
 
     const reviewWithSkuStatus =
-      parsedSku.entries.length > 0 ? (
-        <SkuDecisionProvider mode="result" byId={skuDecisionById}>
+      displayLines.length > 0 ? (
+        <SkuDecisionProvider
+          mode="result"
+          byId={skuDecisionById}
+          byImageKey={imageByKey}
+        >
           {orderReview}
         </SkuDecisionProvider>
       ) : (
@@ -449,11 +470,11 @@ export default async function RespondPage({
           >
             <h1 className="text-lg font-semibold">{statusTitle}</h1>
             <p className="mt-1 text-sm opacity-90">{statusBody}</p>
-            {parsedSku.entries.length > 0 ? (
+            {displayLines.length > 0 ? (
               <ul className="mt-3 space-y-1.5 text-left">
-                {parsedSku.entries.map((entry) => (
+                {displayLines.map((entry) => (
                   <li
-                    key={`${entry.index}-${entry.name}`}
+                    key={entry.key}
                     className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
                       entry.decision === "approved"
                         ? "bg-white/80 text-emerald-900"
@@ -461,7 +482,7 @@ export default async function RespondPage({
                     }`}
                   >
                     <span className="min-w-0 truncate font-medium">
-                      {skuLabel(entry.index, entry.name)}
+                      {entry.label}
                     </span>
                     <span className="shrink-0 text-xs font-semibold uppercase tracking-wide">
                       {entry.decision === "approved"
@@ -516,6 +537,18 @@ export default async function RespondPage({
         orderReview={orderReview}
         approvalSkus={
           notification.type === "customer_approval" ? notifSkus : undefined
+        }
+        approvalAssets={
+          notification.type === "customer_approval"
+            ? reviewAssets.filter(
+                (a) =>
+                  Boolean(a.sku_key) &&
+                  notifSkus.some((s) => s.id === a.sku_key)
+              )
+            : undefined
+        }
+        approvalSkuGallery={
+          notification.type === "customer_approval" ? reviewSkuImages : undefined
         }
       />
     </RespondCard>

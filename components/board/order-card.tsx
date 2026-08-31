@@ -73,6 +73,7 @@ import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
 import { DesignFlagChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
+import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
 import { BoardWorkerChip } from "./board-worker-chip";
@@ -698,7 +699,13 @@ export function OrderCard({
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
   // Admins + account managers can pause/stop another person's timer.
   const canControlOthers = role === "admin" || role === "account_manager";
-  const timerRunning = (orderTimer?.running ?? false) || (otherWorker?.running ?? false);
+  const timersOff = columnStopsWorkTimer({
+    kind: columnKind,
+    name: columnName,
+  });
+  const timerRunning =
+    !timersOff &&
+    ((orderTimer?.running ?? false) || (otherWorker?.running ?? false));
 
   return (
     <div
@@ -736,17 +743,7 @@ export function OrderCard({
     >
       {/* padded content wrapper */}
       <div className="px-3 py-3.5">
-      <CardTimerControl
-        orderId={order.id}
-        timer={orderTimer}
-        workedSeconds={workedSeconds}
-        busy={activeTimer.busyOrderId === order.id}
-        onStart={() => void activeTimer.start(order.id)}
-        onPause={(reason) => orderTimer && void activeTimer.pause(orderTimer.entry.id, reason)}
-        onResume={() => orderTimer && void activeTimer.resume(orderTimer.entry.id)}
-        onStop={() => orderTimer && void activeTimer.stop(orderTimer.entry.id)}
-      />
-      {otherWorker ? (
+      {timersOff ? null : otherWorker ? (
         <BoardWorkerChip
           workerName={otherWorker.workerName}
           running={otherWorker.running}
@@ -757,7 +754,22 @@ export function OrderCard({
           onResume={() => void activeTimer.resume(otherWorker.entryId)}
           onStop={() => void activeTimer.stop(otherWorker.entryId)}
         />
-      ) : null}
+      ) : (
+        <CardTimerControl
+          orderId={order.id}
+          timer={orderTimer}
+          workedSeconds={workedSeconds}
+          busy={activeTimer.busyOrderId === order.id}
+          onStart={() => void activeTimer.start(order.id)}
+          onPause={(reason) =>
+            orderTimer && void activeTimer.pause(orderTimer.entry.id, reason)
+          }
+          onResume={() =>
+            orderTimer && void activeTimer.resume(orderTimer.entry.id)
+          }
+          onStop={() => orderTimer && void activeTimer.stop(orderTimer.entry.id)}
+        />
+      )}
       {emergencySeverity ? (
         <span
           className="absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full ring-2 ring-white"

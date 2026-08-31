@@ -21,6 +21,7 @@ import {
 } from "@/lib/time-chips";
 import type { TimeChip } from "@/lib/time-chips";
 import type { BoardColumn, CustomField, Customer, Order, OrderWithRelations } from "@/lib/types";
+import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
@@ -249,6 +250,14 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (isColumnChange) {
+    await maybeStopWorkTimersOnColumnEnter({
+      tenantId,
+      orderId: typedOrder.id,
+      column: typedColumn,
+    });
   }
 
   // When a card leaves the designer queue (finished or moved to another column),

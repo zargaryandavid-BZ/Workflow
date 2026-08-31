@@ -5,9 +5,9 @@ import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/time-tracking";
 
 /**
- * Shows WHO is actively working a card and for how long — visible to anyone who
- * can see the card. Running → green; paused → muted. Admins and account managers
- * also get pause/resume + stop controls over that person's timer.
+ * Live timer on a card (someone else's session). Running → green; paused → muted.
+ * Admins and account managers get pause/resume + stop. Shows who is working so
+ * Start is not needed on this card at the same time.
  */
 export function BoardWorkerChip({
   workerName,
@@ -36,7 +36,11 @@ export function BoardWorkerChip({
           "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
           running ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
         )}
-        title={running ? `${workerName} is working this card` : `${workerName} paused this card`}
+        title={
+          running
+            ? `${workerName} is working this card`
+            : `${workerName} paused on this card`
+        }
       >
         <span className="relative flex h-2 w-2">
           {running ? (
@@ -48,7 +52,7 @@ export function BoardWorkerChip({
             <span className="inline-flex h-2 w-2 rounded-full bg-slate-400" />
           )}
         </span>
-        <span className="max-w-[120px] truncate">{workerName}</span>
+        <span className="max-w-[7rem] truncate">{workerName}</span>
         <span className="tabular-nums">{formatDuration(elapsedSeconds)}</span>
         {!running ? <span className="font-medium">· paused</span> : null}
 

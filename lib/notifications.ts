@@ -37,6 +37,7 @@ import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
+import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
 import type {
   CustomerResponse,
   JobNotification,
@@ -1015,7 +1016,7 @@ export async function respondToNotification(
       if (target) {
         const { data: column } = await admin
           .from("board_columns")
-          .select("name")
+          .select("name, kind")
           .eq("id", target)
           .maybeSingle();
         await admin
@@ -1025,6 +1026,14 @@ export async function respondToNotification(
             last_moved_at: new Date().toISOString(),
           })
           .eq("id", notification.order_id);
+        await maybeStopWorkTimersOnColumnEnter({
+          tenantId: notification.tenant_id,
+          orderId: notification.order_id,
+          column: {
+            kind: (column as { kind?: string } | null)?.kind,
+            name: (column as { name?: string } | null)?.name,
+          },
+        });
         await logActivity(admin, {
           tenantId: notification.tenant_id,
           orderId: notification.order_id,

@@ -8,6 +8,7 @@ import {
 import { sendApprovalEmail } from "@/lib/email";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import type { ApprovalStatus, BoardColumn, Order } from "@/lib/types";
+import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
 
 type Client = SupabaseClient;
 
@@ -135,6 +136,11 @@ export async function onEnterColumn(
   column: BoardColumn,
   tenantName: string
 ) {
+  await maybeStopWorkTimersOnColumnEnter({
+    tenantId: order.tenant_id,
+    orderId: order.id,
+    column,
+  });
   if (column.kind === "approval") {
     // Customer approval is handled via the drop popup (Email / SMS / Manual).
     return;
@@ -332,7 +338,7 @@ export async function onApprovalResult(
     const ids = [fromColumnId, target].filter(Boolean) as string[];
     const { data: cols } = await client
       .from("board_columns")
-      .select("id, name")
+      .select("id, name, kind")
       .in("id", ids);
     const nameById = new Map(
       ((cols ?? []) as { id: string; name: string | null }[]).map((c) => [
@@ -340,8 +346,18 @@ export async function onApprovalResult(
         c.name,
       ])
     );
+    const targetCol = ((cols ?? []) as {
+      id: string;
+      name: string | null;
+      kind: string | null;
+    }[]).find((c) => c.id === target);
     fromName = fromColumnId ? nameById.get(fromColumnId) ?? null : null;
     toName = nameById.get(target) ?? null;
+    await maybeStopWorkTimersOnColumnEnter({
+      tenantId: params.tenantId,
+      orderId: params.orderId,
+      column: { kind: targetCol?.kind, name: targetCol?.name },
+    });
     await logActivity(client, {
       tenantId: params.tenantId,
       orderId: params.orderId,

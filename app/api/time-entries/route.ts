@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity } from "@/lib/automation";
+import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import {
   durationSeconds,
   isActivityType,
@@ -89,6 +90,8 @@ export async function GET(request: Request) {
   const dateParam = searchParams.get("date");
   const fromParam = searchParams.get("from");
   const toParam = searchParams.get("to");
+  const startedGte = searchParams.get("started_gte");
+  const startedLt = searchParams.get("started_lt");
   const jobId = searchParams.get("job_id") ?? searchParams.get("order_id");
   const userIdParam = searchParams.get("user_id");
 
@@ -100,8 +103,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     filterUserId = userIdParam;
-  } else if (isAdmin && ((running && all) || Boolean(jobId))) {
-    // Admins: team Active Timers, or every entry on a board card.
+  } else if (isAdmin && (all || Boolean(jobId))) {
+    // Admins: team Active Timers / Log, or every entry on a board card.
     filterUserId = null;
   }
 
@@ -124,7 +127,10 @@ export async function GET(request: Request) {
     query = query.eq("order_id", jobId);
   }
 
-  if (dateParam) {
+  if (startedGte && startedLt) {
+    // Browser-local day bounds (avoids Vercel UTC shifting the Log date).
+    query = query.gte("started_at", startedGte).lt("started_at", startedLt);
+  } else if (dateParam) {
     query = query
       .gte("started_at", localDayStartIso(dateParam))
       .lt("started_at", localDayEndExclusiveIso(dateParam));
@@ -212,7 +218,7 @@ export async function POST(request: Request) {
   if (orderId) {
     const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("id, title")
+      .select("id, title, column_id")
       .eq("id", orderId)
       .eq("tenant_id", ctx.tenant.id)
       .is("removed_at", null)
@@ -225,6 +231,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
     orderTitle = (order as { title: string }).title;
+    const columnId = (order as { column_id?: string }).column_id;
+    if (columnId) {
+      const { data: col } = await supabase
+        .from("board_columns")
+        .select("kind, name")
+        .eq("id", columnId)
+        .eq("tenant_id", ctx.tenant.id)
+        .maybeSingle();
+      if (
+        columnStopsWorkTimer({
+          kind: (col as { kind?: string } | null)?.kind,
+          name: (col as { name?: string } | null)?.name,
+        })
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Timer can't run while this job is on Hold, Missing Info, Customer Replied, or Waiting Approval.",
+          },
+          { status: 409 }
+        );
+      }
+    }
   }
 
   const { data, error } = await supabase

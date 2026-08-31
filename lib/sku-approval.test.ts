@@ -47,6 +47,76 @@ describe("sku approval notes", () => {
   it("treats a plain note as a comment only", () => {
     const parsed = parseSkuApprovalNote("Please reprint.");
     assert.equal(parsed.entries.length, 0);
+    assert.equal(parsed.imageEntries.length, 0);
     assert.equal(parsed.comment, "Please reprint.");
+  });
+
+  it("round-trips per-image decisions on a multi-image SKU", () => {
+    const note = formatSkuApprovalNote(
+      [
+        {
+          skuId: "b",
+          index: 2,
+          name: "Box Back",
+          decision: "approved",
+        },
+      ],
+      [
+        {
+          skuId: "a",
+          skuIndex: 1,
+          skuName: "Logo Front",
+          assetId: "img-1",
+          imageIndex: 1,
+          decision: "approved",
+        },
+        {
+          skuId: "a",
+          skuIndex: 1,
+          skuName: "Logo Front",
+          assetId: "img-2",
+          imageIndex: 2,
+          decision: "rejected",
+        },
+      ],
+      "Fix image 2"
+    );
+    const parsed = parseSkuApprovalNote(note);
+    assert.equal(parsed.imageEntries.length, 2);
+    assert.equal(parsed.imageEntries[0].imageIndex, 1);
+    assert.equal(parsed.imageEntries[0].decision, "approved");
+    assert.equal(parsed.imageEntries[1].decision, "rejected");
+    assert.equal(parsed.entries.length, 1);
+    assert.equal(parsed.entries[0].name, "Box Back");
+    assert.equal(parsed.comment, "Fix image 2");
+    assert.equal(
+      overallApprovalResponse([
+        ...parsed.entries,
+        ...parsed.imageEntries,
+      ]),
+      "changes_requested"
+    );
+    assert.deepEqual(
+      decisionsBySkuId(
+        [{ id: "a" }, { id: "b" }],
+        parsed.entries,
+        parsed.imageEntries
+      ),
+      { a: "rejected", b: "approved" }
+    );
+  });
+
+  it("rolls a SKU up to approved only when every image is approved", () => {
+    assert.deepEqual(
+      decisionsBySkuId(
+        [{ id: "a" }],
+        [],
+        [
+          { skuIndex: 1, decision: "approved" },
+          { skuIndex: 1, decision: "approved" },
+        ]
+      ),
+      { a: "approved" }
+    );
   });
 });

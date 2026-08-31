@@ -13,7 +13,10 @@ import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
-import { parseSkuApprovalNote, skuLabel } from "@/lib/sku-approval";
+import {
+  parseSkuApprovalNote,
+  skuApprovalDisplayLines,
+} from "@/lib/sku-approval";
 import type { ApprovalNote, BoardColumn, Customer } from "@/lib/types";
 
 interface ApprovalTabProps {
@@ -633,7 +636,8 @@ export function ApprovalTab({
                       </p>
                       {(() => {
                         const parsed = parseSkuApprovalNote(note.customer_note);
-                        if (!parsed.entries.length && !parsed.comment) {
+                        const displayLines = skuApprovalDisplayLines(parsed);
+                        if (!displayLines.length && !parsed.comment) {
                           return (
                             <p className="mt-2 text-slate-500">
                               No note from customer.
@@ -642,15 +646,15 @@ export function ApprovalTab({
                         }
                         return (
                           <div className="mt-2 space-y-2">
-                            {parsed.entries.length > 0 ? (
+                            {displayLines.length > 0 ? (
                               <ul className="space-y-1">
-                                {parsed.entries.map((entry) => (
+                                {displayLines.map((entry) => (
                                   <li
-                                    key={`${entry.index}-${entry.name}`}
+                                    key={entry.key}
                                     className="flex items-center justify-between gap-2 rounded-md bg-white/80 px-3 py-1.5 text-sm"
                                   >
                                     <span className="min-w-0 truncate text-slate-700">
-                                      {skuLabel(entry.index, entry.name)}
+                                      {entry.label}
                                     </span>
                                     <span
                                       className={cn(

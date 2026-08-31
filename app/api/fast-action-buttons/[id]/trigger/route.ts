@@ -5,6 +5,7 @@ import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import type { Order } from "@/lib/types";
+import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
 
 export async function POST(
   request: Request,
@@ -75,6 +76,21 @@ export async function POST(
   if (moveError) {
     return NextResponse.json({ error: moveError.message }, { status: 500 });
   }
+
+  const { data: destCol } = await supabase
+    .from("board_columns")
+    .select("kind, name")
+    .eq("id", button.destination_column_id)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  await maybeStopWorkTimersOnColumnEnter({
+    tenantId,
+    orderId: body.order_id,
+    column: {
+      kind: (destCol as { kind?: string } | null)?.kind,
+      name: (destCol as { name?: string } | null)?.name,
+    },
+  });
 
   // Fire notification rules linked to this button (fire-and-forget).
   if (button.notification_rule_id) {

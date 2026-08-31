@@ -211,7 +211,7 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
         ) : null}
 
         {tab === "active" ? (
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {loading ? (
               <p className="text-sm text-slate-400">Loading…</p>
             ) : running.length === 0 ? (

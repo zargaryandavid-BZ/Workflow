@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
@@ -21,13 +21,20 @@ import {
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import {
   formatSkuApprovalNote,
+  imageDecisionKey,
   overallApprovalResponse,
-  skuLabel,
+  rollupSkuDecisionFromImages,
   type SkuApprovalDecision,
   type SkuApprovalEntry,
+  type SkuImageApprovalEntry,
 } from "@/lib/sku-approval";
 import type { SkuItem } from "@/lib/skus";
 import type { CustomerResponse, NotificationType } from "@/lib/types";
+import {
+  imagesBySkuId,
+  type RespondOrderAsset,
+  type RespondSkuImage,
+} from "@/lib/respond-order";
 
 interface Props {
   token: string;
@@ -44,6 +51,10 @@ interface Props {
   orderReview?: React.ReactNode;
   /** SKUs on this proof — customer marks approve/reject per SKU. */
   approvalSkus?: SkuItem[];
+  /** Assets with sku_key — used for per-image decisions when a SKU has 2+ images. */
+  approvalAssets?: RespondOrderAsset[];
+  /** Gallery images keyed by sku id. */
+  approvalSkuGallery?: Record<string, RespondSkuImage[]>;
   /** Fired after a successful customer_approval decision (group portal nav). */
   onDecided?: (decision: "approved" | "rejected") => void;
 }
@@ -157,6 +168,8 @@ export function RespondForm({
   tenantName,
   orderReview,
   approvalSkus = [],
+  approvalAssets = [],
+  approvalSkuGallery = {},
   onDecided,
 }: Props) {
   const [note, setNote] = useState("");
@@ -170,27 +183,73 @@ export function RespondForm({
   const [skuChoices, setSkuChoices] = useState<
     Record<string, SkuApprovalDecision | undefined>
   >({});
+  const [imageChoices, setImageChoices] = useState<
+    Record<string, SkuApprovalDecision | undefined>
+  >({});
   const [submittedSkuEntries, setSubmittedSkuEntries] = useState<
     SkuApprovalEntry[]
   >([]);
+  const [submittedImageEntries, setSubmittedImageEntries] = useState<
+    SkuImageApprovalEntry[]
+  >([]);
+
+  const skuImages = useMemo(
+    () => imagesBySkuId(approvalSkus, approvalAssets, approvalSkuGallery),
+    [approvalSkus, approvalAssets, approvalSkuGallery]
+  );
+
+  const skuRollup = useMemo(() => {
+    const rollup: Record<string, SkuApprovalDecision | undefined> = {
+      ...skuChoices,
+    };
+    for (const sku of approvalSkus) {
+      const imgs = skuImages[sku.id] ?? [];
+      if (imgs.length < 2) continue;
+      rollup[sku.id] = rollupSkuDecisionFromImages(
+        imgs.map((img) => imageChoices[imageDecisionKey(sku.id, img.id)])
+      );
+    }
+    return rollup;
+  }, [skuChoices, imageChoices, approvalSkus, skuImages]);
 
   const perSkuApproval =
     type === "customer_approval" && approvalSkus.length > 0;
 
-  function skuEntriesFromChoices(): SkuApprovalEntry[] | null {
-    const entries: SkuApprovalEntry[] = [];
+  function skuEntriesFromChoices(): {
+    skuEntries: SkuApprovalEntry[];
+    imageEntries: SkuImageApprovalEntry[];
+  } | null {
+    const skuEntries: SkuApprovalEntry[] = [];
+    const imageEntries: SkuImageApprovalEntry[] = [];
     for (let i = 0; i < approvalSkus.length; i += 1) {
       const sku = approvalSkus[i];
+      const imgs = skuImages[sku.id] ?? [];
+      if (imgs.length >= 2) {
+        for (let imgIdx = 0; imgIdx < imgs.length; imgIdx += 1) {
+          const img = imgs[imgIdx];
+          const decision = imageChoices[imageDecisionKey(sku.id, img.id)];
+          if (!decision) return null;
+          imageEntries.push({
+            skuId: sku.id,
+            skuIndex: i + 1,
+            skuName: sku.name.trim(),
+            assetId: img.id,
+            imageIndex: imgIdx + 1,
+            decision,
+          });
+        }
+        continue;
+      }
       const decision = skuChoices[sku.id];
       if (!decision) return null;
-      entries.push({
+      skuEntries.push({
         skuId: sku.id,
         index: i + 1,
         name: sku.name.trim(),
         decision,
       });
     }
-    return entries;
+    return { skuEntries, imageEntries };
   }
 
   // Titled upload targets. Legacy links (no slots) fall back to one item slot.
@@ -288,18 +347,25 @@ export function RespondForm({
   }
 
   function submitPerSku() {
-    const entries = skuEntriesFromChoices();
-    if (!entries) {
-      setError("Please check Approve or Not approved for each SKU.");
+    const built = skuEntriesFromChoices();
+    if (!built) {
+      setError("Please check Approve or Not approved for each SKU and image.");
       return;
     }
-    const overall = overallApprovalResponse(entries);
+    const overall = overallApprovalResponse([
+      ...built.skuEntries,
+      ...built.imageEntries,
+    ]);
     if (overall === "changes_requested" && !note.trim()) {
       setError("Please tell us why the proof was not approved.");
       return;
     }
-    setSubmittedSkuEntries(entries);
-    respond(overall, formatSkuApprovalNote(entries, note));
+    setSubmittedSkuEntries(built.skuEntries);
+    setSubmittedImageEntries(built.imageEntries);
+    respond(
+      overall,
+      formatSkuApprovalNote(built.skuEntries, built.imageEntries, note)
+    );
   }
 
   if (done) {
@@ -307,17 +373,31 @@ export function RespondForm({
       type === "customer_approval" && doneKind === "approved";
     const rejectionDone =
       type === "customer_approval" && doneKind === "rejected";
+    const mixedDecisions = [
+      ...submittedSkuEntries,
+      ...submittedImageEntries,
+    ];
     const mixed =
-      submittedSkuEntries.length > 0 &&
-      submittedSkuEntries.some((e) => e.decision === "approved") &&
-      submittedSkuEntries.some((e) => e.decision === "rejected");
+      mixedDecisions.length > 0 &&
+      mixedDecisions.some((e) => e.decision === "approved") &&
+      mixedDecisions.some((e) => e.decision === "rejected");
+    const resultLines = formatSkuApprovalNote(
+      submittedSkuEntries,
+      submittedImageEntries,
+      ""
+    )
+      .split("\n")
+      .filter(Boolean);
 
     return (
       <SkuDecisionProvider
-        mode={submittedSkuEntries.length > 0 ? "result" : "off"}
-        byId={Object.fromEntries(
-          submittedSkuEntries.map((e) => [e.skuId, e.decision])
-        )}
+        mode={
+          submittedSkuEntries.length > 0 || submittedImageEntries.length > 0
+            ? "result"
+            : "off"
+        }
+        byId={skuRollup}
+        byImageKey={imageChoices}
       >
         <div
           className={`rounded-lg p-6 text-center ${
@@ -365,25 +445,28 @@ export function RespondForm({
                     ? "You're all set. Contact us anytime to arrange pickup or delivery. You can close this page."
                     : `Thank you — the ${tenantName ?? "team"} has been notified and will review your response shortly. You can close this page.`}
           </p>
-          {submittedSkuEntries.length > 0 ? (
+          {resultLines.length > 0 ? (
             <ul className="mt-4 space-y-1.5 text-left">
-              {submittedSkuEntries.map((entry) => (
-                <li
-                  key={entry.skuId}
-                  className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
-                    entry.decision === "approved"
-                      ? "bg-emerald-100/80 text-emerald-900"
-                      : "bg-red-100/80 text-red-900"
-                  }`}
-                >
-                  <span className="min-w-0 truncate font-medium">
-                    {skuLabel(entry.index, entry.name)}
-                  </span>
-                  <span className="shrink-0 text-xs font-semibold uppercase tracking-wide">
-                    {entry.decision === "approved" ? "Approved" : "Not approved"}
-                  </span>
-                </li>
-              ))}
+              {resultLines.map((line) => {
+                const rejected = line.endsWith("Not approved");
+                return (
+                  <li
+                    key={line}
+                    className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
+                      rejected
+                        ? "bg-red-100/80 text-red-900"
+                        : "bg-emerald-100/80 text-emerald-900"
+                    }`}
+                  >
+                    <span className="min-w-0 truncate font-medium">
+                      {line.replace(/: (Approved|Not approved)\s*$/, "")}
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold uppercase tracking-wide">
+                      {rejected ? "Not approved" : "Approved"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
         </div>
@@ -396,9 +479,17 @@ export function RespondForm({
     const review = perSkuApproval ? (
       <SkuDecisionProvider
         mode="choose"
-        byId={skuChoices}
+        byId={skuRollup}
         onChange={(skuId, decision) => {
           setSkuChoices((prev) => ({ ...prev, [skuId]: decision }));
+          setError(null);
+        }}
+        byImageKey={imageChoices}
+        onImageChange={(skuId, assetId, decision) => {
+          setImageChoices((prev) => ({
+            ...prev,
+            [imageDecisionKey(skuId, assetId)]: decision,
+          }));
           setError(null);
         }}
       >
@@ -413,7 +504,7 @@ export function RespondForm({
         <p className="text-sm leading-relaxed text-slate-600">
           Your print proof is ready for review.
           {perSkuApproval
-            ? " Check Approve or Not approved for each SKU below."
+            ? " Check Approve or Not approved for each SKU (and each image when a SKU has more than one)."
             : ""}
         </p>
 
@@ -467,7 +558,7 @@ export function RespondForm({
             }}
             placeholder={
               perSkuApproval
-                ? "Optional note — required if any SKU is not approved"
+                ? "Optional note — required if any SKU or image is not approved"
                 : "Optional note — required if not approving"
             }
             rows={4}

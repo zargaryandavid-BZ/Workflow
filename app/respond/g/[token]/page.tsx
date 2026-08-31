@@ -119,11 +119,17 @@ async function buildItem(
     }
   }
 
+  const approvalSkus = skusForRespond(specs);
+  const skuIds = new Set(approvalSkus.map((s) => s.id));
   const payload: ApprovalGroupItemPayload = {
     summary,
     metaChips: orderMetaChips(fields, specs),
     productLabel: product,
-    approvalSkus: skusForRespond(specs),
+    approvalSkus,
+    approvalAssets: assets.filter(
+      (a) => a.sku_key != null && skuIds.has(a.sku_key)
+    ),
+    approvalSkuGallery: skuImages,
   };
 
   const review =

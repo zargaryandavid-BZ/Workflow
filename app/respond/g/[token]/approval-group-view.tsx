@@ -12,12 +12,18 @@ import type {
 } from "@/lib/approval-group";
 import type { OrderMetaChip } from "@/lib/respond-page";
 import type { SkuItem } from "@/lib/skus";
+import {
+  imagesBySkuId,
+  type RespondOrderAsset,
+  type RespondSkuImage,
+} from "@/lib/respond-order";
 import { cn } from "@/lib/utils";
 import { Printer } from "lucide-react";
 import {
   decisionsBySkuId,
+  imageDecisionsByKey,
   parseSkuApprovalNote,
-  skuLabel,
+  skuApprovalDisplayLines,
 } from "@/lib/sku-approval";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 
@@ -26,6 +32,8 @@ export type ApprovalGroupItemPayload = {
   metaChips: OrderMetaChip[];
   productLabel: string;
   approvalSkus: SkuItem[];
+  approvalAssets?: RespondOrderAsset[];
+  approvalSkuGallery?: Record<string, RespondSkuImage[]>;
 };
 
 function shortStatusLabel(status: ApprovalItemStatus): string {
@@ -262,6 +270,8 @@ export function ApprovalGroupView({
                 metaChips={selected.metaChips}
                 tenantName={tenantName}
                 approvalSkus={selected.approvalSkus}
+                approvalAssets={selected.approvalAssets}
+                approvalSkuGallery={selected.approvalSkuGallery}
                 onDecided={(decision) =>
                   onDecided(selected.summary.orderId, decision)
                 }
@@ -272,6 +282,8 @@ export function ApprovalGroupView({
                 status={selected.summary.status}
                 customerNote={selected.summary.customerNote}
                 skus={selected.approvalSkus}
+                assets={selected.approvalAssets}
+                skuGallery={selected.approvalSkuGallery}
                 review={selectedReview}
               />
             )}
@@ -290,24 +302,35 @@ function RespondedGroupItem({
   status,
   customerNote,
   skus,
+  assets,
+  skuGallery,
   review,
 }: {
   status: ApprovalItemStatus;
   customerNote: string | null;
   skus: SkuItem[];
+  assets?: RespondOrderAsset[];
+  skuGallery?: Record<string, RespondSkuImage[]>;
   review: ReactNode;
 }) {
   const parsed = parseSkuApprovalNote(customerNote);
+  const displayLines = skuApprovalDisplayLines(parsed);
   const mixed =
-    parsed.entries.some((e) => e.decision === "approved") &&
-    parsed.entries.some((e) => e.decision === "rejected");
+    displayLines.some((e) => e.decision === "approved") &&
+    displayLines.some((e) => e.decision === "rejected");
   const approved = status === "approved";
+  const imageByKey = imageDecisionsByKey(
+    skus,
+    imagesBySkuId(skus, assets ?? [], skuGallery ?? {}),
+    parsed.imageEntries
+  );
 
   const reviewNode =
-    parsed.entries.length > 0 ? (
+    displayLines.length > 0 ? (
       <SkuDecisionProvider
         mode="result"
-        byId={decisionsBySkuId(skus, parsed.entries)}
+        byId={decisionsBySkuId(skus, parsed.entries, parsed.imageEntries)}
+        byImageKey={imageByKey}
       >
         {review}
       </SkuDecisionProvider>
@@ -334,15 +357,15 @@ function RespondedGroupItem({
               ? "Your approval has been recorded. Thank you!"
               : "Your feedback was received. Our team will be in touch shortly."}
         </p>
-        {parsed.entries.length > 0 ? (
+        {displayLines.length > 0 ? (
           <ul className="mt-3 space-y-1.5 text-left">
-            {parsed.entries.map((entry) => (
+            {displayLines.map((entry) => (
               <li
-                key={`${entry.index}-${entry.name}`}
+                key={entry.key}
                 className="flex items-center justify-between gap-2 rounded-md bg-white/80 px-3 py-2 text-sm"
               >
                 <span className="min-w-0 truncate font-medium">
-                  {skuLabel(entry.index, entry.name)}
+                  {entry.label}
                 </span>
                 <span
                   className={`shrink-0 text-xs font-semibold uppercase tracking-wide ${

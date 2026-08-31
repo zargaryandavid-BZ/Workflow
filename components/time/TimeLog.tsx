@@ -11,6 +11,8 @@ import {
   entrySubjectLabel,
   formatDuration,
   localDateString,
+  localDayEndExclusiveIso,
+  localDayStartIso,
   TIME_ENTRIES_CHANGED_EVENT,
   notifyTimeEntriesChanged,
   type ActivityType,
@@ -68,7 +70,7 @@ export function TimeLog({
         fetch(
           orderId
             ? `/api/time-entries?order_id=${encodeURIComponent(orderId)}`
-            : `/api/time-entries?date=${encodeURIComponent(date)}`
+            : `/api/time-entries?started_gte=${encodeURIComponent(localDayStartIso(date))}&started_lt=${encodeURIComponent(localDayEndExclusiveIso(date))}${isAdmin ? "&all=true" : ""}`
         ),
         fetch(
           isAdmin
@@ -346,7 +348,7 @@ export function TimeLog({
       ) : (
         <>
           {visibleRunning.length > 0 ? (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Running
               </h3>
@@ -380,6 +382,9 @@ export function TimeLog({
                   <th className="px-3 py-2 font-semibold">End</th>
                   <th className="px-3 py-2 font-semibold">Duration</th>
                   <th className="px-3 py-2 font-semibold">Job / Task</th>
+                  {isAdmin ? (
+                    <th className="px-3 py-2 font-semibold">Who</th>
+                  ) : null}
                   <th className="px-3 py-2 font-semibold">Activity</th>
                   <th className="px-3 py-2 font-semibold">Notes</th>
                   <th className="px-3 py-2 font-semibold" />
@@ -389,7 +394,7 @@ export function TimeLog({
                 {completed.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={isAdmin ? 8 : 7}
                       className="px-3 py-6 text-center text-slate-400"
                     >
                       No completed entries for this day
@@ -441,6 +446,11 @@ export function TimeLog({
                             <td className="px-3 py-2 font-medium text-slate-800">
                               {entrySubjectLabel(entry)}
                             </td>
+                            {isAdmin ? (
+                              <td className="px-3 py-2 text-slate-600">
+                                {entry.user_display_name ?? "—"}
+                              </td>
+                            ) : null}
                             <td className="px-3 py-2">
                               <Select
                                 value={editDraft.activity_type}
@@ -523,6 +533,11 @@ export function TimeLog({
                             <td className="px-3 py-2 font-medium text-slate-800">
                               {entrySubjectLabel(entry)}
                             </td>
+                            {isAdmin ? (
+                              <td className="px-3 py-2 text-slate-600">
+                                {entry.user_display_name ?? "—"}
+                              </td>
+                            ) : null}
                             <td className="px-3 py-2 text-slate-600">
                               {entry.activity_type}
                             </td>

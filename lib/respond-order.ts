@@ -119,3 +119,57 @@ export interface RespondSkuImage {
 export function skusForRespond(specs: Record<string, unknown>): SkuItem[] {
   return normalizeSkus(specs.skus).filter((s) => s.name.trim() || s.qty != null);
 }
+
+export type SkuApprovalImageRef = {
+  id: string;
+  file_name: string;
+  mime_type: string | null;
+  size: number | null;
+  source: "asset" | "gallery";
+};
+
+/** Artwork files for a SKU: assets with matching sku_key, plus gallery images. */
+export function collectSkuApprovalImages(
+  skuId: string,
+  assets: RespondOrderAsset[],
+  gallery: Record<string, RespondSkuImage[]> = {}
+): SkuApprovalImageRef[] {
+  const seen = new Set<string>();
+  const out: SkuApprovalImageRef[] = [];
+  for (const asset of assets) {
+    if (asset.sku_key !== skuId) continue;
+    if (seen.has(asset.id)) continue;
+    seen.add(asset.id);
+    out.push({
+      id: asset.id,
+      file_name: asset.file_name,
+      mime_type: asset.mime_type,
+      size: asset.size,
+      source: "asset",
+    });
+  }
+  for (const img of gallery[skuId] ?? []) {
+    if (seen.has(img.id)) continue;
+    seen.add(img.id);
+    out.push({
+      id: img.id,
+      file_name: img.file_name,
+      mime_type: img.mime_type,
+      size: img.file_size,
+      source: "gallery",
+    });
+  }
+  return out;
+}
+
+export function imagesBySkuId(
+  skus: { id: string }[],
+  assets: RespondOrderAsset[],
+  gallery: Record<string, RespondSkuImage[]> = {}
+): Record<string, SkuApprovalImageRef[]> {
+  const map: Record<string, SkuApprovalImageRef[]> = {};
+  for (const sku of skus) {
+    map[sku.id] = collectSkuApprovalImages(sku.id, assets, gallery);
+  }
+  return map;
+}

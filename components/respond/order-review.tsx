@@ -2,6 +2,7 @@
 
 import { Check, Download, FileText, X } from "lucide-react";
 import {
+  collectSkuApprovalImages,
   isRespondImageAsset,
   respondAssetUrl,
   respondSkuImageUrl,
@@ -10,7 +11,7 @@ import {
   type RespondSkuImage,
 } from "@/lib/respond-order";
 import { formatFileSize } from "@/lib/respond-page";
-import { skuLabel } from "@/lib/sku-approval";
+import { imageDecisionKey, skuLabel } from "@/lib/sku-approval";
 import type { SkuItem } from "@/lib/skus";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
 
@@ -92,6 +93,64 @@ function AssetPreview({
   );
 }
 
+function ImageDecisionControls({
+  skuId,
+  assetId,
+}: {
+  skuId: string;
+  assetId: string;
+}) {
+  const skuUi = useSkuDecision();
+  const key = imageDecisionKey(skuId, assetId);
+  const decision = skuUi.byImageKey?.[key];
+
+  if (skuUi.mode === "result") {
+    if (!decision) return null;
+    const approved = decision === "approved";
+    return (
+      <span
+        className={`inline-flex w-full items-center justify-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+          approved
+            ? "bg-emerald-100 text-emerald-800"
+            : "bg-red-100 text-red-800"
+        }`}
+      >
+        {approved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+        {approved ? "Approved" : "Not approved"}
+      </span>
+    );
+  }
+
+  if (skuUi.mode !== "choose" || !skuUi.onImageChange) return null;
+
+  return (
+    <div className="flex gap-1.5">
+      <button
+        type="button"
+        onClick={() => skuUi.onImageChange?.(skuId, assetId, "approved")}
+        className={`flex-1 rounded-lg border px-2 py-1 text-xs font-medium ${
+          decision === "approved"
+            ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+            : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
+        }`}
+      >
+        Approve
+      </button>
+      <button
+        type="button"
+        onClick={() => skuUi.onImageChange?.(skuId, assetId, "rejected")}
+        className={`flex-1 rounded-lg border px-2 py-1 text-xs font-medium ${
+          decision === "rejected"
+            ? "border-red-400 bg-red-50 text-red-700"
+            : "border-slate-200 bg-white text-slate-500 hover:border-red-300"
+        }`}
+      >
+        Not approved
+      </button>
+    </div>
+  );
+}
+
 function SkuDecisionControls({ skuId }: { skuId: string }) {
   const skuUi = useSkuDecision();
   const decision = skuUi.byId[skuId];
@@ -164,12 +223,7 @@ export function OrderReview({
   heading,
 }: OrderReviewProps) {
   const skuUi = useSkuDecision();
-  const assetsBySku = new Map<string, RespondOrderAsset>();
-  const orderAssets: RespondOrderAsset[] = [];
-  for (const asset of assets) {
-    if (asset.sku_key) assetsBySku.set(asset.sku_key, asset);
-    else orderAssets.push(asset);
-  }
+  const orderAssets: RespondOrderAsset[] = assets.filter((a) => !a.sku_key);
 
   const hasSkus = skus.length > 0;
   const hasAssets = assets.length > 0;
@@ -208,9 +262,8 @@ export function OrderReview({
           </p>
           <ul className="space-y-3">
             {skus.map((sku, index) => {
-              const artwork = assetsBySku.get(sku.id);
-              const galleryImages = skuImages[sku.id] ?? [];
-              const hasArtwork = Boolean(artwork) || galleryImages.length > 0;
+              const skuArt = collectSkuApprovalImages(sku.id, assets, skuImages);
+              const multiImage = skuArt.length >= 2;
               const number = index + 1;
               const decision = skuUi.byId[sku.id];
               const resultBorder =
@@ -240,33 +293,31 @@ export function OrderReview({
                         <p className="text-xs text-slate-500">Qty: {sku.qty}</p>
                       ) : null}
                     </div>
-                    <SkuDecisionControls skuId={sku.id} />
+                    {multiImage ? null : <SkuDecisionControls skuId={sku.id} />}
                   </div>
-                  {hasArtwork ? (
+                  {skuArt.length > 0 ? (
                     <div className="mt-2">
                       <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
                         Artwork
                       </p>
-                      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {artwork ? (
-                          <li>
-                            <AssetPreview token={token} asset={artwork} />
-                            <p className="mt-1 truncate text-[11px] text-slate-500">
-                              {artwork.file_name}
-                              {artwork.size
-                                ? ` · ${formatFileSize(artwork.size)}`
-                                : null}
-                            </p>
-                          </li>
-                        ) : null}
-                        {galleryImages.map((img) => {
-                          const href = respondSkuImageUrl(token, img.id);
+                      <ul
+                        className={`grid gap-2 ${
+                          multiImage
+                            ? "grid-cols-2 sm:grid-cols-3"
+                            : "grid-cols-1 sm:grid-cols-2"
+                        }`}
+                      >
+                        {skuArt.map((img, imgIdx) => {
+                          const href =
+                            img.source === "gallery"
+                              ? respondSkuImageUrl(token, img.id)
+                              : respondAssetUrl(token, img.id);
                           const isImage = isRespondImageAsset(
                             img.file_name,
                             img.mime_type
                           );
                           return (
-                            <li key={img.id}>
+                            <li key={img.id} className="space-y-1.5">
                               {isImage ? (
                                 <a
                                   href={href}
@@ -277,7 +328,11 @@ export function OrderReview({
                                   <img
                                     src={href}
                                     alt={img.file_name}
-                                    className="h-56 w-full object-contain"
+                                    className={
+                                      multiImage
+                                        ? "aspect-square w-full object-cover"
+                                        : "h-56 w-full object-contain"
+                                    }
                                   />
                                 </a>
                               ) : (
@@ -294,12 +349,20 @@ export function OrderReview({
                                   <Download className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
                                 </a>
                               )}
-                              <p className="mt-1 truncate text-[11px] text-slate-500">
-                                {img.file_name}
-                                {img.file_size
-                                  ? ` · ${formatFileSize(img.file_size)}`
+                              <p className="truncate text-center text-[11px] text-slate-500">
+                                {multiImage
+                                  ? `Image ${imgIdx + 1}`
+                                  : img.file_name}
+                                {!multiImage && img.size
+                                  ? ` · ${formatFileSize(img.size)}`
                                   : null}
                               </p>
+                              {multiImage ? (
+                                <ImageDecisionControls
+                                  skuId={sku.id}
+                                  assetId={img.id}
+                                />
+                              ) : null}
                             </li>
                           );
                         })}
