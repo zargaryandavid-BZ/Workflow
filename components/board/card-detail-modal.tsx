@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { CardWorkingPrompt } from "@/components/board/card-working-prompt";
+import { CardSwitchTimerPrompt } from "@/components/board/card-switch-timer-prompt";
 import { OrderTimerButton } from "@/components/board/order-timer-button";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1883,6 +1884,7 @@ export function CardDetailModal({
   return (
     <>
     <CardWorkingPrompt orderId={orderId} open={open} />
+    <CardSwitchTimerPrompt orderId={orderId} open={open} />
     <Modal
       open={open}
       onClose={handleClose}

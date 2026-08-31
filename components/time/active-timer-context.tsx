@@ -55,8 +55,14 @@ interface ActiveTimerContextValue {
   forOrder: (orderId: string) => OrderTimerState | null;
   /** Cumulative worked seconds this user has logged on an order (0 when none). */
   workedTotalForOrder: (orderId: string) => number;
+  /** Cumulative worked seconds by EVERYONE on an order — for the on-card total
+   *  badge, so anyone can see how long a job took without opening it. */
+  boardWorkedTotalForOrder: (orderId: string) => number;
   /** Who (any user) is actively working an order, for the on-card chip. */
   boardActiveForOrder: (orderId: string) => BoardTimerState | null;
+  /** This user's currently RUNNING (not paused) timer, if any — used to prompt
+   *  "you're still timing job X" when they open a different card. */
+  myActiveRunning: { entryId: string; orderId: string | null; orderTitle: string | null } | null;
   /** Start (or resume) the timer on an order; auto-pauses any other running one. */
   start: (orderId: string) => Promise<void>;
   pause: (entryId: string, reason?: string) => Promise<void>;
@@ -70,6 +76,7 @@ const Ctx = createContext<ActiveTimerContextValue | null>(null);
 export function ActiveTimerProvider({ children }: { children: React.ReactNode }) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [totals, setTotals] = useState<Record<string, number>>({});
+  const [boardTotals, setBoardTotals] = useState<Record<string, number>>({});
   const [board, setBoard] = useState<BoardEntry[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
@@ -106,29 +113,44 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
+  const refetchBoardTotals = useCallback(async () => {
+    try {
+      const res = await fetch("/api/time-entries/board-totals");
+      const data = (await res.json()) as { totals?: Record<string, number> };
+      if (res.ok) setBoardTotals(data.totals ?? {});
+    } catch {
+      /* keep previous on transient error */
+    }
+  }, []);
+
   useEffect(() => {
     void refetch();
     void refetchTotals();
     void refetchBoard();
-  }, [refetch, refetchTotals, refetchBoard]);
+    void refetchBoardTotals();
+  }, [refetch, refetchTotals, refetchBoard, refetchBoardTotals]);
 
   useEffect(() => {
     function onChanged() {
       void refetch();
       void refetchTotals();
       void refetchBoard();
+      void refetchBoardTotals();
     }
     window.addEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
     return () =>
       window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
-  }, [refetch, refetchTotals, refetchBoard]);
+  }, [refetch, refetchTotals, refetchBoard, refetchBoardTotals]);
 
-  // Refresh the board's who-is-working list periodically so other people's
-  // start/stop shows up without this user touching anything.
+  // Refresh the board's who-is-working list + per-job totals periodically so
+  // other people's start/stop shows up without this user touching anything.
   useEffect(() => {
-    const id = window.setInterval(() => void refetchBoard(), 15000);
+    const id = window.setInterval(() => {
+      void refetchBoard();
+      void refetchBoardTotals();
+    }, 15000);
     return () => window.clearInterval(id);
-  }, [refetchBoard]);
+  }, [refetchBoard, refetchBoardTotals]);
 
   // Tick only while something is actively running (not paused) — cheap otherwise.
   const anyRunning =
@@ -171,10 +193,26 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
     [totals]
   );
 
+  const boardWorkedTotalForOrder = useCallback(
+    (orderId: string): number =>
+      Math.max(0, Math.floor(boardTotals[orderId] ?? 0)),
+    [boardTotals]
+  );
+
   const myEntryIds = useMemo(
     () => new Set(entries.filter((e) => !e.ended_at).map((e) => e.id)),
     [entries]
   );
+
+  const myActiveRunning = useMemo(() => {
+    const e = entries.find((x) => !x.ended_at && !x.paused_at);
+    if (!e) return null;
+    return {
+      entryId: e.id,
+      orderId: e.order_id ?? null,
+      orderTitle: e.order_title ?? null,
+    };
+  }, [entries]);
 
   const boardByOrder = useMemo(() => {
     const map = new Map<string, BoardEntry>();
@@ -298,8 +336,8 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   );
 
   const value = useMemo(
-    () => ({ forOrder, workedTotalForOrder, boardActiveForOrder, start, pause, resume, stop, busyOrderId }),
-    [forOrder, workedTotalForOrder, boardActiveForOrder, start, pause, resume, stop, busyOrderId]
+    () => ({ forOrder, workedTotalForOrder, boardWorkedTotalForOrder, boardActiveForOrder, myActiveRunning, start, pause, resume, stop, busyOrderId }),
+    [forOrder, workedTotalForOrder, boardWorkedTotalForOrder, boardActiveForOrder, myActiveRunning, start, pause, resume, stop, busyOrderId]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -312,7 +350,9 @@ export function useActiveTimer(): ActiveTimerContextValue {
   return {
     forOrder: () => null,
     workedTotalForOrder: () => 0,
+    boardWorkedTotalForOrder: () => 0,
     boardActiveForOrder: () => null,
+    myActiveRunning: null,
     start: async () => {},
     pause: async () => {},
     resume: async () => {},

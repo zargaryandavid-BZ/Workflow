@@ -75,6 +75,7 @@ import { DesignFlagChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
+import { formatDuration } from "@/lib/time-tracking";
 import { BoardWorkerChip } from "./board-worker-chip";
 import {
   getActiveWarning,
@@ -696,6 +697,9 @@ export function OrderCard({
   // Any user actively working this card (shown to everyone who can see it).
   const boardTimer = activeTimer.boardActiveForOrder(order.id);
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
+  // Total time anyone has spent on this job — always shown so how long a card
+  // took is visible on the board without opening it.
+  const boardWorkedSeconds = activeTimer.boardWorkedTotalForOrder(order.id);
   // Admins + account managers can pause/stop another person's timer.
   const canControlOthers = role === "admin" || role === "account_manager";
   const timerRunning = (orderTimer?.running ?? false) || (otherWorker?.running ?? false);
@@ -757,6 +761,15 @@ export function OrderCard({
           onResume={() => void activeTimer.resume(otherWorker.entryId)}
           onStop={() => void activeTimer.stop(otherWorker.entryId)}
         />
+      ) : null}
+      {boardWorkedSeconds > 0 ? (
+        <span
+          className="mb-1.5 mr-1.5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600 tabular-nums"
+          title="Total time worked on this job (everyone)"
+        >
+          <Clock className="h-3 w-3" />
+          {formatDuration(boardWorkedSeconds)}
+        </span>
       ) : null}
       {emergencySeverity ? (
         <span

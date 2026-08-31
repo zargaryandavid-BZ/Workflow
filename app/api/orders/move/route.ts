@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity, onEnterColumn } from "@/lib/automation";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
@@ -249,6 +250,33 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  // Moving a card to another stage pauses whoever's actively timing it, so the
+  // counter stops and the worked time is banked instead of running in the
+  // background. Resuming (Start/Resume, or moving back) continues from there.
+  // Admin client + explicit tenant/order scope: the mover is often not the
+  // timer's owner (a manager dragging a designer's card), and RLS would
+  // otherwise block pausing someone else's entry.
+  if (isColumnChange) {
+    try {
+      const admin = createAdminClient();
+      await admin
+        .from("time_entries")
+        .update({
+          paused_at: new Date().toISOString(),
+          pause_reason: "jumped_job",
+        })
+        .eq("tenant_id", tenantId)
+        .eq("order_id", body.orderId)
+        .is("ended_at", null)
+        .is("paused_at", null);
+    } catch (err: unknown) {
+      console.error(
+        "[move] auto-pause timer failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   // When a card leaves the designer queue (finished or moved to another column),
