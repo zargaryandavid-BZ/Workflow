@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import { durationSeconds } from "@/lib/time-tracking";
 
@@ -16,7 +16,14 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = await createClient();
+  // Service-role client: tenant access is already verified above via
+  // getTenantContext(). RLS on time_entries only lets a member read their OWN
+  // rows (or every row when they are a tenant admin), so a user-scoped client
+  // returns an empty board for non-admins (designers, account managers) and the
+  // "who is working" chip never appears for them. Read tenant-wide here, scoped
+  // explicitly by tenant_id below — this endpoint exposes only non-sensitive
+  // "who is working + for how long" data for the caller's own tenant.
+  const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("time_entries")
     .select("id, user_id, order_id, started_at, ended_at, paused_at, paused_seconds")
