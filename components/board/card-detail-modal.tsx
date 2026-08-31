@@ -103,6 +103,19 @@ import {
   serializeNoteHistory,
 } from "@/lib/note-history";
 
+/** "Acme Acme" / "Safe Care Packaging Safe Care Packaging" → one copy. */
+function collapseDuplicatedLabel(value: string): string {
+  const t = value.replace(/\s+/g, " ").trim();
+  const words = t.split(" ");
+  if (words.length >= 2 && words.length % 2 === 0) {
+    const half = words.length / 2;
+    const a = words.slice(0, half).join(" ");
+    const b = words.slice(half).join(" ");
+    if (a.toLowerCase() === b.toLowerCase()) return a;
+  }
+  return t;
+}
+
 interface CardDetailModalProps {
   orderId: string | null;
   open: boolean;
@@ -1413,6 +1426,16 @@ export function CardDetailModal({
     Boolean(data?.order) &&
     canEditOrderTitle(role, data!.order) &&
     !isViewOnly;
+  const itemNameDuplicatesTitle =
+    itemName.trim().length > 0 &&
+    itemName.trim().toLowerCase() === title.trim().toLowerCase();
+  const showItemNameHeading =
+    Boolean(data?.order) &&
+    itemName.trim().length > 0 &&
+    !(showEditableManualTitle && itemNameDuplicatesTitle);
+  const customerLabel = customerName
+    ? collapseDuplicatedLabel(customerName)
+    : "";
 
   async function copyOrderNumber() {
     if (!displayOrderNumber) return;
@@ -1575,12 +1598,12 @@ export function CardDetailModal({
 
   const modalTitle = (
     <span className="flex min-w-0 flex-col items-start gap-0.5">
-      {data?.order && isViewOnly && itemName.trim() ? (
+      {isViewOnly && showItemNameHeading ? (
         <span className="w-full min-w-0 whitespace-normal break-words text-[13px] font-semibold leading-snug text-slate-800">
           {itemName}
         </span>
       ) : null}
-      {!isViewOnly && data?.order ? (
+      {!isViewOnly && showItemNameHeading ? (
         editingItemName ? (
           <textarea
             ref={itemNameInputRef}
@@ -1696,16 +1719,16 @@ export function CardDetailModal({
           </>
         ) : null}
         {/* Customer name — dropdown with copy */}
-        {customerName ? (
+        {customerLabel ? (
           <>
             <span className="text-slate-300">|</span>
-            <div className="relative flex items-center" ref={customerDropdownRef}>
+            <div className="relative flex min-w-0 max-w-full items-center" ref={customerDropdownRef}>
               <button
                 type="button"
                 onClick={() => setCustomerDropdownOpen((v) => !v)}
-                className="flex items-center gap-1 rounded px-1 py-0.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                className="flex min-w-0 max-w-full items-center gap-1 rounded px-1 py-0.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800"
               >
-                <span className="truncate">{customerName}</span>
+                <span className="min-w-0 truncate">{customerLabel}</span>
                 <ChevronDown
                   className={cn(
                     "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform",
@@ -1721,11 +1744,11 @@ export function CardDetailModal({
                       <span className="shrink-0 text-[11px] text-slate-400">Name</span>
                       <button
                         type="button"
-                        onClick={() => copyCustomerField(customerName, "name")}
+                        onClick={() => copyCustomerField(customerLabel, "name")}
                         className="group/copy flex min-w-0 items-center gap-1 text-right text-xs font-medium text-slate-700 hover:text-[var(--primary)]"
                       >
                         <span className="truncate">
-                          {copiedCustomerField === "name" ? "Copied!" : customerName}
+                          {copiedCustomerField === "name" ? "Copied!" : customerLabel}
                         </span>
                         {copiedCustomerField === "name" ? null : (
                           <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />

@@ -30,10 +30,10 @@ export function BoardWorkerChip({
 }) {
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   return (
-    <div className="mb-1.5" onClick={stop} onPointerDown={stop}>
+    <div className="mb-1.5 max-w-full" onClick={stop} onPointerDown={stop}>
       <div
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+          "inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
           running ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
         )}
         title={

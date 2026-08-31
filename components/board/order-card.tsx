@@ -659,6 +659,7 @@ export function OrderCard({
 
   // The card's own line-item title (falls back to product for untitled parts).
   const cardTitle = partCardTitle(order, productName);
+  const shortOrderNumber = formatShortOrderNumber(order.title);
   // Drop empty and placeholder ("None"/"N/A") spec values so their separators
   // aren't rendered either.
   const cleanSpec = (value: string | null | undefined): string | null => {
@@ -831,7 +832,8 @@ export function OrderCard({
               sourceStyles={webhookSourceStyles}
               orderTitle={sharedOrderTitle(order)}
             />
-            <div className="mb-0.5 flex w-full min-w-0 flex-wrap items-start justify-start gap-1.5 text-left">
+            <div className="mb-0.5 flex w-full min-w-0 flex-col gap-0.5 text-left">
+              <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5">
               <span
                 className={cn(
                   "inline-flex shrink-0 items-center justify-start gap-1.5 text-left text-[15px] font-bold leading-none",
@@ -854,9 +856,11 @@ export function OrderCard({
                   />
                 ) : null}
                 <DesignFlagChip specs={order.specs} />
-                {!(thumbnails && thumbnails.length > 0) ? (
+                {!(thumbnails && thumbnails.length > 0) &&
+                shortOrderNumber &&
+                shortOrderNumber !== cardTitle ? (
                   <span className="truncate leading-snug">
-                    {formatShortOrderNumber(order.title)}
+                    {shortOrderNumber}
                     {groupSize != null && groupSize >= 2 ? (
                       <span
                         className={cn(
@@ -937,19 +941,11 @@ export function OrderCard({
                   </span>
                 ) : null}
               </span>
+              </div>
               {cardTitle ? (
-                <>
-                  {!(thumbnails && thumbnails.length > 0) ? (
-                    <span className="shrink-0 text-slate-300" aria-hidden>
-                      ·
-                    </span>
-                  ) : null}
-                  <span
-                    className="min-w-0 flex-1 whitespace-normal break-words text-left text-[15px] font-bold leading-snug text-slate-900"
-                  >
-                    {cardTitle}
-                  </span>
-                </>
+                <span className="min-w-0 w-full whitespace-normal break-words text-left text-[15px] font-bold leading-snug text-slate-900">
+                  {cardTitle}
+                </span>
               ) : null}
             </div>
             {displayCustomerName ? (
