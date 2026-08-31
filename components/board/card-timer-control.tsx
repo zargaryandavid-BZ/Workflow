@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Play, Pause, Square } from "lucide-react";
+import { Play, Pause, Square, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/time-tracking";
 import type { OrderTimerState } from "@/components/time/active-timer-context";
@@ -18,6 +18,8 @@ const PAUSE_REASONS = [
 interface CardTimerControlProps {
   orderId: string;
   timer: OrderTimerState | null;
+  /** Cumulative worked time already logged on this card (seconds). */
+  workedSeconds: number;
   busy: boolean;
   onStart: () => void;
   onPause: (reason?: string) => void;
@@ -32,6 +34,7 @@ interface CardTimerControlProps {
  */
 export function CardTimerControl({
   timer,
+  workedSeconds,
   busy,
   onStart,
   onPause,
@@ -44,21 +47,32 @@ export function CardTimerControl({
   };
 
   if (!timer) {
+    const hasWorked = workedSeconds > 0;
     return (
-      <button
-        type="button"
-        disabled={busy}
-        onClick={(e) => {
-          stop(e);
-          onStart();
-        }}
-        onPointerDown={stop}
-        className="mb-1.5 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-100 disabled:opacity-40"
-        title="Start working on this card"
-      >
-        <Play className="h-3 w-3 fill-current" />
-        Start
-      </button>
+      <div className="mb-1.5 inline-flex items-center gap-1.5" onClick={stop} onPointerDown={stop}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={(e) => {
+            stop(e);
+            onStart();
+          }}
+          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-100 disabled:opacity-40"
+          title={hasWorked ? "Resume working on this card" : "Start working on this card"}
+        >
+          <Play className="h-3 w-3 fill-current" />
+          {hasWorked ? "Resume" : "Start"}
+        </button>
+        {hasWorked ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 tabular-nums"
+            title="Total time worked on this card"
+          >
+            <Clock className="h-3 w-3" />
+            {formatDuration(workedSeconds)}
+          </span>
+        ) : null}
+      </div>
     );
   }
 

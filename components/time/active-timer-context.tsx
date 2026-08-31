@@ -27,6 +27,8 @@ export interface OrderTimerState {
 interface ActiveTimerContextValue {
   /** Live timer state for an order, or null when this user has none on it. */
   forOrder: (orderId: string) => OrderTimerState | null;
+  /** Cumulative worked seconds this user has logged on an order (0 when none). */
+  workedTotalForOrder: (orderId: string) => number;
   /** Start (or resume) the timer on an order; auto-pauses any other running one. */
   start: (orderId: string) => Promise<void>;
   pause: (entryId: string, reason?: string) => Promise<void>;
@@ -39,6 +41,7 @@ const Ctx = createContext<ActiveTimerContextValue | null>(null);
 
 export function ActiveTimerProvider({ children }: { children: React.ReactNode }) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [totals, setTotals] = useState<Record<string, number>>({});
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const entriesRef = useRef<TimeEntry[]>([]);
@@ -54,18 +57,30 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
+  const refetchTotals = useCallback(async () => {
+    try {
+      const res = await fetch("/api/time-entries/totals");
+      const data = (await res.json()) as { totals?: Record<string, number> };
+      if (res.ok) setTotals(data.totals ?? {});
+    } catch {
+      /* keep previous on transient error */
+    }
+  }, []);
+
   useEffect(() => {
     void refetch();
-  }, [refetch]);
+    void refetchTotals();
+  }, [refetch, refetchTotals]);
 
   useEffect(() => {
     function onChanged() {
       void refetch();
+      void refetchTotals();
     }
     window.addEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
     return () =>
       window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
-  }, [refetch]);
+  }, [refetch, refetchTotals]);
 
   // Tick only while something is actively running (not paused) — cheap otherwise.
   const anyRunning = entries.some((e) => !e.ended_at && !e.paused_at);
@@ -99,6 +114,11 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
       };
     },
     [byOrder, nowMs]
+  );
+
+  const workedTotalForOrder = useCallback(
+    (orderId: string): number => Math.max(0, Math.floor(totals[orderId] ?? 0)),
+    [totals]
   );
 
   const patch = useCallback(
@@ -189,8 +209,8 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   );
 
   const value = useMemo(
-    () => ({ forOrder, start, pause, resume, stop, busyOrderId }),
-    [forOrder, start, pause, resume, stop, busyOrderId]
+    () => ({ forOrder, workedTotalForOrder, start, pause, resume, stop, busyOrderId }),
+    [forOrder, workedTotalForOrder, start, pause, resume, stop, busyOrderId]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -202,6 +222,7 @@ export function useActiveTimer(): ActiveTimerContextValue {
   // Safe no-op fallback when used outside the provider (e.g. isolated tests).
   return {
     forOrder: () => null,
+    workedTotalForOrder: () => 0,
     start: async () => {},
     pause: async () => {},
     resume: async () => {},

@@ -690,6 +690,7 @@ export function OrderCard({
   // with a ticking elapsed time; paused → a muted green.
   const activeTimer = useActiveTimer();
   const orderTimer = activeTimer.forOrder(order.id);
+  const workedSeconds = activeTimer.workedTotalForOrder(order.id);
   const timerRunning = orderTimer?.running ?? false;
   const timerPaused = orderTimer?.paused ?? false;
 
@@ -733,6 +734,7 @@ export function OrderCard({
       <CardTimerControl
         orderId={order.id}
         timer={orderTimer}
+        workedSeconds={workedSeconds}
         busy={activeTimer.busyOrderId === order.id}
         onStart={() => void activeTimer.start(order.id)}
         onPause={(reason) => orderTimer && void activeTimer.pause(orderTimer.entry.id, reason)}
