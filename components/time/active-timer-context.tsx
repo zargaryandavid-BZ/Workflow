@@ -24,11 +24,39 @@ export interface OrderTimerState {
   elapsedSeconds: number;
 }
 
+/** One running timer somewhere on the board (possibly another user's). */
+interface BoardEntry {
+  id: string;
+  user_id: string;
+  worker_name: string;
+  order_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  paused_at: string | null;
+  paused_seconds: number;
+  running: boolean;
+  elapsed_seconds: number;
+}
+
+/** Who is actively working a card + for how long — shown on every card. */
+export interface BoardTimerState {
+  entryId: string;
+  userId: string;
+  workerName: string;
+  running: boolean;
+  paused: boolean;
+  elapsedSeconds: number;
+  /** True when this board timer is the current viewer's own. */
+  isMine: boolean;
+}
+
 interface ActiveTimerContextValue {
   /** Live timer state for an order, or null when this user has none on it. */
   forOrder: (orderId: string) => OrderTimerState | null;
   /** Cumulative worked seconds this user has logged on an order (0 when none). */
   workedTotalForOrder: (orderId: string) => number;
+  /** Who (any user) is actively working an order, for the on-card chip. */
+  boardActiveForOrder: (orderId: string) => BoardTimerState | null;
   /** Start (or resume) the timer on an order; auto-pauses any other running one. */
   start: (orderId: string) => Promise<void>;
   pause: (entryId: string, reason?: string) => Promise<void>;
@@ -42,6 +70,7 @@ const Ctx = createContext<ActiveTimerContextValue | null>(null);
 export function ActiveTimerProvider({ children }: { children: React.ReactNode }) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [totals, setTotals] = useState<Record<string, number>>({});
+  const [board, setBoard] = useState<BoardEntry[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const entriesRef = useRef<TimeEntry[]>([]);
@@ -67,23 +96,44 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
+  const refetchBoard = useCallback(async () => {
+    try {
+      const res = await fetch("/api/time-entries/active-board");
+      const data = (await res.json()) as { entries?: BoardEntry[] };
+      if (res.ok) setBoard(data.entries ?? []);
+    } catch {
+      /* keep previous on transient error */
+    }
+  }, []);
+
   useEffect(() => {
     void refetch();
     void refetchTotals();
-  }, [refetch, refetchTotals]);
+    void refetchBoard();
+  }, [refetch, refetchTotals, refetchBoard]);
 
   useEffect(() => {
     function onChanged() {
       void refetch();
       void refetchTotals();
+      void refetchBoard();
     }
     window.addEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
     return () =>
       window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
-  }, [refetch, refetchTotals]);
+  }, [refetch, refetchTotals, refetchBoard]);
+
+  // Refresh the board's who-is-working list periodically so other people's
+  // start/stop shows up without this user touching anything.
+  useEffect(() => {
+    const id = window.setInterval(() => void refetchBoard(), 15000);
+    return () => window.clearInterval(id);
+  }, [refetchBoard]);
 
   // Tick only while something is actively running (not paused) — cheap otherwise.
-  const anyRunning = entries.some((e) => !e.ended_at && !e.paused_at);
+  const anyRunning =
+    entries.some((e) => !e.ended_at && !e.paused_at) ||
+    board.some((b) => b.running);
   useEffect(() => {
     if (!anyRunning) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -119,6 +169,45 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   const workedTotalForOrder = useCallback(
     (orderId: string): number => Math.max(0, Math.floor(totals[orderId] ?? 0)),
     [totals]
+  );
+
+  const myEntryIds = useMemo(
+    () => new Set(entries.filter((e) => !e.ended_at).map((e) => e.id)),
+    [entries]
+  );
+
+  const boardByOrder = useMemo(() => {
+    const map = new Map<string, BoardEntry>();
+    for (const b of board) {
+      if (!b.order_id) continue;
+      const cur = map.get(b.order_id);
+      // Prefer a running timer over a paused one when a card has more than one.
+      if (!cur || (b.running && !cur.running)) map.set(b.order_id, b);
+    }
+    return map;
+  }, [board]);
+
+  const boardActiveForOrder = useCallback(
+    (orderId: string): BoardTimerState | null => {
+      const b = boardByOrder.get(orderId);
+      if (!b) return null;
+      const elapsed = b.running
+        ? durationSeconds(b.started_at, null, nowMs, {
+            pausedAt: b.paused_at ?? null,
+            pausedSeconds: b.paused_seconds ?? 0,
+          })
+        : b.elapsed_seconds;
+      return {
+        entryId: b.id,
+        userId: b.user_id,
+        workerName: b.worker_name,
+        running: b.running,
+        paused: !b.running,
+        elapsedSeconds: elapsed,
+        isMine: myEntryIds.has(b.id),
+      };
+    },
+    [boardByOrder, nowMs, myEntryIds]
   );
 
   const patch = useCallback(
@@ -209,8 +298,8 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   );
 
   const value = useMemo(
-    () => ({ forOrder, workedTotalForOrder, start, pause, resume, stop, busyOrderId }),
-    [forOrder, workedTotalForOrder, start, pause, resume, stop, busyOrderId]
+    () => ({ forOrder, workedTotalForOrder, boardActiveForOrder, start, pause, resume, stop, busyOrderId }),
+    [forOrder, workedTotalForOrder, boardActiveForOrder, start, pause, resume, stop, busyOrderId]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -223,6 +312,7 @@ export function useActiveTimer(): ActiveTimerContextValue {
   return {
     forOrder: () => null,
     workedTotalForOrder: () => 0,
+    boardActiveForOrder: () => null,
     start: async () => {},
     pause: async () => {},
     resume: async () => {},
