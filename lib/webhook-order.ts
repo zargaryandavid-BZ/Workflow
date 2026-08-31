@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity, resolveColumnForNewJobByProduct } from "@/lib/automation";
+import { pickMissingInfoColumn } from "@/lib/missing-info-column";
 import { upsertCustomer, getCustomerDefaultPriorityScore } from "@/lib/customers";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
@@ -186,6 +187,16 @@ interface WebhookDesignerInput {
   /** Alias for `designer_information`. */
   notes_for_designer?: string;
   design_task?: string;
+  /** CRM design capture — who provides artwork: has_files | files_coming | needs_design. */
+  design_source?: string;
+  /** CRM design capture — the frozen design brief / reference. */
+  design_reference?: string;
+  /** Route A: files print-ready, prepress only. */
+  design_ready?: boolean;
+  /** Design fee (stays on the product line). */
+  design_price?: string;
+  /** Total SKUs to design. */
+  design_sku_count?: string;
   /** CRM Files / line-item Google Drive folder (do not create a second tree). */
   item_folder_url?: string;
   /** Alias for `item_folder_url`. */
@@ -3212,6 +3223,31 @@ interface CreateSingleJobParams {
   portalBrokerId?: string | null;
   /** Partner/broker display name for Portal | Name label. */
   portalCompanyName?: string | null;
+  /** CRM design capture — who provides artwork: has_files | files_coming | needs_design. */
+  designSource?: string | null;
+  /** CRM design capture — frozen design brief / reference (own card slot). */
+  designReference?: string | null;
+  /** Design fee (stays on the product line). */
+  designPrice?: string | null;
+  /** Total SKUs to design. */
+  designSkuCount?: string | null;
+  /** Route A: files print-ready, prepress only. */
+  designReady?: boolean;
+}
+
+/** Resolve the tenant's Missing Info column (for "files coming" design capture). */
+async function resolveMissingInfoColumn(
+  client: SupabaseClient,
+  tenantId: string
+): Promise<{ id: string; name: string | null } | null> {
+  const { data } = await client
+    .from("board_columns")
+    .select("id, name, kind")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+  return pickMissingInfoColumn(
+    (data ?? []) as { id: string; name: string | null; kind: string | null }[]
+  );
 }
 
 async function createSingleWebhookJob(
@@ -3258,7 +3294,17 @@ async function createSingleWebhookJob(
     portalBrokerId = null,
     portalCompanyName = null,
     skipProductRouting = false,
+    designSource = null,
+    designReference = null,
+    designPrice = null,
+    designSkuCount = null,
+    designReady = false,
   } = params;
+
+  const designSourceClean =
+    typeof designSource === "string" && designSource.trim()
+      ? designSource.trim()
+      : null;
 
   const {
     skus: rawSkus,
@@ -3317,6 +3363,27 @@ async function createSingleWebhookJob(
       ((lastInTarget as { position: number } | null)?.position ?? 0) + 1000;
   }
 
+  // CRM design capture: "files coming" = artwork is missing → land the card in
+  // Missing Info so the customer is asked to upload (instead of Start/design).
+  // Additive: only when the CRM sends design_source, so other orders are unaffected.
+  if (designSourceClean === "files_coming") {
+    const missingCol = await resolveMissingInfoColumn(client, tenantId);
+    if (missingCol) {
+      effectiveColumnId = missingCol.id;
+      effectiveColumnName = missingCol.name ?? effectiveColumnName;
+      const { data: lastInMissing } = await client
+        .from("orders")
+        .select("position")
+        .eq("column_id", missingCol.id)
+        .eq("tenant_id", tenantId)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      effectivePosition =
+        ((lastInMissing as { position: number } | null)?.position ?? 0) + 1000;
+    }
+  }
+
   const itemDescription =
     typeof item.description === "string" ? item.description.trim() : null;
   const orderDescriptionText = buildWebhookOrderDescription({
@@ -3365,6 +3432,21 @@ async function createSingleWebhookJob(
   if (productionNotesText) specs.production_notes = productionNotesText;
   if (customerFacingNoteText) specs.customer_facing_note = customerFacingNoteText;
   if (billing) specs.billing = billing;
+  // CRM design capture — its own card slot (flag + frozen Design reference).
+  if (designSourceClean) {
+    specs.design_source = designSourceClean;
+    specs.intake_v2 = true;
+  }
+  if (typeof designReference === "string" && designReference.trim()) {
+    specs.design_reference = designReference.trim();
+  }
+  if (typeof designPrice === "string" && designPrice.trim()) {
+    specs.design_price = designPrice.trim();
+  }
+  if (typeof designSkuCount === "string" && designSkuCount.trim()) {
+    specs.design_sku_count = designSkuCount.trim();
+  }
+  if (designReady) specs.design_ready = true;
   const sharedTitle = orderLevelTitle.trim();
   if (sharedTitle) {
     specs.webhook_order_title = sharedTitle;
@@ -4060,6 +4142,15 @@ export async function createOrderFromWebhook(
       portalBrokerId,
       portalCompanyName,
       skipProductRouting: startCreateIndex > 0,
+      designSource:
+        typeof body.design_source === "string" ? body.design_source.trim() : null,
+      designReference:
+        typeof body.design_reference === "string" ? body.design_reference.trim() : null,
+      designPrice:
+        typeof body.design_price === "string" ? body.design_price.trim() : null,
+      designSkuCount:
+        typeof body.design_sku_count === "string" ? body.design_sku_count.trim() : null,
+      designReady: body.design_ready === true,
     });
 
     nextPosition += 1000;
