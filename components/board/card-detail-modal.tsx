@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import { CardWorkingPrompt } from "@/components/board/card-working-prompt";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
@@ -1879,6 +1880,7 @@ export function CardDetailModal({
 
   return (
     <>
+    <CardWorkingPrompt orderId={orderId} open={open} />
     <Modal
       open={open}
       onClose={handleClose}
