@@ -1620,7 +1620,9 @@ export function CardDetailModal({
               }
               if (e.key === "Escape") {
                 e.preventDefault();
-                setItemName(partCardTitle(data.order) ?? "");
+                setItemName(
+                  data?.order ? (partCardTitle(data.order) ?? "") : ""
+                );
                 setEditingItemName(false);
               }
             }}
