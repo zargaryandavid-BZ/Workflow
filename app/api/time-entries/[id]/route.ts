@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity } from "@/lib/automation";
 import {
@@ -93,7 +93,14 @@ export async function PATCH(
     pause_reason?: string;
   };
 
-  const supabase = await createClient();
+  // Service-role client: the caller + tenant are verified via getTenantContext()
+  // and the owner/admin/account_manager check below. RLS on time_entries blocks
+  // writes to another user's row (its UPDATE/DELETE policy is user_id = auth.uid()
+  // with no admin bypass), so admins and account managers could never actually
+  // pause/resume/stop someone else's timer through a user-scoped client. Every
+  // query below stays explicitly scoped by tenant_id (and user_id) so this never
+  // reaches across tenants.
+  const supabase = createAdminClient();
 
   const { data: existing, error: loadError } = await supabase
     .from("time_entries")
@@ -290,7 +297,14 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const supabase = await createClient();
+  // Service-role client: the caller + tenant are verified via getTenantContext()
+  // and the owner/admin/account_manager check below. RLS on time_entries blocks
+  // writes to another user's row (its UPDATE/DELETE policy is user_id = auth.uid()
+  // with no admin bypass), so admins and account managers could never actually
+  // pause/resume/stop someone else's timer through a user-scoped client. Every
+  // query below stays explicitly scoped by tenant_id (and user_id) so this never
+  // reaches across tenants.
+  const supabase = createAdminClient();
 
   const { data: existing, error: loadError } = await supabase
     .from("time_entries")
