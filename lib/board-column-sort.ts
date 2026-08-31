@@ -133,9 +133,23 @@ export function sortOrdersForColumn<
     due_date: string | null;
     last_moved_at?: string | null;
     specs?: { priority_score?: unknown } | null;
+    queue_rank?: number | null;
   },
 >(orders: T[], mode: ColumnSortMode): T[] {
   const list = [...orders];
+
+  // Start / In Progress carry a designer queue number — always show cards in
+  // that ascending order (1, 2, 3 …). Ranked cards first; unranked fall to the
+  // bottom by position. Only these columns set queue_rank, so others are
+  // unaffected and the chosen sort mode still applies there.
+  if (orders.some((o) => typeof o.queue_rank === "number")) {
+    return list.sort((a, b) => {
+      const ra = typeof a.queue_rank === "number" ? a.queue_rank : Number.POSITIVE_INFINITY;
+      const rb = typeof b.queue_rank === "number" ? b.queue_rank : Number.POSITIVE_INFINITY;
+      if (ra !== rb) return ra - rb;
+      return a.position - b.position;
+    });
+  }
 
   if (mode === "manual") {
     return list.sort((a, b) => a.position - b.position);
