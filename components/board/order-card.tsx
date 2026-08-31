@@ -335,10 +335,13 @@ export function OrderCard({
     if (!designerId) return null;
     // Only Start / In Progress cards carry a queue number.
     if (!isDesignerQueueColumnName(columnName)) return null;
+    // Saved position wins (updates live after a manual re-rank); otherwise fall
+    // back to the rank computed server-side at fetch time.
     const v = (order.specs as { designer_queue_pos?: unknown } | null)
       ?.designer_queue_pos;
     const n = typeof v === "number" ? v : Number(v);
-    return Number.isFinite(n) ? n + 1 : null;
+    if (Number.isFinite(n)) return n + 1;
+    return typeof order.queue_rank === "number" ? order.queue_rank : null;
   })();
 
   const isOwnerUnassigned = !order.created_by;
