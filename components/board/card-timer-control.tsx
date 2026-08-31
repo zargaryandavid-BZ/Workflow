@@ -53,7 +53,7 @@ export function CardTimerControl({
           onStart();
         }}
         onPointerDown={stop}
-        className="mb-1.5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 opacity-0 transition-opacity hover:border-emerald-300 hover:text-emerald-700 focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+        className="mb-1.5 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-100 disabled:opacity-40"
         title="Start working on this card"
       >
         <Play className="h-3 w-3 fill-current" />

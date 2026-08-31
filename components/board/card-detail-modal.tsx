@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { CardWorkingPrompt } from "@/components/board/card-working-prompt";
+import { OrderTimerButton } from "@/components/board/order-timer-button";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
@@ -1888,23 +1889,26 @@ export function CardDetailModal({
       className={cn("max-w-3xl", saving && "cursor-wait")}
       overlayClassName={saving ? "cursor-wait" : undefined}
       headerAction={
-        !isViewOnly ? (
-          <select
-            value={ownerId}
-            onChange={(e) => setOwnerId(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
-            title="Owner"
-          >
-            <option value="">— Owner —</option>
-            {ownersForForm.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        ) : ownerName ? (
-          <span className="text-sm text-slate-500">{ownerName}</span>
-        ) : undefined
+        <div className="flex items-center gap-2">
+          <OrderTimerButton orderId={orderId} />
+          {!isViewOnly ? (
+            <select
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+              title="Owner"
+            >
+              <option value="">— Owner —</option>
+              {ownersForForm.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          ) : ownerName ? (
+            <span className="text-sm text-slate-500">{ownerName}</span>
+          ) : null}
+        </div>
       }
       footer={
         <>
