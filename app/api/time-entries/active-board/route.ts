@@ -49,7 +49,7 @@ export async function GET() {
   const nameById = new Map<string, string>();
   if (userIds.length) {
     const { data: profiles } = await supabase
-      .from("user_profiles")
+      .from("profiles")
       .select("id, full_name")
       .in("id", userIds);
     for (const p of (profiles ?? []) as Array<{ id: string; full_name: string | null }>) {
