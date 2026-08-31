@@ -70,61 +70,52 @@ export async function POST(request: Request) {
     visibility_users_v2: fromCol.visibility_users_v2,
   };
 
-  // All live cards in the source column.
+  // ALL cards in the source column — including archived (removed_at) ones. They
+  // still hold a FK to the column, so the column can't be deleted until they
+  // move too. Only cards that aren't already tagged get a fresh backup tag, so
+  // re-running after a partial merge is safe.
   const { data: rows, error: rowsErr } = await supabase
     .from("orders")
     .select("id, position, specs")
     .eq("tenant_id", tenantId)
-    .eq("column_id", fromId)
-    .is("removed_at", null);
+    .eq("column_id", fromId);
   if (rowsErr) return NextResponse.json({ error: rowsErr.message }, { status: 500 });
 
-  const beforeFrom = rows?.length ?? 0;
-  const { count: beforeToCount } = await supabase
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("tenant_id", tenantId)
-    .eq("column_id", toId)
-    .is("removed_at", null);
-  const beforeTo = beforeToCount ?? 0;
-
+  const movedCount = rows?.length ?? 0;
   const now = new Date().toISOString();
   for (const r of rows ?? []) {
     const specs = (r.specs ?? {}) as Record<string, unknown>;
+    const alreadyTagged = specs.merged_from != null;
     await supabase
       .from("orders")
       .update({
         column_id: toId,
-        specs: {
-          ...specs,
-          merged_from: {
-            column: columnSnapshot,
-            orig_position: r.position,
-            merged_at: now,
-          },
-        },
+        specs: alreadyTagged
+          ? specs
+          : {
+              ...specs,
+              merged_from: {
+                column: columnSnapshot,
+                orig_position: r.position,
+                merged_at: now,
+              },
+            },
         updated_at: now,
       })
       .eq("id", r.id)
       .eq("tenant_id", tenantId);
   }
 
-  // Verify every card landed before removing the source column.
-  const { count: afterToCount } = await supabase
+  // The column can only be deleted once NOTHING references it. Verify directly.
+  const { count: remaining } = await supabase
     .from("orders")
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId)
-    .eq("column_id", toId)
-    .is("removed_at", null);
-  const afterTo = afterToCount ?? 0;
-  if (afterTo !== beforeTo + beforeFrom) {
+    .eq("column_id", fromId);
+  if ((remaining ?? 0) > 0) {
     return NextResponse.json(
       {
-        error:
-          "Card count mismatch after move — source column left intact, nothing deleted.",
-        beforeFrom,
-        beforeTo,
-        afterTo,
+        error: `Cards moved, but ${remaining} still reference the column — not deleting it.`,
       },
       { status: 500 }
     );
@@ -145,9 +136,8 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    movedCount: beforeFrom,
+    movedCount,
     fromColumnName: fromCol.name,
     toColumnName: toCol.name,
-    afterToCount: afterTo,
   });
 }

@@ -36,7 +36,6 @@ export async function GET() {
     .from("orders")
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", ctx.tenant.id)
-    .is("removed_at", null)
     .not("specs->merged_from", "is", null);
   return NextResponse.json({ pending: count ?? 0 });
 }
@@ -55,7 +54,6 @@ export async function POST() {
     .from("orders")
     .select("id, specs")
     .eq("tenant_id", tenantId)
-    .is("removed_at", null)
     .not("specs->merged_from", "is", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!rows || rows.length === 0) {
@@ -83,32 +81,46 @@ export async function POST() {
 
   for (const [, g] of groups) {
     const s = g.snapshot;
-    const { data: created, error: createErr } = await supabase
+    // Reuse the original column if it still exists (e.g. a partial merge that
+    // moved cards but couldn't delete it) so undo never leaves a duplicate.
+    const { data: existingCol } = await supabase
       .from("board_columns")
-      .insert({
-        tenant_id: tenantId,
-        name: s.name,
-        kind: s.kind,
-        position: s.position,
-        color: s.color,
-        image_url: s.image_url,
-        drop_in_roles: s.drop_in_roles,
-        drop_out_roles: s.drop_out_roles,
-        visible_to_roles: s.visible_to_roles ?? [],
-        visible_to_users: s.visible_to_users ?? [],
-        visibility_mode: s.visibility_mode ?? "all",
-        visibility_roles: s.visibility_roles ?? [],
-        visibility_users_v2: s.visibility_users_v2 ?? [],
-      })
       .select("id")
-      .single();
-    if (createErr || !created) {
-      return NextResponse.json(
-        { error: `Failed to recreate column "${s.name}": ${createErr?.message}` },
-        { status: 500 }
-      );
+      .eq("tenant_id", tenantId)
+      .eq("name", s.name)
+      .limit(1)
+      .maybeSingle();
+    let newId: string;
+    if (existingCol?.id) {
+      newId = existingCol.id as string;
+    } else {
+      const { data: created, error: createErr } = await supabase
+        .from("board_columns")
+        .insert({
+          tenant_id: tenantId,
+          name: s.name,
+          kind: s.kind,
+          position: s.position,
+          color: s.color,
+          image_url: s.image_url,
+          drop_in_roles: s.drop_in_roles,
+          drop_out_roles: s.drop_out_roles,
+          visible_to_roles: s.visible_to_roles ?? [],
+          visible_to_users: s.visible_to_users ?? [],
+          visibility_mode: s.visibility_mode ?? "all",
+          visibility_roles: s.visibility_roles ?? [],
+          visibility_users_v2: s.visibility_users_v2 ?? [],
+        })
+        .select("id")
+        .single();
+      if (createErr || !created) {
+        return NextResponse.json(
+          { error: `Failed to recreate column "${s.name}": ${createErr?.message}` },
+          { status: 500 }
+        );
+      }
+      newId = created.id as string;
     }
-    const newId = created.id as string;
     for (const c of g.cards) {
       const rest = { ...c.specs };
       delete rest.merged_from;
