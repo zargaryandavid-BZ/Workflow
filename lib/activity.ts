@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActivityLog, Order } from "@/lib/types";
+import { pauseReasonLabel, formatDuration } from "@/lib/time-tracking";
 
 export interface ActivityLogEntry extends ActivityLog {
   actor_name: string;
@@ -322,6 +323,18 @@ export function describeActivity(log: ActivityLog): string {
       return fileName
         ? `Archive downloaded (${fileName})`
         : "Archive downloaded";
+    }
+    case "timer_started":
+      return "Started working";
+    case "timer_paused": {
+      const reason = pauseReasonLabel(meta.reason as string | null | undefined);
+      return reason ? `Paused · ${reason}` : "Paused";
+    }
+    case "timer_resumed":
+      return "Resumed working";
+    case "timer_stopped": {
+      const secs = typeof meta.seconds === "number" ? meta.seconds : null;
+      return secs != null ? `Finished — ${formatDuration(secs)}` : "Finished working";
     }
     default:
       return log.action.replace(/_/g, " ");
