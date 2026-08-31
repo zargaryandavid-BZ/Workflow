@@ -71,6 +71,7 @@ import {
 } from "./order-number-label";
 import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
+import { DesignFlagChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
@@ -821,6 +822,7 @@ export function OrderCard({
                     canEdit={canAssignDesigner}
                   />
                 ) : null}
+                <DesignFlagChip specs={order.specs} />
                 {!(thumbnails && thumbnails.length > 0) ? (
                   <span className="truncate leading-snug">
                     {formatShortOrderNumber(order.title)}

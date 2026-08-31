@@ -29,6 +29,7 @@ import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { ConnectedSpecsSection } from "./connected-specs-section";
+import { DesignReferenceBlock } from "./design-reference";
 import { isConnectedOrder } from "@/lib/connected-specs";
 import { NudgeButton } from "./nudge-button";
 import { ComboStockControl } from "./combo-stock-control";
@@ -2266,6 +2267,12 @@ export function CardDetailModal({
               }}
               onError={(msg) => setSaveError(msg)}
             />
+          ) : null}
+
+          {tab === "details" && data ? (
+            <div className="mb-3">
+              <DesignReferenceBlock specs={data.order.specs} />
+            </div>
           ) : null}
 
           {tab === "missing-info" && showMissingInfoTab ? (
