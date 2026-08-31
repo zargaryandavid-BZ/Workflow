@@ -75,6 +75,7 @@ import { DesignFlagChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
+import { BoardWorkerChip } from "./board-worker-chip";
 import {
   getActiveWarning,
   CARD_WARNING_BORDER_COLORS,
@@ -692,7 +693,12 @@ export function OrderCard({
   const activeTimer = useActiveTimer();
   const orderTimer = activeTimer.forOrder(order.id);
   const workedSeconds = activeTimer.workedTotalForOrder(order.id);
-  const timerRunning = orderTimer?.running ?? false;
+  // Any user actively working this card (shown to everyone who can see it).
+  const boardTimer = activeTimer.boardActiveForOrder(order.id);
+  const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
+  // Admins + account managers can pause/stop another person's timer.
+  const canControlOthers = role === "admin" || role === "account_manager";
+  const timerRunning = (orderTimer?.running ?? false) || (otherWorker?.running ?? false);
 
   return (
     <div
@@ -740,6 +746,18 @@ export function OrderCard({
         onResume={() => orderTimer && void activeTimer.resume(orderTimer.entry.id)}
         onStop={() => orderTimer && void activeTimer.stop(orderTimer.entry.id)}
       />
+      {otherWorker ? (
+        <BoardWorkerChip
+          workerName={otherWorker.workerName}
+          running={otherWorker.running}
+          elapsedSeconds={otherWorker.elapsedSeconds}
+          canControl={canControlOthers}
+          busy={activeTimer.busyOrderId === order.id}
+          onPause={() => void activeTimer.pause(otherWorker.entryId)}
+          onResume={() => void activeTimer.resume(otherWorker.entryId)}
+          onStop={() => void activeTimer.stop(otherWorker.entryId)}
+        />
+      ) : null}
       {emergencySeverity ? (
         <span
           className="absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full ring-2 ring-white"

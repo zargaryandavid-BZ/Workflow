@@ -108,7 +108,13 @@ export async function PATCH(
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if ((existing as { user_id: string }).user_id !== ctx.userId) {
+  // Owner can always manage their own entry; admins and account managers can
+  // manage anyone's (start/pause/stop/reassign work from the board).
+  if (
+    (existing as { user_id: string }).user_id !== ctx.userId &&
+    ctx.role !== "admin" &&
+    ctx.role !== "account_manager"
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -237,7 +243,7 @@ export async function PATCH(
     .update(patch)
     .eq("id", id)
     .eq("tenant_id", ctx.tenant.id)
-    .eq("user_id", ctx.userId)
+    .eq("user_id", (existing as { user_id: string }).user_id)
     .select(SELECT)
     .single();
 
@@ -299,7 +305,13 @@ export async function DELETE(
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if ((existing as { user_id: string }).user_id !== ctx.userId) {
+  // Owner can always manage their own entry; admins and account managers can
+  // manage anyone's (start/pause/stop/reassign work from the board).
+  if (
+    (existing as { user_id: string }).user_id !== ctx.userId &&
+    ctx.role !== "admin" &&
+    ctx.role !== "account_manager"
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -308,7 +320,7 @@ export async function DELETE(
     .delete()
     .eq("id", id)
     .eq("tenant_id", ctx.tenant.id)
-    .eq("user_id", ctx.userId);
+    .eq("user_id", (existing as { user_id: string }).user_id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
