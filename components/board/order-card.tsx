@@ -70,6 +70,8 @@ import {
   formatShortOrderNumber,
 } from "./order-number-label";
 import { PriorityScoreBadge } from "./priority-score-badge";
+import { QueueRankBadge } from "./queue-rank-badge";
+import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import {
   getActiveWarning,
   CARD_WARNING_BORDER_COLORS,
@@ -322,6 +324,22 @@ export function OrderCard({
       ? order.specs.designer_name.trim()
       : "") ||
     null;
+
+  // Designer queue rank (per-designer). Shown as a small #N badge on the card;
+  // managers click it to re-rank. Only when the card has a designer + a position.
+  const designerId =
+    typeof order.specs?.designer_id === "string"
+      ? order.specs.designer_id
+      : null;
+  const queueRank = (() => {
+    if (!designerId) return null;
+    // Only Start / In Progress cards carry a queue number.
+    if (!isDesignerQueueColumnName(columnName)) return null;
+    const v = (order.specs as { designer_queue_pos?: unknown } | null)
+      ?.designer_queue_pos;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n + 1 : null;
+  })();
 
   const isOwnerUnassigned = !order.created_by;
 
@@ -771,6 +789,13 @@ export function OrderCard({
               >
                 {currentPriorityScore != null ? (
                   <PriorityScoreBadge score={currentPriorityScore} />
+                ) : null}
+                {queueRank != null ? (
+                  <QueueRankBadge
+                    orderId={order.id}
+                    rank={queueRank}
+                    canEdit={canAssignDesigner}
+                  />
                 ) : null}
                 {!(thumbnails && thumbnails.length > 0) ? (
                   <span className="truncate leading-snug">

@@ -62,6 +62,7 @@ import {
   type BoardThumbnail,
   type CardImageSource,
 } from "@/lib/card-image";
+import { QUEUE_CHANGED_EVENT, type QueueChangedDetail } from "@/lib/queue-events";
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
@@ -2020,6 +2021,31 @@ export function Board({
     return () => {
       window.removeEventListener(CARD_IMAGE_CHANGED_EVENT, onCardImageChanged);
     };
+  }, []);
+
+  // Designer queue re-ranked on a card → update every affected card's stored
+  // position so the #N badges renumber without a refetch.
+  useEffect(() => {
+    function onQueueChanged(event: Event) {
+      const detail = (event as CustomEvent<QueueChangedDetail>).detail;
+      const posById = detail?.posById;
+      if (!posById || Object.keys(posById).length === 0) return;
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id in posById
+            ? {
+                ...o,
+                specs: {
+                  ...(o.specs ?? {}),
+                  designer_queue_pos: posById[o.id],
+                },
+              }
+            : o
+        )
+      );
+    }
+    window.addEventListener(QUEUE_CHANGED_EVENT, onQueueChanged);
+    return () => window.removeEventListener(QUEUE_CHANGED_EVENT, onQueueChanged);
   }, []);
 
   async function handleSetTag(
