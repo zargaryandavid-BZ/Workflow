@@ -29,6 +29,7 @@ type RawEntry = {
   ended_at: string | null;
   paused_at: string | null;
   paused_seconds: number;
+  pause_reason: string | null;
   notes: string | null;
   created_at: string;
   order?: OrderJoin;
@@ -55,6 +56,7 @@ function mapEntry(row: RawEntry, nowMs = Date.now()): TimeEntry {
     ended_at: row.ended_at,
     paused_at: row.paused_at,
     paused_seconds: pausedSeconds,
+    pause_reason: row.pause_reason ?? null,
     notes: row.notes,
     created_at: row.created_at,
     duration_seconds: durationSeconds(row.started_at, row.ended_at, nowMs, {
@@ -68,7 +70,7 @@ function mapEntry(row: RawEntry, nowMs = Date.now()): TimeEntry {
 }
 
 const SELECT =
-  "id, tenant_id, user_id, order_id, order_title, custom_task_name, activity_type, started_at, ended_at, paused_at, paused_seconds, notes, created_at, order:orders(id, title, customer:customers(name))";
+  "id, tenant_id, user_id, order_id, order_title, custom_task_name, activity_type, started_at, ended_at, paused_at, paused_seconds, pause_reason, notes, created_at, order:orders(id, title, customer:customers(name))";
 
 export async function GET(request: Request) {
   const ctx = await getTenantContext();

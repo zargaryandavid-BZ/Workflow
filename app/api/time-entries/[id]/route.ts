@@ -4,6 +4,7 @@ import { getTenantContext } from "@/lib/auth";
 import {
   durationSeconds,
   isActivityType,
+  isPauseReason,
   type ActivityType,
   type TimeEntry,
 } from "@/lib/time-tracking";
@@ -26,13 +27,14 @@ type RawEntry = {
   ended_at: string | null;
   paused_at: string | null;
   paused_seconds: number;
+  pause_reason: string | null;
   notes: string | null;
   created_at: string;
   order?: OrderJoin;
 };
 
 const SELECT =
-  "id, tenant_id, user_id, order_id, order_title, custom_task_name, activity_type, started_at, ended_at, paused_at, paused_seconds, notes, created_at, order:orders(id, title, customer:customers(name))";
+  "id, tenant_id, user_id, order_id, order_title, custom_task_name, activity_type, started_at, ended_at, paused_at, paused_seconds, pause_reason, notes, created_at, order:orders(id, title, customer:customers(name))";
 
 function customerNameFromJoin(order: OrderJoin): string | null {
   if (!order?.customer) return null;
@@ -55,6 +57,7 @@ function mapEntry(row: RawEntry, nowMs = Date.now()): TimeEntry {
     ended_at: row.ended_at,
     paused_at: row.paused_at,
     paused_seconds: pausedSeconds,
+    pause_reason: row.pause_reason ?? null,
     notes: row.notes,
     created_at: row.created_at,
     duration_seconds: durationSeconds(row.started_at, row.ended_at, nowMs, {
@@ -85,6 +88,8 @@ export async function PATCH(
     custom_task_name?: string | null;
     /** "pause" | "resume" */
     action?: string;
+    /** Required reason when action = "pause" (see PAUSE_REASONS). */
+    pause_reason?: string;
   };
 
   const supabase = await createClient();
@@ -127,6 +132,13 @@ export async function PATCH(
       return NextResponse.json({ error: "Timer is already paused" }, { status: 400 });
     }
     patch.paused_at = new Date().toISOString();
+    // Store the reason so break time can't read as work time in the reports.
+    const reason =
+      typeof body.pause_reason === "string" ? body.pause_reason.trim() : "";
+    if (reason && !isPauseReason(reason)) {
+      return NextResponse.json({ error: "Invalid pause reason" }, { status: 400 });
+    }
+    patch.pause_reason = reason || null;
   } else if (action === "resume") {
     if (row.ended_at) {
       return NextResponse.json(
@@ -144,6 +156,7 @@ export async function PATCH(
     );
     patch.paused_seconds = (Number(row.paused_seconds) || 0) + addSec;
     patch.paused_at = null;
+    patch.pause_reason = null;
   }
 
       if (body.ended_at !== undefined) {

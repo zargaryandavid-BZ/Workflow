@@ -18,6 +18,29 @@ export function isActivityType(value: unknown): value is ActivityType {
   );
 }
 
+/** Why a designer paused — required at pause so break time can't read as work. */
+export const PAUSE_REASONS = [
+  { value: "jumped_job", label: "Jumped to another job" },
+  { value: "break", label: "Break" },
+  { value: "waiting", label: "Waiting on an answer" },
+  { value: "rejection", label: "Customer rejection came in" },
+  { value: "other", label: "Other" },
+] as const;
+
+export type PauseReason = (typeof PAUSE_REASONS)[number]["value"];
+
+export function isPauseReason(value: unknown): value is PauseReason {
+  return (
+    typeof value === "string" &&
+    PAUSE_REASONS.some((r) => r.value === value)
+  );
+}
+
+export function pauseReasonLabel(value: string | null | undefined): string {
+  const v = (value ?? "").trim();
+  return PAUSE_REASONS.find((r) => r.value === v)?.label ?? "";
+}
+
 export interface TimeEntry {
   id: string;
   tenant_id: string;
@@ -32,6 +55,8 @@ export interface TimeEntry {
   paused_at: string | null;
   /** Accumulated seconds spent paused across prior pause intervals. */
   paused_seconds: number;
+  /** Why the timer is currently paused (see PAUSE_REASONS); null when running. */
+  pause_reason: string | null;
   notes: string | null;
   created_at: string;
   /** Computed server-side at query time */
