@@ -60,13 +60,10 @@ export function DesignFlagChip({
 
 /** Frozen "Design reference" block for the open card — what the designer reads first. */
 export function DesignReferenceBlock({ specs }: { specs: unknown }) {
-  const { source, reference, ready, price, skuCount } = readDesign(specs);
+  const { source, reference, ready, skuCount } = readDesign(specs);
   if (!source && !reference) return null;
   const flag = flagFor(source, ready);
-  const meta = [
-    skuCount ? `${skuCount} SKU(s) to design` : "",
-    price ? `Design fee $${price}` : "",
-  ]
+  const meta = [skuCount ? `${skuCount} SKU(s) to design` : ""]
     .filter(Boolean)
     .join(" · ");
   return (
