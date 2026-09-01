@@ -1742,7 +1742,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 - `RespondForm` shows Approve / Not Approved buttons.
 - Customer may leave a note on rejection.
-- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) loads via `GET /api/notifications/asset?type=final_pdf`. That preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
+- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf`. Layer chips are **multi-select** (`ALL` plus each OCG); toolbar is two lines: filename `| Image n / N`, then `Select Layer ->`. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
 
 ### 4a. Approved → card moves per Automations settings
 

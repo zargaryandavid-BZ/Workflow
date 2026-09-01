@@ -31,7 +31,7 @@ export function PdfOcgFromUrl({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [layers, setLayers] = useState<PdfLayer[]>([]);
-  const [activeLayer, setActiveLayer] = useState<"all" | string>("all");
+  const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set());
   const [pageCount, setPageCount] = useState(0);
   const [pageNumber, setPageNumber] = useState(1);
   const pagesRef = useRef<HTMLDivElement>(null);
@@ -121,7 +121,7 @@ export function PdfOcgFromUrl({
       setLoading(true);
       setError(null);
       setLayers([]);
-      setActiveLayer("all");
+      setVisibleIds(new Set());
       setPageCount(0);
       setPageNumber(1);
       pageNumberRef.current = 1;
@@ -156,6 +156,7 @@ export function PdfOcgFromUrl({
             ? fromOc
             : mergePdfLayers(fromOc, parsePdfOcgs(data));
         setLayers(found);
+        setVisibleIds(new Set(found.map((layer) => layer.id)));
         for (const layer of found) oc.setVisibility(layer.id, true, false);
         await drawPages();
       } catch (err) {
@@ -201,12 +202,12 @@ export function PdfOcgFromUrl({
     onPageNumber?.(pageNumber);
   }, [pageNumber, onPageNumber]);
 
-  async function showOnly(which: "all" | string) {
+  async function applyVisibility(next: Set<string>) {
     const oc = ocRef.current;
     if (!oc) return;
-    setActiveLayer(which);
+    setVisibleIds(next);
     for (const layer of layers) {
-      oc.setVisibility(layer.id, which === "all" || layer.id === which, false);
+      oc.setVisibility(layer.id, next.has(layer.id), false);
     }
     try {
       await drawPages();
@@ -215,64 +216,85 @@ export function PdfOcgFromUrl({
     }
   }
 
+  function showAllLayers() {
+    void applyVisibility(new Set(layers.map((layer) => layer.id)));
+  }
+
+  function toggleLayer(id: string) {
+    const next = new Set(visibleIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    void applyVisibility(next);
+  }
+
+  const allOn = layers.length > 0 && layers.every((layer) => visibleIds.has(layer.id));
+  const chip = (on: boolean) =>
+    `rounded px-2 py-0.5 text-[11px] font-semibold ${
+      on ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
+    }`;
+
   return (
     <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-2 py-1.5">
-        <span className="truncate text-[11px] font-medium text-slate-500">
-          {fileName}
-        </span>
-        {pageCount > 1 ? (
-          <>
-            <span className="text-slate-300">|</span>
-            <label className="inline-flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
-              Image
-              <select
-                aria-label="PDF image"
-                value={pageNumber}
-                onChange={(e) => setPageNumber(Number(e.target.value))}
-                className="max-w-[5.5rem] cursor-pointer rounded border border-slate-200 bg-white py-0.5 pl-1 pr-0 text-[11px] font-medium text-slate-700"
-              >
-                {Array.from({ length: pageCount }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {i + 1} / {pageCount}
-                  </option>
+      <div className="border-b border-slate-100 px-2 py-1.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate text-[11px] font-medium text-slate-500">
+            {fileName}
+          </span>
+          {pageCount >= 1 ? (
+            <>
+              <span className="shrink-0 text-slate-300">|</span>
+              <label className="inline-flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
+                Image
+                {pageCount > 1 ? (
+                  <select
+                    aria-label="PDF image"
+                    value={pageNumber}
+                    onChange={(e) => setPageNumber(Number(e.target.value))}
+                    className="max-w-[5.5rem] cursor-pointer rounded border border-slate-200 bg-white py-0.5 pl-1 pr-0 text-[11px] font-medium text-slate-700"
+                  >
+                    {Array.from({ length: pageCount }, (_, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {i + 1} / {pageCount}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="font-medium text-slate-700">1 / 1</span>
+                )}
+              </label>
+            </>
+          ) : null}
+        </div>
+        {!loading && !error ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="shrink-0 text-[11px] font-medium text-slate-500">
+              Select Layer -{">"}
+            </span>
+            {layers.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={showAllLayers}
+                  className={chip(allOn)}
+                >
+                  ALL
+                </button>
+                {layers.map((layer) => (
+                  <button
+                    key={layer.id}
+                    type="button"
+                    onClick={() => toggleLayer(layer.id)}
+                    className={`max-w-[10rem] truncate ${chip(visibleIds.has(layer.id))}`}
+                    title={layer.name}
+                  >
+                    {layer.name}
+                  </button>
                 ))}
-              </select>
-            </label>
-          </>
-        ) : null}
-        {layers.length > 0 ? (
-          <>
-            <span className="text-slate-300">|</span>
-            <button
-              type="button"
-              onClick={() => void showOnly("all")}
-              className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
-                activeLayer === "all"
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-100 text-slate-600"
-              }`}
-            >
-              ALL
-            </button>
-            {layers.map((layer) => (
-              <button
-                key={layer.id}
-                type="button"
-                onClick={() => void showOnly(layer.id)}
-                className={`max-w-[10rem] truncate rounded px-2 py-0.5 text-[11px] font-semibold ${
-                  activeLayer === layer.id
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-100 text-slate-600"
-                }`}
-                title={layer.name}
-              >
-                {layer.name}
-              </button>
-            ))}
-          </>
-        ) : !loading && !error ? (
-          <span className="text-[11px] text-slate-400">No layers in this file</span>
+              </>
+            ) : (
+              <span className="text-[11px] text-slate-400">No layers in this file</span>
+            )}
+          </div>
         ) : null}
       </div>
       {error ? (

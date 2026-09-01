@@ -255,18 +255,21 @@ function SkuArtworkBlock({
   skuId: string;
   finalPdf: RespondFinalPdf | null;
 }) {
-  const [showPdf, setShowPdf] = useState(false);
+  const canShowPdf = Boolean(finalPdf && orderId);
+  const hasPhotos = skuArt.length > 0;
+  const [showPdf, setShowPdf] = useState(canShowPdf);
   const [pdfPage, setPdfPage] = useState(1);
   const skuUi = useSkuDecision();
-  const canToggle = Boolean(finalPdf && orderId);
   const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
   const perImage = approvalImageSlotCount(skuArt.length, pdfPages) >= 2;
 
-  if (skuArt.length === 0 && !canToggle) return null;
+  if (skuArt.length === 0 && !canShowPdf) return null;
+
+  const pdfOn = canShowPdf && showPdf;
 
   return (
     <div className="mt-2">
-      {canToggle && finalPdf && orderId ? (
+      {canShowPdf && hasPhotos && finalPdf && orderId ? (
         <label className="mb-2 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
           <input
             type="checkbox"
@@ -281,7 +284,7 @@ function SkuArtworkBlock({
           PDF multilayer
         </label>
       ) : null}
-      {showPdf && canToggle && finalPdf && orderId ? (
+      {pdfOn && finalPdf && orderId ? (
         <>
           <PdfOcgFromUrl
             src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
