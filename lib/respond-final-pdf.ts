@@ -25,14 +25,21 @@ export type { RespondFinalPdf };
 
 function extraNamesBySkuId(
   skus: SkuItem[],
-  specs: Record<string, unknown>
+  specs: Record<string, unknown>,
+  orderTitle: string
 ): Record<string, string[]> {
-  const title =
+  const extras: string[] = [];
+  const itemTitle =
     typeof specs.webhook_item_title === "string"
       ? specs.webhook_item_title.trim()
       : "";
-  if (!title || skus.length !== 1) return {};
-  return { [skus[0]!.id]: [title] };
+  if (itemTitle) extras.push(itemTitle);
+  const title = orderTitle.trim();
+  if (title) extras.push(title);
+  if (extras.length === 0) return {};
+  const out: Record<string, string[]> = {};
+  for (const sku of skus) out[sku.id] = extras;
+  return out;
 }
 
 function isPdfFile(f: ProofFile): boolean {
@@ -234,13 +241,25 @@ async function fetchRespondFinalPdfsBySkuUncached(
     files,
     skus.length ? skus : normalizeSkus(specs.skus),
     cardSize,
-    extraNamesBySkuId(skus, specs)
+    extraNamesBySkuId(skus, specs, String(order.title ?? "")),
+    { attachLeftovers: true }
   );
 
   const out: Record<string, RespondFinalPdf> = {};
   for (const m of matches) {
     if (out[m.skuId]) continue;
     out[m.skuId] = { fileId: m.file.id, fileName: m.file.name };
+  }
+
+  // One production PDF in this card's Final folder is the file for every SKU
+  // (SKU rows are often product/material names, not the PDF filename).
+  if (files.length === 1) {
+    const only = files[0]!;
+    for (const sku of skus) {
+      if (!out[sku.id]) {
+        out[sku.id] = { fileId: only.id, fileName: only.name };
+      }
+    }
   }
   return out;
 }

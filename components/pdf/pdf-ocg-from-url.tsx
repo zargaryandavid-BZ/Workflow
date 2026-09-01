@@ -147,10 +147,11 @@ export function PdfOcgFromUrl({
         setPageCount(pdf.numPages);
         const oc = await pdf.getOptionalContentConfig({ intent: PDF_INTENT });
         ocRef.current = oc;
-        const found = mergePdfLayers(
-          layersFromOptionalContent(oc),
-          parsePdfOcgs(data)
-        );
+        const fromOc = layersFromOptionalContent(oc);
+        const found =
+          data.byteLength > 12 * 1024 * 1024
+            ? fromOc
+            : mergePdfLayers(fromOc, parsePdfOcgs(data));
         setLayers(found);
         for (const layer of found) oc.setVisibility(layer.id, true, false);
         await drawPages();
@@ -272,7 +273,9 @@ export function PdfOcgFromUrl({
         <p className="px-2 py-6 text-center text-xs text-red-600">{error}</p>
       ) : null}
       {loading ? (
-        <p className="px-2 py-6 text-center text-xs text-slate-400">Opening PDF…</p>
+        <p className="px-2 py-6 text-center text-xs text-slate-400">
+          Opening PDF… large files can take a minute.
+        </p>
       ) : null}
       {error ? null : (
         <div ref={pagesRef} className="flex h-72 w-full items-center justify-center p-2" />

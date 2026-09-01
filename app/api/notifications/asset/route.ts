@@ -4,6 +4,8 @@ import { orderIdsForReadyToShipToken } from "@/lib/ready-to-ship-group";
 
 const BUCKET = "order-assets";
 
+export const maxDuration = 120;
+
 /** Resolve allowed order IDs for a token (notification or approval). */
 async function resolveTokenOrderIds(
   admin: ReturnType<typeof createAdminClient>,
@@ -182,12 +184,12 @@ export async function GET(request: Request) {
       if (!meta) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      const maxBytes = 20 * 1024 * 1024;
+      const maxBytes = 80 * 1024 * 1024;
       if (meta.size > maxBytes) {
         const mb = Math.round(meta.size / (1024 * 1024));
         return NextResponse.json(
           {
-            error: `This PDF is ${mb} MB — too large to preview in the browser. Open it in Acrobat from Drive. Layer buttons only work on smaller multilayer PDFs (PDF/X-4 with Acrobat layers).`,
+            error: `This PDF is ${mb} MB — too large to preview here. Open it in Acrobat from Drive.`,
           },
           { status: 413 }
         );
@@ -196,7 +198,11 @@ export async function GET(request: Request) {
       if (!downloaded) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      const body = Uint8Array.from(downloaded.buffer);
+      const body = new Uint8Array(
+        downloaded.buffer.buffer,
+        downloaded.buffer.byteOffset,
+        downloaded.buffer.byteLength
+      );
       return new NextResponse(body, {
         headers: {
           "Content-Type": downloaded.mimeType.includes("pdf")
