@@ -1,4 +1,26 @@
 import { cn } from "@/lib/utils";
+import {
+  sourceChannelDisplay,
+  type SourceChannelKey,
+} from "@/lib/source-channel";
+import {
+  AtSign,
+  Globe,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  Phone,
+  type LucideIcon,
+} from "lucide-react";
+
+const SOURCE_CHANNEL_ICONS: Record<SourceChannelKey, LucideIcon> = {
+  email: Mail,
+  call: Phone,
+  sms: MessageSquare,
+  webform: Globe,
+  ad_lead: Megaphone,
+  ig_dm: AtSign,
+};
 
 type DesignSpecs = {
   design_source?: unknown;
@@ -54,6 +76,33 @@ export function DesignFlagChip({
       title="Design service"
     >
       {flag.label}
+    </span>
+  );
+}
+
+/** Small chip showing where the order originated (email / call / sms / ...). */
+export function SourceChannelChip({
+  specs,
+  className,
+}: {
+  specs: unknown;
+  className?: string;
+}) {
+  const s = (specs ?? {}) as { source_channel?: unknown };
+  const info = sourceChannelDisplay(s.source_channel);
+  if (!info) return null;
+  const Icon = SOURCE_CHANNEL_ICONS[info.key];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10px] font-semibold",
+        info.tone,
+        className
+      )}
+      title={`Order came in via ${info.label}`}
+    >
+      <Icon className="h-2.5 w-2.5" aria-hidden />
+      {info.label}
     </span>
   );
 }

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pickMissingInfoColumn } from "./missing-info-column.ts";
+import {
+  pickColumnByName,
+  pickMissingInfoColumn,
+} from "./missing-info-column.ts";
 
 test("prefers an exception-kind column named 'missing'", () => {
   const cols = [
@@ -36,4 +39,15 @@ test("returns null when there is no candidate", () => {
     { id: "prod", name: "In Production", kind: "normal" },
   ];
   assert.equal(pickMissingInfoColumn(cols), null);
+});
+
+test("pickColumnByName matches case-insensitively and trims", () => {
+  const cols = [
+    { id: "start", name: "Start" },
+    { id: "mi", name: "Missing Info" },
+  ];
+  assert.equal(pickColumnByName(cols, "missing info")?.id, "mi");
+  assert.equal(pickColumnByName(cols, "  Missing Info  ")?.id, "mi");
+  assert.equal(pickColumnByName(cols, "Does Not Exist"), null);
+  assert.equal(pickColumnByName(cols, ""), null);
 });

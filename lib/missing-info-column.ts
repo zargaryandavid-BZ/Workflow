@@ -16,3 +16,14 @@ export function pickMissingInfoColumn(
     null;
   return pick ? { id: pick.id, name: pick.name } : null;
 }
+
+/** Match a board column by exact name (case-insensitive, trimmed). */
+export function pickColumnByName(
+  cols: { id: string; name: string | null }[],
+  name: string
+): { id: string; name: string | null } | null {
+  const target = name.trim().toLowerCase();
+  if (!target) return null;
+  const hit = cols.find((c) => (c.name ?? "").trim().toLowerCase() === target);
+  return hit ? { id: hit.id, name: hit.name } : null;
+}

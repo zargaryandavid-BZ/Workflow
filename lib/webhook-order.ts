@@ -1,7 +1,14 @@
 import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity, resolveColumnForNewJobByProduct } from "@/lib/automation";
-import { pickMissingInfoColumn } from "@/lib/missing-info-column";
+import {
+  pickColumnByName,
+  pickMissingInfoColumn,
+} from "@/lib/missing-info-column";
+import {
+  normalizeSourceChannel,
+  shouldApplyMissingInfoFallback,
+} from "@/lib/source-channel";
 import { upsertCustomer, getCustomerDefaultPriorityScore } from "@/lib/customers";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
@@ -194,6 +201,12 @@ interface WebhookDesignerInput {
   design_task?: string;
   /** CRM design capture — who provides artwork: has_files | files_coming | needs_design. */
   design_source?: string;
+  /** CRM-named target board column. "" / absent = start column; a name = that column. */
+  initial_column?: string;
+  /** True when the customer has files but hasn't sent them (design_source files_coming). */
+  needs_customer_files?: boolean;
+  /** Origin channel of the order (email | call | sms | webform | ad_lead | ig_dm). */
+  source_channel?: string;
   /** CRM design capture — the frozen design brief / reference. */
   design_reference?: string;
   /** Route A: files print-ready, prepress only. */
@@ -2897,6 +2910,12 @@ async function refreshExistingOrderDesignerNotes(
       specsChanged = true;
     }
 
+    const sourceChannelClean = normalizeSourceChannel(body.source_channel);
+    if (sourceChannelClean && specs.source_channel !== sourceChannelClean) {
+      nextSpecs.source_channel = sourceChannelClean;
+      specsChanged = true;
+    }
+
     const patch: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
@@ -3154,6 +3173,9 @@ async function refreshPortalOrdersFromWebhook(params: {
     if (portalBrokerId) nextSpecs.bazaar_broker_id = portalBrokerId;
     if (items.length > 1) nextSpecs.webhook_item_index = i;
 
+    const sourceChannelClean = normalizeSourceChannel(body.source_channel);
+    if (sourceChannelClean) nextSpecs.source_channel = sourceChannelClean;
+
     const corrections: string[] = [];
     const merged = mergeItemWithOrder(body, item);
     const media = resolveWebhookItemMedia(item, body, {
@@ -3334,6 +3356,13 @@ interface CreateSingleJobParams {
   designSkuCount?: string | null;
   /** Route A: files print-ready, prepress only. */
   designReady?: boolean;
+  /** CRM-named target board column. "" / null = default (start) column; a name
+   *  (e.g. "Missing Info") = place the card in the column with that name. */
+  initialColumn?: string | null;
+  /** Origin channel of the order (email | call | sms | webform | ad_lead | ig_dm). */
+  sourceChannel?: string | null;
+  /** True when the customer has files but hasn't sent them yet. */
+  needsCustomerFiles?: boolean;
 }
 
 /** Resolve the tenant's Missing Info column (for "files coming" design capture). */
@@ -3349,6 +3378,27 @@ async function resolveMissingInfoColumn(
   return pickMissingInfoColumn(
     (data ?? []) as { id: string; name: string | null; kind: string | null }[]
   );
+}
+
+/**
+ * Resolve a board column by its NAME (case-insensitive, trimmed) for this tenant.
+ * Lets the CRM name the target column via `initial_column`. Returns null when no
+ * column matches, so the caller can fall back to the default (start) column.
+ */
+async function resolveColumnByName(
+  client: SupabaseClient,
+  tenantId: string,
+  name: string
+): Promise<{ id: string; name: string | null } | null> {
+  const target = name.trim().toLowerCase();
+  if (!target) return null;
+  const { data } = await client
+    .from("board_columns")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+  const cols = (data ?? []) as { id: string; name: string | null }[];
+  return pickColumnByName(cols, name);
 }
 
 async function createSingleWebhookJob(
@@ -3401,11 +3451,21 @@ async function createSingleWebhookJob(
     designPrice = null,
     designSkuCount = null,
     designReady = false,
+    initialColumn = null,
+    sourceChannel = null,
+    needsCustomerFiles = false,
   } = params;
+
+  const sourceChannelClean = normalizeSourceChannel(sourceChannel);
 
   const designSourceClean =
     typeof designSource === "string" && designSource.trim()
       ? designSource.trim()
+      : null;
+
+  const initialColumnClean =
+    typeof initialColumn === "string" && initialColumn.trim()
+      ? initialColumn.trim()
       : null;
 
   const {
@@ -3465,10 +3525,39 @@ async function createSingleWebhookJob(
       ((lastInTarget as { position: number } | null)?.position ?? 0) + 1000;
   }
 
+  // CRM-named target column: the CRM can name the destination column via
+  // `initial_column` (empty = start/default column, handled above; a name = that
+  // column). Takes precedence over the design_source fallback below. If the name
+  // doesn't match any column, keep the default so an order is never dropped.
+  if (initialColumnClean) {
+    const named = await resolveColumnByName(client, tenantId, initialColumnClean);
+    if (named) {
+      effectiveColumnId = named.id;
+      effectiveColumnName = named.name ?? effectiveColumnName;
+      const { data: lastInNamed } = await client
+        .from("orders")
+        .select("position")
+        .eq("column_id", named.id)
+        .eq("tenant_id", tenantId)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      effectivePosition =
+        ((lastInNamed as { position: number } | null)?.position ?? 0) + 1000;
+    }
+  }
+
   // CRM design capture: "files coming" = artwork is missing → land the card in
   // Missing Info so the customer is asked to upload (instead of Start/design).
-  // Additive: only when the CRM sends design_source, so other orders are unaffected.
-  if (designSourceClean === "files_coming") {
+  // Fallback for CRM payloads sent before `initial_column` existed. Skipped when
+  // the CRM named a column (even if it didn't match — that falls back to start).
+  if (
+    shouldApplyMissingInfoFallback({
+      initialColumn: initialColumnClean,
+      designSource: designSourceClean,
+      needsCustomerFiles,
+    })
+  ) {
     const missingCol = await resolveMissingInfoColumn(client, tenantId);
     if (missingCol) {
       effectiveColumnId = missingCol.id;
@@ -3546,6 +3635,10 @@ async function createSingleWebhookJob(
   if (designSourceClean) {
     specs.design_source = designSourceClean;
     specs.intake_v2 = true;
+  }
+  // Origin channel of the order (from the CRM lead) — shown as a chip on the card.
+  if (sourceChannelClean) {
+    specs.source_channel = sourceChannelClean;
   }
   if (typeof designReference === "string" && designReference.trim()) {
     specs.design_reference = designReference.trim();
@@ -4273,6 +4366,10 @@ export async function createOrderFromWebhook(
       designSkuCount:
         typeof body.design_sku_count === "string" ? body.design_sku_count.trim() : null,
       designReady: body.design_ready === true,
+      initialColumn:
+        typeof body.initial_column === "string" ? body.initial_column.trim() : null,
+      sourceChannel: body.source_channel,
+      needsCustomerFiles: body.needs_customer_files === true,
     });
 
     nextPosition += 1000;

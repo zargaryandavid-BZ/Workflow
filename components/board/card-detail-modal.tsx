@@ -29,7 +29,7 @@ import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { ConnectedSpecsSection } from "./connected-specs-section";
-import { DesignReferenceBlock } from "./design-reference";
+import { DesignReferenceBlock, SourceChannelChip } from "./design-reference";
 import { isConnectedOrder } from "@/lib/connected-specs";
 import { NudgeButton } from "./nudge-button";
 import { ComboStockControl } from "./combo-stock-control";
@@ -1719,6 +1719,9 @@ export function CardDetailModal({
               {daysAgo(data.order.created_at)}
             </span>
           </>
+        ) : null}
+        {data?.order ? (
+          <SourceChannelChip specs={data.order.specs} className="ml-1" />
         ) : null}
         {/* Customer name — dropdown with copy */}
         {customerLabel ? (

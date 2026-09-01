@@ -130,6 +130,9 @@ function materialsHtml(): string {
 function fullSingleItemExample(year: number, due: string): string {
   return `{
   "source": "crm",
+  "source_channel": "email",
+  "initial_column": "",
+  "needs_customer_files": false,
   "customer_name": "Acme Corp",
   "customer_contact": "hello@acme.com",
   "customer_phone": "+1 310 555 0100",
@@ -181,6 +184,9 @@ function fullSingleItemExample(year: number, due: string): string {
 function fullMultiItemExample(year: number, due: string): string {
   return `{
   "source": "crm",
+  "source_channel": "email",
+  "initial_column": "",
+  "needs_customer_files": false,
   "source_url": "https://crm.example.com/orders/ORD-${year}-013-3",
   "customer_name": "Acme Corp",
   "customer_contact": "hello@acme.com",
@@ -384,6 +390,9 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`customer_contact\` | No | string | Email — saved on the customer record |
 | \`customer_phone\` | No | string | Phone — when both are sent, phone is stored as the order's primary Customer Contact |
 | \`source\` | No | string | Integration source key (e.g. \`"crm"\`). Matched in **Settings → Integrations → Source labels** for the colored label above the customer name. Unknown/missing uses the Other style. Manual cards have no label. |
+| \`source_channel\` | No | string | Lead origin: \`email\` · \`call\` · \`sms\` · \`webform\` · \`ad_lead\` · \`ig_dm\`. Shown as a chip on the card. Empty/unknown → no chip. |
+| \`initial_column\` | No | string | Board column name for the new card. Empty/omitted → start column. \`"Missing Info"\` (or any matching name) places the card there. Unrecognized name → start column. |
+| \`needs_customer_files\` | No | boolean | Fallback for older payloads: \`true\` lands the card in Missing Info when \`initial_column\` is empty. Same condition as \`design_source: "files_coming"\`. |
 | \`order_number\` | No | string | Your reference e.g. \`"ORD-${year}-001"\` — auto-generated (\`WH-…\`) if omitted |
 | \`title\` | No | string | Order title after source label — **leave empty/omit for blank** (order # still shows) |
 | \`priority\` | No | string | \`normal\` · \`high\` · \`low\` · \`urgent\` (default: normal) |
@@ -591,6 +600,24 @@ export function buildWebhookPayloadDocsHtml(
       "No",
       "string",
       'Integration source key (e.g. <code>"crm"</code>). Matched in Settings → Integrations → Source labels for the colored card label. Unknown/missing uses Other style.',
+    ],
+    [
+      "source_channel",
+      "No",
+      "string",
+      "Lead origin: <code>email</code> · <code>call</code> · <code>sms</code> · <code>webform</code> · <code>ad_lead</code> · <code>ig_dm</code>. Chip on the board card. Empty/unknown → no chip.",
+    ],
+    [
+      "initial_column",
+      "No",
+      "string",
+      'Board column name for the new card. Empty/omitted → start column. <code>"Missing Info"</code> places the card there. Unrecognized name → start column (order is never dropped).',
+    ],
+    [
+      "needs_customer_files",
+      "No",
+      "boolean",
+      "Fallback when <code>initial_column</code> is empty: <code>true</code> lands the card in Missing Info (same as <code>design_source: files_coming</code>).",
     ],
     [
       "order_number",

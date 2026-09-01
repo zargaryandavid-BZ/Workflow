@@ -71,7 +71,7 @@ import {
 } from "./order-number-label";
 import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
-import { DesignFlagChip } from "./design-reference";
+import { DesignFlagChip, SourceChannelChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
@@ -856,6 +856,7 @@ export function OrderCard({
                   />
                 ) : null}
                 <DesignFlagChip specs={order.specs} />
+                <SourceChannelChip specs={order.specs} />
                 {!(thumbnails && thumbnails.length > 0) &&
                 shortOrderNumber &&
                 shortOrderNumber !== cardTitle ? (
