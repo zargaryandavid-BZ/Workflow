@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileText, FolderOpen, Info } from "lucide-react";
-import { GlobalWorkerOptions, getDocument, version } from "pdfjs-dist";
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type {
   PDFDocumentProxy,
   PDFPageProxy,
@@ -17,7 +17,7 @@ import {
 } from "@/lib/pdf-ocg";
 
 if (typeof window !== "undefined") {
-  GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${version}/build/pdf.worker.min.mjs`;
+  GlobalWorkerOptions.workerSrc = "/api/pdf-worker";
 }
 
 type LayerBtn = PdfLayer;
@@ -30,7 +30,8 @@ export function PdfLayerViewer() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [layers, setLayers] = useState<LayerBtn[]>([]);
-  const [activeLayer, setActiveLayer] = useState<"all" | string>("all");
+  /** Layer ids currently visible. Empty set = none; all ids = ALL. */
+  const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set());
   const [pageCount, setPageCount] = useState(0);
   const [pageNumber, setPageNumber] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -159,7 +160,7 @@ export function PdfLayerViewer() {
     setError(null);
     setLoading(true);
     setLayers([]);
-    setActiveLayer("all");
+    setVisibleIds(new Set());
     setPageCount(0);
     setPageNumber(1);
     pageNumberRef.current = 1;
@@ -181,7 +182,7 @@ export function PdfLayerViewer() {
         parsePdfOcgs(data)
       );
       setLayers(found);
-      setActiveLayer("all");
+      setVisibleIds(new Set(found.map((layer) => layer.id)));
       for (const layer of found) oc.setVisibility(layer.id, true, false);
 
       await drawPages();
@@ -196,12 +197,12 @@ export function PdfLayerViewer() {
     }
   }
 
-  async function showOnly(which: "all" | string) {
+  async function applyVisibility(next: Set<string>) {
     const oc = ocRef.current;
     if (!oc) return;
-    setActiveLayer(which);
+    setVisibleIds(next);
     for (const layer of layers) {
-      oc.setVisibility(layer.id, which === "all" || layer.id === which, false);
+      oc.setVisibility(layer.id, next.has(layer.id), false);
     }
     try {
       await drawPages();
@@ -209,6 +210,17 @@ export function PdfLayerViewer() {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || "Could not refresh the PDF.");
     }
+  }
+
+  function showAllLayers() {
+    void applyVisibility(new Set(layers.map((layer) => layer.id)));
+  }
+
+  function toggleLayer(id: string) {
+    const next = new Set(visibleIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    void applyVisibility(next);
   }
 
   return (
@@ -247,32 +259,40 @@ export function PdfLayerViewer() {
                 <span className="shrink-0 text-slate-300">|</span>
                 <button
                   type="button"
-                  onClick={() => void showOnly("all")}
+                  onClick={showAllLayers}
                   className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold ${
-                    activeLayer === "all"
+                    layers.length > 0 &&
+                    layers.every((layer) => visibleIds.has(layer.id))
                       ? "bg-blue-600 text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
                   ALL
                 </button>
-                {layers.map((layer) => (
-                  <span key={layer.id} className="inline-flex shrink-0 items-center gap-2">
-                    <span className="text-slate-300">|</span>
-                    <button
-                      type="button"
-                      onClick={() => void showOnly(layer.id)}
-                      className={`max-w-[12rem] truncate rounded-md px-2.5 py-1 text-xs font-semibold ${
-                        activeLayer === layer.id
-                          ? "bg-blue-600 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                      title={layer.name}
+                {layers.map((layer) => {
+                  const on = visibleIds.has(layer.id);
+                  return (
+                    <span
+                      key={layer.id}
+                      className="inline-flex shrink-0 items-center gap-2"
                     >
-                      {layer.name}
-                    </button>
-                  </span>
-                ))}
+                      <span className="text-slate-300">|</span>
+                      <button
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggleLayer(layer.id)}
+                        className={`max-w-[12rem] truncate rounded-md px-2.5 py-1 text-xs font-semibold ${
+                          on
+                            ? "bg-blue-600 text-white"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                        title={`${layer.name} — click to ${on ? "hide" : "show"}`}
+                      >
+                        {layer.name}
+                      </button>
+                    </span>
+                  );
+                })}
               </>
             ) : (
               <>

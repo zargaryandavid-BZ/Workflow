@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { GlobalWorkerOptions, getDocument, version } from "pdfjs-dist";
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
 import {
@@ -13,7 +13,7 @@ import {
 } from "@/lib/pdf-ocg";
 
 if (typeof window !== "undefined") {
-  GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${version}/build/pdf.worker.min.mjs`;
+  GlobalWorkerOptions.workerSrc = "/api/pdf-worker";
 }
 
 const PDF_INTENT = "any" as const;
@@ -125,7 +125,16 @@ export function PdfOcgFromUrl({
       await closePdf();
       try {
         const res = await fetch(src);
-        if (!res.ok) throw new Error("Could not load the PDF.");
+        if (!res.ok) {
+          let message = "Could not load the PDF.";
+          try {
+            const body = (await res.json()) as { error?: string };
+            if (body.error?.trim()) message = body.error.trim();
+          } catch {
+            /* ignore */
+          }
+          throw new Error(message);
+        }
         const data = await res.arrayBuffer();
         if (cancelled) return;
         const pdf = await getDocument({ data }).promise;
@@ -230,7 +239,7 @@ export function PdfOcgFromUrl({
               </button>
             ))}
           </>
-        ) : !loading ? (
+        ) : !loading && !error ? (
           <span className="text-[11px] text-slate-400">No layers in this file</span>
         ) : null}
         {pageCount > 1 ? (
@@ -260,12 +269,14 @@ export function PdfOcgFromUrl({
         ) : null}
       </div>
       {error ? (
-        <p className="px-2 py-2 text-xs text-red-600">{error}</p>
+        <p className="px-2 py-6 text-center text-xs text-red-600">{error}</p>
       ) : null}
       {loading ? (
         <p className="px-2 py-6 text-center text-xs text-slate-400">Opening PDF…</p>
       ) : null}
-      <div ref={pagesRef} className="flex h-72 w-full items-center justify-center p-2" />
+      {error ? null : (
+        <div ref={pagesRef} className="flex h-72 w-full items-center justify-center p-2" />
+      )}
     </div>
   );
 }

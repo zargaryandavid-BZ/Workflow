@@ -143,27 +143,29 @@ function ImageDecisionControls({
   if (skuUi.mode !== "choose" || !skuUi.onImageChange) return null;
 
   return (
-    <div className="flex gap-1.5">
+    <div className="flex flex-col gap-1">
       <button
         type="button"
         onClick={() => skuUi.onImageChange?.(skuId, assetId, "approved")}
-        className={`flex-1 rounded-lg border px-2 py-1 text-xs font-medium ${
+        className={`inline-flex w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-[11px] font-medium ${
           decision === "approved"
-            ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-            : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
+            ? "border-emerald-400 bg-emerald-50 text-emerald-800"
+            : "border-emerald-200 bg-white text-emerald-700 hover:border-emerald-400 hover:bg-emerald-50"
         }`}
       >
+        <Check className="h-3 w-3 shrink-0" />
         Approve
       </button>
       <button
         type="button"
         onClick={() => skuUi.onImageChange?.(skuId, assetId, "rejected")}
-        className={`flex-1 rounded-lg border px-2 py-1 text-xs font-medium ${
+        className={`inline-flex w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-[11px] font-medium ${
           decision === "rejected"
-            ? "border-red-400 bg-red-50 text-red-700"
-            : "border-slate-200 bg-white text-slate-500 hover:border-red-300"
+            ? "border-red-400 bg-red-50 text-red-800"
+            : "border-red-200 bg-white text-red-700 hover:border-red-400 hover:bg-red-50"
         }`}
       >
+        <X className="h-3 w-3 shrink-0" />
         Not approved
       </button>
     </div>

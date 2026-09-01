@@ -126,11 +126,47 @@ export type OcLike = {
   [Symbol.iterator]?: () => Iterator<[string, unknown]>;
 };
 
+/** Acrobat refs often show up as "12R", "12 0 R", or "12". */
+export function normalizeOcgId(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/^(\d+)(?:\s+\d+\s+R|R)?$/i);
+  return m ? `${m[1]}R` : s;
+}
+
+/** Keep first occurrence of each layer name (case-insensitive). */
+export function dedupePdfLayersByName(layers: PdfLayer[]): PdfLayer[] {
+  const seen = new Set<string>();
+  const out: PdfLayer[] = [];
+  for (const layer of layers) {
+    const key = layer.name.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(layer);
+  }
+  return out;
+}
+
+function layerNameForId(oc: OcLike, id: string, index: number): string {
+  const groups = oc.serializable?.data?.groups;
+  const g = oc.getGroup?.(id);
+  const fromGroup = typeof g?.name === "string" ? g.name.trim() : "";
+  const fromData =
+    typeof groups?.[id]?.name === "string" ? String(groups[id].name).trim() : "";
+  if (fromGroup || fromData) return fromGroup || fromData;
+  for (const [gid, meta] of Object.entries(groups ?? {})) {
+    if (normalizeOcgId(gid) !== normalizeOcgId(id)) continue;
+    const n = typeof meta?.name === "string" ? meta.name.trim() : "";
+    if (n) return n;
+  }
+  return `Layer ${index + 1}`;
+}
+
 export function layersFromOptionalContent(oc: OcLike): PdfLayer[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   const push = (id: unknown) => {
-    const s = String(id ?? "").trim();
+    const s = normalizeOcgId(id);
     if (!s || seen.has(s)) return;
     seen.add(s);
     ids.push(s);
@@ -142,42 +178,55 @@ export function layersFromOptionalContent(oc: OcLike): PdfLayer[] {
     /* ignore */
   }
 
-  try {
-    if (typeof oc[Symbol.iterator] === "function") {
-      for (const [id] of oc as unknown as Iterable<[string, unknown]>) push(id);
+  // Order is the Layers-panel list. Iterator / group maps often re-list the
+  // same OCGs with different id strings, frequently in reverse — that produced
+  // Dieline…ART WORK then ART WORK…Dieline. Only use them when Order is empty.
+  if (ids.length === 0) {
+    try {
+      if (typeof oc[Symbol.iterator] === "function") {
+        for (const [id] of oc as unknown as Iterable<[string, unknown]>) {
+          push(id);
+        }
+      }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
+    const groups = oc.serializable?.data?.groups;
+    if (groups && typeof groups === "object") {
+      for (const id of Object.keys(groups)) push(id);
+    }
+    const state = oc.serializable?.groupState;
+    if (state && typeof state.keys === "function") {
+      for (const id of state.keys()) push(id);
+    }
   }
 
-  const groups = oc.serializable?.data?.groups;
-  if (groups && typeof groups === "object") {
-    for (const id of Object.keys(groups)) push(id);
-  }
-  const state = oc.serializable?.groupState;
-  if (state && typeof state.keys === "function") {
-    for (const id of state.keys()) push(id);
-  }
-
-  return ids.map((id, i) => {
-    const g = oc.getGroup?.(id);
-    const fromGroup = typeof g?.name === "string" ? g.name.trim() : "";
-    const fromData =
-      typeof groups?.[id]?.name === "string" ? String(groups[id].name).trim() : "";
-    return { id, name: fromGroup || fromData || `Layer ${i + 1}` };
-  });
+  return dedupePdfLayersByName(
+    ids.map((id, i) => ({ id, name: layerNameForId(oc, id, i) }))
+  );
 }
 
-export function mergePdfLayers(primary: PdfLayer[], fallback: PdfLayer[]): PdfLayer[] {
-  if (primary.length > 0) return primary;
-  return fallback;
+export function mergePdfLayers(
+  primary: PdfLayer[],
+  fallback: PdfLayer[]
+): PdfLayer[] {
+  if (primary.length > 0) return dedupePdfLayersByName(primary);
+  return dedupePdfLayersByName(fallback);
 }
 
 export function collectLayerIds(order: unknown): string[] {
   const ids: string[] = [];
   const walk = (node: unknown) => {
     if (typeof node === "string" || typeof node === "number") {
-      ids.push(String(node));
+      const s = String(node).trim();
+      if (!s) return;
+      if (/^\d+(\s+\d+\s+R|R)?$/i.test(s)) {
+        ids.push(s);
+        return;
+      }
+      // Nested Order groups often start with a layer-folder label.
+      if (/\s/.test(s)) return;
+      ids.push(s);
       return;
     }
     if (Array.isArray(node)) {
@@ -191,5 +240,13 @@ export function collectLayerIds(order: unknown): string[] {
     }
   };
   walk(order);
-  return [...new Set(ids)];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const n = normalizeOcgId(id);
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
 }

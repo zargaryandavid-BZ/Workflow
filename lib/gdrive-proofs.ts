@@ -235,25 +235,48 @@ export function isFinalProdFolderName(name: string): boolean {
   return /final/i.test(name);
 }
 
-/** Download a Drive file's bytes (PDF or any binary). */
-export async function downloadDriveFileBytes(
+export type DriveFileMeta = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+};
+
+export async function getDriveFileMeta(
   { drive }: ProofsDrive,
   fileId: string
-): Promise<{ buffer: Buffer; mimeType: string } | null> {
+): Promise<DriveFileMeta | null> {
   const meta = await drive.files.get({
     fileId,
-    fields: "id,mimeType,name",
+    fields: "id,mimeType,name,size",
     supportsAllDrives: true,
   });
+  if (!meta.data.id) return null;
+  return {
+    id: meta.data.id,
+    name: meta.data.name || "file",
+    mimeType: meta.data.mimeType || "application/octet-stream",
+    size: Number(meta.data.size || 0),
+  };
+}
+
+/** Download a Drive file's bytes (PDF or any binary). */
+export async function downloadDriveFileBytes(
+  client: ProofsDrive,
+  fileId: string
+): Promise<{ buffer: Buffer; mimeType: string; name: string; size: number } | null> {
+  const info = await getDriveFileMeta(client, fileId);
+  if (!info) return null;
+  const { drive } = client;
   const res = await drive.files.get(
     { fileId, alt: "media", supportsAllDrives: true },
     { responseType: "arraybuffer" }
   );
-  const mime =
-    meta.data.mimeType || "application/octet-stream";
   return {
     buffer: Buffer.from(res.data as ArrayBuffer),
-    mimeType: mime,
+    mimeType: info.mimeType,
+    name: info.name,
+    size: info.size,
   };
 }
 

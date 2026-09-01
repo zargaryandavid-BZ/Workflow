@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { collectLayerIds, parsePdfOcgs } from "./pdf-ocg.ts";
+import {
+  collectLayerIds,
+  layersFromOptionalContent,
+  parsePdfOcgs,
+} from "./pdf-ocg.ts";
 
 test("collectLayerIds walks nested order objects", () => {
   assert.deepEqual(
@@ -27,4 +31,37 @@ endobj
   assert.equal(layers[0]?.name, "UV Layer");
   assert.equal(layers[0]?.id, "1R");
   assert.equal(layers[1]?.name, "Die");
+});
+
+test("collectLayerIds de-dupes reverse nested Order and normalizes refs", () => {
+  assert.deepEqual(
+    collectLayerIds(["10R", "11R", ["11 0 R", "10 0 R"]]),
+    ["10R", "11R"]
+  );
+});
+
+test("layersFromOptionalContent does not append reverse group-map copies", () => {
+  const names: Record<string, string> = {
+    "10R": "Dieline",
+    "11R": "ART WORK",
+    "10": "Dieline",
+    "11": "ART WORK",
+  };
+  const oc = {
+    getOrder: () => ["10R", "11R"],
+    getGroup: (id: string) => ({ name: names[id] }),
+    serializable: {
+      data: {
+        groups: {
+          "11": { name: "ART WORK" },
+          "10": { name: "Dieline" },
+        },
+      },
+    },
+  };
+  const layers = layersFromOptionalContent(oc);
+  assert.deepEqual(
+    layers.map((l) => l.name),
+    ["Dieline", "ART WORK"]
+  );
 });

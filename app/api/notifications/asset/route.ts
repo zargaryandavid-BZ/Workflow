@@ -152,9 +152,8 @@ export async function GET(request: Request) {
     const { isRespondFinalPdfForOrder } = await import(
       "@/lib/respond-final-pdf"
     );
-    const { proofsDriveClient, downloadDriveFileBytes } = await import(
-      "@/lib/gdrive-proofs"
-    );
+    const { proofsDriveClient, downloadDriveFileBytes, getDriveFileMeta } =
+      await import("@/lib/gdrive-proofs");
     const { ensureGdriveSettings } = await import("@/lib/gdrive-settings");
 
     const specs = (order.specs ?? {}) as Record<string, unknown>;
@@ -179,15 +178,31 @@ export async function GET(request: Request) {
         order.tenant_id as string
       );
       const client = proofsDriveClient(settings);
+      const meta = await getDriveFileMeta(client, id);
+      if (!meta) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const maxBytes = 20 * 1024 * 1024;
+      if (meta.size > maxBytes) {
+        const mb = Math.round(meta.size / (1024 * 1024));
+        return NextResponse.json(
+          {
+            error: `This PDF is ${mb} MB — too large to preview in the browser. Open it in Acrobat from Drive. Layer buttons only work on smaller multilayer PDFs (PDF/X-4 with Acrobat layers).`,
+          },
+          { status: 413 }
+        );
+      }
       const downloaded = await downloadDriveFileBytes(client, id);
       if (!downloaded) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      return new NextResponse(new Uint8Array(downloaded.buffer), {
+      const body = Uint8Array.from(downloaded.buffer);
+      return new NextResponse(body, {
         headers: {
           "Content-Type": downloaded.mimeType.includes("pdf")
             ? "application/pdf"
             : downloaded.mimeType,
+          "Content-Length": String(body.byteLength),
           "Cache-Control": "private, max-age=120",
         },
       });

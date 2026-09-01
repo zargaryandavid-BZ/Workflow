@@ -129,11 +129,44 @@ async function collectFinalFolderIds(
   return [...ids];
 }
 
+const FINAL_PDF_CACHE_MS = 60_000;
+const finalPdfCache = new Map<
+  string,
+  { at: number; value: Record<string, RespondFinalPdf> }
+>();
+
 /**
  * Map SKU id → multilayer PDF in the order's Final for Prod Drive folder.
  * Uses the same filename↔SKU matching as proof sync. Empty on any Drive miss.
  */
 export async function fetchRespondFinalPdfsBySku(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: {
+    id: string;
+    title: string;
+    specs: Record<string, unknown>;
+  },
+  skus: SkuItem[]
+): Promise<Record<string, RespondFinalPdf>> {
+  if (skus.length === 0) return {};
+  const cacheKey = `${tenantId}:${order.id}`;
+  const cached = finalPdfCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
+    return cached.value;
+  }
+
+  const value = await fetchRespondFinalPdfsBySkuUncached(
+    supabase,
+    tenantId,
+    order,
+    skus
+  );
+  finalPdfCache.set(cacheKey, { at: Date.now(), value });
+  return value;
+}
+
+async function fetchRespondFinalPdfsBySkuUncached(
   supabase: SupabaseClient,
   tenantId: string,
   order: {
