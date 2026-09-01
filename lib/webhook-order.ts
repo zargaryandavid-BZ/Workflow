@@ -284,6 +284,9 @@ export interface WebhookSkuPayload {
 }
 
 export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
+  /** Stable CRM line id (ticket_line_items.id). Stored on the card so a later CRM
+   *  edit re-syncs to the SAME card by id instead of by position. */
+  crm_line_id?: string;
   title?: string;
   product?: string;
   /**
@@ -298,6 +301,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   /** Same as `die` — CRM Cutting field. */
   cutting_type?: string;
   materials?: string;
+  /** Alias for `materials` (CRM often sends singular `material`). */
+  material?: string;
   finishing?: string;
   sides?: string;
   color?: string;
@@ -457,6 +462,8 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   finished_size?: string;
   die?: string;
   materials?: string;
+  /** Alias for `materials`. */
+  material?: string;
   finishing?: string;
   sides?: string;
   color?: string;
@@ -1213,7 +1220,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       product_category: body.product_category,
       finished_size: body.finished_size,
       die: body.die,
-      materials: body.materials,
+      materials: firstNonEmpty(body.materials, body.material),
       finishing: body.finishing,
       sides: body.sides,
       color: body.color ?? body.color_mode,
@@ -1375,7 +1382,12 @@ function mergeItemWithOrder(
     ),
     finished_size: firstNonEmpty(item.finished_size, order.finished_size),
     die: firstNonEmpty(item.die, item.cutting_type, order.die),
-    materials: firstNonEmpty(item.materials, order.materials),
+    materials: firstNonEmpty(
+      item.materials,
+      item.material,
+      order.materials,
+      order.material
+    ),
     finishing: firstNonEmpty(
       item.finishing,
       item.lamination,
@@ -1599,7 +1611,7 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
       buildFinishedSizeFromDimensions(width, height, item.finished_size) ??
       undefined,
     die,
-    materials: item.materials,
+    materials: firstNonEmpty(item.materials, item.material),
     finishing: item.finishing ?? item.lamination,
     lamination: item.lamination ?? item.finishing,
     sides: item.sides,
@@ -1965,7 +1977,7 @@ function resolveWebhookFieldValue(
         options,
         webhookKey,
         corrections,
-        webhookKey === "product_category"
+        webhookKey === "product_category" || webhookKey === "materials"
       );
     }
   }
@@ -3124,12 +3136,40 @@ async function refreshPortalOrdersFromWebhook(params: {
   );
   const tenantTags = await listTenantTags(client, tenantId);
 
-  // Pair by index only — never reuse items[0] for trailing cards (wrong specs/art).
-  // Excess board cards (more cards than payload lines) are left untouched.
-  for (let i = 0; i < sorted.length && i < items.length; i++) {
-    const order = sorted[i]!;
+  // Match each incoming line to its card by STABLE crm_line_id first, then by the
+  // stored item title, and only as a last resort by position (when neither side has
+  // ids and the counts are equal). This keeps a CRM edit landing on the SAME card
+  // even when the line set changed between syncs (e.g. a folded design line means
+  // fewer items than there are cards). Cards with no matching line are left untouched.
+  const cardIdOf = (o: { id: string }) => o.id;
+  const specStr = (o: { specs: Record<string, unknown> }, key: string) =>
+    typeof o.specs?.[key] === "string" ? (o.specs[key] as string).trim() : "";
+  const cardByLineId = new Map<string, (typeof sorted)[number]>();
+  const cardByTitle = new Map<string, (typeof sorted)[number]>();
+  for (const c of sorted) {
+    const lid = specStr(c, "crm_line_id");
+    if (lid) cardByLineId.set(lid, c);
+    const wt = specStr(c, "webhook_item_title").toLowerCase();
+    if (wt && !cardByTitle.has(wt)) cardByTitle.set(wt, c);
+  }
+  const itemLineId = (it: WebhookItem) =>
+    typeof it.crm_line_id === "string" ? it.crm_line_id.trim() : "";
+  const noIdsAnywhere =
+    [...cardByLineId.keys()].length === 0 && items.every((it) => !itemLineId(it));
+  const usedCardIds = new Set<string>();
+
+  for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
     const ir = item as Record<string, unknown>;
+    // Resolve which existing card this line belongs to.
+    let order: (typeof sorted)[number] | null = null;
+    const lid = itemLineId(item);
+    const itTitle = typeof item.title === "string" ? item.title.trim().toLowerCase() : "";
+    if (lid && cardByLineId.has(lid)) order = cardByLineId.get(lid)!;
+    else if (itTitle && cardByTitle.has(itTitle)) order = cardByTitle.get(itTitle)!;
+    else if (noIdsAnywhere && sorted.length === items.length) order = sorted[i]!;
+    if (!order || usedCardIds.has(cardIdOf(order))) continue;
+    usedCardIds.add(cardIdOf(order));
     // Re-read specs after updateExistingOrdersDue so due_* keys are not wiped.
     const { data: freshRow } = await client
       .from("orders")
@@ -3167,6 +3207,8 @@ async function refreshPortalOrdersFromWebhook(params: {
     // (product as item title; partner name stays on company_name / Portal | …).
     const jobTitle = resolveItemTitle(item, itemParentLabel, i, sorted.length);
     if (jobTitle.trim()) nextSpecs.webhook_item_title = jobTitle.trim();
+    // Backfill/keep the stable line id so future edits match this card by id.
+    if (lid) nextSpecs.crm_line_id = lid;
     if (orderLevelTitle.trim()) nextSpecs.webhook_order_title = orderLevelTitle.trim();
     else delete nextSpecs.webhook_order_title;
     if (portalCompanyName) nextSpecs.company_name = portalCompanyName;
@@ -3668,6 +3710,14 @@ async function createSingleWebhookJob(
   }
   // Always stamp for idempotent due-date updates on later CRM webhooks.
   specs.webhook_order_number = webhookOrderNumber;
+  // Stable CRM line id → lets a later CRM edit re-sync to THIS exact card by id.
+  {
+    const crmLineId =
+      typeof (item as { crm_line_id?: unknown }).crm_line_id === "string"
+        ? (item as { crm_line_id: string }).crm_line_id.trim()
+        : "";
+    if (crmLineId) specs.crm_line_id = crmLineId;
+  }
   // Per-line display title (card + "Line item name"). Always stamp so single-item
   // orders also populate the modal field — not only multi-item parts.
   if (jobTitle.trim()) {
@@ -3992,6 +4042,30 @@ export async function createOrderFromWebhook(
       } catch (err) {
         console.error(
           "[webhook/orders] portal product refresh failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    } else {
+      // CRM re-fire (order edited in the CRM after conversion): refresh product specs
+      // + Product Specifications custom fields on the existing card(s) so the board
+      // reflects the current CRM values (CRM is the source of truth). Safe on any
+      // count: refreshPortalOrdersFromWebhook matches each line to its card by stable
+      // crm_line_id (then title), and only falls back to positional pairing when
+      // neither side carries ids AND counts are equal — so a changed line structure
+      // (e.g. a folded design line) can never overwrite the wrong card.
+      try {
+        await refreshPortalOrdersFromWebhook({
+          client,
+          tenantId,
+          existing: existingOrders,
+          body,
+          items,
+          customerName: customerInfo.customerName,
+          orderContact: customerInfo.orderContact,
+        });
+      } catch (err) {
+        console.error(
+          "[webhook/orders] crm product refresh failed:",
           err instanceof Error ? err.message : String(err)
         );
       }

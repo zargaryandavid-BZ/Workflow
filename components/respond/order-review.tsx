@@ -1,19 +1,35 @@
 "use client";
 
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import { Check, Download, FileText, X } from "lucide-react";
 import {
   collectSkuApprovalImages,
   isRespondImageAsset,
   respondAssetUrl,
+  respondFinalPdfUrl,
   respondSkuImageUrl,
   type RespondOrderAsset,
   type RespondOrderRow,
   type RespondSkuImage,
+  type SkuApprovalImageRef,
+  type RespondFinalPdf,
 } from "@/lib/respond-order";
 import { formatFileSize } from "@/lib/respond-page";
 import { imageDecisionKey, skuLabel } from "@/lib/sku-approval";
 import type { SkuItem } from "@/lib/skus";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
+
+const PdfOcgFromUrl = dynamic(
+  () =>
+    import("@/components/pdf/pdf-ocg-from-url").then((m) => m.PdfOcgFromUrl),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="py-6 text-center text-xs text-slate-400">Opening PDF…</p>
+    ),
+  }
+);
 
 interface OrderReviewProps {
   token: string;
@@ -24,6 +40,9 @@ interface OrderReviewProps {
   skuImages?: Record<string, RespondSkuImage[]>;
   /** Optional part heading for multi-item ready-to-ship groups. */
   heading?: string;
+  orderId?: string;
+  /** Final-for-Prod multilayer PDFs keyed by SKU id. */
+  finalPdfs?: Record<string, RespondFinalPdf>;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -214,6 +233,112 @@ function SkuDecisionControls({ skuId }: { skuId: string }) {
   );
 }
 
+function SkuArtworkBlock({
+  token,
+  orderId,
+  skuArt,
+  multiImage,
+  skuId,
+  finalPdf,
+}: {
+  token: string;
+  orderId?: string;
+  skuArt: SkuApprovalImageRef[];
+  multiImage: boolean;
+  skuId: string;
+  finalPdf: RespondFinalPdf | null;
+}) {
+  const [showPdf, setShowPdf] = useState(false);
+  const canToggle = Boolean(finalPdf && orderId);
+
+  if (skuArt.length === 0 && !canToggle) return null;
+
+  return (
+    <div className="mt-2">
+      {canToggle && finalPdf && orderId ? (
+        <label className="mb-2 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-blue-600"
+            checked={showPdf}
+            onChange={(e) => setShowPdf(e.target.checked)}
+          />
+          PDF multilayer
+        </label>
+      ) : null}
+      {showPdf && canToggle && finalPdf && orderId ? (
+        <PdfOcgFromUrl
+          src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
+          fileName={finalPdf.fileName}
+        />
+      ) : skuArt.length > 0 ? (
+        <>
+          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+            Artwork
+          </p>
+          <ul
+            className={`grid gap-2 ${
+              multiImage
+                ? "grid-cols-2 sm:grid-cols-3"
+                : "grid-cols-1 sm:grid-cols-2"
+            }`}
+          >
+            {skuArt.map((img, imgIdx) => {
+              const href =
+                img.source === "gallery"
+                  ? respondSkuImageUrl(token, img.id)
+                  : respondAssetUrl(token, img.id);
+              const isImage = isRespondImageAsset(img.file_name, img.mime_type);
+              return (
+                <li key={img.id} className="space-y-1.5">
+                  {isImage ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                    >
+                      <img
+                        src={href}
+                        alt={img.file_name}
+                        className={
+                          multiImage
+                            ? "aspect-square w-full object-cover"
+                            : "h-56 w-full object-contain"
+                        }
+                      />
+                    </a>
+                  ) : (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                    >
+                      <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                      <span className="min-w-0 truncate">{img.file_name}</span>
+                      <Download className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
+                    </a>
+                  )}
+                  <p className="truncate text-center text-[11px] text-slate-500">
+                    {multiImage ? `Image ${imgIdx + 1}` : img.file_name}
+                    {!multiImage && img.size
+                      ? ` · ${formatFileSize(img.size)}`
+                      : null}
+                  </p>
+                  {multiImage ? (
+                    <ImageDecisionControls skuId={skuId} assetId={img.id} />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function OrderReview({
   token,
   rows,
@@ -221,6 +346,8 @@ export function OrderReview({
   assets,
   skuImages = {},
   heading,
+  orderId,
+  finalPdfs = {},
 }: OrderReviewProps) {
   const skuUi = useSkuDecision();
   const orderAssets: RespondOrderAsset[] = assets.filter((a) => !a.sku_key);
@@ -295,80 +422,14 @@ export function OrderReview({
                     </div>
                     {multiImage ? null : <SkuDecisionControls skuId={sku.id} />}
                   </div>
-                  {skuArt.length > 0 ? (
-                    <div className="mt-2">
-                      <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                        Artwork
-                      </p>
-                      <ul
-                        className={`grid gap-2 ${
-                          multiImage
-                            ? "grid-cols-2 sm:grid-cols-3"
-                            : "grid-cols-1 sm:grid-cols-2"
-                        }`}
-                      >
-                        {skuArt.map((img, imgIdx) => {
-                          const href =
-                            img.source === "gallery"
-                              ? respondSkuImageUrl(token, img.id)
-                              : respondAssetUrl(token, img.id);
-                          const isImage = isRespondImageAsset(
-                            img.file_name,
-                            img.mime_type
-                          );
-                          return (
-                            <li key={img.id} className="space-y-1.5">
-                              {isImage ? (
-                                <a
-                                  href={href}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="block overflow-hidden rounded-md border border-slate-200 bg-slate-50"
-                                >
-                                  <img
-                                    src={href}
-                                    alt={img.file_name}
-                                    className={
-                                      multiImage
-                                        ? "aspect-square w-full object-cover"
-                                        : "h-56 w-full object-contain"
-                                    }
-                                  />
-                                </a>
-                              ) : (
-                                <a
-                                  href={href}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-                                >
-                                  <FileText className="h-4 w-4 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate">
-                                    {img.file_name}
-                                  </span>
-                                  <Download className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
-                                </a>
-                              )}
-                              <p className="truncate text-center text-[11px] text-slate-500">
-                                {multiImage
-                                  ? `Image ${imgIdx + 1}`
-                                  : img.file_name}
-                                {!multiImage && img.size
-                                  ? ` · ${formatFileSize(img.size)}`
-                                  : null}
-                              </p>
-                              {multiImage ? (
-                                <ImageDecisionControls
-                                  skuId={sku.id}
-                                  assetId={img.id}
-                                />
-                              ) : null}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ) : null}
+                  <SkuArtworkBlock
+                    token={token}
+                    orderId={orderId}
+                    skuArt={skuArt}
+                    multiImage={multiImage}
+                    skuId={sku.id}
+                    finalPdf={finalPdfs[sku.id] ?? null}
+                  />
                 </li>
               );
             })}

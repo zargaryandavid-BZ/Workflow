@@ -108,6 +108,19 @@ export function respondSkuImageUrl(token: string, imageId: string): string {
   return `/api/notifications/asset?token=${encodeURIComponent(token)}&id=${encodeURIComponent(imageId)}&type=sku_image`;
 }
 
+export type RespondFinalPdf = {
+  fileId: string;
+  fileName: string;
+};
+
+export function respondFinalPdfUrl(
+  token: string,
+  orderId: string,
+  fileId: string
+): string {
+  return `/api/notifications/asset?token=${encodeURIComponent(token)}&id=${encodeURIComponent(fileId)}&type=final_pdf&order=${encodeURIComponent(orderId)}`;
+}
+
 export interface RespondSkuImage {
   id: string;
   sku_id: string;

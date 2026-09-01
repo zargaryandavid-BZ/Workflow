@@ -94,12 +94,12 @@ export async function PATCH(
   };
 
   // Service-role client: the caller + tenant are verified via getTenantContext()
-  // and the owner/admin/account_manager check below. RLS on time_entries blocks
-  // writes to another user's row (its UPDATE/DELETE policy is user_id = auth.uid()
-  // with no admin bypass), so admins and account managers could never actually
-  // pause/resume/stop someone else's timer through a user-scoped client. Every
-  // query below stays explicitly scoped by tenant_id (and user_id) so this never
-  // reaches across tenants.
+  // and the owner/admin check below. RLS on time_entries blocks writes to
+  // another user's row (its UPDATE/DELETE policy is user_id = auth.uid() with
+  // no admin bypass), so admins could never actually pause/resume/stop someone
+  // else's timer through a user-scoped client. Every query below stays
+  // explicitly scoped by tenant_id (and user_id) so this never reaches across
+  // tenants.
   const supabase = createAdminClient();
 
   const { data: existing, error: loadError } = await supabase
@@ -115,12 +115,10 @@ export async function PATCH(
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  // Owner can always manage their own entry; admins and account managers can
-  // manage anyone's (start/pause/stop/reassign work from the board).
+  // Owner can always manage their own entry; only admins can manage anyone's.
   if (
     (existing as { user_id: string }).user_id !== ctx.userId &&
-    ctx.role !== "admin" &&
-    ctx.role !== "account_manager"
+    ctx.role !== "admin"
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -298,12 +296,12 @@ export async function DELETE(
 
   const { id } = await params;
   // Service-role client: the caller + tenant are verified via getTenantContext()
-  // and the owner/admin/account_manager check below. RLS on time_entries blocks
-  // writes to another user's row (its UPDATE/DELETE policy is user_id = auth.uid()
-  // with no admin bypass), so admins and account managers could never actually
-  // pause/resume/stop someone else's timer through a user-scoped client. Every
-  // query below stays explicitly scoped by tenant_id (and user_id) so this never
-  // reaches across tenants.
+  // and the owner/admin check below. RLS on time_entries blocks writes to
+  // another user's row (its UPDATE/DELETE policy is user_id = auth.uid() with
+  // no admin bypass), so admins could never actually pause/resume/stop someone
+  // else's timer through a user-scoped client. Every query below stays
+  // explicitly scoped by tenant_id (and user_id) so this never reaches across
+  // tenants.
   const supabase = createAdminClient();
 
   const { data: existing, error: loadError } = await supabase
@@ -319,12 +317,10 @@ export async function DELETE(
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  // Owner can always manage their own entry; admins and account managers can
-  // manage anyone's (start/pause/stop/reassign work from the board).
+  // Owner can always manage their own entry; only admins can manage anyone's.
   if (
     (existing as { user_id: string }).user_id !== ctx.userId &&
-    ctx.role !== "admin" &&
-    ctx.role !== "account_manager"
+    ctx.role !== "admin"
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

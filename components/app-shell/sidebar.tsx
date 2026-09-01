@@ -12,6 +12,7 @@ import {
   Clock,
   Columns3,
   Factory,
+  FileText,
   FolderOpen,
   FormInput,
   LayoutGrid,
@@ -92,6 +93,7 @@ const nav: NavItem[] = [
     visibleTo: ["admin", "account_manager", "preprod_owner"],
   },
   { href: "/time", label: "Time (beta)", icon: Clock },
+  { href: "/pdf", label: "PDF", icon: FileText },
   {
     href: "/analytics",
     label: "Analytics",

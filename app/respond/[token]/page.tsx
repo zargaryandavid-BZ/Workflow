@@ -16,6 +16,7 @@ import {
   fetchRespondSkuImages,
 } from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
+import { fetchRespondFinalPdfsBySku } from "@/lib/respond-final-pdf";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
@@ -69,6 +70,7 @@ type RespondPart = {
   skus: SkuItem[];
   assets: RespondOrderAsset[];
   skuImages: Record<string, RespondSkuImage[]>;
+  finalPdfs: Record<string, { fileId: string; fileName: string }>;
 };
 
 function productFromFields(fields: Record<string, unknown>): string {
@@ -124,6 +126,22 @@ async function buildRespondParts(
       // non-critical
     }
 
+    let finalPdfs: RespondPart["finalPdfs"] = {};
+    try {
+      finalPdfs = await fetchRespondFinalPdfsBySku(
+        admin,
+        member.tenant_id,
+        {
+          id: member.id,
+          title: member.title,
+          specs: specs as Record<string, unknown>,
+        },
+        skusForRespond(specs as Record<string, unknown>)
+      );
+    } catch {
+      // Drive lookup is optional
+    }
+
     parts.push({
       id: member.id,
       title: member.title,
@@ -131,6 +149,7 @@ async function buildRespondParts(
       skus: skusForRespond(specs),
       assets,
       skuImages,
+      finalPdfs,
     });
   }
 
@@ -304,6 +323,8 @@ export default async function RespondPage({
               skus={part.skus}
               assets={part.assets}
               skuImages={part.skuImages}
+              orderId={part.id}
+              finalPdfs={part.finalPdfs}
             />
           ))}
         </div>
@@ -380,6 +401,29 @@ export default async function RespondPage({
         // non-critical; proceed without assets
       }
     }
+    let finalPdfs: Record<string, { fileId: string; fileName: string }> = {};
+    try {
+      const admin = createAdminClient();
+      const { data: orderRow } = await admin
+        .from("orders")
+        .select("id, title, tenant_id, specs")
+        .eq("id", notification.order_id)
+        .maybeSingle();
+      if (orderRow?.tenant_id) {
+        finalPdfs = await fetchRespondFinalPdfsBySku(
+          admin,
+          orderRow.tenant_id as string,
+          {
+            id: orderRow.id as string,
+            title: String(orderRow.title ?? ""),
+            specs: (orderRow.specs ?? {}) as Record<string, unknown>,
+          },
+          skus
+        );
+      }
+    } catch {
+      // Drive lookup is optional
+    }
     orderReview = (
       <OrderReview
         token={token}
@@ -387,6 +431,8 @@ export default async function RespondPage({
         skus={skus}
         assets={assets}
         skuImages={skuImages}
+        orderId={notification.order_id}
+        finalPdfs={finalPdfs}
       />
     );
     reviewAssets = assets;

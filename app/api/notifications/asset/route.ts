@@ -122,6 +122,81 @@ export async function GET(request: Request) {
     return NextResponse.redirect(signed.signedUrl);
   }
 
+  if (type === "final_pdf") {
+    const orderId = searchParams.get("order");
+    if (!orderId) {
+      return NextResponse.json(
+        { error: "order is required for final_pdf" },
+        { status: 400 }
+      );
+    }
+
+    const { orderIds, expired } = await resolveTokenOrderIds(admin, token);
+    if (!orderIds.includes(orderId)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (expired) {
+      return NextResponse.json({ error: "Link expired" }, { status: 403 });
+    }
+
+    const { data: order } = await admin
+      .from("orders")
+      .select("id, title, tenant_id, specs")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const { skusForRespond } = await import("@/lib/respond-order");
+    const { isRespondFinalPdfForOrder } = await import(
+      "@/lib/respond-final-pdf"
+    );
+    const { proofsDriveClient, downloadDriveFileBytes } = await import(
+      "@/lib/gdrive-proofs"
+    );
+    const { ensureGdriveSettings } = await import("@/lib/gdrive-settings");
+
+    const specs = (order.specs ?? {}) as Record<string, unknown>;
+    const allowed = await isRespondFinalPdfForOrder(
+      admin,
+      order.tenant_id as string,
+      {
+        id: order.id as string,
+        title: String(order.title ?? ""),
+        specs,
+      },
+      skusForRespond(specs),
+      id
+    );
+    if (!allowed) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    try {
+      const settings = await ensureGdriveSettings(
+        admin,
+        order.tenant_id as string
+      );
+      const client = proofsDriveClient(settings);
+      const downloaded = await downloadDriveFileBytes(client, id);
+      if (!downloaded) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      return new NextResponse(new Uint8Array(downloaded.buffer), {
+        headers: {
+          "Content-Type": downloaded.mimeType.includes("pdf")
+            ? "application/pdf"
+            : downloaded.mimeType,
+          "Cache-Control": "private, max-age=120",
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Download failed";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   if (type === "sku_image") {
     const { data: skuImage } = await admin
       .from("order_sku_images")

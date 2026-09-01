@@ -204,6 +204,59 @@ export async function listProofFilesRecursive(
   return out;
 }
 
+/** Immediate child folders of a parent (not trashed). */
+export async function listChildFolders(
+  { drive, sharedDriveId }: ProofsDrive,
+  parentId: string
+): Promise<{ id: string; name: string }[]> {
+  const out: { id: string; name: string }[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: [
+        `'${escapeQuery(parentId)}' in parents`,
+        `mimeType='${FOLDER_MIME}'`,
+        "trashed=false",
+      ].join(" and "),
+      fields: "nextPageToken, files(id,name)",
+      pageSize: 200,
+      pageToken,
+      ...driveListParams(sharedDriveId),
+    });
+    for (const f of res.data.files ?? []) {
+      if (f.id && f.name) out.push({ id: f.id, name: f.name });
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return out;
+}
+
+export function isFinalProdFolderName(name: string): boolean {
+  return /final/i.test(name);
+}
+
+/** Download a Drive file's bytes (PDF or any binary). */
+export async function downloadDriveFileBytes(
+  { drive }: ProofsDrive,
+  fileId: string
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  const meta = await drive.files.get({
+    fileId,
+    fields: "id,mimeType,name",
+    supportsAllDrives: true,
+  });
+  const res = await drive.files.get(
+    { fileId, alt: "media", supportsAllDrives: true },
+    { responseType: "arraybuffer" }
+  );
+  const mime =
+    meta.data.mimeType || "application/octet-stream";
+  return {
+    buffer: Buffer.from(res.data as ArrayBuffer),
+    mimeType: mime,
+  };
+}
+
 /**
  * Produce image bytes for a proof file suitable for a SKU gallery slot.
  * - Real images → download the bytes directly.

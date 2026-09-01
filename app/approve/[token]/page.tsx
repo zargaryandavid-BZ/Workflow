@@ -1,6 +1,8 @@
 import { Printer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { OrderReview } from "@/components/respond/order-review";
+import { fetchRespondFinalPdfsBySku } from "@/lib/respond-final-pdf";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildRespondOrderRows,
   skusForRespond,
@@ -53,6 +55,32 @@ export default async function ApprovalPage({
       ])
     : [[], {}];
 
+  let finalPdfs: Record<string, { fileId: string; fileName: string }> = {};
+  if (approval) {
+    try {
+      const admin = createAdminClient();
+      const { data: orderRow } = await admin
+        .from("orders")
+        .select("id, title, tenant_id, specs")
+        .eq("id", approval.order_id)
+        .maybeSingle();
+      if (orderRow?.tenant_id) {
+        finalPdfs = await fetchRespondFinalPdfsBySku(
+          admin,
+          orderRow.tenant_id as string,
+          {
+            id: orderRow.id as string,
+            title: String(orderRow.title ?? ""),
+            specs: (orderRow.specs ?? {}) as Record<string, unknown>,
+          },
+          skus
+        );
+      }
+    } catch {
+      // Drive lookup is optional
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-blue-50 p-4">
       <div className="w-full max-w-2xl">
@@ -91,6 +119,8 @@ export default async function ApprovalPage({
                   skus={skus}
                   assets={assets}
                   skuImages={skuImages}
+                  orderId={approval.order_id}
+                  finalPdfs={finalPdfs}
                 />
               </div>
 

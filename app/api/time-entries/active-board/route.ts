@@ -49,11 +49,12 @@ export async function GET() {
   const nameById = new Map<string, string>();
   if (userIds.length) {
     const { data: profiles } = await supabase
-      .from("user_profiles")
+      .from("profiles")
       .select("id, full_name")
       .in("id", userIds);
     for (const p of (profiles ?? []) as Array<{ id: string; full_name: string | null }>) {
-      nameById.set(p.id, p.full_name?.trim() || "Unnamed");
+      const name = p.full_name?.trim();
+      if (name) nameById.set(p.id, name);
     }
   }
 
@@ -61,7 +62,7 @@ export async function GET() {
   const entries = rows.map((r) => ({
     id: r.id,
     user_id: r.user_id,
-    worker_name: nameById.get(r.user_id) ?? "Unnamed",
+    worker_name: nameById.get(r.user_id) ?? "",
     order_id: r.order_id,
     started_at: r.started_at,
     ended_at: r.ended_at,

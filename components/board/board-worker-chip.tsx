@@ -6,7 +6,7 @@ import { formatDuration } from "@/lib/time-tracking";
 
 /**
  * Live timer on a card (someone else's session). Running → green; paused → muted.
- * Admins and account managers get pause/resume + stop. Shows who is working so
+ * Admins get pause/resume + stop. Shows who is working so
  * Start is not needed on this card at the same time.
  */
 export function BoardWorkerChip({
@@ -29,6 +29,7 @@ export function BoardWorkerChip({
   onStop: () => void;
 }) {
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  const name = workerName.trim();
   return (
     <div className="mb-1.5 max-w-full" onClick={stop} onPointerDown={stop}>
       <div
@@ -38,8 +39,12 @@ export function BoardWorkerChip({
         )}
         title={
           running
-            ? `${workerName} is working this card`
-            : `${workerName} paused on this card`
+            ? name
+              ? `${name} is working this card`
+              : "Someone is working this card"
+            : name
+              ? `${name} paused on this card`
+              : "Someone paused on this card"
         }
       >
         <span className="relative flex h-2 w-2">
@@ -52,7 +57,9 @@ export function BoardWorkerChip({
             <span className="inline-flex h-2 w-2 rounded-full bg-slate-400" />
           )}
         </span>
-        <span className="max-w-[7rem] truncate">{workerName}</span>
+        {name ? (
+          <span className="max-w-[7rem] truncate">{name}</span>
+        ) : null}
         <span className="tabular-nums">{formatDuration(elapsedSeconds)}</span>
         {!running ? <span className="font-medium">· paused</span> : null}
 

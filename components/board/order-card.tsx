@@ -698,8 +698,8 @@ export function OrderCard({
   // Any user actively working this card (shown to everyone who can see it).
   const boardTimer = activeTimer.boardActiveForOrder(order.id);
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
-  // Admins + account managers can pause/stop another person's timer.
-  const canControlOthers = role === "admin" || role === "account_manager";
+  // Only admins can pause/stop another person's timer (Sales is view-only).
+  const canControlOthers = role === "admin";
   const timersOff = columnStopsWorkTimer({
     kind: columnKind,
     name: columnName,

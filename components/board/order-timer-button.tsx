@@ -31,7 +31,7 @@ export function OrderTimerButton({
   const timer = activeTimer.forOrder(orderId);
   const boardTimer = activeTimer.boardActiveForOrder(orderId);
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
-  const canControlOthers = role === "admin" || role === "account_manager";
+  const canControlOthers = role === "admin";
 
   if (otherWorker) {
     return (

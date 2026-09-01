@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfkit", "fontkit"],
+  transpilePackages: ["pdfjs-dist"],
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",
