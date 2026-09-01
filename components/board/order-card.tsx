@@ -76,6 +76,7 @@ import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
+import { formatDuration } from "@/lib/time-tracking";
 import { BoardWorkerChip } from "./board-worker-chip";
 import {
   getActiveWarning,
@@ -698,6 +699,9 @@ export function OrderCard({
   // Any user actively working this card (shown to everyone who can see it).
   const boardTimer = activeTimer.boardActiveForOrder(order.id);
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
+  // Total time anyone has spent on this job — always shown so how long a card
+  // took is visible on the board without opening it.
+  const boardWorkedSeconds = activeTimer.boardWorkedTotalForOrder(order.id);
   // Only admins can pause/stop another person's timer (Sales is view-only).
   const canControlOthers = role === "admin";
   const timersOff = columnStopsWorkTimer({
@@ -771,6 +775,15 @@ export function OrderCard({
           onStop={() => orderTimer && void activeTimer.stop(orderTimer.entry.id)}
         />
       )}
+      {!timersOff && boardWorkedSeconds > 0 ? (
+        <span
+          className="mb-1.5 mr-1.5 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600 tabular-nums"
+          title="Total time worked on this job (everyone)"
+        >
+          <Clock className="h-3 w-3" />
+          {formatDuration(boardWorkedSeconds)}
+        </span>
+      ) : null}
       {emergencySeverity ? (
         <span
           className="absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full ring-2 ring-white"

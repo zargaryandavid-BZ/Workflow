@@ -21,7 +21,10 @@ import {
 } from "@/lib/time-chips";
 import type { TimeChip } from "@/lib/time-chips";
 import type { BoardColumn, CustomField, Customer, Order, OrderWithRelations } from "@/lib/types";
-import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
+import {
+  maybeStopWorkTimersOnColumnEnter,
+  stopOpenTimersForOrder,
+} from "@/lib/stop-order-timers";
 
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
@@ -269,6 +272,18 @@ export async function POST(request: Request) {
     isDesignerQueueColumnName(typedFromColumn.name) &&
     !isDesignerQueueColumnName(typedColumn.name)
   ) {
+    // Leaving the designer's active queue (Start / In Progress) stops the work
+    // timer and banks the time so it stops running in the background once the
+    // card moves on (e.g. to In Production / Outsource). Starting again later
+    // opens a fresh entry and the on-card total keeps accumulating.
+    try {
+      await stopOpenTimersForOrder(tenantId, typedOrder.id);
+    } catch (err: unknown) {
+      console.error(
+        "[move] stop timer on leaving queue failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
     const designerId = (typedOrder.specs as { designer_id?: unknown } | null)
       ?.designer_id;
     try {
