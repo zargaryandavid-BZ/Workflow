@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   loadApprovalGroupItemSummaries,
   ensureMissingGroupApprovalNotifications,
+  refreshOpenGroupApprovalExpiry,
   type ApprovalGroupItemSummary,
 } from "@/lib/approval-group";
 import {
@@ -266,6 +267,7 @@ export default async function ApprovalGroupPage({
     }
   }
   await ensureMissingGroupApprovalNotifications(admin, members, kindById);
+  await refreshOpenGroupApprovalExpiry(admin, members);
 
   const fieldByOrderId = new Map<string, Record<string, unknown>>();
   await Promise.all(

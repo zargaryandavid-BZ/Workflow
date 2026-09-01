@@ -7,7 +7,6 @@ import {
   categoryForProduct,
   materialsForProduct,
   productsForCategory,
-  isCatchAllCategory,
 } from "@/lib/product-data";
 import {
   findMatchingOption,
@@ -156,9 +155,8 @@ export function ProductMaterialsFields({
   // Fill Category from Product. Also replace catch-all "Other" on existing
   // tickets (CRM often sends Other for apparel tees).
   useEffect(() => {
+    if (!autoInferCategory) return;
     if (readOnly || !product.trim()) return;
-    const catchAll = isCatchAllCategory(storedCategory);
-    if (!autoInferCategory && !catchAll) return;
     syncCategoryFromProduct(product);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow sync
   }, [product, storedCategory, readOnly, autoInferCategory, categoryOptions.join("\0")]);

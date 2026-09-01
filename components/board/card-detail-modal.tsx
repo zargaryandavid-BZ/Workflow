@@ -387,6 +387,8 @@ export function CardDetailModal({
   /** SKUs snapshot from last load — used for dirty check without re-minting ids. */
   const baselineSkusRef = useRef<ReturnType<typeof normalizeSkus>>([]);
   const ticketBaselineRef = useRef<TicketEditBaseline | null>(null);
+  /** True only after the user edits the form — not after load/auto-fill. */
+  const userTouchedRef = useRef(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [copiedCustomerField, setCopiedCustomerField] = useState<string | null>(null);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
@@ -451,6 +453,7 @@ export function CardDetailModal({
   customFieldsRef.current = customFields;
 
   const applyDetail = useCallback((json: DetailResponse) => {
+    userTouchedRef.current = false;
     const fields = json.customFields ?? customFieldsRef.current;
     setModalCustomFields(fields);
     const validFieldIds = new Set(fields.map((f) => f.id));
@@ -658,6 +661,7 @@ export function CardDetailModal({
       setPersistedSkuIds(new Set());
       baselineSkusRef.current = [];
       ticketBaselineRef.current = null;
+      userTouchedRef.current = false;
     }
   }, [open, orderId, load]);
 
@@ -672,6 +676,7 @@ export function CardDetailModal({
   }, [saving]);
 
   function isDueDateDirty(): boolean {
+    if (!userTouchedRef.current) return false;
     const b = ticketBaselineRef.current;
     if (!data || !b) return false;
     if (dateInputValue(dueDate) !== dateInputValue(b.dueDate)) return true;
@@ -1019,6 +1024,7 @@ export function CardDetailModal({
       })(),
       skus: savedSkus,
     };
+    userTouchedRef.current = false;
     onChanged(boardPatch);
 
     try {
@@ -1073,6 +1079,7 @@ export function CardDetailModal({
   }
 
   function isDirty(): boolean {
+    if (!userTouchedRef.current) return false;
     const b = ticketBaselineRef.current;
     if (!data || !b) return false;
     if (title !== b.title) return true;
@@ -1205,7 +1212,12 @@ export function CardDetailModal({
     }
   }
 
+  function markTicketTouched() {
+    userTouchedRef.current = true;
+  }
+
   function setFieldValue(fieldId: string, value: unknown) {
+    markTicketTouched();
     setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
   }
 
@@ -1660,7 +1672,10 @@ export function CardDetailModal({
           <input
             type="text"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              markTicketTouched();
+              setTitle(e.target.value);
+            }}
             placeholder="Order title"
             aria-label="Order title"
             className="w-full min-w-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-sm font-semibold leading-snug text-slate-800 [overflow-wrap:anywhere] focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
@@ -1926,7 +1941,10 @@ export function CardDetailModal({
           {!isViewOnly ? (
             <select
               value={ownerId}
-              onChange={(e) => setOwnerId(e.target.value)}
+              onChange={(e) => {
+                markTicketTouched();
+                setOwnerId(e.target.value);
+              }}
               className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
               title="Owner"
             >
@@ -2485,7 +2503,8 @@ export function CardDetailModal({
               }
               autoInferCategory={false}
               productSpecs={data.order.specs ?? null}
-              onProductSpecChange={(key, value) =>
+              onProductSpecChange={(key, value) => {
+                markTicketTouched();
                 setData((prev) =>
                   prev
                     ? {
@@ -2502,9 +2521,10 @@ export function CardDetailModal({
                         },
                       }
                     : prev,
-                )
-              }
-              onProductToggleChange={(label, checked) =>
+                );
+              }}
+              onProductToggleChange={(label, checked) => {
+                markTicketTouched();
                 setData((prev) => {
                   if (!prev) return prev;
                   const cur = Array.isArray(prev.order.specs?.product_options)
@@ -2522,58 +2542,94 @@ export function CardDetailModal({
                       specs: { ...(prev.order.specs ?? {}), product_options: next },
                     },
                   };
-                })
-              }
+                });
+              }}
               customFields={modalCustomFields}
               owners={ownersForForm}
               designers={designers}
               title={title}
-              onTitleChange={setTitle}
+              onTitleChange={(v) => {
+                markTicketTouched();
+                setTitle(v);
+              }}
               hideOrderNumberField
               hidePriorityAndDueDateFields
               hideOwnerField
               hideCustomerSection
               priority={priority}
-              onPriorityChange={setPriority}
+              onPriorityChange={(v) => {
+                markTicketTouched();
+                setPriority(v);
+              }}
               ownerId={ownerId}
-              onOwnerIdChange={setOwnerId}
+              onOwnerIdChange={(v) => {
+                markTicketTouched();
+                setOwnerId(v);
+              }}
               noteHistory={noteHistory}
               internalNote={newNote}
-              onInternalNoteChange={setNewNote}
+              onInternalNoteChange={(v) => {
+                markTicketTouched();
+                setNewNote(v);
+              }}
               productionNoteHistory={productionNoteHistory}
               productionNotes={productionNotes}
-              onProductionNotesChange={setProductionNotes}
+              onProductionNotesChange={(v) => {
+                markTicketTouched();
+                setProductionNotes(v);
+              }}
               customerFacingNote={customerFacingNote}
-              onCustomerFacingNoteChange={setCustomerFacingNote}
+              onCustomerFacingNoteChange={(v) => {
+                markTicketTouched();
+                setCustomerFacingNote(v);
+              }}
               designerNoteHistory={designerNoteHistory}
               designerNote={designerNote}
-              onDesignerNoteChange={setDesignerNote}
+              onDesignerNoteChange={(v) => {
+                markTicketTouched();
+                setDesignerNote(v);
+              }}
               showAudienceNotes={role !== "member"}
               customerName={customerName}
-              onCustomerNameChange={setCustomerName}
+              onCustomerNameChange={(v) => {
+                markTicketTouched();
+                setCustomerName(v);
+              }}
               customerContact={customerContact}
-              onCustomerContactChange={setCustomerContact}
+              onCustomerContactChange={(v) => {
+                markTicketTouched();
+                setCustomerContact(v);
+              }}
               designerId={designerId}
               onDesignerIdChange={(id) => void assignDesigner(id)}
               designTask={designTask}
-              onDesignTaskChange={setDesignTask}
+              onDesignTaskChange={(v) => {
+                markTicketTouched();
+                setDesignTask(v);
+              }}
               fieldValues={fieldValues}
               onFieldValueChange={setFieldValue}
               skus={skus}
-              onSkusChange={setSkus}
+              onSkusChange={(next) => {
+                markTicketTouched();
+                setSkus(next);
+              }}
               dueDate={dueDate}
               onDueDateChange={(value) => {
+                markTicketTouched();
                 setDueDate(value);
                 setSaveError(null);
               }}
               dueDateMode={dueDateMode}
               onDueDateModeChange={(mode) => {
+                markTicketTouched();
                 setDueDateMode(mode);
                 if (mode === "after_approval") setDueDate("");
                 setSaveError(null);
               }}
               dueProcessingDays={dueProcessingDays}
               onDueProcessingDaysChange={(days) => {
+                markTicketTouched();
                 setDueProcessingDays(days);
                 setSaveError(null);
               }}
@@ -2586,7 +2642,14 @@ export function CardDetailModal({
               designerReadOnly={designerReadOnly}
               tags={tags}
               tagId={tagId}
-              onTagIdChange={isViewOnly ? undefined : setTagId}
+              onTagIdChange={
+                isViewOnly
+                  ? undefined
+                  : (v) => {
+                      markTicketTouched();
+                      setTagId(v);
+                    }
+              }
             />
 
             {saveError ? (
@@ -2644,7 +2707,10 @@ export function CardDetailModal({
                 id="sidebar-priority"
                 value={priority}
                 disabled={isViewOnly}
-                onChange={(e) => setPriority(e.target.value)}
+                onChange={(e) => {
+                  markTicketTouched();
+                  setPriority(e.target.value);
+                }}
               >
                 {PRIORITY_OPTIONS.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -2662,6 +2728,7 @@ export function CardDetailModal({
                   idPrefix="sidebar"
                   applicationDays={applicationDays}
                   onApplicationDaysChange={(days) => {
+                    markTicketTouched();
                     setApplicationDays(days);
                     setSaveError(null);
                   }}
@@ -2675,17 +2742,20 @@ export function CardDetailModal({
                 idPrefix="sidebar"
                 mode={dueDateMode}
                 onModeChange={(mode) => {
+                  markTicketTouched();
                   setDueDateMode(mode);
                   if (mode === "after_approval") setDueDate("");
                   setSaveError(null);
                 }}
                 dueDate={dateInputValue(dueDate)}
                 onDueDateChange={(value) => {
+                  markTicketTouched();
                   setDueDate(value);
                   setSaveError(null);
                 }}
                 processingDays={dueProcessingDays}
                 onProcessingDaysChange={(days) => {
+                  markTicketTouched();
                   setDueProcessingDays(days);
                   setSaveError(null);
                 }}
@@ -2713,7 +2783,10 @@ export function CardDetailModal({
                 {!isViewOnly ? (
                   <select
                     value={tagId}
-                    onChange={(e) => setTagId(e.target.value)}
+                    onChange={(e) => {
+                      markTicketTouched();
+                      setTagId(e.target.value);
+                    }}
                     className="w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
                   >
                     <option value="">— None —</option>

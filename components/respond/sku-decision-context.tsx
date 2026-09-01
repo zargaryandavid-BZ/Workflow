@@ -15,12 +15,15 @@ type SkuDecisionContextValue = {
     assetId: string,
     decision: SkuApprovalDecision
   ) => void;
+  pdfPageCountBySku?: Record<string, number>;
+  setPdfPageCount?: (skuId: string, count: number) => void;
 };
 
 const SkuDecisionContext = createContext<SkuDecisionContextValue>({
   mode: "off",
   byId: {},
   byImageKey: {},
+  pdfPageCountBySku: {},
 });
 
 export function SkuDecisionProvider({
@@ -29,11 +32,21 @@ export function SkuDecisionProvider({
   onChange,
   byImageKey = {},
   onImageChange,
+  pdfPageCountBySku = {},
+  setPdfPageCount,
   children,
 }: SkuDecisionContextValue & { children: ReactNode }) {
   return (
     <SkuDecisionContext.Provider
-      value={{ mode, byId, onChange, byImageKey: byImageKey ?? {}, onImageChange }}
+      value={{
+        mode,
+        byId,
+        onChange,
+        byImageKey: byImageKey ?? {},
+        onImageChange,
+        pdfPageCountBySku,
+        setPdfPageCount,
+      }}
     >
       {children}
     </SkuDecisionContext.Provider>

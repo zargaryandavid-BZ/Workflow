@@ -20,6 +20,8 @@ import {
 } from "@/lib/respond-page";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import {
+  approvalImageAssetId,
+  approvalImageSlotCount,
   formatSkuApprovalNote,
   imageDecisionKey,
   overallApprovalResponse,
@@ -186,6 +188,9 @@ export function RespondForm({
   const [imageChoices, setImageChoices] = useState<
     Record<string, SkuApprovalDecision | undefined>
   >({});
+  const [pdfPageCountBySku, setPdfPageCountBySku] = useState<
+    Record<string, number>
+  >({});
   const [submittedSkuEntries, setSubmittedSkuEntries] = useState<
     SkuApprovalEntry[]
   >([]);
@@ -204,13 +209,24 @@ export function RespondForm({
     };
     for (const sku of approvalSkus) {
       const imgs = skuImages[sku.id] ?? [];
-      if (imgs.length < 2) continue;
+      const slotCount = approvalImageSlotCount(
+        imgs.length,
+        pdfPageCountBySku[sku.id] ?? 0
+      );
+      if (slotCount < 2) continue;
       rollup[sku.id] = rollupSkuDecisionFromImages(
-        imgs.map((img) => imageChoices[imageDecisionKey(sku.id, img.id)])
+        Array.from({ length: slotCount }, (_, imgIdx) =>
+          imageChoices[
+            imageDecisionKey(
+              sku.id,
+              approvalImageAssetId(imgIdx + 1, imgs)
+            )
+          ]
+        )
       );
     }
     return rollup;
-  }, [skuChoices, imageChoices, approvalSkus, skuImages]);
+  }, [skuChoices, imageChoices, approvalSkus, skuImages, pdfPageCountBySku]);
 
   const perSkuApproval =
     type === "customer_approval" && approvalSkus.length > 0;
@@ -224,16 +240,20 @@ export function RespondForm({
     for (let i = 0; i < approvalSkus.length; i += 1) {
       const sku = approvalSkus[i];
       const imgs = skuImages[sku.id] ?? [];
-      if (imgs.length >= 2) {
-        for (let imgIdx = 0; imgIdx < imgs.length; imgIdx += 1) {
-          const img = imgs[imgIdx];
-          const decision = imageChoices[imageDecisionKey(sku.id, img.id)];
+      const slotCount = approvalImageSlotCount(
+        imgs.length,
+        pdfPageCountBySku[sku.id] ?? 0
+      );
+      if (slotCount >= 2) {
+        for (let imgIdx = 0; imgIdx < slotCount; imgIdx += 1) {
+          const assetId = approvalImageAssetId(imgIdx + 1, imgs);
+          const decision = imageChoices[imageDecisionKey(sku.id, assetId)];
           if (!decision) return null;
           imageEntries.push({
             skuId: sku.id,
             skuIndex: i + 1,
             skuName: sku.name.trim(),
-            assetId: img.id,
+            assetId,
             imageIndex: imgIdx + 1,
             decision,
           });
@@ -485,6 +505,12 @@ export function RespondForm({
           setError(null);
         }}
         byImageKey={imageChoices}
+        pdfPageCountBySku={pdfPageCountBySku}
+        setPdfPageCount={(skuId, count) => {
+          setPdfPageCountBySku((prev) =>
+            prev[skuId] === count ? prev : { ...prev, [skuId]: count }
+          );
+        }}
         onImageChange={(skuId, assetId, decision) => {
           setImageChoices((prev) => ({
             ...prev,

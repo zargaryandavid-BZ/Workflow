@@ -29,7 +29,7 @@ export default async function DieOrderPage() {
 
   return (
     <div className="board-scroll h-full overflow-y-auto">
-      <div className="mx-auto max-w-[1400px] px-6 py-6">
+      <div className="px-4 py-5">
         <h1 className="text-lg font-semibold text-slate-800">Die Order</h1>
         <p className="mb-5 text-sm text-slate-500">
           Create a die request, email it to the manufacturer, and track price,

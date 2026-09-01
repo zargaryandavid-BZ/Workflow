@@ -44,6 +44,25 @@ export function imageDecisionKey(skuId: string, assetId: string): string {
   return `${skuId}::${assetId}`;
 }
 
+/** Gallery file for Image N, or `pdfpage:N` when the PDF has extra pages. */
+export function approvalImageAssetId(
+  imageIndex: number,
+  gallery: { id: string }[]
+): string {
+  return gallery[imageIndex - 1]?.id ?? `pdfpage:${imageIndex}`;
+}
+
+/** How many Image 1…N slots to collect. PDF pages can outnumber JPGs. */
+export function approvalImageSlotCount(
+  galleryLength: number,
+  pdfPageCount = 0
+): number {
+  if (galleryLength >= 2 || pdfPageCount > 1) {
+    return Math.max(galleryLength, pdfPageCount);
+  }
+  return galleryLength;
+}
+
 export function rollupSkuDecisionFromImages(
   decisions: (SkuApprovalDecision | undefined)[]
 ): SkuApprovalDecision | undefined {
@@ -194,8 +213,8 @@ export function imageDecisionsByKey(
     const sku = skus[entry.skuIndex - 1];
     if (!sku) continue;
     const img = (imagesBySkuId[sku.id] ?? [])[entry.imageIndex - 1];
-    if (!img) continue;
-    byKey[imageDecisionKey(sku.id, img.id)] = entry.decision;
+    const assetId = img?.id ?? `pdfpage:${entry.imageIndex}`;
+    byKey[imageDecisionKey(sku.id, assetId)] = entry.decision;
   }
   return byKey;
 }

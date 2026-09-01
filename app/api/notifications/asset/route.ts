@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orderIdsForReadyToShipToken } from "@/lib/ready-to-ship-group";
+import { notificationBlocksCustomerAssets } from "@/lib/notification-asset-access";
 
 const BUCKET = "order-assets";
 
@@ -25,12 +26,7 @@ async function resolveTokenOrderIds(
   ]);
 
   if (notification) {
-    const expiredByDate =
-      notification.token_expires_at != null &&
-      new Date(notification.token_expires_at).getTime() < Date.now();
-    const expired =
-      notification.status === "expired" ||
-      (expiredByDate && notification.status !== "responded");
+    const expired = notificationBlocksCustomerAssets(notification.status);
 
     if (notification.type === "ready_to_ship") {
       const orderIds = await orderIdsForReadyToShipToken(admin, token);
@@ -93,10 +89,7 @@ export async function GET(request: Request) {
       token_expires_at?: string | null;
       status?: string;
     };
-    const expired =
-      n.status !== "responded" &&
-      n.token_expires_at != null &&
-      new Date(n.token_expires_at).getTime() < Date.now();
+    const expired = notificationBlocksCustomerAssets(n.status);
     if (expired) {
       return NextResponse.json({ error: "Link expired" }, { status: 403 });
     }
@@ -198,11 +191,7 @@ export async function GET(request: Request) {
       if (!downloaded) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      const body = new Uint8Array(
-        downloaded.buffer.buffer,
-        downloaded.buffer.byteOffset,
-        downloaded.buffer.byteLength
-      );
+      const body = Buffer.from(downloaded.buffer);
       return new NextResponse(body, {
         headers: {
           "Content-Type": downloaded.mimeType.includes("pdf")

@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  approvalImageAssetId,
+  approvalImageSlotCount,
   decisionsBySkuId,
   formatSkuApprovalNote,
+  imageDecisionKey,
+  imageDecisionsByKey,
   overallApprovalResponse,
   parseSkuApprovalNote,
   skuLabel,
@@ -117,6 +121,29 @@ describe("sku approval notes", () => {
         ]
       ),
       { a: "approved" }
+    );
+  });
+
+  it("maps extra PDF pages to pdfpage:N slots", () => {
+    assert.equal(approvalImageAssetId(1, [{ id: "a" }]), "a");
+    assert.equal(approvalImageAssetId(2, [{ id: "a" }]), "pdfpage:2");
+    assert.equal(approvalImageSlotCount(10, 12), 12);
+    assert.equal(approvalImageSlotCount(10, 0), 10);
+    assert.equal(approvalImageSlotCount(1, 12), 12);
+    assert.equal(approvalImageSlotCount(1, 1), 1);
+    assert.deepEqual(
+      imageDecisionsByKey(
+        [{ id: "sku" }],
+        { sku: [{ id: "img-1" }] },
+        [
+          { skuIndex: 1, imageIndex: 1, decision: "approved" },
+          { skuIndex: 1, imageIndex: 2, decision: "rejected" },
+        ]
+      ),
+      {
+        [imageDecisionKey("sku", "img-1")]: "approved",
+        [imageDecisionKey("sku", "pdfpage:2")]: "rejected",
+      }
     );
   });
 });

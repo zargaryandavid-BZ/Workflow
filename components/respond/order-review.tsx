@@ -16,7 +16,12 @@ import {
   type RespondFinalPdf,
 } from "@/lib/respond-order";
 import { formatFileSize } from "@/lib/respond-page";
-import { imageDecisionKey, skuLabel } from "@/lib/sku-approval";
+import {
+  approvalImageAssetId,
+  approvalImageSlotCount,
+  imageDecisionKey,
+  skuLabel,
+} from "@/lib/sku-approval";
 import type { SkuItem } from "@/lib/skus";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
 
@@ -251,7 +256,11 @@ function SkuArtworkBlock({
   finalPdf: RespondFinalPdf | null;
 }) {
   const [showPdf, setShowPdf] = useState(false);
+  const [pdfPage, setPdfPage] = useState(1);
+  const skuUi = useSkuDecision();
   const canToggle = Boolean(finalPdf && orderId);
+  const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
+  const perImage = approvalImageSlotCount(skuArt.length, pdfPages) >= 2;
 
   if (skuArt.length === 0 && !canToggle) return null;
 
@@ -263,16 +272,32 @@ function SkuArtworkBlock({
             type="checkbox"
             className="h-3.5 w-3.5 accent-blue-600"
             checked={showPdf}
-            onChange={(e) => setShowPdf(e.target.checked)}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setShowPdf(on);
+              if (!on) skuUi.setPdfPageCount?.(skuId, 0);
+            }}
           />
           PDF multilayer
         </label>
       ) : null}
       {showPdf && canToggle && finalPdf && orderId ? (
-        <PdfOcgFromUrl
-          src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
-          fileName={finalPdf.fileName}
-        />
+        <>
+          <PdfOcgFromUrl
+            src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
+            fileName={finalPdf.fileName}
+            onPageCount={(n) => skuUi.setPdfPageCount?.(skuId, n)}
+            onPageNumber={setPdfPage}
+          />
+          {perImage ? (
+            <div className="mt-2">
+              <ImageDecisionControls
+                skuId={skuId}
+                assetId={approvalImageAssetId(pdfPage, skuArt)}
+              />
+            </div>
+          ) : null}
+        </>
       ) : skuArt.length > 0 ? (
         <>
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
@@ -393,6 +418,9 @@ export function OrderReview({
             {skus.map((sku, index) => {
               const skuArt = collectSkuApprovalImages(sku.id, assets, skuImages);
               const multiImage = skuArt.length >= 2;
+              const pdfPages = skuUi.pdfPageCountBySku?.[sku.id] ?? 0;
+              const perImage =
+                approvalImageSlotCount(skuArt.length, pdfPages) >= 2;
               const number = index + 1;
               const decision = skuUi.byId[sku.id];
               const resultBorder =
@@ -422,7 +450,7 @@ export function OrderReview({
                         <p className="text-xs text-slate-500">Qty: {sku.qty}</p>
                       ) : null}
                     </div>
-                    {multiImage ? null : <SkuDecisionControls skuId={sku.id} />}
+                    {perImage ? null : <SkuDecisionControls skuId={sku.id} />}
                   </div>
                   <SkuArtworkBlock
                     token={token}

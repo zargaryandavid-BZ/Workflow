@@ -213,6 +213,26 @@ function isOpenApprovalStatus(status: NotificationStatus | undefined): boolean {
   return status === "pending" || status === "sent";
 }
 
+/** Keep per-item asset tokens valid while the stable /respond/g/ portal is in use. */
+export async function refreshOpenGroupApprovalExpiry(
+  client: Client,
+  members: GroupOrderMember[]
+): Promise<void> {
+  const latest = await latestApprovalByOrderId(
+    client,
+    members.map((m) => m.id)
+  );
+  const expiresAt = new Date(Date.now() + GROUP_APPROVAL_TTL_MS).toISOString();
+  const ids = [...latest.values()]
+    .filter((n) => isOpenApprovalStatus(n.status))
+    .map((n) => n.id);
+  if (ids.length === 0) return;
+  await client
+    .from("job_notifications")
+    .update({ token_expires_at: expiresAt })
+    .in("id", ids);
+}
+
 /**
  * Group SMS/email used to create a request on only one part. The portal then
  * showed the rest as Pending. Open a review round for every sibling still in

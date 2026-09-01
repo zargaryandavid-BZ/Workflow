@@ -196,12 +196,14 @@ export function DieOrderClient({
         )}
       >
         <h2 className="text-sm font-semibold text-slate-800">New die request</h2>
-        <div className="flex min-w-0 flex-wrap items-end gap-2">
-          <div className="relative z-40 w-[7.5rem] shrink-0">
-            <Label htmlFor="die-order">Order number</Label>
+        <div className="flex min-w-0 flex-nowrap items-end gap-1.5 overflow-x-auto">
+          <div className="relative z-40 w-[6.75rem] shrink-0">
+            <Label htmlFor="die-order" className="mb-0 whitespace-nowrap text-[11px]">
+              Order number
+            </Label>
             <Input
               id="die-order"
-              className="mt-1.5"
+              className="mt-1 px-2"
               value={orderQuery}
               onChange={(e) => {
                 setOrder(null);
@@ -267,21 +269,25 @@ export function DieOrderClient({
               </ul>
             ) : null}
           </div>
-          <div className="min-w-[8rem] w-[11rem] shrink-0">
-            <Label htmlFor="die-product">Product</Label>
+          <div className="w-[8rem] shrink-0">
+            <Label htmlFor="die-product" className="mb-0 whitespace-nowrap text-[11px]">
+              Product
+            </Label>
             <Input
               id="die-product"
-              className="mt-1.5"
+              className="mt-1 px-2"
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
               placeholder="From order"
             />
           </div>
-          <div className="w-[5.5rem] shrink-0">
-            <Label htmlFor="die-x">Width (X)</Label>
+          <div className="w-[4.5rem] shrink-0">
+            <Label htmlFor="die-x" className="mb-0 whitespace-nowrap text-[11px]">
+              Width (X)
+            </Label>
             <Input
               id="die-x"
-              className="mt-1.5"
+              className="mt-1 px-1.5"
               type="number"
               min="0"
               step="0.001"
@@ -289,11 +295,13 @@ export function DieOrderClient({
               onChange={(e) => setWidth(e.target.value)}
             />
           </div>
-          <div className="w-[5.5rem] shrink-0">
-            <Label htmlFor="die-y">Height (Y)</Label>
+          <div className="w-[4.5rem] shrink-0">
+            <Label htmlFor="die-y" className="mb-0 whitespace-nowrap text-[11px]">
+              Height (Y)
+            </Label>
             <Input
               id="die-y"
-              className="mt-1.5"
+              className="mt-1 px-1.5"
               type="number"
               min="0"
               step="0.001"
@@ -301,11 +309,13 @@ export function DieOrderClient({
               onChange={(e) => setHeight(e.target.value)}
             />
           </div>
-          <div className="w-[5.5rem] shrink-0">
-            <Label htmlFor="die-z">Depth (Z)</Label>
+          <div className="w-[4.5rem] shrink-0">
+            <Label htmlFor="die-z" className="mb-0 whitespace-nowrap text-[11px]">
+              Depth (Z)
+            </Label>
             <Input
               id="die-z"
-              className="mt-1.5"
+              className="mt-1 px-1.5"
               type="number"
               min="0"
               step="0.001"
@@ -313,8 +323,10 @@ export function DieOrderClient({
               onChange={(e) => setDepth(e.target.value)}
             />
           </div>
-          <div className="relative z-40 w-[9.5rem] shrink-0">
-            <Label htmlFor="die-required">Required date</Label>
+          <div className="relative z-40 w-[8.25rem] shrink-0">
+            <Label htmlFor="die-required" className="mb-0 whitespace-nowrap text-[11px]">
+              Required date
+            </Label>
             <RequiredDatePicker
               id="die-required"
               value={requiredDate}
@@ -325,11 +337,13 @@ export function DieOrderClient({
               onOpenChange={setDatePickerOpen}
             />
           </div>
-          <div className="w-[6.75rem] shrink-0">
-            <Label htmlFor="die-own-date">Own date</Label>
+          <div className="w-[5.25rem] shrink-0">
+            <Label htmlFor="die-own-date" className="mb-0 whitespace-nowrap text-[11px]">
+              Own date
+            </Label>
             <label
               htmlFor="die-own-date"
-              className="mt-1.5 flex h-10 cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
+              className="mt-1 flex h-10 cursor-pointer items-center gap-1.5 rounded-md border border-slate-300 bg-white px-1.5 text-xs text-slate-700"
               title="Allow the manufacturer to offer their own due date"
             >
               <input
@@ -342,16 +356,18 @@ export function DieOrderClient({
               Allow
             </label>
           </div>
-          <div className="w-[13.7rem] shrink-0">
-            <Label htmlFor="die-manufacturer">Die manufacturer</Label>
+          <div className="w-[11.5rem] shrink-0">
+            <Label htmlFor="die-manufacturer" className="mb-0 whitespace-nowrap text-[11px]">
+              Die manufacturer
+            </Label>
             {manufacturers.length === 0 ? (
-              <p className="mt-1.5 truncate text-xs text-slate-500">
+              <p className="mt-1 truncate text-xs text-slate-500">
                 Add in Settings first.
               </p>
             ) : (
               <Select
                 id="die-manufacturer"
-                className="mt-1.5"
+                className="mt-1 px-2"
                 value={manufacturerId}
                 onChange={(e) => setManufacturerId(e.target.value)}
                 required
@@ -364,21 +380,25 @@ export function DieOrderClient({
               </Select>
             )}
           </div>
-          <div className="min-w-[12rem] flex-[2]">
-            <Label htmlFor="die-comment">Comment</Label>
+          <div className="min-w-[5rem] flex-1">
+            <Label htmlFor="die-comment" className="mb-0 whitespace-nowrap text-[11px]">
+              Comment
+            </Label>
             <Input
               id="die-comment"
-              className="mt-1.5"
+              className="mt-1 px-2"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="Optional"
             />
           </div>
-          <div className="w-[11rem] shrink-0">
-            <Label htmlFor="die-file">Files (up to {DIE_MAX_FILES})</Label>
+          <div className="w-[7rem] shrink-0">
+            <Label htmlFor="die-file" className="mb-0 whitespace-nowrap text-[11px]">
+              Files (up to {DIE_MAX_FILES})
+            </Label>
             <label
               htmlFor="die-file"
-              className="mt-1.5 flex h-10 cursor-pointer items-center truncate rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
+              className="mt-1 flex h-10 cursor-pointer items-center truncate rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
               title={
                 files.length
                   ? files.map((f) => f.name).join(", ")

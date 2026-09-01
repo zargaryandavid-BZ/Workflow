@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
@@ -21,9 +20,13 @@ const PDF_INTENT = "any" as const;
 export function PdfOcgFromUrl({
   src,
   fileName,
+  onPageCount,
+  onPageNumber,
 }: {
   src: string;
   fileName: string;
+  onPageCount?: (count: number) => void;
+  onPageNumber?: (page: number) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -190,6 +193,14 @@ export function PdfOcgFromUrl({
     if (pdfRef.current) void drawPages();
   }, [pageNumber, drawPages]);
 
+  useEffect(() => {
+    onPageCount?.(pageCount);
+  }, [pageCount, onPageCount]);
+
+  useEffect(() => {
+    onPageNumber?.(pageNumber);
+  }, [pageNumber, onPageNumber]);
+
   async function showOnly(which: "all" | string) {
     const oc = ocRef.current;
     if (!oc) return;
@@ -210,6 +221,26 @@ export function PdfOcgFromUrl({
         <span className="truncate text-[11px] font-medium text-slate-500">
           {fileName}
         </span>
+        {pageCount > 1 ? (
+          <>
+            <span className="text-slate-300">|</span>
+            <label className="inline-flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
+              Image
+              <select
+                aria-label="PDF image"
+                value={pageNumber}
+                onChange={(e) => setPageNumber(Number(e.target.value))}
+                className="max-w-[5.5rem] cursor-pointer rounded border border-slate-200 bg-white py-0.5 pl-1 pr-0 text-[11px] font-medium text-slate-700"
+              >
+                {Array.from({ length: pageCount }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1} / {pageCount}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
         {layers.length > 0 ? (
           <>
             <span className="text-slate-300">|</span>
@@ -242,31 +273,6 @@ export function PdfOcgFromUrl({
           </>
         ) : !loading && !error ? (
           <span className="text-[11px] text-slate-400">No layers in this file</span>
-        ) : null}
-        {pageCount > 1 ? (
-          <span className="ml-auto inline-flex items-center gap-0.5">
-            <button
-              type="button"
-              disabled={pageNumber <= 1}
-              onClick={() => setPageNumber((n) => Math.max(1, n - 1))}
-              className="rounded p-0.5 text-slate-500 disabled:opacity-30"
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
-            <span className="text-[11px] text-slate-500">
-              {pageNumber}/{pageCount}
-            </span>
-            <button
-              type="button"
-              disabled={pageNumber >= pageCount}
-              onClick={() => setPageNumber((n) => Math.min(pageCount, n + 1))}
-              className="rounded p-0.5 text-slate-500 disabled:opacity-30"
-              aria-label="Next page"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          </span>
         ) : null}
       </div>
       {error ? (
