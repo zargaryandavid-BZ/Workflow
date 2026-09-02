@@ -54,7 +54,13 @@ import {
 import { resolveWebhookLineFolderUrl } from "@/lib/webhook-line-folder";
 import { categoryForProduct, isCatchAllCategory } from "@/lib/product-data";
 import { findMatchingOption } from "@/lib/field-links";
-import { preferLinkedCatalogName } from "@/lib/product-spec-options";
+import {
+  isAdminCatalogLine,
+  mapWebhookSelectValue,
+  resolveLineSpecSelections,
+} from "@/lib/webhook-admin-catalog";
+
+export { isAdminCatalogLine, mapWebhookSelectValue } from "@/lib/webhook-admin-catalog";
 import {
   parseWebhookNumericQty,
   webhookPrintQty,
@@ -398,6 +404,16 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
    * source styles for the board label color. Unknown/missing uses the "other" style.
    */
   source?: string;
+  /**
+   * Item vocabulary (`admin` = Admin Item catalog). Not a board source chip —
+   * `source` / `webhook_source` still decide CRM vs portal vs website.
+   * Mapper key is per-line `spec_selections.bazaar_item_id`, not this tag alone.
+   */
+  catalog_source?: string;
+  /** Flat single-item Admin specs (also accepted on `items[]`). */
+  spec_selections?: Record<string, unknown>;
+  /** Same as `die` — CRM Cutting field (flat payload). */
+  cutting_type?: string;
   /** Display label from Bazaar (e.g. "Partner Portal") — used if `source` is omitted. */
   source_label?: string;
   /** Bazaar Order Sync "Test connection" — auth only, never create a card. */
@@ -1220,6 +1236,8 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       product_category: body.product_category,
       finished_size: body.finished_size,
       die: body.die,
+      cutting_type: body.cutting_type,
+      spec_selections: resolveLineSpecSelections(null, body) ?? undefined,
       materials: firstNonEmpty(body.materials, body.material),
       finishing: body.finishing,
       sides: body.sides,
@@ -1369,6 +1387,7 @@ function mergeItemWithOrder(
 ): WebhookItem {
   return {
     ...item,
+    spec_selections: resolveLineSpecSelections(item, order) ?? undefined,
     product: firstNonEmpty(item.product, order.product),
     // CRM often sends product taxonomy as `category` (also used for board tags).
     // Prefer explicit product_category; fall back so Category dropdown is filled.
@@ -1657,7 +1676,7 @@ function parseFieldOptions(raw: unknown): string[] {
 }
 
 
-/** Fuzzy-resolve a webhook value against tenant select options. */
+/** Resolve a webhook value against tenant select options (legacy alias/fuzzy). */
 function resolveSelectField(
   value: string,
   options: string[],
@@ -1665,146 +1684,14 @@ function resolveSelectField(
   corrections: string[],
   keepUnmatched = false
 ): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  if (fieldName.toLowerCase() === "product") {
-    const preferred = preferLinkedCatalogName(trimmed, options);
-    if (preferred) {
-      if (preferred !== trimmed) {
-        corrections.push(
-          `"${fieldName}": "${trimmed}" → "${preferred}" (catalog)`
-        );
-      }
-      return preferred;
-    }
-  }
-
-  // CRM often sends "None" / "None (inactive)" for empty dropdowns.
-  if (NONE_SENTINELS.has(trimmed.toLowerCase())) {
-    const noneOption = options.find((o) => o.trim().toLowerCase() === "none");
-    if (noneOption) return noneOption;
-    return null;
-  }
-
-  if (options.includes(trimmed)) return trimmed;
-
-  const alias = resolveKnownSelectAlias(fieldName, trimmed);
-  if (alias) {
-    const aliased = options.find(
-      (o) => o.toLowerCase() === alias.toLowerCase()
-    );
-    if (aliased) {
-      if (aliased !== trimmed) {
-        corrections.push(
-          `"${fieldName}": "${trimmed}" → "${aliased}" (alias)`
-        );
-      }
-      return aliased;
-    }
-  }
-
-  const match = fuzzyMatch(trimmed, options);
-  if (match) {
-    if (match.score < 1) {
-      corrections.push(
-        `"${fieldName}": "${trimmed}" → "${match.matched}" (${Math.round(match.score * 100)}% match)`
-      );
-    }
-    return match.matched;
-  }
-
-  if (keepUnmatched) {
-    corrections.push(
-      `"${fieldName}": "${trimmed}" — not in options, stored as-is`
-    );
-    return trimmed;
-  }
-
-  corrections.push(`"${fieldName}": "${trimmed}" — no match found, left blank`);
-  return null;
-}
-
-/**
- * Known CRM → Workflow option aliases for select fields.
- * Keys are lowercase incoming values; values are preferred option labels.
- */
-function resolveKnownSelectAlias(
-  fieldName: string,
-  incoming: string
-): string | null {
-  const key = incoming.trim().toLowerCase().replace(/\s+/g, " ");
-  if (fieldName === "product") {
-    const map: Record<string, string> = {
-      // Sticker aliases
-      "die cut / kiss cut stickers": "Diecut Stickers",
-      "die-cut / kiss-cut stickers": "Diecut Stickers",
-      "die cut stickers": "Diecut Stickers",
-      "kiss cut stickers": "Diecut Stickers",
-      "diecut stickers": "Diecut Stickers",
-      // Label aliases — CRM uses "Roll Labels", Workflow uses "Labels (Roll)"
-      "roll labels": "Labels (Roll)",
-      "labels (roll)": "Labels (Roll)",
-      "sheet labels": "Labels (Sheet)",
-      "labels (sheet)": "Labels (Sheet)",
-    };
-    return map[key] ?? null;
-  }
-  if (fieldName === "materials") {
-    const map: Record<string, string> = {
-      // Holographic aliases
-      "holographic label (rainbow holographic bopp)": "Holo BOPP",
-      "rainbow holographic bopp": "Holo BOPP",
-      "holographic label": "Holo BOPP",
-      "holo bopp": "Holo BOPP",
-      // BOPP with glue-type suffix — must map to base BOPP, not Vinyl
-      // (fuzzy match incorrectly picks "White Vinyl - Aggressive Glue" otherwise)
-      "white bopp (aggressive glue)": "White BOPP",
-      "white bopp (regular glue)": "White BOPP",
-      "clear bopp (aggressive glue)": "Clear BOPP",
-      "clear bopp (regular glue)": "Clear BOPP",
-      "silver bopp (aggressive glue)": "Silver BOPP",
-      "silver bopp (regular glue)": "Silver BOPP",
-    };
-    return map[key] ?? null;
-  }
-  if (fieldName === "lamination" || fieldName === "finishing") {
-    const map: Record<string, string> = {
-      // Long → short (CRM sends full name, tenant field uses short)
-      "matte lamination": "Matte",
-      "gloss lamination": "Gloss",
-      "soft touch lamination": "Soft Touch",
-      // Short → long (CRM sends short name, tenant field uses full name)
-      "gloss": "Gloss Lamination",
-      "matte": "Matte Lamination",
-      "soft touch": "Soft Touch Lamination",
-      "soft touch (non-scratch)": "Soft Touch Lamination (Non-Scratch)",
-      "soft touch non-scratch": "Soft Touch Lamination (Non-Scratch)",
-      "rainbow holographic": "Rainbow Holographic Lamination",
-      "rainbow holo lamination": "Rainbow Holographic Lamination",
-      "holo lamination": "Rainbow Holographic Lamination",
-    };
-    return map[key] ?? null;
-  }
-  if (fieldName === "sides") {
-    const map: Record<string, string> = {
-      // Numeric → descriptive (CRM sends "1 Side"/"2 Sides", field has "Single-sided"/"Double-sided")
-      "1 side": "Single-sided",
-      "1-side": "Single-sided",
-      "one side": "Single-sided",
-      "single sided": "Single-sided",
-      "single-sided": "Single-sided",
-      "simplex": "Single-sided",
-      "2 sides": "Double-sided",
-      "2-sides": "Double-sided",
-      "two sides": "Double-sided",
-      "double sided": "Double-sided",
-      "double-sided": "Double-sided",
-      "duplex": "Double-sided",
-    };
-    return map[key] ?? null;
-  }
-  return null;
+  return mapWebhookSelectValue({
+    field: fieldName,
+    value,
+    options,
+    adminIdentity: false,
+    corrections,
+    keepUnmatched,
+  });
 }
 
 /** Resolve comma-/array-style multi values against select options. */
@@ -1906,7 +1793,8 @@ function resolveWebhookFieldValue(
   webhookKey: string,
   raw: unknown,
   field: CustomFieldDef | undefined,
-  corrections: string[]
+  corrections: string[],
+  adminIdentity = false
 ): unknown {
   if (BOOLEAN_WEBHOOK_KEYS.has(webhookKey)) {
     return typeof raw === "boolean" ? raw : null;
@@ -1972,14 +1860,20 @@ function resolveWebhookFieldValue(
   ) {
     const options = selectOptionsForWebhookField(webhookKey, field.options);
     if (options.length > 0) {
-      return resolveSelectField(
-        text,
+      return mapWebhookSelectValue({
+        field: webhookKey,
+        value: text,
         options,
-        webhookKey,
+        adminIdentity,
         corrections,
-        webhookKey === "product_category" || webhookKey === "materials"
-      );
+        keepUnmatched:
+          webhookKey === "product_category" || webhookKey === "materials",
+      });
     }
+  }
+
+  if (adminIdentity && webhookKey === "finished_size") {
+    return text;
   }
 
   return text;
@@ -1991,7 +1885,8 @@ function buildCustomFieldValues(
   customerName: string,
   orderContact: string,
   skus: SkuItem[],
-  corrections: string[]
+  corrections: string[],
+  adminIdentity = false
 ): { customFieldId: string; value: unknown }[] {
   const byFieldId = new Map<string, unknown>();
 
@@ -2012,7 +1907,13 @@ function buildCustomFieldValues(
     const field = fields.get(webhookKey);
     if (!field) continue;
     const raw = specFields[webhookKey as keyof WebhookSpecFields];
-    const value = resolveWebhookFieldValue(webhookKey, raw, field, corrections);
+    const value = resolveWebhookFieldValue(
+      webhookKey,
+      raw,
+      field,
+      corrections,
+      adminIdentity
+    );
     if (value === null) continue;
     byFieldId.set(field.id, value);
   }
@@ -2028,6 +1929,7 @@ function buildCustomFieldValues(
   }
 
   // Infer Category from Product. CRM often sends "Other" (or a board tag) here.
+  // Admin-shaped lines: do not force Folding Cartons after Product stays Admin name.
   const categoryFieldDef = fields.get("product_category");
   const productFieldDef = fields.get("product");
   const productVal = productFieldDef
@@ -2036,14 +1938,16 @@ function buildCustomFieldValues(
   const productStr =
     (typeof productVal === "string" && productVal.trim()) ||
     (typeof specFields.product === "string" ? specFields.product.trim() : "");
-  const inferred = categoryForProduct(productStr);
-  if (categoryFieldDef && inferred) {
-    const current = byFieldId.get(categoryFieldDef.id);
-    const currentStr = current == null ? "" : String(current).trim();
-    if (!currentStr || isCatchAllCategory(currentStr)) {
-      const matched =
-        findMatchingOption(categoryFieldDef.options, inferred) ?? inferred;
-      byFieldId.set(categoryFieldDef.id, matched);
+  if (!adminIdentity) {
+    const inferred = categoryForProduct(productStr);
+    if (categoryFieldDef && inferred) {
+      const current = byFieldId.get(categoryFieldDef.id);
+      const currentStr = current == null ? "" : String(current).trim();
+      if (!currentStr || isCatchAllCategory(currentStr)) {
+        const matched =
+          findMatchingOption(categoryFieldDef.options, inferred) ?? inferred;
+        byFieldId.set(categoryFieldDef.id, matched);
+      }
     }
   }
 
@@ -3185,13 +3089,9 @@ async function refreshPortalOrdersFromWebhook(params: {
       typeof freshRow?.tag_id === "string" ? freshRow.tag_id : null;
     const nextSpecs: Record<string, unknown> = { ...baseSpecs };
 
-    if (
-      ir.spec_selections &&
-      typeof ir.spec_selections === "object" &&
-      !Array.isArray(ir.spec_selections) &&
-      Object.keys(ir.spec_selections as object).length
-    ) {
-      nextSpecs.spec_selections = ir.spec_selections;
+    const lineSpecSelections = resolveLineSpecSelections(item, body);
+    if (lineSpecSelections) {
+      nextSpecs.spec_selections = lineSpecSelections;
     }
     if (Array.isArray(ir.product_options)) {
       nextSpecs.product_options = ir.product_options;
@@ -3225,6 +3125,8 @@ async function refreshPortalOrdersFromWebhook(params: {
       totalItems: items.length,
     });
     const specFields = normalizeSpecFields(merged);
+    // Same Admin identity mapper as createOrderFromWebhook (mapWebhookSelectValue).
+    const adminIdentity = isAdminCatalogLine(item, body);
     const designNotes = resolveDesignNotes(merged);
     if (designNotes) {
       nextSpecs.designer_notes = mergeWebhookDesignerNotes(
@@ -3286,7 +3188,8 @@ async function refreshPortalOrdersFromWebhook(params: {
       customerName,
       orderContact,
       skus,
-      corrections
+      corrections,
+      adminIdentity
     );
     if (rows.length > 0) {
       const { error: cfErr } = await client.from("custom_field_values").upsert(
@@ -3522,13 +3425,17 @@ async function createSingleWebhookJob(
     specFields.designer_information = designNotes;
   }
 
+  // Same Admin identity mapper as refreshPortalOrdersFromWebhook (mapWebhookSelectValue).
+  // Item already carries spec_selections (normalizeItems copies a flat body).
+  const adminIdentity = isAdminCatalogLine(item);
   const customFieldValues = buildCustomFieldValues(
     fields,
     specFields,
     customerName,
     orderContact,
     skus,
-    corrections
+    corrections,
+    adminIdentity
   );
 
   const productField = fields.get("product");
@@ -3646,8 +3553,9 @@ async function createSingleWebhookJob(
   // boxes). Stored additively under specs so the card can show them. (Hayk 2026-08)
   {
     const ir = item as Record<string, unknown>;
-    if (ir.spec_selections && typeof ir.spec_selections === "object" && !Array.isArray(ir.spec_selections) && Object.keys(ir.spec_selections as object).length) {
-      specs.spec_selections = ir.spec_selections;
+    const lineSpecSelections = resolveLineSpecSelections(item);
+    if (lineSpecSelections) {
+      specs.spec_selections = lineSpecSelections;
     }
     if (Array.isArray(ir.product_options) && ir.product_options.length) {
       specs.product_options = ir.product_options;
