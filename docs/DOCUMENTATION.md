@@ -1564,7 +1564,7 @@ Public server page for `/respond/[token]`. Loads notification via `get_notificat
 
 ### `OrderReview` — `components/respond/order-review.tsx`
 
-Read-only order summary for customers: meta chips, SKU table, artwork grid with download links via `/api/notifications/asset`.
+Read-only order summary for customers: meta chips, SKU table, artwork grid. Photos open in a large lightbox; Final-for-Prod PDFs (`PdfOcgFromUrl`) open a full-screen viewer on click (layers stay available). Asset URLs still go through `/api/notifications/asset`.
 
 ---
 
@@ -1742,7 +1742,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 - `RespondForm` shows Approve / Not Approved buttons.
 - Customer may leave a note on rejection.
-- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf`. Layer chips are **multi-select** (`ALL` plus each OCG); toolbar is two lines: filename `| Image n / N`, then `Select Layer ->`. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
+- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf`. Layer chips are **multi-select** (`ALL` plus named OCGs; generic `Layer 1` / `Layer N` chips are hidden). Toolbar: filename, then **Select Image** numbered chips, then **Select Layer**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
 
 ### 4a. Approved → card moves per Automations settings
 

@@ -116,6 +116,11 @@ export function parsePdfOcgs(data: ArrayBuffer): { id: string; name: string }[] 
 
 export type PdfLayer = { id: string; name: string };
 
+/** Fallback names from Acrobat OCGs with no title (`Layer 1`, `Layer 2`, …). */
+export function isUnnamedPdfLayer(name: string): boolean {
+  return /^layer\s+\d+$/i.test(name.trim());
+}
+
 export type OcLike = {
   getOrder?: () => unknown;
   getGroup?: (id: string) => { name?: unknown } | null | undefined;

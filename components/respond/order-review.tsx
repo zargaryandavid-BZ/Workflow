@@ -24,6 +24,7 @@ import {
 } from "@/lib/sku-approval";
 import type { SkuItem } from "@/lib/skus";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 
 const PdfOcgFromUrl = dynamic(
   () =>
@@ -63,14 +64,14 @@ function OrderRowValue({ value }: { value: string }) {
         target="_blank"
         rel="noreferrer"
         title={trimmed}
-        className="block min-w-0 truncate text-sm font-medium text-blue-600 underline decoration-blue-600/30 underline-offset-2 hover:decoration-blue-600"
+        className="block min-w-0 truncate text-xs font-medium text-blue-600 underline decoration-blue-600/30 underline-offset-2 hover:decoration-blue-600"
       >
         {trimmed}
       </a>
     );
   }
   return (
-    <span className="block min-w-0 break-words whitespace-pre-wrap text-sm font-medium text-slate-800">
+    <span className="block min-w-0 break-words whitespace-pre-wrap text-xs font-medium text-slate-800">
       {value}
     </span>
   );
@@ -85,21 +86,32 @@ function AssetPreview({
 }) {
   const href = respondAssetUrl(token, asset.id);
   const isImage = isRespondImageAsset(asset.file_name, asset.mime_type);
+  const [open, setOpen] = useState(false);
 
   if (isImage) {
     return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className="block overflow-hidden rounded-md border border-slate-200 bg-slate-50"
-      >
-        <img
-          src={href}
-          alt={asset.file_name}
-          className="h-56 w-full object-contain"
-        />
-      </a>
+      <>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="block w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+          title="Open large view"
+        >
+          <img
+            src={href}
+            alt={asset.file_name}
+            className="h-56 w-full object-contain"
+          />
+        </button>
+        {open ? (
+          <ImageLightbox
+            src={href}
+            alt={asset.file_name}
+            label={asset.file_name}
+            onClose={() => setOpen(false)}
+          />
+        ) : null}
+      </>
     );
   }
 
@@ -259,6 +271,7 @@ function SkuArtworkBlock({
   const hasPhotos = skuArt.length > 0;
   const [showPdf, setShowPdf] = useState(canShowPdf);
   const [pdfPage, setPdfPage] = useState(1);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
   const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
   const perImage = approvalImageSlotCount(skuArt.length, pdfPages) >= 2;
@@ -322,11 +335,11 @@ function SkuArtworkBlock({
               return (
                 <li key={img.id} className="space-y-1.5">
                   {isImage ? (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                    <button
+                      type="button"
+                      onClick={() => setLightboxIndex(imgIdx)}
+                      className="block w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                      title="Open large view"
                     >
                       <img
                         src={href}
@@ -337,7 +350,7 @@ function SkuArtworkBlock({
                             : "h-56 w-full object-contain"
                         }
                       />
-                    </a>
+                    </button>
                   ) : (
                     <a
                       href={href}
@@ -363,6 +376,32 @@ function SkuArtworkBlock({
               );
             })}
           </ul>
+          {lightboxIndex != null ? (
+            <ImageLightbox
+              images={skuArt
+                .filter((img) =>
+                  isRespondImageAsset(img.file_name, img.mime_type)
+                )
+                .map((img) => ({
+                  src:
+                    img.source === "gallery"
+                      ? respondSkuImageUrl(token, img.id)
+                      : respondAssetUrl(token, img.id),
+                  alt: img.file_name,
+                  label: img.file_name,
+                }))}
+              initialIndex={Math.min(
+                lightboxIndex,
+                Math.max(
+                  0,
+                  skuArt.filter((img) =>
+                    isRespondImageAsset(img.file_name, img.mime_type)
+                  ).length - 1
+                )
+              )}
+              onClose={() => setLightboxIndex(null)}
+            />
+          ) : null}
         </>
       ) : null}
     </div>
@@ -389,22 +428,22 @@ export function OrderReview({
   if (!hasSkus && !hasAssets && !hasRows) return null;
 
   return (
-    <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+    <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
         {heading?.trim() || "Order details"}
       </p>
 
       {hasRows ? (
-        <dl className="grid grid-cols-2 gap-2">
+        <dl className="grid grid-cols-2 gap-1.5">
           {rows.map((row) => (
             <div
               key={row.label}
-              className="min-w-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+              className="min-w-0 overflow-hidden rounded-md border border-slate-100 bg-slate-50 px-2 py-1"
             >
-              <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              <dt className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
                 {row.label}
               </dt>
-              <dd className="mt-0.5 min-w-0">
+              <dd className="mt-0 min-w-0 leading-tight">
                 <OrderRowValue value={row.value} />
               </dd>
             </div>

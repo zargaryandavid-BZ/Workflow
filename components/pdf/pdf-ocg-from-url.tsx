@@ -1,15 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Image as ImageIcon, Layers, Maximize2, X } from "lucide-react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
 import {
+  isUnnamedPdfLayer,
   layersFromOptionalContent,
   mergePdfLayers,
   parsePdfOcgs,
   type PdfLayer,
 } from "@/lib/pdf-ocg";
+import { cn } from "@/lib/utils";
 
 if (typeof window !== "undefined") {
   GlobalWorkerOptions.workerSrc = "/api/pdf-worker";
@@ -34,6 +38,8 @@ export function PdfOcgFromUrl({
   const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set());
   const [pageCount, setPageCount] = useState(0);
   const [pageNumber, setPageNumber] = useState(1);
+  const [expanded, setExpanded] = useState(false);
+  const [loadSeconds, setLoadSeconds] = useState(0);
   const pagesRef = useRef<HTMLDivElement>(null);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const ocRef = useRef<OptionalContentConfig | null>(null);
@@ -67,13 +73,13 @@ export function PdfOcgFromUrl({
     const pdf = pdfRef.current;
     const host = pagesRef.current;
     if (!pdf || !host) return;
-    cancelRenders();
-    host.innerHTML = "";
-    const oc = ocRef.current;
     const pad = 8;
     const availW = Math.max(host.clientWidth - pad, 1);
     const availH = Math.max(host.clientHeight - pad, 1);
     if (availW < 8 || availH < 8) return;
+    cancelRenders();
+    host.innerHTML = "";
+    const oc = ocRef.current;
     const n = Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
     const page: PDFPageProxy = await pdf.getPage(n);
     const unscaled = page.getViewport({ scale: 1 });
@@ -188,11 +194,15 @@ export function PdfOcgFromUrl({
       window.clearTimeout(timer);
       ro.disconnect();
     };
-  }, [drawPages]);
+  }, [drawPages, expanded]);
 
   useEffect(() => {
-    if (pdfRef.current) void drawPages();
-  }, [pageNumber, drawPages]);
+    if (!pdfRef.current) return;
+    const id = window.requestAnimationFrame(() => {
+      void drawPages();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [expanded, pageNumber, drawPages]);
 
   useEffect(() => {
     onPageCount?.(pageCount);
@@ -201,6 +211,35 @@ export function PdfOcgFromUrl({
   useEffect(() => {
     onPageNumber?.(pageNumber);
   }, [pageNumber, onPageNumber]);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadSeconds(0);
+      return;
+    }
+    setLoadSeconds(1);
+    const id = window.setInterval(() => {
+      setLoadSeconds((s) => s + 1);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setExpanded(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [expanded]);
 
   async function applyVisibility(next: Set<string>) {
     const oc = ocRef.current;
@@ -228,47 +267,70 @@ export function PdfOcgFromUrl({
   }
 
   const allOn = layers.length > 0 && layers.every((layer) => visibleIds.has(layer.id));
+  const namedLayers = layers.filter((layer) => !isUnnamedPdfLayer(layer.name));
   const chip = (on: boolean) =>
-    `rounded px-2 py-0.5 text-[11px] font-semibold ${
-      on ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
+    `rounded-md px-3 py-1.5 text-sm font-semibold ${
+      on ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"
     }`;
 
-  return (
-    <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-2 py-1.5">
+  const viewer = (
+    <div
+      className={cn(
+        "flex min-h-0 flex-col overflow-hidden bg-white",
+        expanded
+          ? "h-full min-h-0 flex-1 rounded-lg shadow-2xl"
+          : "rounded-md border border-slate-200"
+      )}
+    >
+      <div className="shrink-0 space-y-2 border-b border-slate-100 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-[11px] font-medium text-slate-500">
+          <span className="min-w-0 truncate text-sm font-medium text-slate-600">
             {fileName}
           </span>
-          {pageCount >= 1 ? (
-            <>
-              <span className="shrink-0 text-slate-300">|</span>
-              <label className="inline-flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
-                Image
-                {pageCount > 1 ? (
-                  <select
-                    aria-label="PDF image"
-                    value={pageNumber}
-                    onChange={(e) => setPageNumber(Number(e.target.value))}
-                    className="max-w-[5.5rem] cursor-pointer rounded border border-slate-200 bg-white py-0.5 pl-1 pr-0 text-[11px] font-medium text-slate-700"
-                  >
-                    {Array.from({ length: pageCount }, (_, i) => (
-                      <option key={i + 1} value={i + 1}>
-                        {i + 1} / {pageCount}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="font-medium text-slate-700">1 / 1</span>
-                )}
-              </label>
-            </>
-          ) : null}
+          <button
+            type="button"
+            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            title={expanded ? "Close large view" : "Open large view"}
+            aria-label={expanded ? "Close large view" : "Open large view"}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? <X className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
         </div>
+        {pageCount >= 1 && !loading && !error ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-slate-700">
+              <ImageIcon className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+              Select Image
+            </span>
+            <div
+              className="inline-flex flex-wrap items-center gap-1.5"
+              role="group"
+              aria-label="Select image"
+            >
+              {Array.from({ length: pageCount }, (_, i) => {
+                const n = i + 1;
+                const on = pageNumber === n;
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setPageNumber(n)}
+                    className={cn("min-w-[2rem]", chip(on))}
+                  >
+                    {n}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         {!loading && !error ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="shrink-0 text-[11px] font-medium text-slate-500">
-              Select Layer -{">"}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-slate-700">
+              <Layers className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+              Select Layer
             </span>
             {layers.length > 0 ? (
               <>
@@ -279,12 +341,12 @@ export function PdfOcgFromUrl({
                 >
                   ALL
                 </button>
-                {layers.map((layer) => (
+                {namedLayers.map((layer) => (
                   <button
                     key={layer.id}
                     type="button"
                     onClick={() => toggleLayer(layer.id)}
-                    className={`max-w-[10rem] truncate ${chip(visibleIds.has(layer.id))}`}
+                    className={cn("max-w-[12rem] truncate", chip(visibleIds.has(layer.id)))}
                     title={layer.name}
                   >
                     {layer.name}
@@ -299,15 +361,71 @@ export function PdfOcgFromUrl({
       </div>
       {error ? (
         <p className="px-2 py-6 text-center text-xs text-red-600">{error}</p>
-      ) : null}
-      {loading ? (
-        <p className="px-2 py-6 text-center text-xs text-slate-400">
-          Opening PDF… large files can take a minute.
-        </p>
-      ) : null}
-      {error ? null : (
-        <div ref={pagesRef} className="flex h-72 w-full items-center justify-center p-2" />
+      ) : (
+        <div
+          className={cn(
+            "relative flex w-full items-center justify-center",
+            expanded ? "min-h-0 flex-1" : "h-[min(75vh,40rem)] min-h-[28rem]"
+          )}
+        >
+          {loading ? (
+            <div
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-slate-50 px-4 text-center"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className="h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600"
+                aria-hidden
+              />
+              <p className="max-w-sm text-base font-semibold text-slate-800">
+                Great things take a little wait. Almost there.
+              </p>
+              <p
+                className="text-lg font-semibold tabular-nums text-blue-700"
+                aria-label={`Loading ${loadSeconds} seconds`}
+              >
+                Loading... {loadSeconds}s
+              </p>
+            </div>
+          ) : null}
+          <div
+            ref={pagesRef}
+            title={expanded || loading ? undefined : "Click to open large view"}
+            className={cn(
+              "flex h-full w-full items-center justify-center p-2",
+              !expanded && !loading ? "cursor-zoom-in" : null
+            )}
+            onClick={() => {
+              if (!expanded && !loading) setExpanded(true);
+            }}
+          />
+        </div>
       )}
     </div>
   );
+
+  if (expanded && typeof document !== "undefined") {
+    return (
+      <>
+        <div
+          className="h-[min(75vh,40rem)] min-h-[28rem] rounded-md border border-slate-200 bg-slate-50"
+          aria-hidden
+        />
+        {createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex flex-col bg-black/85 p-3 sm:p-5"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setExpanded(false);
+            }}
+          >
+            {viewer}
+          </div>,
+          document.body
+        )}
+      </>
+    );
+  }
+
+  return viewer;
 }

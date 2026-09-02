@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   collectLayerIds,
+  isUnnamedPdfLayer,
   layersFromOptionalContent,
   parsePdfOcgs,
 } from "./pdf-ocg.ts";
@@ -64,4 +65,11 @@ test("layersFromOptionalContent does not append reverse group-map copies", () =>
     layers.map((l) => l.name),
     ["Dieline", "ART WORK"]
   );
+});
+
+test("isUnnamedPdfLayer matches Layer N fallbacks only", () => {
+  assert.equal(isUnnamedPdfLayer("Layer 1"), true);
+  assert.equal(isUnnamedPdfLayer("layer 2"), true);
+  assert.equal(isUnnamedPdfLayer("ARTWORK"), false);
+  assert.equal(isUnnamedPdfLayer("Dimensions"), false);
 });
