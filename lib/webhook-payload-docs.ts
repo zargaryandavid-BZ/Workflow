@@ -273,7 +273,8 @@ const ITEM_FIELDS_MD = `
 | \`width\` | No | number \\| string | → **Width** custom field; also builds Finished Size |
 | \`height\` | No | number \\| string | → **Height** custom field; also builds Finished Size |
 | \`die\` | No | string | Maps to **Die** custom field (free text; Admin die name stored as-is) |
-| \`spec_selections\` | No | object | Admin identity + size. Detected on the item **or** a flat body. \`bazaar_item_id\` (finite number > 0, or numeric string) marks an Admin-shaped line. Also \`SET_SIZE\`, \`BAZAAR_DIE_ID\`. Mixed carts decide **per line**. |
+| \`spec_selections\` | No | object | Admin identity + size. Detected on the item **or** a flat body. \`bazaar_item_id\` (finite number > 0, or numeric string) marks an Admin-shaped line. Also \`SET_SIZE\`, \`BAZAAR_DIE_ID\`. Mixed carts decide **per line**. Floor form hides \`bazaar_item_id\` and \`BAZAAR_DIE_ID\`. |
+| \`spec_display\` | No | array | Floor labels: \`{ key, label, value }\` (Size, Die, …). No ids. Shown as-is — Workflow does not call Admin/CRM to resolve ids. |
 | \`materials\` | No | string | Must match tenant **Materials** dropdown. Admin lines skip alias/fuzzy (exact option or store as-is). |
 | \`sides\` | No | string | \`1 Side\` or \`2 Sides\` |
 | \`color_mode\` | No | string | \`CMYK\` · \`CMYK+White\` · \`Pantones\` (also accepts \`color\`) |
@@ -313,7 +314,7 @@ const NOTES_MD = `
 - If \`order_number\` is omitted, the system auto-generates one (e.g. \`WH-20260619143022-a1b2c3d4\`).
 - \`color\` is accepted as an alias for \`color_mode\`. \`position\` and \`roll_direction\` map to separate custom fields when both exist.
 - Send \`width\` + \`height\` to fill those fields and auto-build \`finished_size\` when omitted. \`special_effects\`, \`unit_price\`, and \`quantity\` map to the matching custom fields.
-- **Admin catalog lines** (CRM Bazaar quotes, partner Order Sync, broker Order Sync — same mapper): a line is Admin-shaped when **that line** has \`spec_selections.bazaar_item_id\` > 0. Product and Materials skip catalog remap / alias / fuzzy. Die and \`SET_SIZE\` persist as-is. Order-level \`catalog_source: "admin"\` does **not** force legacy siblings onto identity. Flat payloads may put \`spec_selections\` on the body. Legacy lines (no \`bazaar_item_id\`) keep today's aliases. Same mapping on create and portal/CRM re-fire.
+- **Admin catalog lines** (CRM Bazaar quotes, partner Order Sync, broker Order Sync — same mapper): a line is Admin-shaped when **that line** has \`spec_selections.bazaar_item_id\` > 0. Product and Materials skip catalog remap / alias / fuzzy. Die and \`SET_SIZE\` persist as-is. Order-level \`catalog_source: "admin"\` does **not** force legacy siblings onto identity. Flat payloads may put \`spec_selections\` on the body. Legacy lines (no \`bazaar_item_id\`) keep today's aliases. Same mapping on create and portal/CRM re-fire. Floor form shows Product / Die / Materials / Finished Size plus \`spec_display[]\`; mapper ids stay off the card.
 - The legacy \`finishing\` field (e.g. \`"Spot UV"\`, \`"Foil Gold"\`) is still accepted and maps to the **Finishing** custom field when present. Prefer explicit boolean fields (\`spot_uv\`, \`foil\`, etc.) for new integrations.
 - \`customer_contact\` and \`customer_phone\` are optional. When **both** are sent, the order's **Customer Contact** field stores the **phone**; the linked **customer** record stores both email and phone. Existing customers are reused — no duplicates.
 - SKUs are stored on \`orders.specs.skus\`; artwork URLs create \`assets\` rows with \`external_url\`.
@@ -775,7 +776,13 @@ export function buildWebhookPayloadDocsHtml(
       "spec_selections",
       "No",
       "object",
-      "Admin identity + size. On the item or a flat body. <code>bazaar_item_id</code> (finite number &gt; 0) marks an Admin-shaped line. Also <code>SET_SIZE</code>, <code>BAZAAR_DIE_ID</code>. Mixed carts decide per line.",
+      "Admin identity + size. On the item or a flat body. <code>bazaar_item_id</code> (finite number &gt; 0) marks an Admin-shaped line. Also <code>SET_SIZE</code>, <code>BAZAAR_DIE_ID</code>. Mixed carts decide per line. Floor form hides those ids.",
+    ],
+    [
+      "spec_display",
+      "No",
+      "array",
+      "Floor labels: <code>{ key, label, value }</code> (Size, Die, …). No ids. Shown as-is — Workflow does not call Admin/CRM to resolve ids.",
     ],
     [
       "width",
@@ -1107,7 +1114,7 @@ export function buildWebhookPayloadDocsHtml(
       <li>If <code>order_number</code> is omitted, the system auto-generates one (e.g. <code>WH-20260619143022-a1b2c3d4</code>).</li>
       <li><code>color</code> is an alias for <code>color_mode</code>. <code>position</code> and <code>roll_direction</code> map to separate custom fields when both exist.</li>
       <li>Send <code>width</code> + <code>height</code>, <code>special_effects</code>, <code>unit_price</code>, and <code>quantity</code> to fill the matching custom fields. Finished Size is auto-built from width/height when omitted.</li>
-      <li><strong>Admin catalog lines</strong> (CRM Bazaar, partner and broker Order Sync — same mapper): Admin-shaped when that line has <code>spec_selections.bazaar_item_id</code> &gt; 0. Product and Materials skip catalog remap / alias / fuzzy. Die and <code>SET_SIZE</code> persist as-is. Order-level <code>catalog_source: "admin"</code> does not force legacy siblings onto identity. Same mapping on create and portal/CRM re-fire.</li>
+      <li><strong>Admin catalog lines</strong> (CRM Bazaar, partner and broker Order Sync — same mapper): Admin-shaped when that line has <code>spec_selections.bazaar_item_id</code> &gt; 0. Product and Materials skip catalog remap / alias / fuzzy. Die and <code>SET_SIZE</code> persist as-is. Order-level <code>catalog_source: "admin"</code> does not force legacy siblings onto identity. Same mapping on create and portal/CRM re-fire. Floor form shows Product / Die / Materials / Finished Size plus <code>spec_display[]</code>; mapper ids stay off the card.</li>
       <li>The legacy <code>finishing</code> field is still accepted and maps to the <strong>Finishing</strong> custom field when present. Prefer explicit boolean fields for new integrations.</li>
       <li>When both <code>customer_contact</code> and <code>customer_phone</code> are sent, the order <strong>Customer Contact</strong> field stores the phone; the linked <strong>customer</strong> record stores both email and phone.</li>
       <li>SKUs are stored on <code>orders.specs.skus</code>; artwork URLs create <code>assets</code> rows with <code>external_url</code>.</li>

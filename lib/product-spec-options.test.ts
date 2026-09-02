@@ -12,6 +12,11 @@ import {
   findMatchingSetSizeOption,
   specKeyCoveredByCustomFields,
   sentenceCaseSpecLabel,
+  isHiddenFloorSpecKey,
+  parseSpecDisplay,
+  resolveLineSpecDisplay,
+  floorSpecDisplayRows,
+  isSpecDisplayCoveredByCustomFields,
   visibleCatalogToggles,
 } from "./product-spec-options.ts";
 
@@ -192,5 +197,63 @@ describe("sentenceCaseSpecLabel", () => {
       "Apparel client provided"
     );
     assert.equal(sentenceCaseSpecLabel("SET_SIZE_3"), "Set size 3");
+  });
+});
+
+describe("hidden floor spec keys", () => {
+  it("hides mapper ids, not size or die name", () => {
+    assert.equal(isHiddenFloorSpecKey("bazaar_item_id"), true);
+    assert.equal(isHiddenFloorSpecKey("BAZAAR_DIE_ID"), true);
+    assert.equal(isHiddenFloorSpecKey("SET_SIZE"), false);
+    assert.equal(isHiddenFloorSpecKey("DIE_NAME"), false);
+  });
+});
+
+describe("spec_display", () => {
+  it("parses label/value rows and drops ids and empty values", () => {
+    const rows = parseSpecDisplay([
+      { key: "SIZE", label: "Size", value: "2.65x2.9" },
+      { key: "DIE", label: "Die", value: "Stizzy 1g preroll DIELINE" },
+      { key: "bazaar_item_id", label: "Item", value: "23" },
+      { key: "BAZAAR_DIE_ID", label: "Die id", value: "44" },
+      { key: "BOX", label: "Box size", value: "" },
+    ]);
+    assert.deepEqual(
+      rows.map((r) => r.label),
+      ["Size", "Die"]
+    );
+    assert.equal(rows[0]?.value, "2.65x2.9");
+  });
+
+  it("Q12 drops Size/Die from the floor list; keeps Box size", () => {
+    assert.equal(isSpecDisplayCoveredByCustomFields("SET_SIZE"), true);
+    assert.equal(isSpecDisplayCoveredByCustomFields("DIE"), true);
+    assert.equal(isSpecDisplayCoveredByCustomFields("BOX_SIZE"), false);
+    const floor = floorSpecDisplayRows([
+      { key: "SET_SIZE", label: "Size", value: "2.65x2.9" },
+      { key: "DIE_NAME", label: "Die", value: "Stizzy" },
+      { key: "SIZE", label: "Size", value: "2.65x2.9" },
+      { key: "DIE", label: "Die", value: "Stizzy" },
+      { key: "BOX", label: "Box size", value: "12x8x4" },
+    ]);
+    assert.deepEqual(
+      floor.map((r) => r.label),
+      ["Box size"]
+    );
+  });
+
+  it("does not inherit order-level spec_display onto a multi-item sibling", () => {
+    const body = {
+      spec_display: [{ key: "SIZE", label: "Size", value: "2.65x2.9" }],
+      items: [{}, {}],
+    };
+    assert.equal(resolveLineSpecDisplay({}, body), null);
+    assert.deepEqual(
+      resolveLineSpecDisplay(
+        { spec_display: [{ key: "SIZE", label: "Size", value: "2x3" }] },
+        body
+      )?.map((r) => r.value),
+      ["2x3"]
+    );
   });
 });
