@@ -54,20 +54,26 @@ export interface BoardOrderFilters {
  * area codes (e.g. `213` → `+1213…`).
  */
 export function isOrderNumberQuery(q: string): boolean {
-  return /^0*\d{1,8}(-\d+)?$/i.test(q.trim());
+  return /^w?-?0*\d{1,8}(-\d+)?$/i.test(q.trim());
 }
 
-/** Same short number shown on board cards (`ORD-2026-0509` → `509`). */
+/** Same short number shown on board cards (`ORD-2026-0509` → `509`, website → `W509`). */
 export function formatShortOrderNumber(title: string) {
-  return title.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1");
+  let s = title.trim();
+  s = s.replace(/^ORD-\d{4}-/i, "");
+  const web = /^w-?/i.test(s);
+  if (web) s = s.replace(/^w-?/i, "");
+  s = s.replace(/^0+(\d)/, "$1");
+  return web ? `W${s}` : s;
 }
 
-/** Strip `#`, `ORD-YYYY-`, and leading zeros so `0467-2` and `467-2` match. */
+/** Strip `#`, `W`, `ORD-YYYY-`, and leading zeros so `0467-2`, `W0467-2`, and `467-2` match. */
 export function compactOrderNumberToken(value: string): string {
   return value
     .trim()
     .toLowerCase()
     .replace(/^#/, "")
+    .replace(/^w-?/, "")
     .replace(/^ord-\d{4}-/, "")
     .replace(/^0+(\d)/, "$1");
 }

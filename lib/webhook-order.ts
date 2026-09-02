@@ -43,6 +43,10 @@ import {
   parseWebhookSourceKey,
 } from "@/lib/webhook-source-styles";
 import {
+  isWebsiteWebhookSource,
+  withWebOrderLetter,
+} from "@/lib/web-order-number";
+import {
   hasBillingInfo,
   parseWebhookBilling,
   type OrderBillingInfo,
@@ -3821,19 +3825,6 @@ export async function createOrderFromWebhook(
   const isMultiItem = Array.isArray(body.items) && body.items.length > 0;
   const items = normalizeItems(body);
   const orderLevelTitle = resolveOrderLevelTitle(body, baseOrderNumber);
-  const shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
-  const payloadTitle =
-    typeof body.title === "string" ? body.title.trim() : "";
-  const itemParentLabel =
-    payloadTitle && !isOrderNumberLikeTitle(payloadTitle, baseOrderNumber)
-      ? payloadTitle
-      : shortBaseOrderNumber;
-  const crmOrderId = crmOrderIdFromPayload(body);
-  const crmCustomerId = crmCustomerIdFromPayload(body);
-  const orderDescription =
-    crmCustomerFacingNote(body) ??
-    (typeof body.description === "string" ? body.description.trim() : null);
-
   const tenantId = config.tenant_id;
   let webhookSource = canonicalizeWebhookSourceKey(
     parseWebhookSourceKey(body.source)
@@ -3855,6 +3846,22 @@ export async function createOrderFromWebhook(
     webhookSource = "crm";
   }
   assertCrmOrderNumber(baseOrderNumber, webhookSource);
+
+  let shortBaseOrderNumber = shortOrderCardBase(baseOrderNumber);
+  if (isWebsiteWebhookSource(webhookSource)) {
+    shortBaseOrderNumber = withWebOrderLetter(shortBaseOrderNumber);
+  }
+  const payloadTitle =
+    typeof body.title === "string" ? body.title.trim() : "";
+  const itemParentLabel =
+    payloadTitle && !isOrderNumberLikeTitle(payloadTitle, baseOrderNumber)
+      ? payloadTitle
+      : shortBaseOrderNumber;
+  const crmOrderId = crmOrderIdFromPayload(body);
+  const crmCustomerId = crmCustomerIdFromPayload(body);
+  const orderDescription =
+    crmCustomerFacingNote(body) ??
+    (typeof body.description === "string" ? body.description.trim() : null);
 
   // Idempotent due-date / CRM re-fire: update existing cards when found.
   const existingOrders = await findExistingWebhookOrders(

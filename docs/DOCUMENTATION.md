@@ -558,6 +558,8 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 
 **Mapping:** if `due_date` is set → use it; else if mode is `after_approval` → show “N working days after approval”. On customer/staff approval, Workflow materializes `due_date = local_approval_day + N weekdays` (Mon–Fri). A later CRM webhook with a concrete `due_date` still overwrites. See `lib/due-date.ts` and [WEBHOOK.md](WEBHOOK.md).
 
+**Website checkouts:** inbound `source: "website"` (or `web` / `webform`) cards use a **W** prefix on the board number (`W15082`, `W15082-1`). CRM `ORD-YYYY-####` cards stay numeric (`15082`). Search still matches `15082` and `W15082`.
+
 **UI:** Create/edit order due control supports **Fixed date** or **Working days after approval** (default 5).
 
 **CRM still required:** CRM should send `due_date_mode`, `due_processing_days`, `due_anchor_at`, `due_date_label`, `due_date_status`, and re-fire the webhook when an after-approval due materializes.

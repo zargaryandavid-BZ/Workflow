@@ -34,6 +34,7 @@ import {
   productionDateFromDueDate,
 } from "@/lib/order-application";
 import { getGroupKey } from "@/lib/group-orders";
+import { formatShortOrderNumber } from "@/lib/board-order-filters";
 import type {
   Asset,
   BoardColumn,
@@ -258,9 +259,7 @@ function formatOrderNumberDisplay(
   title: string,
   groupSize: number | null
 ): string {
-  const short = title
-    .replace(/^ORD-\d{4}-/, "")
-    .replace(/^0+(\d)/, "$1");
+  const short = formatShortOrderNumber(title);
   if (groupSize != null && groupSize >= 2) {
     return `${short} (${groupSize})`;
   }

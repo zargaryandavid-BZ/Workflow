@@ -78,6 +78,7 @@ export function TimerWidget() {
             filter: `user_id=eq.${user.id}`,
           },
           () => {
+            notifyTimeEntriesChanged();
             void refetch();
           }
         )

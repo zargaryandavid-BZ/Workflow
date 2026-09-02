@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createClient } from "@/lib/supabase/client";
 import {
   type TimeEntry,
   durationSeconds,
@@ -123,7 +124,7 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
-  useEffect(() => {
+  const refreshAll = useCallback(() => {
     void refetch();
     void refetchTotals();
     void refetchBoard();
@@ -131,26 +132,65 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   }, [refetch, refetchTotals, refetchBoard, refetchBoardTotals]);
 
   useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  useEffect(() => {
     function onChanged() {
-      void refetch();
-      void refetchTotals();
-      void refetchBoard();
-      void refetchBoardTotals();
+      refreshAll();
     }
     window.addEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
     return () =>
       window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
-  }, [refetch, refetchTotals, refetchBoard, refetchBoardTotals]);
+  }, [refreshAll]);
 
-  // Refresh the board's who-is-working list + per-job totals periodically so
-  // other people's start/stop shows up without this user touching anything.
+  // Own running list used to only refresh on this tab's clicks. If the timer
+  // is stopped from another tab, the sidebar, or the server, the card kept
+  // ticking. Poll + live updates keep admin and designer in sync.
   useEffect(() => {
     const id = window.setInterval(() => {
-      void refetchBoard();
-      void refetchBoardTotals();
-    }, 15000);
-    return () => window.clearInterval(id);
-  }, [refetchBoard, refetchBoardTotals]);
+      refreshAll();
+    }, 10000);
+    function onVisible() {
+      if (document.visibilityState === "visible") refreshAll();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshAll]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled || !user) return;
+      channel = supabase
+        .channel(`board_time_entries_${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "time_entries",
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => {
+            refreshAll();
+          }
+        )
+        .subscribe();
+    })();
+    return () => {
+      cancelled = true;
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [refreshAll]);
 
   // Tick only while something is actively running (not paused) — cheap otherwise.
   const anyRunning =

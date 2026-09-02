@@ -57,6 +57,11 @@ export function PdfOcgFromUrl({
   const ocRef = useRef<OptionalContentConfig | null>(null);
   const pageNumberRef = useRef(1);
   const renderTasksRef = useRef<RenderTask[]>([]);
+  const lastDrawWidthRef = useRef(0);
+  const onPageCountRef = useRef(onPageCount);
+  const onPageNumberRef = useRef(onPageNumber);
+  onPageCountRef.current = onPageCount;
+  onPageNumberRef.current = onPageNumber;
   pageNumberRef.current = pageNumber;
 
   const cancelRenders = useCallback(() => {
@@ -88,6 +93,7 @@ export function PdfOcgFromUrl({
     const pad = 8;
     const availW = Math.max(host.clientWidth - pad, 1);
     if (availW < 8) return;
+    lastDrawWidthRef.current = Math.round(host.clientWidth);
     cancelRenders();
     host.innerHTML = "";
     setPageActionMounts([]);
@@ -143,15 +149,24 @@ export function PdfOcgFromUrl({
     }
 
     if (grid) {
-      const cols = availW >= 640 ? 3 : 2;
-      const gap = 8;
-      const cellW = Math.max((availW - gap * (cols - 1)) / cols, 40);
+      const nPages = pdf.numPages;
+      const cols = Math.min(nPages, availW >= 640 ? 3 : 2);
+      const availH = Math.max(host.clientHeight - pad, 200);
+      const cellW =
+        nPages === 1
+          ? availW
+          : Math.max((availW - 8 * Math.max(cols - 1, 0)) / cols, 40);
+      const cellH = nPages === 1 ? availH : null;
       const mounts: { page: number; el: HTMLElement }[] = [];
-      for (let i = 1; i <= pdf.numPages; i++) {
+      for (let i = 1; i <= nPages; i++) {
         const wrap = document.createElement("div");
-        wrap.className = "flex min-w-0 flex-col gap-1.5";
+        wrap.className =
+          "flex min-w-0 flex-col items-center gap-1.5";
+        wrap.style.flex = nPages === 1 ? "1 1 100%" : `1 1 calc(${100 / cols}% - 8px)`;
+        wrap.style.maxWidth = nPages === 1 ? "100%" : `${Math.ceil(cellW)}px`;
         const canvasHold = document.createElement("div");
-        canvasHold.className = "flex cursor-zoom-in items-center justify-center";
+        canvasHold.className =
+          "flex w-full cursor-zoom-in items-center justify-center";
         canvasHold.addEventListener("click", (e) => {
           e.stopPropagation();
           setPageNumber(i);
@@ -160,9 +175,10 @@ export function PdfOcgFromUrl({
         wrap.appendChild(canvasHold);
         const actions = document.createElement("div");
         actions.dataset.pageActions = String(i);
+        actions.className = "w-full";
         wrap.appendChild(actions);
         host.appendChild(wrap);
-        await paintPage(i, cellW, null, canvasHold);
+        await paintPage(i, cellW, cellH, canvasHold);
         mounts.push({ page: i, el: actions });
       }
       setPageActionMounts(mounts);
@@ -185,6 +201,7 @@ export function PdfOcgFromUrl({
       setPageCount(0);
       setPageNumber(1);
       pageNumberRef.current = 1;
+      lastDrawWidthRef.current = 0;
       await closePdf();
       try {
         const res = await fetch(src);
@@ -237,7 +254,11 @@ export function PdfOcgFromUrl({
     const host = pagesRef.current;
     if (!host) return;
     let timer = 0;
-    const ro = new ResizeObserver(() => {
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0]?.contentRect.width ?? host.clientWidth);
+      // Height changes every time we clear/paint canvases (and when approve
+      // buttons portal in). Redrawing on height = infinite blink.
+      if (w === lastDrawWidthRef.current) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         if (pdfRef.current) void drawPages();
@@ -259,12 +280,12 @@ export function PdfOcgFromUrl({
   }, [expanded, pageNumber, drawPages, layout]);
 
   useEffect(() => {
-    onPageCount?.(pageCount);
-  }, [pageCount, onPageCount]);
+    onPageCountRef.current?.(pageCount);
+  }, [pageCount]);
 
   useEffect(() => {
-    onPageNumber?.(pageNumber);
-  }, [pageNumber, onPageNumber]);
+    onPageNumberRef.current?.(pageNumber);
+  }, [pageNumber]);
 
   useEffect(() => {
     if (!loading) {
@@ -327,7 +348,7 @@ export function PdfOcgFromUrl({
   const viewer = (
     <div
       className={cn(
-        "flex min-h-0 flex-col overflow-hidden bg-white",
+        "flex flex-col overflow-hidden bg-white",
         expanded
           ? "h-full min-h-0 flex-1 rounded-lg shadow-2xl"
           : "rounded-md border border-slate-200"
@@ -422,17 +443,17 @@ export function PdfOcgFromUrl({
       ) : (
         <div
           className={cn(
-            "relative flex w-full items-center justify-center",
+            "relative flex w-full items-stretch justify-center [scrollbar-gutter:stable]",
             expanded
               ? "min-h-0 flex-1 overflow-auto"
-              : layout === "grid"
-                ? "min-h-0"
-                : "h-[min(75vh,40rem)] min-h-[28rem]"
+              : loading
+                ? "min-h-[22rem] overflow-hidden sm:min-h-[26rem]"
+                : "h-[min(75vh,40rem)] min-h-[28rem] overflow-auto"
           )}
         >
           {loading ? (
             <div
-              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-slate-50 px-4 text-center"
+              className="flex w-full flex-col items-center justify-center gap-3 bg-slate-50 px-4 py-10 text-center"
               role="status"
               aria-live="polite"
             >
@@ -459,10 +480,10 @@ export function PdfOcgFromUrl({
                 : "Click to open large view"
             }
             className={cn(
-              "w-full p-2",
+              "min-h-full w-full p-2",
               layout === "grid"
-                ? "grid grid-cols-2 gap-2 sm:grid-cols-3"
-                : "flex h-full items-center justify-center",
+                ? "flex flex-wrap content-start items-start justify-center gap-2"
+                : "flex items-center justify-center",
               !expanded && !loading && layout !== "grid" ? "cursor-zoom-in" : null
             )}
             onClick={() => {
@@ -495,11 +516,7 @@ export function PdfOcgFromUrl({
     return (
       <>
         <div
-          className={cn(
-            layout === "grid"
-              ? "min-h-48 rounded-md border border-slate-200 bg-slate-50"
-              : "h-[min(75vh,40rem)] min-h-[28rem] rounded-md border border-slate-200 bg-slate-50",
-          )}
+          className="h-[min(75vh,40rem)] min-h-[28rem] rounded-md border border-slate-200 bg-slate-50"
           aria-hidden
         />
         {createPortal(
