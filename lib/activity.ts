@@ -224,6 +224,10 @@ export function describeActivity(log: ActivityLog): string {
   switch (log.action) {
     case "created":
       return "Order created";
+    case "hold_reason": {
+      const reason = meta.reason as string | undefined;
+      return reason ? `On hold: ${reason}` : "Put on hold";
+    }
     case "moved":
     case "idle_auto_moved": {
       const fromName = meta.fromName as string | undefined;

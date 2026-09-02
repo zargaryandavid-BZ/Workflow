@@ -66,6 +66,8 @@ import { QUEUE_CHANGED_EVENT, type QueueChangedDetail } from "@/lib/queue-events
 import { cn } from "@/lib/utils";
 import { type MissingField } from "@/lib/orders/validate-ready-to-move";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
+import { HoldReasonPopup } from "@/components/board/hold-reason-popup";
+import { isHoldColumn } from "@/lib/hold-column";
 import {
   finishedCompletionSmsSent,
   isFinishedNoReviewStage,
@@ -620,6 +622,11 @@ export function Board({
     notifyColumn: NotifyColumnConfig;
     columnName: string;
     groupOrders?: OrderWithRelations[];
+  } | null>(null);
+  const [holdReasonPopup, setHoldReasonPopup] = useState<{
+    orderId: string;
+    orderTitle: string;
+    columnName: string;
   } | null>(null);
   const [groupedView, setGroupedView] = useState(false);
   const [boardView, setBoardView] = useState<"kanban" | "table" | "list">(
@@ -1869,6 +1876,13 @@ export function Board({
         columnName: toCol.name,
       });
     }
+    if (isHoldColumn(toCol)) {
+      setHoldReasonPopup({
+        orderId: order.id,
+        orderTitle: order.title,
+        columnName: toCol.name,
+      });
+    }
     offerFinishedCompletionSms([order], toCol.name);
   }
 
@@ -2562,6 +2576,14 @@ export function Board({
             order: { ...movedOrder, column_id: overColumn },
             notifyColumn,
             columnName: columnsById.get(overColumn)?.name ?? "",
+          });
+        }
+        const overCol = columnsById.get(overColumn);
+        if (movedOrder && isHoldColumn(overCol)) {
+          setHoldReasonPopup({
+            orderId: movedOrder.id,
+            orderTitle: movedOrder.title,
+            columnName: overCol?.name ?? "Hold",
           });
         }
         if (activeOrderForPatch) {
@@ -3822,6 +3844,20 @@ export function Board({
           setNotifyPopup({ order, notifyColumn, columnName });
         }}
       />
+
+      {holdReasonPopup ? (
+        <HoldReasonPopup
+          orderId={holdReasonPopup.orderId}
+          orderTitle={holdReasonPopup.orderTitle}
+          columnName={holdReasonPopup.columnName}
+          onClose={() => setHoldReasonPopup(null)}
+          onSaved={(message) => {
+            setHoldReasonPopup(null);
+            flashToast(message);
+            scheduleRefresh();
+          }}
+        />
+      ) : null}
 
       {notifyPopup ? (
         <NotificationPopup
