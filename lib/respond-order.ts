@@ -111,7 +111,11 @@ export function respondSkuImageUrl(token: string, imageId: string): string {
 export type RespondFinalPdf = {
   fileId: string;
   fileName: string;
+  /** 1-based page when one PDF is split across SKUs (SKU 1 → page 1). */
+  page?: number;
 };
+
+export { sharedPdfPagesForSkus } from "@/lib/shared-pdf-pages";
 
 export function respondFinalPdfUrl(
   token: string,

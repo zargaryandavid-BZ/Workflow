@@ -19,6 +19,7 @@ import {
 import { matchProofsToSkus, sizeToken } from "@/lib/proof-sku-match";
 import { normalizeSkus, type SkuItem } from "@/lib/skus";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
+import { sharedPdfPagesForSkus } from "@/lib/shared-pdf-pages";
 import type { RespondFinalPdf } from "@/lib/respond-order";
 
 export type { RespondFinalPdf };
@@ -118,8 +119,12 @@ async function collectFinalFolderIds(
   for (const seed of seedIds) {
     if (!seed) continue;
     const children = await listChildFolders(client, seed);
-    for (const child of children) {
-      if (isFinalProdFolderName(child.name)) ids.add(child.id);
+    const finals = children.filter((child) => isFinalProdFolderName(child.name));
+    if (finals.length > 0) {
+      for (const child of finals) ids.add(child.id);
+    } else {
+      // Artwork / designer URL may already be the Final folder (no nested Final).
+      ids.add(seed);
     }
   }
   if (extraRootId && orderNeedles.length > 0) {
@@ -251,15 +256,10 @@ async function fetchRespondFinalPdfsBySkuUncached(
     out[m.skuId] = { fileId: m.file.id, fileName: m.file.name };
   }
 
-  // One production PDF in this card's Final folder is the file for every SKU
-  // (SKU rows are often product/material names, not the PDF filename).
+  // One production PDF in this card's Final folder is the file for every SKU.
+  // Multiple SKUs → page 1, page 2, … (SKU names often don't match the filename).
   if (files.length === 1) {
-    const only = files[0]!;
-    for (const sku of skus) {
-      if (!out[sku.id]) {
-        out[sku.id] = { fileId: only.id, fileName: only.name };
-      }
-    }
+    return sharedPdfPagesForSkus(skus, files[0]!);
   }
   return out;
 }

@@ -299,10 +299,11 @@ function SkuArtworkBlock({
         <PdfOcgFromUrl
           src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
           fileName={finalPdf.fileName}
-          layout="grid"
+          page={finalPdf.page}
+          layout={finalPdf.page != null ? "single" : "grid"}
           onPageCount={(n) => skuUi.setPdfPageCount?.(skuId, n)}
           renderPageActions={
-            perImage || pdfPages > 1
+            finalPdf.page == null && (perImage || pdfPages > 1)
               ? (page) => (
                   <ImageDecisionControls
                     skuId={skuId}

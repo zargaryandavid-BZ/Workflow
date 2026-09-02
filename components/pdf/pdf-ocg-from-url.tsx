@@ -29,6 +29,7 @@ export function PdfOcgFromUrl({
   onPageCount,
   onPageNumber,
   layout = "single",
+  page: lockedPage,
   renderPageActions,
 }: {
   src: string;
@@ -37,6 +38,8 @@ export function PdfOcgFromUrl({
   onPageNumber?: (page: number) => void;
   /** `grid` draws every page (PDF multilayer = one picture per page). */
   layout?: "single" | "grid";
+  /** When set, only this 1-based page is shown (SKU 1 → page 1). */
+  page?: number;
   renderPageActions?: (page: number) => ReactNode;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +56,8 @@ export function PdfOcgFromUrl({
   const pagesRef = useRef<HTMLDivElement>(null);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+  const lockedPageRef = useRef(lockedPage);
+  lockedPageRef.current = lockedPage;
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const ocRef = useRef<OptionalContentConfig | null>(null);
   const pageNumberRef = useRef(1);
@@ -99,7 +104,7 @@ export function PdfOcgFromUrl({
     setPageActionMounts([]);
     const oc = ocRef.current;
     const dpr = window.devicePixelRatio || 1;
-    const grid = layoutRef.current === "grid";
+    const grid = layoutRef.current === "grid" && lockedPageRef.current == null;
 
     async function paintPage(
       pageIndex: number,
@@ -187,7 +192,11 @@ export function PdfOcgFromUrl({
 
     const availH = Math.max(host.clientHeight - pad, 1);
     if (availH < 8) return;
-    const n = Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
+    const locked = lockedPageRef.current;
+    const n =
+      locked != null
+        ? Math.min(Math.max(locked, 1), pdf.numPages)
+        : Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
     await paintPage(n, availW, availH, host);
   }, [cancelRenders]);
 
@@ -225,6 +234,12 @@ export function PdfOcgFromUrl({
         }
         pdfRef.current = pdf;
         setPageCount(pdf.numPages);
+        if (lockedPage != null && lockedPage > pdf.numPages) {
+          throw new Error("This SKU has no matching page in the PDF.");
+        }
+        const startPage = lockedPage ?? 1;
+        setPageNumber(startPage);
+        pageNumberRef.current = startPage;
         const oc = await pdf.getOptionalContentConfig({ intent: PDF_INTENT });
         ocRef.current = oc;
         const fromOc = layersFromOptionalContent(oc);
@@ -248,7 +263,7 @@ export function PdfOcgFromUrl({
       cancelled = true;
       void closePdf();
     };
-  }, [src, closePdf, drawPages]);
+  }, [src, closePdf, drawPages, lockedPage]);
 
   useEffect(() => {
     const host = pagesRef.current;
@@ -277,11 +292,11 @@ export function PdfOcgFromUrl({
       void drawPages();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [expanded, pageNumber, drawPages, layout]);
+  }, [expanded, pageNumber, drawPages, layout, lockedPage]);
 
   useEffect(() => {
-    onPageCountRef.current?.(pageCount);
-  }, [pageCount]);
+    onPageCountRef.current?.(lockedPage != null ? 1 : pageCount);
+  }, [pageCount, lockedPage]);
 
   useEffect(() => {
     onPageNumberRef.current?.(pageNumber);
@@ -334,8 +349,11 @@ export function PdfOcgFromUrl({
     void applyVisibility(new Set(layers.map((layer) => layer.id)));
   }
 
-  function selectLayer(id: string) {
-    void applyVisibility(new Set([id]));
+  function toggleLayer(id: string) {
+    const next = new Set(visibleIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    void applyVisibility(next);
   }
 
   const allOn = layers.length > 0 && layers.every((layer) => visibleIds.has(layer.id));
@@ -355,7 +373,7 @@ export function PdfOcgFromUrl({
       )}
     >
       <div className="shrink-0 space-y-2 border-b border-slate-100 px-3 py-2">
-        {pageCount >= 2 && !loading && !error ? (
+        {pageCount >= 2 && lockedPage == null && !loading && !error ? (
           <div className="flex items-center gap-1.5 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
             <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
             Please review all {pageCount} sides before approving.
@@ -364,6 +382,9 @@ export function PdfOcgFromUrl({
         <div className="flex min-w-0 items-center gap-2">
           <span className="min-w-0 truncate text-sm font-medium text-slate-600">
             {fileName}
+            {lockedPage != null && pageCount >= 1
+              ? ` · Page ${lockedPage}`
+              : ""}
           </span>
           <button
             type="button"
@@ -375,7 +396,11 @@ export function PdfOcgFromUrl({
             {expanded ? <X className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
         </div>
-        {pageCount >= 1 && !loading && !error && layout !== "grid" ? (
+        {pageCount >= 1 &&
+        !loading &&
+        !error &&
+        layout !== "grid" &&
+        lockedPage == null ? (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Image
@@ -421,10 +446,10 @@ export function PdfOcgFromUrl({
                   <button
                     key={layer.id}
                     type="button"
-                    onClick={() => selectLayer(layer.id)}
+                    onClick={() => toggleLayer(layer.id)}
                     className={cn(
                       "max-w-[12rem] truncate",
-                      chip(visibleIds.size === 1 && visibleIds.has(layer.id))
+                      chip(visibleIds.has(layer.id))
                     )}
                     title={layer.name}
                   >

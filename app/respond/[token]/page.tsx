@@ -10,6 +10,7 @@ import {
   type RespondOrderAsset,
   type RespondOrderRow,
   type RespondSkuImage,
+  type RespondFinalPdf,
 } from "@/lib/respond-order";
 import {
   fetchRespondOrderAssets,
@@ -70,7 +71,7 @@ type RespondPart = {
   skus: SkuItem[];
   assets: RespondOrderAsset[];
   skuImages: Record<string, RespondSkuImage[]>;
-  finalPdfs: Record<string, { fileId: string; fileName: string }>;
+  finalPdfs: Record<string, RespondFinalPdf>;
 };
 
 function productFromFields(fields: Record<string, unknown>): string {
@@ -401,7 +402,7 @@ export default async function RespondPage({
         // non-critical; proceed without assets
       }
     }
-    let finalPdfs: Record<string, { fileId: string; fileName: string }> = {};
+    let finalPdfs: Record<string, RespondFinalPdf> = {};
     try {
       const admin = createAdminClient();
       const { data: orderRow } = await admin

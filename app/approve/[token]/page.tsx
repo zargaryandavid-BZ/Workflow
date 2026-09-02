@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildRespondOrderRows,
   skusForRespond,
+  type RespondFinalPdf,
 } from "@/lib/respond-order";
 import {
   fetchRespondOrderAssets,
@@ -55,7 +56,7 @@ export default async function ApprovalPage({
       ])
     : [[], {}];
 
-  let finalPdfs: Record<string, { fileId: string; fileName: string }> = {};
+  let finalPdfs: Record<string, RespondFinalPdf> = {};
   if (approval) {
     try {
       const admin = createAdminClient();
