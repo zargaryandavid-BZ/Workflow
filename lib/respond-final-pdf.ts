@@ -19,7 +19,10 @@ import {
 import { matchProofsToSkus, sizeToken } from "@/lib/proof-sku-match";
 import { normalizeSkus, type SkuItem } from "@/lib/skus";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
-import { sharedPdfPagesForSkus } from "@/lib/shared-pdf-pages";
+import {
+  sharedPdfPagesForSkus,
+  uniqueSharedPdfFile,
+} from "@/lib/shared-pdf-pages";
 import type { RespondFinalPdf } from "@/lib/respond-order";
 
 export type { RespondFinalPdf };
@@ -256,10 +259,11 @@ async function fetchRespondFinalPdfsBySkuUncached(
     out[m.skuId] = { fileId: m.file.id, fileName: m.file.name };
   }
 
-  // One production PDF in this card's Final folder is the file for every SKU.
-  // Multiple SKUs → page 1, page 2, … (SKU names often don't match the filename).
-  if (files.length === 1) {
-    return sharedPdfPagesForSkus(skus, files[0]!);
+  // One production PDF (or the same file listed from two folders) is split
+  // across SKUs: SKU 1 → page 1, SKU 2 → page 2.
+  const shared = uniqueSharedPdfFile(files);
+  if (shared) {
+    return sharedPdfPagesForSkus(skus, shared);
   }
   return out;
 }

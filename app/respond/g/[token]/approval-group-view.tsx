@@ -34,6 +34,7 @@ export type ApprovalGroupItemPayload = {
   approvalSkus: SkuItem[];
   approvalAssets?: RespondOrderAsset[];
   approvalSkuGallery?: Record<string, RespondSkuImage[]>;
+  approvalPdfPageBySku?: Record<string, number>;
 };
 
 function shortStatusLabel(status: ApprovalItemStatus): string {
@@ -272,6 +273,7 @@ export function ApprovalGroupView({
                 approvalSkus={selected.approvalSkus}
                 approvalAssets={selected.approvalAssets}
                 approvalSkuGallery={selected.approvalSkuGallery}
+                approvalPdfPageBySku={selected.approvalPdfPageBySku}
                 onDecided={(decision) =>
                   onDecided(selected.summary.orderId, decision)
                 }

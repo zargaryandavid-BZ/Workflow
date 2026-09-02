@@ -65,8 +65,11 @@ export function approvalSlotAssetId(
 /** How many Image 1…N slots. PDF pages count when the PDF is open (page count > 1). */
 export function approvalImageSlotCount(
   galleryLength: number,
-  pdfPageCount = 0
+  pdfPageCount = 0,
+  /** 1-based page when this SKU is locked to one page of a shared PDF. */
+  pdfLockedPage?: number | null
 ): number {
+  if (pdfLockedPage != null) return 1;
   if (galleryLength >= 2 || pdfPageCount > 1) {
     return Math.max(galleryLength, pdfPageCount);
   }
@@ -123,6 +126,13 @@ export function formatSkuApprovalNote(
         .filter((e) => e.skuIndex === idx)
         .sort((a, b) => a.imageIndex - b.imageIndex);
       if (imgs.length > 0) {
+        const same = imgs.every((img) => img.decision === imgs[0]!.decision);
+        if (same) {
+          lines.push(
+            `${skuLabel(imgs[0]!.skuIndex, imgs[0]!.skuName)}: ${decisionLabel(imgs[0]!.decision)}`
+          );
+          continue;
+        }
         for (const img of imgs) {
           lines.push(
             `${skuLabel(img.skuIndex, img.skuName)} — Image ${img.imageIndex}: ${decisionLabel(img.decision)}`
@@ -262,6 +272,15 @@ export function skuApprovalDisplayLines(parsed: {
       .filter((e) => e.skuIndex === idx)
       .sort((a, b) => a.imageIndex - b.imageIndex);
     if (imgs.length > 0) {
+      const same = imgs.every((img) => img.decision === imgs[0]!.decision);
+      if (same) {
+        lines.push({
+          key: `sku-${idx}`,
+          label: skuLabel(imgs[0]!.skuIndex, imgs[0]!.skuName),
+          decision: imgs[0]!.decision,
+        });
+        continue;
+      }
       for (const img of imgs) {
         lines.push({
           key: `img-${idx}-${img.imageIndex}`,

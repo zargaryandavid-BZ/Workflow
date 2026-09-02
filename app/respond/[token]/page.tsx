@@ -18,6 +18,7 @@ import {
 } from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
 import { fetchRespondFinalPdfsBySku } from "@/lib/respond-final-pdf";
+import { pdfPageLocksFromFinalPdfs } from "@/lib/shared-pdf-pages";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
@@ -291,6 +292,7 @@ export default async function RespondPage({
   let orderReview: React.ReactNode = null;
   let reviewAssets: RespondOrderAsset[] = [];
   let reviewSkuImages: Record<string, RespondSkuImage[]> = {};
+  let approvalPdfPageBySku: Record<string, number> = {};
 
   if (notification.type === "ready_to_ship") {
     const admin = createAdminClient();
@@ -313,6 +315,12 @@ export default async function RespondPage({
     if (members.length > 1) {
       headerTitle = formatReadyToShipGroupLabel(members);
       const parts = await buildRespondParts(members, notification);
+      for (const part of parts) {
+        Object.assign(
+          approvalPdfPageBySku,
+          pdfPageLocksFromFinalPdfs(part.finalPdfs)
+        );
+      }
       orderReview = (
         <div className="space-y-4">
           {parts.map((part) => (
@@ -438,6 +446,7 @@ export default async function RespondPage({
     );
     reviewAssets = assets;
     reviewSkuImages = skuImages;
+    approvalPdfPageBySku = pdfPageLocksFromFinalPdfs(finalPdfs);
   }
 
   if (expired && !alreadyDone) {
@@ -596,6 +605,11 @@ export default async function RespondPage({
         }
         approvalSkuGallery={
           notification.type === "customer_approval" ? reviewSkuImages : undefined
+        }
+        approvalPdfPageBySku={
+          notification.type === "customer_approval"
+            ? approvalPdfPageBySku
+            : undefined
         }
       />
     </RespondCard>

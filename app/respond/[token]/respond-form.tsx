@@ -57,6 +57,8 @@ interface Props {
   approvalAssets?: RespondOrderAsset[];
   /** Gallery images keyed by sku id. */
   approvalSkuGallery?: Record<string, RespondSkuImage[]>;
+  /** 1-based PDF page lock per SKU (shared file: SKU 1 → page 1). */
+  approvalPdfPageBySku?: Record<string, number>;
   /** Fired after a successful customer_approval decision (group portal nav). */
   onDecided?: (decision: "approved" | "rejected") => void;
 }
@@ -172,6 +174,7 @@ export function RespondForm({
   approvalSkus = [],
   approvalAssets = [],
   approvalSkuGallery = {},
+  approvalPdfPageBySku = {},
   onDecided,
 }: Props) {
   const [note, setNote] = useState("");
@@ -211,7 +214,8 @@ export function RespondForm({
       const imgs = skuImages[sku.id] ?? [];
       const slotCount = approvalImageSlotCount(
         imgs.length,
-        pdfPageCountBySku[sku.id] ?? 0
+        pdfPageCountBySku[sku.id] ?? 0,
+        approvalPdfPageBySku[sku.id]
       );
       if (slotCount < 2) continue;
       rollup[sku.id] = rollupSkuDecisionFromImages(
@@ -222,7 +226,9 @@ export function RespondForm({
               approvalSlotAssetId(
                 imgIdx + 1,
                 imgs,
-                pdfPageCountBySku[sku.id] ?? 0
+                approvalPdfPageBySku[sku.id] != null
+                  ? 0
+                  : pdfPageCountBySku[sku.id] ?? 0
               )
             )
           ]
@@ -230,7 +236,14 @@ export function RespondForm({
       );
     }
     return rollup;
-  }, [skuChoices, imageChoices, approvalSkus, skuImages, pdfPageCountBySku]);
+  }, [
+    skuChoices,
+    imageChoices,
+    approvalSkus,
+    skuImages,
+    pdfPageCountBySku,
+    approvalPdfPageBySku,
+  ]);
 
   const perSkuApproval =
     type === "customer_approval" && approvalSkus.length > 0;
@@ -246,14 +259,17 @@ export function RespondForm({
       const imgs = skuImages[sku.id] ?? [];
       const slotCount = approvalImageSlotCount(
         imgs.length,
-        pdfPageCountBySku[sku.id] ?? 0
+        pdfPageCountBySku[sku.id] ?? 0,
+        approvalPdfPageBySku[sku.id]
       );
       if (slotCount >= 2) {
         for (let imgIdx = 0; imgIdx < slotCount; imgIdx += 1) {
           const assetId = approvalSlotAssetId(
             imgIdx + 1,
             imgs,
-            pdfPageCountBySku[sku.id] ?? 0
+            approvalPdfPageBySku[sku.id] != null
+              ? 0
+              : pdfPageCountBySku[sku.id] ?? 0
           );
           const decision = imageChoices[imageDecisionKey(sku.id, assetId)];
           if (!decision) return null;

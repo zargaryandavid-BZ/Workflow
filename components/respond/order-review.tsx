@@ -272,7 +272,8 @@ function SkuArtworkBlock({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
   const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
-  const perImage = approvalImageSlotCount(skuArt.length, pdfPages) >= 2;
+  const perImage =
+    approvalImageSlotCount(skuArt.length, pdfPages, finalPdf?.page) >= 2;
 
   if (skuArt.length === 0 && !canShowPdf) return null;
 
@@ -301,7 +302,12 @@ function SkuArtworkBlock({
           fileName={finalPdf.fileName}
           page={finalPdf.page}
           layout={finalPdf.page != null ? "single" : "grid"}
-          onPageCount={(n) => skuUi.setPdfPageCount?.(skuId, n)}
+          onPageCount={(n) =>
+            skuUi.setPdfPageCount?.(
+              skuId,
+              finalPdf.page != null ? 1 : n
+            )
+          }
           renderPageActions={
             finalPdf.page == null && (perImage || pdfPages > 1)
               ? (page) => (
@@ -461,7 +467,11 @@ export function OrderReview({
               const multiImage = skuArt.length >= 2;
               const pdfPages = skuUi.pdfPageCountBySku?.[sku.id] ?? 0;
               const perImage =
-                approvalImageSlotCount(skuArt.length, pdfPages) >= 2;
+                approvalImageSlotCount(
+                  skuArt.length,
+                  pdfPages,
+                  finalPdfs[sku.id]?.page
+                ) >= 2;
               const number = index + 1;
               const decision = skuUi.byId[sku.id];
               const resultBorder =

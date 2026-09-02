@@ -21,6 +21,7 @@ import {
 } from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
 import { fetchRespondFinalPdfsBySku } from "@/lib/respond-final-pdf";
+import { pdfPageLocksFromFinalPdfs } from "@/lib/shared-pdf-pages";
 import { orderMetaChips } from "@/lib/respond-page";
 import type { OrderSpecs } from "@/lib/types";
 import {
@@ -147,6 +148,7 @@ async function buildItem(
       (a) => a.sku_key != null && skuIds.has(a.sku_key)
     ),
     approvalSkuGallery: skuImages,
+    approvalPdfPageBySku: pdfPageLocksFromFinalPdfs(finalPdfs),
   };
 
   const review =

@@ -9,6 +9,7 @@ import {
   imageDecisionsByKey,
   overallApprovalResponse,
   parseSkuApprovalNote,
+  skuApprovalDisplayLines,
   skuLabel,
 } from "./sku-approval.ts";
 
@@ -133,6 +134,8 @@ describe("sku approval notes", () => {
     assert.equal(approvalImageSlotCount(1, 12), 12);
     assert.equal(approvalImageSlotCount(0, 5), 5);
     assert.equal(approvalImageSlotCount(1, 1), 1);
+    assert.equal(approvalImageSlotCount(0, 5, 1), 1);
+    assert.equal(approvalImageSlotCount(2, 2, 2), 1);
     assert.deepEqual(
       imageDecisionsByKey(
         [{ id: "sku" }],
@@ -147,5 +150,22 @@ describe("sku approval notes", () => {
         [imageDecisionKey("sku", "pdfpage:2")]: "rejected",
       }
     );
+  });
+
+  it("collapses duplicate same-decision image rows to one SKU line", () => {
+    const parsed = parseSkuApprovalNote(
+      [
+        "SKU 1 — khinkali- meat — Image 1: Not approved",
+        "SKU 1 — khinkali- meat — Image 2: Not approved",
+        "SKU 2 — cutlet- mozzarella walnuts — Image 1: Approved",
+        "SKU 2 — cutlet- mozzarella walnuts — Image 2: Approved",
+      ].join("\n")
+    );
+    const lines = skuApprovalDisplayLines(parsed);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0]?.label, "SKU 1 — khinkali- meat");
+    assert.equal(lines[0]?.decision, "rejected");
+    assert.equal(lines[1]?.label, "SKU 2 — cutlet- mozzarella walnuts");
+    assert.equal(lines[1]?.decision, "approved");
   });
 });
