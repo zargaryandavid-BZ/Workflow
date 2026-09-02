@@ -16,7 +16,6 @@ import {
   type PdfLayer,
 } from "@/lib/pdf-ocg";
 import { cn } from "@/lib/utils";
-import { ProofLayerNameIcon } from "@/components/respond/proof-layer-icon";
 
 if (typeof window !== "undefined") {
   GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
@@ -360,7 +359,7 @@ export function PdfOcgFromUrl({
   const allOn = layers.length > 0 && layers.every((layer) => visibleIds.has(layer.id));
   const namedLayers = layers.filter((layer) => !isUnnamedPdfLayer(layer.name));
   const chip = (on: boolean) =>
-    `inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold ${
+    `rounded-md px-3 py-1.5 text-sm font-semibold ${
       on ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"
     }`;
 
@@ -431,8 +430,9 @@ export function PdfOcgFromUrl({
         ) : null}
         {!loading && !error ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Layer
+              <Layers className="h-3.5 w-3.5" aria-hidden />
             </span>
             {layers.length > 0 ? (
               <>
@@ -441,7 +441,6 @@ export function PdfOcgFromUrl({
                   onClick={showAllLayers}
                   className={chip(allOn)}
                 >
-                  <Layers className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   ALL
                 </button>
                 {namedLayers.map((layer) => (
@@ -449,11 +448,13 @@ export function PdfOcgFromUrl({
                     key={layer.id}
                     type="button"
                     onClick={() => toggleLayer(layer.id)}
-                    className={cn("max-w-[14rem]", chip(visibleIds.has(layer.id)))}
+                    className={cn(
+                      "max-w-[12rem] truncate",
+                      chip(visibleIds.has(layer.id))
+                    )}
                     title={layer.name}
                   >
-                    <ProofLayerNameIcon name={layer.name} />
-                    <span className="min-w-0 truncate">{layer.name}</span>
+                    {layer.name}
                   </button>
                 ))}
               </>

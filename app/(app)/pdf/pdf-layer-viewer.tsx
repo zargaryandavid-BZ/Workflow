@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, FileText, FolderOpen, Info, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, FolderOpen, Info } from "lucide-react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type {
   PDFDocumentProxy,
@@ -16,7 +16,6 @@ import {
   parsePdfOcgs,
   type PdfLayer,
 } from "@/lib/pdf-ocg";
-import { ProofLayerNameIcon } from "@/components/respond/proof-layer-icon";
 
 if (typeof window !== "undefined") {
   GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
@@ -262,14 +261,13 @@ export function PdfLayerViewer() {
                 <button
                   type="button"
                   onClick={showAllLayers}
-                  className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold ${
+                  className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold ${
                     layers.length > 0 &&
                     layers.every((layer) => visibleIds.has(layer.id))
                       ? "bg-blue-600 text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  <Layers className="h-3.5 w-3.5" aria-hidden />
                   ALL
                 </button>
                 {layers.map((layer) => {
@@ -284,15 +282,14 @@ export function PdfLayerViewer() {
                         type="button"
                         aria-pressed={on}
                         onClick={() => toggleLayer(layer.id)}
-                        className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ${
+                        className={`max-w-[12rem] truncate rounded-md px-2.5 py-1 text-xs font-semibold ${
                           on
                             ? "bg-blue-600 text-white"
                             : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                         }`}
                         title={`${layer.name} — click to ${on ? "hide" : "show"}`}
                       >
-                        <ProofLayerNameIcon name={layer.name} />
-                        <span className="min-w-0 truncate">{layer.name}</span>
+                        {layer.name}
                       </button>
                     </span>
                   );

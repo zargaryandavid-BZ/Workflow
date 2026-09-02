@@ -1,6 +1,4 @@
-import { Layers } from "lucide-react";
 import type { ProofLayerStyle } from "@/lib/proof-layer-style";
-import { proofLayerStyleForName } from "@/lib/proof-layer-style";
 
 export function ProofLayerSwatch({
   style,
@@ -88,10 +86,3 @@ export function ProofLayerSwatch({
   );
 }
 
-export function ProofLayerNameIcon({ name }: { name: string }) {
-  const style = proofLayerStyleForName(name);
-  if (!style) {
-    return <Layers className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />;
-  }
-  return <ProofLayerSwatch style={style} />;
-}
