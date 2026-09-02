@@ -54,6 +54,7 @@ import {
 import { resolveWebhookLineFolderUrl } from "@/lib/webhook-line-folder";
 import { categoryForProduct, isCatchAllCategory } from "@/lib/product-data";
 import { findMatchingOption } from "@/lib/field-links";
+import { resolveLineSpecDisplay } from "@/lib/product-spec-options";
 import {
   isAdminCatalogLine,
   mapWebhookSelectValue,
@@ -381,6 +382,8 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   category?: string;
   category_name?: string;
   spec_selections?: Record<string, unknown>;
+  /** Floor labels from Admin Order Sync — `{ key, label, value }[]`. No ids. */
+  spec_display?: Array<{ key?: string; label?: string; value?: unknown }>;
   product_options?: string[];
   skus?: WebhookSkuPayload[];
   /** CRM / source order page URL — shown as Source in the card globe popover. */
@@ -412,6 +415,8 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   catalog_source?: string;
   /** Flat single-item Admin specs (also accepted on `items[]`). */
   spec_selections?: Record<string, unknown>;
+  /** Floor labels from Admin Order Sync — `{ key, label, value }[]`. */
+  spec_display?: Array<{ key?: string; label?: string; value?: unknown }>;
   /** Same as `die` — CRM Cutting field (flat payload). */
   cutting_type?: string;
   /** Display label from Bazaar (e.g. "Partner Portal") — used if `source` is omitted. */
@@ -1238,6 +1243,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       die: body.die,
       cutting_type: body.cutting_type,
       spec_selections: resolveLineSpecSelections(null, body) ?? undefined,
+      spec_display: resolveLineSpecDisplay(null, body) ?? undefined,
       materials: firstNonEmpty(body.materials, body.material),
       finishing: body.finishing,
       sides: body.sides,
@@ -1388,6 +1394,7 @@ function mergeItemWithOrder(
   return {
     ...item,
     spec_selections: resolveLineSpecSelections(item, order) ?? undefined,
+    spec_display: resolveLineSpecDisplay(item, order) ?? undefined,
     product: firstNonEmpty(item.product, order.product),
     // CRM often sends product taxonomy as `category` (also used for board tags).
     // Prefer explicit product_category; fall back so Category dropdown is filled.
@@ -3093,6 +3100,10 @@ async function refreshPortalOrdersFromWebhook(params: {
     if (lineSpecSelections) {
       nextSpecs.spec_selections = lineSpecSelections;
     }
+    const lineSpecDisplay = resolveLineSpecDisplay(item, body);
+    if (lineSpecDisplay) {
+      nextSpecs.spec_display = lineSpecDisplay;
+    }
     if (Array.isArray(ir.product_options)) {
       nextSpecs.product_options = ir.product_options;
     }
@@ -3556,6 +3567,10 @@ async function createSingleWebhookJob(
     const lineSpecSelections = resolveLineSpecSelections(item);
     if (lineSpecSelections) {
       specs.spec_selections = lineSpecSelections;
+    }
+    const lineSpecDisplay = resolveLineSpecDisplay(item);
+    if (lineSpecDisplay) {
+      specs.spec_display = lineSpecDisplay;
     }
     if (Array.isArray(ir.product_options) && ir.product_options.length) {
       specs.product_options = ir.product_options;

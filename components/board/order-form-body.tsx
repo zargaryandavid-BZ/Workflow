@@ -60,6 +60,9 @@ import {
   specKeyCoveredByCustomFields,
   sentenceCaseSpecLabel,
   visibleCatalogToggles,
+  isHiddenFloorSpecKey,
+  parseSpecDisplay,
+  floorSpecDisplayRows,
 } from "@/lib/product-spec-options";
 import type {
   Tag,
@@ -218,8 +221,12 @@ function ProductSpecsSection({
   const allFoKeys = fieldOptions ? Object.keys(fieldOptions) : [];
   const hideCovered = hideKeysCoveredByCustomFields || hideEmpty;
   const foKeys = allFoKeys.filter(
-    (k) => !hideCovered || !specKeyCoveredByCustomFields(k, customFieldNames)
+    (k) =>
+      !isHiddenFloorSpecKey(k) &&
+      (!hideCovered || !specKeyCoveredByCustomFields(k, customFieldNames))
   );
+  const specDisplay = floorSpecDisplayRows(s.spec_display);
+  const hasSpecDisplay = parseSpecDisplay(s.spec_display).length > 0;
   const specCurrentValue = (k: string) => {
     const fromSpecs = sel[k] != null ? String(sel[k]).trim() : "";
     const fromSize = isSetSizeKey(k)
@@ -247,21 +254,26 @@ function ProductSpecsSection({
       ? cuttingRaw
       : "";
   // Stored spec values that have no catalog options (shown read-only).
-  const readonlyRows = Object.entries(sel).filter(([k, v]) => {
-    if (v == null || String(v).trim() === "") return false;
-    if (allFoKeys.includes(k)) return false;
-    if (
-      hideCovered &&
-      specKeyCoveredByCustomFields(k, customFieldNames)
-    ) {
-      return false;
-    }
-    return true;
-  });
+  // Q13: when spec_display is present, floor = custom fields + filtered spec_display.
+  const readonlyRows = hasSpecDisplay
+    ? []
+    : Object.entries(sel).filter(([k, v]) => {
+        if (v == null || String(v).trim() === "") return false;
+        if (isHiddenFloorSpecKey(k)) return false;
+        if (allFoKeys.includes(k)) return false;
+        if (
+          hideCovered &&
+          specKeyCoveredByCustomFields(k, customFieldNames)
+        ) {
+          return false;
+        }
+        return true;
+      });
   if (
     visibleFoKeys.length === 0 &&
     toggleList.length === 0 &&
     readonlyRows.length === 0 &&
+    specDisplay.length === 0 &&
     opts.length === 0 &&
     !cutting
   ) {
@@ -340,6 +352,20 @@ function ProductSpecsSection({
               </label>
             );
           })}
+        </div>
+      ) : null}
+      {specDisplay.length > 0 ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {specDisplay.map((row) => (
+            <div key={row.key || row.label}>
+              <Label>{row.label}</Label>
+              <Input
+                readOnly
+                value={row.value}
+                className="bg-white text-slate-800"
+              />
+            </div>
+          ))}
         </div>
       ) : null}
       {readonlyRows.length > 0 ? (

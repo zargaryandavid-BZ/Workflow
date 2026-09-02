@@ -228,6 +228,80 @@ export function catalogSpecHasDisplayValue(value: string): boolean {
   return value.trim() !== "";
 }
 
+/** Mapper-only ids — stay on spec_selections, never on the floor form. */
+const HIDDEN_FLOOR_SPEC_KEYS = new Set(["BAZAAR_ITEM_ID", "BAZAAR_DIE_ID"]);
+
+/** Already shown as Product / Die / Materials / Finished Size (Q12). */
+const SPEC_DISPLAY_COVERED_KEYS = new Set([
+  "SET_SIZE",
+  "DIE_NAME",
+  "SIZE",
+  "DIE",
+]);
+
+function normalizeSpecKey(key: string): string {
+  return key.replace(/[\s-]+/g, "_").toUpperCase();
+}
+
+export function isHiddenFloorSpecKey(key: string): boolean {
+  return HIDDEN_FLOOR_SPEC_KEYS.has(normalizeSpecKey(key));
+}
+
+export function isSpecDisplayCoveredByCustomFields(key: string): boolean {
+  return SPEC_DISPLAY_COVERED_KEYS.has(normalizeSpecKey(key));
+}
+
+export type SpecDisplayRow = { key: string; label: string; value: string };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/** Admin Order Sync floor rows: `{ key, label, value }`. No Admin/CRM lookup. */
+export function parseSpecDisplay(raw: unknown): SpecDisplayRow[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: SpecDisplayRow[] = [];
+  for (const item of raw) {
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const key = typeof rec.key === "string" ? rec.key.trim() : "";
+    if (key && isHiddenFloorSpecKey(key)) continue;
+    const value =
+      rec.value == null || rec.value === ""
+        ? ""
+        : String(rec.value).trim();
+    if (!value) continue;
+    const labelRaw = typeof rec.label === "string" ? rec.label.trim() : "";
+    const label = labelRaw || (key ? sentenceCaseSpecLabel(key) : value);
+    rows.push({ key, label, value });
+  }
+  return rows;
+}
+
+/**
+ * spec_display from the line, or from a flat / single-item body.
+ * Multi-item carts do not inherit a sibling's display rows.
+ */
+export function resolveLineSpecDisplay(
+  item: unknown,
+  body?: unknown
+): SpecDisplayRow[] | null {
+  const fromItem = parseSpecDisplay(asRecord(item)?.spec_display);
+  if (fromItem.length > 0) return fromItem;
+  const items = asRecord(body)?.items;
+  if (Array.isArray(items) && items.length > 1) return null;
+  const fromBody = parseSpecDisplay(asRecord(body)?.spec_display);
+  return fromBody.length > 0 ? fromBody : null;
+}
+
+/** Floor rows after Q12: drop Size / Die already on custom fields. */
+export function floorSpecDisplayRows(raw: unknown): SpecDisplayRow[] {
+  return parseSpecDisplay(raw).filter(
+    (row) => !row.key || !isSpecDisplayCoveredByCustomFields(row.key)
+  );
+}
+
 /** "APPAREL_CLIENT_PROVIDED" → "Apparel client provided" (Product-label style). */
 export function sentenceCaseSpecLabel(key: string): string {
   const words = key.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
