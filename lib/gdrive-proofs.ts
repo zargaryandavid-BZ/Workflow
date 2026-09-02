@@ -1,6 +1,7 @@
 import "server-only";
 
 import { google } from "googleapis";
+import { Readable } from "stream";
 import type { GdriveSettings } from "@/lib/types";
 import { isGdriveConfigured } from "@/lib/gdrive-settings";
 import { sanitizeDriveFolderName } from "@/lib/google-drive";
@@ -323,3 +324,79 @@ export async function fetchPreviewBytes(
   const buf = Buffer.from(await resp.arrayBuffer());
   return { buffer: buf, contentType: resp.headers.get("content-type") || "image/jpeg" };
 }
+
+
+// ── Approval / proof-set helpers (approval redesign) ────────────────────────
+
+/** Upload an in-memory image into a Drive folder (returns file id + link). */
+export async function uploadImageToFolder(
+  { drive }: ProofsDrive,
+  folderId: string,
+  name: string,
+  buffer: Buffer,
+  contentType: string
+): Promise<{ id: string; webViewLink: string }> {
+  const res = await drive.files.create({
+    requestBody: { name, parents: [folderId] },
+    media: { mimeType: contentType || "image/jpeg", body: Readable.from(buffer) },
+    fields: "id,webViewLink",
+    supportsAllDrives: true,
+  });
+  return { id: res.data.id!, webViewLink: res.data.webViewLink ?? "" };
+}
+
+/** Move files to a new parent folder (add new parent, drop the old one). */
+export async function moveFilesToFolder(
+  { drive }: ProofsDrive,
+  fileIds: string[],
+  fromFolderId: string,
+  toFolderId: string
+): Promise<number> {
+  let moved = 0;
+  for (const id of fileIds) {
+    try {
+      await drive.files.update({
+        fileId: id,
+        addParents: toFolderId,
+        removeParents: fromFolderId,
+        supportsAllDrives: true,
+        fields: "id",
+      });
+      moved += 1;
+    } catch {
+      /* skip a file that can't be moved */
+    }
+  }
+  return moved;
+}
+
+/** Find the next "Approval V<n>" folder name under the designer folder. */
+export async function nextApprovalVersionFolder(
+  client: ProofsDrive,
+  designerFolderId: string
+): Promise<{ id: string; name: string; webViewLink: string; version: number }> {
+  const { drive, sharedDriveId } = client;
+  const res = await drive.files.list({
+    q: [
+      `'${designerFolderId.replace(/'/g, "\\'")}' in parents`,
+      `mimeType='${FOLDER_MIME}'`,
+      "trashed=false",
+    ].join(" and "),
+    fields: "files(name)",
+    pageSize: 200,
+    ...(sharedDriveId
+      ? { supportsAllDrives: true, includeItemsFromAllDrives: true, corpora: "drive" as const, driveId: sharedDriveId }
+      : { supportsAllDrives: true, includeItemsFromAllDrives: true }),
+  });
+  let max = 0;
+  for (const f of res.data.files ?? []) {
+    const m = /^Approval V(\d+)$/i.exec((f.name ?? "").trim());
+    if (m) max = Math.max(max, Number.parseInt(m[1], 10));
+  }
+  const version = max + 1;
+  const f = await ensureChildFolder(client, designerFolderId, `Approval V${version}`);
+  return { id: f.id, name: f.name, webViewLink: f.webViewLink, version };
+}
+
+export const APPROVAL_FOLDER_NAME = "Approval";
+export const FINAL_PROD_FOLDER_NAME = "Final for Prod";
