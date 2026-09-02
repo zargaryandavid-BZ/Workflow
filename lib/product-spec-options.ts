@@ -231,12 +231,13 @@ export function catalogSpecHasDisplayValue(value: string): boolean {
 /** Mapper-only ids — stay on spec_selections, never on the floor form. */
 const HIDDEN_FLOOR_SPEC_KEYS = new Set(["BAZAAR_ITEM_ID", "BAZAAR_DIE_ID"]);
 
-/** Already shown as Product / Die / Materials / Finished Size (Q12). */
+/** Already shown as Product / Die / Materials / Finished Size / Roll Direction (Q12). */
 const SPEC_DISPLAY_COVERED_KEYS = new Set([
   "SET_SIZE",
   "DIE_NAME",
   "SIZE",
   "DIE",
+  "ROLL_DIRECTION",
 ]);
 
 function normalizeSpecKey(key: string): string {

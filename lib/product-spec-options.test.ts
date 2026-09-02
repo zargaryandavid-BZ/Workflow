@@ -242,6 +242,25 @@ describe("spec_display", () => {
     );
   });
 
+  it("drops ROLL_DIRECTION spec_display; keeps Application Service / Box size", () => {
+    assert.equal(isSpecDisplayCoveredByCustomFields("ROLL_DIRECTION"), true);
+    const floor = floorSpecDisplayRows([
+      { key: "ROLL_DIRECTION", label: "Roll direction", value: "1 · Top of Copy" },
+      { key: "SET_SIZE", label: "Size", value: "2.65x2.9" },
+      { key: "DIE", label: "Die", value: "Stizzy" },
+      { key: "APPLICATION", label: "Application Service", value: "Yes" },
+      { key: "BOX", label: "Box size", value: "12x8x4" },
+    ]);
+    assert.deepEqual(
+      floor.map((r) => r.label),
+      ["Application Service", "Box size"]
+    );
+    assert.equal(
+      floor.some((r) => /top of copy/i.test(r.value)),
+      false
+    );
+  });
+
   it("does not inherit order-level spec_display onto a multi-item sibling", () => {
     const body = {
       spec_display: [{ key: "SIZE", label: "Size", value: "2.65x2.9" }],
