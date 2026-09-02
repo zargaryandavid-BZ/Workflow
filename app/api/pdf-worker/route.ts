@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { PDFJS_MAP_POLYFILL_SOURCE } from "@/lib/pdfjs-map-polyfill";
 
 /** Same-origin pdf.js worker so the customer page does not depend on unpkg. */
 export async function GET() {
@@ -8,11 +9,11 @@ export async function GET() {
     process.cwd(),
     "node_modules/pdfjs-dist/build/pdf.worker.min.mjs"
   );
-  const file = await readFile(filePath);
-  return new NextResponse(file, {
+  const file = await readFile(filePath, "utf8");
+  return new NextResponse(`${PDFJS_MAP_POLYFILL_SOURCE}\n${file}`, {
     headers: {
       "Content-Type": "text/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=86400, immutable",
+      "Cache-Control": "public, max-age=3600",
     },
   });
 }

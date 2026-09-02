@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  GripVertical,
   Layers,
   MoveRight,
   User,
@@ -250,7 +251,6 @@ export function GroupedOrderCard({
       className="relative shrink-0"
       data-order-ids={orders.map((o) => o.id).join(",")}
       {...attributes}
-      {...(canDrag ? listeners : {})}
     >
       <div
         onClick={() => {
@@ -260,7 +260,7 @@ export function GroupedOrderCard({
         onContextMenu={handleContextMenu}
         className={cn(
           "rounded-md border-2 border-blue-200 bg-blue-50 px-3 py-3.5 shadow-sm transition-shadow hover:shadow-md",
-          canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+          "cursor-pointer",
           open && "ring-2 ring-blue-400 ring-offset-1",
           containsHighlight && "card-just-closed"
         )}
@@ -288,6 +288,18 @@ export function GroupedOrderCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {canDrag ? (
+              <button
+                type="button"
+                aria-label="Drag group"
+                title="Drag to move the whole group"
+                className="cursor-grab rounded p-0.5 text-blue-400 hover:bg-blue-100 hover:text-blue-600 active:cursor-grabbing"
+                onClick={(e) => e.stopPropagation()}
+                {...listeners}
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
+            ) : null}
             {hasRush ? (
               <span
                 className="inline-flex shrink-0 items-center"

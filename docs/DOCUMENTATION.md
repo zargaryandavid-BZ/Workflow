@@ -256,8 +256,9 @@ Column `kind` drives popup behavior in `components/board/board.tsx` (`onDragEnd`
 1. Creates `job_notifications` row with unique `token`, optional `token_expires_at`.
 2. Builds customer URL: `{NEXT_PUBLIC_APP_URL}/respond/{token}`.
 3. Sends via Instantly (`lib/email.ts`) or Twilio (`lib/sms.ts`), or logs URL if unconfigured.
-4. Logs `activity_log` entry (`notification_sent`).
-5. Order **stays** in the trigger column until the customer responds (move happens in `respondToNotification`).
+4. Logs `activity_log` entry (`customer_notified`).
+5. Stops any open work timer on that card immediately (`Finished — …` in history). Dropping into Waiting Approval / Missing Info / Hold does the same; a later Stop click cannot extend the time.
+6. Order **stays** in the trigger column until the customer responds (move happens in `respondToNotification`).
 
 ### Customer response
 
@@ -1564,7 +1565,7 @@ Public server page for `/respond/[token]`. Loads notification via `get_notificat
 
 ### `OrderReview` — `components/respond/order-review.tsx`
 
-Read-only order summary for customers: meta chips, SKU table, artwork grid. Photos open in a large lightbox; Final-for-Prod PDFs (`PdfOcgFromUrl`) open a full-screen viewer on click (layers stay available). Asset URLs still go through `/api/notifications/asset`.
+Read-only order summary for customers: meta chips, SKU table, artwork. Photos: one picture and one approve/reject per file. PDF multilayer: every page is drawn in a grid (Image 1…N), each with its own approve/reject. Asset URLs still go through `/api/notifications/asset`.
 
 ---
 
@@ -1742,7 +1743,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 - `RespondForm` shows Approve / Not Approved buttons.
 - Customer may leave a note on rejection.
-- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf`. Layer chips are **multi-select** (`ALL` plus named OCGs; generic `Layer 1` / `Layer N` chips are hidden). Toolbar: filename, then **Select Image** numbered chips, then **Select Layer**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
+- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf`. Layer chips are **exclusive** (`ALL` or one named OCG; generic `Layer 1` / `Layer N` chips are hidden). Multi-page proofs show **Side N of M** and a notice to review all sides. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
 
 ### 4a. Approved → card moves per Automations settings
 

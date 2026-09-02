@@ -242,3 +242,44 @@ export function orderGroupSearchSuggestions(
 
   return out.slice(0, 5);
 }
+
+const MAX_SIBLING_KEYS = 40;
+
+/**
+ * Keys used to pull same-column group siblings that pagination would omit.
+ * Webhook numbers and title prefixes are listed separately for PostgREST filters.
+ */
+export function groupingKeysForSiblingFetch(
+  orders: Array<{
+    title: string;
+    specs?: Record<string, unknown> | null;
+  }>
+): { webhookKeys: string[]; titlePrefixes: string[] } {
+  const webhookKeys: string[] = [];
+  const titlePrefixes: string[] = [];
+  const seenWebhook = new Set<string>();
+  const seenTitle = new Set<string>();
+
+  for (const order of orders) {
+    const webhookKey =
+      typeof order.specs?.webhook_order_number === "string"
+        ? order.specs.webhook_order_number.trim()
+        : "";
+    if (webhookKey) {
+      if (!seenWebhook.has(webhookKey) && webhookKeys.length < MAX_SIBLING_KEYS) {
+        seenWebhook.add(webhookKey);
+        webhookKeys.push(webhookKey);
+      }
+      continue;
+    }
+    const match = order.title.match(/^(.+)-(\d+)$/);
+    if (!match) continue;
+    const prefix = match[1];
+    if (!seenTitle.has(prefix) && titlePrefixes.length < MAX_SIBLING_KEYS) {
+      seenTitle.add(prefix);
+      titlePrefixes.push(prefix);
+    }
+  }
+
+  return { webhookKeys, titlePrefixes };
+}

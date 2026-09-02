@@ -4,6 +4,7 @@ import {
 } from "@/lib/orders/validate-ready-to-move";
 import { maybeSaveArtworkOnLeaveStart } from "@/lib/orders/save-order-artwork-client";
 import { refreshGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
+import { notifyTimeEntriesChanged } from "@/lib/time-tracking";
 import type { BoardColumn } from "@/lib/types";
 
 export type MoveOrderResult =
@@ -35,6 +36,7 @@ export async function requestOrderMove(
   });
 
   if (res.ok) {
+    notifyTimeEntriesChanged();
     if (options?.columns?.length && options.fromColumnId) {
       maybeSaveArtworkOnLeaveStart({
         orderId: body.orderId,

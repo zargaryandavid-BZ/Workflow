@@ -129,7 +129,9 @@ describe("sku approval notes", () => {
     assert.equal(approvalImageAssetId(2, [{ id: "a" }]), "pdfpage:2");
     assert.equal(approvalImageSlotCount(10, 12), 12);
     assert.equal(approvalImageSlotCount(10, 0), 10);
+    assert.equal(approvalImageSlotCount(3, 5), 5);
     assert.equal(approvalImageSlotCount(1, 12), 12);
+    assert.equal(approvalImageSlotCount(0, 5), 5);
     assert.equal(approvalImageSlotCount(1, 1), 1);
     assert.deepEqual(
       imageDecisionsByKey(
@@ -141,7 +143,7 @@ describe("sku approval notes", () => {
         ]
       ),
       {
-        [imageDecisionKey("sku", "img-1")]: "approved",
+        [imageDecisionKey("sku", "pdfpage:1")]: "approved",
         [imageDecisionKey("sku", "pdfpage:2")]: "rejected",
       }
     );

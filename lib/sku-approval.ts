@@ -44,7 +44,7 @@ export function imageDecisionKey(skuId: string, assetId: string): string {
   return `${skuId}::${assetId}`;
 }
 
-/** Gallery file for Image N, or `pdfpage:N` when the PDF has extra pages. */
+/** Gallery file for Image N, or `pdfpage:N` when that slot is a PDF page. */
 export function approvalImageAssetId(
   imageIndex: number,
   gallery: { id: string }[]
@@ -52,7 +52,17 @@ export function approvalImageAssetId(
   return gallery[imageIndex - 1]?.id ?? `pdfpage:${imageIndex}`;
 }
 
-/** How many Image 1…N slots to collect. PDF pages can outnumber JPGs. */
+/** Photos → one slot per file. PDF multilayer → one slot per page. */
+export function approvalSlotAssetId(
+  imageIndex: number,
+  gallery: { id: string }[],
+  pdfPageCount = 0
+): string {
+  if (pdfPageCount > 1) return `pdfpage:${imageIndex}`;
+  return approvalImageAssetId(imageIndex, gallery);
+}
+
+/** How many Image 1…N slots. PDF pages count when the PDF is open (page count > 1). */
 export function approvalImageSlotCount(
   galleryLength: number,
   pdfPageCount = 0
@@ -208,12 +218,20 @@ export function imageDecisionsByKey(
     decision: SkuApprovalDecision;
   }[]
 ): Record<string, SkuApprovalDecision> {
+  const countBySku = new Map<number, number>();
+  for (const entry of imageEntries) {
+    countBySku.set(entry.skuIndex, (countBySku.get(entry.skuIndex) ?? 0) + 1);
+  }
   const byKey: Record<string, SkuApprovalDecision> = {};
   for (const entry of imageEntries) {
     const sku = skus[entry.skuIndex - 1];
     if (!sku) continue;
-    const img = (imagesBySkuId[sku.id] ?? [])[entry.imageIndex - 1];
-    const assetId = img?.id ?? `pdfpage:${entry.imageIndex}`;
+    const gallery = imagesBySkuId[sku.id] ?? [];
+    const decided = countBySku.get(entry.skuIndex) ?? 0;
+    const assetId =
+      decided > gallery.length
+        ? `pdfpage:${entry.imageIndex}`
+        : gallery[entry.imageIndex - 1]?.id ?? `pdfpage:${entry.imageIndex}`;
     byKey[imageDecisionKey(sku.id, assetId)] = entry.decision;
   }
   return byKey;

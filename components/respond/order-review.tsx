@@ -17,7 +17,6 @@ import {
 } from "@/lib/respond-order";
 import { formatFileSize } from "@/lib/respond-page";
 import {
-  approvalImageAssetId,
   approvalImageSlotCount,
   imageDecisionKey,
   skuLabel,
@@ -270,7 +269,6 @@ function SkuArtworkBlock({
   const canShowPdf = Boolean(finalPdf && orderId);
   const hasPhotos = skuArt.length > 0;
   const [showPdf, setShowPdf] = useState(canShowPdf);
-  const [pdfPage, setPdfPage] = useState(1);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
   const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
@@ -298,22 +296,22 @@ function SkuArtworkBlock({
         </label>
       ) : null}
       {pdfOn && finalPdf && orderId ? (
-        <>
-          <PdfOcgFromUrl
-            src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
-            fileName={finalPdf.fileName}
-            onPageCount={(n) => skuUi.setPdfPageCount?.(skuId, n)}
-            onPageNumber={setPdfPage}
-          />
-          {perImage ? (
-            <div className="mt-2">
-              <ImageDecisionControls
-                skuId={skuId}
-                assetId={approvalImageAssetId(pdfPage, skuArt)}
-              />
-            </div>
-          ) : null}
-        </>
+        <PdfOcgFromUrl
+          src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
+          fileName={finalPdf.fileName}
+          layout="grid"
+          onPageCount={(n) => skuUi.setPdfPageCount?.(skuId, n)}
+          renderPageActions={
+            perImage || pdfPages > 1
+              ? (page) => (
+                  <ImageDecisionControls
+                    skuId={skuId}
+                    assetId={`pdfpage:${page}`}
+                  />
+                )
+              : undefined
+          }
+        />
       ) : skuArt.length > 0 ? (
         <>
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">

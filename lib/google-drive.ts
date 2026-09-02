@@ -373,6 +373,30 @@ export function parseDriveIdFromUrl(urlOrId: string): string | null {
 }
 
 /**
+ * False when the folder is missing or in Drive Trash. Used so we do not keep
+ * linking a renamed/deleted job folder after the live `{code}_{Customer}_Y`
+ * folder already exists.
+ */
+export async function isLiveDriveFolder(
+  settings: GdriveSettings,
+  urlOrId: string
+): Promise<boolean> {
+  const id = parseDriveIdFromUrl(urlOrId);
+  if (!id || !isGdriveConfigured(settings)) return false;
+  try {
+    const drive = driveClient(settings);
+    const res = await drive.files.get({
+      fileId: id,
+      fields: "id, trashed",
+      supportsAllDrives: true,
+    });
+    return Boolean(res.data.id) && res.data.trashed !== true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when the Drive folder has at least one non-folder, non-trashed item
  * directly inside it, or inside an immediate child folder (one level deep).
  * That way a parent job folder still counts as "has files" when Final production

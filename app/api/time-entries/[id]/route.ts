@@ -171,6 +171,22 @@ export async function PATCH(
     patch.pause_reason = null;
   }
 
+  // Auto-stop on Waiting Approval already ended the row. A later click on
+  // the stale Stop button must not rewrite ended_at and pad the duration.
+  if (row.ended_at && body.ended_at !== undefined && body.ended_at !== null) {
+    const { data: current } = await supabase
+      .from("time_entries")
+      .select(SELECT)
+      .eq("id", id)
+      .eq("tenant_id", ctx.tenant.id)
+      .single();
+    if (current) {
+      return NextResponse.json({
+        entry: mapEntry(current as unknown as RawEntry),
+      });
+    }
+  }
+
       if (body.ended_at !== undefined) {
         if (body.ended_at === null) {
           patch.ended_at = null;

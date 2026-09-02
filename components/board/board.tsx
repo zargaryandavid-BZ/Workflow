@@ -629,6 +629,8 @@ export function Board({
     columnName: string;
   } | null>(null);
   const [groupedView, setGroupedView] = useState(false);
+  const groupedViewRef = useRef(false);
+  groupedViewRef.current = groupedView;
   const [boardView, setBoardView] = useState<"kanban" | "table" | "list">(
     "kanban"
   );
@@ -1300,7 +1302,7 @@ export function Board({
             isStartColumn: isStartColumn(columnId, columnsRef.current),
           }
         );
-        const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}&sort=${encodeURIComponent(sortMode)}`;
+        const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}&sort=${encodeURIComponent(sortMode)}${groupedViewRef.current ? "&groupSiblings=1" : ""}`;
         let res: Response;
         try {
           res = await fetchWithAuth(url);
@@ -1453,6 +1455,19 @@ export function Board({
     [] // all dependencies are refs or stable setters
   );
   fetchColumnOrdersRef.current = fetchColumnOrders;
+
+  const groupedViewBootRef = useRef(true);
+  useEffect(() => {
+    if (groupedViewBootRef.current) {
+      groupedViewBootRef.current = false;
+      return;
+    }
+    for (const col of columnsRef.current) {
+      if (loadedColumnsRef.current.has(col.id)) {
+        void fetchColumnOrdersRef.current(col.id, 0);
+      }
+    }
+  }, [groupedView]);
 
   // Called by Column's IntersectionObserver / Table when a column needs data.
   // Retry allowed after error; idle kicks off the first load.
@@ -3126,10 +3141,12 @@ export function Board({
                       className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
-                        setOrderQuery(`${suggestion.key}-`);
-                        setGroupSuggestionsOpen(true);
+                        setOrderQuery(suggestion.key);
+                        setGroupSuggestionsOpen(false);
+                        setBoardView("kanban");
+                        setGroupedView(true);
                       }}
-                      title="Continue typing the part number"
+                      title="Show every part in this order group"
                     >
                       <span>{suggestion.label}</span>
                       <span className="text-xs font-normal text-slate-500">
@@ -3382,17 +3399,24 @@ export function Board({
           <button
             type="button"
             aria-pressed={groupedView}
-            onClick={() => setGroupedView((enabled) => !enabled)}
+            onClick={() => {
+              setGroupedView((enabled) => {
+                const next = !enabled;
+                if (next) setBoardView("kanban");
+                return next;
+              });
+            }}
             className={cn(
-              "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border transition-colors",
+              "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border px-2 text-sm font-medium transition-colors",
               groupedView
                 ? "border-blue-400 bg-blue-50 text-blue-700"
                 : "border-slate-300 text-slate-600 hover:bg-slate-50"
             )}
-            aria-label="Group related cards"
-            title="Group related cards"
+            aria-label="Group related order cards"
+            title="Stack multi-part orders (same column) into one card"
           >
-            <Layers className="h-4 w-4" />
+            <Layers className="h-4 w-4 shrink-0" />
+            Group
           </button>
           {canAnimateWarnings ? (
             <button

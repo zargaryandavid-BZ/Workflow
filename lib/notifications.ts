@@ -37,7 +37,10 @@ import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
-import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
+import {
+  maybeStopWorkTimersOnColumnEnter,
+  stopTimersAfterCustomerNotify,
+} from "@/lib/stop-order-timers";
 import type {
   CustomerResponse,
   JobNotification,
@@ -636,6 +639,15 @@ export async function dispatchNotification(
           params.order.tenant_id,
           params.notification.token
         );
+  if (
+    params.notification.type === "customer_approval" ||
+    params.notification.type === "missing_info"
+  ) {
+    await stopTimersAfterCustomerNotify({
+      tenantId: params.order.tenant_id,
+      orderIds: [params.order.id],
+    });
+  }
   return {
     actionUrl,
     warning: delivery.error ?? null,
@@ -705,6 +717,7 @@ export async function createNotification(
   }
 
   const extraNotificationIds: string[] = [];
+  const timerOrderIds = [params.order.id];
   if (params.type === "customer_approval") {
     const extraIds = new Set<string>(
       (params.groupOrderIds ?? []).filter(
@@ -746,6 +759,7 @@ export async function createNotification(
         .single();
       if (extraErr) throw new Error(extraErr.message);
       extraNotificationIds.push(extra.id as string);
+      timerOrderIds.push(orderId);
       await expireOtherApprovalRequests(client, orderId, extra.id as string);
       try {
         await snapshotApprovalFiles(client, extra.id as string);
@@ -836,6 +850,16 @@ export async function createNotification(
       actor: params.createdBy ?? null,
       action: "customer_notified",
       metadata: { type: params.type, channel: params.channel },
+    });
+  }
+
+  if (
+    (params.type === "customer_approval" || params.type === "missing_info") &&
+    params.channel !== "none"
+  ) {
+    await stopTimersAfterCustomerNotify({
+      tenantId: params.order.tenant_id,
+      orderIds: timerOrderIds,
     });
   }
 

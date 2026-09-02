@@ -20,8 +20,8 @@ import {
 } from "@/lib/respond-page";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import {
-  approvalImageAssetId,
   approvalImageSlotCount,
+  approvalSlotAssetId,
   formatSkuApprovalNote,
   imageDecisionKey,
   overallApprovalResponse,
@@ -219,7 +219,11 @@ export function RespondForm({
           imageChoices[
             imageDecisionKey(
               sku.id,
-              approvalImageAssetId(imgIdx + 1, imgs)
+              approvalSlotAssetId(
+                imgIdx + 1,
+                imgs,
+                pdfPageCountBySku[sku.id] ?? 0
+              )
             )
           ]
         )
@@ -246,7 +250,11 @@ export function RespondForm({
       );
       if (slotCount >= 2) {
         for (let imgIdx = 0; imgIdx < slotCount; imgIdx += 1) {
-          const assetId = approvalImageAssetId(imgIdx + 1, imgs);
+          const assetId = approvalSlotAssetId(
+            imgIdx + 1,
+            imgs,
+            pdfPageCountBySku[sku.id] ?? 0
+          );
           const decision = imageChoices[imageDecisionKey(sku.id, assetId)];
           if (!decision) return null;
           imageEntries.push({

@@ -9,6 +9,7 @@ import type {
   RenderTask,
 } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
+import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-map-polyfill";
 import {
   layersFromOptionalContent,
   mergePdfLayers,
@@ -17,7 +18,7 @@ import {
 } from "@/lib/pdf-ocg";
 
 if (typeof window !== "undefined") {
-  GlobalWorkerOptions.workerSrc = "/api/pdf-worker";
+  GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
 }
 
 type LayerBtn = PdfLayer;

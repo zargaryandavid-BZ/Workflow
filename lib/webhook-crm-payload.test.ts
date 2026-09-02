@@ -6,7 +6,9 @@ import {
   crmDesignerNote,
   crmLineProductionNote,
   crmOrderIdFromPayload,
+  crmOrderProductionNote,
   crmTicketStaffNote,
+  parseCrmLabeledNotes,
   webhookPrintQty,
   withOrderQtyDetails,
 } from "./webhook-crm-parse.ts";
@@ -125,6 +127,33 @@ describe("CRM order webhook payload", () => {
       "For production"
     );
     assert.equal(crmOrderIdFromPayload(order), "crm-ord-1");
+  });
+
+  it("splits a mashed For Prod notes blob onto production, not internal", () => {
+    const blob = "For Prod:\nPICK PREVIOUS JOB TO MAKE 1LB BAGS";
+    const labeled = parseCrmLabeledNotes(blob);
+    assert.equal(labeled.production, "PICK PREVIOUS JOB TO MAKE 1LB BAGS");
+    assert.equal(labeled.designer, null);
+    assert.equal(labeled.remainder, null);
+    assert.equal(crmTicketStaffNote({ notes: blob }), null);
+    assert.equal(
+      crmOrderProductionNote({ notes: blob }),
+      "PICK PREVIOUS JOB TO MAKE 1LB BAGS"
+    );
+  });
+
+  it("splits For Designer out of a combined notes blob", () => {
+    const blob =
+      "For Designer:\nMatch prior batch\n\nFor Prod:\nRewind 1-Top";
+    assert.equal(
+      crmDesignerNote({ notes: blob }),
+      "Match prior batch"
+    );
+    assert.equal(
+      crmOrderProductionNote({ notes: blob }),
+      "Rewind 1-Top"
+    );
+    assert.equal(crmTicketStaffNote({ notes: blob }), null);
   });
 
   it("does not treat empty CRM notes as a value", () => {

@@ -13,6 +13,7 @@ import type { BoardThumbnail } from "@/lib/card-image";
 import type { OrderWithRelations } from "@/lib/types";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { rankDesignerQueue } from "@/lib/designer-queue-rank";
+import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
 
 export const PAGE_SIZE = 25;
 
@@ -128,6 +129,9 @@ export async function GET(req: NextRequest) {
     const sort: ColumnSortMode = isColumnSortMode(sortParam)
       ? sortParam
       : "moved_desc";
+    const groupSiblings =
+      searchParams.get("groupSiblings") === "1" ||
+      searchParams.get("groupSiblings") === "true";
 
     if (!columnId) {
       return NextResponse.json({ error: "columnId required" }, { status: 400 });
@@ -169,9 +173,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const orders = (rawOrders ?? []) as OrderWithRelations[];
+    const pageOrders = (rawOrders ?? []) as OrderWithRelations[];
     const total = count ?? 0;
     const hasMore = total > (page + 1) * PAGE_SIZE;
+    const orders = groupSiblings
+      ? await withSameColumnGroupSiblings(
+          supabase,
+          tenantId,
+          columnId,
+          ctx.role === "designer" ? ctx.userId : null,
+          pageOrders
+        )
+      : pageOrders;
 
     const empty: ColumnOrdersResponse = {
       orders: [],
@@ -222,6 +235,64 @@ export async function GET(req: NextRequest) {
       { status: transient ? 503 : 500 }
     );
   }
+}
+
+function escapeIlike(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/[%_,]/g, "\\$&");
+}
+
+/**
+ * Pagination only returns PAGE_SIZE rows, so 129-1 can load without 129-2.
+ * Pull other same-column parts for keys already on this page so Group view
+ * can stack them.
+ */
+async function withSameColumnGroupSiblings(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  tenantId: string,
+  columnId: string,
+  designerId: string | null,
+  pageOrders: OrderWithRelations[]
+): Promise<OrderWithRelations[]> {
+  if (pageOrders.length === 0) return pageOrders;
+  const { webhookKeys, titlePrefixes } = groupingKeysForSiblingFetch(pageOrders);
+  const orParts: string[] = [];
+  for (const key of webhookKeys) {
+    if (key.includes(",") || key.includes(")")) continue;
+    orParts.push(`specs->>webhook_order_number.eq.${key}`);
+  }
+  for (const prefix of titlePrefixes) {
+    if (prefix.includes(",") || prefix.includes(")")) continue;
+    orParts.push(`title.ilike.${escapeIlike(prefix)}-%`);
+  }
+  if (orParts.length === 0) return pageOrders;
+
+  const existingIds = new Set(pageOrders.map((o) => o.id));
+  let query = supabase
+    .from("orders")
+    .select("*, customer:customers(*), tag:tags(id, name, color)")
+    .eq("tenant_id", tenantId)
+    .eq("column_id", columnId)
+    .is("removed_at", null)
+    .or(orParts.join(","))
+    .limit(300);
+  if (designerId) {
+    query = query.eq("specs->>designer_id", designerId);
+  }
+
+  const { data, error } = await query;
+  if (error || !data) {
+    if (error) {
+      console.warn("[column-orders] group sibling fetch skipped:", error.message);
+    }
+    return pageOrders;
+  }
+
+  const extras = (data as OrderWithRelations[]).filter(
+    (order) => !existingIds.has(order.id)
+  );
+  if (extras.length === 0) return pageOrders;
+  return [...pageOrders, ...extras];
 }
 
 /**

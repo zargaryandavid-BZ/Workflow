@@ -17,6 +17,7 @@ import {
   crmCustomerIdFromPayload,
   crmDesignerNote,
   crmLineProductionNote,
+  crmOrderProductionNote,
 } from "@/lib/webhook-crm-parse";
 import {
   mergeWebhookDesignerNotes,
@@ -47,31 +48,41 @@ function v2CrmNotes(payload: WebhookV2Payload): {
 } {
   const line = firstLineItem(payload);
   const customer = crmCustomerFacingNote(
-    { description: asTrimmedString(payload.description) },
+    {
+      description: asTrimmedString(payload.description),
+      notes: asTrimmedString(payload.notes),
+      internal_note: asTrimmedString(payload.internal_note),
+    },
     line ? { description: asTrimmedString(line.description) } : undefined
   );
   const designer = crmDesignerNote({
     notes_for_designer: asTrimmedString(payload.notes_for_designer),
     designer_notes: asTrimmedString(payload.designer_notes),
     designer_information: asTrimmedString(payload.designer_information),
+    notes: asTrimmedString(payload.notes),
+    internal_note: asTrimmedString(payload.internal_note),
   }) ??
     (line
       ? crmDesignerNote({
           notes_for_designer: asTrimmedString(line.notes_for_designer),
           designer_notes: asTrimmedString(line.designer_notes),
           designer_information: asTrimmedString(line.designer_information),
+          notes: asTrimmedString(line.notes),
         })
       : null);
   const production =
-    crmLineProductionNote({
+    crmOrderProductionNote({
       production_notes: asTrimmedString(payload.production_notes),
       notes_for_production: asTrimmedString(payload.notes_for_production),
+      notes: asTrimmedString(payload.notes),
+      internal_note: asTrimmedString(payload.internal_note),
     }) ??
     (line
       ? crmLineProductionNote({
           production_notes: asTrimmedString(line.production_notes),
           notes_for_production: asTrimmedString(line.notes_for_production),
           comment: asTrimmedString(line.comment),
+          notes: asTrimmedString(line.notes),
         })
       : null);
   return {

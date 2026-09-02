@@ -7,7 +7,7 @@ import {
   ensureGdriveSettings,
   isGdriveConfigured,
 } from "@/lib/gdrive-settings";
-import { ensureOrderDriveFolders } from "@/lib/google-drive";
+import { ensureOrderDriveFolders, isLiveDriveFolder } from "@/lib/google-drive";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
 
 type Client = SupabaseClient;
@@ -167,6 +167,7 @@ async function upsertDesignTaskLink(
         ? { ...(row.specs as Record<string, unknown>) }
         : {};
     specs.design_task = jobUrl;
+    specs.gdrive_item_folder_url = jobUrl;
     const { error } = await client
       .from("orders")
       .update({ specs })
@@ -212,12 +213,46 @@ export async function attachGdriveFoldersToOrders(
 ): Promise<AttachGdriveResult | null> {
   if (orders.length === 0) return null;
 
-  const withCrmFolder = orders.filter((o) =>
-    driveFolderUrlFromOrderSpecs(o.specs)
+  const withCrmFolder: OrderForGdrive[] = [];
+  const needsCreate: OrderForGdrive[] = [];
+
+  let settings;
+  try {
+    settings = await ensureGdriveSettings(client, tenantId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (
+      message.includes("gdrive_settings") ||
+      message.includes("schema cache") ||
+      message.includes("does not exist")
+    ) {
+      settings = null;
+    } else {
+      console.error("[gdrive] load settings failed", err);
+      settings = null;
+    }
+  }
+
+  const canCheckLive = Boolean(
+    settings && settings.enabled && isGdriveConfigured(settings)
   );
-  const needsCreate = orders.filter(
-    (o) => !driveFolderUrlFromOrderSpecs(o.specs)
-  );
+
+  for (const order of orders) {
+    const url = driveFolderUrlFromOrderSpecs(order.specs);
+    if (!url) {
+      needsCreate.push(order);
+      continue;
+    }
+    if (
+      canCheckLive &&
+      settings &&
+      !(await isLiveDriveFolder(settings, url))
+    ) {
+      needsCreate.push(order);
+      continue;
+    }
+    withCrmFolder.push(order);
+  }
 
   for (const order of withCrmFolder) {
     const url = driveFolderUrlFromOrderSpecs(order.specs);
@@ -237,23 +272,7 @@ export async function attachGdriveFoldersToOrders(
       : null;
   }
 
-  let settings;
-  try {
-    settings = await ensureGdriveSettings(client, tenantId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (
-      message.includes("gdrive_settings") ||
-      message.includes("schema cache") ||
-      message.includes("does not exist")
-    ) {
-      return null;
-    }
-    console.error("[gdrive] load settings failed", err);
-    return null;
-  }
-
-  if (!settings.enabled || !isGdriveConfigured(settings)) {
+  if (!settings || !settings.enabled || !isGdriveConfigured(settings)) {
     return null;
   }
 

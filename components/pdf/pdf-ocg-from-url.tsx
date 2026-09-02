@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Image as ImageIcon, Layers, Maximize2, X } from "lucide-react";
+import { Fragment } from "react";
+import { Info, Maximize2, X } from "lucide-react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
+import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-map-polyfill";
 import {
   isUnnamedPdfLayer,
   layersFromOptionalContent,
@@ -16,7 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 
 if (typeof window !== "undefined") {
-  GlobalWorkerOptions.workerSrc = "/api/pdf-worker";
+  GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
 }
 
 const PDF_INTENT = "any" as const;
@@ -26,11 +28,16 @@ export function PdfOcgFromUrl({
   fileName,
   onPageCount,
   onPageNumber,
+  layout = "single",
+  renderPageActions,
 }: {
   src: string;
   fileName: string;
   onPageCount?: (count: number) => void;
   onPageNumber?: (page: number) => void;
+  /** `grid` draws every page (PDF multilayer = one picture per page). */
+  layout?: "single" | "grid";
+  renderPageActions?: (page: number) => ReactNode;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +47,12 @@ export function PdfOcgFromUrl({
   const [pageNumber, setPageNumber] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const [loadSeconds, setLoadSeconds] = useState(0);
+  const [pageActionMounts, setPageActionMounts] = useState<
+    { page: number; el: HTMLElement }[]
+  >([]);
   const pagesRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const ocRef = useRef<OptionalContentConfig | null>(null);
   const pageNumberRef = useRef(1);
@@ -75,50 +87,92 @@ export function PdfOcgFromUrl({
     if (!pdf || !host) return;
     const pad = 8;
     const availW = Math.max(host.clientWidth - pad, 1);
-    const availH = Math.max(host.clientHeight - pad, 1);
-    if (availW < 8 || availH < 8) return;
+    if (availW < 8) return;
     cancelRenders();
     host.innerHTML = "";
+    setPageActionMounts([]);
     const oc = ocRef.current;
-    const n = Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
-    const page: PDFPageProxy = await pdf.getPage(n);
-    const unscaled = page.getViewport({ scale: 1 });
-    const scale = Math.min(availW / unscaled.width, availH / unscaled.height);
-    const viewport = page.getViewport({ scale });
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(viewport.width * dpr);
-    canvas.height = Math.floor(viewport.height * dpr);
-    canvas.style.width = `${viewport.width}px`;
-    canvas.style.height = `${viewport.height}px`;
-    canvas.style.maxWidth = "100%";
-    canvas.style.maxHeight = "100%";
-    canvas.className = "rounded border border-slate-200 bg-white shadow-sm";
-    host.appendChild(canvas);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const task = page.render({
-      canvas,
-      canvasContext: ctx,
-      viewport,
-      intent: PDF_INTENT,
-      optionalContentConfigPromise: oc ? Promise.resolve(oc) : undefined,
-    });
-    renderTasksRef.current.push(task);
-    try {
-      await task.promise;
-    } catch (err) {
-      if (
-        err &&
-        typeof err === "object" &&
-        "name" in err &&
-        (err as { name: string }).name === "RenderingCancelledException"
-      ) {
-        return;
+    const grid = layoutRef.current === "grid";
+
+    async function paintPage(
+      pageIndex: number,
+      boxW: number,
+      boxH: number | null,
+      parent: HTMLElement
+    ) {
+      const page: PDFPageProxy = await pdf!.getPage(pageIndex);
+      const unscaled = page.getViewport({ scale: 1 });
+      const scale = boxH
+        ? Math.min(boxW / unscaled.width, boxH / unscaled.height)
+        : boxW / unscaled.width;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      canvas.width = Math.floor(viewport.width * dpr);
+      canvas.height = Math.floor(viewport.height * dpr);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      canvas.style.maxWidth = "100%";
+      canvas.style.maxHeight = boxH ? "100%" : "none";
+      canvas.className = "rounded border border-slate-200 bg-white shadow-sm";
+      parent.appendChild(canvas);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const task = page.render({
+        canvas,
+        canvasContext: ctx,
+        viewport,
+        intent: PDF_INTENT,
+        optionalContentConfigPromise: oc ? Promise.resolve(oc) : undefined,
+      });
+      renderTasksRef.current.push(task);
+      try {
+        await task.promise;
+      } catch (err) {
+        if (
+          err &&
+          typeof err === "object" &&
+          "name" in err &&
+          (err as { name: string }).name === "RenderingCancelledException"
+        ) {
+          return;
+        }
+        throw err;
       }
-      throw err;
     }
+
+    if (grid) {
+      const cols = availW >= 640 ? 3 : 2;
+      const gap = 8;
+      const cellW = Math.max((availW - gap * (cols - 1)) / cols, 40);
+      const mounts: { page: number; el: HTMLElement }[] = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const wrap = document.createElement("div");
+        wrap.className = "flex min-w-0 flex-col gap-1.5";
+        const canvasHold = document.createElement("div");
+        canvasHold.className = "flex cursor-zoom-in items-center justify-center";
+        canvasHold.addEventListener("click", (e) => {
+          e.stopPropagation();
+          setPageNumber(i);
+          setExpanded(true);
+        });
+        wrap.appendChild(canvasHold);
+        const actions = document.createElement("div");
+        actions.dataset.pageActions = String(i);
+        wrap.appendChild(actions);
+        host.appendChild(wrap);
+        await paintPage(i, cellW, null, canvasHold);
+        mounts.push({ page: i, el: actions });
+      }
+      setPageActionMounts(mounts);
+      return;
+    }
+
+    const availH = Math.max(host.clientHeight - pad, 1);
+    if (availH < 8) return;
+    const n = Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
+    await paintPage(n, availW, availH, host);
   }, [cancelRenders]);
 
   useEffect(() => {
@@ -202,7 +256,7 @@ export function PdfOcgFromUrl({
       void drawPages();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [expanded, pageNumber, drawPages]);
+  }, [expanded, pageNumber, drawPages, layout]);
 
   useEffect(() => {
     onPageCount?.(pageCount);
@@ -259,11 +313,8 @@ export function PdfOcgFromUrl({
     void applyVisibility(new Set(layers.map((layer) => layer.id)));
   }
 
-  function toggleLayer(id: string) {
-    const next = new Set(visibleIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    void applyVisibility(next);
+  function selectLayer(id: string) {
+    void applyVisibility(new Set([id]));
   }
 
   const allOn = layers.length > 0 && layers.every((layer) => visibleIds.has(layer.id));
@@ -283,6 +334,12 @@ export function PdfOcgFromUrl({
       )}
     >
       <div className="shrink-0 space-y-2 border-b border-slate-100 px-3 py-2">
+        {pageCount >= 2 && !loading && !error ? (
+          <div className="flex items-center gap-1.5 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
+            <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Please review all {pageCount} sides before approving.
+          </div>
+        ) : null}
         <div className="flex min-w-0 items-center gap-2">
           <span className="min-w-0 truncate text-sm font-medium text-slate-600">
             {fileName}
@@ -297,11 +354,10 @@ export function PdfOcgFromUrl({
             {expanded ? <X className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
         </div>
-        {pageCount >= 1 && !loading && !error ? (
+        {pageCount >= 1 && !loading && !error && layout !== "grid" ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-slate-700">
-              <ImageIcon className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
-              Select Image
+            <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Image
             </span>
             <div
               className="inline-flex flex-wrap items-center gap-1.5"
@@ -317,9 +373,9 @@ export function PdfOcgFromUrl({
                     type="button"
                     aria-pressed={on}
                     onClick={() => setPageNumber(n)}
-                    className={cn("min-w-[2rem]", chip(on))}
+                    className={chip(on)}
                   >
-                    {n}
+                    Side {n} of {pageCount}
                   </button>
                 );
               })}
@@ -328,9 +384,8 @@ export function PdfOcgFromUrl({
         ) : null}
         {!loading && !error ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-slate-700">
-              <Layers className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
-              Select Layer
+            <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Layer
             </span>
             {layers.length > 0 ? (
               <>
@@ -345,8 +400,11 @@ export function PdfOcgFromUrl({
                   <button
                     key={layer.id}
                     type="button"
-                    onClick={() => toggleLayer(layer.id)}
-                    className={cn("max-w-[12rem] truncate", chip(visibleIds.has(layer.id)))}
+                    onClick={() => selectLayer(layer.id)}
+                    className={cn(
+                      "max-w-[12rem] truncate",
+                      chip(visibleIds.size === 1 && visibleIds.has(layer.id))
+                    )}
                     title={layer.name}
                   >
                     {layer.name}
@@ -365,7 +423,11 @@ export function PdfOcgFromUrl({
         <div
           className={cn(
             "relative flex w-full items-center justify-center",
-            expanded ? "min-h-0 flex-1" : "h-[min(75vh,40rem)] min-h-[28rem]"
+            expanded
+              ? "min-h-0 flex-1 overflow-auto"
+              : layout === "grid"
+                ? "min-h-0"
+                : "h-[min(75vh,40rem)] min-h-[28rem]"
           )}
         >
           {loading ? (
@@ -391,15 +453,39 @@ export function PdfOcgFromUrl({
           ) : null}
           <div
             ref={pagesRef}
-            title={expanded || loading ? undefined : "Click to open large view"}
+            title={
+              expanded || loading || layout === "grid"
+                ? undefined
+                : "Click to open large view"
+            }
             className={cn(
-              "flex h-full w-full items-center justify-center p-2",
-              !expanded && !loading ? "cursor-zoom-in" : null
+              "w-full p-2",
+              layout === "grid"
+                ? "grid grid-cols-2 gap-2 sm:grid-cols-3"
+                : "flex h-full items-center justify-center",
+              !expanded && !loading && layout !== "grid" ? "cursor-zoom-in" : null
             )}
             onClick={() => {
-              if (!expanded && !loading) setExpanded(true);
+              if (!expanded && !loading && layout !== "grid") setExpanded(true);
             }}
           />
+          {renderPageActions
+            ? pageActionMounts.map(({ page, el }) =>
+                el.isConnected ? (
+                  <Fragment key={page}>
+                    {createPortal(
+                      <div className="space-y-1">
+                        <p className="text-center text-[11px] text-slate-500">
+                          Side {page} of {pageCount}
+                        </p>
+                        {renderPageActions(page)}
+                      </div>,
+                      el
+                    )}
+                  </Fragment>
+                ) : null
+              )
+            : null}
         </div>
       )}
     </div>
@@ -409,7 +495,11 @@ export function PdfOcgFromUrl({
     return (
       <>
         <div
-          className="h-[min(75vh,40rem)] min-h-[28rem] rounded-md border border-slate-200 bg-slate-50"
+          className={cn(
+            layout === "grid"
+              ? "min-h-48 rounded-md border border-slate-200 bg-slate-50"
+              : "h-[min(75vh,40rem)] min-h-[28rem] rounded-md border border-slate-200 bg-slate-50",
+          )}
           aria-hidden
         />
         {createPortal(

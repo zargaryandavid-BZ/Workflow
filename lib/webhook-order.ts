@@ -67,6 +67,7 @@ import {
   webhookPrintQty,
   crmTicketStaffNote,
   crmLineProductionNote,
+  crmOrderProductionNote,
   crmCustomerFacingNote,
   crmDesignerNote,
   crmOrderIdFromPayload,
@@ -205,6 +206,8 @@ interface WebhookDesignerInput {
   designer_notes?: string;
   /** Alias for `designer_information`. */
   notes_for_designer?: string;
+  notes?: string;
+  internal_note?: string;
   design_task?: string;
   /** CRM design capture — who provides artwork: has_files | files_coming | needs_design. */
   design_source?: string;
@@ -1617,6 +1620,9 @@ function mergeDesignerInput(
     designer_information:
       item.designer_information ?? order.designer_information,
     designer_notes: item.designer_notes ?? order.designer_notes,
+    notes_for_designer: item.notes_for_designer ?? order.notes_for_designer,
+    notes: item.notes ?? order.notes,
+    internal_note: item.internal_note ?? order.internal_note,
     design_task: firstNonEmpty(item.design_task),
     item_folder_url: firstNonEmpty(item.item_folder_url),
     files_url: firstNonEmpty(item.files_url, item.item_folder_url),
@@ -2758,11 +2764,7 @@ async function refreshExistingOrderDesignerNotes(
   );
   const crmOrderId = crmOrderIdFromPayload(body);
   const crmCustomerId = crmCustomerIdFromPayload(body);
-  const orderProductionNotes = pickTrimmedNote(
-    body.production_notes,
-    body.notes_for_production,
-    body.line_item_comment
-  );
+  const orderProductionNotes = crmOrderProductionNote(body);
   const orderCustomerNote = crmCustomerFacingNote(body);
 
   for (let i = 0; i < sorted.length && i < items.length; i++) {
@@ -4342,11 +4344,7 @@ export async function createOrderFromWebhook(
       ),
       misroutedDesignTask,
       internalNote: combinedAttention,
-      orderProductionNotes: pickTrimmedNote(
-        body.production_notes,
-        body.notes_for_production,
-        body.line_item_comment
-      ),
+      orderProductionNotes: crmOrderProductionNote(body),
       corrections: allCorrections,
       webhookSource,
       billing,
