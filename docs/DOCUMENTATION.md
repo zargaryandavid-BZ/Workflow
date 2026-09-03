@@ -1,6 +1,6 @@
 # Documentation
 
-**Last updated: June 23, 2026**
+**Last updated: September 3, 2026**
 
 Complete project reference for developers and AI agents.
 
@@ -131,6 +131,7 @@ proxy.ts                        Session middleware helper [see Known issues](#kn
 | `activity_log` | Audit trail per order |
 | `die_manufacturers` | Die shop contacts (Settings) |
 | `die_requests` | Die quote/order requests (`sent` → `quoted` → `ordered`) |
+| `webhook_order_ingest_locks` | Short-lived lock so a double CRM POST cannot create duplicate cards |
 
 **Storage buckets:** `order-assets` (private), `column-images` (public).
 

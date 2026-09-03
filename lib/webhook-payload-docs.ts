@@ -312,6 +312,7 @@ const ITEM_FIELDS_MD = `
 const NOTES_MD = `
 - **All payload fields are optional.** Send only what you have — the order is still created with blank fields where data is omitted.
 - If \`order_number\` is omitted, the system auto-generates one (e.g. \`WH-20260619143022-a1b2c3d4\`).
+- A second POST with the same \`order_number\` updates existing cards instead of creating a duplicate set. Multi-item \`items[]\` still creates one card per line (\`-1\`, \`-2\`, …).
 - \`color\` is accepted as an alias for \`color_mode\`. \`position\` and \`roll_direction\` map to separate custom fields when both exist.
 - Send \`width\` + \`height\` to fill those fields and auto-build \`finished_size\` when omitted. \`special_effects\`, \`unit_price\`, and \`quantity\` map to the matching custom fields.
 - **Admin catalog lines** (CRM Bazaar quotes, partner Order Sync, broker Order Sync — same mapper): a line is Admin-shaped when **that line** has \`spec_selections.bazaar_item_id\` > 0. Product and Materials skip catalog remap / alias / fuzzy. Die and \`SET_SIZE\` persist as-is. Order-level \`catalog_source: "admin"\` does **not** force legacy siblings onto identity. Flat payloads may put \`spec_selections\` on the body. Legacy lines (no \`bazaar_item_id\`) keep today's aliases. Same mapping on create and portal/CRM re-fire. Floor form shows Product / Die / Materials / Finished Size plus \`spec_display[]\`; mapper ids stay off the card.
@@ -1112,6 +1113,7 @@ export function buildWebhookPayloadDocsHtml(
     <ul class="notes">
       <li><strong>All payload fields are optional.</strong> Send only what you have — the order is still created with blank fields where data is omitted.</li>
       <li>If <code>order_number</code> is omitted, the system auto-generates one (e.g. <code>WH-20260619143022-a1b2c3d4</code>).</li>
+      <li>A second POST with the same <code>order_number</code> updates existing cards. It does not create a duplicate set. Multi-item <code>items[]</code> still creates one card per line (<code>-1</code>, <code>-2</code>, …).</li>
       <li><code>color</code> is an alias for <code>color_mode</code>. <code>position</code> and <code>roll_direction</code> map to separate custom fields when both exist.</li>
       <li>Send <code>width</code> + <code>height</code>, <code>special_effects</code>, <code>unit_price</code>, and <code>quantity</code> to fill the matching custom fields. Finished Size is auto-built from width/height when omitted.</li>
       <li><strong>Admin catalog lines</strong> (CRM Bazaar, partner and broker Order Sync — same mapper): Admin-shaped when that line has <code>spec_selections.bazaar_item_id</code> &gt; 0. Product and Materials skip catalog remap / alias / fuzzy. Die and <code>SET_SIZE</code> persist as-is. Order-level <code>catalog_source: "admin"</code> does not force legacy siblings onto identity. Same mapping on create and portal/CRM re-fire. Floor form shows Product / Die / Materials / Finished Size plus <code>spec_display[]</code>; mapper ids stay off the card.</li>

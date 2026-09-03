@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +60,9 @@ export function RequiredDatePicker({
   const [view, setView] = useState(() =>
     startOfMonth(selected ?? dueParsed ?? new Date())
   );
+  const [pos, setPos] = useState({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     onOpenChange?.(open);
@@ -70,10 +73,33 @@ export function RequiredDatePicker({
     setView(startOfMonth(selected ?? dueParsed ?? new Date()));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- snap once when opened
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const width = 17 * 16;
+      const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
+      setPos({ top: r.bottom + 4, left });
+    }
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t) || popoverRef.current?.contains(t)) {
+        return;
+      }
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
@@ -105,30 +131,12 @@ export function RequiredDatePicker({
     year: "numeric",
   });
 
-  return (
-    <div ref={rootRef} className="relative">
-      <div className="mt-1 flex items-center gap-0.5">
-        <input
-          id={id}
-          type="date"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="flex h-10 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 tabular-nums focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-        />
-        <button
-          type="button"
-          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:bg-slate-50"
-          onClick={() => setOpen((v) => !v)}
-          aria-label="Open calendar"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-        >
-          <CalendarDays className="h-4 w-4" />
-        </button>
-      </div>
-      {open ? (
+  const calendar = open
+    ? createPortal(
         <div
-          className="absolute left-0 top-full z-50 mt-1 w-[17rem] rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+          ref={popoverRef}
+          className="fixed z-[200] w-[17rem] rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+          style={{ top: pos.top, left: pos.left }}
           role="dialog"
           aria-label="Choose required date"
         >
@@ -232,8 +240,33 @@ export function RequiredDatePicker({
               </span>
             </p>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body
+      )
+    : null;
+
+  return (
+    <div ref={rootRef} className="relative">
+      <div className="mt-1 flex items-center gap-0.5">
+        <input
+          id={id}
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex h-10 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 tabular-nums focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+        />
+        <button
+          type="button"
+          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:bg-slate-50"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Open calendar"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <CalendarDays className="h-4 w-4" />
+        </button>
+      </div>
+      {calendar}
     </div>
   );
 }

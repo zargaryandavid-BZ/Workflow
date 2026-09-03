@@ -3,7 +3,10 @@ import {
   customerNameFromOrder,
   productFromOrder,
 } from "@/lib/notification-messages";
-import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  NOTIFICATION_SEND_TIMEOUT_MS,
+  postJsonWithTimeout,
+} from "@/lib/fetch-with-timeout";
 import { resolvePreferredNotifyChannel } from "@/lib/preferred-channel";
 import type {
   CustomField,
@@ -128,7 +131,8 @@ export async function runColumnNotify(params: {
   try {
     const { ok, data } = await postJsonWithTimeout<{ error?: string }>(
       "/api/notifications/send",
-      body
+      body,
+      NOTIFICATION_SEND_TIMEOUT_MS
     );
     if (!ok) {
       return {

@@ -17,7 +17,11 @@ import {
   defaultSendChannels,
   resolvePreferredNotifyChannel,
 } from "@/lib/preferred-channel";
-import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  isTimeoutError,
+  NOTIFICATION_SEND_TIMEOUT_MS,
+  postJsonWithTimeout,
+} from "@/lib/fetch-with-timeout";
 import { formatEmailList, mergeEmailLists, parseEmailList } from "@/lib/email-list";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
@@ -205,7 +209,8 @@ export function ApprovalPopup({
             groupOrderIds.length > 0
               ? [...new Set([order.id, ...groupOrderIds])]
               : undefined,
-        }
+        },
+        NOTIFICATION_SEND_TIMEOUT_MS
       );
       if (!ok) {
         setError(
@@ -213,7 +218,7 @@ export function ApprovalPopup({
             (wantSms && !wantEmail
               ? "SMS failed to send. Please check Twilio config."
               : wantEmail
-                ? "Email failed. Check INSTANTLY_API_KEY."
+                ? "Email failed. Check Instantly."
                 : "Failed to save")
         );
         return;
@@ -231,13 +236,15 @@ export function ApprovalPopup({
       } else {
         onSent(`SMS sent to ${phone.trim()}`);
       }
-    } catch {
+    } catch (err) {
       setError(
-        wantSms && !wantEmail
-          ? "SMS failed to send. Please check Twilio config."
-          : wantEmail
-            ? "Email failed. Check INSTANTLY_API_KEY."
-            : "Failed to save"
+        isTimeoutError(err)
+          ? "Send is still running on the server. Wait before retrying — Instantly may already have delivered."
+          : wantSms && !wantEmail
+            ? "SMS failed to send. Please check Twilio config."
+            : wantEmail
+              ? "Email failed. Check Instantly."
+              : "Failed to save"
       );
     } finally {
       setLoading(false);

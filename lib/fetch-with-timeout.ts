@@ -1,5 +1,12 @@
 export const API_TIMEOUT_MS = 10_000;
 
+/** Approval / missing-info send copies proof files then hits Instantly + Twilio. */
+export const NOTIFICATION_SEND_TIMEOUT_MS = 30_000;
+
+export function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error && /timed out/i.test(err.message);
+}
+
 /**
  * fetch() with an AbortController timeout. Rejects with a clear message on abort.
  */

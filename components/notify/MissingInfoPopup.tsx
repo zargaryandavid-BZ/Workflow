@@ -17,7 +17,11 @@ import {
   channelFromSelection,
   defaultSendChannels,
 } from "@/lib/preferred-channel";
-import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  isTimeoutError,
+  NOTIFICATION_SEND_TIMEOUT_MS,
+  postJsonWithTimeout,
+} from "@/lib/fetch-with-timeout";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
@@ -144,14 +148,15 @@ export function MissingInfoPopup({
           messageBody: undefined,
           toEmail: wantEmail ? email.trim() || undefined : undefined,
           toPhone: wantSms ? phone.trim() || undefined : undefined,
-        }
+        },
+        NOTIFICATION_SEND_TIMEOUT_MS
       );
       if (!ok) {
         setError(
           data.error ??
             (wantSms && !wantEmail
               ? "SMS failed to send. Please check Twilio config."
-              : "Email failed. Check INSTANTLY_API_KEY.")
+              : "Email failed. Check Instantly.")
         );
         return;
       }
@@ -162,11 +167,13 @@ export function MissingInfoPopup({
       } else {
         onSent(`SMS sent to ${phone.trim()}`);
       }
-    } catch {
+    } catch (err) {
       setError(
-        wantSms && !wantEmail
-          ? "SMS failed to send. Please check Twilio config."
-          : "Email failed. Check INSTANTLY_API_KEY."
+        isTimeoutError(err)
+          ? "Send is still running on the server. Wait before retrying — Instantly may already have delivered."
+          : wantSms && !wantEmail
+            ? "SMS failed to send. Please check Twilio config."
+            : "Email failed. Check Instantly."
       );
     } finally {
       setLoading(false);

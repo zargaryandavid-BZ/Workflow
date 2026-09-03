@@ -18,7 +18,11 @@ import {
   destinationForChannel,
   resolvePreferredNotifyChannel,
 } from "@/lib/preferred-channel";
-import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  isTimeoutError,
+  NOTIFICATION_SEND_TIMEOUT_MS,
+  postJsonWithTimeout,
+} from "@/lib/fetch-with-timeout";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import type {
@@ -302,7 +306,7 @@ export function ReadyToShipPopup({
             : channel === "both"
               ? bothPhone.trim() || undefined
               : undefined,
-      });
+      }, NOTIFICATION_SEND_TIMEOUT_MS);
 
       if (!ok) {
         setError(
@@ -310,7 +314,7 @@ export function ReadyToShipPopup({
             (channel === "sms"
               ? "SMS failed. Check Twilio config."
               : channel === "email"
-                ? "Email failed. Check INSTANTLY_API_KEY."
+                ? "Email failed. Check Instantly."
                 : "Failed to save")
         );
         return;
@@ -343,13 +347,15 @@ export function ReadyToShipPopup({
             : `SMS sent to ${to.trim()}`
         );
       }
-    } catch {
+    } catch (err) {
       setError(
-        channel === "sms"
-          ? "SMS failed. Check Twilio config."
-          : channel === "email"
-            ? "Email failed. Check INSTANTLY_API_KEY."
-            : "Failed to save"
+        isTimeoutError(err)
+          ? "Send is still running on the server. Wait before retrying — Instantly may already have delivered."
+          : channel === "sms"
+            ? "SMS failed. Check Twilio config."
+            : channel === "email"
+              ? "Email failed. Check Instantly."
+              : "Failed to save"
       );
     } finally {
       setLoading(false);

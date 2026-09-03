@@ -195,7 +195,7 @@ async function sendCustomerEmail(params: {
       sent: false,
       error: message.includes("timed out")
         ? "Email failed. Request timed out — check Instantly status."
-        : "Email failed. Check INSTANTLY_API_KEY.",
+        : "Email failed. Check Instantly.",
     };
   }
 }

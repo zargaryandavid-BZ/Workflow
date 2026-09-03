@@ -33,8 +33,8 @@ export default async function DieOrderPage() {
         <h1 className="text-lg font-semibold text-slate-800">Die Order</h1>
         <p className="mb-5 text-sm text-slate-500">
           Create a die request, email it to the manufacturer, and track price,
-          time, and the confirmed due date. The system alarms if that date is
-          today, overdue, due soon, or after the required date.
+          time, and the confirmed due date. Type digits in Order number to match
+          the number on the board card; product and size fill from that card.
         </p>
         <DieOrderClient requests={requests} manufacturers={manufacturers} />
       </div>

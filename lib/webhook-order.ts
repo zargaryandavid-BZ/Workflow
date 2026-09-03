@@ -65,6 +65,10 @@ import {
   mapWebhookSelectValue,
   resolveLineSpecSelections,
 } from "@/lib/webhook-admin-catalog";
+import {
+  isPgUniqueViolation,
+  withWebhookOrderIngestLock,
+} from "@/lib/webhook-order-lock";
 
 export { isAdminCatalogLine, mapWebhookSelectValue } from "@/lib/webhook-admin-catalog";
 import {
@@ -3693,6 +3697,33 @@ async function createSingleWebhookJob(
     .single();
 
   if (orderError || !order) {
+    if (isPgUniqueViolation(orderError)) {
+      const recovered = await findExistingWebhookOrders(
+        client,
+        tenantId,
+        webhookOrderNumber,
+        shortOrderCardBase(webhookOrderNumber),
+        totalItems,
+        stampedCrmOrderId || null
+      );
+      const match =
+        recovered.find((row) => {
+          const raw = row.specs.webhook_item_index;
+          const n =
+            typeof raw === "number" ? raw : Number.parseInt(String(raw ?? ""), 10);
+          if (totalItems > 1) return n === itemIndex;
+          return true;
+        }) ??
+        recovered[itemIndex] ??
+        recovered[0];
+      if (match) {
+        return {
+          orderId: match.id,
+          title: match.title,
+          warnings: [],
+        };
+      }
+    }
     console.error("[webhook/orders] order insert error:", {
       message: orderError?.message,
       code: orderError?.code,
@@ -3865,6 +3896,7 @@ export async function createOrderFromWebhook(
     crmCustomerFacingNote(body) ??
     (typeof body.description === "string" ? body.description.trim() : null);
 
+  return withWebhookOrderIngestLock(client, tenantId, baseOrderNumber, async () => {
   // Idempotent due-date / CRM re-fire: update existing cards when found.
   const existingOrders = await findExistingWebhookOrders(
     client,
@@ -4449,4 +4481,5 @@ export async function createOrderFromWebhook(
     ownerName: responseOwnerName,
     warning,
   };
+  });
 }

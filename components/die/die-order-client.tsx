@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,6 @@ export function DieOrderClient({
   const [orderQuery, setOrderQuery] = useState("");
   const [hits, setHits] = useState<OrderHit[]>([]);
   const [orderPickerOpen, setOrderPickerOpen] = useState(false);
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [order, setOrder] = useState<OrderHit | null>(null);
   const [productName, setProductName] = useState("");
   const [width, setWidth] = useState("");
@@ -59,6 +59,10 @@ export function DieOrderClient({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 256 });
+  const orderInputRef = useRef<HTMLInputElement>(null);
+  const orderMenuRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     if (!manufacturerId && manufacturers[0]?.id) {
@@ -69,11 +73,21 @@ export function DieOrderClient({
   useEffect(() => {
     if (!orderPickerOpen) {
       setHits([]);
+      setSearching(false);
       return;
     }
-    const q = orderQuery.trim();
+    const q = orderQuery.trim().replace(/^#/, "");
+    if (!q) {
+      setHits([]);
+      setSearching(false);
+      return;
+    }
+    const ac = new AbortController();
     const t = window.setTimeout(() => {
-      void fetch(`/api/die-requests/orders?q=${encodeURIComponent(q)}`)
+      setSearching(true);
+      void fetch(`/api/die-requests/orders?q=${encodeURIComponent(q)}`, {
+        signal: ac.signal,
+      })
         .then((res) => res.json())
         .then((json: { orders?: OrderHit[] }) => {
           setHits(
@@ -84,10 +98,56 @@ export function DieOrderClient({
             }))
           );
         })
-        .catch(() => setHits([]));
-    }, q ? 200 : 0);
-    return () => window.clearTimeout(t);
-  }, [orderQuery, orderPickerOpen, order?.id]);
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setHits([]);
+        })
+        .finally(() => setSearching(false));
+    }, q.length === 1 ? 0 : 160);
+    return () => {
+      window.clearTimeout(t);
+      ac.abort();
+    };
+  }, [orderQuery, orderPickerOpen]);
+
+  useLayoutEffect(() => {
+    if (!orderPickerOpen) return;
+    function place() {
+      const el = orderInputRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const width = Math.max(r.width, 18 * 16);
+      const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
+      setMenuPos({ top: r.bottom + 4, left, width });
+    }
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [orderPickerOpen, hits.length]);
+
+  useEffect(() => {
+    if (!orderPickerOpen) return;
+    function onDoc(e: MouseEvent) {
+      const t = e.target as Node;
+      if (orderInputRef.current?.contains(t) || orderMenuRef.current?.contains(t)) {
+        return;
+      }
+      setOrderPickerOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOrderPickerOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [orderPickerOpen]);
 
   function pickOrder(hit: OrderHit) {
     const orderNumber = hit.orderNumber || formatShortOrderNumber(hit.title);
@@ -191,17 +251,18 @@ export function DieOrderClient({
       <form
         onSubmit={(e) => void submit(e)}
         className={cn(
-          "relative space-y-3 overflow-visible rounded-lg border border-slate-200 bg-white p-4",
-          orderPickerOpen || datePickerOpen ? "z-30" : "z-0"
+          "relative space-y-3",
+          orderPickerOpen ? "z-30" : "z-0"
         )}
       >
         <h2 className="text-sm font-semibold text-slate-800">New die request</h2>
-        <div className="flex min-w-0 flex-nowrap items-end gap-1.5 overflow-x-auto">
-          <div className="relative z-40 w-[6.75rem] shrink-0">
+        <div className="flex min-w-0 flex-nowrap items-end gap-1.5 overflow-x-auto overflow-y-hidden">
+          <div className="relative z-40 w-[8.5rem] shrink-0">
             <Label htmlFor="die-order" className="mb-0 whitespace-nowrap text-[11px]">
               Order number
             </Label>
             <Input
+              ref={orderInputRef}
               id="die-order"
               className="mt-1 px-2"
               value={orderQuery}
@@ -215,59 +276,69 @@ export function DieOrderClient({
                 setOrderPickerOpen(true);
               }}
               onFocus={() => setOrderPickerOpen(true)}
-              onBlur={() => {
-                window.setTimeout(() => setOrderPickerOpen(false), 150);
-              }}
-              placeholder="Board order #"
+              placeholder="Type digits…"
               autoComplete="off"
               role="combobox"
               aria-expanded={orderPickerOpen}
               aria-controls="die-order-hits"
             />
-            {orderPickerOpen ? (
-              <ul
-                id="die-order-hits"
-                className="absolute left-0 top-full z-50 mt-1 max-h-56 w-full min-w-[16rem] overflow-auto rounded-md border border-slate-200 bg-white shadow-lg"
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                {hits.length === 0 ? (
-                  <li className="px-3 py-2 text-sm text-slate-500">
-                    {orderQuery.trim()
-                      ? "No matching board orders"
-                      : "Type a board order number"}
-                  </li>
-                ) : (
-                  hits.map((hit) => {
-                    const number =
-                      hit.orderNumber || formatShortOrderNumber(hit.title);
-                    return (
-                      <li key={hit.id}>
-                        <button
-                          type="button"
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
-                          onClick={() => pickOrder(hit)}
-                        >
-                          <span className="font-medium tabular-nums">
-                            {number}
-                          </span>
-                          {hit.productName ? (
-                            <span className="text-slate-500">
-                              {" "}
-                              · {hit.productName}
-                            </span>
-                          ) : hit.customerName ? (
-                            <span className="text-slate-500">
-                              {" "}
-                              · {hit.customerName}
-                            </span>
-                          ) : null}
-                        </button>
+            {orderPickerOpen && typeof document !== "undefined"
+              ? createPortal(
+                  <ul
+                    ref={orderMenuRef}
+                    id="die-order-hits"
+                    role="listbox"
+                    className="fixed z-[200] max-h-64 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+                    style={{
+                      top: menuPos.top,
+                      left: menuPos.left,
+                      width: menuPos.width,
+                    }}
+                  >
+                    {searching && hits.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-slate-500">
+                        Matching board cards…
                       </li>
-                    );
-                  })
-                )}
-              </ul>
-            ) : null}
+                    ) : hits.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-slate-500">
+                        {orderQuery.trim()
+                          ? "No matching board orders"
+                          : "Type the order number from the card"}
+                      </li>
+                    ) : (
+                      hits.map((hit) => {
+                        const number =
+                          hit.orderNumber || formatShortOrderNumber(hit.title);
+                        return (
+                          <li key={hit.id} role="option">
+                            <button
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                              onClick={() => pickOrder(hit)}
+                            >
+                              <span className="font-medium tabular-nums">
+                                {number}
+                              </span>
+                              {hit.productName ? (
+                                <span className="text-slate-500">
+                                  {" "}
+                                  · {hit.productName}
+                                </span>
+                              ) : hit.customerName ? (
+                                <span className="text-slate-500">
+                                  {" "}
+                                  · {hit.customerName}
+                                </span>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>,
+                  document.body
+                )
+              : null}
           </div>
           <div className="w-[8rem] shrink-0">
             <Label htmlFor="die-product" className="mb-0 whitespace-nowrap text-[11px]">
@@ -334,7 +405,6 @@ export function DieOrderClient({
               dueLabel="Order due"
               selectedLabel="Required date"
               onChange={setRequiredDate}
-              onOpenChange={setDatePickerOpen}
             />
           </div>
           <div className="w-[5.25rem] shrink-0">

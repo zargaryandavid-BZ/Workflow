@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import {
   compactOrderNumberToken,
+  dieOrderNumberMatchRank,
   formatShortOrderNumber,
   isOrderArchived,
   isOrderNumberQuery,
@@ -46,14 +47,15 @@ export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const terms = new Set([q]);
   const compact = compactOrderNumberToken(q);
-  if (compact && compact !== q.toLowerCase()) terms.add(compact);
+  if (compact) terms.add(compact);
 
   const orParts: string[] = [];
   for (const term of terms) {
-    const termPattern = `%${escapeIlike(term)}%`;
-    orParts.push(`title.ilike.${termPattern}`);
-    orParts.push(`specs->>webhook_order_number.ilike.${termPattern}`);
-    orParts.push(`specs->>webhook_item_title.ilike.${termPattern}`);
+    const escaped = escapeIlike(term);
+    orParts.push(`title.ilike.${escaped}%`);
+    orParts.push(`title.ilike.%${escaped}%`);
+    orParts.push(`specs->>webhook_order_number.ilike.%${escaped}%`);
+    orParts.push(`specs->>webhook_item_title.ilike.%${escaped}%`);
   }
 
   const selectWithCrm =
@@ -67,7 +69,7 @@ export async function GET(req: NextRequest) {
       .eq("tenant_id", ctx.tenant.id)
       .is("removed_at", null)
       .order("created_at", { ascending: false })
-      .limit(120);
+      .limit(500);
 
   let { data, error } = await base(selectWithCrm).or(orParts.join(","));
   if (error && /crm_snapshot|user_overrides/i.test(error.message)) {
@@ -113,6 +115,10 @@ export async function GET(req: NextRequest) {
         (compact && blob.includes(compact))
       );
     })
+    .sort(
+      (a, b) =>
+        dieOrderNumberMatchRank(a, q) - dieOrderNumberMatchRank(b, q)
+    )
     .slice(0, 15);
 
   const fieldValuesByOrder: Record<string, Record<string, unknown>> = {};

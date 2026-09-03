@@ -15,6 +15,18 @@ export type ColumnEntry = SingleEntry | GroupEntry;
 
 const GROUP_DRAG_PREFIX = "group:";
 
+/** Drop extra copies of the same order (page refresh + Load more can race). */
+export function uniqueOrdersById<T extends { id: string }>(orders: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const order of orders) {
+    if (seen.has(order.id)) continue;
+    seen.add(order.id);
+    out.push(order);
+  }
+  return out;
+}
+
 /** Stable dnd-kit id for a same-column group card. */
 export function groupDragId(columnId: string, key: string): string {
   return `${GROUP_DRAG_PREFIX}${columnId}:${key}`;
@@ -57,8 +69,9 @@ export function getGroupKey(order: OrderWithRelations): string | null {
  * The group key is only applied when ≥2 orders share it.
  */
 export function groupOrdersForColumn(orders: OrderWithRelations[]): ColumnEntry[] {
+  const unique = uniqueOrdersById(orders);
   const keyCount = new Map<string, number>();
-  for (const order of orders) {
+  for (const order of unique) {
     const key = getGroupKey(order);
     if (key) keyCount.set(key, (keyCount.get(key) ?? 0) + 1);
   }
@@ -75,7 +88,7 @@ export function groupOrdersForColumn(orders: OrderWithRelations[]): ColumnEntry[
   // We emit a placeholder for the group at the position of the first member.
   const emittedGroups = new Set<string>();
 
-  for (const order of orders) {
+  for (const order of unique) {
     const key = getGroupKey(order);
     if (key && activeKeys.has(key)) {
       if (!groups.has(key)) groups.set(key, []);

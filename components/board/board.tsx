@@ -76,6 +76,7 @@ import {
   getGroupKey,
   orderGroupSearchSuggestions,
   parseGroupDragId,
+  uniqueOrdersById,
   type GroupEntry,
 } from "@/lib/group-orders";
 import {
@@ -1369,6 +1370,7 @@ export function Board({
             const newOnly = data.orders.filter((o) => !existingIds.has(o.id));
             next = [...prev, ...newOnly];
           }
+          next = uniqueOrdersById(next);
           boardOrdersRef.current = next;
           return next;
         });
@@ -2663,8 +2665,10 @@ export function Board({
     // Archived orders are hidden from the active board (and from every overlay
     // that derives from displayOrders: Emergency, Late/Due counts, List, Table)
     // unless the Archived filter is on, which then shows only them.
-    const base = rawBase.filter((order) =>
-      archivedOnly ? isOrderArchived(order) : !isOrderArchived(order)
+    const base = uniqueOrdersById(
+      rawBase.filter((order) =>
+        archivedOnly ? isOrderArchived(order) : !isOrderArchived(order)
+      )
     );
     if (!isDesignerRole) return base;
     return base.filter(

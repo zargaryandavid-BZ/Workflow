@@ -468,7 +468,7 @@ function deliveryErrorMessage(channel: "email" | "sms" | "both"): string {
     if (!isCustomerEmailConfigured()) {
       return "Email not configured. Add INSTANTLY_API_KEY.";
     }
-    return "Email failed. Check INSTANTLY_API_KEY.";
+    return "Email failed. Check Instantly.";
   }
   if (channel === "both") {
     return "Failed to send email and/or SMS. Check Instantly and Twilio config.";

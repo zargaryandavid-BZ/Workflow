@@ -2,6 +2,10 @@
 
 The full field list and examples live in **Settings → Integrations → Webhook** (`lib/webhook-payload-docs.ts`). This page documents Admin catalog mapping.
 
+## Duplicate cards (v1)
+
+Two POSTs for the same `order_number` at the same time used to both insert (e.g. `15084-1` twice). Ingest now takes a per-tenant lock on `order_number`, then looks up existing cards; a second POST waits and **updates**. Live rows are also unique on `webhook_order_number` + line index (`0096_webhook_order_ingest_lock.sql`). Multi-item `items[]` still creates `-1`, `-2`, … once. Re-fires after the lock is released still update in place.
+
 ## Source vs catalog
 
 | Field | Meaning | Values |

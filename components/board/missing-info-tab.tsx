@@ -9,7 +9,11 @@ import { cn, formatDateTime } from "@/lib/utils";
 import { formatFileSize as formatBytes } from "@/lib/notification-messages";
 import { CustomerLinkRow } from "./customer-link-row";
 import { MoveBlockedModal } from "./move-blocked-modal";
-import { postJsonWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  isTimeoutError,
+  NOTIFICATION_SEND_TIMEOUT_MS,
+  postJsonWithTimeout,
+} from "@/lib/fetch-with-timeout";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
@@ -217,13 +221,13 @@ function NotifyRow({
         toPhone: selected.includes("sms")
           ? phone.trim() || undefined
           : undefined,
-      });
+      }, NOTIFICATION_SEND_TIMEOUT_MS);
       if (!ok) {
         setError(
           data.error ??
             (selected.includes("sms") && !selected.includes("email")
               ? "SMS failed to send. Please check Twilio config."
-              : "Email failed. Check INSTANTLY_API_KEY.")
+              : "Email failed. Check Instantly.")
         );
         return;
       }
@@ -231,11 +235,13 @@ function NotifyRow({
         setError(data.warning);
       }
       onSent();
-    } catch {
+    } catch (err) {
       setError(
-        selected.includes("sms") && !selected.includes("email")
-          ? "SMS failed to send. Please check Twilio config."
-          : "Email failed. Check INSTANTLY_API_KEY."
+        isTimeoutError(err)
+          ? "Send is still running on the server. Wait before retrying — Instantly may already have delivered."
+          : selected.includes("sms") && !selected.includes("email")
+            ? "SMS failed to send. Please check Twilio config."
+            : "Email failed. Check Instantly."
       );
     } finally {
       setSending(false);
