@@ -64,6 +64,8 @@ import {
   parseSpecDisplay,
   floorSpecDisplayRows,
 } from "@/lib/product-spec-options";
+import { isRollDirectionField } from "@/lib/roll-direction";
+import { RollDirectionSelect } from "./roll-direction-select";
 import type {
   Tag,
   CustomField,
@@ -301,6 +303,19 @@ function ProductSpecsSection({
               isSetSizeKey(k) && fromSize && !known
                 ? `Custom ${fromSize.replace(/x/gi, " × ")}`
                 : current;
+            const isRollDir =
+              k.replace(/[\s-]+/g, "_").toUpperCase() === "ROLL_DIRECTION";
+            if (isRollDir) {
+              return (
+                <RollDirectionSelect
+                  key={k}
+                  label={sentenceCaseSpecLabel(k)}
+                  value={current}
+                  onChange={(v) => onChange?.(k, v ?? "")}
+                  readOnly={!onChange}
+                />
+              );
+            }
             return (
               <label key={k} className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">
@@ -356,7 +371,22 @@ function ProductSpecsSection({
       ) : null}
       {specDisplay.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {specDisplay.map((row) => (
+          {specDisplay.map((row) => {
+            const isRollDir =
+              row.key.replace(/[\s-]+/g, "_").toUpperCase() ===
+              "ROLL_DIRECTION";
+            if (isRollDir) {
+              return (
+                <RollDirectionSelect
+                  key={row.key || row.label}
+                  label={row.label || "Roll Direction"}
+                  value={row.value}
+                  onChange={() => {}}
+                  readOnly
+                />
+              );
+            }
+            return (
             <div key={row.key || row.label}>
               <Label>{row.label}</Label>
               <Input
@@ -365,7 +395,8 @@ function ProductSpecsSection({
                 className="bg-white text-slate-800"
               />
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
       {readonlyRows.length > 0 ? (
@@ -591,12 +622,11 @@ export function OrderFormBody({
       )
     : new Set<string>();
 
-  const visiblePrintFields = (hideEmpty
-    ? printFields.filter((f) => !isEmptyFieldValue(fieldValues[f.id]))
-    : printFields
-  )
+  const visiblePrintFields = printFields
     .filter((f) => !cascadingFieldIds.has(f.id))
     .filter((f) => {
+      if (isRollDirectionField(f)) return true;
+      if (hideEmpty && isEmptyFieldValue(fieldValues[f.id])) return false;
       if (!hideEmpty) return true;
       const name = f.name.trim().toLowerCase();
       if (name === "die cut") {

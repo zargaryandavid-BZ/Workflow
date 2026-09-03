@@ -1513,7 +1513,7 @@ Staff UI for customer approval notifications: status, resend, manual approve, re
 | `OrderFormBody` | `order-form-body.tsx` | Shared create/edit form |
 | `SkuEditor` | `sku-editor.tsx` | SKU rows + qty |
 | `SkuArtworkCell` | `sku-artwork-cell.tsx` | Per-SKU artwork thumbnail/upload |
-| `CustomFieldInput` | `custom-field-input.tsx` | Renders one custom field |
+| `CustomFieldInput` | `custom-field-input.tsx` | Renders one custom field; **Roll Direction** / **Position** uses the pictured 1-Top…4-Left dropdown |
 | `CustomerLinkRow` | `customer-link-row.tsx` | Copy customer action URL |
 | `OrderQtyField` | `order-qty-field.tsx` | Order quantity custom field |
 

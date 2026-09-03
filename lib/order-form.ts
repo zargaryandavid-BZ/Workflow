@@ -43,6 +43,7 @@ const ORDER_FORM_HIDDEN_FIELD_NAMES = [
 export const ORDER_FORM_FIELD_LABELS: Record<string, string> = {
   "Artwork (GDrive link)": "Final production",
   "Color Mode": "Color",
+  Position: "Roll Direction",
 };
 
 /** Always required on the order form regardless of the custom-field toggle. */

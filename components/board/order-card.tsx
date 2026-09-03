@@ -120,6 +120,8 @@ import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import { ApplicationIcon } from "./application-icon";
+import { RollDirectionThumb } from "./roll-direction-select";
+import { isRollDirectionField } from "@/lib/roll-direction";
 import { isApplicationEnabled } from "@/lib/order-application";
 import { isRushOrder } from "@/lib/order-rush";
 import type { TimeChip } from "@/lib/time-chips";
@@ -358,6 +360,10 @@ export function OrderCard({
     customFields,
     fieldValues
   );
+  const rollDirectionField = customFields.find((f) => isRollDirectionField(f));
+  const rollDirectionValue = rollDirectionField
+    ? fieldValues[rollDirectionField.id]
+    : null;
   const isRush = isRushOrder(order);
   const isHighPriority =
     order.priority === "high" || order.priority === "urgent";
@@ -894,6 +900,12 @@ export function OrderCard({
                   <ApplicationIcon
                     className="h-3.5 w-3.5 shrink-0 text-slate-500"
                     title="Application"
+                  />
+                ) : null}
+                {rollDirectionValue ? (
+                  <RollDirectionThumb
+                    value={rollDirectionValue}
+                    className="text-[10px] font-semibold text-slate-600"
                   />
                 ) : null}
                 {isRush ? (

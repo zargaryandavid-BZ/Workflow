@@ -11,6 +11,8 @@ import {
 } from "@/lib/multi-select-fields";
 import { cn } from "@/lib/utils";
 import type { CustomField } from "@/lib/types";
+import { isRollDirectionField } from "@/lib/roll-direction";
+import { RollDirectionSelect } from "@/components/board/roll-direction-select";
 
 export function CustomFieldInput({
   field,
@@ -27,6 +29,18 @@ export function CustomFieldInput({
   label?: string;
 }) {
   const displayName = label ?? field.name;
+
+  if (isRollDirectionField(field)) {
+    return (
+      <RollDirectionSelect
+        label={displayName === "Position" ? "Roll Direction" : displayName}
+        value={value}
+        onChange={(v) => onChange(v)}
+        readOnly={readOnly}
+        required={field.required}
+      />
+    );
+  }
 
   if (field.field_type === "checkbox") {
     return (
