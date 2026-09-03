@@ -32,6 +32,7 @@ import {
 } from "@/lib/order-rush";
 import {
   DIE_REQUEST_TAG_NAME,
+  canonicalBoardTagName,
   ensureNamedTag,
 } from "@/lib/tags";
 import {
@@ -2623,11 +2624,12 @@ async function resolveTagId(
   name: string | undefined | null
 ): Promise<string | null> {
   if (typeof name !== "string" || !name.trim()) return null;
+  const lookup = canonicalBoardTagName(name);
   const { data: tag } = await client
     .from("tags")
     .select("id")
     .eq("tenant_id", tenantId)
-    .ilike("name", name.trim())
+    .ilike("name", lookup)
     .maybeSingle();
   return (tag as { id: string } | null)?.id ?? null;
 }

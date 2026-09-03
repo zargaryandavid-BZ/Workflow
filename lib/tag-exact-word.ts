@@ -1,7 +1,10 @@
+import { DIE_REQUEST_TAG_NAME } from "./tags.ts";
+
 /**
  * Match a Settings tag when its name appears as a whole word/phrase
  * in a line-item title (not a substring of a longer word).
  * Longer tag names win so "DIE REQUEST" beats "DIE" if both exist.
+ * "Cutting" maps to DIE REQUEST (CRM Die (Cutting) lines).
  */
 export function tagNameAsExactPhrase(
   haystack: string,
@@ -27,8 +30,15 @@ export function firstMatchingTagId(
     .filter(Boolean)
     .join("\n");
   if (!combined || tags.length === 0) return null;
+  const dieRequest = tags.find(
+    (t) => t.name.trim().toLowerCase() === DIE_REQUEST_TAG_NAME.toLowerCase()
+  );
+  if (dieRequest && tagNameAsExactPhrase(combined, "Cutting")) {
+    return dieRequest.id;
+  }
   const sorted = [...tags].sort((a, b) => b.name.length - a.name.length);
   for (const tag of sorted) {
+    if (tag.name.trim().toLowerCase() === "cutting") continue;
     if (tagNameAsExactPhrase(combined, tag.name)) return tag.id;
   }
   return null;

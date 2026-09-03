@@ -15,6 +15,13 @@ export const TAG_COLORS = [
 
 export const DIE_REQUEST_TAG_NAME = "DIE REQUEST";
 
+/** CRM product/category "Cutting" is a die job, not a Cutting color tag. */
+export function canonicalBoardTagName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.toLowerCase() === "cutting") return DIE_REQUEST_TAG_NAME;
+  return trimmed;
+}
+
 export const DEFAULT_TAGS = [
   {
     name: DIE_REQUEST_TAG_NAME,

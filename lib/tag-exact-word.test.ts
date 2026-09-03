@@ -42,6 +42,19 @@ describe("firstMatchingTagId", () => {
     );
   });
 
+  it("maps Cutting (including Die (Cutting)) to DIE REQUEST", () => {
+    const tags = [
+      { id: "die", name: "DIE" },
+      { id: "req", name: "DIE REQUEST" },
+      { id: "cut", name: "Cutting" },
+    ];
+    assert.equal(
+      firstMatchingTagId(["Die (Cutting) – Square corner"], tags),
+      "req"
+    );
+    assert.equal(firstMatchingTagId(["Cutting"], tags), "req");
+  });
+
   it("returns null when no tag phrase is present", () => {
     assert.equal(firstMatchingTagId(["3.5 Grams Sticker Bags"], tags), null);
   });
