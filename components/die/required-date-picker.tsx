@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -107,18 +107,25 @@ export function RequiredDatePicker({
 
   return (
     <div ref={rootRef} className="relative">
-      <button
-        id={id}
-        type="button"
-        className="mt-1.5 flex h-10 w-full items-center rounded-md border border-slate-300 bg-white px-2 text-left text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        <span className={value ? "tabular-nums" : "text-slate-400"}>
-          {value ? displayDate(value) : "mm/dd/yyyy"}
-        </span>
-      </button>
+      <div className="mt-1 flex items-center gap-0.5">
+        <input
+          id={id}
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex h-10 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 tabular-nums focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+        />
+        <button
+          type="button"
+          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:bg-slate-50"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Open calendar"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <CalendarDays className="h-4 w-4" />
+        </button>
+      </div>
       {open ? (
         <div
           className="absolute left-0 top-full z-50 mt-1 w-[17rem] rounded-md border border-slate-200 bg-white p-2 shadow-lg"

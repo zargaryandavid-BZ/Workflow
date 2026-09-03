@@ -323,7 +323,7 @@ export function DieOrderClient({
               onChange={(e) => setDepth(e.target.value)}
             />
           </div>
-          <div className="relative z-40 w-[8.25rem] shrink-0">
+          <div className="relative z-40 w-[10.5rem] shrink-0">
             <Label htmlFor="die-required" className="mb-0 whitespace-nowrap text-[11px]">
               Required date
             </Label>

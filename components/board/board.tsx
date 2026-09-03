@@ -677,7 +677,7 @@ export function Board({
       ...columnCurrentPageRef.current,
       [columnId]: 0,
     };
-    void fetchColumnOrdersRef.current(columnId, 0);
+    void fetchColumnOrdersRef.current(columnId, 0, { reset: true });
   }
 
   function setAllColumnsSortMode(mode: ColumnSortMode) {
@@ -695,7 +695,7 @@ export function Board({
         ...columnCurrentPageRef.current,
         [col.id]: 0,
       };
-      void fetchColumnOrdersRef.current(col.id, 0);
+      void fetchColumnOrdersRef.current(col.id, 0, { reset: true });
     }
   }
   const visibleColumns = useMemo(
@@ -1260,8 +1260,13 @@ export function Board({
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map());
   const fetchColumnOrdersRef = useRef<
-    (columnId: string, page: number) => Promise<void>
+    (
+      columnId: string,
+      page: number,
+      opts?: { reset?: boolean }
+    ) => Promise<void>
   >(async () => {});
+  const page0InFlightRef = useRef(new Set<string>());
 
   const scheduleSoftColumnRefresh = useCallback((columnId: string) => {
     const existing = softColumnRefreshTimersRef.current.get(columnId);
@@ -1277,22 +1282,28 @@ export function Board({
 
   // ── Per-column fetch ─────────────────────────────────────────────────────────
   const fetchColumnOrders = useCallback(
-    async (columnId: string, page: number) => {
-      // Prevent duplicate in-flight fetches for page 0 — queue instead of drop.
-      if (
-        page === 0 &&
-        columnLoadStatusRef.current[columnId] === "loading"
-      ) {
+    async (
+      columnId: string,
+      page: number,
+      opts?: { reset?: boolean }
+    ) => {
+      const reset = opts?.reset === true;
+      // Prevent duplicate in-flight page-0 fetches — queue instead of drop.
+      if (page === 0 && page0InFlightRef.current.has(columnId)) {
         pendingColumnRefetchRef.current.add(columnId);
         return;
       }
+      if (page === 0) page0InFlightRef.current.add(columnId);
 
       const wasLoaded = loadedColumnsRef.current.has(columnId);
-      columnLoadStatusRef.current = {
-        ...columnLoadStatusRef.current,
-        [columnId]: "loading",
-      };
-      setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
+      const silentRefresh = wasLoaded && page === 0 && !reset;
+      if (!silentRefresh) {
+        columnLoadStatusRef.current = {
+          ...columnLoadStatusRef.current,
+          [columnId]: "loading",
+        };
+        setColumnLoadStatus((s) => ({ ...s, [columnId]: "loading" }));
+      }
 
       try {
         const sortMode = getColumnSortMode(
@@ -1326,27 +1337,21 @@ export function Board({
 
         const data = (await res.json()) as ColumnOrdersResponse;
 
-        // Merge orders into central state. Page 0 replaces the column's
-        // existing orders (handles refreshes); later pages append.
-        // Cards already in this column but outside page 0 (e.g. just moved to
-        // the end) are preserved for manual sort only — keeping them with
-        // Moved/Created sorts breaks "newest on top" with pagination.
+        // Page 0 updates the first page in place. Extra cards from "Load more"
+        // stay unless this is a sort reset — otherwise a background refresh
+        // drops the rest of the column and snaps scroll back to the top.
         setOrders((prev) => {
           let next: OrderWithRelations[];
           if (page === 0) {
             const fetchedIds = new Set(data.orders.map((o) => o.id));
-            // Drop any local copies of fetched ids first so a stale source-column
-            // response cannot leave a duplicate with the old column_id.
             const kept = prev.filter(
               (o) => o.column_id !== columnId && !fetchedIds.has(o.id)
             );
-            const overflow =
-              sortMode === "manual"
-                ? prev.filter(
-                    (o) => o.column_id === columnId && !fetchedIds.has(o.id)
-                  )
-                : [];
-            // Prefer recent optimistic move placement over a stale fetch row.
+            const overflow = reset
+              ? []
+              : prev.filter(
+                  (o) => o.column_id === columnId && !fetchedIds.has(o.id)
+                );
             const mergedFetched = data.orders.map((o) => {
               const rm = recentMovesRef.current.get(o.id);
               if (
@@ -1359,7 +1364,6 @@ export function Board({
               return o;
             });
             next = [...kept, ...mergedFetched, ...overflow];
-
           } else {
             const existingIds = new Set(prev.map((o) => o.id));
             const newOnly = data.orders.filter((o) => !existingIds.has(o.id));
@@ -1401,23 +1405,26 @@ export function Board({
           ...(data.approvalDateByOrder ?? {}),
         }));
 
-        const hasOverflow =
-          page === 0 &&
-          boardOrdersRef.current.some(
-            (o) =>
-              o.column_id === columnId &&
-              !data.orders.some((fetched) => fetched.id === o.id)
-          );
-
+        const localCount = boardOrdersRef.current.filter(
+          (o) => o.column_id === columnId
+        ).length;
         setColumnHasMore((s) => ({
           ...s,
-          [columnId]: data.hasMore || hasOverflow,
+          [columnId]: data.total > localCount,
         }));
         setColumnTotal((s) => ({ ...s, [columnId]: data.total }));
-        columnCurrentPageRef.current = {
-          ...columnCurrentPageRef.current,
-          [columnId]: page,
-        };
+        if (reset || page > 0) {
+          columnCurrentPageRef.current = {
+            ...columnCurrentPageRef.current,
+            [columnId]: page,
+          };
+        } else {
+          const prevPage = columnCurrentPageRef.current[columnId] ?? 0;
+          columnCurrentPageRef.current = {
+            ...columnCurrentPageRef.current,
+            [columnId]: Math.max(prevPage, 0),
+          };
+        }
         columnLoadStatusRef.current = {
           ...columnLoadStatusRef.current,
           [columnId]: "loaded",
@@ -1443,9 +1450,10 @@ export function Board({
           setColumnLoadStatus((s) => ({ ...s, [columnId]: "error" }));
         }
       } finally {
+        if (page === 0) page0InFlightRef.current.delete(columnId);
         if (
-          page === 0 &&
-          pendingColumnRefetchRef.current.has(columnId)
+          pendingColumnRefetchRef.current.has(columnId) &&
+          !page0InFlightRef.current.has(columnId)
         ) {
           pendingColumnRefetchRef.current.delete(columnId);
           void fetchColumnOrders(columnId, 0);

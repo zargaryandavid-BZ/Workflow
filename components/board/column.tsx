@@ -402,7 +402,7 @@ export function Column({
       <div
         data-column-scroll
         className={cn(
-          "board-scroll flex min-h-[8rem] flex-1 flex-col gap-1.5 overflow-y-auto rounded-b-lg p-1 transition-colors",
+          "board-scroll flex min-h-[8rem] flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain rounded-b-lg p-1 transition-colors",
           showDropTarget
             ? "bg-blue-50"
             : !column.color

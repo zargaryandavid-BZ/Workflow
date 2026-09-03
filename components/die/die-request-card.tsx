@@ -221,7 +221,7 @@ export function DieRequestCard({
                     onChange={(e) => setDepth(e.target.value)}
                   />
                 </div>
-                <div className="w-[9.5rem] shrink-0">
+                <div className="w-[10.5rem] shrink-0">
                   <Label>Required date</Label>
                   <RequiredDatePicker
                     value={requiredDate}
