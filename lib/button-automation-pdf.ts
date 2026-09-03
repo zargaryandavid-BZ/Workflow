@@ -616,7 +616,6 @@ function drawSpecs(
       try {
         doc.image(cell.imagePath, valueX, rowY + Math.max(1, padY - 2), {
           fit: [ROLL_DIR_IMG_W, ROLL_DIR_IMG_H],
-          align: "left",
           valign: "center",
         });
       } catch {
