@@ -1,8 +1,14 @@
 import "server-only";
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { createRequire } from "node:module";
 import type { OrderExportData } from "@/lib/button-automation-order-data";
 import { formatNoteHistoryText } from "@/lib/note-history";
+import {
+  isRollDirectionFieldName,
+  rollDirectionOption,
+} from "@/lib/roll-direction";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -37,6 +43,16 @@ function yesNo(value: string): string {
   if (lower === "yes" || lower === "true") return "Yes";
   if (lower === "no" || lower === "false") return "No";
   return value;
+}
+
+const ROLL_DIR_IMG_W = 52;
+const ROLL_DIR_IMG_H = 38;
+
+function rollDirectionImagePath(value: string): string | null {
+  const opt = rollDirectionOption(value);
+  if (!opt) return null;
+  const file = join(process.cwd(), "public", opt.src.replace(/^\//, ""));
+  return existsSync(file) ? file : null;
 }
 
 function fmtQty(n: number | null | undefined): string {
@@ -473,15 +489,23 @@ function drawSpecs(
     label: string;
     value: string;
     link?: string;
+    imagePath?: string | null;
   };
 
   const VALUE_SIZE = 10;
   const LABEL_SIZE = 9;
 
-  const specRows: SpecCell[] = data.specRows.map((row) => ({
-    label: row.label,
-    value: yesNo(row.value),
-  }));
+  const specRows: SpecCell[] = data.specRows.map((row) => {
+    const value = yesNo(row.value);
+    const imagePath = isRollDirectionFieldName(row.label)
+      ? rollDirectionImagePath(row.value)
+      : null;
+    return {
+      label: row.label,
+      value,
+      imagePath,
+    };
+  });
 
   if (data.designTask) {
     specRows.push({
@@ -512,6 +536,7 @@ function drawSpecs(
 
   const cellHeight = (cell: SpecCell | undefined): number => {
     if (!cell) return 0;
+    const imgGap = cell.imagePath ? ROLL_DIR_IMG_W + 6 : 0;
     const labelH =
       doc.fontSize(LABEL_SIZE).font("Helvetica-Bold").heightOfString(cell.label, {
         width: labelW,
@@ -520,8 +545,11 @@ function drawSpecs(
       doc
         .fontSize(VALUE_SIZE)
         .font("Helvetica-Bold")
-        .heightOfString(cell.value || "—", { width: valueW }) ?? 0;
-    return Math.max(20, Math.max(labelH, valueH) + padY * 2);
+        .heightOfString(cell.value || "—", { width: Math.max(24, valueW - imgGap) }) ?? 0;
+    const contentH = cell.imagePath
+      ? Math.max(labelH, valueH, ROLL_DIR_IMG_H)
+      : Math.max(labelH, valueH);
+    return Math.max(20, contentH + padY * 2);
   };
 
   // Pre-compute per-row heights based on actual text content
@@ -581,12 +609,28 @@ function drawSpecs(
       .font("Helvetica-Bold")
       .fillColor("#78350f");
     textAt(doc, cell.label, cellX + padX, textY, { width: labelW });
+    const valueX = cellX + padX + labelW;
+    let valueTextX = valueX;
+    let valueTextW = valueW;
+    if (cell.imagePath) {
+      try {
+        doc.image(cell.imagePath, valueX, rowY + Math.max(1, padY - 2), {
+          fit: [ROLL_DIR_IMG_W, ROLL_DIR_IMG_H],
+          align: "left",
+          valign: "center",
+        });
+      } catch {
+        /* keep text-only if the diagram cannot be embedded */
+      }
+      valueTextX = valueX + ROLL_DIR_IMG_W + 6;
+      valueTextW = Math.max(24, valueW - ROLL_DIR_IMG_W - 6);
+    }
     doc
       .fontSize(VALUE_SIZE)
       .font("Helvetica-Bold")
       .fillColor(cell.link ? "#1d4ed8" : "#111827");
-    textAt(doc, cell.value || "—", cellX + padX + labelW, textY, {
-      width: valueW,
+    textAt(doc, cell.value || "—", valueTextX, textY, {
+      width: valueTextW,
       ...(cell.link ? { link: cell.link, underline: true } : {}),
     });
   };
