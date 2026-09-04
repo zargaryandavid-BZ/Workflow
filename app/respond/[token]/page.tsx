@@ -199,7 +199,7 @@ function RespondCard({
 }) {
   return (
     <div className="min-h-screen bg-[#f8fafc] px-4 py-8">
-      <div className="mx-auto w-full max-w-[640px] overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
+      <div className="mx-auto w-full max-w-[920px] overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
         <div className="flex items-center justify-between bg-[#1d4ed8] px-4 py-3 text-white">
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/20">

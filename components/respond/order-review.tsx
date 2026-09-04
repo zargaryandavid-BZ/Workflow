@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import dynamic from "next/dynamic";
 import { Check, Download, FileText, X } from "lucide-react";
 import {
@@ -22,21 +22,31 @@ import {
   imageDecisionKey,
   skuLabel,
 } from "@/lib/sku-approval";
-import { isRollDirectionFieldName } from "@/lib/roll-direction";
+import { isRollDirectionFieldName, rollDirectionFromRespondRows } from "@/lib/roll-direction";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
+import { OnRollPreview } from "@/components/respond/on-roll-preview";
 import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
 
 const PdfOcgFromUrl = dynamic(
   () =>
     import("@/components/pdf/pdf-ocg-from-url").then((m) => m.PdfOcgFromUrl),
-  {
-    ssr: false,
-    loading: () => (
-      <p className="py-6 text-center text-xs text-slate-400">Opening PDF…</p>
-    ),
-  }
+  { ssr: false }
 );
+
+function PdfPreviewLoading({ fileName }: { fileName: string }) {
+  return (
+    <div className="flex min-h-[16rem] flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+      <div className="shrink-0 border-b border-slate-100 px-3 py-2">
+        <span className="min-w-0 truncate text-sm font-medium text-slate-600">
+          {fileName}
+        </span>
+      </div>
+      <PdfLoadingBar />
+    </div>
+  );
+}
 
 interface OrderReviewProps {
   token: string;
@@ -271,6 +281,7 @@ function SkuArtworkBlock({
   multiImage,
   skuId,
   finalPdf,
+  rollDirection,
 }: {
   token: string;
   orderId?: string;
@@ -278,10 +289,12 @@ function SkuArtworkBlock({
   multiImage: boolean;
   skuId: string;
   finalPdf: RespondFinalPdf | null;
+  rollDirection: ReturnType<typeof rollDirectionFromRespondRows>;
 }) {
   const canShowPdf = Boolean(finalPdf && orderId);
   const hasPhotos = skuArt.length > 0;
   const [showPdf, setShowPdf] = useState(canShowPdf);
+  const [photoOnRoll, setPhotoOnRoll] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
   const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
@@ -310,28 +323,31 @@ function SkuArtworkBlock({
         </label>
       ) : null}
       {pdfOn && finalPdf && orderId ? (
-        <PdfOcgFromUrl
-          src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
-          fileName={finalPdf.fileName}
-          page={finalPdf.page}
-          layout={finalPdf.page != null ? "single" : "grid"}
-          onPageCount={(n) =>
-            skuUi.setPdfPageCount?.(
-              skuId,
-              finalPdf.page != null ? 1 : n
-            )
-          }
-          renderPageActions={
-            finalPdf.page == null && (perImage || pdfPages > 1)
-              ? (page) => (
-                  <ImageDecisionControls
-                    skuId={skuId}
-                    assetId={`pdfpage:${page}`}
-                  />
-                )
-              : undefined
-          }
-        />
+        <Suspense fallback={<PdfPreviewLoading fileName={finalPdf.fileName} />}>
+          <PdfOcgFromUrl
+            src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
+            fileName={finalPdf.fileName}
+            page={finalPdf.page}
+            layout={finalPdf.page != null ? "single" : "grid"}
+            rollDirection={rollDirection}
+            onPageCount={(n) =>
+              skuUi.setPdfPageCount?.(
+                skuId,
+                finalPdf.page != null ? 1 : n
+              )
+            }
+            renderPageActions={
+              finalPdf.page == null && (perImage || pdfPages > 1)
+                ? (page) => (
+                    <ImageDecisionControls
+                      skuId={skuId}
+                      assetId={`pdfpage:${page}`}
+                    />
+                  )
+                : undefined
+            }
+          />
+        </Suspense>
       ) : null}
       {skuArt.length > 0 ? (
         <>
@@ -366,7 +382,7 @@ function SkuArtworkBlock({
                         className={
                           multiImage
                             ? "aspect-square w-full object-cover"
-                            : "h-56 w-full object-contain"
+                            : "h-[28rem] w-full object-contain"
                         }
                       />
                     </button>
@@ -421,6 +437,49 @@ function SkuArtworkBlock({
               onClose={() => setLightboxIndex(null)}
             />
           ) : null}
+          {!pdfOn && rollDirection
+            ? (() => {
+                const first = skuArt.find((img) =>
+                  isRespondImageAsset(img.file_name, img.mime_type)
+                );
+                if (!first) return null;
+                const href =
+                  first.source === "gallery"
+                    ? respondSkuImageUrl(token, first.id)
+                    : respondAssetUrl(token, first.id);
+                return (
+                  <div className="mt-3">
+                    <div className="mb-2 flex items-center justify-end gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Roll preview
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={photoOnRoll}
+                        onClick={() => setPhotoOnRoll((v) => !v)}
+                        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                          photoOnRoll ? "bg-blue-600" : "bg-slate-200"
+                        }`}
+                      >
+                        <span className="sr-only">Show artwork on roll</span>
+                        <span
+                          className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                            photoOnRoll ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    {photoOnRoll ? (
+                      <OnRollPreview
+                        artworkSrc={href}
+                        direction={rollDirection}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })()
+            : null}
         </>
       ) : null}
     </div>
@@ -439,6 +498,7 @@ export function OrderReview({
 }: OrderReviewProps) {
   const skuUi = useSkuDecision();
   const orderAssets: RespondOrderAsset[] = assets.filter((a) => !a.sku_key);
+  const rollDirection = rollDirectionFromRespondRows(rows);
 
   const hasSkus = skus.length > 0;
   const hasAssets = assets.length > 0;
@@ -501,7 +561,7 @@ export function OrderReview({
               return (
                 <li
                   key={sku.id}
-                  className={`rounded-lg border p-3 ${resultBorder}`}
+                  className={`rounded-lg border p-4 ${resultBorder}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -524,6 +584,7 @@ export function OrderReview({
                     multiImage={multiImage}
                     skuId={sku.id}
                     finalPdf={finalPdfs[sku.id] ?? null}
+                    rollDirection={rollDirection}
                   />
                 </li>
               );

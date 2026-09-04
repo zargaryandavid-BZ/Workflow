@@ -7,6 +7,8 @@ import {
   rollDirectionArtworkRotateDeg,
   rollDirectionFromRespondRows,
   rollDirectionOption,
+  formatRollDirectionPreviewAngle,
+  rollDirectionPreviewRotateDeg,
   rollDirectionPrintCaption,
 } from "./roll-direction.ts";
 
@@ -51,5 +53,18 @@ describe("roll direction", () => {
       rollDirectionPrintCaption("4-Left"),
       "Left of copy off first"
     );
+  });
+
+  it("preview buttons change angle from the order Roll Direction", () => {
+    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "4-Left"), 0);
+    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "1-Top"), 90);
+    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "3-Right"), 180);
+    assert.equal(rollDirectionPreviewRotateDeg("1-Top", "4-Left"), -90);
+    assert.equal(rollDirectionPreviewRotateDeg("1-Top", "2-Bottom"), 180);
+    assert.equal(formatRollDirectionPreviewAngle(90), "+90°");
+    assert.equal(formatRollDirectionPreviewAngle(-90), "-90°");
+    assert.equal(formatRollDirectionPreviewAngle(0), "0°");
+    assert.equal(formatRollDirectionPreviewAngle(180), "+180°");
+    assert.equal(formatRollDirectionPreviewAngle(270), "-90°");
   });
 });

@@ -59,6 +59,28 @@ export function rollDirectionArtworkRotateDeg(
   }
 }
 
+/**
+ * Artwork in the proof already matches the order's Roll Direction.
+ * Preview buttons change that angle; they do not set an absolute unwind.
+ */
+export function rollDirectionPreviewRotateDeg(
+  orderDirection: RollDirectionValue,
+  previewDirection: RollDirectionValue
+): number {
+  return (
+    rollDirectionArtworkRotateDeg(previewDirection) -
+    rollDirectionArtworkRotateDeg(orderDirection)
+  );
+}
+
+/** e.g. `+90°`, `-90°`, `0°`, `+180°`. */
+export function formatRollDirectionPreviewAngle(deg: number): string {
+  let n = ((Math.round(deg) % 360) + 360) % 360;
+  if (n > 180) n -= 360;
+  if (n === 0) return "0°";
+  return n > 0 ? `+${n}°` : `${n}°`;
+}
+
 export function rollDirectionPrintCaption(
   value: RollDirectionValue
 ): string {

@@ -402,12 +402,21 @@ export async function isLiveDriveFolder(
  * That way a parent job folder still counts as "has files" when Final production
  * (or another subfolder) contains artwork.
  */
+function isDrivePdfFile(file: {
+  mimeType?: string | null;
+  name?: string | null;
+}): boolean {
+  const mime = (file.mimeType || "").toLowerCase();
+  if (mime.includes("pdf")) return true;
+  return (file.name || "").toLowerCase().endsWith(".pdf");
+}
+
 export async function folderHasFiles(
   settings: GdriveSettings,
   folderId: string
-): Promise<{ hasFiles: boolean; fileCount: number }> {
+): Promise<{ hasFiles: boolean; fileCount: number; hasPdf: boolean }> {
   if (!isGdriveConfigured(settings)) {
-    return { hasFiles: false, fileCount: 0 };
+    return { hasFiles: false, fileCount: 0, hasPdf: false };
   }
 
   const drive = driveClient(settings);
@@ -423,7 +432,7 @@ export async function folderHasFiles(
   // One list for files + folders (cheaper than two sequential queries).
   const listing = await drive.files.list({
     q: [`'${folderId}' in parents`, "trashed=false"].join(" and "),
-    fields: "files(id,mimeType)",
+    fields: "files(id,mimeType,name)",
     pageSize: 50,
     ...listOpts,
   });
@@ -431,14 +440,18 @@ export async function folderHasFiles(
   const entries = listing.data.files ?? [];
   const directFiles = entries.filter((f) => f.mimeType !== FOLDER_MIME);
   if (directFiles.length > 0) {
-    return { hasFiles: true, fileCount: directFiles.length };
+    return {
+      hasFiles: true,
+      fileCount: directFiles.length,
+      hasPdf: directFiles.some((f) => isDrivePdfFile(f)),
+    };
   }
 
   const childFolders = entries.filter(
     (f) => f.mimeType === FOLDER_MIME && Boolean(f.id)
   );
   if (childFolders.length === 0) {
-    return { hasFiles: false, fileCount: 0 };
+    return { hasFiles: false, fileCount: 0, hasPdf: false };
   }
 
   // Probe child folders in parallel; stop as soon as any has a file.
@@ -450,16 +463,24 @@ export async function folderHasFiles(
           `mimeType!='${FOLDER_MIME}'`,
           "trashed=false",
         ].join(" and "),
-        fields: "files(id)",
-        pageSize: 1,
+        fields: "files(id,mimeType,name)",
+        pageSize: 20,
         ...listOpts,
       });
-      return nestedRes.data.files?.length ?? 0;
+      const files = nestedRes.data.files ?? [];
+      return {
+        count: files.length,
+        hasPdf: files.some((f) => isDrivePdfFile(f)),
+      };
     })
   );
 
-  const nestedCount = results.reduce((sum, n) => sum + n, 0);
-  return { hasFiles: nestedCount > 0, fileCount: nestedCount };
+  const nestedCount = results.reduce((sum, n) => sum + n.count, 0);
+  return {
+    hasFiles: nestedCount > 0,
+    fileCount: nestedCount,
+    hasPdf: results.some((n) => n.hasPdf),
+  };
 }
 
 /** Lightweight check used by Settings → Test connection. */

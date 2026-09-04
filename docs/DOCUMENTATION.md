@@ -944,6 +944,16 @@ Full order detail: order, custom field values, assets, notifications, activity.
 | **Response** | `{ order, customFields, fieldValues, assets, notifications, activity }` |
 | **Errors** | 404 |
 
+### `GET /api/orders/[id]/final-artwork`
+
+Staff preview of PDFs in the order’s **Final production** Drive folder (same files as customer `/respond` multilayer).
+
+| | |
+| --- | --- |
+| **Auth** | Session + tenant |
+| **Query** | Omit `fileId` to list `{ files: [{ fileId, fileName }] }`. Pass `fileId` to stream the PDF. |
+| **Errors** | 401; 403 file not in Final; 404; 413 too large to preview |
+
 ### `PATCH /api/orders/[id]`
 
 Update order fields, specs, custom values, customer link.
@@ -1452,7 +1462,7 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold order number and contact with click-to-copy.
+**Features:** Bold order number and contact with click-to-copy. Cards are a bit wider (`22rem`). **Artwork** (layers control under the thumbnail) appears only when Drive reports a **PDF** in Artwork / Final production (`hasPdf` from `GET /api/orders/[id]/gdrive-status`). The popup fills the window and scales the page to fit.
 
 ---
 

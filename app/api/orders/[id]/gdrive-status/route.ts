@@ -55,6 +55,7 @@ export async function GET(
       return NextResponse.json({
         hasFiles: false,
         fileCount: 0,
+        hasPdf: false,
         configured: false,
       });
     }
@@ -65,6 +66,7 @@ export async function GET(
     return NextResponse.json({
       hasFiles: false,
       fileCount: 0,
+      hasPdf: false,
       configured: false,
     });
   }
@@ -81,6 +83,7 @@ export async function GET(
     return NextResponse.json({
       hasFiles: false,
       fileCount: 0,
+      hasPdf: false,
       configured: true,
       error: "Artwork field not found",
     });
@@ -102,6 +105,7 @@ export async function GET(
     return NextResponse.json({
       hasFiles: false,
       fileCount: 0,
+      hasPdf: false,
       configured: true,
       folderId: null,
     });
@@ -112,6 +116,7 @@ export async function GET(
     return NextResponse.json({
       hasFiles: false,
       fileCount: 0,
+      hasPdf: false,
       configured: true,
       folderId: null,
       error: "Could not parse Drive folder id from Artwork URL",
@@ -123,6 +128,7 @@ export async function GET(
     return NextResponse.json({
       hasFiles: result.hasFiles,
       fileCount: result.fileCount,
+      hasPdf: result.hasPdf,
       configured: true,
       folderId,
     });
@@ -133,6 +139,7 @@ export async function GET(
       {
         hasFiles: false,
         fileCount: 0,
+        hasPdf: false,
         configured: true,
         folderId,
         error: message,

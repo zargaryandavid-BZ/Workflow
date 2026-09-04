@@ -10,12 +10,16 @@ import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optiona
 import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-map-polyfill";
 import {
   isUnnamedPdfLayer,
+  isPdfArtworkLayer,
   layersFromOptionalContent,
   mergePdfLayers,
   parsePdfOcgs,
   type PdfLayer,
 } from "@/lib/pdf-ocg";
 import { cn } from "@/lib/utils";
+import { OnRollPreview } from "@/components/respond/on-roll-preview";
+import type { RollDirectionValue } from "@/lib/roll-direction";
+import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
 
 if (typeof window !== "undefined") {
   GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
@@ -23,6 +27,23 @@ if (typeof window !== "undefined") {
 
 const PDF_INTENT = "any" as const;
 const PDF_OPEN_MS = 20_000;
+/** Inline SKU proof (expand still uses the full pane). */
+const INLINE_PROOF_MAX_W = 420;
+
+async function fetchPdfBuffer(src: string): Promise<ArrayBuffer> {
+  const res = await fetch(src);
+  if (!res.ok) {
+    let message = "Could not load the PDF.";
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error?.trim()) message = body.error.trim();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
+  return res.arrayBuffer();
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -48,6 +69,8 @@ export function PdfOcgFromUrl({
   layout = "single",
   page: lockedPage,
   renderPageActions,
+  rollDirection = null,
+  fillHost = false,
 }: {
   src: string;
   fileName: string;
@@ -58,6 +81,10 @@ export function PdfOcgFromUrl({
   /** When set, only this 1-based page is shown (SKU 1 → page 1). */
   page?: number;
   renderPageActions?: (page: number) => ReactNode;
+  /** When set, customers can place the artwork layer onto a roll (one label). */
+  rollDirection?: RollDirectionValue | null;
+  /** Fill the parent and scale the page to the available width and height. */
+  fillHost?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +93,10 @@ export function PdfOcgFromUrl({
   const [pageCount, setPageCount] = useState(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [expanded, setExpanded] = useState(false);
+  const expandedRef = useRef(false);
+  expandedRef.current = expanded;
+  const [onRoll, setOnRoll] = useState(false);
+  const [proofBitmap, setProofBitmap] = useState<string | null>(null);
   const [loadSeconds, setLoadSeconds] = useState(0);
   const [pageActionMounts, setPageActionMounts] = useState<
     { page: number; el: HTMLElement }[]
@@ -75,11 +106,22 @@ export function PdfOcgFromUrl({
   layoutRef.current = layout;
   const lockedPageRef = useRef(lockedPage);
   lockedPageRef.current = lockedPage;
+  const onRollRef = useRef(onRoll);
+  onRollRef.current = onRoll;
+  const rollDirectionRef = useRef(rollDirection);
+  rollDirectionRef.current = rollDirection;
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
+  const visibleIdsRef = useRef(visibleIds);
+  visibleIdsRef.current = visibleIds;
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const ocRef = useRef<OptionalContentConfig | null>(null);
   const pageNumberRef = useRef(1);
   const renderTasksRef = useRef<RenderTask[]>([]);
   const lastDrawWidthRef = useRef(0);
+  const lastDrawHeightRef = useRef(0);
+  const fillHostRef = useRef(fillHost);
+  fillHostRef.current = fillHost;
   const onPageCountRef = useRef(onPageCount);
   const onPageNumberRef = useRef(onPageNumber);
   onPageCountRef.current = onPageCount;
@@ -112,8 +154,13 @@ export function PdfOcgFromUrl({
     const pdf = pdfRef.current;
     const host = pagesRef.current;
     if (!pdf || !host) return;
+    if (onRollRef.current && rollDirectionRef.current) return;
     const pad = 8;
-    const availW = Math.max(host.clientWidth - pad, 1);
+    const rawW = Math.max(host.clientWidth - pad, 1);
+    const availW =
+      expandedRef.current || fillHostRef.current
+        ? rawW
+        : Math.min(rawW, INLINE_PROOF_MAX_W);
     if (availW < 8) return;
     lastDrawWidthRef.current = Math.round(host.clientWidth);
     cancelRenders();
@@ -173,12 +220,12 @@ export function PdfOcgFromUrl({
     if (grid) {
       const nPages = pdf.numPages;
       const cols = Math.min(nPages, availW >= 640 ? 3 : 2);
-      const availH = Math.max(host.clientHeight - pad, 200);
       const cellW =
         nPages === 1
           ? availW
           : Math.max((availW - 8 * Math.max(cols - 1, 0)) / cols, 40);
-      const cellH = nPages === 1 ? availH : null;
+      // Width-fit so a single proof fills the SKU box instead of letterboxing.
+      const cellH = null;
       const mounts: { page: number; el: HTMLElement }[] = [];
       for (let i = 1; i <= nPages; i++) {
         const wrap = document.createElement("div");
@@ -214,9 +261,62 @@ export function PdfOcgFromUrl({
       locked != null
         ? Math.min(Math.max(locked, 1), pdf.numPages)
         : Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
-    // Width-fit so the proof fills the pane (scroll if the page is tall).
-    await paintPage(n, availW, null, host);
+    await paintPage(
+      n,
+      availW,
+      fillHostRef.current ? availH : null,
+      host
+    );
   }, [cancelRenders]);
+
+  const captureRollBitmap = useCallback(async () => {
+    const pdf = pdfRef.current;
+    const oc = ocRef.current;
+    if (!pdf || !onRollRef.current || !rollDirectionRef.current) {
+      setProofBitmap(null);
+      return;
+    }
+    const locked = lockedPageRef.current;
+    const n =
+      locked != null
+        ? Math.min(Math.max(locked, 1), pdf.numPages)
+        : Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
+    const page = await pdf.getPage(n);
+    const unscaled = page.getViewport({ scale: 1 });
+    const scale = 720 / unscaled.width;
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    const list = layersRef.current;
+    const art = list.find((layer) => isPdfArtworkLayer(layer.name));
+    if (oc) {
+      for (const layer of list) {
+        oc.setVisibility(layer.id, art ? layer.id === art.id : true, false);
+      }
+    }
+    try {
+      await page.render({
+        canvas,
+        canvasContext: ctx,
+        viewport,
+        intent: PDF_INTENT,
+        optionalContentConfigPromise: oc ? Promise.resolve(oc) : undefined,
+      }).promise;
+      setProofBitmap(canvas.toDataURL("image/png"));
+    } catch {
+      /* ignore cancelled */
+    } finally {
+      if (oc) {
+        const vis = visibleIdsRef.current;
+        for (const layer of list) {
+          oc.setVisibility(layer.id, vis.has(layer.id), false);
+        }
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -229,20 +329,10 @@ export function PdfOcgFromUrl({
       setPageNumber(1);
       pageNumberRef.current = 1;
       lastDrawWidthRef.current = 0;
+      lastDrawHeightRef.current = 0;
       await closePdf();
       try {
-        const res = await fetch(src);
-        if (!res.ok) {
-          let message = "Could not load the PDF.";
-          try {
-            const body = (await res.json()) as { error?: string };
-            if (body.error?.trim()) message = body.error.trim();
-          } catch {
-            /* ignore */
-          }
-          throw new Error(message);
-        }
-        const data = await res.arrayBuffer();
+        const data = await fetchPdfBuffer(src);
         if (cancelled) return;
         const loadingTask = getDocument({
           data,
@@ -298,10 +388,17 @@ export function PdfOcgFromUrl({
     if (!host) return;
     let timer = 0;
     const ro = new ResizeObserver((entries) => {
+      if (onRollRef.current) return;
       const w = Math.round(entries[0]?.contentRect.width ?? host.clientWidth);
-      // Height changes every time we clear/paint canvases (and when approve
-      // buttons portal in). Redrawing on height = infinite blink.
-      if (w === lastDrawWidthRef.current) return;
+      const h = Math.round(entries[0]?.contentRect.height ?? host.clientHeight);
+      if (fillHostRef.current) {
+        if (w === lastDrawWidthRef.current && h === lastDrawHeightRef.current) {
+          return;
+        }
+        lastDrawHeightRef.current = h;
+      } else if (w === lastDrawWidthRef.current) {
+        return;
+      }
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         if (pdfRef.current) void drawPages();
@@ -312,7 +409,7 @@ export function PdfOcgFromUrl({
       window.clearTimeout(timer);
       ro.disconnect();
     };
-  }, [drawPages, expanded]);
+  }, [drawPages, expanded, fillHost]);
 
   useEffect(() => {
     if (!pdfRef.current) return;
@@ -320,7 +417,22 @@ export function PdfOcgFromUrl({
       void drawPages();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [expanded, pageNumber, drawPages, layout, lockedPage]);
+  }, [expanded, pageNumber, drawPages, layout, lockedPage, onRoll, fillHost]);
+
+  useEffect(() => {
+    if (loading || !onRoll || !rollDirection) {
+      setProofBitmap(null);
+      return;
+    }
+    void captureRollBitmap();
+  }, [
+    loading,
+    onRoll,
+    rollDirection,
+    pageNumber,
+    lockedPage,
+    captureRollBitmap,
+  ]);
 
   useEffect(() => {
     onPageCountRef.current?.(lockedPage != null ? 1 : pageCount);
@@ -349,13 +461,15 @@ export function PdfOcgFromUrl({
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         setExpanded(false);
       }
     }
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.body.style.overflow = prev;
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [expanded]);
 
@@ -395,7 +509,7 @@ export function PdfOcgFromUrl({
     <div
       className={cn(
         "flex flex-col overflow-hidden bg-white",
-        expanded
+        expanded || fillHost
           ? "h-full min-h-0 flex-1 rounded-lg shadow-2xl"
           : "rounded-md border border-slate-200"
       )}
@@ -416,7 +530,10 @@ export function PdfOcgFromUrl({
           </span>
           <button
             type="button"
-            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            className={cn(
+              "ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800",
+              fillHost && !expanded ? "hidden" : null
+            )}
             title={expanded ? "Close large view" : "Open large view"}
             aria-label={expanded ? "Close large view" : "Open large view"}
             onClick={() => setExpanded((v) => !v)}
@@ -428,7 +545,8 @@ export function PdfOcgFromUrl({
         !loading &&
         !error &&
         layout !== "grid" &&
-        lockedPage == null ? (
+        lockedPage == null &&
+        !(onRoll && rollDirection) ? (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Image
@@ -458,6 +576,8 @@ export function PdfOcgFromUrl({
         ) : null}
         {!loading && !error ? (
           <div className="flex flex-wrap items-center gap-1.5">
+            {!(onRoll && rollDirection) ? (
+              <>
             <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Layer
               <Layers className="h-3.5 w-3.5" aria-hidden />
@@ -489,6 +609,37 @@ export function PdfOcgFromUrl({
             ) : (
               <span className="text-[11px] text-slate-400">No layers in this file</span>
             )}
+              </>
+            ) : (
+              <span className="text-xs font-medium text-slate-500">
+                Artwork only · one label
+              </span>
+            )}
+            {rollDirection ? (
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Roll preview
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={onRoll}
+                  onClick={() => setOnRoll((v) => !v)}
+                  className={cn(
+                    "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors",
+                    onRoll ? "bg-blue-600" : "bg-slate-200"
+                  )}
+                >
+                  <span className="sr-only">Show artwork on roll</span>
+                  <span
+                    className={cn(
+                      "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform",
+                      onRoll ? "translate-x-6" : "translate-x-1"
+                    )}
+                  />
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -507,34 +658,18 @@ export function PdfOcgFromUrl({
       ) : (
         <div
           className={cn(
-            "relative flex w-full flex-col items-stretch [scrollbar-gutter:stable]",
+            "relative flex w-full flex-col items-stretch",
             expanded
-              ? "min-h-0 flex-1 overflow-auto"
+              ? "min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]"
+              : fillHost
+                ? "min-h-0 flex-1 overflow-hidden"
               : loading
-                ? "min-h-[22rem] overflow-hidden sm:min-h-[26rem]"
-                : "overflow-auto"
+                ? "min-h-[16rem] overflow-hidden"
+                : "overflow-hidden"
           )}
         >
           {loading ? (
-            <div
-              className="flex w-full flex-col items-center justify-center gap-3 bg-slate-50 px-4 py-10 text-center"
-              role="status"
-              aria-live="polite"
-            >
-              <span
-                className="h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600"
-                aria-hidden
-              />
-              <p className="max-w-sm text-base font-semibold text-slate-800">
-                Great things take a little wait. Almost there.
-              </p>
-              <p
-                className="text-lg font-semibold tabular-nums text-blue-700"
-                aria-label={`Loading ${loadSeconds} seconds`}
-              >
-                Loading... {loadSeconds}s
-              </p>
-            </div>
+            <PdfLoadingBar seconds={loadSeconds} />
           ) : null}
           <div
             ref={pagesRef}
@@ -545,20 +680,39 @@ export function PdfOcgFromUrl({
             }
             className={cn(
               "w-full p-1",
-              layout === "grid"
-                ? "flex min-h-full flex-wrap content-start items-start justify-center gap-2"
+              onRoll && rollDirection && !loading
+                ? "hidden"
+                : layout === "grid"
+                ? "flex min-h-full w-full flex-wrap content-start items-start justify-center gap-2"
                 : "flex min-h-full items-start justify-center",
-              !expanded && !loading && layout !== "grid"
-                ? "min-h-[min(90vh,56rem)] cursor-zoom-in"
-                : !loading && layout !== "grid"
-                  ? "min-h-[min(90vh,56rem)]"
-                  : null
+              !onRoll && !expanded && !loading && !fillHost
+                ? layout === "grid"
+                  ? "min-h-[20rem]"
+                  : "min-h-[20rem] cursor-zoom-in"
+                : !onRoll && !loading && layout !== "grid" && !fillHost
+                  ? "min-h-[20rem]"
+                  : layout === "grid" && loading
+                    ? "min-h-[16rem]"
+                    : fillHost
+                      ? "h-full min-h-0"
+                      : null
             )}
             onClick={() => {
-              if (!expanded && !loading && layout !== "grid") setExpanded(true);
+              if (!fillHost && !expanded && !loading && layout !== "grid" && !onRoll)
+                setExpanded(true);
             }}
           />
-          {renderPageActions
+          {onRoll && rollDirection && !loading && proofBitmap ? (
+            <OnRollPreview
+              artworkSrc={proofBitmap}
+              direction={rollDirection}
+            />
+          ) : onRoll && rollDirection && !loading ? (
+            <p className="px-3 py-8 text-center text-sm text-slate-500">
+              Building roll preview…
+            </p>
+          ) : null}
+          {renderPageActions && !(onRoll && rollDirection)
             ? pageActionMounts.map(({ page, el }) =>
                 el.isConnected ? (
                   <Fragment key={page}>

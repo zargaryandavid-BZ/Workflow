@@ -269,6 +269,40 @@ async function fetchRespondFinalPdfsBySkuUncached(
   return out;
 }
 
+export function skuListForFinalPdfs(
+  orderTitle: string,
+  skus: SkuItem[]
+): SkuItem[] {
+  if (skus.length > 0) return skus;
+  return [
+    {
+      id: "__final_artwork__",
+      name: String(orderTitle ?? "order").trim() || "order",
+      qty: null,
+    },
+  ];
+}
+
+function uniquePdfsFromSkuMap(
+  skuList: SkuItem[],
+  map: Record<string, RespondFinalPdf>
+): RespondFinalPdf[] {
+  const unique: RespondFinalPdf[] = [];
+  const seen = new Set<string>();
+  for (const sku of skuList) {
+    const pdf = map[sku.id];
+    if (!pdf || seen.has(pdf.fileId)) continue;
+    seen.add(pdf.fileId);
+    unique.push({ fileId: pdf.fileId, fileName: pdf.fileName });
+  }
+  for (const pdf of Object.values(map)) {
+    if (seen.has(pdf.fileId)) continue;
+    seen.add(pdf.fileId);
+    unique.push({ fileId: pdf.fileId, fileName: pdf.fileName });
+  }
+  return unique;
+}
+
 export async function isRespondFinalPdfForOrder(
   supabase: SupabaseClient,
   tenantId: string,
@@ -276,8 +310,35 @@ export async function isRespondFinalPdfForOrder(
   skus: SkuItem[],
   fileId: string
 ): Promise<boolean> {
-  const map = await fetchRespondFinalPdfsBySku(supabase, tenantId, order, skus);
+  const skuList = skuListForFinalPdfs(order.title, skus);
+  const map = await fetchRespondFinalPdfsBySku(
+    supabase,
+    tenantId,
+    order,
+    skuList
+  );
   return Object.values(map).some((p) => p.fileId === fileId);
+}
+
+/** Unique Final-for-Prod PDFs (one row per Drive file). */
+export async function listUniqueFinalPdfs(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: {
+    id: string;
+    title: string;
+    specs: Record<string, unknown>;
+  },
+  skus: SkuItem[]
+): Promise<RespondFinalPdf[]> {
+  const skuList = skuListForFinalPdfs(order.title, skus);
+  const map = await fetchRespondFinalPdfsBySku(
+    supabase,
+    tenantId,
+    order,
+    skuList
+  );
+  return uniquePdfsFromSkuMap(skuList, map);
 }
 
 /**
@@ -294,35 +355,7 @@ export async function downloadUniqueFinalPdfBuffers(
   },
   skus: SkuItem[]
 ): Promise<Buffer[]> {
-  const skuList: SkuItem[] =
-    skus.length > 0
-      ? skus
-      : [
-          {
-            id: "__job_ticket__",
-            name: String(order.title ?? "order"),
-            qty: null,
-          },
-        ];
-  const map = await fetchRespondFinalPdfsBySku(
-    supabase,
-    tenantId,
-    order,
-    skuList
-  );
-  const unique: RespondFinalPdf[] = [];
-  const seen = new Set<string>();
-  for (const sku of skuList) {
-    const pdf = map[sku.id];
-    if (!pdf || seen.has(pdf.fileId)) continue;
-    seen.add(pdf.fileId);
-    unique.push(pdf);
-  }
-  for (const pdf of Object.values(map)) {
-    if (seen.has(pdf.fileId)) continue;
-    seen.add(pdf.fileId);
-    unique.push(pdf);
-  }
+  const unique = await listUniqueFinalPdfs(supabase, tenantId, order, skus);
   if (unique.length === 0) return [];
 
   let settings;

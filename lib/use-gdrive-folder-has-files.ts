@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+type FolderDriveStatus = { hasFiles: boolean; hasPdf: boolean };
+
+const EMPTY: FolderDriveStatus = { hasFiles: false, hasPdf: false };
+
 /** Avoid re-hitting Drive for the same order while browsing the board. */
-const hasFilesCache = new Map<string, boolean>();
+const statusCache = new Map<string, FolderDriveStatus>();
 
 /** One in-flight request per order so remounts share a single call. */
-const inFlight = new Map<string, Promise<boolean>>();
+const inFlight = new Map<string, Promise<FolderDriveStatus>>();
 
 /** Subscribers notified when an order's cached status is invalidated/refreshed. */
 const listeners = new Map<string, Set<() => void>>();
@@ -59,26 +63,32 @@ function subscribe(orderId: string, fn: () => void) {
   };
 }
 
-async function fetchHasFiles(orderId: string): Promise<boolean> {
+async function fetchStatus(orderId: string): Promise<FolderDriveStatus> {
   const res = await fetch(`/api/orders/${orderId}/gdrive-status`);
-  if (!res.ok) return false;
-  const json = (await res.json()) as { hasFiles?: boolean };
-  return Boolean(json.hasFiles);
+  if (!res.ok) return EMPTY;
+  const json = (await res.json()) as {
+    hasFiles?: boolean;
+    hasPdf?: boolean;
+  };
+  return {
+    hasFiles: Boolean(json.hasFiles),
+    hasPdf: Boolean(json.hasPdf),
+  };
 }
 
-function fetchHasFilesDeduped(orderId: string): Promise<boolean> {
+function fetchStatusDeduped(orderId: string): Promise<FolderDriveStatus> {
   const existing = inFlight.get(orderId);
   if (existing) return existing;
 
   const promise = enqueueCheck(() =>
-    fetchHasFiles(orderId)
+    fetchStatus(orderId)
       .then((next) => {
-        hasFilesCache.set(orderId, next);
+        statusCache.set(orderId, next);
         return next;
       })
       .catch(() => {
-        hasFilesCache.set(orderId, false);
-        return false;
+        statusCache.set(orderId, EMPTY);
+        return EMPTY;
       })
   ).finally(() => {
     inFlight.delete(orderId);
@@ -91,11 +101,11 @@ function fetchHasFilesDeduped(orderId: string): Promise<boolean> {
 /** Drop cached status so subscribers re-check Drive. */
 export function clearGdriveFolderHasFilesCache(orderId?: string) {
   if (orderId) {
-    hasFilesCache.delete(orderId);
+    statusCache.delete(orderId);
     inFlight.delete(orderId);
     notify(orderId);
   } else {
-    hasFilesCache.clear();
+    statusCache.clear();
     inFlight.clear();
   }
 }
@@ -107,35 +117,28 @@ export function clearGdriveFolderHasFilesCache(orderId?: string) {
 export async function refreshGdriveFolderHasFiles(
   orderId: string
 ): Promise<boolean> {
-  hasFilesCache.delete(orderId);
+  statusCache.delete(orderId);
   inFlight.delete(orderId);
   try {
-    const next = await fetchHasFilesDeduped(orderId);
+    const next = await fetchStatusDeduped(orderId);
     notify(orderId);
-    return next;
+    return next.hasFiles;
   } catch {
-    hasFilesCache.set(orderId, false);
+    statusCache.set(orderId, EMPTY);
     notify(orderId);
     return false;
   }
 }
 
-/**
- * Green order # / Copy Link when Artwork / Final production Drive folder has files.
- *
- * Uses cache when present. On cache miss (with a Drive URL), schedules a
- * deferred, concurrency-limited Drive check so the board can paint first.
- * Explicit refresh still runs immediately via refreshGdriveFolderHasFiles.
- */
-export function useGdriveFolderHasFiles(
+export function useGdriveFolderStatus(
   orderId: string | null | undefined,
   artworkUrl: string | null | undefined
-): boolean {
+): FolderDriveStatus {
   const url = artworkUrl?.trim() ?? "";
   const hasUrl = Boolean(url && /^https?:\/\//i.test(url));
-  const [hasFiles, setHasFiles] = useState(() => {
-    if (!orderId || !hasUrl) return false;
-    return hasFilesCache.get(orderId) ?? false;
+  const [status, setStatus] = useState<FolderDriveStatus>(() => {
+    if (!orderId || !hasUrl) return EMPTY;
+    return statusCache.get(orderId) ?? EMPTY;
   });
   const [epoch, setEpoch] = useState(0);
 
@@ -146,23 +149,21 @@ export function useGdriveFolderHasFiles(
 
   useEffect(() => {
     if (!orderId || !hasUrl) {
-      setHasFiles(false);
+      setStatus(EMPTY);
       return;
     }
 
-    const cached = hasFilesCache.get(orderId);
+    const cached = statusCache.get(orderId);
     if (cached !== undefined) {
-      setHasFiles(cached);
+      setStatus(cached);
       return;
     }
 
     let cancelled = false;
-    // Let the board paint / column fetches settle, then check Drive.
-    // Explicit refresh (epoch bump with empty cache) uses a shorter delay.
     const delayMs = epoch === 0 ? 800 : 50;
     const timer = window.setTimeout(() => {
-      void fetchHasFilesDeduped(orderId).then((next) => {
-        if (!cancelled) setHasFiles(next);
+      void fetchStatusDeduped(orderId).then((next) => {
+        if (!cancelled) setStatus(next);
       });
     }, delayMs);
 
@@ -172,5 +173,23 @@ export function useGdriveFolderHasFiles(
     };
   }, [orderId, hasUrl, url, epoch]);
 
-  return hasFiles;
+  return status;
+}
+
+/**
+ * Green order # / Copy Link when Artwork / Final production Drive folder has files.
+ */
+export function useGdriveFolderHasFiles(
+  orderId: string | null | undefined,
+  artworkUrl: string | null | undefined
+): boolean {
+  return useGdriveFolderStatus(orderId, artworkUrl).hasFiles;
+}
+
+/** True when a PDF exists in Artwork / Final production (Show Artwork on the card). */
+export function useGdriveFolderHasPdf(
+  orderId: string | null | undefined,
+  artworkUrl: string | null | undefined
+): boolean {
+  return useGdriveFolderStatus(orderId, artworkUrl).hasPdf;
 }

@@ -23,9 +23,14 @@ import {
   Truck,
   User,
   AlertTriangle,
+  Layers,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import {
+  FinalArtworkModal,
+  SeeArtworkButton,
+} from "@/components/board/final-artwork-modal";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
   preferCardImage,
@@ -61,7 +66,7 @@ import {
 import { getComboStock, COMBO_STOCK_LABELS } from "@/lib/combo-stock";
 import { dueDateStatus } from "@/lib/board-due-date";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
-import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
+import { useGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
 import {
   DEFAULT_PROCESSING_DAYS,
   type DueDateMode,
@@ -324,7 +329,8 @@ export function OrderCard({
   const artworkUrl = artworkField
     ? String(fieldValues[artworkField.id] ?? "").trim()
     : "";
-  const folderHasFiles = useGdriveFolderHasFiles(order.id, artworkUrl);
+  const { hasFiles: folderHasFiles, hasPdf: hasFinalPdf } =
+    useGdriveFolderStatus(order.id, artworkUrl);
 
   const designerName =
     designerNameProp?.trim() ||
@@ -414,6 +420,7 @@ export function OrderCard({
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [artworkOpen, setArtworkOpen] = useState(false);
   const [cardImageBusy, setCardImageBusy] = useState(false);
 
   // Right-click on designer chip (admin / account manager)
@@ -629,6 +636,18 @@ export function OrderCard({
     setMenuOpen(true);
   }
 
+  function handleDetailsClick(e: React.MouseEvent) {
+    if (!hasContextMenu) return;
+    const target = e.target;
+    if (
+      target instanceof Element &&
+      target.closest("button, a, input, [role='button']")
+    ) {
+      return;
+    }
+    handleContextMenu(e);
+  }
+
   function handleDesignerContextMenu(e: React.MouseEvent) {
     if (!canAssignDesigner) return;
     e.preventDefault();
@@ -805,29 +824,30 @@ export function OrderCard({
         />
       ) : null}
       {/* Top row: thumbnail + header info */}
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-start gap-3">
         {thumbnails && thumbnails.length > 0 ? (
+          <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              setLightboxOpen(true);
+              if (hasFinalPdf) setArtworkOpen(true);
+              else setLightboxOpen(true);
             }}
             onPointerDown={(e) => e.stopPropagation()}
-            className="relative h-20 w-20 shrink-0 overflow-hidden rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            aria-label={`View pictures for ${order.title}`}
-            title={
-              thumbnails.length > 1
-                ? `View pictures (${thumbnails.length})`
-                : "View picture"
+            className="relative h-28 w-28 shrink-0 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+            aria-label={
+              hasFinalPdf
+                ? `View artwork pages and layers for ${order.title}`
+                : `View pictures for ${order.title}`
             }
           >
             <Image
               src={thumbnails[0].url}
               alt=""
-              width={80}
-              height={80}
-              className="h-20 w-20 object-cover"
+              width={112}
+              height={112}
+              className="h-28 w-28 object-cover"
               unoptimized
             />
             {thumbnails.length > 1 ? (
@@ -841,9 +861,35 @@ export function OrderCard({
               {groupSize != null && groupSize >= 2 ? ` (${groupSize})` : ""}
             </span>
           </button>
+          {hasFinalPdf ? (
+            <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
+          ) : null}
+          </div>
+        ) : hasFinalPdf ? (
+          <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setArtworkOpen(true);
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="flex h-28 w-28 items-center justify-center bg-slate-50 text-slate-300 hover:bg-slate-100 hover:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+              aria-label={`View artwork pages and layers for ${order.title}`}
+            >
+              <Layers className="h-8 w-8" aria-hidden />
+            </button>
+            <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
+          </div>
         ) : null}
 
-        <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            "min-w-0 flex-1",
+            hasContextMenu && "cursor-context-menu"
+          )}
+          onClick={handleDetailsClick}
+        >
           {/* 1) Order/part # + item title  2) Customer  3) Spec detail */}
           <div className="min-w-0 w-full text-left">
             <WebhookSourceLabel
@@ -1651,6 +1697,14 @@ export function OrderCard({
             document.body
           )
         : null}
+
+      {artworkOpen ? (
+        <FinalArtworkModal
+          orderId={order.id}
+          orderTitle={order.title}
+          onClose={() => setArtworkOpen(false)}
+        />
+      ) : null}
 
       {lightboxOpen && thumbnails && thumbnails.length > 0 ? (
         <ImageLightbox

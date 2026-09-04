@@ -298,7 +298,7 @@ export function Column({
       ref={setRefs}
       data-column-id={column.id}
       className={cn(
-        "flex h-full w-80 shrink-0 flex-col rounded-lg transition-[opacity,box-shadow]",
+        "flex h-full w-[22rem] shrink-0 flex-col rounded-lg transition-[opacity,box-shadow]",
         isDragActive && !canAcceptDrop && "opacity-50",
         showDropTarget && "ring-2 ring-blue-400 ring-offset-2"
       )}
@@ -373,7 +373,7 @@ export function Column({
           <Image
             src={column.image_url}
             alt=""
-            width={320}
+            width={352}
             height={96}
             className="mt-2 h-20 w-full rounded-md object-cover"
             unoptimized
