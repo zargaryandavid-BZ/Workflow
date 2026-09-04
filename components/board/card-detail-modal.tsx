@@ -1962,7 +1962,7 @@ export function CardDetailModal({
       }
       footer={
         <>
-          <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
             {isAdmin && mode !== "view" ? (
               <button
                 type="button"
@@ -2083,7 +2083,7 @@ export function CardDetailModal({
               </button>
             ) : null}
           </div>
-          <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
             {!isViewOnly && (isDirty() || saving) ? (
               <>
                 <Button

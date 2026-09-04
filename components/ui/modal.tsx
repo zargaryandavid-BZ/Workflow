@@ -77,7 +77,7 @@ export function Modal({
         </div>
         <div className="min-w-0 px-5 py-2">{children}</div>
         {footer ? (
-          <div className="flex w-full min-w-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-t border-slate-200 px-4 py-3">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-t border-slate-200 px-4 py-3">
             {footer}
           </div>
         ) : null}

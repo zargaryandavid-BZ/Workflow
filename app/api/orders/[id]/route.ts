@@ -46,7 +46,7 @@ import type {
   ShippingRequest,
   Tag,
 } from "@/lib/types";
-import { notifyDesignerOfSalesNote } from "@/lib/user-notifications";
+import { notifyDesignerOfSalesNote, notifyMentionedInNotes } from "@/lib/user-notifications";
 
 const ORDER_QTY_NAME_SET = new Set(
   ORDER_QTY_FIELD_ALIASES.map((n) => n.toLowerCase())
@@ -344,7 +344,7 @@ export async function PATCH(
   const { data: existingOrder } = await supabase
     .from("orders")
     .select(
-      "id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, tag_id, webhook_source"
+      "id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, tag_id, webhook_source, internal_note"
     )
     .eq("id", id)
     .eq("tenant_id", tenantId)
@@ -637,6 +637,31 @@ export async function PATCH(
       nextSpecs: updates.specs as Record<string, unknown>,
     }).catch((err) => console.error("[user-notifications]", err));
   }
+
+  const nextSpecsForMentions =
+    updates.specs && typeof updates.specs === "object"
+      ? (updates.specs as Record<string, unknown>)
+      : existingSpecs;
+  const nextInternalForMentions =
+    updates.internal_note !== undefined
+      ? (updates.internal_note as string | null)
+      : ((existingOrder as { internal_note?: string | null }).internal_note ??
+        null);
+  void notifyMentionedInNotes({
+    client: supabase,
+    tenantId,
+    orderId: id,
+    orderTitle: String(
+      (updates.title as string | undefined) ?? existingOrder.title ?? "order"
+    ),
+    actorId: ctx.userId,
+    actorName: ctx.fullName?.trim() || ctx.email || "Someone",
+    previousInternalNote:
+      (existingOrder as { internal_note?: string | null }).internal_note ?? null,
+    nextInternalNote: nextInternalForMentions,
+    previousSpecs: existingSpecs,
+    nextSpecs: nextSpecsForMentions,
+  }).catch((err) => console.error("[user-notifications]", err));
 
   // Fire-and-forget — do not await; client doesn't need activity log data
   void recordSaveActivity(supabase, {

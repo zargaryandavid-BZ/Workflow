@@ -9,6 +9,7 @@ import { ROLE_LABELS } from "@/lib/constants";
 import type { Role } from "@/lib/types";
 import { BoardHealthButton } from "@/components/app-shell/board-health-button";
 import { NotificationInbox } from "@/components/app-shell/notification-inbox";
+import { MentionNotificationPopup } from "@/components/app-shell/mention-notification-popup";
 
 interface TopbarProps {
   tenants: { id: string; name: string }[];
@@ -154,6 +155,7 @@ export function Topbar({
           tenantId={activeTenantId}
           role={role}
         />
+        <MentionNotificationPopup userId={userId} />
         <button
           onClick={() => setOpenUser((o) => !o)}
           className={cn(

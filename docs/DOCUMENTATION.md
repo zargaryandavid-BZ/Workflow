@@ -129,7 +129,7 @@ proxy.ts                        Session middleware helper [see Known issues](#kn
 | `approvals` | Legacy customer approval records |
 | `automation_rules` | Column-move and notification automations |
 | `activity_log` | Audit trail per order |
-| `user_notifications` | In-app staff inbox (designer notes, Hold watchers) |
+| `user_notifications` | In-app staff inbox (designer notes, Hold watchers, `@` mention notes) |
 | `die_manufacturers` | Die shop contacts (Settings) |
 | `die_requests` | Die quote/order requests (`sent` → `quoted` → `ordered`) |
 | `webhook_order_ingest_locks` | Short-lived lock so a double CRM POST cannot create duplicate cards |
@@ -281,14 +281,20 @@ Column `kind` drives popup behavior in `components/board/board.tsx` (`onDragEnd`
 
 `job_notifications` is **not** subscribed; staff see notification state in the order detail modal tabs.
 
+### Staff inbox (`user_notifications`)
+
+The top-bar bell lists in-app rows for the current tenant (`designer_note`, `order_hold`, `note_mention`). Admins can see everyone’s inbox. Clicking a row opens `/board?order=…`.
+
+`@Name` in newly saved **staff** notes (For Production, Internal, Designer) inserts `note_mention` for that teammate. Matching uses `profiles.full_name` (longest name first; a unique first name also matches). The author is not notified. The mentioned person also gets a live popup (`MentionNotificationPopup`) with the comment and a clickable job number. No email/SMS.
+
 ## Supabase Realtime
 
 | Table | Subscribed? | Events | Handler |
 | --- | --- | --- | --- |
 | `orders` | Yes | `*` | `router.refresh()` in `Board` |
-| Others | No | — | — |
+| `user_notifications` | Yes | `*` / `INSERT` | Top-bar inbox; mention popup |
 
-Enable Realtime for `orders` in Supabase Dashboard → Database → Replication.
+Enable Realtime for `orders` and `user_notifications` in Supabase Dashboard → Database → Replication.
 
 ## Authentication
 
@@ -1306,8 +1312,17 @@ List team members + pending invites for active tenant.
 
 | | |
 | --- | --- |
-| **Auth** | Session + tenant |
+| **Auth** | Session + tenant; **admin** |
 | **Response** | `{ members: TeamMemberRow[] }` |
+
+### `GET /api/members/mentionable`
+
+Display names for `@` autocomplete in staff notes (any logged-in member).
+
+| | |
+| --- | --- |
+| **Auth** | Session + tenant |
+| **Response** | `{ members: { id, fullName }[] }` |
 
 ### `POST /api/members`
 
@@ -1485,7 +1500,7 @@ Full order editor: form, SKUs, artwork, activity log, Missing Info tab, Approval
 
 **Depends on:** `OrderFormBody`, `SkuEditor`, `MissingInfoTab`, `ApprovalTab`, `Modal`, asset upload APIs.
 
-**Behavior:** Deferred artwork upload — files stay pending until **Save changes**.
+**Behavior:** Deferred artwork upload — files stay pending until **Save changes**. Footer actions wrap instead of overflowing: left-side tools (`Delete`, `Nudge`, `Lock`, …) sit in a wrapping row; `Cancel` / `Save changes` stay on the right (`ml-auto`). The shared `Modal` footer uses `flex-wrap` so nested `shrink-0` buttons cannot paint over Save/Cancel.
 
 ---
 
@@ -1533,6 +1548,10 @@ Staff UI for customer approval notifications: status, resend, manual approve, re
 ---
 
 ## Notification popups
+
+### Staff `@` mention — `components/app-shell/mention-notification-popup.tsx`
+
+Realtime INSERT on `user_notifications` for the signed-in user. If `type` is `note_mention`, shows the comment plus a job-number link to `/board?order={id}` (one at a time; extras queue). Dismiss marks the row read.
 
 ### `NotificationPopup` — `components/automation/notification-popup.tsx`
 

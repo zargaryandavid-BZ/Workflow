@@ -13,6 +13,7 @@ import {
   User,
 } from "lucide-react";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { NoteMentionTextarea } from "@/components/board/note-mention-textarea";
 import { CustomFieldInput } from "./custom-field-input";
 import { ProductMaterialsFields } from "./product-materials-fields";
 import { useCrmCatalog, catalogLookup } from "@/lib/use-crm-catalog";
@@ -1378,11 +1379,11 @@ export function OrderFormBody({
                     Add new note
                   </Label>
                 ) : null}
-                <Textarea
+                <NoteMentionTextarea
                   id={`${idPrefix}-designer-note`}
                   value={designerNote}
-                  onChange={(e) => onDesignerNoteChange(e.target.value)}
-                  placeholder="Notes for the designer…"
+                  onChange={onDesignerNoteChange}
+                  placeholder="Notes for the designer… Type @ to mention a teammate."
                   className="bg-white"
                 />
               </div>
@@ -1454,11 +1455,11 @@ export function OrderFormBody({
                       ? "Add new note"
                       : "Note for production"}
                   </Label>
-                  <Textarea
+                  <NoteMentionTextarea
                     id={`${idPrefix}-production-notes`}
                     value={productionNotes}
-                    onChange={(e) => onProductionNotesChange(e.target.value)}
-                    placeholder="Production notes for the Job Ticket…"
+                    onChange={onProductionNotesChange}
+                    placeholder="Production notes for the Job Ticket… Type @ to mention a teammate."
                     className="border-blue-200 bg-white focus-visible:ring-blue-400"
                   />
                 </div>
@@ -1587,11 +1588,11 @@ export function OrderFormBody({
                   ? "Add new note"
                   : "Note"}
               </Label>
-              <Textarea
+              <NoteMentionTextarea
                 id={`${idPrefix}-internal-note`}
                 value={internalNote}
-                onChange={(e) => onInternalNoteChange(e.target.value)}
-                placeholder="Internal notes visible only to the team…"
+                onChange={onInternalNoteChange}
+                placeholder="Internal notes visible only to the team… Type @ to mention a teammate."
                 className="border-amber-200 bg-white focus-visible:ring-amber-400"
               />
               <p className="mt-1.5 text-[11px] text-amber-700/80">

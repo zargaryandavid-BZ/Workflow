@@ -1,4 +1,5 @@
 import { appendedNoteEntries } from "@/lib/note-history";
+import { mentionedUserIds } from "@/lib/note-mentions";
 import {
   holdNotificationRecipientIds,
   isHoldWatchTeammateName,
@@ -6,7 +7,7 @@ import {
 import { formatShortOrderNumber } from "@/lib/order-number-tokens";
 import type { Role } from "@/lib/types";
 
-export type UserNotificationType = "designer_note" | "order_hold";
+export type UserNotificationType = "designer_note" | "order_hold" | "note_mention";
 
 export type UserNotification = {
   id: string;
@@ -99,6 +100,104 @@ export async function notifyDesignerOfSalesNote(params: {
   });
   if (error) {
     console.error("[user-notifications] designer note insert failed:", error.message);
+  }
+}
+
+/**
+ * When staff append notes that @mention teammates, write inbox rows
+ * (`note_mention`) for each unique recipient except the author.
+ */
+export async function notifyMentionedInNotes(params: {
+  client: NotifyClient;
+  tenantId: string;
+  orderId: string;
+  orderTitle: string;
+  actorId: string;
+  actorName: string;
+  previousInternalNote: string | null | undefined;
+  nextInternalNote: string | null | undefined;
+  previousSpecs: Record<string, unknown>;
+  nextSpecs: Record<string, unknown>;
+}): Promise<void> {
+  const chunks: string[] = [];
+  for (const entry of appendedNoteEntries(
+    params.previousInternalNote ?? null,
+    params.nextInternalNote ?? null
+  )) {
+    chunks.push(entry.text);
+  }
+  for (const entry of appendedNoteEntries(
+    typeof params.previousSpecs.production_notes === "string"
+      ? params.previousSpecs.production_notes
+      : null,
+    typeof params.nextSpecs.production_notes === "string"
+      ? params.nextSpecs.production_notes
+      : null
+  )) {
+    chunks.push(entry.text);
+  }
+  for (const entry of appendedNoteEntries(
+    typeof params.previousSpecs.designer_notes === "string"
+      ? params.previousSpecs.designer_notes
+      : null,
+    typeof params.nextSpecs.designer_notes === "string"
+      ? params.nextSpecs.designer_notes
+      : null
+  )) {
+    chunks.push(entry.text);
+  }
+  if (chunks.length === 0) return;
+
+  const { data: memberships } = await params.client
+    .from("memberships")
+    .select("user_id")
+    .eq("tenant_id", params.tenantId);
+
+  const memberIds = ((memberships ?? []) as { user_id: string }[])
+    .map((m) => m.user_id)
+    .filter(Boolean);
+  if (memberIds.length === 0) return;
+
+  const { data: profiles } = await params.client
+    .from("profiles")
+    .select("id, full_name")
+    .in("id", memberIds);
+
+  const members = ((profiles ?? []) as { id: string; full_name: string | null }[])
+    .map((p) => ({
+      id: p.id,
+      fullName: (p.full_name ?? "").trim(),
+    }))
+    .filter((p) => p.fullName.length > 0);
+  if (members.length === 0) return;
+
+  const snippetByUser = new Map<string, string>();
+  for (const text of chunks) {
+    for (const userId of mentionedUserIds(text, members)) {
+      if (userId === params.actorId) continue;
+      if (!snippetByUser.has(userId)) {
+        snippetByUser.set(userId, trimSnippet(text, 400));
+      }
+    }
+  }
+  if (snippetByUser.size === 0) return;
+
+  const title =
+    formatShortOrderNumber(params.orderTitle) || params.orderTitle || "Job";
+  const rows = [...snippetByUser.entries()].map(([user_id, body]) => ({
+    tenant_id: params.tenantId,
+    user_id,
+    type: "note_mention",
+    title,
+    body,
+    order_id: params.orderId,
+    actor_id: params.actorId,
+    actor_name: params.actorName,
+  }));
+
+  const { error } = await params.client.from("user_notifications").insert(rows);
+  if (error) {
+    console.error("[user-notifications] note mention insert failed:", error.message);
   }
 }
 

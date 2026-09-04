@@ -24,6 +24,7 @@ import {
   User,
   AlertTriangle,
   Layers,
+  Menu,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -771,6 +772,21 @@ export function OrderCard({
       data-order-card=""
       data-order-id={order.id}
     >
+      {hasContextMenu ? (
+        <button
+          type="button"
+          aria-label="Card actions"
+          title="Card actions"
+          className="absolute left-1 top-1 z-20 inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white/95 text-slate-500 opacity-0 shadow-sm transition-opacity hover:bg-slate-50 hover:text-slate-800 group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleContextMenu(e);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Menu className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      ) : null}
       {/* padded content wrapper */}
       <div className="px-3 py-3.5">
       {timersOff ? null : otherWorker ? (
@@ -884,11 +900,8 @@ export function OrderCard({
         ) : null}
 
         <div
-          className={cn(
-            "min-w-0 flex-1",
-            hasContextMenu && "cursor-context-menu"
-          )}
-          onClick={handleDetailsClick}
+          className="min-w-0 flex-1"
+          onClick={hasContextMenu ? handleDetailsClick : undefined}
         >
           {/* 1) Order/part # + item title  2) Customer  3) Spec detail */}
           <div className="min-w-0 w-full text-left">
