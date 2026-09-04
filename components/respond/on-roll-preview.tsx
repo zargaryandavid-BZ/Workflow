@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ROLL_DIRECTION_OPTIONS,
   formatRollDirectionPreviewAngle,
@@ -17,8 +17,6 @@ const WEB_INSET_PX = 10;
 /** Space between the three labels. */
 const LABEL_GAP_PX = 10;
 const LABEL_COUNT = 3;
-/** Scale the 3-label group (grows/shrinks left; right edge stays put). */
-const LABEL_ZOOM = 0.7 * 1.15;
 
 const DIRECTION_TITLE: Record<RollDirectionValue, string> = {
   "1-Top": "Roll Direction 1-Top",
@@ -34,10 +32,7 @@ const DIR_SHORT: Record<RollDirectionValue, string> = {
   "4-Left": "4 · Left",
 };
 
-function paintRotated(
-  img: HTMLImageElement,
-  deg: number
-): { src: string; width: number; height: number } {
+function paintRotated(img: HTMLImageElement, deg: number): string {
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
   const rad = (deg * Math.PI) / 180;
@@ -49,32 +44,11 @@ function paintRotated(
   canvas.width = Math.max(1, width);
   canvas.height = Math.max(1, height);
   const ctx = canvas.getContext("2d");
-  if (!ctx) return { src: img.src, width: nw, height: nh };
+  if (!ctx) return img.src;
   ctx.translate(width / 2, height / 2);
   ctx.rotate(rad);
   ctx.drawImage(img, -nw / 2, -nh / 2);
-  return { src: canvas.toDataURL("image/png"), width, height };
-}
-
-/** Size labels to the web height (10px inset). Width follows; the group grows left. */
-function fitLabelSize(
-  boxH: number,
-  artW: number,
-  artH: number,
-  maxGroupW: number
-): { width: number; height: number } {
-  const innerH = Math.max(1, boxH - WEB_INSET_PX * 2);
-  let scale = innerH / Math.max(1, artH);
-  const groupW =
-    artW * scale * LABEL_COUNT + LABEL_GAP_PX * (LABEL_COUNT - 1);
-  const innerMaxW = Math.max(1, maxGroupW - WEB_INSET_PX);
-  if (groupW > innerMaxW) {
-    scale *= innerMaxW / groupW;
-  }
-  return {
-    width: Math.max(1, Math.round(artW * scale)),
-    height: Math.max(1, Math.round(artH * scale)),
-  };
+  return canvas.toDataURL("image/png");
 }
 
 export function OnRollPreview({
@@ -87,31 +61,9 @@ export function OnRollPreview({
   className?: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);
-  const [cell, setCell] = useState<{
-    src: string;
-    width: number;
-    height: number;
-  } | null>(null);
-  const [box, setBox] = useState({ w: 0, h: 0 });
-  const mockupRef = useRef<HTMLDivElement>(null);
+  const [cellSrc, setCellSrc] = useState<string | null>(null);
   const [active, setActive] = useState<RollDirectionValue>(direction);
   const rotateDeg = rollDirectionPreviewRotateDeg(direction, active);
-  const overlayH = box.h * 0.7;
-  const fitted =
-    cell && overlayH > 1
-      ? fitLabelSize(overlayH, cell.width, cell.height, box.w)
-      : null;
-  const thumb = fitted
-    ? {
-        width: Math.max(1, Math.round(fitted.width * LABEL_ZOOM)),
-        height: Math.max(1, Math.round(fitted.height * LABEL_ZOOM)),
-      }
-    : null;
-  const overlayW = thumb
-    ? thumb.width * LABEL_COUNT +
-      LABEL_GAP_PX * (LABEL_COUNT - 1) +
-      WEB_INSET_PX
-    : 0;
 
   useEffect(() => {
     setActive(direction);
@@ -145,26 +97,13 @@ export function OnRollPreview({
 
   useEffect(() => {
     if (!src) {
-      setCell(null);
+      setCellSrc(null);
       return;
     }
     const img = new Image();
-    img.onload = () => setCell(paintRotated(img, rotateDeg));
+    img.onload = () => setCellSrc(paintRotated(img, rotateDeg));
     img.src = src;
   }, [src, rotateDeg]);
-
-  useEffect(() => {
-    const el = mockupRef.current;
-    if (!el) return;
-    const measure = () => {
-      const r = el.getBoundingClientRect();
-      setBox({ w: r.width, h: r.height });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [src]);
 
   return (
     <div className={cn("flex flex-col items-center gap-3 px-4 py-4", className)}>
@@ -221,7 +160,7 @@ export function OnRollPreview({
         className="flex w-full max-w-[680px] items-center"
         style={{ gap: LABEL_TO_ARROW_PX }}
       >
-        <div ref={mockupRef} className="relative min-w-0 flex-1 overflow-hidden">
+        <div className="relative min-w-0 flex-1 overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={ROLL_SRC}
@@ -233,31 +172,33 @@ export function OnRollPreview({
             <div
               className="absolute box-border overflow-hidden"
               style={{
+                left: "42%",
                 top: "26%",
                 right: WEB_INSET_PX,
                 height: "70%",
-                width: overlayW > 0 ? overlayW : "46%",
                 paddingTop: WEB_INSET_PX,
                 paddingBottom: WEB_INSET_PX,
                 paddingRight: WEB_INSET_PX,
               }}
             >
-              {cell && thumb ? (
+              {cellSrc ? (
                 <div
                   className="flex h-full w-full items-center justify-end"
                   style={{ gap: LABEL_GAP_PX }}
                 >
                   {Array.from({ length: LABEL_COUNT }, (_, i) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <div
                       key={i}
-                      src={cell.src}
-                      alt=""
-                      width={thumb.width}
-                      height={thumb.height}
-                      className="shrink-0"
-                      draggable={false}
-                    />
+                      className="flex h-full min-w-0 flex-1 items-center justify-end"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={cellSrc}
+                        alt=""
+                        className="max-h-full max-w-full object-contain object-right"
+                        draggable={false}
+                      />
+                    </div>
                   ))}
                 </div>
               ) : (

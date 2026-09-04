@@ -122,6 +122,9 @@ export function PdfOcgFromUrl({
   const lastDrawHeightRef = useRef(0);
   const fillHostRef = useRef(fillHost);
   fillHostRef.current = fillHost;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
+  const drawGenRef = useRef(0);
   const onPageCountRef = useRef(onPageCount);
   const onPageNumberRef = useRef(onPageNumber);
   onPageCountRef.current = onPageCount;
@@ -162,10 +165,13 @@ export function PdfOcgFromUrl({
         ? rawW
         : Math.min(rawW, INLINE_PROOF_MAX_W);
     if (availW < 8) return;
-    lastDrawWidthRef.current = Math.round(host.clientWidth);
+    const gen = ++drawGenRef.current;
+    const measuredW = Math.round(host.clientWidth);
+    const measuredH = Math.round(host.clientHeight);
+    lastDrawWidthRef.current = measuredW;
+    lastDrawHeightRef.current = measuredH;
     cancelRenders();
-    host.innerHTML = "";
-    setPageActionMounts([]);
+    const staging = document.createElement("div");
     const oc = ocRef.current;
     const dpr = window.devicePixelRatio || 1;
     const grid = layoutRef.current === "grid" && lockedPageRef.current == null;
@@ -246,10 +252,15 @@ export function PdfOcgFromUrl({
         actions.dataset.pageActions = String(i);
         actions.className = "w-full";
         wrap.appendChild(actions);
-        host.appendChild(wrap);
+        staging.appendChild(wrap);
         await paintPage(i, cellW, cellH, canvasHold);
+        if (gen !== drawGenRef.current) return;
         mounts.push({ page: i, el: actions });
       }
+      if (gen !== drawGenRef.current) return;
+      host.replaceChildren(...Array.from(staging.childNodes));
+      lastDrawWidthRef.current = Math.round(host.clientWidth);
+      lastDrawHeightRef.current = Math.round(host.clientHeight);
       setPageActionMounts(mounts);
       return;
     }
@@ -265,8 +276,12 @@ export function PdfOcgFromUrl({
       n,
       availW,
       fillHostRef.current ? availH : null,
-      host
+      staging
     );
+    if (gen !== drawGenRef.current) return;
+    host.replaceChildren(...Array.from(staging.childNodes));
+    lastDrawWidthRef.current = Math.round(host.clientWidth);
+    lastDrawHeightRef.current = Math.round(host.clientHeight);
   }, [cancelRenders]);
 
   const captureRollBitmap = useCallback(async () => {
@@ -387,22 +402,24 @@ export function PdfOcgFromUrl({
     const host = pagesRef.current;
     if (!host) return;
     let timer = 0;
-    const ro = new ResizeObserver((entries) => {
-      if (onRollRef.current) return;
-      const w = Math.round(entries[0]?.contentRect.width ?? host.clientWidth);
-      const h = Math.round(entries[0]?.contentRect.height ?? host.clientHeight);
+    const ro = new ResizeObserver(() => {
+      if (onRollRef.current || loadingRef.current) return;
+      const w = Math.round(host.clientWidth);
+      const h = Math.round(host.clientHeight);
       if (fillHostRef.current) {
-        if (w === lastDrawWidthRef.current && h === lastDrawHeightRef.current) {
+        if (
+          Math.abs(w - lastDrawWidthRef.current) < 4 &&
+          Math.abs(h - lastDrawHeightRef.current) < 4
+        ) {
           return;
         }
-        lastDrawHeightRef.current = h;
-      } else if (w === lastDrawWidthRef.current) {
+      } else if (Math.abs(w - lastDrawWidthRef.current) < 4) {
         return;
       }
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        if (pdfRef.current) void drawPages();
-      }, 50);
+        if (pdfRef.current && !loadingRef.current) void drawPages();
+      }, 80);
     });
     ro.observe(host);
     return () => {
