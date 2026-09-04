@@ -1479,7 +1479,7 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold order number and contact with click-to-copy. Cards are a bit wider (`22rem`). **Artwork** (layers control under the thumbnail) appears only when Drive reports a **PDF** in Artwork / Final production (`hasPdf` from `GET /api/orders/[id]/gdrive-status`). The popup fills the window and scales the page to fit.
+**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers control under the thumbnail) appears only when Drive reports a **PDF** in Artwork / Final production (`hasPdf` from `GET /api/orders/[id]/gdrive-status`). The popup fills the window and scales the page to fit.
 
 ---
 
@@ -1602,7 +1602,7 @@ Public server page for `/respond/[token]`. Loads notification via `get_notificat
 
 ### `OrderReview` — `components/respond/order-review.tsx`
 
-Read-only order summary for customers: meta chips, SKU table, artwork. Photos stay visible even when PDF multilayer is on (so a stuck PDF preview cannot hide the proof). PDF multilayer: every page is drawn in a grid (Image 1…N), each with its own approve/reject. Asset URLs still go through `/api/notifications/asset`.
+Read-only order summary for customers: meta chips, SKU table, artwork. A Final-for-Prod PDF is always shown when present (no **PDF multilayer** toggle). The photo **Artwork** gallery is hidden in that case — the customer only reviews PDF sides. Each PDF page is its own full-width card, stacked vertically and scaled to the column width, with its own approve/reject. Asset URLs still go through `/api/notifications/asset`.
 
 ---
 
@@ -1780,7 +1780,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 - `RespondForm` shows Approve / Not Approved buttons.
 - Customer may leave a note on rejection.
-- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf` (files up to **200 MB**; larger ones ask the customer to open in Acrobat from Drive). Named layer chips **toggle independently** (more than one can be on; `ALL` turns every layer on). The **Layer** label has a layers icon; chips are text only. Generic `Layer 1` / `Layer N` chips are hidden. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. One PDF with several pages on a card with several SKUs maps **SKU 1 → page 1**, **SKU 2 → page 2**, and records **one Approve / Not approved per SKU** (not Image 1 and Image 2 on every SKU). A single-SKU multi-page PDF still shows **Side N of M**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
+- Per-SKU Final-for-Prod PDF preview opens whenever a PDF exists in Drive (no customer checkbox). Photo gallery is hidden while the PDF is shown; approval slots follow PDF pages only. The preview loads via `GET /api/notifications/asset?type=final_pdf` (files up to **200 MB**; larger ones ask the customer to open in Acrobat from Drive). Named layer chips **toggle independently** (more than one can be on; `ALL` turns every layer on). The **Layer** label has a layers icon; chips are text only. Generic `Layer 1` / `Layer N` chips are hidden. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. One PDF with several pages on a card with several SKUs maps **SKU 1 → page 1**, **SKU 2 → page 2**, and records **one Approve / Not approved per SKU** (not Image 1 and Image 2 on every SKU). A single-SKU multi-page PDF still shows **Side N of M**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
 
 ### 4a. Approved → card moves per Automations settings
 

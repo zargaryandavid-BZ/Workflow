@@ -62,7 +62,7 @@ export function approvalSlotAssetId(
   return approvalImageAssetId(imageIndex, gallery);
 }
 
-/** How many Image 1…N slots. PDF pages count when the PDF is open (page count > 1). */
+/** How many Image 1…N slots. PDF multilayer on → PDF pages only (photos are hidden). */
 export function approvalImageSlotCount(
   galleryLength: number,
   pdfPageCount = 0,
@@ -70,9 +70,7 @@ export function approvalImageSlotCount(
   pdfLockedPage?: number | null
 ): number {
   if (pdfLockedPage != null) return 1;
-  if (galleryLength >= 2 || pdfPageCount > 1) {
-    return Math.max(galleryLength, pdfPageCount);
-  }
+  if (pdfPageCount > 0) return pdfPageCount;
   return galleryLength;
 }
 

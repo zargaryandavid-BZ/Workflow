@@ -119,7 +119,7 @@ import {
   webhookSourceCardBackground,
 } from "@/lib/webhook-source-styles";
 import { MoveMenuSections } from "./move-menu-sections";
-import { partCardTitle, sharedOrderTitle } from "@/lib/group-orders";
+import { partCardTitle, sourceLabelOrderTitle } from "@/lib/group-orders";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
@@ -711,10 +711,6 @@ export function OrderCard({
     : dueStatus.kind === "pending_approval"
       ? dueStatus.label
       : "—";
-  const ownerLabel = isOwnerUnassigned
-    ? "Unassigned"
-    : ownerName?.trim() || "—";
-  const designerLabel = designerName ?? "Unassigned";
 
   // Live work timer for this card (this user). Only an actively-running timer
   // colors the card green; paused (jumped to another job) leaves it colorless
@@ -908,7 +904,7 @@ export function OrderCard({
             <WebhookSourceLabel
               webhookSource={webhookSourceKey}
               sourceStyles={webhookSourceStyles}
-              orderTitle={sharedOrderTitle(order)}
+              orderTitle={sourceLabelOrderTitle(order, cardTitle)}
             />
             <div className="mb-0.5 flex w-full min-w-0 flex-col gap-0.5 text-left">
               <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5">
@@ -1071,26 +1067,8 @@ export function OrderCard({
             ) : null}
           </div>
 
-          {/* Staff meta — skip unassigned owner/designer; hide Rush when it is no */}
+          {/* Staff meta — due / rush / die. Owner & designer live in the footer chips. */}
           <p className="mt-1.5 w-full text-left text-[11px] leading-snug text-slate-600">
-            {!isOwnerUnassigned ? (
-              <>
-                <span className="whitespace-nowrap text-slate-600">
-                  <span className="font-medium text-slate-500">Owner:</span>{" "}
-                  {ownerLabel}
-                </span>
-                <span className="text-slate-300"> · </span>
-              </>
-            ) : null}
-            {!isDesignerUnassigned ? (
-              <>
-                <span className="whitespace-nowrap text-slate-600">
-                  <span className="font-medium text-slate-500">Designer:</span>{" "}
-                  {designerLabel}
-                </span>
-                <span className="text-slate-300"> · </span>
-              </>
-            ) : null}
             <span>
               <span className="font-medium text-slate-500">Due:</span>{" "}
               {dueLabel}

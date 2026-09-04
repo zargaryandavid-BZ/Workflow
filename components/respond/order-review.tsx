@@ -292,8 +292,7 @@ function SkuArtworkBlock({
   rollDirection: ReturnType<typeof rollDirectionFromRespondRows>;
 }) {
   const canShowPdf = Boolean(finalPdf && orderId);
-  const hasPhotos = skuArt.length > 0;
-  const [showPdf, setShowPdf] = useState(canShowPdf);
+  const pdfOn = canShowPdf;
   const [photoOnRoll, setPhotoOnRoll] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
@@ -303,25 +302,8 @@ function SkuArtworkBlock({
 
   if (skuArt.length === 0 && !canShowPdf) return null;
 
-  const pdfOn = canShowPdf && showPdf;
-
   return (
     <div className="mt-2">
-      {canShowPdf && hasPhotos && finalPdf && orderId ? (
-        <label className="mb-2 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
-          <input
-            type="checkbox"
-            className="h-3.5 w-3.5 accent-blue-600"
-            checked={showPdf}
-            onChange={(e) => {
-              const on = e.target.checked;
-              setShowPdf(on);
-              if (!on) skuUi.setPdfPageCount?.(skuId, 0);
-            }}
-          />
-          PDF multilayer
-        </label>
-      ) : null}
       {pdfOn && finalPdf && orderId ? (
         <Suspense fallback={<PdfPreviewLoading fileName={finalPdf.fileName} />}>
           <PdfOcgFromUrl
@@ -349,7 +331,7 @@ function SkuArtworkBlock({
           />
         </Suspense>
       ) : null}
-      {skuArt.length > 0 ? (
+      {skuArt.length > 0 && !pdfOn ? (
         <>
           <p className="mb-2 mt-3 text-[10px] font-medium uppercase tracking-wide text-slate-400">
             Artwork

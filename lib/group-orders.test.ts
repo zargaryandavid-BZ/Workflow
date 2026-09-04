@@ -4,6 +4,8 @@ import {
   groupOrdersForColumn,
   groupingKeysForSiblingFetch,
   uniqueOrdersById,
+  partCardTitle,
+  sourceLabelOrderTitle,
 } from "./group-orders.ts";
 import type { OrderWithRelations } from "./types.ts";
 
@@ -49,4 +51,28 @@ test("groupOrdersForColumn does not list the same part twice", () => {
       ["1", "2"]
     );
   }
+});
+
+test("sourceLabelOrderTitle hides the parent name when it matches the part title", () => {
+  const order = {
+    webhook_source: "crm",
+    specs: { webhook_order_title: "INCURE LIVE RESIN BOXES" },
+  };
+  const cardTitle = partCardTitle(order);
+  assert.equal(cardTitle, "INCURE LIVE RESIN BOXES");
+  assert.equal(sourceLabelOrderTitle(order, cardTitle), null);
+});
+
+test("sourceLabelOrderTitle keeps the parent name when the part title differs", () => {
+  const order = {
+    webhook_source: "crm",
+    specs: {
+      webhook_order_title: "INCURE LIVE RESIN BOXES",
+      webhook_item_title: "SUPER BOOF box",
+      webhook_item_index: 1,
+    },
+  };
+  const cardTitle = partCardTitle(order, "Boxes");
+  assert.equal(cardTitle, "SUPER BOOF box");
+  assert.equal(sourceLabelOrderTitle(order, cardTitle), "INCURE LIVE RESIN BOXES");
 });

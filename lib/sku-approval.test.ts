@@ -133,6 +133,7 @@ describe("sku approval notes", () => {
     assert.equal(approvalImageSlotCount(3, 5), 5);
     assert.equal(approvalImageSlotCount(1, 12), 12);
     assert.equal(approvalImageSlotCount(0, 5), 5);
+    assert.equal(approvalImageSlotCount(10, 1), 1);
     assert.equal(approvalImageSlotCount(1, 1), 1);
     assert.equal(approvalImageSlotCount(0, 5, 1), 1);
     assert.equal(approvalImageSlotCount(2, 2, 2), 1);

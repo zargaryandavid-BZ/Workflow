@@ -159,9 +159,10 @@ export function PdfOcgFromUrl({
     if (!pdf || !host) return;
     if (onRollRef.current && rollDirectionRef.current) return;
     const pad = 8;
+    const grid = layoutRef.current === "grid" && lockedPageRef.current == null;
     const rawW = Math.max(host.clientWidth - pad, 1);
     const availW =
-      expandedRef.current || fillHostRef.current
+      expandedRef.current || fillHostRef.current || grid
         ? rawW
         : Math.min(rawW, INLINE_PROOF_MAX_W);
     if (availW < 8) return;
@@ -174,7 +175,6 @@ export function PdfOcgFromUrl({
     const staging = document.createElement("div");
     const oc = ocRef.current;
     const dpr = window.devicePixelRatio || 1;
-    const grid = layoutRef.current === "grid" && lockedPageRef.current == null;
 
     async function paintPage(
       pageIndex: number,
@@ -197,7 +197,9 @@ export function PdfOcgFromUrl({
       canvas.style.height = `${viewport.height}px`;
       canvas.style.maxWidth = "100%";
       canvas.style.maxHeight = boxH ? "100%" : "none";
-      canvas.className = "rounded border border-slate-200 bg-white shadow-sm";
+      canvas.className = grid
+        ? "w-full max-w-full bg-white"
+        : "rounded border border-slate-200 bg-white shadow-sm";
       parent.appendChild(canvas);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const task = page.render({
@@ -225,20 +227,13 @@ export function PdfOcgFromUrl({
 
     if (grid) {
       const nPages = pdf.numPages;
-      const cols = Math.min(nPages, availW >= 640 ? 3 : 2);
-      const cellW =
-        nPages === 1
-          ? availW
-          : Math.max((availW - 8 * Math.max(cols - 1, 0)) / cols, 40);
-      // Width-fit so a single proof fills the SKU box instead of letterboxing.
+      const cellW = Math.max(availW - 24, 40);
       const cellH = null;
       const mounts: { page: number; el: HTMLElement }[] = [];
       for (let i = 1; i <= nPages; i++) {
         const wrap = document.createElement("div");
         wrap.className =
-          "flex min-w-0 flex-col items-center gap-1.5";
-        wrap.style.flex = nPages === 1 ? "1 1 100%" : `1 1 calc(${100 / cols}% - 8px)`;
-        wrap.style.maxWidth = nPages === 1 ? "100%" : `${Math.ceil(cellW)}px`;
+          "flex min-w-0 w-full flex-col items-stretch gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm";
         const canvasHold = document.createElement("div");
         canvasHold.className =
           "flex w-full cursor-zoom-in items-center justify-center";
@@ -357,7 +352,7 @@ export function PdfOcgFromUrl({
         const pdf = await withTimeout(
           loadingTask.promise,
           PDF_OPEN_MS,
-          "The PDF preview is taking too long. Open the file below, or uncheck PDF multilayer to see the artwork."
+          "The PDF preview is taking too long. Open the file below to review it."
         );
         if (cancelled) {
           await pdf.cleanup();
@@ -522,16 +517,28 @@ export function PdfOcgFromUrl({
       on ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"
     }`;
 
+  const pageGrid = layout === "grid";
+  const splitPageCards = pageGrid && !fillHost;
+
   const viewer = (
     <div
       className={cn(
-        "flex flex-col overflow-hidden bg-white",
+        "flex flex-col",
         expanded || fillHost
-          ? "h-full min-h-0 flex-1 rounded-lg shadow-2xl"
-          : "rounded-md border border-slate-200"
+          ? "h-full min-h-0 flex-1 overflow-hidden rounded-lg bg-white shadow-2xl"
+          : splitPageCards
+            ? "gap-3 overflow-visible bg-transparent"
+            : "overflow-hidden rounded-md border border-slate-200 bg-white"
       )}
     >
-      <div className="shrink-0 space-y-2 border-b border-slate-100 px-3 py-2">
+      <div
+        className={cn(
+          "shrink-0 space-y-2 px-3 py-2",
+          expanded || fillHost || !splitPageCards
+            ? "border-b border-slate-100"
+            : "rounded-md border border-slate-200 bg-white"
+        )}
+      >
         {pageCount >= 2 && lockedPage == null && !loading && !error ? (
           <div className="flex items-center gap-1.5 rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
             <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -604,7 +611,7 @@ export function PdfOcgFromUrl({
                 <button
                   type="button"
                   onClick={showAllLayers}
-                  className={chip(allOn)}
+                  className={cn("shrink-0", chip(allOn))}
                 >
                   ALL
                 </button>
@@ -614,7 +621,7 @@ export function PdfOcgFromUrl({
                     type="button"
                     onClick={() => toggleLayer(layer.id)}
                     className={cn(
-                      "max-w-[12rem] truncate",
+                      "max-w-[12rem] shrink-0 truncate",
                       chip(visibleIds.has(layer.id))
                     )}
                     title={layer.name}
@@ -681,12 +688,22 @@ export function PdfOcgFromUrl({
               : fillHost
                 ? "min-h-0 flex-1 overflow-hidden"
               : loading
-                ? "min-h-[16rem] overflow-hidden"
-                : "overflow-hidden"
+                ? splitPageCards
+                  ? "overflow-visible"
+                  : "min-h-[16rem] overflow-hidden"
+                : splitPageCards
+                  ? "overflow-visible"
+                  : "overflow-hidden"
           )}
         >
           {loading ? (
-            <PdfLoadingBar seconds={loadSeconds} />
+            splitPageCards && !expanded ? (
+              <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+                <PdfLoadingBar seconds={loadSeconds} />
+              </div>
+            ) : (
+              <PdfLoadingBar seconds={loadSeconds} />
+            )
           ) : null}
           <div
             ref={pagesRef}
@@ -700,16 +717,16 @@ export function PdfOcgFromUrl({
               onRoll && rollDirection && !loading
                 ? "hidden"
                 : layout === "grid"
-                ? "flex min-h-full w-full flex-wrap content-start items-start justify-center gap-2"
+                ? "flex w-full flex-col items-stretch gap-3"
                 : "flex min-h-full items-start justify-center",
               !onRoll && !expanded && !loading && !fillHost
                 ? layout === "grid"
-                  ? "min-h-[20rem]"
+                  ? "p-0"
                   : "min-h-[20rem] cursor-zoom-in"
                 : !onRoll && !loading && layout !== "grid" && !fillHost
                   ? "min-h-[20rem]"
                   : layout === "grid" && loading
-                    ? "min-h-[16rem]"
+                    ? "hidden"
                     : fillHost
                       ? "h-full min-h-0"
                       : null

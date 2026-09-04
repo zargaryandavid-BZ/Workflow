@@ -154,6 +154,25 @@ export function sharedOrderTitle(
 }
 
 /**
+ * Parent/job title for the source line (`CRM | …`). Omit when it is the same
+ * string as the part card title so single-item cards do not show the name twice.
+ */
+export function sourceLabelOrderTitle(
+  order: {
+    title?: string;
+    webhook_source?: string | null;
+    specs?: Record<string, unknown> | null;
+  },
+  cardTitle?: string | null
+): string | null {
+  const shared = sharedOrderTitle(order);
+  if (!shared) return null;
+  const part = (cardTitle ?? "").trim();
+  if (part && shared.toLowerCase() === part.toLowerCase()) return null;
+  return shared;
+}
+
+/**
  * Title shown on an individual PART card (the `CRM | …` label on OrderCard /
  * board-table rows / the card detail header).
  *
