@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   collectLayerIds,
+  isPdfArtworkLayer,
   isUnnamedPdfLayer,
   layersFromOptionalContent,
   parsePdfOcgs,
@@ -72,4 +73,11 @@ test("isUnnamedPdfLayer matches Layer N fallbacks only", () => {
   assert.equal(isUnnamedPdfLayer("layer 2"), true);
   assert.equal(isUnnamedPdfLayer("ARTWORK"), false);
   assert.equal(isUnnamedPdfLayer("Dimensions"), false);
+});
+
+test("isPdfArtworkLayer picks ART WORK not dieline", () => {
+  assert.equal(isPdfArtworkLayer("ART WORK"), true);
+  assert.equal(isPdfArtworkLayer("Artwork"), true);
+  assert.equal(isPdfArtworkLayer("Dieline"), false);
+  assert.equal(isPdfArtworkLayer("ALL Dieline Artwork"), false);
 });

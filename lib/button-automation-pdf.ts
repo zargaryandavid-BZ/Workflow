@@ -9,6 +9,7 @@ import {
   isRollDirectionFieldName,
   rollDirectionOption,
 } from "@/lib/roll-direction";
+import { appendPdfDocuments, pdfPageCount } from "@/lib/append-pdf";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -896,9 +897,13 @@ function totalArtworkPages(data: OrderExportData): number {
 }
 
 export async function generateJobTicketPdf(
-  data: OrderExportData
+  data: OrderExportData,
+  options?: { finalPdfBuffers?: Buffer[] }
 ): Promise<Buffer> {
-  const artworkPages = totalArtworkPages(data);
+  const finalBuffers = options?.finalPdfBuffers ?? [];
+  const extraFinalPages = await pdfPageCount(finalBuffers);
+  const useFinalPdf = extraFinalPages > 0;
+  const artworkPages = useFinalPdf ? 0 : totalArtworkPages(data);
 
   const doc = new PDFDocument({
     size: "A4",
@@ -913,29 +918,15 @@ export async function generateJobTicketPdf(
   doc.addPage();
   drawPage1(doc, data);
 
-  // One artwork page per SKU image (or a placeholder page when none).
+  // Cover (and any overflow note pages) first. Then either every page of the
+  // Final-for-Prod PDF, or SKU artwork images when Drive has no Final file.
   let drawnArtwork = 0;
-  for (let skuIdx = 0; skuIdx < data.skuRows.length; skuIdx++) {
-    const sku = data.skuRows[skuIdx];
-    const images = sku.imageLinks;
+  if (!useFinalPdf) {
+    for (let skuIdx = 0; skuIdx < data.skuRows.length; skuIdx++) {
+      const sku = data.skuRows[skuIdx];
+      const images = sku.imageLinks;
 
-    if (images.length === 0) {
-      doc.addPage();
-      drawArtworkPage(
-        doc,
-        data,
-        skuIdx,
-        data.skuRows.length,
-        sku.name,
-        sku.qty,
-        0,
-        0,
-        null
-      );
-      drawnArtwork += 1;
-    } else {
-      for (let imgIdx = 0; imgIdx < images.length; imgIdx++) {
-        const buf = await fetchImageBuffer(images[imgIdx]);
+      if (images.length === 0) {
         doc.addPage();
         drawArtworkPage(
           doc,
@@ -944,24 +935,41 @@ export async function generateJobTicketPdf(
           data.skuRows.length,
           sku.name,
           sku.qty,
-          imgIdx,
-          images.length,
-          buf
+          0,
+          0,
+          null
         );
         drawnArtwork += 1;
+      } else {
+        for (let imgIdx = 0; imgIdx < images.length; imgIdx++) {
+          const buf = await fetchImageBuffer(images[imgIdx]);
+          doc.addPage();
+          drawArtworkPage(
+            doc,
+            data,
+            skuIdx,
+            data.skuRows.length,
+            sku.name,
+            sku.qty,
+            imgIdx,
+            images.length,
+            buf
+          );
+          drawnArtwork += 1;
+        }
       }
     }
   }
 
-  // Stamp correct footers after all pages exist.
+  // Stamp footers after ticket pages exist (include Final PDF pages in the total).
   const range = doc.bufferedPageRange();
-  const totalPages = range.count;
+  const totalPages = range.count + (useFinalPdf ? extraFinalPages : 0);
   for (let i = 0; i < range.count; i++) {
     doc.switchToPage(range.start + i);
     drawFooter(doc, i + 1, totalPages);
   }
 
-  if (drawnArtwork !== artworkPages) {
+  if (!useFinalPdf && drawnArtwork !== artworkPages) {
     console.warn(
       "[generateJobTicketPdf] artwork page count mismatch",
       { drawnArtwork, artworkPages }
@@ -970,8 +978,11 @@ export async function generateJobTicketPdf(
 
   doc.end();
 
-  return new Promise((resolve, reject) => {
+  const ticketBuffer: Buffer = await new Promise((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
   });
+
+  if (!useFinalPdf) return ticketBuffer;
+  return appendPdfDocuments(ticketBuffer, finalBuffers);
 }

@@ -36,6 +36,14 @@ function isPublicApi(path: string) {
 }
 
 export async function updateSession(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Customer PDF preview: do not wait on auth (the worker request was hanging
+  // the approval page on "Almost there").
+  if (path === "/api/pdf-worker" || path === "/api/notifications/asset") {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -63,7 +71,6 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
   const isPublicPage = PUBLIC_PATHS.some(
     (p) => path === p || path.startsWith(`${p}/`)
   );

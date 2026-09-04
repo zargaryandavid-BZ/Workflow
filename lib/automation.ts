@@ -9,6 +9,8 @@ import { sendApprovalEmail } from "@/lib/email";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import type { ApprovalStatus, BoardColumn, Order } from "@/lib/types";
 import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
+import { isHoldColumn } from "@/lib/hold-column";
+import { notifyHoldWatchers } from "@/lib/user-notifications";
 
 type Client = SupabaseClient;
 
@@ -134,13 +136,32 @@ export async function onEnterColumn(
   client: Client,
   order: Order,
   column: BoardColumn,
-  tenantName: string
+  tenantName: string,
+  actorId?: string | null
 ) {
   await maybeStopWorkTimersOnColumnEnter({
     tenantId: order.tenant_id,
     orderId: order.id,
     column,
   });
+  if (isHoldColumn(column)) {
+    try {
+      await notifyHoldWatchers({
+        client,
+        tenantId: order.tenant_id,
+        orderId: order.id,
+        orderTitle: order.title,
+        ownerId: order.created_by,
+        columnName: column.name,
+        actorId: actorId ?? null,
+      });
+    } catch (err) {
+      console.error(
+        "[hold-watch] notify failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
   if (column.kind === "approval") {
     // Customer approval is handled via the drop popup (Email / SMS / Manual).
     return;

@@ -14,6 +14,8 @@ export async function GET() {
     headers: {
       "Content-Type": "text/javascript; charset=utf-8",
       "Cache-Control": "public, max-age=3600",
+      // Module workers reject anything other than a JS MIME type.
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

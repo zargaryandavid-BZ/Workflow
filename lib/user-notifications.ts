@@ -1,7 +1,12 @@
 import { appendedNoteEntries } from "@/lib/note-history";
+import {
+  holdNotificationRecipientIds,
+  isHoldWatchTeammateName,
+} from "@/lib/hold-column";
+import { formatShortOrderNumber } from "@/lib/order-number-tokens";
 import type { Role } from "@/lib/types";
 
-export type UserNotificationType = "designer_note";
+export type UserNotificationType = "designer_note" | "order_hold";
 
 export type UserNotification = {
   id: string;
@@ -20,10 +25,13 @@ export type UserNotification = {
 };
 
 type NotifyClient = {
+  // Supabase query builder — insert plus memberships/profiles lookups.
   from: (table: string) => {
     insert: (
-      row: Record<string, unknown>
+      row: Record<string, unknown> | Record<string, unknown>[]
     ) => PromiseLike<{ error: { message: string } | null }>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (cols: string) => any;
   };
 };
 
@@ -91,5 +99,81 @@ export async function notifyDesignerOfSalesNote(params: {
   });
   if (error) {
     console.error("[user-notifications] designer note insert failed:", error.message);
+  }
+}
+
+/**
+ * When a job enters Hold, ping the card owner and teammate Rafayel in the
+ * in-app inbox.
+ */
+export async function notifyHoldWatchers(params: {
+  client: NotifyClient;
+  tenantId: string;
+  orderId: string;
+  orderTitle: string;
+  ownerId: string | null;
+  columnName: string;
+  actorId: string | null;
+  reason?: string | null;
+}): Promise<void> {
+  const { data: memberships } = await params.client
+    .from("memberships")
+    .select("user_id")
+    .eq("tenant_id", params.tenantId);
+
+  const memberIds = ((memberships ?? []) as { user_id: string }[])
+    .map((m) => m.user_id)
+    .filter(Boolean);
+
+  let watcherIds: string[] = [];
+  if (memberIds.length > 0) {
+    const { data: profiles } = await params.client
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", memberIds);
+    watcherIds = ((profiles ?? []) as { id: string; full_name: string | null }[])
+      .filter((p) => isHoldWatchTeammateName(p.full_name))
+      .map((p) => p.id);
+  }
+
+  const recipientIds = holdNotificationRecipientIds(
+    params.ownerId,
+    watcherIds,
+    params.actorId
+  );
+  if (recipientIds.length === 0) return;
+
+  let actorName: string | null = null;
+  if (params.actorId) {
+    const { data: actor } = await params.client
+      .from("profiles")
+      .select("full_name")
+      .eq("id", params.actorId)
+      .maybeSingle();
+    actorName =
+      typeof actor?.full_name === "string" ? actor.full_name.trim() || null : null;
+  }
+
+  const short = formatShortOrderNumber(params.orderTitle) || params.orderTitle;
+  const col = params.columnName.trim() || "Hold";
+  const reason = params.reason?.trim() || "";
+  const title = `${short} is on ${col}`;
+  const who = actorName ? `${actorName} moved this job to ${col}` : `This job is on ${col}`;
+  const body = reason ? `${who}. Reason: ${reason}` : who;
+
+  const rows = recipientIds.map((user_id) => ({
+    tenant_id: params.tenantId,
+    user_id,
+    type: "order_hold",
+    title,
+    body,
+    order_id: params.orderId,
+    actor_id: params.actorId,
+    actor_name: actorName,
+  }));
+
+  const { error } = await params.client.from("user_notifications").insert(rows);
+  if (error) {
+    console.error("[user-notifications] hold watch insert failed:", error.message);
   }
 }

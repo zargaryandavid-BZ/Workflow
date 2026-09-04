@@ -15,15 +15,18 @@ import {
   type SkuApprovalImageRef,
   type RespondFinalPdf,
 } from "@/lib/respond-order";
+import { type SkuItem } from "@/lib/skus";
 import { formatFileSize } from "@/lib/respond-page";
 import {
   approvalImageSlotCount,
   imageDecisionKey,
   skuLabel,
 } from "@/lib/sku-approval";
-import type { SkuItem } from "@/lib/skus";
+import { isRollDirectionFieldName } from "@/lib/roll-direction";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
+import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import type { SkuItem } from "@/lib/skus";
 
 const PdfOcgFromUrl = dynamic(
   () =>
@@ -54,7 +57,18 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
-function OrderRowValue({ value }: { value: string }) {
+function OrderRowValue({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  if (isRollDirectionFieldName(label)) {
+    return (
+      <RollDirectionThumb value={value} className="text-sm font-medium" />
+    );
+  }
   const trimmed = value.trim();
   if (isHttpUrl(trimmed)) {
     return (
@@ -319,9 +333,10 @@ function SkuArtworkBlock({
               : undefined
           }
         />
-      ) : skuArt.length > 0 ? (
+      ) : null}
+      {skuArt.length > 0 ? (
         <>
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+          <p className="mb-2 mt-3 text-[10px] font-medium uppercase tracking-wide text-slate-400">
             Artwork
           </p>
           <ul
@@ -449,7 +464,7 @@ export function OrderReview({
                 {row.label}
               </dt>
               <dd className="mt-0 min-w-0 leading-tight">
-                <OrderRowValue value={row.value} />
+                <OrderRowValue label={row.label} value={row.value} />
               </dd>
             </div>
           ))}

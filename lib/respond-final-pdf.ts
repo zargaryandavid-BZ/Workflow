@@ -5,6 +5,7 @@ import { ARTWORK_FIELD_NAME } from "@/lib/constants";
 import { ensureGdriveSettings } from "@/lib/gdrive-settings";
 import { parseDriveIdFromUrl } from "@/lib/google-drive";
 import {
+  downloadDriveFileBytes,
   isFinalProdFolderName,
   listChildFolders,
   listProofFiles,
@@ -277,4 +278,74 @@ export async function isRespondFinalPdfForOrder(
 ): Promise<boolean> {
   const map = await fetchRespondFinalPdfsBySku(supabase, tenantId, order, skus);
   return Object.values(map).some((p) => p.fileId === fileId);
+}
+
+/**
+ * Unique Final-for-Prod PDFs in SKU order (one buffer per Drive file).
+ * Empty when Drive is missing or nothing is in Final.
+ */
+export async function downloadUniqueFinalPdfBuffers(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: {
+    id: string;
+    title: string;
+    specs: Record<string, unknown>;
+  },
+  skus: SkuItem[]
+): Promise<Buffer[]> {
+  const skuList: SkuItem[] =
+    skus.length > 0
+      ? skus
+      : [
+          {
+            id: "__job_ticket__",
+            name: String(order.title ?? "order"),
+            qty: null,
+          },
+        ];
+  const map = await fetchRespondFinalPdfsBySku(
+    supabase,
+    tenantId,
+    order,
+    skuList
+  );
+  const unique: RespondFinalPdf[] = [];
+  const seen = new Set<string>();
+  for (const sku of skuList) {
+    const pdf = map[sku.id];
+    if (!pdf || seen.has(pdf.fileId)) continue;
+    seen.add(pdf.fileId);
+    unique.push(pdf);
+  }
+  for (const pdf of Object.values(map)) {
+    if (seen.has(pdf.fileId)) continue;
+    seen.add(pdf.fileId);
+    unique.push(pdf);
+  }
+  if (unique.length === 0) return [];
+
+  let settings;
+  try {
+    settings = await ensureGdriveSettings(supabase, tenantId);
+  } catch {
+    return [];
+  }
+  let client: ProofsDrive;
+  try {
+    client = proofsDriveClient(settings);
+  } catch {
+    return [];
+  }
+
+  const out: Buffer[] = [];
+  for (const file of unique) {
+    try {
+      const downloaded = await downloadDriveFileBytes(client, file.fileId);
+      if (downloaded?.buffer?.length) out.push(downloaded.buffer);
+    } catch {
+      /* skip this file */
+    }
+  }
+  return out;
 }

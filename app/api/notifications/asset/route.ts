@@ -5,6 +5,9 @@ import { notificationBlocksCustomerAssets } from "@/lib/notification-asset-acces
 
 const BUCKET = "order-assets";
 
+/** Customer /respond PDF preview from Drive. 104 MB proofs must still open. */
+const FINAL_PDF_PREVIEW_MAX_BYTES = 200 * 1024 * 1024;
+
 export const maxDuration = 120;
 
 /** Resolve allowed order IDs for a token (notification or approval). */
@@ -177,7 +180,7 @@ export async function GET(request: Request) {
       if (!meta) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      const maxBytes = 80 * 1024 * 1024;
+      const maxBytes = FINAL_PDF_PREVIEW_MAX_BYTES;
       if (meta.size > maxBytes) {
         const mb = Math.round(meta.size / (1024 * 1024));
         return NextResponse.json(

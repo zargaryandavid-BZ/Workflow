@@ -43,6 +43,48 @@ export function rollDirectionOption(
   return ROLL_DIRECTION_OPTIONS.find((o) => o.value === canonical) ?? null;
 }
 
+/** Rotate artwork on the hanging web so unwind matches 1-Top … 4-Left. */
+export function rollDirectionArtworkRotateDeg(
+  value: RollDirectionValue
+): number {
+  switch (value) {
+    case "1-Top":
+      return 0;
+    case "2-Bottom":
+      return 180;
+    case "3-Right":
+      return 90;
+    case "4-Left":
+      return -90;
+  }
+}
+
+export function rollDirectionPrintCaption(
+  value: RollDirectionValue
+): string {
+  switch (value) {
+    case "1-Top":
+      return "Top of copy off first";
+    case "2-Bottom":
+      return "Bottom of copy off first";
+    case "3-Right":
+      return "Right of copy off first";
+    case "4-Left":
+      return "Left of copy off first";
+  }
+}
+
+export function rollDirectionFromRespondRows(
+  rows: { label: string; value: string }[]
+): RollDirectionValue | null {
+  for (const row of rows) {
+    if (!isRollDirectionFieldName(row.label)) continue;
+    const next = normalizeRollDirectionValue(row.value);
+    if (next) return next;
+  }
+  return null;
+}
+
 /** CRM / catalog aliases → `1-Top` … `4-Left`. */
 export function normalizeRollDirectionValue(
   raw: unknown

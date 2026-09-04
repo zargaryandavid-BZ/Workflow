@@ -57,4 +57,4 @@ if (typeof globalThis !== "undefined") {
 }
 
 /** Bump when the worker file/polyfill changes so phones drop a cached worker. */
-export const PDFJS_WORKER_SRC = "/api/pdf-worker?v=map-polyfill";
+export const PDFJS_WORKER_SRC = "/api/pdf-worker?v=map-polyfill-2";

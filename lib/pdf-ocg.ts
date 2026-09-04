@@ -121,6 +121,20 @@ export function isUnnamedPdfLayer(name: string): boolean {
   return /^layer\s+\d+$/i.test(name.trim());
 }
 
+/** True for Acrobat layers like `ART WORK` / `Artwork` (not dieline / effects). */
+export function isPdfArtworkLayer(name: string): boolean {
+  const n = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!n) return false;
+  if (
+    /\bdie\s*line\b|\bdieline\b|\bcut\s*line\b|\bwhite\b|\buv\b|\bfoil\b|\bsafe\b|\bperf/.test(
+      n
+    )
+  ) {
+    return false;
+  }
+  return /\bart\s*work\b|\bartwork\b/.test(n);
+}
+
 export type OcLike = {
   getOrder?: () => unknown;
   getGroup?: (id: string) => { name?: unknown } | null | undefined;

@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import {
   assertButtonVisibleForOrder,
   loadOrderExportData,
 } from "@/lib/button-automation-order-data";
 import { generateJobTicketPdf } from "@/lib/button-automation-pdf";
+import { downloadUniqueFinalPdfBuffers } from "@/lib/respond-final-pdf";
 
 export async function POST(
   request: Request,
@@ -46,7 +48,17 @@ export async function POST(
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = await generateJobTicketPdf(exportData);
+    const finalPdfBuffers = await downloadUniqueFinalPdfBuffers(
+      createAdminClient(),
+      ctx.tenant.id,
+      {
+        id: exportData.order.id,
+        title: exportData.order.title,
+        specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
+      },
+      exportData.skus
+    );
+    pdfBuffer = await generateJobTicketPdf(exportData, { finalPdfBuffers });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to generate PDF";

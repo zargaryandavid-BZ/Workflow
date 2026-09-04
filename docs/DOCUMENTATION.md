@@ -129,6 +129,7 @@ proxy.ts                        Session middleware helper [see Known issues](#kn
 | `approvals` | Legacy customer approval records |
 | `automation_rules` | Column-move and notification automations |
 | `activity_log` | Audit trail per order |
+| `user_notifications` | In-app staff inbox (designer notes, Hold watchers) |
 | `die_manufacturers` | Die shop contacts (Settings) |
 | `die_requests` | Die quote/order requests (`sent` → `quoted` → `ordered`) |
 | `webhook_order_ingest_locks` | Short-lived lock so a double CRM POST cannot create duplicate cards |
@@ -1263,6 +1264,8 @@ Delete button.
 
 Trigger a button action on a given order.
 
+**`generate_pdf`:** Job ticket page 1 is order/specs/SKUs. After that, every page of the Drive **Final for Prod** PDF is appended (not a single thumbnail). If there is no Final PDF, SKU artwork images are used as before.
+
 | | |
 | --- | --- |
 | **Body** | `{ orderId }` |
@@ -1568,7 +1571,7 @@ Public server page for `/respond/[token]`. Loads notification via `get_notificat
 
 ### `OrderReview` — `components/respond/order-review.tsx`
 
-Read-only order summary for customers: meta chips, SKU table, artwork. Photos: one picture and one approve/reject per file. PDF multilayer: every page is drawn in a grid (Image 1…N), each with its own approve/reject. Asset URLs still go through `/api/notifications/asset`.
+Read-only order summary for customers: meta chips, SKU table, artwork. Photos stay visible even when PDF multilayer is on (so a stuck PDF preview cannot hide the proof). PDF multilayer: every page is drawn in a grid (Image 1…N), each with its own approve/reject. Asset URLs still go through `/api/notifications/asset`.
 
 ---
 
@@ -1746,7 +1749,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 - `RespondForm` shows Approve / Not Approved buttons.
 - Customer may leave a note on rejection.
-- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf`. Named layer chips **toggle independently** (more than one can be on; `ALL` turns every layer on). The **Layer** label has a layers icon; chips are text only. Generic `Layer 1` / `Layer N` chips are hidden. One PDF with several pages on a card with several SKUs maps **SKU 1 → page 1**, **SKU 2 → page 2**, and records **one Approve / Not approved per SKU** (not Image 1 and Image 2 on every SKU). A single-SKU multi-page PDF still shows **Side N of M**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
+- Per-SKU **PDF multilayer** (when a Final-for-Prod PDF exists in Drive) opens **by default**. The checkbox is shown only if that SKU also has artwork photos (uncheck to see photos). The preview loads via `GET /api/notifications/asset?type=final_pdf` (files up to **200 MB**; larger ones ask the customer to open in Acrobat from Drive). Named layer chips **toggle independently** (more than one can be on; `ALL` turns every layer on). The **Layer** label has a layers icon; chips are text only. Generic `Layer 1` / `Layer N` chips are hidden. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. One PDF with several pages on a card with several SKUs maps **SKU 1 → page 1**, **SKU 2 → page 2**, and records **one Approve / Not approved per SKU** (not Image 1 and Image 2 on every SKU). A single-SKU multi-page PDF still shows **Side N of M**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
 
 ### 4a. Approved → card moves per Automations settings
 
@@ -1866,6 +1869,7 @@ Automated, operator-free email/SMS fired whenever a card enters a column.
 
 When an order enters any column, `onEnterColumn()` (`lib/automation.ts`):
 
+- If the column is Hold (`isHoldColumn`), writes in-app `user_notifications` (`order_hold`) to the card owner (`orders.created_by`) and teammate Rafayel (matched on `profiles.full_name`). The person who moved the card is skipped.
 - Runs enabled `on_enter_column` rules (excluding `notify` actions to avoid loops).
 - Single hop — no chaining.
 

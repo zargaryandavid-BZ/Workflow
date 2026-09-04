@@ -4,7 +4,10 @@ import {
   isRollDirectionField,
   isRollDirectionFieldName,
   normalizeRollDirectionValue,
+  rollDirectionArtworkRotateDeg,
+  rollDirectionFromRespondRows,
   rollDirectionOption,
+  rollDirectionPrintCaption,
 } from "./roll-direction.ts";
 
 describe("roll direction", () => {
@@ -32,5 +35,21 @@ describe("roll direction", () => {
   it("resolves the diagram for a stored value", () => {
     assert.equal(rollDirectionOption("2-Bottom")?.src, "/roll-direction/2-bottom.png");
     assert.equal(rollDirectionOption("")?.src, undefined);
+  });
+
+  it("reads roll direction from customer respond rows", () => {
+    assert.equal(
+      rollDirectionFromRespondRows([
+        { label: "Product", value: "Roll Labels" },
+        { label: "Roll Direction", value: "4-Left" },
+      ]),
+      "4-Left"
+    );
+    assert.equal(rollDirectionArtworkRotateDeg("4-Left"), -90);
+    assert.equal(rollDirectionArtworkRotateDeg("1-Top"), 0);
+    assert.equal(
+      rollDirectionPrintCaption("4-Left"),
+      "Left of copy off first"
+    );
   });
 });

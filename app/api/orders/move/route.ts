@@ -327,7 +327,13 @@ export async function POST(request: Request) {
         );
       }
       try {
-        await onEnterColumn(supabase, movedOrder, typedColumn, tenantName);
+        await onEnterColumn(
+          supabase,
+          movedOrder,
+          typedColumn,
+          tenantName,
+          actorUserId
+        );
       } catch (err: unknown) {
         console.error(
           "[move] onEnterColumn failed:",

@@ -22,6 +22,23 @@ if (typeof window !== "undefined") {
 }
 
 const PDF_INTENT = "any" as const;
+const PDF_OPEN_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = window.setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(t);
+        resolve(value);
+      },
+      (err) => {
+        window.clearTimeout(t);
+        reject(err);
+      }
+    );
+  });
+}
 
 export function PdfOcgFromUrl({
   src,
@@ -191,13 +208,14 @@ export function PdfOcgFromUrl({
     }
 
     const availH = Math.max(host.clientHeight - pad, 1);
-    if (availH < 8) return;
+    if (availH < 8 && grid) return;
     const locked = lockedPageRef.current;
     const n =
       locked != null
         ? Math.min(Math.max(locked, 1), pdf.numPages)
         : Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
-    await paintPage(n, availW, availH, host);
+    // Width-fit so the proof fills the pane (scroll if the page is tall).
+    await paintPage(n, availW, null, host);
   }, [cancelRenders]);
 
   useEffect(() => {
@@ -226,7 +244,16 @@ export function PdfOcgFromUrl({
         }
         const data = await res.arrayBuffer();
         if (cancelled) return;
-        const pdf = await getDocument({ data }).promise;
+        const loadingTask = getDocument({
+          data,
+          disableAutoFetch: true,
+          disableStream: true,
+        });
+        const pdf = await withTimeout(
+          loadingTask.promise,
+          PDF_OPEN_MS,
+          "The PDF preview is taking too long. Open the file below, or uncheck PDF multilayer to see the artwork."
+        );
         if (cancelled) {
           await pdf.cleanup();
           await pdf.loadingTask.destroy();
@@ -250,6 +277,7 @@ export function PdfOcgFromUrl({
         setLayers(found);
         setVisibleIds(new Set(found.map((layer) => layer.id)));
         for (const layer of found) oc.setVisibility(layer.id, true, false);
+        if (!cancelled) setLoading(false);
         await drawPages();
       } catch (err) {
         if (!cancelled) {
@@ -465,16 +493,26 @@ export function PdfOcgFromUrl({
         ) : null}
       </div>
       {error ? (
-        <p className="px-2 py-6 text-center text-xs text-red-600">{error}</p>
+        <div className="space-y-2 px-3 py-6 text-center">
+          <p className="text-xs text-red-600">{error}</p>
+          <a
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-block text-xs font-medium text-blue-600 underline"
+          >
+            Open {fileName} in a new tab
+          </a>
+        </div>
       ) : (
         <div
           className={cn(
-            "relative flex w-full items-stretch justify-center [scrollbar-gutter:stable]",
+            "relative flex w-full flex-col items-stretch [scrollbar-gutter:stable]",
             expanded
               ? "min-h-0 flex-1 overflow-auto"
               : loading
                 ? "min-h-[22rem] overflow-hidden sm:min-h-[26rem]"
-                : "h-[min(75vh,40rem)] min-h-[28rem] overflow-auto"
+                : "overflow-auto"
           )}
         >
           {loading ? (
@@ -506,11 +544,15 @@ export function PdfOcgFromUrl({
                 : "Click to open large view"
             }
             className={cn(
-              "min-h-full w-full p-2",
+              "w-full p-1",
               layout === "grid"
-                ? "flex flex-wrap content-start items-start justify-center gap-2"
-                : "flex items-center justify-center",
-              !expanded && !loading && layout !== "grid" ? "cursor-zoom-in" : null
+                ? "flex min-h-full flex-wrap content-start items-start justify-center gap-2"
+                : "flex min-h-full items-start justify-center",
+              !expanded && !loading && layout !== "grid"
+                ? "min-h-[min(90vh,56rem)] cursor-zoom-in"
+                : !loading && layout !== "grid"
+                  ? "min-h-[min(90vh,56rem)]"
+                  : null
             )}
             onClick={() => {
               if (!expanded && !loading && layout !== "grid") setExpanded(true);
@@ -542,7 +584,7 @@ export function PdfOcgFromUrl({
     return (
       <>
         <div
-          className="h-[min(75vh,40rem)] min-h-[28rem] rounded-md border border-slate-200 bg-slate-50"
+          className="h-[min(90vh,56rem)] min-h-[36rem] rounded-md border border-slate-200 bg-slate-50"
           aria-hidden
         />
         {createPortal(
