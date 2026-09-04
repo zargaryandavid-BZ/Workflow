@@ -1226,6 +1226,36 @@ export function Board({
       { fromColumnId: string; toColumnId: string; at: number }
     >
   >(new Map());
+  const recentDeletedRef = useRef<Map<string, number>>(new Map());
+  const recentArchivedRef = useRef<Map<string, number>>(new Map());
+
+  function pruneRecentMap(map: Map<string, number>, maxAgeMs = 60_000) {
+    const cutoff = Date.now() - maxAgeMs;
+    for (const [id, at] of map) {
+      if (at < cutoff) map.delete(id);
+    }
+  }
+
+  function rememberDeleted(orderId: string) {
+    recentDeletedRef.current.set(orderId, Date.now());
+    pruneRecentMap(recentDeletedRef.current);
+  }
+
+  function rememberArchived(orderId: string) {
+    recentArchivedRef.current.set(orderId, Date.now());
+    pruneRecentMap(recentArchivedRef.current);
+  }
+
+  function stripOrderFromBoard(orderId: string) {
+    setOrders((prev) => {
+      const next = prev.filter((o) => o.id !== orderId);
+      boardOrdersRef.current = next;
+      return next;
+    });
+    setSearchResults((prev) =>
+      prev ? prev.filter((o) => o.id !== orderId) : prev
+    );
+  }
 
   function rememberMove(
     orderId: string,
@@ -1346,23 +1376,37 @@ export function Board({
           if (page === 0) {
             const fetchedIds = new Set(data.orders.map((o) => o.id));
             const kept = prev.filter(
-              (o) => o.column_id !== columnId && !fetchedIds.has(o.id)
+              (o) =>
+                o.column_id !== columnId &&
+                !fetchedIds.has(o.id) &&
+                !recentDeletedRef.current.has(o.id)
             );
             const overflow = reset
               ? []
               : prev.filter(
-                  (o) => o.column_id === columnId && !fetchedIds.has(o.id)
+                  (o) =>
+                    o.column_id === columnId &&
+                    !fetchedIds.has(o.id) &&
+                    !recentDeletedRef.current.has(o.id)
                 );
-            const mergedFetched = data.orders.map((o) => {
+            const mergedFetched = data.orders.flatMap((o) => {
+              if (recentDeletedRef.current.has(o.id)) return [];
+              const archivedAt = recentArchivedRef.current.get(o.id);
+              if (archivedAt && Date.now() - archivedAt < 60_000) {
+                o = {
+                  ...o,
+                  specs: { ...(o.specs ?? {}), archived: true },
+                };
+              }
               const rm = recentMovesRef.current.get(o.id);
               if (
                 rm &&
                 Date.now() - rm.at < 60_000 &&
                 o.column_id !== rm.toColumnId
               ) {
-                return { ...o, column_id: rm.toColumnId };
+                return [{ ...o, column_id: rm.toColumnId }];
               }
-              return o;
+              return [o];
             });
             next = [...kept, ...mergedFetched, ...overflow];
           } else {
@@ -1562,11 +1606,15 @@ export function Board({
         const old = payload.old as { id?: string; tenant_id?: string };
         if (old.tenant_id && old.tenant_id !== tenantId) return;
         if (old.id) {
+          rememberDeleted(old.id);
           setOrders((prev) => {
             const next = prev.filter((o) => o.id !== old.id);
             boardOrdersRef.current = next;
             return next;
           });
+          setSearchResults((prev) =>
+            prev ? prev.filter((o) => o.id !== old.id) : prev
+          );
         }
         return;
       }
@@ -3774,7 +3822,15 @@ export function Board({
         onChanged={(patch) => {
           // Apply saved fields immediately so the card footer (tag, title, etc.)
           // updates without waiting on a column refetch.
+          if (detailId && patch?.removed) {
+            rememberDeleted(detailId);
+            stripOrderFromBoard(detailId);
+            return;
+          }
           if (detailId && patch) {
+            if (patch.specs?.archived === true) {
+              rememberArchived(detailId);
+            }
             // Fast Action / move: update column instantly on the board.
             if (
               typeof patch.column_id === "string" &&

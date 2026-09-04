@@ -151,23 +151,28 @@ function AssetPreview({
   );
 }
 
-function ImageDecisionControls({
-  skuId,
-  assetId,
+function ApprovalChoiceButtons({
+  decision,
+  onApproved,
+  onRejected,
+  resultPill = "full",
 }: {
-  skuId: string;
-  assetId: string;
+  decision: "approved" | "rejected" | undefined;
+  onApproved: () => void;
+  onRejected: () => void;
+  /** SKU header uses a compact pill after submit; per-image uses full width. */
+  resultPill?: "full" | "compact";
 }) {
   const skuUi = useSkuDecision();
-  const key = imageDecisionKey(skuId, assetId);
-  const decision = skuUi.byImageKey?.[key];
 
   if (skuUi.mode === "result") {
     if (!decision) return null;
     const approved = decision === "approved";
     return (
       <span
-        className={`inline-flex w-full items-center justify-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+        className={`inline-flex items-center justify-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+          resultPill === "full" ? "w-full" : "shrink-0"
+        } ${
           approved
             ? "bg-emerald-100 text-emerald-800"
             : "bg-red-100 text-red-800"
@@ -179,13 +184,13 @@ function ImageDecisionControls({
     );
   }
 
-  if (skuUi.mode !== "choose" || !skuUi.onImageChange) return null;
+  if (skuUi.mode !== "choose") return null;
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex w-full min-w-[8.5rem] flex-col gap-1">
       <button
         type="button"
-        onClick={() => skuUi.onImageChange?.(skuId, assetId, "approved")}
+        onClick={onApproved}
         className={`inline-flex w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-[11px] font-medium ${
           decision === "approved"
             ? "border-emerald-400 bg-emerald-50 text-emerald-800"
@@ -197,7 +202,7 @@ function ImageDecisionControls({
       </button>
       <button
         type="button"
-        onClick={() => skuUi.onImageChange?.(skuId, assetId, "rejected")}
+        onClick={onRejected}
         className={`inline-flex w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-[11px] font-medium ${
           decision === "rejected"
             ? "border-red-400 bg-red-50 text-red-800"
@@ -211,65 +216,62 @@ function ImageDecisionControls({
   );
 }
 
+function ImageDecisionControls({
+  skuId,
+  assetId,
+}: {
+  skuId: string;
+  assetId: string;
+}) {
+  const skuUi = useSkuDecision();
+  const key = imageDecisionKey(skuId, assetId);
+  const decision = skuUi.byImageKey?.[key];
+
+  if (skuUi.mode === "result") {
+    return (
+      <ApprovalChoiceButtons
+        decision={decision}
+        onApproved={() => undefined}
+        onRejected={() => undefined}
+      />
+    );
+  }
+
+  if (skuUi.mode !== "choose" || !skuUi.onImageChange) return null;
+
+  return (
+    <ApprovalChoiceButtons
+      decision={decision}
+      onApproved={() => skuUi.onImageChange?.(skuId, assetId, "approved")}
+      onRejected={() => skuUi.onImageChange?.(skuId, assetId, "rejected")}
+    />
+  );
+}
+
 function SkuDecisionControls({ skuId }: { skuId: string }) {
   const skuUi = useSkuDecision();
   const decision = skuUi.byId[skuId];
 
   if (skuUi.mode === "result") {
-    if (!decision) return null;
-    const approved = decision === "approved";
     return (
-      <span
-        className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-          approved
-            ? "bg-emerald-100 text-emerald-800"
-            : "bg-red-100 text-red-800"
-        }`}
-      >
-        {approved ? (
-          <Check className="h-3 w-3" />
-        ) : (
-          <X className="h-3 w-3" />
-        )}
-        {approved ? "Approved" : "Not approved"}
-      </span>
+      <ApprovalChoiceButtons
+        decision={decision}
+        onApproved={() => undefined}
+        onRejected={() => undefined}
+        resultPill="compact"
+      />
     );
   }
 
   if (skuUi.mode !== "choose" || !skuUi.onChange) return null;
 
   return (
-    <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
-      <label
-        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${
-          decision === "approved"
-            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-            : "border-slate-200 bg-white text-slate-600"
-        }`}
-      >
-        <input
-          type="checkbox"
-          className="h-3.5 w-3.5 accent-emerald-600"
-          checked={decision === "approved"}
-          onChange={() => skuUi.onChange?.(skuId, "approved")}
-        />
-        Approve
-      </label>
-      <label
-        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${
-          decision === "rejected"
-            ? "border-red-300 bg-red-50 text-red-800"
-            : "border-slate-200 bg-white text-slate-600"
-        }`}
-      >
-        <input
-          type="checkbox"
-          className="h-3.5 w-3.5 accent-red-600"
-          checked={decision === "rejected"}
-          onChange={() => skuUi.onChange?.(skuId, "rejected")}
-        />
-        Not approved
-      </label>
+    <div className="w-[8.75rem] shrink-0">
+      <ApprovalChoiceButtons
+        decision={decision}
+        onApproved={() => skuUi.onChange?.(skuId, "approved")}
+        onRejected={() => skuUi.onChange?.(skuId, "rejected")}
+      />
     </div>
   );
 }

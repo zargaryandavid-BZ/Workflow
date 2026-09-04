@@ -128,7 +128,7 @@ interface CardDetailModalProps {
   role: Role;
   userId?: string;
   currentUserName?: string;
-  onChanged: (patch?: Partial<OrderWithRelations>) => void;
+  onChanged: (patch?: Partial<OrderWithRelations> & { removed?: boolean }) => void;
   /** When "view", all fields are read-only and save/upload actions are hidden. */
   mode?: "edit" | "view";
   onLinkCopied?: (message: string) => void;
@@ -1145,7 +1145,7 @@ export function CardDetailModal({
         return;
       }
       setConfirmRemove(false);
-      onChanged();
+      onChanged({ removed: true });
       onClose();
     } finally {
       setRemoving(false);
@@ -1602,6 +1602,7 @@ export function CardDetailModal({
         prev ? { ...prev, order: { ...prev.order, specs: nextSpecs } } : prev
       );
       onChanged({ specs: nextSpecs });
+      if (next) onClose();
     } catch {
       setSaveError("Failed to archive order");
     } finally {
