@@ -15,7 +15,7 @@ import {
   type SkuApprovalImageRef,
   type RespondFinalPdf,
 } from "@/lib/respond-order";
-import { type SkuItem } from "@/lib/skus";
+import type { SkuItem } from "@/lib/skus";
 import { formatFileSize } from "@/lib/respond-page";
 import {
   approvalImageSlotCount,
@@ -26,7 +26,6 @@ import { isRollDirectionFieldName } from "@/lib/roll-direction";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
 import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
-import type { SkuItem } from "@/lib/skus";
 
 const PdfOcgFromUrl = dynamic(
   () =>
