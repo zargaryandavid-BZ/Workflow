@@ -52,6 +52,37 @@ const ORDER_QTY_NAME_SET = new Set(
   ORDER_QTY_FIELD_ALIASES.map((n) => n.toLowerCase())
 );
 
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** True when every payload field matches the stored snapshot (typical no-op save). */
+function payloadCustomFieldsUnchanged(
+  next: Array<{ customFieldId: string; value: unknown }>,
+  previous: Array<{ custom_field_id: string; value: unknown }> | undefined
+): boolean {
+  const oldValById = new Map(
+    (previous ?? []).map((v) => [v.custom_field_id, v.value])
+  );
+  return next.every((row) =>
+    sameJson(oldValById.get(row.customFieldId) ?? null, row.value ?? null)
+  );
+}
+
+/** Stable id set — do not use normalizeSkus (it mints ids for blank rows). */
+function skuIdFingerprint(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((row) => {
+      if (!row || typeof row !== "object") return "";
+      const id = (row as { id?: unknown }).id;
+      return typeof id === "string" ? id.trim() : "";
+    })
+    .filter(Boolean)
+    .sort()
+    .join("\0");
+}
+
 type AppSupabase = Awaited<ReturnType<typeof createClient>>;
 
 async function recordSaveActivity(
@@ -448,16 +479,21 @@ export async function PATCH(
   if (body.tagId !== undefined) updates.tag_id = body.tagId ?? null;
   if (body.ownerId !== undefined) {
     if (body.ownerId) {
-      const valid = await isAccountManagerOwner(
-        supabase,
-        tenantId,
-        body.ownerId
-      );
-      if (!valid) {
-        return NextResponse.json(
-          { error: "Owner must be an account manager or admin" },
-          { status: 400 }
+      const ownerUnchanged =
+        body.ownerId ===
+        ((existingOrder as { created_by?: string | null }).created_by ?? null);
+      if (!ownerUnchanged) {
+        const valid = await isAccountManagerOwner(
+          supabase,
+          tenantId,
+          body.ownerId
         );
+        if (!valid) {
+          return NextResponse.json(
+            { error: "Owner must be an account manager or admin" },
+            { status: 400 }
+          );
+        }
       }
       updates.created_by = body.ownerId;
     } else {
@@ -503,30 +539,67 @@ export async function PATCH(
   }
 
   if (updates.specs && typeof updates.specs === "object") {
-    updates.specs = await withCanonicalDesignerName(
-      supabase,
-      updates.specs as Record<string, unknown>
-    );
+    const nextSpecs = updates.specs as Record<string, unknown>;
+    const prevDesigner =
+      (existingSpecs.designer_id as string | null | undefined) ?? null;
+    const nextDesigner =
+      (nextSpecs.designer_id as string | null | undefined) ?? null;
+    if (prevDesigner !== nextDesigner) {
+      updates.specs = await withCanonicalDesignerName(supabase, nextSpecs);
+    }
   }
 
-  if (body.customFieldValues) {
-    let orderQtyFieldId: string | undefined;
-    {
-      const aliases = ORDER_QTY_FIELD_ALIASES;
-      // Single query instead of N sequential queries — OR across all aliases.
-      // Quote values so names with spaces (e.g. "Order QTY") parse correctly.
-      const orFilter = aliases.map((n) => `name.ilike."${n}"`).join(",");
-      const { data: orderQtyFields } = await supabase
-        .from("custom_fields")
-        .select("id")
-        .eq("tenant_id", tenantId)
-        .or(orFilter)
-        .limit(1);
-      const first = (orderQtyFields ?? [])[0] as { id?: string } | undefined;
-      if (first && typeof first.id === "string") {
-        orderQtyFieldId = first.id;
-      }
+  let previousCustomFieldValues:
+    | Array<{ custom_field_id: string; value: unknown }>
+    | undefined;
+
+  if (body.customFieldValues && body.customFieldValues.length > 0) {
+    const cfIds = [
+      ...new Set(body.customFieldValues.map((v) => v.customFieldId)),
+    ];
+    const orFilter = ORDER_QTY_FIELD_ALIASES.map(
+      (n) => `name.ilike."${n}"`
+    ).join(",");
+
+    const [validResult, oldCfvResult, orderQtyFieldsResult] = await Promise.all(
+      [
+        filterValidCustomFieldValues(
+          supabase,
+          tenantId,
+          body.customFieldValues
+        ),
+        supabase
+          .from("custom_field_values")
+          .select("custom_field_id, value")
+          .eq("order_id", id)
+          .in("custom_field_id", cfIds),
+        supabase
+          .from("custom_fields")
+          .select("id")
+          .eq("tenant_id", tenantId)
+          .or(orFilter)
+          .limit(1),
+      ]
+    );
+
+    const { valid, invalidIds } = validResult;
+    if (invalidIds.length > 0) {
+      return NextResponse.json(
+        { error: staleCustomFieldsMessage(invalidIds) },
+        { status: 400 }
+      );
     }
+
+    previousCustomFieldValues = (oldCfvResult.data ?? []) as Array<{
+      custom_field_id: string;
+      value: unknown;
+    }>;
+
+    const firstQty = (orderQtyFieldsResult.data ?? [])[0] as
+      | { id?: string }
+      | undefined;
+    const orderQtyFieldId =
+      firstQty && typeof firstQty.id === "string" ? firstQty.id : undefined;
     const skusForQty =
       body.specs?.skus !== undefined
         ? normalizeSkus(body.specs.skus)
@@ -541,62 +614,45 @@ export async function PATCH(
     if (orderQtyError) {
       return NextResponse.json({ error: orderQtyError }, { status: 400 });
     }
-  }
 
-  let previousCustomFieldValues:
-    | Array<{ custom_field_id: string; value: unknown }>
-    | undefined;
-
-  if (body.customFieldValues && body.customFieldValues.length > 0) {
-    const { valid, invalidIds } = await filterValidCustomFieldValues(
-      supabase,
-      tenantId,
-      body.customFieldValues
+    const fieldsUnchanged = payloadCustomFieldsUnchanged(
+      valid,
+      previousCustomFieldValues
     );
-    if (invalidIds.length > 0) {
-      return NextResponse.json(
-        { error: staleCustomFieldsMessage(invalidIds) },
-        { status: 400 }
-      );
+    const existingCustomerId =
+      (existingOrder as { customer_id?: string | null }).customer_id ?? null;
+
+    // Customer lookup (email/phone/id) is several round-trips — skip when
+    // the order is already linked and name/contact did not change.
+    if (!fieldsUnchanged || !existingCustomerId) {
+      try {
+        const customerId = await linkCustomerFromOrderFields(
+          supabase,
+          ctx.tenant.id,
+          valid,
+          existingCustomerId,
+          id
+        );
+        if (customerId) updates.customer_id = customerId;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to save customer";
+        return NextResponse.json({ error: message }, { status: 400 });
+      }
     }
 
-    // Snapshot before upsert so activity diffs compare against prior values.
-    const cfIds = valid.map((v) => v.customFieldId);
-    const { data: oldCfv } = await supabase
-      .from("custom_field_values")
-      .select("custom_field_id, value")
-      .eq("order_id", id)
-      .in("custom_field_id", cfIds);
-    previousCustomFieldValues = (oldCfv ?? []) as Array<{
-      custom_field_id: string;
-      value: unknown;
-    }>;
-
-    try {
-      const customerId = await linkCustomerFromOrderFields(
-        supabase,
-        ctx.tenant.id,
-        valid,
-        (existingOrder as { customer_id?: string | null }).customer_id ?? null,
-        id
-      );
-      if (customerId) updates.customer_id = customerId;
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to save customer";
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-
-    const rows = valid.map((v) => ({
-      order_id: id,
-      custom_field_id: v.customFieldId,
-      value: v.value,
-    }));
-    const { error } = await supabase
-      .from("custom_field_values")
-      .upsert(rows, { onConflict: "order_id,custom_field_id" });
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!fieldsUnchanged) {
+      const rows = valid.map((v) => ({
+        order_id: id,
+        custom_field_id: v.customFieldId,
+        value: v.value,
+      }));
+      const { error } = await supabase
+        .from("custom_field_values")
+        .upsert(rows, { onConflict: "order_id,custom_field_id" });
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
   }
 
@@ -614,11 +670,15 @@ export async function PATCH(
   if (updates.specs && Array.isArray((updates.specs as { skus?: unknown }).skus)) {
     const savedSkus = (updates.specs as { skus: ReturnType<typeof prepareSkusForSave> })
       .skus;
-    await pruneOrphanedSkuAssets(supabase, id, savedSkus);
-    try {
-      await pruneOrphanedSkuImages(supabase, id, savedSkus);
-    } catch {
-      // order_sku_images table may not exist yet
+    const skuSetChanged =
+      skuIdFingerprint(existingSpecs.skus) !== skuIdFingerprint(savedSkus);
+    if (skuSetChanged) {
+      await Promise.all([
+        pruneOrphanedSkuAssets(supabase, id, savedSkus),
+        pruneOrphanedSkuImages(supabase, id, savedSkus).catch(() => {
+          // order_sku_images table may not exist yet
+        }),
+      ]);
     }
   }
 
@@ -647,21 +707,26 @@ export async function PATCH(
       ? (updates.internal_note as string | null)
       : ((existingOrder as { internal_note?: string | null }).internal_note ??
         null);
-  void notifyMentionedInNotes({
-    client: supabase,
-    tenantId,
-    orderId: id,
-    orderTitle: String(
-      (updates.title as string | undefined) ?? existingOrder.title ?? "order"
-    ),
-    actorId: ctx.userId,
-    actorName: ctx.fullName?.trim() || ctx.email || "Someone",
-    previousInternalNote:
-      (existingOrder as { internal_note?: string | null }).internal_note ?? null,
-    nextInternalNote: nextInternalForMentions,
-    previousSpecs: existingSpecs,
-    nextSpecs: nextSpecsForMentions,
-  }).catch((err) => console.error("[user-notifications]", err));
+  try {
+    await notifyMentionedInNotes({
+      client: supabase,
+      tenantId,
+      orderId: id,
+      orderTitle: String(
+        (updates.title as string | undefined) ?? existingOrder.title ?? "order"
+      ),
+      actorId: ctx.userId,
+      actorName: ctx.fullName?.trim() || ctx.email || "Someone",
+      previousInternalNote:
+        (existingOrder as { internal_note?: string | null }).internal_note ??
+        null,
+      nextInternalNote: nextInternalForMentions,
+      previousSpecs: existingSpecs,
+      nextSpecs: nextSpecsForMentions,
+    });
+  } catch (err) {
+    console.error("[user-notifications]", err);
+  }
 
   // Fire-and-forget — do not await; client doesn't need activity log data
   void recordSaveActivity(supabase, {

@@ -4,13 +4,15 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type TextareaHTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import { Textarea } from "@/components/ui/input";
-import { mentionQueryAtCursor } from "@/lib/note-mentions";
+import { filterMentionMembers, mentionQueryAtCursor } from "@/lib/note-mentions";
 import { cn } from "@/lib/utils";
 
 type Member = { id: string; fullName: string };
@@ -37,6 +39,14 @@ function loadMentionableMembers(): Promise<Member[]> {
   return membersLoad;
 }
 
+type ListBox = {
+  left: number;
+  width: number;
+  maxHeight: number;
+  top?: number;
+  bottom?: number;
+};
+
 type Props = Omit<
   TextareaHTMLAttributes<HTMLTextAreaElement>,
   "onChange" | "value"
@@ -59,15 +69,52 @@ export function NoteMentionTextarea({
   const [query, setQuery] = useState("");
   const [start, setStart] = useState<number | null>(null);
   const [active, setActive] = useState(0);
+  const [box, setBox] = useState<ListBox | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     void loadMentionableMembers().then(setMembers);
   }, []);
 
-  const filtered = members.filter((m) =>
-    m.fullName.toLowerCase().includes(query.trim().toLowerCase())
-  );
+  const filtered = filterMentionMembers(members, query);
   const show = open && start != null && filtered.length > 0;
+
+  const placeList = useCallback(() => {
+    const el = taRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const gap = 4;
+    const spaceBelow = window.innerHeight - r.bottom - gap - 8;
+    const spaceAbove = r.top - gap - 8;
+    const openUp = spaceBelow < 140 && spaceAbove > spaceBelow;
+    const maxHeight = Math.min(240, Math.max(96, openUp ? spaceAbove : spaceBelow));
+    setBox({
+      left: r.left,
+      width: r.width,
+      maxHeight,
+      ...(openUp
+        ? { bottom: window.innerHeight - r.top + gap }
+        : { top: r.bottom + gap }),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!show) {
+      setBox(null);
+      return;
+    }
+    placeList();
+    window.addEventListener("resize", placeList);
+    window.addEventListener("scroll", placeList, true);
+    return () => {
+      window.removeEventListener("resize", placeList);
+      window.removeEventListener("scroll", placeList, true);
+    };
+  }, [show, filtered.length, placeList]);
 
   const refreshMention = useCallback((next: string, cursor: number) => {
     const hit = mentionQueryAtCursor(next, cursor);
@@ -121,6 +168,43 @@ export function NoteMentionTextarea({
     }
   }
 
+  const list =
+    show && mounted && box
+      ? createPortal(
+          <ul
+            id={listId}
+            role="listbox"
+            className="overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+            style={{
+              position: "fixed",
+              zIndex: 220,
+              left: box.left,
+              width: box.width,
+              maxHeight: box.maxHeight,
+              top: box.top,
+              bottom: box.bottom,
+            }}
+          >
+            {filtered.map((m, i) => (
+              <li key={m.id} role="option" aria-selected={i === active}>
+                <button
+                  type="button"
+                  className={cn(
+                    "w-full px-3 py-1.5 text-left text-sm leading-snug text-slate-700",
+                    i === active ? "bg-slate-100 text-slate-900" : "hover:bg-slate-50"
+                  )}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => insertMember(m)}
+                >
+                  {m.fullName}
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body
+        )
+      : null;
+
   return (
     <div className="relative">
       <Textarea
@@ -146,29 +230,7 @@ export function NoteMentionTextarea({
           window.setTimeout(() => setOpen(false), 150);
         }}
       />
-      {show ? (
-        <ul
-          id={listId}
-          role="listbox"
-          className="absolute z-30 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
-        >
-          {filtered.map((m, i) => (
-            <li key={m.id} role="option" aria-selected={i === active}>
-              <button
-                type="button"
-                className={cn(
-                  "w-full px-3 py-1.5 text-left text-sm",
-                  i === active ? "bg-slate-100 text-slate-900" : "text-slate-700 hover:bg-slate-50"
-                )}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => insertMember(m)}
-              >
-                {m.fullName}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {list}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
@@ -25,6 +25,8 @@ function asNotification(row: Record<string, unknown>): UserNotification | null {
   };
 }
 
+const RECENT_MS = 10 * 60 * 1000;
+
 export function MentionNotificationPopup({
   userId,
 }: {
@@ -33,6 +35,36 @@ export function MentionNotificationPopup({
   const router = useRouter();
   const [queue, setQueue] = useState<UserNotification[]>([]);
   const current = queue[0] ?? null;
+
+  const enqueue = useCallback(
+    (n: UserNotification) => {
+      // Only the mentioned teammate — never the person who wrote the note.
+      if (n.type !== "note_mention") return;
+      if (n.user_id !== userId) return;
+      if (n.actor_id && n.actor_id === userId) return;
+      setQueue((prev) =>
+        prev.some((x) => x.id === n.id) ? prev : [...prev, n]
+      );
+    },
+    [userId]
+  );
+
+  useEffect(() => {
+    if (!userId) return;
+    const cutoff = Date.now() - RECENT_MS;
+    void fetchRetryingStale404("/api/user-notifications", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = (await res.json()) as { notifications?: UserNotification[] };
+        for (const n of json.notifications ?? []) {
+          if (n.read_at) continue;
+          const t = new Date(n.created_at).getTime();
+          if (!Number.isFinite(t) || t < cutoff) continue;
+          enqueue(n);
+        }
+      })
+      .catch(() => undefined);
+  }, [userId, enqueue]);
 
   useEffect(() => {
     if (!userId) return;
@@ -61,10 +93,7 @@ export function MentionNotificationPopup({
             const n = asNotification(
               (payload.new ?? {}) as Record<string, unknown>
             );
-            if (!n || n.type !== "note_mention") return;
-            setQueue((prev) =>
-              prev.some((x) => x.id === n.id) ? prev : [...prev, n]
-            );
+            if (n) enqueue(n);
           }
         )
         .subscribe();
@@ -75,7 +104,7 @@ export function MentionNotificationPopup({
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [userId, enqueue]);
 
   function dismiss() {
     const id = current?.id;
@@ -98,11 +127,14 @@ export function MentionNotificationPopup({
   if (!current || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+    <div
+      className="fixed left-0 top-0 z-[220] flex h-[100dvh] w-screen items-center justify-center bg-black/40 p-4"
+      role="presentation"
+    >
       <div
         role="dialog"
         aria-labelledby="mention-popup-title"
-        className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
+        className="relative mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
       >
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
           Mentioned you

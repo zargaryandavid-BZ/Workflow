@@ -35,6 +35,42 @@ function isMentionBoundary(ch: string | undefined): boolean {
   return ch == null || /[\s.,!?;:)\]}'"]/.test(ch);
 }
 
+/**
+ * Rank for the @ picker. Lower is better.
+ * Prefix on first name / any token beats a substring in the middle of a name
+ * (so `@Gar` highlights Gary, not Davit Zargaryan).
+ */
+export function mentionMatchScore(fullName: string, query: string): number | null {
+  const q = query.trim().toLowerCase();
+  const lower = fullName.trim().toLowerCase();
+  if (!lower) return null;
+  if (!q) return 50;
+  if (lower === q) return 0;
+  const tokens = lower.split(/\s+/).filter(Boolean);
+  if (tokens[0]?.startsWith(q)) return 1;
+  if (tokens.some((t) => t.startsWith(q))) return 2;
+  if (lower.startsWith(q)) return 3;
+  if (lower.includes(q)) return 20;
+  return null;
+}
+
+/** Members shown in the @ list, best match first (index 0 is the default pick). */
+export function filterMentionMembers(
+  members: MentionableMember[],
+  query: string
+): MentionableMember[] {
+  const scored = members
+    .map((m) => ({ m, score: mentionMatchScore(m.fullName, query) }))
+    .filter((row): row is { m: MentionableMember; score: number } => row.score != null);
+  scored.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score;
+    return a.m.fullName.localeCompare(b.m.fullName, undefined, {
+      sensitivity: "base",
+    });
+  });
+  return scored.map((row) => row.m);
+}
+
 /** Active `@query` at the caret (spaces allowed so `@First Last` can be typed). */
 export function mentionQueryAtCursor(
   value: string,

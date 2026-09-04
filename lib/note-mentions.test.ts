@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  filterMentionMembers,
   mentionQueryAtCursor,
   mentionedUserIds,
 } from "./note-mentions.ts";
@@ -47,6 +48,30 @@ describe("mentionedUserIds", () => {
 
   it("ignores unknown names", () => {
     assert.deepEqual(mentionedUserIds("@Nobody here", members), []);
+  });
+});
+
+describe("filterMentionMembers", () => {
+  const team = [
+    { id: "d", fullName: "Davit Zargaryan" },
+    { id: "g", fullName: "Gary" },
+    { id: "a", fullName: "Alex Rivera" },
+  ];
+
+  it("puts first-name prefix ahead of a substring in another name", () => {
+    const ranked = filterMentionMembers(team, "Gar");
+    assert.equal(ranked[0]?.id, "g");
+    assert.equal(ranked[0]?.fullName, "Gary");
+  });
+
+  it("still finds a last name by prefix", () => {
+    const ranked = filterMentionMembers(team, "Zar");
+    assert.equal(ranked[0]?.id, "d");
+  });
+
+  it("matches last-name prefix before a weaker substring", () => {
+    const ranked = filterMentionMembers(team, "River");
+    assert.equal(ranked[0]?.id, "a");
   });
 });
 

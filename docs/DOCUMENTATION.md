@@ -285,7 +285,7 @@ Column `kind` drives popup behavior in `components/board/board.tsx` (`onDragEnd`
 
 The top-bar bell lists in-app rows for the current tenant (`designer_note`, `order_hold`, `note_mention`). Admins can see everyone’s inbox. Clicking a row opens `/board?order=…`.
 
-`@Name` in newly saved **staff** notes (For Production, Internal, Designer) inserts `note_mention` for that teammate. Matching uses `profiles.full_name` (longest name first; a unique first name also matches). The author is not notified. The mentioned person also gets a live popup (`MentionNotificationPopup`) with the comment and a clickable job number. No email/SMS.
+`@Name` in newly saved **staff** notes (For Production, Internal, Designer) inserts `note_mention` for that teammate. Matching uses `profiles.full_name` (longest name first; a unique first name also matches). The note picker (`NoteMentionTextarea`) ranks **token prefixes** first so `@Gar` defaults to Gary, not a name that only contains those letters (e.g. Zargaryan). The **mentioned person** (not the author) gets a centered live popup (`MentionNotificationPopup`) with the comment and a clickable job number. No email/SMS.
 
 ## Supabase Realtime
 
@@ -970,6 +970,8 @@ Update order fields, specs, custom values, customer link.
 | **Body** | Partial order + `customFieldValues`, `specs` |
 | **Response** | `{ order }` |
 | **Errors** | 400 validation; 404 |
+
+Typical **Save changes** skips work when nothing relevant changed: no customer upsert if the order is already linked and custom fields are unchanged; no custom-field write; no designer profile lookup if `designer_id` is the same; no owner-role check if owner is unchanged; no SKU asset prune if SKU ids are unchanged. Custom-field validity, prior values, and the qty field lookup run in parallel. Activity log and in-app note notifications stay fire-and-forget.
 
 ### `DELETE /api/orders/[id]`
 
@@ -1889,7 +1891,7 @@ Automated, operator-free email/SMS fired whenever a card enters a column.
 
 1. Click card → `CardDetailModal` loads `GET /api/orders/[id]`.
 2. User edits fields / adds SKU artwork — files held in `pendingSkuArtwork` / `pendingOrderAssets` state.
-3. On **Save changes** → `PATCH /api/orders/[id]` then batch upload/delete assets.
+3. On **Save changes** → `PATCH /api/orders/[id]` (skips unchanged customer/field/SKU side work). Asset uploads are deferred until save in the modal, not a second full GET.
 4. Avoids full `load()` on each file pick (prevents form reset).
 
 ---
