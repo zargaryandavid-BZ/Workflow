@@ -94,7 +94,7 @@ export async function fetchRespondFinalPdfsBySku(
   skus: SkuItem[]
 ): Promise<Record<string, RespondFinalPdf>> {
   if (skus.length === 0) return {};
-  const cacheKey = `${tenantId}:${order.id}`;
+  const cacheKey = `${tenantId}:${order.id}:${skus.map((s) => s.id).join(",")}`;
   const cached = finalPdfCache.get(cacheKey);
   if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
     return cached.value;

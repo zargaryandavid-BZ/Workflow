@@ -150,7 +150,7 @@ export function FinalArtworkModal({
               {orderTitle}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              Same as Waiting Approval: PDF page 1 = SKU 1, page 2 = SKU 2
+              Pages and layers from Final production
             </p>
           </div>
           <button

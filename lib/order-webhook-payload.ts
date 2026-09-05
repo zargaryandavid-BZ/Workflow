@@ -41,6 +41,37 @@ function fieldString(data: OrderExportData, ...names: string[]): string {
   return formatFieldDisplayValue(raw).trim();
 }
 
+/** Infer finishing from composite product titles like "Roll Labels – White BOPP – Rainbow Holographic Lamination". */
+function extractFinishingFromProductText(text: string): string {
+  const s = String(text || "").trim();
+  if (!s) return "";
+  const parts = s
+    .split(/\s*[–—]\s*|\s+-\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const looksLikeFinishing = (part: string) => {
+    if (!part) return false;
+    if (
+      /bopp|vinyl|paper|pet|c1s|c2s|kraft|foil silver|foil gold|cosmetic web|label sheet|semi gloss|matte label|gloss label/i.test(
+        part
+      ) &&
+      !/lamination|laminate|spot\s*uv|scodix|soft\s*touch/i.test(part)
+    ) {
+      return false;
+    }
+    return /lamination|laminate|spot\s*uv|soft\s*touch|scodix|\bfoil\b|holographic|holo\b|coating/i.test(
+      part
+    );
+  };
+  if (parts.length >= 2) {
+    for (let i = parts.length - 1; i >= 1; i--) {
+      if (looksLikeFinishing(parts[i])) return parts[i];
+    }
+  }
+  if (parts.length === 1 && looksLikeFinishing(parts[0])) return parts[0];
+  return "";
+}
+
 function fieldNumber(data: OrderExportData, ...names: string[]): number | null {
   const raw = fieldRaw(data, ...names);
   if (raw == null || raw === "") return null;
@@ -214,6 +245,11 @@ export function buildFullOrderWebhookPayload(
   // number (e.g. 0499-1), never the internal UUID.
   const crmOrderId = (data.orderNumber || order.title || "").trim();
 
+  const product = data.product || fieldString(data, "Product") || "";
+  const finishing =
+    fieldString(data, "Finishing", "Lamination") ||
+    extractFinishingFromProductText(product);
+
   return {
     orderId: crmOrderId,
     order_id: crmOrderId,
@@ -226,10 +262,10 @@ export function buildFullOrderWebhookPayload(
     designer: data.designerName || "",
     totalQuantity,
     category: fieldString(data, "Category"),
-    product: data.product || fieldString(data, "Product") || "",
+    product,
     materials: fieldString(data, "Materials", "Material", "Paper Stock"),
     specialEffects: fieldString(data, "Special effects", "Special Effects"),
-    finishing: fieldString(data, "Finishing", "Lamination"),
+    finishing,
     sides: fieldString(data, "Sides"),
     position: fieldString(data, "Position"),
     rollDirection: fieldString(data, "Roll Direction"),

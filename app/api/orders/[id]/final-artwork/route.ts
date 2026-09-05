@@ -124,7 +124,9 @@ export async function GET(
           ? "application/pdf"
           : downloaded.mimeType,
         "Content-Length": String(body.byteLength),
+        "Content-Disposition": `inline; filename="${downloaded.name.replace(/"/g, "")}"`,
         "Cache-Control": "private, max-age=120",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (err) {

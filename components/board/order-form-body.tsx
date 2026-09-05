@@ -552,6 +552,7 @@ export function OrderFormBody({
   const driveFolderHint = artworkValue || designTask.trim();
   const driveStatus = useGdriveFolderStatus(orderId, driveFolderHint);
   const finalProdHasFiles = driveStatus.hasFiles;
+  const designerFolderHasFiles = driveStatus.hasDesignerFiles;
   const designerFolderUrl = driveStatus.designerUrl || designTask.trim();
   const finalFolderUrl = driveStatus.finalUrl || artworkValue;
 
@@ -1295,7 +1296,11 @@ export function OrderFormBody({
                     href={designerFolderUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[var(--primary)] underline hover:opacity-80"
+                    className={
+                      designerFolderHasFiles
+                        ? "text-emerald-700 underline hover:opacity-80"
+                        : "text-[var(--primary)] underline hover:opacity-80"
+                    }
                   >
                     Designer folder ↗
                   </a>
@@ -1322,9 +1327,17 @@ export function OrderFormBody({
               value={designTask}
               onChange={(e) => onDesignTaskChange(e.target.value)}
               placeholder="e.g. …/0269_Customer_1"
-              className={
-                readOnly ? "min-w-0 max-w-full bg-slate-50" : "min-w-0 max-w-full"
+              title={
+                designerFolderHasFiles
+                  ? "Designer folder has files (not counting Final production)"
+                  : undefined
               }
+              className={cn(
+                "min-w-0 max-w-full",
+                readOnly ? "bg-slate-50" : undefined,
+                designerFolderHasFiles &&
+                  "border-green-400 bg-green-50 text-green-900 focus:border-green-500 focus:ring-green-500/30"
+              )}
             />
           </div>
         </div>

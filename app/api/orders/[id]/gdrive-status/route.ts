@@ -57,6 +57,7 @@ export async function GET(
     ) {
       return NextResponse.json({
         hasFiles: false,
+        hasDesignerFiles: false,
         fileCount: 0,
         hasPdf: false,
         configured: false,
@@ -68,6 +69,7 @@ export async function GET(
   if (!settings.enabled || !isGdriveConfigured(settings)) {
     return NextResponse.json({
       hasFiles: false,
+      hasDesignerFiles: false,
       fileCount: 0,
       hasPdf: false,
       configured: false,
@@ -108,6 +110,7 @@ export async function GET(
   if (seedIds.length === 0) {
     return NextResponse.json({
       hasFiles: false,
+      hasDesignerFiles: false,
       fileCount: 0,
       hasPdf: false,
       configured: true,
@@ -159,19 +162,37 @@ export async function GET(
       );
     }
 
+    const designerCheckId =
+      resolved.designerId && !resolved.finalIds.includes(resolved.designerId)
+        ? resolved.designerId
+        : storedDesignerId && !resolved.finalIds.includes(storedDesignerId)
+          ? storedDesignerId
+          : null;
+
+    const [designerResult, ...finalResults] = await Promise.all([
+      designerCheckId
+        ? folderHasFiles(settings, designerCheckId, {
+            excludeChildIds: resolved.finalIds,
+            skipFinalProdChildren: true,
+          })
+        : Promise.resolve({ hasFiles: false, fileCount: 0, hasPdf: false }),
+      ...resolved.finalIds.map((folderId) =>
+        folderHasFiles(settings, folderId)
+      ),
+    ]);
+
     let hasFiles = false;
     let fileCount = 0;
     let hasPdf = false;
-    for (const folderId of resolved.finalIds) {
-      const result = await folderHasFiles(settings, folderId);
+    for (const result of finalResults) {
       hasFiles = hasFiles || result.hasFiles;
       hasPdf = hasPdf || result.hasPdf;
       fileCount += result.fileCount;
-      if (hasPdf && hasFiles) break;
     }
 
     return NextResponse.json({
       hasFiles,
+      hasDesignerFiles: designerResult.hasFiles,
       fileCount,
       hasPdf,
       configured: true,
@@ -185,6 +206,7 @@ export async function GET(
     return NextResponse.json(
       {
         hasFiles: false,
+        hasDesignerFiles: false,
         fileCount: 0,
         hasPdf: false,
         configured: true,

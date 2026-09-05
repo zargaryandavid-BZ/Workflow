@@ -411,9 +411,15 @@ function isDrivePdfFile(file: {
   return (file.name || "").toLowerCase().endsWith(".pdf");
 }
 
+function isFinalProdChildName(name: string): boolean {
+  const n = name.toLowerCase();
+  return /final[\s_-]*prod/.test(n) || n.includes("final production");
+}
+
 export async function folderHasFiles(
   settings: GdriveSettings,
-  folderId: string
+  folderId: string,
+  opts?: { excludeChildIds?: string[]; skipFinalProdChildren?: boolean }
 ): Promise<{ hasFiles: boolean; fileCount: number; hasPdf: boolean }> {
   if (!isGdriveConfigured(settings)) {
     return { hasFiles: false, fileCount: 0, hasPdf: false };
@@ -447,9 +453,15 @@ export async function folderHasFiles(
     };
   }
 
-  const childFolders = entries.filter(
-    (f) => f.mimeType === FOLDER_MIME && Boolean(f.id)
-  );
+  const excludeChildIds = new Set(opts?.excludeChildIds ?? []);
+  const skipFinal = opts?.skipFinalProdChildren === true;
+
+  const childFolders = entries.filter((f) => {
+    if (f.mimeType !== FOLDER_MIME || !f.id) return false;
+    if (excludeChildIds.has(f.id)) return false;
+    if (skipFinal && isFinalProdChildName(f.name ?? "")) return false;
+    return true;
+  });
   if (childFolders.length === 0) {
     return { hasFiles: false, fileCount: 0, hasPdf: false };
   }

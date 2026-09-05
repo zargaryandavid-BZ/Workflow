@@ -2,7 +2,7 @@
  * Re-POST the Hrach-column PulseWebhook once for every live order in Hrach.
  * Does not send the rule's email/SMS.
  *
- *   npx tsx --import ./scripts/fedex/register-server-only.mjs --env-file=.env.local scripts/replay-hrach-webhooks.ts
+ *   npx tsx --import ./scripts/fedex/register-server-only.mjs --env-file=.env.local scripts/replay-hrach-webhooks.ts --limit 5
  */
 import { readFileSync } from "node:fs";
 import { Module } from "node:module";
@@ -10,6 +10,9 @@ import { resolve } from "node:path";
 
 const HRACH_COLUMN_ID = "693d28b5-8e6e-44fa-a0f8-f21da42c53ac";
 const PULSE_RULE_ID = "546dcbb6-a2f5-4d35-8aff-6d5ef7e29937";
+/** Used when the PulseWebhook notification rule is missing from this database. */
+const PULSE_RECEIVE_JOB_URL =
+  "https://gkyupebgulpgwugsbvny.supabase.co/functions/v1/receive-job-webhook";
 
 function loadEnvLocal() {
   const raw = readFileSync(resolve(process.cwd(), ".env.local"), "utf8");
@@ -57,30 +60,89 @@ async function main() {
     { auth: { persistSession: false, autoRefreshToken: false } }
   );
 
-  const { data: rule, error: ruleErr } = await sb
+  const { data: ruleById } = await sb
     .from("notification_rules")
     .select("*")
     .eq("id", PULSE_RULE_ID)
     .maybeSingle();
-  if (ruleErr) throw ruleErr;
-  if (!rule?.webhook_url?.trim()) {
-    throw new Error("PulseWebhook rule has no webhook_url");
-  }
+  const { data: ruleByName } = await sb
+    .from("notification_rules")
+    .select("*")
+    .ilike("name", "%pulse%")
+    .maybeSingle();
+  const { data: webhookRules } = await sb
+    .from("notification_rules")
+    .select("*")
+    .eq("send_webhook", true);
+  const ruleWithUrl =
+    (ruleById?.webhook_url?.trim() ? ruleById : null) ||
+    (ruleByName?.webhook_url?.trim() ? ruleByName : null) ||
+    (webhookRules ?? []).find((r: { webhook_url?: string }) =>
+      String(r.webhook_url ?? "").includes("receive-job-webhook")
+    ) ||
+    null;
+  const url = String(
+    ruleWithUrl?.webhook_url?.trim() || PULSE_RECEIVE_JOB_URL
+  ).trim();
+  const headers = (ruleWithUrl?.webhook_headers ?? {}) as Record<
+    string,
+    string
+  >;
 
-  const { data: orders, error: orderErr } = await sb
+  const titleIdx = process.argv.indexOf("--title");
+  const titleEq = process.argv.find((a) => a.startsWith("--title="));
+  const titleFilter = (
+    titleEq
+      ? titleEq.slice("--title=".length)
+      : titleIdx >= 0
+        ? process.argv[titleIdx + 1]
+        : ""
+  )
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
+
+  let orderQuery = sb
     .from("orders")
-    .select("id, title, tenant_id")
-    .eq("column_id", HRACH_COLUMN_ID)
+    .select("id, title, tenant_id, column_id")
     .is("removed_at", null)
     .order("title");
+  if (titleFilter) {
+    orderQuery = orderQuery.ilike("title", `%${titleFilter}%`);
+  } else {
+    orderQuery = orderQuery.eq("column_id", HRACH_COLUMN_ID);
+  }
+
+  const { data: orders, error: orderErr } = await orderQuery;
   if (orderErr) throw orderErr;
   if (!orders?.length) {
-    console.log("No orders in Hrach.");
+    console.log(titleFilter ? `No live order matching "${titleFilter}".` : "No orders in Hrach.");
     return;
   }
 
   const oneOnly = process.argv.includes("--one");
-  const rows = oneOnly ? orders.slice(0, 1) : orders;
+  const limitArg = process.argv.find((a) => a.startsWith("--limit="));
+  const limitIdx = process.argv.indexOf("--limit");
+  const limitFromFlag =
+    limitArg && /^\d+$/.test(limitArg.slice("--limit=".length))
+      ? Number.parseInt(limitArg.slice("--limit=".length), 10)
+      : limitIdx >= 0 && process.argv[limitIdx + 1]
+        ? Number.parseInt(process.argv[limitIdx + 1], 10)
+        : NaN;
+  const limit = oneOnly
+    ? 1
+    : Number.isFinite(limitFromFlag) && limitFromFlag >= 1
+      ? Math.floor(limitFromFlag)
+      : null;
+  let rows =
+    titleFilter
+      ? orders.filter(
+          (o) =>
+            o.title.trim().toLowerCase() === titleFilter.toLowerCase() ||
+            o.title.toLowerCase().startsWith(titleFilter.toLowerCase())
+        )
+      : orders;
+  if (titleFilter && rows.length === 0) rows = orders;
+  if (limit != null) rows = rows.slice(0, limit);
 
   const { data: tenant } = await sb
     .from("tenants")
@@ -88,12 +150,10 @@ async function main() {
     .eq("id", orders[0].tenant_id)
     .maybeSingle();
   const tenantName = tenant?.name ?? "Workflow";
-  const url = String(rule.webhook_url).trim();
-  const headers = (rule.webhook_headers ?? {}) as Record<string, string>;
   const movedAt = new Date().toISOString();
 
   console.log(
-    `Replaying PulseWebhook for ${rows.length} Hrach order(s) → ${url}`
+    `Replaying PulseWebhook for ${rows.length} order(s) → receive-job-webhook`
   );
 
   let ok = 0;
@@ -110,11 +170,16 @@ async function main() {
       console.log(`  FAIL ${row.title} — could not load order`);
       continue;
     }
-    exportData.columnName = "Hrach";
+    const { data: col } = await sb
+      .from("board_columns")
+      .select("name")
+      .eq("id", row.column_id)
+      .maybeSingle();
+    exportData.columnName = col?.name || exportData.columnName;
     const body = JSON.stringify(
       buildFullOrderWebhookPayload(exportData, {
         event: "order_entered_column",
-        columnId: HRACH_COLUMN_ID,
+        columnId: row.column_id,
         tenantId: row.tenant_id,
         movedAt,
       })

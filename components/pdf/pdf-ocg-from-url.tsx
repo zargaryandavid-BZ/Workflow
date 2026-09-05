@@ -8,6 +8,7 @@ import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
 import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-map-polyfill";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
   isUnnamedPdfLayer,
   isPdfArtworkLayer,
@@ -30,8 +31,21 @@ const PDF_OPEN_MS = 20_000;
 /** Inline SKU proof (expand still uses the full pane). */
 const INLINE_PROOF_MAX_W = 420;
 
+function looksLikePdf(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 5) return false;
+  const head = new Uint8Array(buf.slice(0, 5));
+  return (
+    head[0] === 0x25 &&
+    head[1] === 0x50 &&
+    head[2] === 0x44 &&
+    head[3] === 0x46
+  );
+}
+
 async function fetchPdfBuffer(src: string): Promise<ArrayBuffer> {
-  const res = await fetch(src);
+  const res = src.startsWith("blob:")
+    ? await fetch(src)
+    : await fetchWithAuth(src);
   if (!res.ok) {
     let message = "Could not load the PDF.";
     try {
@@ -42,7 +56,13 @@ async function fetchPdfBuffer(src: string): Promise<ArrayBuffer> {
     }
     throw new Error(message);
   }
-  return res.arrayBuffer();
+  const buf = await res.arrayBuffer();
+  if (!looksLikePdf(buf)) {
+    throw new Error(
+      "Could not open this PDF. It is loaded through Workflow, not your Google account."
+    );
+  }
+  return buf;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -370,10 +390,16 @@ export function PdfOcgFromUrl({
         const oc = await pdf.getOptionalContentConfig({ intent: PDF_INTENT });
         ocRef.current = oc;
         const fromOc = layersFromOptionalContent(oc);
+        // Skip a full-file OCG scan on huge PDFs when pdf.js already found
+        // layers. Still scan when pdf.js found none (117711_cards.pdf is ~13 MB
+        // with Cast & Cure / Cut layers pdf.js often misses).
+        const PARSE_OCG_MAX = 40 * 1024 * 1024;
         const found =
-          data.byteLength > 12 * 1024 * 1024
+          fromOc.length > 0 && data.byteLength > 12 * 1024 * 1024
             ? fromOc
-            : mergePdfLayers(fromOc, parsePdfOcgs(data));
+            : data.byteLength > PARSE_OCG_MAX
+              ? fromOc
+              : mergePdfLayers(fromOc, parsePdfOcgs(data));
         setLayers(found);
         setVisibleIds(new Set(found.map((layer) => layer.id)));
         for (const layer of found) oc.setVisibility(layer.id, true, false);
@@ -670,14 +696,16 @@ export function PdfOcgFromUrl({
       {error ? (
         <div className="space-y-2 px-3 py-6 text-center">
           <p className="text-xs text-red-600">{error}</p>
-          <a
-            href={src}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-block text-xs font-medium text-blue-600 underline"
-          >
-            Open {fileName} in a new tab
-          </a>
+          {!src.startsWith("blob:") ? (
+            <a
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block text-xs font-medium text-blue-600 underline"
+            >
+              Open {fileName} in a new tab
+            </a>
+          ) : null}
         </div>
       ) : (
         <div

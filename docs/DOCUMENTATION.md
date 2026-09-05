@@ -960,6 +960,16 @@ Staff preview of PDFs in the order’s **Final production** Drive folder (same f
 | **Query** | Omit `fileId` to list `{ files: [{ fileId, fileName }] }`. Pass `fileId` to stream the PDF. |
 | **Errors** | 401; 403 file not in Final; 404; 413 too large to preview |
 
+### `GET /api/orders/[id]/gdrive-status`
+
+Whether Drive folders for this order have files.
+
+| | |
+| --- | --- |
+| **Auth** | Session + tenant |
+| **Response** | `{ hasFiles, hasDesignerFiles, hasPdf, designerUrl, finalUrl }` |
+| **Notes** | `hasFiles` / `hasPdf` = **Final production**. `hasDesignerFiles` = files in the Designer folder only (Final production subfolder is ignored). |
+
 ### `PATCH /api/orders/[id]`
 
 Update order fields, specs, custom values, customer link.
@@ -1479,7 +1489,7 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers control under the thumbnail) appears only when Drive reports a **PDF** in Artwork / Final production (`hasPdf` from `GET /api/orders/[id]/gdrive-status`). The popup fills the window and scales the page to fit.
+**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers control under the thumbnail) appears only when Drive reports a **PDF** in Artwork / Final production (`hasPdf` from `GET /api/orders/[id]/gdrive-status`). The popup streams the file through `GET /api/orders/[id]/final-artwork?fileId=` (service account) so staff Google accounts are not used; shortcuts to PDFs are followed. The popup fills the window and scales the page to fit.
 
 ---
 

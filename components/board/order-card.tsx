@@ -43,6 +43,7 @@ import {
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import { DIE_ALERT_CLASS, DIE_BOARD_STATUS_CLASS, type DieAlert, type DieBoardStatus } from "@/lib/die-request";
+import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
 import {
   UNASSIGNED_DESIGNER_CARD_CLASS,
   ARTWORK_FIELD_NAME,
@@ -330,8 +331,13 @@ export function OrderCard({
   const artworkUrl = artworkField
     ? String(fieldValues[artworkField.id] ?? "").trim()
     : "";
+  const designerFolderUrl = driveFolderUrlFromOrderSpecs(order.specs ?? {}) ?? "";
+  const driveFolderHint = artworkUrl || designerFolderUrl;
   const { hasFiles: folderHasFiles, hasPdf: hasFinalPdf } =
-    useGdriveFolderStatus(order.id, artworkUrl);
+    useGdriveFolderStatus(order.id);
+  const hasPictureFile = Boolean(thumbnails?.length);
+  const showArtworkButton =
+    hasPictureFile || folderHasFiles || hasFinalPdf || Boolean(driveFolderHint);
 
   const designerName =
     designerNameProp?.trim() ||
@@ -839,45 +845,56 @@ export function OrderCard({
       <div className="flex items-start gap-3">
         {thumbnails && thumbnails.length > 0 ? (
           <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (hasFinalPdf) setArtworkOpen(true);
-              else setLightboxOpen(true);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            className="relative h-28 w-28 shrink-0 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
-            aria-label={
-              hasFinalPdf
-                ? `View artwork pages and layers for ${order.title}`
-                : `View pictures for ${order.title}`
-            }
-          >
-            <Image
-              src={thumbnails[0].url}
-              alt=""
-              width={112}
-              height={112}
-              className="h-28 w-28 object-cover"
-              unoptimized
-            />
+          <div className="relative h-28 w-28 shrink-0 overflow-hidden">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxOpen(true);
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="h-28 w-28 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+              aria-label={`View pictures for ${order.title}`}
+            >
+              <Image
+                src={thumbnails[0].url}
+                alt=""
+                width={112}
+                height={112}
+                className="h-28 w-28 object-cover"
+                unoptimized
+              />
+            </button>
+            {showArtworkButton ? (
+              <button
+                type="button"
+                className="absolute bottom-0.5 left-0.5 z-10 rounded bg-black/70 p-0.5 text-white hover:bg-black/85"
+                title="Open artwork PDF pages and layers"
+                aria-label={`View artwork pages and layers for ${order.title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setArtworkOpen(true);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <Layers className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            ) : null}
             {thumbnails.length > 1 ? (
-              <span className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-px text-[9px] font-semibold tabular-nums text-white">
+              <span className="pointer-events-none absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-px text-[9px] font-semibold tabular-nums text-white">
                 {thumbnails.length}
               </span>
             ) : null}
-            {/* Order # overlaid on the image — frees the title line for the item name. */}
             <span className="pointer-events-none absolute left-0.5 top-0.5 max-w-[calc(100%-4px)] truncate rounded bg-black/70 px-1 py-px text-[10px] font-bold leading-tight tabular-nums text-white">
               {formatShortOrderNumber(order.title)}
               {groupSize != null && groupSize >= 2 ? ` (${groupSize})` : ""}
             </span>
-          </button>
-          {hasFinalPdf ? (
+          </div>
+          {showArtworkButton ? (
             <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
           ) : null}
           </div>
-        ) : hasFinalPdf ? (
+        ) : showArtworkButton ? (
           <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
             <button
               type="button"

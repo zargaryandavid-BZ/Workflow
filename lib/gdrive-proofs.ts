@@ -6,6 +6,8 @@ import { isGdriveConfigured } from "@/lib/gdrive-settings";
 import { sanitizeDriveFolderName } from "@/lib/google-drive";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+const SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
+const GOOGLE_APPS_PREFIX = "application/vnd.google-apps.";
 const PROOFS_FOLDER_NAME = "Proofs";
 
 function normalizePrivateKey(key: string): string {
@@ -135,17 +137,23 @@ export async function listProofFiles(
         `mimeType!='${FOLDER_MIME}'`,
         "trashed=false",
       ].join(" and "),
-      fields: "nextPageToken, files(id,name,mimeType,thumbnailLink)",
+      fields:
+        "nextPageToken, files(id,name,mimeType,thumbnailLink,shortcutDetails(targetId,targetMimeType))",
       pageSize: 200,
       pageToken,
       ...driveListParams(sharedDriveId),
     });
     for (const f of res.data.files ?? []) {
       if (f.id && f.name) {
+        const shortcut = f.mimeType === SHORTCUT_MIME;
+        const targetId = f.shortcutDetails?.targetId;
         out.push({
-          id: f.id,
+          id: shortcut && targetId ? targetId : f.id,
           name: f.name,
-          mimeType: f.mimeType ?? "",
+          mimeType:
+            shortcut && f.shortcutDetails?.targetMimeType
+              ? f.shortcutDetails.targetMimeType
+              : (f.mimeType ?? ""),
           thumbnailLink: f.thumbnailLink ?? null,
         });
       }
@@ -244,15 +252,35 @@ export type DriveFileMeta = {
 };
 
 export async function getDriveFileMeta(
-  { drive }: ProofsDrive,
+  client: ProofsDrive,
   fileId: string
 ): Promise<DriveFileMeta | null> {
+  return resolveDriveDownloadTarget(client, fileId);
+}
+
+async function resolveDriveDownloadTarget(
+  client: ProofsDrive,
+  fileId: string,
+  depth = 0
+): Promise<DriveFileMeta | null> {
+  if (depth > 4) return null;
+  const { drive } = client;
   const meta = await drive.files.get({
     fileId,
-    fields: "id,mimeType,name,size",
+    fields: "id,mimeType,name,size,shortcutDetails(targetId)",
     supportsAllDrives: true,
   });
   if (!meta.data.id) return null;
+  if (
+    meta.data.mimeType === SHORTCUT_MIME &&
+    meta.data.shortcutDetails?.targetId
+  ) {
+    return resolveDriveDownloadTarget(
+      client,
+      meta.data.shortcutDetails.targetId,
+      depth + 1
+    );
+  }
   return {
     id: meta.data.id,
     name: meta.data.name || "file",
@@ -286,23 +314,43 @@ export async function getDriveFolderMeta(
   };
 }
 
-/** Download a Drive file's bytes (PDF or any binary). */
+/** Download a Drive file's bytes (PDF or any binary). Follows shortcuts; exports Docs as PDF. */
 export async function downloadDriveFileBytes(
   client: ProofsDrive,
   fileId: string
 ): Promise<{ buffer: Buffer; mimeType: string; name: string; size: number } | null> {
-  const info = await getDriveFileMeta(client, fileId);
+  const info = await resolveDriveDownloadTarget(client, fileId);
   if (!info) return null;
   const { drive } = client;
+  if (
+    info.mimeType.startsWith(GOOGLE_APPS_PREFIX) &&
+    info.mimeType !== FOLDER_MIME &&
+    info.mimeType !== SHORTCUT_MIME
+  ) {
+    const exported = await drive.files.export(
+      { fileId: info.id, mimeType: "application/pdf" },
+      { responseType: "arraybuffer" }
+    );
+    const buffer = Buffer.from(exported.data as ArrayBuffer);
+    const name = info.name.toLowerCase().endsWith(".pdf")
+      ? info.name
+      : `${info.name.replace(/\.[^.]+$/, "")}.pdf`;
+    return {
+      buffer,
+      mimeType: "application/pdf",
+      name,
+      size: buffer.byteLength,
+    };
+  }
   const res = await drive.files.get(
-    { fileId, alt: "media", supportsAllDrives: true },
+    { fileId: info.id, alt: "media", supportsAllDrives: true },
     { responseType: "arraybuffer" }
   );
   return {
     buffer: Buffer.from(res.data as ArrayBuffer),
     mimeType: info.mimeType,
     name: info.name,
-    size: info.size,
+    size: info.size || Buffer.from(res.data as ArrayBuffer).byteLength,
   };
 }
 

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 type FolderDriveStatus = {
   hasFiles: boolean;
   hasPdf: boolean;
+  hasDesignerFiles: boolean;
   designerUrl: string | null;
   finalUrl: string | null;
 };
@@ -12,6 +13,7 @@ type FolderDriveStatus = {
 const EMPTY: FolderDriveStatus = {
   hasFiles: false,
   hasPdf: false,
+  hasDesignerFiles: false,
   designerUrl: null,
   finalUrl: null,
 };
@@ -79,12 +81,14 @@ async function fetchStatus(orderId: string): Promise<FolderDriveStatus> {
   const json = (await res.json()) as {
     hasFiles?: boolean;
     hasPdf?: boolean;
+    hasDesignerFiles?: boolean;
     designerUrl?: string | null;
     finalUrl?: string | null;
   };
   return {
     hasFiles: Boolean(json.hasFiles),
     hasPdf: Boolean(json.hasPdf),
+    hasDesignerFiles: Boolean(json.hasDesignerFiles),
     designerUrl: json.designerUrl?.trim() || null,
     finalUrl: json.finalUrl?.trim() || null,
   };
@@ -146,12 +150,10 @@ export async function refreshGdriveFolderHasFiles(
 
 export function useGdriveFolderStatus(
   orderId: string | null | undefined,
-  artworkUrl: string | null | undefined
+  _artworkUrl?: string | null
 ): FolderDriveStatus {
-  const url = artworkUrl?.trim() ?? "";
-  const hasUrl = Boolean(url && /^https?:\/\//i.test(url));
   const [status, setStatus] = useState<FolderDriveStatus>(() => {
-    if (!orderId || !hasUrl) return EMPTY;
+    if (!orderId) return EMPTY;
     return statusCache.get(orderId) ?? EMPTY;
   });
   const [epoch, setEpoch] = useState(0);
@@ -162,7 +164,7 @@ export function useGdriveFolderStatus(
   }, [orderId]);
 
   useEffect(() => {
-    if (!orderId || !hasUrl) {
+    if (!orderId) {
       setStatus(EMPTY);
       return;
     }
@@ -185,7 +187,7 @@ export function useGdriveFolderStatus(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [orderId, hasUrl, url, epoch]);
+  }, [orderId, epoch]);
 
   return status;
 }

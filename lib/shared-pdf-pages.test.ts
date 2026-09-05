@@ -17,12 +17,13 @@ describe("sharedPdfPagesForSkus", () => {
     assert.equal(map.zargaryan?.fileId, "file");
   });
 
-  it("locks a single SKU to page 1", () => {
+  it("does not lock a single SKU (all pages are sides of that SKU)", () => {
     const map = sharedPdfPagesForSkus([{ id: "a" }], {
       id: "file",
       name: "job.pdf",
     });
-    assert.equal(map.a?.page, 1);
+    assert.equal(map.a?.page, undefined);
+    assert.equal(map.a?.fileId, "file");
   });
 });
 
