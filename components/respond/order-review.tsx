@@ -308,7 +308,7 @@ function SkuArtworkBlock({
 
   return (
     <div className="mt-2">
-      {pdfOn && finalPdf && orderId ? (
+      {pdfOn && finalPdf && orderId && pdfView ? (
         <Suspense fallback={<PdfPreviewLoading fileName={finalPdf.fileName} />}>
           <PdfOcgFromUrl
             src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
