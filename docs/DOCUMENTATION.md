@@ -952,13 +952,13 @@ Full order detail: order, custom field values, assets, notifications, activity.
 
 ### `GET /api/orders/[id]/final-artwork`
 
-Staff preview of PDFs in the order’s **Final production** Drive folder (same files as customer `/respond` multilayer).
+Staff preview of PDFs: **Final production** first, then the **Designer folder** (and its non-Final subfolders) if Final has no PDF. Bytes are streamed with the Drive **service account** — never an embedded Google Drive preview (that uses a different Google login and often shows “You need access”).
 
 | | |
 | --- | --- |
 | **Auth** | Session + tenant |
 | **Query** | Omit `fileId` to list `{ files: [{ fileId, fileName }] }`. Pass `fileId` to stream the PDF. |
-| **Errors** | 401; 403 file not in Final; 404; 413 too large to preview |
+| **Errors** | 401; 403 file not in the staff artwork set; 404; 413 too large to preview |
 
 ### `GET /api/orders/[id]/gdrive-status`
 
@@ -1489,7 +1489,7 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers control under the thumbnail) appears only when Drive reports a **PDF** in Artwork / Final production (`hasPdf` from `GET /api/orders/[id]/gdrive-status`). The popup streams the file through `GET /api/orders/[id]/final-artwork?fileId=` (service account) so staff Google accounts are not used; shortcuts to PDFs are followed. The popup fills the window and scales the page to fit.
+**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit.
 
 ---
 

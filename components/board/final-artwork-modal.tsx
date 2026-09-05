@@ -26,6 +26,17 @@ type FinalPdfItem = {
   page: number | null;
 };
 
+function looksLikePdf(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 5) return false;
+  const head = new Uint8Array(buf.slice(0, 5));
+  return (
+    head[0] === 0x25 &&
+    head[1] === 0x50 &&
+    head[2] === 0x44 &&
+    head[3] === 0x46
+  );
+}
+
 function suppressClickThrough() {
   const suppress = (ev: Event) => {
     ev.preventDefault();
@@ -52,6 +63,7 @@ export function FinalArtworkModal({
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,16 +96,18 @@ export function FinalArtworkModal({
         setItems(list);
         setActive(0);
         if (list.length === 0) {
-          setError("No PDF in the Final production folder.");
+          setError(
+            "No PDF in Final production or the Designer folder. Workflow reads Drive with the service account in Settings → Google Drive — sharing the folder with your login is not enough."
+          );
+          setLoading(false);
         }
       } catch (err) {
         if (!cancelled) {
           setError(
             err instanceof Error ? err.message : "Could not load artwork."
           );
+          setLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
@@ -119,6 +133,58 @@ export function FinalArtworkModal({
 
   const item = items[active];
   const view = item ? finalPdfOcgView(item) : null;
+
+  useEffect(() => {
+    if (!item) {
+      setBlobUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setLoading(true);
+    setBlobUrl(null);
+    void (async () => {
+      try {
+        const res = await fetchWithAuth(
+          `/api/orders/${orderId}/final-artwork?fileId=${encodeURIComponent(item.fileId)}`
+        );
+        if (!res.ok) {
+          const json = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(json.error?.trim() || "Could not load artwork.");
+        }
+        const buf = await res.arrayBuffer();
+        if (!looksLikePdf(buf)) {
+          throw new Error(
+            "Could not open this PDF. It is loaded through Workflow, not your Google account."
+          );
+        }
+        const url = URL.createObjectURL(
+          new Blob([buf], { type: "application/pdf" })
+        );
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        objectUrl = url;
+        setBlobUrl(url);
+      } catch (err) {
+        if (!cancelled) {
+          setBlobUrl(null);
+          setError(
+            err instanceof Error ? err.message : "Could not load artwork."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [orderId, item?.fileId]);
 
   function close() {
     suppressClickThrough();
@@ -150,7 +216,9 @@ export function FinalArtworkModal({
               {orderTitle}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              Pages and layers from Final production
+              {item
+                ? `${item.skuLabel}${item.fileName ? ` · ${item.fileName}` : ""}`
+                : "PDF pages and layers"}
             </p>
           </div>
           <button
@@ -192,9 +260,9 @@ export function FinalArtworkModal({
             <PdfLoadingBar />
           ) : error ? (
             <p className="py-10 text-center text-sm text-red-600">{error}</p>
-          ) : item && view ? (
+          ) : item && view && blobUrl ? (
             <PdfOcgFromUrl
-              src={`/api/orders/${orderId}/final-artwork?fileId=${encodeURIComponent(item.fileId)}`}
+              src={blobUrl}
               fileName={item.fileName}
               layout={view.layout}
               page={view.page}

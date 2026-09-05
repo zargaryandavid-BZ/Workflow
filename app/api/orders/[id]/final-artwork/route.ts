@@ -48,19 +48,26 @@ export async function GET(
   const skus = skusForRespond(specs);
 
   const {
-    fetchRespondFinalPdfsBySku,
+    fetchStaffArtworkPdfsBySku,
     skuListForFinalPdfs,
-    isRespondFinalPdfForOrder,
+    isStaffArtworkPdfForOrder,
   } = await import("@/lib/respond-final-pdf");
 
   if (!fileId) {
     const skuList = skuListForFinalPdfs(orderRef.title, skus);
-    const bySku = await fetchRespondFinalPdfsBySku(
-      supabase,
-      ctx.tenant.id,
-      orderRef,
-      skuList
-    );
+    let bySku;
+    try {
+      bySku = await fetchStaffArtworkPdfsBySku(
+        supabase,
+        ctx.tenant.id,
+        orderRef,
+        skuList
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Drive lookup failed";
+      console.error("[final-artwork]", message);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
     const items = skuList.flatMap((sku, i) => {
       const pdf = bySku[sku.id];
       if (!pdf) return [];
@@ -83,13 +90,20 @@ export async function GET(
     return NextResponse.json({ items, files });
   }
 
-  const allowed = await isRespondFinalPdfForOrder(
-    supabase,
-    ctx.tenant.id,
-    orderRef,
-    skus,
-    fileId
-  );
+  let allowed = false;
+  try {
+    allowed = await isStaffArtworkPdfForOrder(
+      supabase,
+      ctx.tenant.id,
+      orderRef,
+      skus,
+      fileId
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Drive lookup failed";
+    console.error("[final-artwork]", message);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
   if (!allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

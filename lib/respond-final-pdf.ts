@@ -6,6 +6,8 @@ import { ensureGdriveSettings } from "@/lib/gdrive-settings";
 import { parseDriveIdFromUrl } from "@/lib/google-drive";
 import {
   downloadDriveFileBytes,
+  isFinalProdFolderName,
+  listChildFolders,
   listProofFiles,
   proofsDriveClient,
   type ProofFile,
@@ -57,20 +59,36 @@ async function artworkFolderId(
   return url ? parseDriveIdFromUrl(url) : null;
 }
 
-async function collectFinalFolderIds(
+async function collectResolvedFolders(
   client: ProofsDrive,
   seedIds: string[],
   extraRootId: string | null,
   excludeParentIds: string[],
   orderNeedles: string[]
-): Promise<string[]> {
-  const resolved = await resolveOrderDriveFolders(client, {
+) {
+  return resolveOrderDriveFolders(client, {
     seedIds,
     extraRootId,
     excludeParentIds,
     orderNeedles,
   });
-  return resolved.finalIds;
+}
+
+async function listPdfFilesInFolders(
+  client: ProofsDrive,
+  folderIds: string[]
+): Promise<ProofFile[]> {
+  const files: ProofFile[] = [];
+  const seen = new Set<string>();
+  for (const fid of folderIds) {
+    const listed = await listProofFiles(client, fid);
+    for (const f of listed) {
+      if (!isPdfFile(f) || seen.has(f.id)) continue;
+      seen.add(f.id);
+      files.push(f);
+    }
+  }
+  return files;
 }
 
 const FINAL_PDF_CACHE_MS = 60_000;
@@ -104,7 +122,8 @@ export async function fetchRespondFinalPdfsBySku(
     supabase,
     tenantId,
     order,
-    skus
+    skus,
+    { includeDesignerFallback: false }
   );
   finalPdfCache.set(cacheKey, { at: Date.now(), value });
   return value;
@@ -118,7 +137,8 @@ async function fetchRespondFinalPdfsBySkuUncached(
     title: string;
     specs: Record<string, unknown>;
   },
-  skus: SkuItem[]
+  skus: SkuItem[],
+  opts?: { includeDesignerFallback?: boolean }
 ): Promise<Record<string, RespondFinalPdf>> {
   if (skus.length === 0) return {};
 
@@ -144,9 +164,9 @@ async function fetchRespondFinalPdfsBySkuUncached(
   });
   if (seeds.length === 0) return {};
 
-  let folderIds: string[] = [];
+  let files: ProofFile[] = [];
   try {
-    folderIds = await collectFinalFolderIds(
+    const resolved = await collectResolvedFolders(
       client,
       seeds,
       settings.final_root_folder_id?.trim() || null,
@@ -156,23 +176,26 @@ async function fetchRespondFinalPdfsBySkuUncached(
       ].filter(Boolean),
       orderFolderNeedles(order)
     );
-  } catch {
-    return {};
-  }
-  if (folderIds.length === 0) return {};
-
-  const files: ProofFile[] = [];
-  const seen = new Set<string>();
-  try {
-    for (const fid of folderIds) {
-      const listed = await listProofFiles(client, fid);
-      for (const f of listed) {
-        if (!isPdfFile(f) || seen.has(f.id)) continue;
-        seen.add(f.id);
-        files.push(f);
+    files = await listPdfFilesInFolders(client, resolved.finalIds);
+    if (
+      files.length === 0 &&
+      opts?.includeDesignerFallback &&
+      resolved.designerId
+    ) {
+      const designerFolders = [resolved.designerId];
+      try {
+        const children = await listChildFolders(client, resolved.designerId);
+        for (const child of children) {
+          if (isFinalProdFolderName(child.name)) continue;
+          designerFolders.push(child.id);
+        }
+      } catch {
+        /* designer root still listed below */
       }
+      files = await listPdfFilesInFolders(client, designerFolders);
     }
-  } catch {
+  } catch (err) {
+    if (opts?.includeDesignerFallback) throw err;
     return {};
   }
   if (files.length === 0) return {};
@@ -180,6 +203,56 @@ async function fetchRespondFinalPdfsBySkuUncached(
   const file = pickFinalArtworkPdf(files);
   if (!file) return {};
   return sharedPdfPagesForSkus(skus, file);
+}
+
+const staffPdfCache = new Map<
+  string,
+  { at: number; value: Record<string, RespondFinalPdf> }
+>();
+
+/** Staff Artwork popup: Final production PDFs, or Designer folder PDFs if Final is empty. */
+export async function fetchStaffArtworkPdfsBySku(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: {
+    id: string;
+    title: string;
+    specs: Record<string, unknown>;
+  },
+  skus: SkuItem[]
+): Promise<Record<string, RespondFinalPdf>> {
+  const skuList = skus.length > 0 ? skus : skuListForFinalPdfs(order.title, skus);
+  const cacheKey = `staff:${tenantId}:${order.id}:${skuList.map((s) => s.id).join(",")}`;
+  const cached = staffPdfCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
+    return cached.value;
+  }
+  const value = await fetchRespondFinalPdfsBySkuUncached(
+    supabase,
+    tenantId,
+    order,
+    skuList,
+    { includeDesignerFallback: true }
+  );
+  staffPdfCache.set(cacheKey, { at: Date.now(), value });
+  return value;
+}
+
+export async function isStaffArtworkPdfForOrder(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: { id: string; title: string; specs: Record<string, unknown> },
+  skus: SkuItem[],
+  fileId: string
+): Promise<boolean> {
+  const skuList = skuListForFinalPdfs(order.title, skus);
+  const map = await fetchStaffArtworkPdfsBySku(
+    supabase,
+    tenantId,
+    order,
+    skuList
+  );
+  return Object.values(map).some((p) => p.fileId === fileId);
 }
 
 export function skuListForFinalPdfs(
