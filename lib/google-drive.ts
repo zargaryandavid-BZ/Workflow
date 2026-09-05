@@ -5,6 +5,7 @@ import type { GdriveLinkTarget, GdriveSettings } from "@/lib/types";
 import { isGdriveConfigured } from "@/lib/gdrive-settings";
 import {
   buildDriveFolderPlan,
+  isFinalProdFolderName,
   sanitizeDriveFolderName,
   sanitizeDriveItemTitle,
   shortDriveOrderCode,
@@ -405,15 +406,12 @@ export async function isLiveDriveFolder(
 function isDrivePdfFile(file: {
   mimeType?: string | null;
   name?: string | null;
+  shortcutDetails?: { targetMimeType?: string | null } | null;
 }): boolean {
   const mime = (file.mimeType || "").toLowerCase();
-  if (mime.includes("pdf")) return true;
+  const target = (file.shortcutDetails?.targetMimeType || "").toLowerCase();
+  if (mime.includes("pdf") || target.includes("pdf")) return true;
   return (file.name || "").toLowerCase().endsWith(".pdf");
-}
-
-function isFinalProdChildName(name: string): boolean {
-  const n = name.toLowerCase();
-  return /final[\s_-]*prod/.test(n) || n.includes("final production");
 }
 
 export async function folderHasFiles(
@@ -426,19 +424,15 @@ export async function folderHasFiles(
   }
 
   const drive = driveClient(settings);
-  const sharedDriveId = resolveSharedDriveId(settings);
   const listOpts = {
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
-    ...(sharedDriveId
-      ? { corpora: "drive" as const, driveId: sharedDriveId }
-      : { corpora: "allDrives" as const }),
   };
 
   // One list for files + folders (cheaper than two sequential queries).
   const listing = await drive.files.list({
     q: [`'${folderId}' in parents`, "trashed=false"].join(" and "),
-    fields: "files(id,mimeType,name)",
+    fields: "files(id,mimeType,name,shortcutDetails(targetId,targetMimeType))",
     pageSize: 50,
     ...listOpts,
   });
@@ -459,7 +453,7 @@ export async function folderHasFiles(
   const childFolders = entries.filter((f) => {
     if (f.mimeType !== FOLDER_MIME || !f.id) return false;
     if (excludeChildIds.has(f.id)) return false;
-    if (skipFinal && isFinalProdChildName(f.name ?? "")) return false;
+    if (skipFinal && isFinalProdFolderName(f.name ?? "")) return false;
     return true;
   });
   if (childFolders.length === 0) {
@@ -475,7 +469,7 @@ export async function folderHasFiles(
           `mimeType!='${FOLDER_MIME}'`,
           "trashed=false",
         ].join(" and "),
-        fields: "files(id,mimeType,name)",
+        fields: "files(id,mimeType,name,shortcutDetails(targetMimeType))",
         pageSize: 20,
         ...listOpts,
       });

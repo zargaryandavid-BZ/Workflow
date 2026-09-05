@@ -14,8 +14,12 @@ import type { OrderWithRelations } from "@/lib/types";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { rankDesignerQueue } from "@/lib/designer-queue-rank";
 import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
+import { BOARD_ORDER_LIST_SELECT } from "@/lib/orders/load-with-relations";
 
 export const PAGE_SIZE = 25;
+
+/** Authenticated + Realtime; do not CDN-cache (would mix tenants). */
+export const dynamic = "force-dynamic";
 
 export interface ColumnOrdersResponse {
   orders: OrderWithRelations[];
@@ -145,7 +149,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from("orders")
-      .select("*, customer:customers(*), tag:tags(id, name, color)", {
+      .select(BOARD_ORDER_LIST_SELECT, {
         count: "exact",
       })
       .eq("tenant_id", tenantId)
@@ -270,7 +274,7 @@ async function withSameColumnGroupSiblings(
   const existingIds = new Set(pageOrders.map((o) => o.id));
   let query = supabase
     .from("orders")
-    .select("*, customer:customers(*), tag:tags(id, name, color)")
+    .select(BOARD_ORDER_LIST_SELECT)
     .eq("tenant_id", tenantId)
     .eq("column_id", columnId)
     .is("removed_at", null)

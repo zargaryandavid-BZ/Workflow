@@ -48,16 +48,16 @@ export async function GET(
   const skus = skusForRespond(specs);
 
   const {
-    fetchStaffArtworkPdfsBySku,
+    fetchStaffArtworkPack,
     skuListForFinalPdfs,
     isStaffArtworkPdfForOrder,
   } = await import("@/lib/respond-final-pdf");
 
   if (!fileId) {
     const skuList = skuListForFinalPdfs(orderRef.title, skus);
-    let bySku;
+    let pack;
     try {
-      bySku = await fetchStaffArtworkPdfsBySku(
+      pack = await fetchStaffArtworkPack(
         supabase,
         ctx.tenant.id,
         orderRef,
@@ -68,7 +68,8 @@ export async function GET(
       console.error("[final-artwork]", message);
       return NextResponse.json({ error: message }, { status: 500 });
     }
-    const items = skuList.flatMap((sku, i) => {
+    const bySku = pack.bySku;
+    const items = pack.skus.flatMap((sku, i) => {
       const pdf = bySku[sku.id];
       if (!pdf) return [];
       return [

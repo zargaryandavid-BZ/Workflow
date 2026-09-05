@@ -9,6 +9,7 @@ import {
 } from "@/lib/gdrive-proofs";
 import {
   driveOrderKeyFromTitle,
+  pickFinalProdFolders,
   shortDriveOrderCode,
 } from "@/lib/drive-folder-names";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
@@ -44,23 +45,6 @@ export function orderFolderNeedles(order: {
       : "";
   if (itemTitle) push(itemTitle);
   return [...new Set(out)];
-}
-
-function folderNameMatchesOrder(name: string, needles: string[]): boolean {
-  const n = name.toLowerCase();
-  return needles.some((needle) => n.includes(needle));
-}
-
-function pickFinalChildren(
-  children: { id: string; name: string }[],
-  needles: string[]
-): { id: string; name: string }[] {
-  const named = children.filter((c) => isFinalProdFolderName(c.name));
-  if (named.length === 0) return [];
-  if (needles.length === 0) return named;
-  const matched = named.filter((c) => folderNameMatchesOrder(c.name, needles));
-  if (matched.length > 0) return matched;
-  return named;
 }
 
 export type ResolvedOrderDriveFolders = {
@@ -112,37 +96,54 @@ export async function resolveOrderDriveFolders(
     }
 
     designerFromSeed.add(seed);
+    let foundInsideJob = false;
     try {
       const children = await listChildFolders(client, seed);
-      for (const child of pickFinalChildren(children, opts.orderNeedles)) {
+      for (const child of pickFinalProdFolders(
+        children,
+        opts.orderNeedles,
+        "inside-job"
+      )) {
         finalIds.add(child.id);
+        foundInsideJob = true;
       }
     } catch {
       // ignore
     }
-    for (const parent of meta.parents) {
-      if (excluded.has(parent)) continue;
-      try {
-        const siblings = await listChildFolders(client, parent);
-        for (const child of pickFinalChildren(siblings, opts.orderNeedles)) {
-          if (child.id !== seed) finalIds.add(child.id);
+    // Sibling Final folders only when this job folder has none — otherwise
+    // listing every Final_* in the parent made Artwork hang on open.
+    if (!foundInsideJob) {
+      for (const parent of meta.parents) {
+        if (excluded.has(parent)) continue;
+        try {
+          const siblings = await listChildFolders(client, parent);
+          for (const child of pickFinalProdFolders(
+            siblings,
+            opts.orderNeedles,
+            "shared"
+          )) {
+            if (child.id !== seed) finalIds.add(child.id);
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
     }
   }
 
-  if (extraRootId && opts.orderNeedles.length > 0) {
+  if (
+    finalIds.size === 0 &&
+    extraRootId &&
+    opts.orderNeedles.length > 0
+  ) {
     try {
       const children = await listChildFolders(client, extraRootId);
-      for (const child of children) {
-        if (
-          isFinalProdFolderName(child.name) &&
-          folderNameMatchesOrder(child.name, opts.orderNeedles)
-        ) {
-          finalIds.add(child.id);
-        }
+      for (const child of pickFinalProdFolders(
+        children,
+        opts.orderNeedles,
+        "shared"
+      )) {
+        finalIds.add(child.id);
       }
     } catch {
       // ignore

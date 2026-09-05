@@ -6,15 +6,18 @@ import { ensureGdriveSettings } from "@/lib/gdrive-settings";
 import { parseDriveIdFromUrl } from "@/lib/google-drive";
 import {
   downloadDriveFileBytes,
+  getDriveFileMeta,
   isFinalProdFolderName,
   listChildFolders,
-  listProofFiles,
+  listProofFilesRecursive,
   proofsDriveClient,
   type ProofFile,
   type ProofsDrive,
 } from "@/lib/gdrive-proofs";
 import { type SkuItem } from "@/lib/skus";
+import { pdfPageCount } from "@/lib/append-pdf";
 import {
+  alignSkusToPdfPages,
   pickFinalArtworkPdf,
   sharedPdfPagesForSkus,
 } from "@/lib/shared-pdf-pages";
@@ -81,7 +84,7 @@ async function listPdfFilesInFolders(
   const files: ProofFile[] = [];
   const seen = new Set<string>();
   for (const fid of folderIds) {
-    const listed = await listProofFiles(client, fid);
+    const listed = await listProofFilesRecursive(client, fid);
     for (const f of listed) {
       if (!isPdfFile(f) || seen.has(f.id)) continue;
       seen.add(f.id);
@@ -92,15 +95,71 @@ async function listPdfFilesInFolders(
 }
 
 const FINAL_PDF_CACHE_MS = 60_000;
-const finalPdfCache = new Map<
+const PDF_PAGE_COUNT_MAX_BYTES = 80 * 1024 * 1024;
+
+export type RespondArtworkPack = {
+  skus: SkuItem[];
+  bySku: Record<string, RespondFinalPdf>;
+};
+
+const EMPTY_PACK = (skus: SkuItem[]): RespondArtworkPack => ({
+  skus,
+  bySku: {},
+});
+
+const artworkPackCache = new Map<
   string,
-  { at: number; value: Record<string, RespondFinalPdf> }
+  { at: number; value: RespondArtworkPack }
 >();
 
+async function pageCountForDrivePdf(
+  client: ProofsDrive,
+  fileId: string
+): Promise<number> {
+  try {
+    const meta = await getDriveFileMeta(client, fileId);
+    if (!meta || meta.size > PDF_PAGE_COUNT_MAX_BYTES) return 0;
+    const downloaded = await downloadDriveFileBytes(client, fileId);
+    if (!downloaded?.buffer?.length) return 0;
+    return await pdfPageCount([downloaded.buffer]);
+  } catch {
+    return 0;
+  }
+}
+
 /**
- * Map SKU id → Final for Prod PDF page. Page 1 = first SKU, page 2 = second SKU.
- * File names are ignored.
+ * Map SKU id → Final for Prod PDF page. Page count on the PDF is the SKU list.
  */
+export async function fetchRespondArtworkPack(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: {
+    id: string;
+    title: string;
+    specs: Record<string, unknown>;
+  },
+  skus: SkuItem[],
+  opts?: { includeDesignerFallback?: boolean }
+): Promise<RespondArtworkPack> {
+  const ticket = skus.length > 0 ? skus : skuListForFinalPdfs(order.title, skus);
+  const staff = opts?.includeDesignerFallback === true;
+  const cacheKey = `${staff ? "staff:" : ""}${tenantId}:${order.id}:${ticket.map((s) => s.id).join(",")}`;
+  const cached = artworkPackCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
+    return cached.value;
+  }
+
+  const value = await fetchRespondArtworkPackUncached(
+    supabase,
+    tenantId,
+    order,
+    ticket,
+    opts
+  );
+  artworkPackCache.set(cacheKey, { at: Date.now(), value });
+  return value;
+}
+
 export async function fetchRespondFinalPdfsBySku(
   supabase: SupabaseClient,
   tenantId: string,
@@ -111,25 +170,13 @@ export async function fetchRespondFinalPdfsBySku(
   },
   skus: SkuItem[]
 ): Promise<Record<string, RespondFinalPdf>> {
-  if (skus.length === 0) return {};
-  const cacheKey = `${tenantId}:${order.id}:${skus.map((s) => s.id).join(",")}`;
-  const cached = finalPdfCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
-    return cached.value;
-  }
-
-  const value = await fetchRespondFinalPdfsBySkuUncached(
-    supabase,
-    tenantId,
-    order,
-    skus,
-    { includeDesignerFallback: false }
-  );
-  finalPdfCache.set(cacheKey, { at: Date.now(), value });
-  return value;
+  const pack = await fetchRespondArtworkPack(supabase, tenantId, order, skus, {
+    includeDesignerFallback: false,
+  });
+  return pack.bySku;
 }
 
-async function fetchRespondFinalPdfsBySkuUncached(
+async function fetchRespondArtworkPackUncached(
   supabase: SupabaseClient,
   tenantId: string,
   order: {
@@ -139,21 +186,19 @@ async function fetchRespondFinalPdfsBySkuUncached(
   },
   skus: SkuItem[],
   opts?: { includeDesignerFallback?: boolean }
-): Promise<Record<string, RespondFinalPdf>> {
-  if (skus.length === 0) return {};
-
+): Promise<RespondArtworkPack> {
   let settings;
   try {
     settings = await ensureGdriveSettings(supabase, tenantId);
   } catch {
-    return {};
+    return EMPTY_PACK(skus);
   }
 
   let client: ProofsDrive;
   try {
     client = proofsDriveClient(settings);
   } catch {
-    return {};
+    return EMPTY_PACK(skus);
   }
 
   const specs = order.specs ?? {};
@@ -162,7 +207,7 @@ async function fetchRespondFinalPdfsBySkuUncached(
     specs,
     artworkUrl: artId ? `https://drive.google.com/drive/folders/${artId}` : null,
   });
-  if (seeds.length === 0) return {};
+  if (seeds.length === 0) return EMPTY_PACK(skus);
 
   let files: ProofFile[] = [];
   try {
@@ -177,40 +222,61 @@ async function fetchRespondFinalPdfsBySkuUncached(
       orderFolderNeedles(order)
     );
     files = await listPdfFilesInFolders(client, resolved.finalIds);
-    if (
-      files.length === 0 &&
-      opts?.includeDesignerFallback &&
-      resolved.designerId
-    ) {
-      const designerFolders = [resolved.designerId];
-      try {
-        const children = await listChildFolders(client, resolved.designerId);
-        for (const child of children) {
-          if (isFinalProdFolderName(child.name)) continue;
-          designerFolders.push(child.id);
-        }
-      } catch {
-        /* designer root still listed below */
+    if (files.length === 0 && opts?.includeDesignerFallback) {
+      const designerFolders = new Set<string>();
+      if (resolved.designerId) designerFolders.add(resolved.designerId);
+      for (const seed of seeds) {
+        if (!resolved.finalIds.includes(seed)) designerFolders.add(seed);
       }
-      files = await listPdfFilesInFolders(client, designerFolders);
+      if (designerFolders.size > 0) {
+        const extra: string[] = [...designerFolders];
+        for (const id of [...designerFolders]) {
+          try {
+            const children = await listChildFolders(client, id);
+            for (const child of children) {
+              if (isFinalProdFolderName(child.name)) continue;
+              extra.push(child.id);
+            }
+          } catch {
+            /* designer root still listed below */
+          }
+        }
+        files = await listPdfFilesInFolders(client, extra);
+      }
     }
   } catch (err) {
     if (opts?.includeDesignerFallback) throw err;
-    return {};
+    return EMPTY_PACK(skus);
   }
-  if (files.length === 0) return {};
+  if (files.length === 0) return EMPTY_PACK(skus);
 
   const file = pickFinalArtworkPdf(files);
-  if (!file) return {};
-  return sharedPdfPagesForSkus(skus, file);
+  if (!file) return EMPTY_PACK(skus);
+
+  const pageCount = await pageCountForDrivePdf(client, file.id);
+  const aligned = pageCount >= 1 ? alignSkusToPdfPages(skus, pageCount) : skus;
+  return {
+    skus: aligned,
+    bySku: sharedPdfPagesForSkus(aligned, file),
+  };
 }
 
-const staffPdfCache = new Map<
-  string,
-  { at: number; value: Record<string, RespondFinalPdf> }
->();
-
 /** Staff Artwork popup: Final production PDFs, or Designer folder PDFs if Final is empty. */
+export async function fetchStaffArtworkPack(
+  supabase: SupabaseClient,
+  tenantId: string,
+  order: {
+    id: string;
+    title: string;
+    specs: Record<string, unknown>;
+  },
+  skus: SkuItem[]
+): Promise<RespondArtworkPack> {
+  return fetchRespondArtworkPack(supabase, tenantId, order, skus, {
+    includeDesignerFallback: true,
+  });
+}
+
 export async function fetchStaffArtworkPdfsBySku(
   supabase: SupabaseClient,
   tenantId: string,
@@ -221,21 +287,7 @@ export async function fetchStaffArtworkPdfsBySku(
   },
   skus: SkuItem[]
 ): Promise<Record<string, RespondFinalPdf>> {
-  const skuList = skus.length > 0 ? skus : skuListForFinalPdfs(order.title, skus);
-  const cacheKey = `staff:${tenantId}:${order.id}:${skuList.map((s) => s.id).join(",")}`;
-  const cached = staffPdfCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
-    return cached.value;
-  }
-  const value = await fetchRespondFinalPdfsBySkuUncached(
-    supabase,
-    tenantId,
-    order,
-    skuList,
-    { includeDesignerFallback: true }
-  );
-  staffPdfCache.set(cacheKey, { at: Date.now(), value });
-  return value;
+  return (await fetchStaffArtworkPack(supabase, tenantId, order, skus)).bySku;
 }
 
 export async function isStaffArtworkPdfForOrder(

@@ -1,9 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderWithRelations } from "@/lib/types";
 
-const ORDER_SELECT_WITH_TAG =
-  "*, customer:customers(*), tag:tags(id, name, color)";
-const ORDER_SELECT_BASE = "*, customer:customers(*)";
+/** Card list: skip crm_snapshot / notes blobs. Detail views use GET /api/orders/[id]. */
+export const BOARD_ORDER_LIST_SELECT = `
+  id, tenant_id, column_id, customer_id, tag_id, title, description,
+  specs, priority, due_date, position, created_by, removed_at, removed_by,
+  created_at, updated_at, last_moved_at, webhook_source, crm_order_id,
+  locked_by, locked_by_name, lock_reason, locked_at, integration_mode,
+  customer:customers(id, name, email, phone, company, preferred_channel),
+  tag:tags(id, name, color)
+`.replace(/\s+/g, " ").trim();
+
+const ORDER_SELECT_BASE = BOARD_ORDER_LIST_SELECT.replace(
+  ", tag:tags(id, name, color)",
+  ""
+);
 
 export async function loadOrdersWithRelations(
   supabase: SupabaseClient,
@@ -13,7 +24,7 @@ export async function loadOrdersWithRelations(
   // migration hasn't run yet, which is fine.
   const { data, error } = await supabase
     .from("orders")
-    .select(ORDER_SELECT_WITH_TAG)
+    .select(BOARD_ORDER_LIST_SELECT)
     .eq("tenant_id", tenantId)
     .is("removed_at", null)
     .order("position", { ascending: true });
@@ -44,7 +55,7 @@ export async function loadRemovedOrdersWithRelations(
 ): Promise<OrderWithRelations[]> {
   const { data, error } = await supabase
     .from("orders")
-    .select(ORDER_SELECT_WITH_TAG)
+    .select(BOARD_ORDER_LIST_SELECT)
     .eq("tenant_id", tenantId)
     .not("removed_at", "is", null)
     .order("removed_at", { ascending: false });
@@ -77,7 +88,7 @@ export async function loadOrderWithRelations(
   // migration hasn't run yet, which is fine.
   const { data, error } = await supabase
     .from("orders")
-    .select(ORDER_SELECT_WITH_TAG)
+    .select(BOARD_ORDER_LIST_SELECT)
     .eq("id", orderId)
     .eq("tenant_id", tenantId)
     .maybeSingle();

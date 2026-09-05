@@ -18,6 +18,7 @@ import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type { BoardThumbnail } from "@/lib/card-image";
 import type { BoardColumn, CustomField, OrderWithRelations } from "@/lib/types";
+import { BOARD_ORDER_LIST_SELECT } from "@/lib/orders/load-with-relations";
 
 export interface SearchOrdersResponse {
   orders: OrderWithRelations[];
@@ -163,7 +164,7 @@ export async function GET(req: NextRequest) {
   for (let from = 0; ; from += FETCH_PAGE) {
     let query = supabase
       .from("orders")
-      .select("*, customer:customers(*), tag:tags(id, name, color)")
+      .select(BOARD_ORDER_LIST_SELECT)
       .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .order("position", { ascending: true })

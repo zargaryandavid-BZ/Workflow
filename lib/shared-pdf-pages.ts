@@ -1,3 +1,5 @@
+import type { SkuItem } from "@/lib/skus";
+
 export type SharedPdfPage = {
   fileId: string;
   fileName: string;
@@ -40,20 +42,40 @@ export function pickFinalArtworkPdf(
 }
 
 /**
- * SKU index → PDF page when the card has 2+ SKUs (SKU 1 → page 1).
- * One SKU keeps the whole file (front/back sides), no page lock.
+ * PDF page count is the SKU list. Ticket SKUs only supply names/qty for matching pages.
+ */
+export function alignSkusToPdfPages(
+  ticketSkus: SkuItem[],
+  pageCount: number
+): SkuItem[] {
+  if (pageCount < 1) return ticketSkus;
+  const out: SkuItem[] = [];
+  for (let i = 0; i < pageCount; i++) {
+    const ticket = ticketSkus[i];
+    out.push(
+      ticket ?? {
+        id: `__pdf_page_${i + 1}__`,
+        name: "",
+        qty: null,
+      }
+    );
+  }
+  return out;
+}
+
+/**
+ * Each SKU is locked to PDF page N (page 1 = first SKU).
  */
 export function sharedPdfPagesForSkus(
   skus: { id: string }[],
   file: { id: string; name: string }
 ): Record<string, SharedPdfPage> {
   const out: Record<string, SharedPdfPage> = {};
-  const lockPages = skus.length >= 2;
   for (let i = 0; i < skus.length; i++) {
     out[skus[i]!.id] = {
       fileId: file.id,
       fileName: file.name,
-      ...(lockPages ? { page: i + 1 } : {}),
+      page: i + 1,
     };
   }
   return out;

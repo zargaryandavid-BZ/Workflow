@@ -189,6 +189,7 @@ export async function GET(
       hasPdf = hasPdf || result.hasPdf;
       fileCount += result.fileCount;
     }
+    hasPdf = hasPdf || designerResult.hasPdf;
 
     return NextResponse.json({
       hasFiles,

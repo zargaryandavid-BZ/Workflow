@@ -217,6 +217,8 @@ export function PdfOcgFromUrl({
       canvas.style.height = `${viewport.height}px`;
       canvas.style.maxWidth = "100%";
       canvas.style.maxHeight = boxH ? "100%" : "none";
+      canvas.style.objectFit = "contain";
+      canvas.style.height = "auto";
       canvas.className = grid
         ? "w-full max-w-full bg-white"
         : "rounded border border-slate-200 bg-white shadow-sm";
@@ -248,20 +250,45 @@ export function PdfOcgFromUrl({
     if (grid) {
       const nPages = pdf.numPages;
       const cellW = Math.max(availW - 24, 40);
-      const cellH = null;
+      const fill = fillHostRef.current || expandedRef.current;
+      const measuredAvailH = Math.max(host.clientHeight - pad, 0);
+      const availH =
+        measuredAvailH >= 40
+          ? measuredAvailH
+          : fill
+            ? Math.max(Math.round(window.innerHeight * 0.55) - pad, 120)
+            : 0;
+      const cardChrome = 16;
+      const gap = 12;
+      const cellH =
+        fill && availH > 0
+          ? Math.max(
+              (availH - nPages * cardChrome - Math.max(0, nPages - 1) * gap) /
+                nPages,
+              64
+            )
+          : null;
       const mounts: { page: number; el: HTMLElement }[] = [];
       for (let i = 1; i <= nPages; i++) {
         const wrap = document.createElement("div");
-        wrap.className =
-          "flex min-w-0 w-full flex-col items-stretch gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm";
+        wrap.className = fill
+          ? "flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch overflow-hidden rounded-lg border border-slate-200 bg-white p-2 shadow-sm"
+          : "flex min-w-0 w-full flex-col items-stretch gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm";
         const canvasHold = document.createElement("div");
-        canvasHold.className =
-          "flex w-full cursor-zoom-in items-center justify-center";
-        canvasHold.addEventListener("click", (e) => {
-          e.stopPropagation();
-          setPageNumber(i);
-          setExpanded(true);
-        });
+        canvasHold.className = fill
+          ? "flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden"
+          : "flex w-full cursor-zoom-in items-center justify-center";
+        if (cellH != null) {
+          canvasHold.style.height = `${Math.floor(cellH)}px`;
+          canvasHold.style.maxHeight = `${Math.floor(cellH)}px`;
+        }
+        if (!fill) {
+          canvasHold.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setPageNumber(i);
+            setExpanded(true);
+          });
+        }
         wrap.appendChild(canvasHold);
         const actions = document.createElement("div");
         actions.dataset.pageActions = String(i);
@@ -745,8 +772,12 @@ export function PdfOcgFromUrl({
               onRoll && rollDirection && !loading
                 ? "hidden"
                 : layout === "grid"
-                ? "flex w-full flex-col items-stretch gap-3"
-                : "flex min-h-full items-start justify-center",
+                ? fillHost || expanded
+                  ? "flex h-full min-h-0 w-full flex-col items-stretch gap-3 overflow-hidden"
+                  : "flex w-full flex-col items-stretch gap-3"
+                : fillHost || expanded
+                  ? "flex h-full min-h-0 items-center justify-center overflow-hidden"
+                  : "flex min-h-full items-start justify-center",
               !onRoll && !expanded && !loading && !fillHost
                 ? layout === "grid"
                   ? "p-0"
@@ -756,7 +787,7 @@ export function PdfOcgFromUrl({
                   : layout === "grid" && loading
                     ? "hidden"
                     : fillHost
-                      ? "h-full min-h-0"
+                      ? "h-full min-h-0 flex-1"
                       : null
             )}
             onClick={() => {

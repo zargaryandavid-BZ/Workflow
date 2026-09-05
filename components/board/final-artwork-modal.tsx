@@ -64,15 +64,32 @@ export function FinalArtworkModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loadSeconds, setLoadSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadSeconds(0);
+      return;
+    }
+    const started = Date.now();
+    setLoadSeconds(0);
+    const id = window.setInterval(() => {
+      setLoadSeconds(Math.floor((Date.now() - started) / 1000));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [loading]);
 
   useEffect(() => {
     let cancelled = false;
+    const ac = new AbortController();
+    const timeout = window.setTimeout(() => ac.abort(), 90_000);
     setLoading(true);
     setError(null);
     void (async () => {
       try {
         const res = await fetchWithAuth(
-          `/api/orders/${orderId}/final-artwork`
+          `/api/orders/${orderId}/final-artwork`,
+          { signal: ac.signal }
         );
         const json = (await res.json().catch(() => ({}))) as {
           items?: FinalPdfItem[];
@@ -103,15 +120,25 @@ export function FinalArtworkModal({
         }
       } catch (err) {
         if (!cancelled) {
+          const aborted =
+            err instanceof Error && err.name === "AbortError";
           setError(
-            err instanceof Error ? err.message : "Could not load artwork."
+            aborted
+              ? "Artwork is taking too long to load. Close and try again."
+              : err instanceof Error
+                ? err.message
+                : "Could not load artwork."
           );
           setLoading(false);
         }
+      } finally {
+        window.clearTimeout(timeout);
       }
     })();
     return () => {
       cancelled = true;
+      ac.abort();
+      window.clearTimeout(timeout);
     };
   }, [orderId]);
 
@@ -141,12 +168,15 @@ export function FinalArtworkModal({
     }
     let cancelled = false;
     let objectUrl: string | null = null;
+    const ac = new AbortController();
+    const timeout = window.setTimeout(() => ac.abort(), 90_000);
     setLoading(true);
     setBlobUrl(null);
     void (async () => {
       try {
         const res = await fetchWithAuth(
-          `/api/orders/${orderId}/final-artwork?fileId=${encodeURIComponent(item.fileId)}`
+          `/api/orders/${orderId}/final-artwork?fileId=${encodeURIComponent(item.fileId)}`,
+          { signal: ac.signal }
         );
         if (!res.ok) {
           const json = (await res.json().catch(() => ({}))) as {
@@ -171,17 +201,26 @@ export function FinalArtworkModal({
         setBlobUrl(url);
       } catch (err) {
         if (!cancelled) {
+          const aborted =
+            err instanceof Error && err.name === "AbortError";
           setBlobUrl(null);
           setError(
-            err instanceof Error ? err.message : "Could not load artwork."
+            aborted
+              ? "Artwork is taking too long to load. Close and try again."
+              : err instanceof Error
+                ? err.message
+                : "Could not load artwork."
           );
         }
       } finally {
+        window.clearTimeout(timeout);
         if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      ac.abort();
+      window.clearTimeout(timeout);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [orderId, item?.fileId]);
@@ -257,7 +296,7 @@ export function FinalArtworkModal({
         ) : null}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
           {loading ? (
-            <PdfLoadingBar />
+            <PdfLoadingBar seconds={loadSeconds} />
           ) : error ? (
             <p className="py-10 text-center text-sm text-red-600">{error}</p>
           ) : item && view && blobUrl ? (

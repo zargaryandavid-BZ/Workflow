@@ -38,7 +38,7 @@ test("sharedPdfPagesForSkus maps SKU 1 to page 1 and SKU 2 to page 2", () => {
   });
 });
 
-test("sharedPdfPagesForSkus leaves a single SKU unlocked so both PDF pages show", () => {
+test("sharedPdfPagesForSkus locks a single SKU to page 1", () => {
   const out = sharedPdfPagesForSkus([{ id: "sku-a" }], {
     id: "file-1",
     name: "job.pdf",
@@ -46,5 +46,6 @@ test("sharedPdfPagesForSkus leaves a single SKU unlocked so both PDF pages show"
   assert.deepEqual(out["sku-a"], {
     fileId: "file-1",
     fileName: "job.pdf",
+    page: 1,
   });
 });

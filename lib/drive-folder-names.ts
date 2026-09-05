@@ -93,6 +93,47 @@ export function compactFinalProdLabel(settingsName: string): string {
   return sanitizeDriveFolderName(trimmed.replace(/\s+/g, "")) || "FinalProd";
 }
 
+/**
+ * True for Workflow / CRM Final production folders:
+ * `…_FinalProd`, `Final for Prod`, `Final_<job…>`, a folder named `Final`.
+ * Does not match names that only contain “final” in the middle (e.g. GIORGIO_Final_Premium…).
+ */
+export function isFinalProdFolderName(name: string): boolean {
+  const n = name.toLowerCase().trim();
+  if (!n) return false;
+  if (/final[\s_-]*prod/.test(n) || n.includes("final production")) return true;
+  if (n === "final" || /^final[\s_-]/.test(n) || /[\s_-]final$/.test(n)) {
+    return true;
+  }
+  return false;
+}
+
+export function folderNameMatchesOrder(name: string, needles: string[]): boolean {
+  const n = name.toLowerCase();
+  return needles.some((needle) => n.includes(needle));
+}
+
+/**
+ * Final production folders among immediate children.
+ * Inside a job folder, any Final* child is used.
+ * Among siblings / a shared root, the folder name must match the order.
+ */
+export function pickFinalProdFolders(
+  children: { id: string; name: string }[],
+  needles: string[],
+  scope: "inside-job" | "shared"
+): { id: string; name: string }[] {
+  const named = children.filter((c) => isFinalProdFolderName(c.name));
+  if (named.length === 0) return [];
+  if (scope === "shared") {
+    if (needles.length === 0) return [];
+    return named.filter((c) => folderNameMatchesOrder(c.name, needles));
+  }
+  if (needles.length === 0) return named;
+  const matched = named.filter((c) => folderNameMatchesOrder(c.name, needles));
+  return matched.length > 0 ? matched : named;
+}
+
 function uniqueNames(preferred: string, aliases: string[]): string[] {
   const seen = new Set<string>([preferred]);
   const extra: string[] = [];

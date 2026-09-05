@@ -46,6 +46,14 @@ function driveListParams(sharedDriveId: string | null) {
     : { supportsAllDrives: true, includeItemsFromAllDrives: true };
 }
 
+/** Children of a known folder id — do not pin corpora to the Shared Drive. */
+function folderChildrenListParams() {
+  return {
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  };
+}
+
 function escapeQuery(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
@@ -125,7 +133,7 @@ export type ProofFile = {
 
 /** List every non-folder file directly inside a folder (Proofs or designer root). */
 export async function listProofFiles(
-  { drive, sharedDriveId }: ProofsDrive,
+  { drive }: ProofsDrive,
   proofsFolderId: string
 ): Promise<ProofFile[]> {
   const out: ProofFile[] = [];
@@ -141,7 +149,7 @@ export async function listProofFiles(
         "nextPageToken, files(id,name,mimeType,thumbnailLink,shortcutDetails(targetId,targetMimeType))",
       pageSize: 200,
       pageToken,
-      ...driveListParams(sharedDriveId),
+      ...folderChildrenListParams(),
     });
     for (const f of res.data.files ?? []) {
       if (f.id && f.name) {
@@ -173,7 +181,7 @@ export async function listProofFilesRecursive(
   const seen = new Set<string>();
 
   async function walk(parentId: string, depth: number) {
-    const { drive, sharedDriveId } = client;
+    const { drive } = client;
     const folders: string[] = [];
     let pageToken: string | undefined;
     do {
@@ -181,10 +189,11 @@ export async function listProofFilesRecursive(
         q: [`'${escapeQuery(parentId)}' in parents`, "trashed=false"].join(
           " and "
         ),
-        fields: "nextPageToken, files(id,name,mimeType,thumbnailLink)",
+        fields:
+          "nextPageToken, files(id,name,mimeType,thumbnailLink,shortcutDetails(targetId,targetMimeType))",
         pageSize: 200,
         pageToken,
-        ...driveListParams(sharedDriveId),
+        ...folderChildrenListParams(),
       });
       for (const f of res.data.files ?? []) {
         if (!f.id || !f.name) continue;
@@ -192,12 +201,18 @@ export async function listProofFilesRecursive(
           if (depth < maxDepth) folders.push(f.id);
           continue;
         }
-        if (seen.has(f.id)) continue;
-        seen.add(f.id);
+        const shortcut = f.mimeType === SHORTCUT_MIME;
+        const targetId = f.shortcutDetails?.targetId;
+        const id = shortcut && targetId ? targetId : f.id;
+        if (seen.has(id)) continue;
+        seen.add(id);
         out.push({
-          id: f.id,
+          id,
           name: f.name,
-          mimeType: f.mimeType ?? "",
+          mimeType:
+            shortcut && f.shortcutDetails?.targetMimeType
+              ? f.shortcutDetails.targetMimeType
+              : (f.mimeType ?? ""),
           thumbnailLink: f.thumbnailLink ?? null,
         });
       }
@@ -214,7 +229,7 @@ export async function listProofFilesRecursive(
 
 /** Immediate child folders of a parent (not trashed). */
 export async function listChildFolders(
-  { drive, sharedDriveId }: ProofsDrive,
+  { drive }: ProofsDrive,
   parentId: string
 ): Promise<{ id: string; name: string }[]> {
   const out: { id: string; name: string }[] = [];
@@ -229,7 +244,7 @@ export async function listChildFolders(
       fields: "nextPageToken, files(id,name)",
       pageSize: 200,
       pageToken,
-      ...driveListParams(sharedDriveId),
+      ...folderChildrenListParams(),
     });
     for (const f of res.data.files ?? []) {
       if (f.id && f.name) out.push({ id: f.id, name: f.name });
@@ -239,10 +254,7 @@ export async function listChildFolders(
   return out;
 }
 
-export function isFinalProdFolderName(name: string): boolean {
-  const n = name.toLowerCase();
-  return /final[\s_-]*prod/.test(n) || n.includes("final production");
-}
+export { isFinalProdFolderName } from "@/lib/drive-folder-names";
 
 export type DriveFileMeta = {
   id: string;

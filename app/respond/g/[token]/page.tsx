@@ -20,7 +20,7 @@ import {
   fetchRespondSkuImages,
 } from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
-import { fetchRespondFinalPdfsBySku } from "@/lib/respond-final-pdf";
+import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import { pdfPageLocksFromFinalPdfs } from "@/lib/shared-pdf-pages";
 import { orderMetaChips } from "@/lib/respond-page";
 import type { OrderSpecs } from "@/lib/types";
@@ -124,26 +124,29 @@ async function buildItem(
   }
 
   const approvalSkus = skusForRespond(specs);
+  let reviewSkus = approvalSkus;
   let finalPdfs: Record<
     string,
-    Awaited<ReturnType<typeof fetchRespondFinalPdfsBySku>>[string]
+    Awaited<ReturnType<typeof fetchRespondArtworkPack>>["bySku"][string]
   > = {};
   try {
-    finalPdfs = await fetchRespondFinalPdfsBySku(
+    const pack = await fetchRespondArtworkPack(
       admin,
       member.tenant_id,
       { id: member.id, title: member.title, specs },
       approvalSkus
     );
+    finalPdfs = pack.bySku;
+    if (Object.keys(pack.bySku).length > 0) reviewSkus = pack.skus;
   } catch {
     // Drive lookup is optional; page still works without PDFs.
   }
-  const skuIds = new Set(approvalSkus.map((s) => s.id));
+  const skuIds = new Set(reviewSkus.map((s) => s.id));
   const payload: ApprovalGroupItemPayload = {
     summary,
     metaChips: orderMetaChips(fields, specs),
     productLabel: product,
-    approvalSkus,
+    approvalSkus: reviewSkus,
     approvalAssets: assets.filter(
       (a) => a.sku_key != null && skuIds.has(a.sku_key)
     ),
@@ -157,7 +160,7 @@ async function buildItem(
         token={summary.notificationToken}
         heading={summary.itemLabel}
         rows={buildRespondOrderRows(member.description, fields, specs)}
-        skus={approvalSkus}
+        skus={reviewSkus}
         assets={assets}
         skuImages={skuImages}
         orderId={member.id}

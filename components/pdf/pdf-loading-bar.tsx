@@ -1,19 +1,30 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 export function PdfLoadingBar({
   seconds,
 }: {
-  /** Elapsed seconds, shown as “Loading... Ns”. */
+  /** Elapsed seconds, shown as “Loading... Ns”. Omit to count locally. */
   seconds?: number;
 }) {
-  const elapsed =
-    typeof seconds === "number" && Number.isFinite(seconds)
-      ? Math.max(0, Math.floor(seconds))
-      : 0;
+  const [tick, setTick] = useState(0);
+  const controlled = seconds !== undefined && Number.isFinite(seconds);
+
+  useEffect(() => {
+    if (controlled) return;
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setTick(Math.floor((Date.now() - started) / 1000));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [controlled]);
+
+  const elapsed = controlled ? Math.max(0, Math.floor(seconds)) : tick;
 
   return (
     <div
-      className="flex w-full flex-col items-center justify-center gap-3 bg-slate-50 px-4 py-10 text-center"
+      className="flex h-full min-h-[12rem] w-full flex-col items-center justify-center gap-3 bg-slate-50 px-4 py-10 text-center"
       role="status"
       aria-live="polite"
     >

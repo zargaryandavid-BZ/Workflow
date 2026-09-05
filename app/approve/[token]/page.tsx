@@ -1,7 +1,7 @@
 import { Printer } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { OrderReview } from "@/components/respond/order-review";
-import { fetchRespondFinalPdfsBySku } from "@/lib/respond-final-pdf";
+import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildRespondOrderRows,
@@ -49,6 +49,7 @@ export default async function ApprovalPage({
       )
     : [];
   const skus = approval ? skusForRespond(approval.order_specs ?? {}) : [];
+  let reviewSkus = skus;
   const [assets, skuImages] = approval
     ? await Promise.all([
         fetchRespondOrderAssets(approval.order_id),
@@ -66,7 +67,7 @@ export default async function ApprovalPage({
         .eq("id", approval.order_id)
         .maybeSingle();
       if (orderRow?.tenant_id) {
-        finalPdfs = await fetchRespondFinalPdfsBySku(
+        const pack = await fetchRespondArtworkPack(
           admin,
           orderRow.tenant_id as string,
           {
@@ -76,6 +77,8 @@ export default async function ApprovalPage({
           },
           skus
         );
+        finalPdfs = pack.bySku;
+        if (Object.keys(pack.bySku).length > 0) reviewSkus = pack.skus;
       }
     } catch {
       // Drive lookup is optional
@@ -117,7 +120,7 @@ export default async function ApprovalPage({
                 <OrderReview
                   token={token}
                   rows={orderRows}
-                  skus={skus}
+                  skus={reviewSkus}
                   assets={assets}
                   skuImages={skuImages}
                   orderId={approval.order_id}

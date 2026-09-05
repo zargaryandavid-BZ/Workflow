@@ -1,10 +1,38 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  alignSkusToPdfPages,
   finalPdfOcgView,
   pickFinalArtworkPdf,
   sharedPdfPagesForSkus,
 } from "./shared-pdf-pages.ts";
+
+describe("alignSkusToPdfPages", () => {
+  it("keeps one SKU when the PDF has one page even if the ticket has three", () => {
+    const aligned = alignSkusToPdfPages(
+      [
+        { id: "a", name: "Front", qty: 1 },
+        { id: "b", name: "Back", qty: 1 },
+        { id: "c", name: "Extra", qty: 1 },
+      ],
+      1
+    );
+    assert.equal(aligned.length, 1);
+    assert.equal(aligned[0]?.id, "a");
+    assert.equal(aligned[0]?.name, "Front");
+  });
+
+  it("adds SKU rows when the PDF has more pages than the ticket", () => {
+    const aligned = alignSkusToPdfPages(
+      [{ id: "a", name: "Cards", qty: 1 }],
+      3
+    );
+    assert.equal(aligned.length, 3);
+    assert.equal(aligned[0]?.id, "a");
+    assert.equal(aligned[1]?.id, "__pdf_page_2__");
+    assert.equal(aligned[2]?.id, "__pdf_page_3__");
+  });
+});
 
 describe("sharedPdfPagesForSkus", () => {
   it("maps SKU index to PDF page and ignores names", () => {
@@ -17,12 +45,12 @@ describe("sharedPdfPagesForSkus", () => {
     assert.equal(map.zargaryan?.fileId, "file");
   });
 
-  it("does not lock a single SKU (all pages are sides of that SKU)", () => {
+  it("locks a single SKU to page 1", () => {
     const map = sharedPdfPagesForSkus([{ id: "a" }], {
       id: "file",
       name: "job.pdf",
     });
-    assert.equal(map.a?.page, undefined);
+    assert.equal(map.a?.page, 1);
     assert.equal(map.a?.fileId, "file");
   });
 });

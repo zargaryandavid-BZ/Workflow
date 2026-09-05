@@ -17,7 +17,7 @@ import {
   fetchRespondSkuImages,
 } from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
-import { fetchRespondFinalPdfsBySku } from "@/lib/respond-final-pdf";
+import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import { pdfPageLocksFromFinalPdfs } from "@/lib/shared-pdf-pages";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
@@ -129,8 +129,9 @@ async function buildRespondParts(
     }
 
     let finalPdfs: RespondPart["finalPdfs"] = {};
+    let partSkus = skusForRespond(specs as Record<string, unknown>);
     try {
-      finalPdfs = await fetchRespondFinalPdfsBySku(
+      const pack = await fetchRespondArtworkPack(
         admin,
         member.tenant_id,
         {
@@ -138,8 +139,10 @@ async function buildRespondParts(
           title: member.title,
           specs: specs as Record<string, unknown>,
         },
-        skusForRespond(specs as Record<string, unknown>)
+        partSkus
       );
+      finalPdfs = pack.bySku;
+      if (Object.keys(pack.bySku).length > 0) partSkus = pack.skus;
     } catch {
       // Drive lookup is optional
     }
@@ -148,7 +151,7 @@ async function buildRespondParts(
       id: member.id,
       title: member.title,
       rows: buildRespondOrderRows(description, fields, specs),
-      skus: skusForRespond(specs),
+      skus: partSkus,
       assets,
       skuImages,
       finalPdfs,
@@ -273,6 +276,7 @@ export default async function RespondPage({
   // becomes its own labeled upload slot so the file is tagged to that SKU;
   // with no SKUs (legacy) we fall back to a single item-titled slot.
   const notifSkus = skusForRespond(notification.order_specs ?? {});
+  let approvalSkus = notifSkus;
   const uploadSlots: UploadSlot[] =
     notification.type === "missing_info"
       ? notifSkus.length > 0
@@ -386,6 +390,7 @@ export default async function RespondPage({
       notification.order_specs ?? {}
     );
     const skus = skusForRespond(notification.order_specs ?? {});
+    let reviewSkus = skus;
     let assets: RespondOrderAsset[] = [];
     let skuImages: Record<string, RespondSkuImage[]> = {};
     // Customer approval: serve the frozen snapshot captured when THIS round was
@@ -419,7 +424,7 @@ export default async function RespondPage({
         .eq("id", notification.order_id)
         .maybeSingle();
       if (orderRow?.tenant_id) {
-        finalPdfs = await fetchRespondFinalPdfsBySku(
+        const pack = await fetchRespondArtworkPack(
           admin,
           orderRow.tenant_id as string,
           {
@@ -429,6 +434,8 @@ export default async function RespondPage({
           },
           skus
         );
+        finalPdfs = pack.bySku;
+        if (Object.keys(pack.bySku).length > 0) reviewSkus = pack.skus;
       }
     } catch {
       // Drive lookup is optional
@@ -437,7 +444,7 @@ export default async function RespondPage({
       <OrderReview
         token={token}
         rows={orderRows}
-        skus={skus}
+        skus={reviewSkus}
         assets={assets}
         skuImages={skuImages}
         orderId={notification.order_id}
@@ -447,6 +454,7 @@ export default async function RespondPage({
     reviewAssets = assets;
     reviewSkuImages = skuImages;
     approvalPdfPageBySku = pdfPageLocksFromFinalPdfs(finalPdfs);
+    approvalSkus = reviewSkus;
   }
 
   if (expired && !alreadyDone) {
@@ -470,13 +478,13 @@ export default async function RespondPage({
     const staffNote = notification.staff_note?.trim() || null;
     const parsedSku = parseSkuApprovalNote(customerNote);
     const skuDecisionById = decisionsBySkuId(
-      notifSkus,
+      approvalSkus,
       parsedSku.entries,
       parsedSku.imageEntries
     );
     const imageByKey = imageDecisionsByKey(
-      notifSkus,
-      imagesBySkuId(notifSkus, reviewAssets, reviewSkuImages),
+      approvalSkus,
+      imagesBySkuId(approvalSkus, reviewAssets, reviewSkuImages),
       parsedSku.imageEntries
     );
     const displayLines = skuApprovalDisplayLines(parsedSku);
@@ -592,14 +600,14 @@ export default async function RespondPage({
         tenantName={notification.tenant_name}
         orderReview={orderReview}
         approvalSkus={
-          notification.type === "customer_approval" ? notifSkus : undefined
+          notification.type === "customer_approval" ? approvalSkus : undefined
         }
         approvalAssets={
           notification.type === "customer_approval"
             ? reviewAssets.filter(
                 (a) =>
                   Boolean(a.sku_key) &&
-                  notifSkus.some((s) => s.id === a.sku_key)
+                  approvalSkus.some((s) => s.id === a.sku_key)
               )
             : undefined
         }
