@@ -128,7 +128,9 @@ async function pageCountForDrivePdf(
 }
 
 /**
- * Map SKU id → Final for Prod PDF page. Page count on the PDF is the SKU list.
+ * Map SKU id → multilayer PDF page for customer / staff artwork.
+ * Final production first; Designer folder if Final has no PDF (default).
+ * Pass `{ includeDesignerFallback: false }` for job-ticket Final-only files.
  */
 export async function fetchRespondArtworkPack(
   supabase: SupabaseClient,
@@ -142,8 +144,8 @@ export async function fetchRespondArtworkPack(
   opts?: { includeDesignerFallback?: boolean }
 ): Promise<RespondArtworkPack> {
   const ticket = skus.length > 0 ? skus : skuListForFinalPdfs(order.title, skus);
-  const staff = opts?.includeDesignerFallback === true;
-  const cacheKey = `${staff ? "staff:" : ""}${tenantId}:${order.id}:${ticket.map((s) => s.id).join(",")}`;
+  const includeDesignerFallback = opts?.includeDesignerFallback ?? true;
+  const cacheKey = `${includeDesignerFallback ? "staff:" : ""}${tenantId}:${order.id}:${ticket.map((s) => s.id).join(",")}`;
   const cached = artworkPackCache.get(cacheKey);
   if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
     return cached.value;
@@ -154,7 +156,7 @@ export async function fetchRespondArtworkPack(
     tenantId,
     order,
     ticket,
-    opts
+    { includeDesignerFallback }
   );
   artworkPackCache.set(cacheKey, { at: Date.now(), value });
   return value;
@@ -349,13 +351,13 @@ export async function isRespondFinalPdfForOrder(
   fileId: string
 ): Promise<boolean> {
   const skuList = skuListForFinalPdfs(order.title, skus);
-  const map = await fetchRespondFinalPdfsBySku(
+  const pack = await fetchRespondArtworkPack(
     supabase,
     tenantId,
     order,
     skuList
   );
-  return Object.values(map).some((p) => p.fileId === fileId);
+  return Object.values(pack.bySku).some((p) => p.fileId === fileId);
 }
 
 /** Unique Final-for-Prod PDFs (one row per Drive file). */

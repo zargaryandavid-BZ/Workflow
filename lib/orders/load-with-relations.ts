@@ -30,14 +30,25 @@ export const BOARD_ORDER_LIST_SELECT = [
 export const BOARD_ORDER_LIST_SELECT_FALLBACK =
   "*, customer:customers(*), tag:tags(id, name, color)";
 
-export function isMissingRelationColumnError(err: {
-  code?: string;
-  message?: string;
-} | null): boolean {
+export function isMissingRelationColumnError(
+  err: { code?: string; message?: string } | null | undefined
+): err is { code?: string; message?: string } {
   if (!err) return false;
   return (
     err.code === "42703" || /column .+ does not exist/i.test(err.message ?? "")
   );
+}
+
+export function asBoardOrders(data: unknown): OrderWithRelations[] {
+  if (!Array.isArray(data)) return [];
+  return data as OrderWithRelations[];
+}
+
+export function asBoardOrder(
+  data: unknown
+): OrderWithRelations | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  return data as OrderWithRelations;
 }
 
 const ORDER_SELECT_BASE = BOARD_ORDER_LIST_SELECT.replace(
@@ -59,7 +70,7 @@ export async function loadOrdersWithRelations(
     .order("position", { ascending: true });
 
   if (!error) {
-    return (data ?? []) as OrderWithRelations[];
+    return asBoardOrders(data);
   }
 
   if (isMissingRelationColumnError(error)) {
@@ -69,7 +80,7 @@ export async function loadOrdersWithRelations(
       .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .order("position", { ascending: true });
-    if (!fallbackError) return (fallback ?? []) as OrderWithRelations[];
+    if (!fallbackError) return asBoardOrders(fallback);
   }
 
   // Only fall back if the join itself failed (e.g., tags table doesn't exist)
@@ -82,7 +93,7 @@ export async function loadOrdersWithRelations(
       .order("position", { ascending: true });
 
     if (fallbackError) return [];
-    return (fallback ?? []) as OrderWithRelations[];
+    return asBoardOrders(fallback);
   }
 
   return [];
@@ -100,7 +111,7 @@ export async function loadRemovedOrdersWithRelations(
     .order("removed_at", { ascending: false });
 
   if (!error) {
-    return (data ?? []) as OrderWithRelations[];
+    return asBoardOrders(data);
   }
 
   if (isMissingRelationColumnError(error)) {
@@ -110,7 +121,7 @@ export async function loadRemovedOrdersWithRelations(
       .eq("tenant_id", tenantId)
       .not("removed_at", "is", null)
       .order("removed_at", { ascending: false });
-    if (!fallbackError) return (fallback ?? []) as OrderWithRelations[];
+    if (!fallbackError) return asBoardOrders(fallback);
   }
 
   if (error.message?.includes("tags")) {
@@ -122,7 +133,7 @@ export async function loadRemovedOrdersWithRelations(
       .order("removed_at", { ascending: false });
 
     if (fallbackError) return [];
-    return (fallback ?? []) as OrderWithRelations[];
+    return asBoardOrders(fallback);
   }
 
   return [];
@@ -142,7 +153,7 @@ export async function loadOrderWithRelations(
     .eq("tenant_id", tenantId)
     .maybeSingle();
 
-  if (!error && data) return data as OrderWithRelations;
+  if (!error && data) return asBoardOrder(data);
 
   if (isMissingRelationColumnError(error)) {
     const { data: fallback } = await supabase
@@ -151,7 +162,7 @@ export async function loadOrderWithRelations(
       .eq("id", orderId)
       .eq("tenant_id", tenantId)
       .maybeSingle();
-    if (fallback) return fallback as OrderWithRelations;
+    if (fallback) return asBoardOrder(fallback);
   }
 
   // Only fall back if the join itself failed (e.g., tags table doesn't exist)
@@ -162,7 +173,7 @@ export async function loadOrderWithRelations(
       .eq("id", orderId)
       .eq("tenant_id", tenantId)
       .maybeSingle();
-    return (fallback as OrderWithRelations | null) ?? null;
+    return asBoardOrder(fallback);
   }
 
   return null;

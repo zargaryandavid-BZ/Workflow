@@ -589,7 +589,9 @@ export function RespondForm({
           </div>
         ) : null}
 
-        <ProofLayerLegend />
+        {Object.keys(approvalPdfPageBySku).length === 0 ? (
+          <ProofLayerLegend />
+        ) : null}
 
         <p className="text-sm font-medium text-slate-700">
           {perSkuApproval

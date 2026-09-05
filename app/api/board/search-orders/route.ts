@@ -21,6 +21,7 @@ import type { BoardColumn, CustomField, OrderWithRelations } from "@/lib/types";
 import {
   BOARD_ORDER_LIST_SELECT,
   BOARD_ORDER_LIST_SELECT_FALLBACK,
+  asBoardOrders,
   isMissingRelationColumnError,
 } from "@/lib/orders/load-with-relations";
 
@@ -230,6 +231,7 @@ export async function GET(req: NextRequest) {
 
     let ordersRes = await query;
     if (
+      ordersRes.error &&
       isMissingRelationColumnError(ordersRes.error) &&
       listSelect !== BOARD_ORDER_LIST_SELECT_FALLBACK
     ) {
@@ -249,7 +251,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const page = (ordersRes.data ?? []) as OrderWithRelations[];
+    const page = asBoardOrders(ordersRes.data);
     allOrders.push(...page);
     if (page.length < FETCH_PAGE) break;
   }

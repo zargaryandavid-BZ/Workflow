@@ -17,6 +17,7 @@ import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
 import {
   BOARD_ORDER_LIST_SELECT,
   BOARD_ORDER_LIST_SELECT_FALLBACK,
+  asBoardOrders,
   isMissingRelationColumnError,
 } from "@/lib/orders/load-with-relations";
 
@@ -173,7 +174,7 @@ export async function GET(req: NextRequest) {
     let { data: rawOrders, error: ordersError, count } =
       await runColumnQuery(BOARD_ORDER_LIST_SELECT);
 
-    if (isMissingRelationColumnError(ordersError)) {
+    if (ordersError && isMissingRelationColumnError(ordersError)) {
       console.warn(
         "[column-orders] list select missing a column; retrying broader select:",
         ordersError.message
@@ -192,7 +193,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const pageOrders = (rawOrders ?? []) as OrderWithRelations[];
+    const pageOrders = asBoardOrders(rawOrders);
     const total = count ?? 0;
     const hasMore = total > (page + 1) * PAGE_SIZE;
     const orders = groupSiblings
@@ -313,7 +314,7 @@ async function withSameColumnGroupSiblings(
     return pageOrders;
   }
 
-  const extras = (data as OrderWithRelations[]).filter(
+  const extras = asBoardOrders(data).filter(
     (order) => !existingIds.has(order.id)
   );
   if (extras.length === 0) return pageOrders;
