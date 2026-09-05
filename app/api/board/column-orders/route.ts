@@ -14,7 +14,11 @@ import type { OrderWithRelations } from "@/lib/types";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { rankDesignerQueue } from "@/lib/designer-queue-rank";
 import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
-import { BOARD_ORDER_LIST_SELECT } from "@/lib/orders/load-with-relations";
+import {
+  BOARD_ORDER_LIST_SELECT,
+  BOARD_ORDER_LIST_SELECT_FALLBACK,
+  isMissingRelationColumnError,
+} from "@/lib/orders/load-with-relations";
 
 export const PAGE_SIZE = 25;
 
@@ -147,26 +151,37 @@ export async function GET(req: NextRequest) {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    let query = supabase
-      .from("orders")
-      .select(BOARD_ORDER_LIST_SELECT, {
-        count: "exact",
-      })
-      .eq("tenant_id", tenantId)
-      .eq("column_id", columnId)
-      .is("removed_at", null);
+    const runColumnQuery = (select: string) => {
+      let query = supabase
+        .from("orders")
+        .select(select, {
+          count: "exact",
+        })
+        .eq("tenant_id", tenantId)
+        .eq("column_id", columnId)
+        .is("removed_at", null);
 
-    // Designers only see cards assigned to them.
-    if (ctx.role === "designer") {
-      query = query.eq("specs->>designer_id", ctx.userId);
+      // Designers only see cards assigned to them.
+      if (ctx.role === "designer") {
+        query = query.eq("specs->>designer_id", ctx.userId);
+      }
+
+      query = applySortToOrdersQuery(query, sort);
+      return query.range(from, to);
+    };
+
+    let { data: rawOrders, error: ordersError, count } =
+      await runColumnQuery(BOARD_ORDER_LIST_SELECT);
+
+    if (isMissingRelationColumnError(ordersError)) {
+      console.warn(
+        "[column-orders] list select missing a column; retrying broader select:",
+        ordersError.message
+      );
+      ({ data: rawOrders, error: ordersError, count } = await runColumnQuery(
+        BOARD_ORDER_LIST_SELECT_FALLBACK
+      ));
     }
-
-    query = applySortToOrdersQuery(query, sort);
-
-    const { data: rawOrders, error: ordersError, count } = await query.range(
-      from,
-      to
-    );
 
     if (ordersError) {
       console.error("[column-orders] Failed to fetch orders:", ordersError);
@@ -272,19 +287,25 @@ async function withSameColumnGroupSiblings(
   if (orParts.length === 0) return pageOrders;
 
   const existingIds = new Set(pageOrders.map((o) => o.id));
-  let query = supabase
-    .from("orders")
-    .select(BOARD_ORDER_LIST_SELECT)
-    .eq("tenant_id", tenantId)
-    .eq("column_id", columnId)
-    .is("removed_at", null)
-    .or(orParts.join(","))
-    .limit(300);
-  if (designerId) {
-    query = query.eq("specs->>designer_id", designerId);
-  }
+  const runSiblingQuery = (select: string) => {
+    let query = supabase
+      .from("orders")
+      .select(select)
+      .eq("tenant_id", tenantId)
+      .eq("column_id", columnId)
+      .is("removed_at", null)
+      .or(orParts.join(","))
+      .limit(300);
+    if (designerId) {
+      query = query.eq("specs->>designer_id", designerId);
+    }
+    return query;
+  };
 
-  const { data, error } = await query;
+  let { data, error } = await runSiblingQuery(BOARD_ORDER_LIST_SELECT);
+  if (isMissingRelationColumnError(error)) {
+    ({ data, error } = await runSiblingQuery(BOARD_ORDER_LIST_SELECT_FALLBACK));
+  }
   if (error || !data) {
     if (error) {
       console.warn("[column-orders] group sibling fetch skipped:", error.message);

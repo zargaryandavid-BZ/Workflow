@@ -18,7 +18,11 @@ import type { BoardShippingSign } from "@/lib/board-shipping";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type { BoardThumbnail } from "@/lib/card-image";
 import type { BoardColumn, CustomField, OrderWithRelations } from "@/lib/types";
-import { BOARD_ORDER_LIST_SELECT } from "@/lib/orders/load-with-relations";
+import {
+  BOARD_ORDER_LIST_SELECT,
+  BOARD_ORDER_LIST_SELECT_FALLBACK,
+  isMissingRelationColumnError,
+} from "@/lib/orders/load-with-relations";
 
 export interface SearchOrdersResponse {
   orders: OrderWithRelations[];
@@ -160,11 +164,12 @@ export async function GET(req: NextRequest) {
     ];
   }
 
+  let listSelect = BOARD_ORDER_LIST_SELECT;
   const allOrders: OrderWithRelations[] = [];
   for (let from = 0; ; from += FETCH_PAGE) {
     let query = supabase
       .from("orders")
-      .select(BOARD_ORDER_LIST_SELECT)
+      .select(listSelect)
       .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .order("position", { ascending: true })
@@ -223,7 +228,19 @@ export async function GET(req: NextRequest) {
       query = query.or(orParts.join(","));
     }
 
-    const ordersRes = await query;
+    let ordersRes = await query;
+    if (
+      isMissingRelationColumnError(ordersRes.error) &&
+      listSelect !== BOARD_ORDER_LIST_SELECT_FALLBACK
+    ) {
+      console.warn(
+        "[search-orders] list select missing a column; retrying broader select:",
+        ordersRes.error.message
+      );
+      listSelect = BOARD_ORDER_LIST_SELECT_FALLBACK;
+      from -= FETCH_PAGE;
+      continue;
+    }
     if (ordersRes.error) {
       console.error("[search-orders]", ordersRes.error);
       return NextResponse.json(

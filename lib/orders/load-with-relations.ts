@@ -1,15 +1,44 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderWithRelations } from "@/lib/types";
 
-/** Card list: skip crm_snapshot / notes blobs. Detail views use GET /api/orders/[id]. */
-export const BOARD_ORDER_LIST_SELECT = `
-  id, tenant_id, column_id, customer_id, tag_id, title, description,
-  specs, priority, due_date, position, created_by, removed_at, removed_by,
-  created_at, updated_at, last_moved_at, webhook_source, crm_order_id,
-  locked_by, locked_by_name, lock_reason, locked_at, integration_mode,
-  customer:customers(id, name, email, phone, company, preferred_channel),
-  tag:tags(id, name, color)
-`.replace(/\s+/g, " ").trim();
+/** Card list: skip crm_snapshot / notes blobs. Detail views use GET /api/orders/[id].
+ *  Do not list lock/connected columns here — they are missing on some live DBs
+ *  (`select *` only returns columns that exist; an explicit name 500s). */
+export const BOARD_ORDER_LIST_SELECT = [
+  "id",
+  "tenant_id",
+  "column_id",
+  "customer_id",
+  "tag_id",
+  "title",
+  "description",
+  "specs",
+  "priority",
+  "due_date",
+  "position",
+  "created_by",
+  "removed_at",
+  "created_at",
+  "updated_at",
+  "last_moved_at",
+  "webhook_source",
+  "customer:customers(id, name, email, phone, company)",
+  "tag:tags(id, name, color)",
+].join(", ");
+
+/** If a listed column is missing on a live DB, PostgREST returns 42703. */
+export const BOARD_ORDER_LIST_SELECT_FALLBACK =
+  "*, customer:customers(*), tag:tags(id, name, color)";
+
+export function isMissingRelationColumnError(err: {
+  code?: string;
+  message?: string;
+} | null): boolean {
+  if (!err) return false;
+  return (
+    err.code === "42703" || /column .+ does not exist/i.test(err.message ?? "")
+  );
+}
 
 const ORDER_SELECT_BASE = BOARD_ORDER_LIST_SELECT.replace(
   ", tag:tags(id, name, color)",
@@ -31,6 +60,16 @@ export async function loadOrdersWithRelations(
 
   if (!error) {
     return (data ?? []) as OrderWithRelations[];
+  }
+
+  if (isMissingRelationColumnError(error)) {
+    const { data: fallback, error: fallbackError } = await supabase
+      .from("orders")
+      .select(BOARD_ORDER_LIST_SELECT_FALLBACK)
+      .eq("tenant_id", tenantId)
+      .is("removed_at", null)
+      .order("position", { ascending: true });
+    if (!fallbackError) return (fallback ?? []) as OrderWithRelations[];
   }
 
   // Only fall back if the join itself failed (e.g., tags table doesn't exist)
@@ -64,6 +103,16 @@ export async function loadRemovedOrdersWithRelations(
     return (data ?? []) as OrderWithRelations[];
   }
 
+  if (isMissingRelationColumnError(error)) {
+    const { data: fallback, error: fallbackError } = await supabase
+      .from("orders")
+      .select(BOARD_ORDER_LIST_SELECT_FALLBACK)
+      .eq("tenant_id", tenantId)
+      .not("removed_at", "is", null)
+      .order("removed_at", { ascending: false });
+    if (!fallbackError) return (fallback ?? []) as OrderWithRelations[];
+  }
+
   if (error.message?.includes("tags")) {
     const { data: fallback, error: fallbackError } = await supabase
       .from("orders")
@@ -94,6 +143,16 @@ export async function loadOrderWithRelations(
     .maybeSingle();
 
   if (!error && data) return data as OrderWithRelations;
+
+  if (isMissingRelationColumnError(error)) {
+    const { data: fallback } = await supabase
+      .from("orders")
+      .select(BOARD_ORDER_LIST_SELECT_FALLBACK)
+      .eq("id", orderId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (fallback) return fallback as OrderWithRelations;
+  }
 
   // Only fall back if the join itself failed (e.g., tags table doesn't exist)
   if (error?.message?.includes("tags")) {

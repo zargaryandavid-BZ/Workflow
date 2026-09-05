@@ -1448,7 +1448,7 @@ Main production board: drag-and-drop, filters, modals, notification popups, Real
 - Subscribes to `orders` Realtime → `router.refresh()`.
 - Opens `CardDetailModal` when a card is clicked.
 
-Cards load per column via `GET /api/board/column-orders` (`BOARD_ORDER_LIST_SELECT` — no `crm_snapshot`). Indexes in `0097_orders_list_perf_indexes.sql` cover tenant + `created_at` / column sorts. Do not CDN-cache that route (auth + Realtime).
+Cards load per column via `GET /api/board/column-orders` (`BOARD_ORDER_LIST_SELECT` — no `crm_snapshot` or lock columns that may be missing on older DBs). Indexes in `0097_orders_list_perf_indexes.sql` cover tenant + `created_at` / column sorts. Do not CDN-cache that route (auth + Realtime).
 
 ---
 

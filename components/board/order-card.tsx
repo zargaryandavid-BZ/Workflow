@@ -42,10 +42,8 @@ import {
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import { DIE_ALERT_CLASS, DIE_BOARD_STATUS_CLASS, type DieAlert, type DieBoardStatus } from "@/lib/die-request";
-import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
 import {
   UNASSIGNED_DESIGNER_CARD_CLASS,
-  ARTWORK_FIELD_NAME,
   PRIORITY_STYLES,
 } from "@/lib/constants";
 import type { ColumnKind } from "@/lib/types";
@@ -326,17 +324,10 @@ export function OrderCard({
     ? String(fieldValues[specialEffectsField.id] ?? "").trim()
     : "";
 
-  const artworkField = findOrderFormField(customFields, ARTWORK_FIELD_NAME);
-  const artworkUrl = artworkField
-    ? String(fieldValues[artworkField.id] ?? "").trim()
-    : "";
-  const designerFolderUrl = driveFolderUrlFromOrderSpecs(order.specs ?? {}) ?? "";
-  const driveFolderHint = artworkUrl || designerFolderUrl;
   const { hasFiles: folderHasFiles, hasPdf: hasFinalPdf } =
     useGdriveFolderStatus(order.id);
-  const hasPictureFile = Boolean(thumbnails?.length);
-  const showArtworkButton =
-    hasPictureFile || folderHasFiles || hasFinalPdf || Boolean(driveFolderHint);
+  /** Only when Final/Artwork Drive actually has files — not just a folder URL. */
+  const showArtworkButton = folderHasFiles || hasFinalPdf;
 
   const designerName =
     designerNameProp?.trim() ||
@@ -849,21 +840,6 @@ export function OrderCard({
                 unoptimized
               />
             </button>
-            {showArtworkButton ? (
-              <button
-                type="button"
-                className="absolute bottom-0.5 left-0.5 z-10 rounded bg-black/70 p-0.5 text-white hover:bg-black/85"
-                title="Open artwork PDF pages and layers"
-                aria-label={`View artwork pages and layers for ${order.title}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setArtworkOpen(true);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                <Layers className="h-3.5 w-3.5" aria-hidden />
-              </button>
-            ) : null}
             {thumbnails.length > 1 ? (
               <span className="pointer-events-none absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-px text-[9px] font-semibold tabular-nums text-white">
                 {thumbnails.length}
