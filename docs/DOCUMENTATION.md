@@ -1602,7 +1602,7 @@ Public server page for `/respond/[token]`. Loads notification via `get_notificat
 
 ### `OrderReview` — `components/respond/order-review.tsx`
 
-Read-only order summary for customers: meta chips, SKU table, artwork. A Final-for-Prod PDF is always shown when present (no **PDF multilayer** toggle). The photo **Artwork** gallery is hidden in that case — the customer only reviews PDF sides. Each PDF page is its own full-width card, stacked vertically and scaled to the column width, with its own approve/reject. Asset URLs still go through `/api/notifications/asset`.
+Read-only order summary for customers: meta chips, SKU table, artwork. A Final-for-Prod PDF is always shown when present. **PDF page N is SKU N** (names are ignored). The photo **Artwork** gallery is hidden when a Final PDF exists. Each SKU shows that page (layers/OCG still apply). Asset URLs still go through `/api/notifications/asset`. Shared helper: `sharedPdfPagesForSkus` / `finalPdfOcgView` (`lib/shared-pdf-pages.ts`), also used by the board **Artwork** popup (`FinalArtworkModal`).
 
 ---
 

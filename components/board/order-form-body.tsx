@@ -34,7 +34,7 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { getFieldLinksCached } from "@/lib/field-links-cache";
-import { refreshGdriveFolderHasFiles, useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
+import { refreshGdriveFolderHasFiles, useGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
 import {
   categoryForProductFromLinks,
   clearTargetsForSourceChange,
@@ -549,18 +549,22 @@ export function OrderFormBody({
   const artworkValue = artworkField
     ? String(fieldValues[artworkField.id] ?? "").trim()
     : "";
-  const finalProdHasFiles = useGdriveFolderHasFiles(orderId, artworkValue);
+  const driveFolderHint = artworkValue || designTask.trim();
+  const driveStatus = useGdriveFolderStatus(orderId, driveFolderHint);
+  const finalProdHasFiles = driveStatus.hasFiles;
+  const designerFolderUrl = driveStatus.designerUrl || designTask.trim();
+  const finalFolderUrl = driveStatus.finalUrl || artworkValue;
 
   const [fieldLinks, setFieldLinks] = useState<FieldLink[]>([]);
 
   // When opening a card, re-check Final production so Copy Link / order # go green.
   useEffect(() => {
-    if (!orderId || !/^https?:\/\//i.test(artworkValue)) return;
+    if (!orderId || !/^https?:\/\//i.test(driveFolderHint)) return;
     const timer = window.setTimeout(() => {
       void refreshGdriveFolderHasFiles(orderId);
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [orderId, artworkValue]);
+  }, [orderId, driveFolderHint]);
 
   useEffect(() => {
     let cancelled = false;
@@ -714,9 +718,10 @@ export function OrderFormBody({
   }
 
   async function copyArtworkLink() {
-    if (!artworkValue) return;
+    const url = finalFolderUrl;
+    if (!url) return;
     try {
-      await navigator.clipboard.writeText(artworkValue);
+      await navigator.clipboard.writeText(url);
       setArtworkCopied(true);
       setTimeout(() => setArtworkCopied(false), 1500);
     } catch {
@@ -1285,9 +1290,9 @@ export function OrderFormBody({
           <div className="min-w-0">
             <Label htmlFor={`${idPrefix}-design-task`}>
               <span className="inline-flex items-center gap-1">
-                {designTask && /^https?:\/\//i.test(designTask.trim()) ? (
+                {designerFolderUrl && /^https?:\/\//i.test(designerFolderUrl) ? (
                   <a
-                    href={designTask.trim()}
+                    href={designerFolderUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[var(--primary)] underline hover:opacity-80"
@@ -1471,7 +1476,7 @@ export function OrderFormBody({
             <div>
               <Label htmlFor={`${idPrefix}-artwork`}>
                 {(() => {
-                  const url = String(fieldValues[artworkField.id] ?? "").trim();
+                  const url = finalFolderUrl;
                   const label = orderFormFieldLabel(artworkField.name);
                   return (
                     <span className="inline-flex items-center gap-1">
@@ -1508,7 +1513,7 @@ export function OrderFormBody({
                 <button
                   type="button"
                   onClick={copyArtworkLink}
-                  disabled={!artworkValue}
+                  disabled={!finalFolderUrl}
                   className={cn(
                     "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                     finalProdHasFiles

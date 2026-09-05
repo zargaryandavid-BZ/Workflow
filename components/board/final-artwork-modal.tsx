@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { Layers, X } from "lucide-react";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
+import { finalPdfOcgView } from "@/lib/shared-pdf-pages";
 import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
 
 const PdfOcgFromUrl = dynamic(
@@ -17,7 +18,13 @@ const PdfOcgFromUrl = dynamic(
   }
 );
 
-type FinalPdfFile = { fileId: string; fileName: string };
+type FinalPdfItem = {
+  skuId: string;
+  skuLabel: string;
+  fileId: string;
+  fileName: string;
+  page: number | null;
+};
 
 function suppressClickThrough() {
   const suppress = (ev: Event) => {
@@ -41,7 +48,7 @@ export function FinalArtworkModal({
   orderTitle: string;
   onClose: () => void;
 }) {
-  const [files, setFiles] = useState<FinalPdfFile[]>([]);
+  const [items, setItems] = useState<FinalPdfItem[]>([]);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,15 +63,25 @@ export function FinalArtworkModal({
           `/api/orders/${orderId}/final-artwork`
         );
         const json = (await res.json().catch(() => ({}))) as {
-          files?: FinalPdfFile[];
+          items?: FinalPdfItem[];
+          files?: { fileId: string; fileName: string }[];
           error?: string;
         };
         if (!res.ok) {
           throw new Error(json.error?.trim() || "Could not load artwork.");
         }
         if (cancelled) return;
-        const list = Array.isArray(json.files) ? json.files : [];
-        setFiles(list);
+        const list =
+          Array.isArray(json.items) && json.items.length > 0
+            ? json.items
+            : (json.files ?? []).map((f, i) => ({
+                skuId: f.fileId,
+                skuLabel: f.fileName || `File ${i + 1}`,
+                fileId: f.fileId,
+                fileName: f.fileName,
+                page: null,
+              }));
+        setItems(list);
         setActive(0);
         if (list.length === 0) {
           setError("No PDF in the Final production folder.");
@@ -100,7 +117,8 @@ export function FinalArtworkModal({
     };
   }, [onClose]);
 
-  const file = files[active];
+  const item = items[active];
+  const view = item ? finalPdfOcgView(item) : null;
 
   function close() {
     suppressClickThrough();
@@ -132,7 +150,7 @@ export function FinalArtworkModal({
               {orderTitle}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              Pages and layers from Final production
+              Same as Waiting Approval: PDF page 1 = SKU 1, page 2 = SKU 2
             </p>
           </div>
           <button
@@ -144,11 +162,11 @@ export function FinalArtworkModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        {files.length > 1 ? (
+        {items.length > 1 ? (
           <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-slate-100 px-4 py-2">
-            {files.map((item, i) => (
+            {items.map((row, i) => (
               <button
-                key={item.fileId}
+                key={`${row.skuId}-${row.fileId}-${row.page ?? "all"}`}
                 type="button"
                 onClick={() => setActive(i)}
                 className={cn(
@@ -157,9 +175,14 @@ export function FinalArtworkModal({
                     ? "bg-blue-600 text-white"
                     : "bg-slate-100 text-slate-700"
                 )}
-                title={item.fileName}
+                title={
+                  row.page != null
+                    ? `${row.skuLabel} · page ${row.page}`
+                    : row.fileName
+                }
               >
-                {item.fileName}
+                {row.skuLabel}
+                {row.page != null ? ` · p.${row.page}` : ""}
               </button>
             ))}
           </div>
@@ -169,11 +192,12 @@ export function FinalArtworkModal({
             <PdfLoadingBar />
           ) : error ? (
             <p className="py-10 text-center text-sm text-red-600">{error}</p>
-          ) : file ? (
+          ) : item && view ? (
             <PdfOcgFromUrl
-              src={`/api/orders/${orderId}/final-artwork?fileId=${encodeURIComponent(file.fileId)}`}
-              fileName={file.fileName}
-              layout="single"
+              src={`/api/orders/${orderId}/final-artwork?fileId=${encodeURIComponent(item.fileId)}`}
+              fileName={item.fileName}
+              layout={view.layout}
+              page={view.page}
               fillHost
             />
           ) : null}

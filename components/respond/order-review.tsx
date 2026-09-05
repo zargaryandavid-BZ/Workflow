@@ -23,6 +23,7 @@ import {
   skuLabel,
 } from "@/lib/sku-approval";
 import { isRollDirectionFieldName, rollDirectionFromRespondRows } from "@/lib/roll-direction";
+import { finalPdfOcgView } from "@/lib/shared-pdf-pages";
 import { useSkuDecision } from "@/components/respond/sku-decision-context";
 import { OnRollPreview } from "@/components/respond/on-roll-preview";
 import { RollDirectionThumb } from "@/components/board/roll-direction-select";
@@ -299,6 +300,7 @@ function SkuArtworkBlock({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
   const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
+  const pdfView = finalPdf ? finalPdfOcgView(finalPdf) : null;
   const perImage =
     approvalImageSlotCount(skuArt.length, pdfPages, finalPdf?.page) >= 2;
 
@@ -311,8 +313,8 @@ function SkuArtworkBlock({
           <PdfOcgFromUrl
             src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
             fileName={finalPdf.fileName}
-            page={finalPdf.page}
-            layout={finalPdf.page != null ? "single" : "grid"}
+            page={pdfView.page}
+            layout={pdfView.layout}
             rollDirection={rollDirection}
             onPageCount={(n) =>
               skuUi.setPdfPageCount?.(

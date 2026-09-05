@@ -6,46 +6,24 @@ import { ensureGdriveSettings } from "@/lib/gdrive-settings";
 import { parseDriveIdFromUrl } from "@/lib/google-drive";
 import {
   downloadDriveFileBytes,
-  isFinalProdFolderName,
-  listChildFolders,
   listProofFiles,
   proofsDriveClient,
   type ProofFile,
   type ProofsDrive,
 } from "@/lib/gdrive-proofs";
+import { type SkuItem } from "@/lib/skus";
 import {
-  driveOrderKeyFromTitle,
-  shortDriveOrderCode,
-} from "@/lib/drive-folder-names";
-import { matchProofsToSkus, sizeToken } from "@/lib/proof-sku-match";
-import { normalizeSkus, type SkuItem } from "@/lib/skus";
-import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
-import {
+  pickFinalArtworkPdf,
   sharedPdfPagesForSkus,
-  uniqueSharedPdfFile,
 } from "@/lib/shared-pdf-pages";
 import type { RespondFinalPdf } from "@/lib/respond-order";
+import {
+  orderFolderNeedles,
+  resolveOrderDriveFolders,
+  seedDriveIdsFromOrder,
+} from "@/lib/resolve-order-drive-folders";
 
 export type { RespondFinalPdf };
-
-function extraNamesBySkuId(
-  skus: SkuItem[],
-  specs: Record<string, unknown>,
-  orderTitle: string
-): Record<string, string[]> {
-  const extras: string[] = [];
-  const itemTitle =
-    typeof specs.webhook_item_title === "string"
-      ? specs.webhook_item_title.trim()
-      : "";
-  if (itemTitle) extras.push(itemTitle);
-  const title = orderTitle.trim();
-  if (title) extras.push(title);
-  if (extras.length === 0) return {};
-  const out: Record<string, string[]> = {};
-  for (const sku of skus) out[sku.id] = extras;
-  return out;
-}
 
 function isPdfFile(f: ProofFile): boolean {
   const mime = (f.mimeType || "").toLowerCase();
@@ -79,70 +57,20 @@ async function artworkFolderId(
   return url ? parseDriveIdFromUrl(url) : null;
 }
 
-function orderFolderNeedles(order: {
-  title: string;
-  specs: Record<string, unknown>;
-}): string[] {
-  const out: string[] = [];
-  const push = (raw: string) => {
-    const t = raw.trim();
-    if (t.length >= 3) out.push(t.toLowerCase());
-  };
-  const title = String(order.title ?? "").trim();
-  if (title) {
-    push(title);
-    const key = driveOrderKeyFromTitle(title);
-    push(key);
-    push(shortDriveOrderCode(key));
-  }
-  const webhook =
-    typeof order.specs.webhook_order_number === "string"
-      ? order.specs.webhook_order_number.trim()
-      : "";
-  if (webhook) push(webhook);
-  const itemTitle =
-    typeof order.specs.webhook_item_title === "string"
-      ? order.specs.webhook_item_title.trim()
-      : "";
-  if (itemTitle) push(itemTitle);
-  return [...new Set(out)];
-}
-
-function folderNameMatchesOrder(name: string, needles: string[]): boolean {
-  const n = name.toLowerCase();
-  return needles.some((needle) => n.includes(needle));
-}
-
 async function collectFinalFolderIds(
   client: ProofsDrive,
   seedIds: string[],
   extraRootId: string | null,
+  excludeParentIds: string[],
   orderNeedles: string[]
 ): Promise<string[]> {
-  const ids = new Set<string>();
-  for (const seed of seedIds) {
-    if (!seed) continue;
-    const children = await listChildFolders(client, seed);
-    const finals = children.filter((child) => isFinalProdFolderName(child.name));
-    if (finals.length > 0) {
-      for (const child of finals) ids.add(child.id);
-    } else {
-      // Artwork / designer URL may already be the Final folder (no nested Final).
-      ids.add(seed);
-    }
-  }
-  if (extraRootId && orderNeedles.length > 0) {
-    const children = await listChildFolders(client, extraRootId);
-    for (const child of children) {
-      if (
-        isFinalProdFolderName(child.name) &&
-        folderNameMatchesOrder(child.name, orderNeedles)
-      ) {
-        ids.add(child.id);
-      }
-    }
-  }
-  return [...ids];
+  const resolved = await resolveOrderDriveFolders(client, {
+    seedIds,
+    extraRootId,
+    excludeParentIds,
+    orderNeedles,
+  });
+  return resolved.finalIds;
 }
 
 const FINAL_PDF_CACHE_MS = 60_000;
@@ -152,8 +80,8 @@ const finalPdfCache = new Map<
 >();
 
 /**
- * Map SKU id → multilayer PDF in the order's Final for Prod Drive folder.
- * Uses the same filename↔SKU matching as proof sync. Empty on any Drive miss.
+ * Map SKU id → Final for Prod PDF page. Page 1 = first SKU, page 2 = second SKU.
+ * File names are ignored.
  */
 export async function fetchRespondFinalPdfsBySku(
   supabase: SupabaseClient,
@@ -209,10 +137,11 @@ async function fetchRespondFinalPdfsBySkuUncached(
   }
 
   const specs = order.specs ?? {};
-  const designerUrl = driveFolderUrlFromOrderSpecs(specs);
-  const designerId = designerUrl ? parseDriveIdFromUrl(designerUrl) : null;
   const artId = await artworkFolderId(supabase, tenantId, order.id);
-  const seeds = [...new Set([designerId, artId].filter(Boolean) as string[])];
+  const seeds = seedDriveIdsFromOrder({
+    specs,
+    artworkUrl: artId ? `https://drive.google.com/drive/folders/${artId}` : null,
+  });
   if (seeds.length === 0) return {};
 
   let folderIds: string[] = [];
@@ -221,6 +150,10 @@ async function fetchRespondFinalPdfsBySkuUncached(
       client,
       seeds,
       settings.final_root_folder_id?.trim() || null,
+      [
+        settings.root_folder_id?.trim() || "",
+        settings.shared_drive_id?.trim() || "",
+      ].filter(Boolean),
       orderFolderNeedles(order)
     );
   } catch {
@@ -244,29 +177,9 @@ async function fetchRespondFinalPdfsBySkuUncached(
   }
   if (files.length === 0) return {};
 
-  const cardSize =
-    sizeToken(String(order.title ?? "")) || sizeToken(skus[0]?.name ?? "");
-  const { matches } = matchProofsToSkus(
-    files,
-    skus.length ? skus : normalizeSkus(specs.skus),
-    cardSize,
-    extraNamesBySkuId(skus, specs, String(order.title ?? "")),
-    { attachLeftovers: true }
-  );
-
-  const out: Record<string, RespondFinalPdf> = {};
-  for (const m of matches) {
-    if (out[m.skuId]) continue;
-    out[m.skuId] = { fileId: m.file.id, fileName: m.file.name };
-  }
-
-  // One production PDF (or the same file listed from two folders) is split
-  // across SKUs: SKU 1 → page 1, SKU 2 → page 2.
-  const shared = uniqueSharedPdfFile(files);
-  if (shared) {
-    return sharedPdfPagesForSkus(skus, shared);
-  }
-  return out;
+  const file = pickFinalArtworkPdf(files);
+  if (!file) return {};
+  return sharedPdfPagesForSkus(skus, file);
 }
 
 export function skuListForFinalPdfs(

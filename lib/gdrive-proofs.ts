@@ -232,7 +232,8 @@ export async function listChildFolders(
 }
 
 export function isFinalProdFolderName(name: string): boolean {
-  return /final/i.test(name);
+  const n = name.toLowerCase();
+  return /final[\s_-]*prod/.test(n) || n.includes("final production");
 }
 
 export type DriveFileMeta = {
@@ -257,6 +258,31 @@ export async function getDriveFileMeta(
     name: meta.data.name || "file",
     mimeType: meta.data.mimeType || "application/octet-stream",
     size: Number(meta.data.size || 0),
+  };
+}
+
+export type DriveFolderMeta = {
+  id: string;
+  name: string;
+  parents: string[];
+  webViewLink: string;
+};
+
+export async function getDriveFolderMeta(
+  { drive }: ProofsDrive,
+  fileId: string
+): Promise<DriveFolderMeta | null> {
+  const meta = await drive.files.get({
+    fileId,
+    fields: "id,name,parents,webViewLink",
+    supportsAllDrives: true,
+  });
+  if (!meta.data.id) return null;
+  return {
+    id: meta.data.id,
+    name: meta.data.name || "folder",
+    parents: (meta.data.parents ?? []).filter(Boolean) as string[],
+    webViewLink: meta.data.webViewLink ?? "",
   };
 }
 

@@ -28,18 +28,41 @@ export function pdfPageLocksFromFinalPdfs(
   return out;
 }
 
+/**
+ * Final production PDF for the card. Ignore file names: page 1 = SKU 1, page 2 = SKU 2.
+ * If several PDFs are listed, one unique file wins; otherwise the first file is used.
+ */
+export function pickFinalArtworkPdf(
+  files: { id: string; name: string }[]
+): { id: string; name: string } | null {
+  if (files.length === 0) return null;
+  return uniqueSharedPdfFile(files) ?? files[0]!;
+}
+
+/**
+ * SKU index → PDF page. Names are ignored.
+ */
 export function sharedPdfPagesForSkus(
   skus: { id: string }[],
   file: { id: string; name: string }
 ): Record<string, SharedPdfPage> {
   const out: Record<string, SharedPdfPage> = {};
-  const split = skus.length >= 2;
   for (let i = 0; i < skus.length; i++) {
     out[skus[i]!.id] = {
       fileId: file.id,
       fileName: file.name,
-      ...(split ? { page: i + 1 } : {}),
+      page: i + 1,
     };
   }
   return out;
+}
+
+/** Locked PDF page for that SKU (page N of the file). */
+export function finalPdfOcgView(pdf: {
+  page?: number | null;
+}): { layout: "single" | "grid"; page?: number } {
+  if (pdf.page != null) {
+    return { layout: "single", page: pdf.page };
+  }
+  return { layout: "grid" };
 }

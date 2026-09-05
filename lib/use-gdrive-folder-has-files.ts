@@ -2,9 +2,19 @@
 
 import { useEffect, useState } from "react";
 
-type FolderDriveStatus = { hasFiles: boolean; hasPdf: boolean };
+type FolderDriveStatus = {
+  hasFiles: boolean;
+  hasPdf: boolean;
+  designerUrl: string | null;
+  finalUrl: string | null;
+};
 
-const EMPTY: FolderDriveStatus = { hasFiles: false, hasPdf: false };
+const EMPTY: FolderDriveStatus = {
+  hasFiles: false,
+  hasPdf: false,
+  designerUrl: null,
+  finalUrl: null,
+};
 
 /** Avoid re-hitting Drive for the same order while browsing the board. */
 const statusCache = new Map<string, FolderDriveStatus>();
@@ -69,10 +79,14 @@ async function fetchStatus(orderId: string): Promise<FolderDriveStatus> {
   const json = (await res.json()) as {
     hasFiles?: boolean;
     hasPdf?: boolean;
+    designerUrl?: string | null;
+    finalUrl?: string | null;
   };
   return {
     hasFiles: Boolean(json.hasFiles),
     hasPdf: Boolean(json.hasPdf),
+    designerUrl: json.designerUrl?.trim() || null,
+    finalUrl: json.finalUrl?.trim() || null,
   };
 }
 

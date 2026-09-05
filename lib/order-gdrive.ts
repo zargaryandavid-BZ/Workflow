@@ -8,6 +8,12 @@ import {
   isGdriveConfigured,
 } from "@/lib/gdrive-settings";
 import { ensureOrderDriveFolders, isLiveDriveFolder } from "@/lib/google-drive";
+import { proofsDriveClient } from "@/lib/gdrive-proofs";
+import {
+  orderFolderNeedles,
+  resolveOrderDriveFolders,
+  seedDriveIdsFromOrder,
+} from "@/lib/resolve-order-drive-folders";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
 
 type Client = SupabaseClient;
@@ -178,6 +184,20 @@ async function upsertDesignTaskLink(
   }
 }
 
+export async function applyResolvedDriveFolderUrls(
+  client: Client,
+  tenantId: string,
+  orderId: string,
+  resolved: { designerUrl: string | null; finalUrl: string | null }
+): Promise<void> {
+  if (resolved.finalUrl) {
+    await upsertArtworkLink(client, tenantId, [orderId], resolved.finalUrl);
+  }
+  if (resolved.designerUrl) {
+    await upsertDesignTaskLink(client, [orderId], resolved.designerUrl);
+  }
+}
+
 export async function linkExistingDriveFolderToOrder(
   client: Client,
   tenantId: string,
@@ -186,8 +206,50 @@ export async function linkExistingDriveFolderToOrder(
 ): Promise<void> {
   const url = folderUrl.trim();
   if (!url) return;
-  await upsertArtworkLink(client, tenantId, [orderId], url);
+  // CRM Files URL is the designer/job folder — never copy it onto Artwork.
   await upsertDesignTaskLink(client, [orderId], url);
+
+  const { data: order } = await client
+    .from("orders")
+    .select("title, specs")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order) return;
+
+  let settings;
+  try {
+    settings = await ensureGdriveSettings(client, tenantId);
+  } catch {
+    return;
+  }
+  if (!settings.enabled || !isGdriveConfigured(settings)) return;
+
+  try {
+    const proofs = proofsDriveClient(settings);
+    const specs =
+      order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
+        ? (order.specs as Record<string, unknown>)
+        : {};
+    const resolved = await resolveOrderDriveFolders(proofs, {
+      seedIds: seedDriveIdsFromOrder({ specs, artworkUrl: url }),
+      extraRootId: settings.final_root_folder_id?.trim() || null,
+      excludeParentIds: [
+        settings.root_folder_id?.trim() || "",
+        settings.shared_drive_id?.trim() || "",
+      ].filter(Boolean),
+      orderNeedles: orderFolderNeedles({
+        title: String(order.title ?? ""),
+        specs,
+      }),
+    });
+    await applyResolvedDriveFolderUrls(client, tenantId, orderId, {
+      designerUrl: resolved.designerUrl || url,
+      finalUrl: resolved.finalUrl,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[gdrive] resolve Final folder failed", message);
+  }
 }
 
 /**

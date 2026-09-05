@@ -6,15 +6,18 @@ import {
   ensureGdriveSettings,
   isGdriveConfigured,
 } from "@/lib/gdrive-settings";
+import { folderHasFiles, parseDriveIdFromUrl } from "@/lib/google-drive";
+import { proofsDriveClient } from "@/lib/gdrive-proofs";
 import {
-  folderHasFiles,
-  parseDriveIdFromUrl,
-} from "@/lib/google-drive";
+  orderFolderNeedles,
+  resolveOrderDriveFolders,
+  seedDriveIdsFromOrder,
+} from "@/lib/resolve-order-drive-folders";
+import { applyResolvedDriveFolderUrls } from "@/lib/order-gdrive";
 
 /**
- * GET — whether the order's Artwork / Final production Drive folder has files
- * (directly, or one level down in a child folder such as Final production).
- * Uses the URL saved on the Artwork (GDrive link) custom field.
+ * GET — whether the order's Final production Drive folder has files / a PDF.
+ * Resolves Final by folder name (never treats the designer folder as Final).
  */
 export async function GET(
   _request: Request,
@@ -30,7 +33,7 @@ export async function GET(
 
   const { data: order, error: orderError } = await supabase
     .from("orders")
-    .select("id")
+    .select("id, title, specs")
     .eq("id", orderId)
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
@@ -79,58 +82,102 @@ export async function GET(
     .maybeSingle();
 
   const fieldId = (field as { id: string } | null)?.id;
-  if (!fieldId) {
-    return NextResponse.json({
-      hasFiles: false,
-      fileCount: 0,
-      hasPdf: false,
-      configured: true,
-      error: "Artwork field not found",
-    });
+  let artworkUrl = "";
+  if (fieldId) {
+    const { data: valueRow } = await supabase
+      .from("custom_field_values")
+      .select("value")
+      .eq("order_id", orderId)
+      .eq("custom_field_id", fieldId)
+      .maybeSingle();
+    artworkUrl =
+      typeof (valueRow as { value?: unknown } | null)?.value === "string"
+        ? String((valueRow as { value: string }).value).trim()
+        : "";
   }
 
-  const { data: valueRow } = await supabase
-    .from("custom_field_values")
-    .select("value")
-    .eq("order_id", orderId)
-    .eq("custom_field_id", fieldId)
-    .maybeSingle();
+  const specs =
+    order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
+      ? (order.specs as Record<string, unknown>)
+      : {};
+  const seedIds = seedDriveIdsFromOrder({
+    specs,
+    artworkUrl: artworkUrl || null,
+  });
 
-  const url =
-    typeof (valueRow as { value?: unknown } | null)?.value === "string"
-      ? String((valueRow as { value: string }).value).trim()
-      : "";
-
-  if (!url) {
+  if (seedIds.length === 0) {
     return NextResponse.json({
       hasFiles: false,
       fileCount: 0,
       hasPdf: false,
       configured: true,
       folderId: null,
-    });
-  }
-
-  const folderId = parseDriveIdFromUrl(url);
-  if (!folderId) {
-    return NextResponse.json({
-      hasFiles: false,
-      fileCount: 0,
-      hasPdf: false,
-      configured: true,
-      folderId: null,
-      error: "Could not parse Drive folder id from Artwork URL",
     });
   }
 
   try {
-    const result = await folderHasFiles(settings, folderId);
+    const proofs = proofsDriveClient(settings);
+    const resolved = await resolveOrderDriveFolders(proofs, {
+      seedIds,
+      extraRootId: settings.final_root_folder_id?.trim() || null,
+      excludeParentIds: [
+        settings.root_folder_id?.trim() || "",
+        settings.shared_drive_id?.trim() || "",
+      ].filter(Boolean),
+      orderNeedles: orderFolderNeedles({
+        title: String(order.title ?? ""),
+        specs,
+      }),
+    });
+
+    const storedDesigner =
+      typeof specs.design_task === "string" ? specs.design_task.trim() : "";
+    const storedDesignerId = storedDesigner
+      ? parseDriveIdFromUrl(storedDesigner)
+      : null;
+    const storedArtId = artworkUrl ? parseDriveIdFromUrl(artworkUrl) : null;
+    const resolvedFinalId = resolved.finalUrl
+      ? parseDriveIdFromUrl(resolved.finalUrl)
+      : null;
+    const resolvedDesignerId = resolved.designerUrl
+      ? parseDriveIdFromUrl(resolved.designerUrl)
+      : null;
+    const needPersistFinal = Boolean(resolvedFinalId) && resolvedFinalId !== storedArtId;
+    const needPersistDesigner =
+      Boolean(resolvedDesignerId) &&
+      resolved.designerFromSeed &&
+      resolvedDesignerId !== storedDesignerId;
+    if (needPersistFinal || needPersistDesigner) {
+      await applyResolvedDriveFolderUrls(
+        supabase,
+        ctx.tenant.id,
+        orderId,
+        {
+          designerUrl: needPersistDesigner ? resolved.designerUrl : null,
+          finalUrl: needPersistFinal ? resolved.finalUrl : null,
+        }
+      );
+    }
+
+    let hasFiles = false;
+    let fileCount = 0;
+    let hasPdf = false;
+    for (const folderId of resolved.finalIds) {
+      const result = await folderHasFiles(settings, folderId);
+      hasFiles = hasFiles || result.hasFiles;
+      hasPdf = hasPdf || result.hasPdf;
+      fileCount += result.fileCount;
+      if (hasPdf && hasFiles) break;
+    }
+
     return NextResponse.json({
-      hasFiles: result.hasFiles,
-      fileCount: result.fileCount,
-      hasPdf: result.hasPdf,
+      hasFiles,
+      fileCount,
+      hasPdf,
       configured: true,
-      folderId,
+      folderId: resolved.finalIds[0] ?? null,
+      designerUrl: resolved.designerUrl,
+      finalUrl: resolved.finalUrl,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -141,7 +188,7 @@ export async function GET(
         fileCount: 0,
         hasPdf: false,
         configured: true,
-        folderId,
+        folderId: seedIds[0] ?? null,
         error: message,
       },
       { status: 200 }

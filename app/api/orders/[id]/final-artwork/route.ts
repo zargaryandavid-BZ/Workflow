@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { skusForRespond } from "@/lib/respond-order";
+import { skuLabel } from "@/lib/sku-approval";
 
 /** Staff preview of Final-for-Prod PDFs. Same size cap as customer /respond. */
 const FINAL_PDF_PREVIEW_MAX_BYTES = 200 * 1024 * 1024;
@@ -47,23 +48,39 @@ export async function GET(
   const skus = skusForRespond(specs);
 
   const {
-    listUniqueFinalPdfs,
+    fetchRespondFinalPdfsBySku,
+    skuListForFinalPdfs,
     isRespondFinalPdfForOrder,
   } = await import("@/lib/respond-final-pdf");
 
   if (!fileId) {
-    const files = await listUniqueFinalPdfs(
+    const skuList = skuListForFinalPdfs(orderRef.title, skus);
+    const bySku = await fetchRespondFinalPdfsBySku(
       supabase,
       ctx.tenant.id,
       orderRef,
-      skus
+      skuList
     );
-    return NextResponse.json({
-      files: files.map((f) => ({
-        fileId: f.fileId,
-        fileName: f.fileName,
-      })),
+    const items = skuList.flatMap((sku, i) => {
+      const pdf = bySku[sku.id];
+      if (!pdf) return [];
+      return [
+        {
+          skuId: sku.id,
+          skuLabel: skuLabel(i + 1, sku.name),
+          fileId: pdf.fileId,
+          fileName: pdf.fileName,
+          page: pdf.page ?? null,
+        },
+      ];
     });
+    const seen = new Set<string>();
+    const files = items.filter((row) => {
+      if (seen.has(row.fileId)) return false;
+      seen.add(row.fileId);
+      return true;
+    }).map((row) => ({ fileId: row.fileId, fileName: row.fileName }));
+    return NextResponse.json({ items, files });
   }
 
   const allowed = await isRespondFinalPdfForOrder(
