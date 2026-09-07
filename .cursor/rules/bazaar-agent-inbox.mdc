@@ -7,8 +7,6 @@ alwaysApply: true
 
 Bazaar cannot message this chat. It writes `docs/bazaar-inbox.md`.
 
-Project hooks in `.cursor/hooks.json` watch that file: `sessionStart` injects Open items; `stop` auto-follows up when new Open items appear.
-
 ## Every turn that mentions Bazaar, portal, osk_, handshake, or disconnect
 
 1. Read `docs/bazaar-inbox.md` and `docs/workflow-bazaar-connect.md`.

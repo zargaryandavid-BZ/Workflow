@@ -589,21 +589,4 @@ No GET status. No `/api/v1/` prefix. Make sure middleware does **not** require l
 - `app/api/admin/bazaar-connect/disconnect/route.ts`
 - Settings: optional per-tenant `bazaar_connect_secret` + “Connected via Bazaar Admin” (no Connect button — Q4)
 
-### Workflow → Admin disconnect (Settings delete)
-
-POST **before** dropping `osk_…`. No `order_number`. Bazaar will not call our `/disconnect` (no loop). After this POST the old `osk_…` is dead.
-
-`POST {bazaar_api_url}/api/v1/production/status`
-
-```
-Content-Type: application/json
-x-webhook-secret: osk_…
-```
-
-```json
-{ "event": "integration_disconnected" }
-```
-
-Then remove only that `brokerId` from `bazaar_portal_inbound_keys`.
-
-Admin → Workflow: `POST /api/admin/bazaar-connect/disconnect` `{ intent, brokerId }`. Remove that `brokerId` only. Do not delete the webhook row or `wh_live_…`. Partner row drops without a refresh.
+Do not touch: `lib/bazaar-portal-sync.ts` notify path, `app/api/webhook/orders/route.ts`.

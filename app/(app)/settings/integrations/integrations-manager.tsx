@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Eye, EyeOff, Loader2, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Check, Copy, Loader2, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { formatDateTime } from "@/lib/utils";
@@ -94,13 +94,6 @@ function remotePartnerFingerprint(config: WebhookConfig): string {
     url: config.bazaar_api_url ?? "",
     on: config.bazaar_portal_sync_enabled === true,
   });
-}
-
-function maskHandshakeSecret(value: string): string {
-  const v = value.trim();
-  if (!v) return "";
-  const keep = Math.min(8, v.length);
-  return `${v.slice(0, keep)}${"*".repeat(Math.max(8, v.length - keep))}`;
 }
 
 function prettyJson(value: unknown): string {
@@ -1119,13 +1112,6 @@ function BazaarPortalSyncSection({
   setMessage: (s: string | null) => void;
 }) {
   const [apiUrl, setApiUrl] = useState(config?.bazaar_api_url ?? "");
-  const [connectSecret, setConnectSecret] = useState(
-    config?.bazaar_connect_secret ?? ""
-  );
-  const [editingSecret, setEditingSecret] = useState(
-    !config?.bazaar_connect_secret
-  );
-  const [revealingSecret, setRevealingSecret] = useState(false);
   const [enabled, setEnabled] = useState(
     config?.bazaar_portal_sync_enabled === true
   );
@@ -1138,7 +1124,6 @@ function BazaarPortalSyncSection({
     }>
   >(() => rowsFromConfig(config));
   const [saving, setSaving] = useState(false);
-  const [savingSecret, setSavingSecret] = useState(false);
   const [testing, setTesting] = useState(false);
   const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(
     null
@@ -1155,7 +1140,7 @@ function BazaarPortalSyncSection({
 
   const lastRemoteFp = useRef("");
   const applyRemoteConfig = useCallback(
-    (next: WebhookConfig, opts?: { skipSecret?: boolean }) => {
+    (next: WebhookConfig) => {
       const fp = remotePartnerFingerprint(next);
       if (fp === lastRemoteFp.current) return;
       lastRemoteFp.current = fp;
@@ -1163,12 +1148,8 @@ function BazaarPortalSyncSection({
       setRows((local) => mergePartnerRows(local, next));
       setEnabled(next.bazaar_portal_sync_enabled === true);
       setApiUrl(next.bazaar_api_url ?? "");
-      if (!opts?.skipSecret && !editingSecret) {
-        setConnectSecret(next.bazaar_connect_secret ?? "");
-        setEditingSecret(!next.bazaar_connect_secret);
-      }
     },
-    [editingSecret, setConfig]
+    [setConfig]
   );
 
   useEffect(() => {
@@ -1180,7 +1161,7 @@ function BazaarPortalSyncSection({
     async function pull() {
       const res = await fetch("/api/webhook-config");
       const json = (await res.json()) as { config?: WebhookConfig };
-      if (!cancelled && json.config) applyRemoteConfig(json.config, { skipSecret: true });
+      if (!cancelled && json.config) applyRemoteConfig(json.config);
     }
 
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -1260,7 +1241,6 @@ function BazaarPortalSyncSection({
           bazaar_api_url: apiUrl.trim() || null,
           bazaar_portal_inbound_keys: keyMap,
           bazaar_portal_sync_enabled: enabled,
-          bazaar_connect_secret: connectSecret.trim() || null,
         }),
       });
       const json = (await res.json()) as {
@@ -1277,9 +1257,6 @@ function BazaarPortalSyncSection({
         lastRemoteFp.current = remotePartnerFingerprint(json.config);
         setConfig(json.config);
         setRows(rowsFromConfig(json.config));
-        setConnectSecret(json.config.bazaar_connect_secret ?? "");
-        setEditingSecret(!json.config.bazaar_connect_secret);
-        setRevealingSecret(false);
         setEnabled(json.config.bazaar_portal_sync_enabled === true);
         setApiUrl(json.config.bazaar_api_url ?? "");
       }
@@ -1291,51 +1268,6 @@ function BazaarPortalSyncSection({
       setLocalStatus({ kind: "err", text });
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function saveHandshakeSecret() {
-    if (!config) return;
-    setSavingSecret(true);
-    setError(null);
-    setMessage(null);
-    setLocalStatus(null);
-    try {
-      const res = await fetch("/api/webhook-config", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bazaar_connect_secret: connectSecret.trim() || null,
-        }),
-      });
-      const json = (await res.json()) as {
-        config?: WebhookConfig;
-        error?: string;
-      };
-      if (!res.ok) {
-        const text = json.error ?? "Failed to save handshake secret";
-        setError(text);
-        setLocalStatus({ kind: "err", text });
-        return;
-      }
-      if (json.config) {
-        lastRemoteFp.current = remotePartnerFingerprint(json.config);
-        setConfig(json.config);
-        setConnectSecret(json.config.bazaar_connect_secret ?? "");
-        setEditingSecret(!json.config.bazaar_connect_secret);
-        setRevealingSecret(false);
-        setRows(rowsFromConfig(json.config));
-        setEnabled(json.config.bazaar_portal_sync_enabled === true);
-        setApiUrl(json.config.bazaar_api_url ?? "");
-      }
-      setMessage("Handshake secret saved");
-      setLocalStatus({ kind: "ok", text: "Handshake secret saved" });
-    } catch (err) {
-      const text = err instanceof Error ? err.message : "Save failed";
-      setError(text);
-      setLocalStatus({ kind: "err", text });
-    } finally {
-      setSavingSecret(false);
     }
   }
 
@@ -1461,9 +1393,9 @@ function BazaarPortalSyncSection({
             Bazaar portal status sync
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            One handshake secret for this Bazaar portal. Admin generates it;
-            paste and save it here. After Connect, partners appear in the list
-            below the same way as paste.
+            After Admin one-click Connect, partners appear below the same way
+            as paste. Handshake auth uses <code className="text-[11px]">BAZAAR_CONNECT_SECRET</code>{" "}
+            on the server (Vercel env).
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -1516,99 +1448,6 @@ function BazaarPortalSyncSection({
               ? "Turn off only after all partners are disconnected"
               : "Click to toggle · Save to apply"}
           </p>
-        </div>
-      </div>
-
-      <div className="mb-4 space-y-2 rounded-lg border border-slate-200 bg-white p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          One-click handshake secret
-        </p>
-        <p className="text-xs text-slate-500">
-          For this Bazaar portal (all partners). Generate the secret in Admin,
-          paste it here, and Save. Not <code className="text-[11px]">wh_live_</code>{" "}
-          or <code className="text-[11px]">osk_</code>.
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            value={
-              editingSecret || revealingSecret
-                ? connectSecret
-                : maskHandshakeSecret(connectSecret)
-            }
-            onChange={(e) => setConnectSecret(e.target.value)}
-            placeholder="Paste secret from Bazaar Admin"
-            readOnly={!editingSecret}
-            autoComplete="off"
-            className={`min-w-[16rem] flex-1 rounded-md border px-3 py-2 font-mono text-sm ${
-              editingSecret
-                ? "border-slate-200 bg-white text-slate-800"
-                : "cursor-default border-slate-100 bg-slate-50 text-slate-600"
-            }`}
-          />
-          {editingSecret ? (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                onClick={saveHandshakeSecret}
-                disabled={savingSecret || saving}
-              >
-                {savingSecret ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Saving…
-                  </span>
-                ) : (
-                  "Save"
-                )}
-              </Button>
-              {config?.bazaar_connect_secret ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={savingSecret}
-                  onClick={() => {
-                    setConnectSecret(config.bazaar_connect_secret ?? "");
-                    setEditingSecret(false);
-                    setRevealingSecret(false);
-                  }}
-                >
-                  Cancel
-                </Button>
-              ) : null}
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setEditingSecret(true);
-                  setRevealingSecret(false);
-                }}
-              >
-                Edit
-              </Button>
-              {connectSecret ? (
-                <button
-                  type="button"
-                  onClick={() => setRevealingSecret((v) => !v)}
-                  className="rounded-md border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                  aria-label={revealingSecret ? "Hide secret" : "Show secret"}
-                  title={revealingSecret ? "Hide secret" : "Show secret"}
-                >
-                  {revealingSecret ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </button>
-              ) : null}
-            </>
-          )}
         </div>
       </div>
 
