@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ensureWebhookConfig } from "@/lib/webhook-config";
-import { serializeBazaarPortalInboundKeys, parseBazaarPortalInboundKeys } from "@/lib/bazaar-portal-keys";
+import {
+  serializeBazaarPortalInboundKeys,
+  parseBazaarPortalInboundKeys,
+  parseConnectModeValue,
+} from "@/lib/bazaar-portal-keys";
 import { notifyBazaarPortalDisconnect } from "@/lib/bazaar-portal-sync";
 import { normalizeWebhookSourceStyles } from "@/lib/webhook-source-styles";
 
@@ -21,10 +25,7 @@ function parseOskKeyMap(raw: unknown): Record<string, unknown> | null {
         brokerId: String(r.brokerId ?? r.id ?? ""),
         osk: String(r.osk ?? r.key ?? ""),
         label: String(r.label ?? ""),
-        mode:
-          r.mode === "send_receive" || r.mode === "receive_only"
-            ? r.mode
-            : undefined,
+        mode: parseConnectModeValue(r.mode),
       }))
     : raw && typeof raw === "object"
       ? Object.entries(raw as Record<string, unknown>).map(([brokerId, v]) => {
@@ -37,10 +38,7 @@ function parseOskKeyMap(raw: unknown): Record<string, unknown> | null {
               brokerId,
               osk: String(o.osk ?? o.key ?? ""),
               label: String(o.label ?? ""),
-              mode:
-                o.mode === "send_receive" || o.mode === "receive_only"
-                  ? o.mode
-                  : undefined,
+              mode: parseConnectModeValue(o.mode),
             };
           }
           return { brokerId, osk: "", label: "" };

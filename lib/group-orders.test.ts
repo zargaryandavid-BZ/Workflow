@@ -36,12 +36,12 @@ test("groupOrdersForColumn does not list the same part twice", () => {
     id: "1",
     title: "15102-1",
     specs: { webhook_order_number: "ORD-2026-15102" },
-  } as OrderWithRelations;
+  } as unknown as OrderWithRelations;
   const two = {
     id: "2",
     title: "15102-2",
     specs: { webhook_order_number: "ORD-2026-15102" },
-  } as OrderWithRelations;
+  } as unknown as OrderWithRelations;
   const entries = groupOrdersForColumn([one, two, two]);
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.kind, "group");

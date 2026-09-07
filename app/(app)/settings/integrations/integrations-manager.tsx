@@ -1173,6 +1173,7 @@ function BazaarPortalSyncSection({
 
   useEffect(() => {
     if (!config?.id || !config.tenant_id) return;
+    const configId = config.id;
     const supabase = createClient();
     let cancelled = false;
 
@@ -1190,14 +1191,14 @@ function BazaarPortalSyncSection({
       if (token) await supabase.realtime.setAuth(token);
       if (cancelled) return;
       channel = supabase
-        .channel(`webhook-config-${config.id}`)
+        .channel(`webhook-config-${configId}`)
         .on(
           "postgres_changes",
           {
             event: "*",
             schema: "public",
             table: "webhook_configs",
-            filter: `id=eq.${config.id}`,
+            filter: `id=eq.${configId}`,
           },
           () => {
             void pull();
