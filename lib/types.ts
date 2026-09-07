@@ -425,8 +425,15 @@ export interface WebhookConfig {
   bazaar_portal_inbound_keys?: Record<string, string> | null;
   /** Optional display names for Partner keys rows (same brokerIds). */
   bazaar_portal_partner_labels?: Record<string, string> | null;
+  /** send_receive = both, receive_only = outbound status only. */
+  bazaar_portal_partner_modes?: Record<
+    string,
+    "send_receive" | "receive_only"
+  > | null;
   /** When false (default), never POST portal status to Bazaar. */
   bazaar_portal_sync_enabled?: boolean;
+  /** Optional Admin one-click handshake secret (not wh_live_ / osk_). */
+  bazaar_connect_secret?: string | null;
   created_at: string;
   last_used_at: string | null;
 }

@@ -3,6 +3,7 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { ensureWebhookConfig } from "@/lib/webhook-config";
 import { serializeBazaarPortalInboundKeys, parseBazaarPortalInboundKeys } from "@/lib/bazaar-portal-keys";
+import { notifyBazaarPortalDisconnect } from "@/lib/bazaar-portal-sync";
 import { normalizeWebhookSourceStyles } from "@/lib/webhook-source-styles";
 
 function parseOskKeyMap(raw: unknown): Record<string, unknown> | null {
@@ -20,6 +21,10 @@ function parseOskKeyMap(raw: unknown): Record<string, unknown> | null {
         brokerId: String(r.brokerId ?? r.id ?? ""),
         osk: String(r.osk ?? r.key ?? ""),
         label: String(r.label ?? ""),
+        mode:
+          r.mode === "send_receive" || r.mode === "receive_only"
+            ? r.mode
+            : undefined,
       }))
     : raw && typeof raw === "object"
       ? Object.entries(raw as Record<string, unknown>).map(([brokerId, v]) => {
@@ -32,6 +37,10 @@ function parseOskKeyMap(raw: unknown): Record<string, unknown> | null {
               brokerId,
               osk: String(o.osk ?? o.key ?? ""),
               label: String(o.label ?? ""),
+              mode:
+                o.mode === "send_receive" || o.mode === "receive_only"
+                  ? o.mode
+                  : undefined,
             };
           }
           return { brokerId, osk: "", label: "" };
@@ -94,12 +103,14 @@ export async function PATCH(request: Request) {
     bazaar_api_url?: unknown;
     bazaar_portal_inbound_keys?: unknown;
     bazaar_portal_sync_enabled?: unknown;
+    bazaar_connect_secret?: unknown;
   };
 
   const hasBazaarUpdate =
     body.bazaar_api_url !== undefined ||
     body.bazaar_portal_inbound_keys !== undefined ||
-    body.bazaar_portal_sync_enabled !== undefined;
+    body.bazaar_portal_sync_enabled !== undefined ||
+    body.bazaar_connect_secret !== undefined;
 
   const isExclusionUpdate =
     body.enabled === undefined &&
@@ -182,6 +193,20 @@ export async function PATCH(request: Request) {
     updates.bazaar_portal_sync_enabled = body.bazaar_portal_sync_enabled;
   }
 
+  if (body.bazaar_connect_secret !== undefined) {
+    if (body.bazaar_connect_secret === null || body.bazaar_connect_secret === "") {
+      updates.bazaar_connect_secret = null;
+    } else if (typeof body.bazaar_connect_secret === "string") {
+      const secret = body.bazaar_connect_secret.trim();
+      updates.bazaar_connect_secret = secret || null;
+    } else {
+      return NextResponse.json(
+        { error: "bazaar_connect_secret must be a string or null" },
+        { status: 400 }
+      );
+    }
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json(
       { error: "No valid fields to update" },
@@ -192,12 +217,64 @@ export async function PATCH(request: Request) {
   const supabase = await createClient();
   await ensureWebhookConfig(supabase, ctx.tenant.id);
 
-  const { data, error } = await supabase
+  if (updates.bazaar_portal_inbound_keys !== undefined) {
+    const { data: existing } = await supabase
+      .from("webhook_configs")
+      .select("bazaar_portal_inbound_keys, bazaar_api_url")
+      .eq("tenant_id", ctx.tenant.id)
+      .maybeSingle();
+    const prev = parseBazaarPortalInboundKeys(
+      existing?.bazaar_portal_inbound_keys
+    );
+    const next = parseBazaarPortalInboundKeys(
+      updates.bazaar_portal_inbound_keys
+    );
+    const apiUrl =
+      typeof updates.bazaar_api_url === "string"
+        ? updates.bazaar_api_url
+        : typeof existing?.bazaar_api_url === "string"
+          ? existing.bazaar_api_url
+          : "";
+    for (const [id, osk] of Object.entries(prev.keys)) {
+      if (next.keys[id] || !osk.startsWith("osk_") || !apiUrl.trim()) continue;
+      await notifyBazaarPortalDisconnect({
+        bazaarApiUrl: apiUrl,
+        oskKey: osk,
+      });
+    }
+  }
+
+  let { data, error } = await supabase
     .from("webhook_configs")
     .update(updates)
     .eq("tenant_id", ctx.tenant.id)
     .select("*")
     .single();
+
+  if (
+    error &&
+    updates.bazaar_connect_secret !== undefined &&
+    /bazaar_connect_secret/i.test(error.message)
+  ) {
+    delete updates.bazaar_connect_secret;
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Apply migration 0098_bazaar_connect_secret.sql to save the handshake secret. Paste sync still works.",
+        },
+        { status: 400 }
+      );
+    }
+    const retry = await supabase
+      .from("webhook_configs")
+      .update(updates)
+      .eq("tenant_id", ctx.tenant.id)
+      .select("*")
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
@@ -210,7 +287,13 @@ export async function PATCH(request: Request) {
       ...row,
       bazaar_portal_inbound_keys: parsedKeys.keys,
       bazaar_portal_partner_labels: parsedKeys.labels,
+      bazaar_portal_partner_modes: parsedKeys.modes,
       bazaar_portal_sync_enabled: row.bazaar_portal_sync_enabled === true,
+      bazaar_connect_secret:
+        typeof row.bazaar_connect_secret === "string" &&
+        row.bazaar_connect_secret.trim()
+          ? row.bazaar_connect_secret
+          : null,
     },
   });
 }

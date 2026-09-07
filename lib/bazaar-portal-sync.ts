@@ -197,6 +197,45 @@ export async function notifyBazaarPortalStatus(args: {
   }
 }
 
+/**
+ * Tell Admin this partner was disconnected from Workflow Settings.
+ * POST before dropping osk_ — after a successful call that key is dead.
+ * Bazaar will not call our /disconnect (no loop).
+ */
+export async function notifyBazaarPortalDisconnect(args: {
+  bazaarApiUrl: string;
+  oskKey: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const base = args.bazaarApiUrl.trim().replace(/\/$/, "");
+  const key = args.oskKey.trim();
+  if (!base || !key.startsWith("osk_")) {
+    return { ok: false, message: "Missing Bazaar API URL or osk_" };
+  }
+
+  try {
+    const res = await fetch(`${base}/api/v1/production/status`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-webhook-secret": key,
+      },
+      body: JSON.stringify({
+        event: "integration_disconnected",
+      }),
+    });
+    await res.text().catch(() => "");
+    if (res.status === 401) {
+      return { ok: false, message: "Admin rejected the disconnect notice (401)" };
+    }
+    return { ok: true, message: "Admin notified" };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Could not reach Admin",
+    };
+  }
+}
+
 /** Auth check for Settings → Test connection (does not require a real order). */
 export async function testBazaarPortalSyncConnection(args: {
   bazaarApiUrl: string;

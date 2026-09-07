@@ -27,6 +27,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/die/",
   "/api/webhooks/",
   "/api/auth/",
+  "/api/admin/bazaar-connect/",
 ];
 
 function isPublicApi(path: string) {

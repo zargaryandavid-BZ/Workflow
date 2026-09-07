@@ -26,7 +26,13 @@ function asWebhookConfig(row: Record<string, unknown>): WebhookConfig {
       typeof row.bazaar_api_url === "string" ? row.bazaar_api_url : null,
     bazaar_portal_inbound_keys: parsedKeys.keys,
     bazaar_portal_partner_labels: parsedKeys.labels,
+    bazaar_portal_partner_modes: parsedKeys.modes,
     bazaar_portal_sync_enabled: row.bazaar_portal_sync_enabled === true,
+    bazaar_connect_secret:
+      typeof row.bazaar_connect_secret === "string" &&
+      row.bazaar_connect_secret.trim()
+        ? row.bazaar_connect_secret
+        : null,
   };
 }
 
