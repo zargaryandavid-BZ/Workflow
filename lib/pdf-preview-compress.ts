@@ -9,10 +9,41 @@ import {
   PDFRawStream,
   decodePDFRawStream,
 } from "pdf-lib";
-import sharp from "sharp";
 
 const MAX_EDGE = 1600;
 const JPEG_QUALITY = 72;
+
+type SharpFn = (input: Buffer) => {
+  rotate: () => {
+    resize: (opts: {
+      width: number;
+      height: number;
+      fit: "inside";
+      withoutEnlargement: boolean;
+    }) => {
+      jpeg: (opts: { quality: number; mozjpeg: boolean }) => {
+        toBuffer: () => Promise<Buffer>;
+      };
+    };
+  };
+};
+
+let sharpLoader: Promise<SharpFn | null> | null = null;
+
+function loadSharp(): Promise<SharpFn | null> {
+  if (!sharpLoader) {
+    sharpLoader = import("sharp")
+      .then((mod) => (mod.default ?? mod) as SharpFn)
+      .catch((err: unknown) => {
+        console.error(
+          "[pdf-preview] sharp unavailable; serving original PDF",
+          err instanceof Error ? err.message : err
+        );
+        return null;
+      });
+  }
+  return sharpLoader;
+}
 
 function filterNames(value: unknown): string[] {
   if (!value) return [];
@@ -47,6 +78,11 @@ function isJpegImageStream(dict: PDFDict): boolean {
 export async function compressPdfKeepLayers(
   input: Buffer
 ): Promise<{ buffer: Buffer; imagesRecompressed: number }> {
+  const sharp = await loadSharp();
+  if (!sharp) {
+    return { buffer: input, imagesRecompressed: 0 };
+  }
+
   const pdf = await PDFDocument.load(input, { ignoreEncryption: true });
   let imagesRecompressed = 0;
 

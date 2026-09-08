@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "fontkit"],
+  serverExternalPackages: ["pdfkit", "fontkit", "sharp"],
   transpilePackages: ["pdfjs-dist"],
   experimental: {
     serverActions: {
