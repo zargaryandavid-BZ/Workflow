@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import dynamic from "next/dynamic";
-import { Check, Download, FileText, X } from "lucide-react";
+import { Check, Download, FileText, Layers, X } from "lucide-react";
 import {
   collectSkuApprovalImages,
   isRespondImageAsset,
@@ -549,6 +549,18 @@ export function OrderReview({
                   key={sku.id}
                   className={`rounded-lg border p-4 ${resultBorder}`}
                 >
+                  {index === 0 && skuUi.mode === "choose" ? (
+                    <p className="mb-3 text-sm leading-relaxed text-slate-600">
+                      Your print proof is ready. Please Approve or Not
+                      Approved each SKU. You can toggle specific layers using
+                      the{" "}
+                      <span className="animate-see-layers inline-flex items-center gap-1 font-semibold">
+                        SEE LAYERS
+                        <Layers className="h-3.5 w-3.5" aria-hidden />
+                      </span>{" "}
+                      buttons.
+                    </p>
+                  ) : null}
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">

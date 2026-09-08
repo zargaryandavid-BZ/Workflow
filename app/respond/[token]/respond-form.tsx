@@ -551,13 +551,6 @@ export function RespondForm({
 
     return (
       <div className="space-y-5">
-        <p className="text-sm leading-relaxed text-slate-600">
-          Your print proof is ready for review.
-          {perSkuApproval
-            ? " Check Approve or Not approved for each SKU (and each image when a SKU has more than one)."
-            : ""}
-        </p>
-
         {review}
 
         {!orderReview && metaChips.length > 0 ? (

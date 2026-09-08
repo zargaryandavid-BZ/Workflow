@@ -655,8 +655,8 @@ export function PdfOcgFromUrl({
           <div className="flex flex-wrap items-center gap-1.5">
             {!(onRoll && rollDirection) ? (
               <>
-            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Layer
+            <span className="animate-see-layers inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide">
+              SEE LAYERS
               <Layers className="h-3.5 w-3.5" aria-hidden />
             </span>
             {layers.length > 0 ? (

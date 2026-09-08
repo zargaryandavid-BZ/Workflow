@@ -190,3 +190,28 @@ body {
   display: inline-block;
   animation: shipping-cta-pulse 2.2s ease-in-out infinite;
 }
+
+/* Draw the eye to PDF layer chips on the customer proof. */
+@keyframes see-layers-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    color: #64748b;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    color: #2563eb;
+    transform: translateY(-1px);
+  }
+}
+.animate-see-layers {
+  display: inline-flex;
+  animation: see-layers-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-see-layers {
+    animation: none;
+    color: #475569;
+  }
+}
