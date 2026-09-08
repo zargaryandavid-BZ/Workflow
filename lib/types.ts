@@ -1,5 +1,6 @@
 import type { EmergencyBalanceConfig } from "@/lib/emergency-balance";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
+import type { ShippingPickupLocation } from "@/lib/pickup-locations";
 
 export type {
   WebhookSourceStyleEntry,
@@ -834,6 +835,12 @@ export interface GdriveSettingsPublic {
   configured: boolean;
 }
 
+export type {
+  ShippingPickupLocation,
+  ShippingPickupLocationDraft,
+  StaffPickupLocation,
+} from "@/lib/pickup-locations";
+
 export interface ShippingSettingsPublic {
   tenant_id: string;
   fedex_api_key: MaskedSecret;
@@ -848,6 +855,7 @@ export interface ShippingSettingsPublic {
   shipper_contact_name: string | null;
   shipper_phone: string | null;
   pickup_hours_note: string | null;
+  pickup_locations: ShippingPickupLocation[];
   offer_pickup: boolean;
   offer_fedex: boolean;
   offer_uber: boolean;

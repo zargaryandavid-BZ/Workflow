@@ -4,9 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import {
   buildShippingSettingsUpdate,
   ensureShippingSettings,
+  loadPickupLocations,
+  replacePickupLocations,
+  shipperPatchFromFedexLocation,
   toPublicShippingSettings,
   type ShippingSettingsPatch,
 } from "@/lib/shipping-settings";
+import { parsePickupLocationDrafts } from "@/lib/pickup-locations";
 
 function formatLoadError(message: string): string {
   if (
@@ -14,7 +18,7 @@ function formatLoadError(message: string): string {
     message.includes("schema cache") ||
     message.includes("does not exist")
   ) {
-    return "Shipping settings table is not set up yet. Apply migration 0046_shipping_settings_and_payments.sql (and 0050_shipping_offer_options.sql if needed; run supabase db push).";
+    return "Shipping settings table is not set up yet. Apply migration 0046_shipping_settings_and_payments.sql (and 0100_shipping_pickup_locations.sql for multiple pickup addresses).";
   }
   return message;
 }
@@ -31,7 +35,10 @@ export async function GET() {
   const supabase = await createClient();
   try {
     const settings = await ensureShippingSettings(supabase, ctx.tenant.id);
-    return NextResponse.json({ settings: toPublicShippingSettings(settings) });
+    const pickupLocations = await loadPickupLocations(supabase, ctx.tenant.id);
+    return NextResponse.json({
+      settings: toPublicShippingSettings(settings, pickupLocations),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load settings";
     return NextResponse.json(
@@ -52,6 +59,7 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as ShippingSettingsPatch & {
     markup_fixed_dollars?: unknown;
+    pickup_locations?: unknown;
   };
 
   if (body.markup_fixed_dollars !== undefined) {
@@ -93,6 +101,21 @@ export async function PATCH(request: Request) {
   const supabase = await createClient();
   try {
     const existing = await ensureShippingSettings(supabase, ctx.tenant.id);
+    let locationDrafts = null as ReturnType<
+      typeof parsePickupLocationDrafts
+    >["drafts"] | null;
+    if (body.pickup_locations !== undefined) {
+      const parsed = parsePickupLocationDrafts(body.pickup_locations);
+      if (parsed.error) {
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      locationDrafts = parsed.drafts;
+      const fedexLoc = locationDrafts.find((d) => d.use_for_fedex);
+      if (fedexLoc) {
+        Object.assign(body, shipperPatchFromFedexLocation(fedexLoc));
+      }
+    }
+
     const nextOffers = {
       offer_pickup:
         body.offer_pickup !== undefined
@@ -121,27 +144,40 @@ export async function PATCH(request: Request) {
 
     const updates = buildShippingSettingsUpdate(existing, body);
 
-    if (Object.keys(updates).length <= 1) {
+    if (Object.keys(updates).length <= 1 && !locationDrafts) {
       return NextResponse.json(
         { error: "No valid fields to update" },
         { status: 400 }
       );
     }
 
-    const { error } = await supabase
-      .from("shipping_settings")
-      .update(updates)
-      .eq("tenant_id", ctx.tenant.id)
-      .select("*")
-      .single();
+    if (Object.keys(updates).length > 1) {
+      const { error } = await supabase
+        .from("shipping_settings")
+        .update(updates)
+        .eq("tenant_id", ctx.tenant.id)
+        .select("*")
+        .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
+
+    if (locationDrafts) {
+      try {
+        await replacePickupLocations(supabase, ctx.tenant.id, locationDrafts);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to save pickup locations";
+        return NextResponse.json({ error: message }, { status: 400 });
+      }
     }
 
     const refreshed = await ensureShippingSettings(supabase, ctx.tenant.id);
+    const pickupLocations = await loadPickupLocations(supabase, ctx.tenant.id);
     return NextResponse.json({
-      settings: toPublicShippingSettings(refreshed),
+      settings: toPublicShippingSettings(refreshed, pickupLocations),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to save settings";

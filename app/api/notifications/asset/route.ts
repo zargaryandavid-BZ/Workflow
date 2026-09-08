@@ -5,9 +5,6 @@ import { notificationBlocksCustomerAssets } from "@/lib/notification-asset-acces
 
 const BUCKET = "order-assets";
 
-/** Customer /respond PDF preview from Drive. 104 MB proofs must still open. */
-const FINAL_PDF_PREVIEW_MAX_BYTES = 200 * 1024 * 1024;
-
 export const maxDuration = 120;
 
 /** Resolve allowed order IDs for a token (notification or approval). */
@@ -150,7 +147,7 @@ export async function GET(request: Request) {
     const { isRespondFinalPdfForOrder } = await import(
       "@/lib/respond-final-pdf"
     );
-    const { proofsDriveClient, downloadDriveFileBytes, getDriveFileMeta } =
+    const { proofsDriveClient, getDriveFileMeta } =
       await import("@/lib/gdrive-proofs");
     const { ensureGdriveSettings } = await import("@/lib/gdrive-settings");
 
@@ -176,34 +173,29 @@ export async function GET(request: Request) {
         order.tenant_id as string
       );
       const client = proofsDriveClient(settings);
+      const { resolveWebPreviewPdf } = await import("@/lib/gdrive-pdf-preview");
+      const preview = await resolveWebPreviewPdf(client, id);
+      if (preview) {
+        return new NextResponse(preview.buffer, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Length": String(preview.buffer.byteLength),
+            "Cache-Control": "private, max-age=300",
+            "X-Workflow-Pdf-Preview": preview.preview ? "1" : "0",
+          },
+        });
+      }
       const meta = await getDriveFileMeta(client, id);
       if (!meta) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      const maxBytes = FINAL_PDF_PREVIEW_MAX_BYTES;
-      if (meta.size > maxBytes) {
-        const mb = Math.round(meta.size / (1024 * 1024));
-        return NextResponse.json(
-          {
-            error: `This PDF is ${mb} MB — too large to preview here. Open it in Acrobat from Drive.`,
-          },
-          { status: 413 }
-        );
-      }
-      const downloaded = await downloadDriveFileBytes(client, id);
-      if (!downloaded) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-      const body = Buffer.from(downloaded.buffer);
-      return new NextResponse(body, {
-        headers: {
-          "Content-Type": downloaded.mimeType.includes("pdf")
-            ? "application/pdf"
-            : downloaded.mimeType,
-          "Content-Length": String(body.byteLength),
-          "Cache-Control": "private, max-age=120",
+      const mb = Math.round(meta.size / (1024 * 1024));
+      return NextResponse.json(
+        {
+          error: `This PDF is ${mb} MB — too large to preview in the browser. Production needs to generate a web preview (layers are kept).`,
         },
-      });
+        { status: 413 }
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Download failed";
       return NextResponse.json({ error: message }, { status: 500 });

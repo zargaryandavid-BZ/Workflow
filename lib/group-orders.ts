@@ -1,4 +1,8 @@
-import type { OrderWithRelations } from "@/lib/types";
+import type { OrderWithRelations } from "./types.ts";
+import {
+  cardPartNumber,
+  parseCrmPoLineNumber,
+} from "./webhook-line-title.ts";
 
 export interface SingleEntry {
   kind: "single";
@@ -169,6 +173,14 @@ export function sourceLabelOrderTitle(
   if (!shared) return null;
   const part = (cardTitle ?? "").trim();
   if (part && shared.toLowerCase() === part.toLowerCase()) return null;
+  // CRM often puts the FIRST line's PO name on order `title`. That string is
+  // stored as webhook_order_title and was repeated on every sibling card.
+  const parentPo = parseCrmPoLineNumber(shared);
+  if (parentPo != null) {
+    const thisPart =
+      parseCrmPoLineNumber(part) ?? cardPartNumber(order);
+    if (thisPart == null || parentPo !== thisPart) return null;
+  }
   return shared;
 }
 

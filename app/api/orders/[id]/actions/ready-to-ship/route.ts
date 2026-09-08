@@ -20,11 +20,7 @@ import {
   shippingPortalPublicUrl,
 } from "@/lib/shipping";
 import { getMessageTemplates } from "@/lib/message-templates.server";
-import {
-  loadShippingSettings,
-  pickupLocationFromConfig,
-  resolveFedExConfig,
-} from "@/lib/shipping-settings";
+import { resolvePickupNotifyFields } from "@/lib/shipping-settings";
 import { formatReadyToShipGroupLabel, listOrderGroupMembers } from "@/lib/ready-to-ship-group";
 import type {
   NotificationChannel,
@@ -54,6 +50,7 @@ export async function POST(
     dimUnit?: ShippingDimUnit;
     weightUnit?: ShippingWeightUnit;
     fulfillment?: "choose" | "pickup";
+    pickup_location_id?: string;
     toEmail?: string;
     toPhone?: string;
     subject?: string;
@@ -194,17 +191,20 @@ export async function POST(
         : {};
     const notify = pickupOnly
       ? await (async () => {
-          const settings = await loadShippingSettings(supabase, ctx.tenant.id);
-          const config = resolveFedExConfig(settings);
-          const [street, cityLine, hours] = pickupLocationFromConfig(config);
+          const { pickupLocation, pickupHours } =
+            await resolvePickupNotifyFields(
+              supabase,
+              ctx.tenant.id,
+              body.pickup_location_id
+            );
           return sendPickupReadyNotifications({
             email: body.channel === "email" || body.channel === "both" ? email : null,
             phone: body.channel === "sms" || body.channel === "both" ? phone : null,
             customerName: exportData.customerName,
             orderNumber: orderLabel,
             portalUrl,
-            pickupLocation: [street, cityLine].filter(Boolean).join(", "),
-            pickupHours: hours ?? "",
+            pickupLocation,
+            pickupHours,
             tenantName: ctx.tenant.name,
             templates,
             ...emailOverrides,

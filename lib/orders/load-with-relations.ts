@@ -1,9 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderWithRelations } from "@/lib/types";
 
-/** Card list: skip crm_snapshot / notes blobs. Detail views use GET /api/orders/[id].
- *  Do not list lock/connected columns here — they are missing on some live DBs
- *  (`select *` only returns columns that exist; an explicit name 500s). */
+/** Card list: skip crm_snapshot / note history. Detail uses ORDER_DETAIL_SELECT. */
 export const BOARD_ORDER_LIST_SELECT = [
   "id",
   "tenant_id",
@@ -22,6 +20,30 @@ export const BOARD_ORDER_LIST_SELECT = [
   "updated_at",
   "last_moved_at",
   "webhook_source",
+  "customer:customers(id, name, email, phone, company)",
+  "tag:tags(id, name, color)",
+].join(", ");
+
+/** Single-card GET/PATCH — includes Notes tab (`internal_note`). */
+export const ORDER_DETAIL_SELECT = [
+  "id",
+  "tenant_id",
+  "column_id",
+  "customer_id",
+  "tag_id",
+  "title",
+  "description",
+  "specs",
+  "priority",
+  "due_date",
+  "position",
+  "created_by",
+  "removed_at",
+  "created_at",
+  "updated_at",
+  "last_moved_at",
+  "webhook_source",
+  "internal_note",
   "customer:customers(id, name, email, phone, company)",
   "tag:tags(id, name, color)",
 ].join(", ");
@@ -51,7 +73,7 @@ export function asBoardOrder(
   return data as OrderWithRelations;
 }
 
-const ORDER_SELECT_BASE = BOARD_ORDER_LIST_SELECT.replace(
+const ORDER_SELECT_BASE = ORDER_DETAIL_SELECT.replace(
   ", tag:tags(id, name, color)",
   ""
 );
@@ -148,7 +170,7 @@ export async function loadOrderWithRelations(
   // migration hasn't run yet, which is fine.
   const { data, error } = await supabase
     .from("orders")
-    .select(BOARD_ORDER_LIST_SELECT)
+    .select(ORDER_DETAIL_SELECT)
     .eq("id", orderId)
     .eq("tenant_id", tenantId)
     .maybeSingle();

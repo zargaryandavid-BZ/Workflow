@@ -25,6 +25,11 @@ import {
 } from "@/lib/fetch-with-timeout";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
+import {
+  PickupLocationPicker,
+  useStaffPickupLocations,
+} from "@/components/shipping/pickup-location-picker";
+import { formatStaffPickupNotify } from "@/lib/pickup-locations";
 import type {
   CustomField,
   OrderWithRelations,
@@ -133,6 +138,12 @@ export function ReadyToShipPopup({
   const [error, setError] = useState<string | null>(null);
   const [allowPartial, setAllowPartial] = useState(false);
   const [fulfillment, setFulfillment] = useState<"choose" | "pickup">("choose");
+  const {
+    locations: pickupLocations,
+    selectedId: pickupLocationId,
+    setSelectedId: setPickupLocationId,
+    selected: selectedPickup,
+  } = useStaffPickupLocations();
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
   const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
@@ -153,10 +164,10 @@ export function ReadyToShipPopup({
 
   const orderLabel = checkResult?.groupLabel?.trim() || order.title;
   const boxesRequired = fulfillment === "choose";
-  // Preview placeholders — real address/hours come from shipping settings on send.
-  const pickupLocationPreview = "306 Boyd St, Los Angeles, CA 90013";
-  const pickupHoursPreview =
-    "Available for pickup: Mon–Fri 9:30 AM – 5:30 PM, Sat until 4:00 PM";
+  const pickupLocationPreview = selectedPickup
+    ? formatStaffPickupNotify(selectedPickup)
+    : "";
+  const pickupHoursPreview = selectedPickup?.hoursNote ?? "";
 
   useEffect(() => {
     const label = checkResult?.groupLabel?.trim() || order.title;
@@ -183,7 +194,15 @@ export function ReadyToShipPopup({
         })
       );
     }
-  }, [checkResult?.groupLabel, customerName, teamName, fulfillment, order.title]);
+  }, [
+    checkResult?.groupLabel,
+    customerName,
+    teamName,
+    fulfillment,
+    order.title,
+    pickupLocationPreview,
+    pickupHoursPreview,
+  ]);
 
   const notAllReady =
     checkResult !== null &&
@@ -205,8 +224,12 @@ export function ReadyToShipPopup({
     : null;
 
   const allBoxesFilled = boxes.every(isBoxComplete);
+  const pickupLocationReady =
+    fulfillment !== "pickup" || Boolean(pickupLocationId);
   const canSend =
-    !waitingForGroup && (!boxesRequired || allBoxesFilled);
+    !waitingForGroup &&
+    pickupLocationReady &&
+    (!boxesRequired || allBoxesFilled);
 
   function updateBoxCount(next: number) {
     const safe = Math.min(20, Math.max(1, Math.floor(next) || 1));
@@ -279,6 +302,11 @@ export function ReadyToShipPopup({
       }
     }
 
+    if (fulfillment === "pickup" && !pickupLocationId) {
+      setError("Choose which location the customer should pick up from.");
+      return;
+    }
+
     setLoading(true);
     try {
       const { ok, data } = await postJsonWithTimeout<{
@@ -290,6 +318,8 @@ export function ReadyToShipPopup({
         dimUnit,
         weightUnit,
         fulfillment,
+        pickup_location_id:
+          fulfillment === "pickup" ? pickupLocationId || undefined : undefined,
         subject:
           channel === "email" || channel === "both" ? subject.trim() : undefined,
         messageBody:
@@ -517,6 +547,14 @@ export function ReadyToShipPopup({
               </span>
             </label>
           </fieldset>
+
+          {fulfillment === "pickup" ? (
+            <PickupLocationPicker
+              locations={pickupLocations}
+              selectedId={pickupLocationId}
+              onChange={setPickupLocationId}
+            />
+          ) : null}
 
           {boxesRequired ? (
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">

@@ -2,6 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FedExConfig, ShippingSettings, ShippingSettingsPublic } from "@/lib/types";
+import {
+  formatPickupNotifyLocation,
+  type ShippingPickupLocation,
+  type ShippingPickupLocationDraft,
+} from "@/lib/pickup-locations";
 
 type Client = SupabaseClient;
 
@@ -58,8 +63,165 @@ function maskSecret(value: string | null): { set: boolean; preview: string | nul
   return { set: true, preview: `${SECRET_MASK}${tail}` };
 }
 
-export function toPublicShippingSettings(
+function rowToPickupLocation(row: Record<string, unknown>): ShippingPickupLocation {
+  return {
+    id: String(row.id),
+    tenant_id: String(row.tenant_id),
+    name: (row.name as string | null)?.trim() || "Shop",
+    street: (row.street as string | null) ?? "",
+    city: (row.city as string | null) ?? "",
+    state: (row.state as string | null) ?? "",
+    zip: (row.zip as string | null) ?? "",
+    country: (row.country as string | null) ?? "US",
+    hours_note: (row.hours_note as string | null) ?? null,
+    use_for_fedex: Boolean(row.use_for_fedex),
+    position: Number(row.position ?? 0),
+  };
+}
+
+export async function loadPickupLocations(
+  client: Client,
+  tenantId: string
+): Promise<ShippingPickupLocation[]> {
+  const { data, error } = await client
+    .from("shipping_pickup_locations")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+  if (error) {
+    if (
+      error.message.includes("shipping_pickup_locations") ||
+      error.message.includes("schema cache") ||
+      error.message.includes("does not exist")
+    ) {
+      return [];
+    }
+    throw new Error(error.message);
+  }
+  return (data ?? []).map((row) =>
+    rowToPickupLocation(row as Record<string, unknown>)
+  );
+}
+
+export async function ensurePickupLocations(
+  client: Client,
+  tenantId: string,
   settings: ShippingSettings
+): Promise<ShippingPickupLocation[]> {
+  const existing = await loadPickupLocations(client, tenantId);
+  if (existing.length > 0) return existing;
+
+  const street = settings.shipper_street?.trim() || "";
+  const { data, error } = await client
+    .from("shipping_pickup_locations")
+    .insert({
+      tenant_id: tenantId,
+      name: street || "Shop",
+      street,
+      city: settings.shipper_city?.trim() || "",
+      state: settings.shipper_state?.trim() || "",
+      zip: settings.shipper_zip?.trim() || "",
+      country: settings.shipper_country?.trim() || "US",
+      hours_note: settings.pickup_hours_note,
+      use_for_fedex: true,
+      position: 0,
+    })
+    .select("*");
+  if (error) {
+    if (
+      error.message.includes("shipping_pickup_locations") ||
+      error.message.includes("schema cache") ||
+      error.message.includes("does not exist")
+    ) {
+      return [];
+    }
+    throw new Error(error.message);
+  }
+  return (data ?? []).map((row) =>
+    rowToPickupLocation(row as Record<string, unknown>)
+  );
+}
+
+export function shipperPatchFromFedexLocation(
+  loc: ShippingPickupLocationDraft | ShippingPickupLocation
+) {
+  return {
+    shipper_street: loc.street.trim() || null,
+    shipper_city: loc.city.trim() || null,
+    shipper_state: loc.state.trim() || null,
+    shipper_zip: loc.zip.trim() || null,
+    shipper_country: (loc.country ?? "US").trim() || "US",
+    pickup_hours_note: loc.hours_note?.trim() || null,
+  };
+}
+
+export async function replacePickupLocations(
+  client: Client,
+  tenantId: string,
+  drafts: ShippingPickupLocationDraft[]
+): Promise<ShippingPickupLocation[]> {
+  const { error: delError } = await client
+    .from("shipping_pickup_locations")
+    .delete()
+    .eq("tenant_id", tenantId);
+  if (delError) throw new Error(delError.message);
+
+  const rows = drafts.map((d, i) => ({
+    tenant_id: tenantId,
+    name: d.name.trim() || d.street.trim() || `Location ${i + 1}`,
+    street: d.street.trim(),
+    city: d.city.trim(),
+    state: d.state.trim(),
+    zip: d.zip.trim(),
+    country: (d.country ?? "US").trim() || "US",
+    hours_note: d.hours_note.trim() || null,
+    use_for_fedex: d.use_for_fedex,
+    position: i,
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { data, error } = await client
+    .from("shipping_pickup_locations")
+    .insert(rows)
+    .select("*");
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .map((row) => rowToPickupLocation(row as Record<string, unknown>))
+    .sort((a, b) => a.position - b.position);
+}
+
+export async function resolvePickupNotifyFields(
+  client: Client,
+  tenantId: string,
+  pickupLocationId?: string | null
+): Promise<{ pickupLocation: string; pickupHours: string }> {
+  const settings = await loadShippingSettings(client, tenantId);
+  const locations = await loadPickupLocations(client, tenantId);
+  const wanted = pickupLocationId?.trim() || "";
+  const selected =
+    (wanted ? locations.find((l) => l.id === wanted) : null) ??
+    locations.find((l) => l.use_for_fedex) ??
+    locations[0] ??
+    null;
+
+  if (selected) {
+    return {
+      pickupLocation: formatPickupNotifyLocation(selected),
+      pickupHours: selected.hours_note?.trim() || "",
+    };
+  }
+
+  const config = resolveFedExConfig(settings);
+  const [street, cityLine, hours] = pickupLocationFromConfig(config);
+  return {
+    pickupLocation: [street, cityLine].filter(Boolean).join(", "),
+    pickupHours: hours ?? "",
+  };
+}
+
+export function toPublicShippingSettings(
+  settings: ShippingSettings,
+  pickupLocations: ShippingPickupLocation[] = []
 ): ShippingSettingsPublic {
   return {
     tenant_id: settings.tenant_id,
@@ -75,6 +237,7 @@ export function toPublicShippingSettings(
     shipper_contact_name: settings.shipper_contact_name,
     shipper_phone: settings.shipper_phone,
     pickup_hours_note: settings.pickup_hours_note,
+    pickup_locations: pickupLocations,
     offer_pickup: settings.offer_pickup,
     offer_fedex: settings.offer_fedex,
     offer_uber: settings.offer_uber,
@@ -102,7 +265,9 @@ export async function ensureShippingSettings(
     .maybeSingle();
 
   if (existing) {
-    return rowToSettings(existing as Record<string, unknown>);
+    const settings = rowToSettings(existing as Record<string, unknown>);
+    await ensurePickupLocations(client, tenantId, settings);
+    return settings;
   }
 
   const shipper = envShipperDefaults();
@@ -128,7 +293,9 @@ export async function ensureShippingSettings(
     throw new Error(error.message);
   }
 
-  return rowToSettings(created as Record<string, unknown>);
+  const settings = rowToSettings(created as Record<string, unknown>);
+  await ensurePickupLocations(client, tenantId, settings);
+  return settings;
 }
 
 export async function loadShippingSettings(

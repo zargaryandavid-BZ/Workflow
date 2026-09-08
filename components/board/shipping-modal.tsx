@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { Loader2, Mail, Package, Phone } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import {
+  PickupLocationPicker,
+  useStaffPickupLocations,
+} from "@/components/shipping/pickup-location-picker";
 import type { ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
 
 interface BoxDraft {
@@ -62,12 +66,20 @@ export function ShippingModal({
   const [fulfillment, setFulfillment] = useState<"choose" | "pickup">("choose");
   const [sending, setSending] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const {
+    locations: pickupLocations,
+    selectedId: pickupLocationId,
+    setSelectedId: setPickupLocationId,
+  } = useStaffPickupLocations();
 
   const boxesRequired = fulfillment === "choose";
   const allBoxesFilled = boxes.every(isBoxComplete);
   const hasContact = Boolean(customerEmail || customerPhone);
   const canSend =
-    hasContact && !sending && (!boxesRequired || allBoxesFilled);
+    hasContact &&
+    !sending &&
+    (fulfillment !== "pickup" || Boolean(pickupLocationId)) &&
+    (!boxesRequired || allBoxesFilled);
 
   useEffect(() => {
     if (!open) return;
@@ -122,6 +134,11 @@ export function ShippingModal({
       return;
     }
 
+    if (fulfillment === "pickup" && !pickupLocationId) {
+      setLocalError("Choose which location the customer should pick up from.");
+      return;
+    }
+
     setSending(true);
     try {
       const res = await fetch(`/api/orders/${orderId}/actions/ship`, {
@@ -133,6 +150,8 @@ export function ShippingModal({
           dimUnit,
           weightUnit,
           fulfillment,
+          pickup_location_id:
+            fulfillment === "pickup" ? pickupLocationId || undefined : undefined,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -264,6 +283,14 @@ export function ShippingModal({
             </span>
           </label>
         </fieldset>
+
+        {fulfillment === "pickup" ? (
+          <PickupLocationPicker
+            locations={pickupLocations}
+            selectedId={pickupLocationId}
+            onChange={setPickupLocationId}
+          />
+        ) : null}
 
         {boxesRequired ? (
           <>

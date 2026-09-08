@@ -4,9 +4,6 @@ import { getTenantContext } from "@/lib/auth";
 import { skusForRespond } from "@/lib/respond-order";
 import { skuLabel } from "@/lib/sku-approval";
 
-/** Staff preview of Final-for-Prod PDFs. Same size cap as customer /respond. */
-const FINAL_PDF_PREVIEW_MAX_BYTES = 200 * 1024 * 1024;
-
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
@@ -111,39 +108,35 @@ export async function GET(
 
   try {
     const { ensureGdriveSettings } = await import("@/lib/gdrive-settings");
-    const { proofsDriveClient, downloadDriveFileBytes, getDriveFileMeta } =
+    const { proofsDriveClient, getDriveFileMeta } =
       await import("@/lib/gdrive-proofs");
     const settings = await ensureGdriveSettings(supabase, ctx.tenant.id);
     const client = proofsDriveClient(settings);
+    const { resolveWebPreviewPdf } = await import("@/lib/gdrive-pdf-preview");
+    const preview = await resolveWebPreviewPdf(client, fileId);
+    if (preview) {
+      return new NextResponse(preview.buffer, {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Length": String(preview.buffer.byteLength),
+          "Content-Disposition": `inline; filename="${preview.name.replace(/"/g, "")}"`,
+          "Cache-Control": "private, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+          "X-Workflow-Pdf-Preview": preview.preview ? "1" : "0",
+        },
+      });
+    }
     const meta = await getDriveFileMeta(client, fileId);
     if (!meta) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    if (meta.size > FINAL_PDF_PREVIEW_MAX_BYTES) {
-      const mb = Math.round(meta.size / (1024 * 1024));
-      return NextResponse.json(
-        {
-          error: `This PDF is ${mb} MB — too large to preview here. Open it in Acrobat from Drive.`,
-        },
-        { status: 413 }
-      );
-    }
-    const downloaded = await downloadDriveFileBytes(client, fileId);
-    if (!downloaded) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    const body = Buffer.from(downloaded.buffer);
-    return new NextResponse(body, {
-      headers: {
-        "Content-Type": downloaded.mimeType.includes("pdf")
-          ? "application/pdf"
-          : downloaded.mimeType,
-        "Content-Length": String(body.byteLength),
-        "Content-Disposition": `inline; filename="${downloaded.name.replace(/"/g, "")}"`,
-        "Cache-Control": "private, max-age=120",
-        "X-Content-Type-Options": "nosniff",
+    const mb = Math.round(meta.size / (1024 * 1024));
+    return NextResponse.json(
+      {
+        error: `This PDF is ${mb} MB — too large to preview here. Generate a web preview (layers kept) with scripts/build-pdf-web-preview.ts`,
       },
-    });
+      { status: 413 }
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Download failed";
     console.error("[final-artwork]", message);

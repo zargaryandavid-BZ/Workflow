@@ -117,6 +117,11 @@ async function pageCountForDrivePdf(
   fileId: string
 ): Promise<number> {
   try {
+    const { resolveWebPreviewPdf } = await import("@/lib/gdrive-pdf-preview");
+    const preview = await resolveWebPreviewPdf(client, fileId);
+    if (preview?.buffer?.length) {
+      return await pdfPageCount([preview.buffer]);
+    }
     const meta = await getDriveFileMeta(client, fileId);
     if (!meta || meta.size > PDF_PAGE_COUNT_MAX_BYTES) return 0;
     const downloaded = await downloadDriveFileBytes(client, fileId);

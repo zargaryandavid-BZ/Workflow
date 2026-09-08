@@ -27,7 +27,7 @@ if (typeof window !== "undefined") {
 }
 
 const PDF_INTENT = "any" as const;
-const PDF_OPEN_MS = 20_000;
+const PDF_OPEN_MS = 45_000;
 /** Inline SKU proof (expand still uses the full pane). */
 const INLINE_PROOF_MAX_W = 420;
 

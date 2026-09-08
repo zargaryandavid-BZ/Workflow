@@ -57,6 +57,11 @@ import {
   linkExistingDriveFolderToOrder,
 } from "@/lib/order-gdrive";
 import { resolveWebhookLineFolderUrl } from "@/lib/webhook-line-folder";
+import {
+  cardPartNumber,
+  parseCrmPoLineNumber,
+  webhookItemDisplayTitle,
+} from "@/lib/webhook-line-title";
 import { categoryForProduct, isCatchAllCategory } from "@/lib/product-data";
 import { findMatchingOption } from "@/lib/field-links";
 import { resolveLineSpecDisplay } from "@/lib/product-spec-options";
@@ -1317,7 +1322,8 @@ export function resolveItemTitle(
   itemIndex: number,
   totalItems: number
 ): string {
-  if (item.title?.trim()) return item.title.trim();
+  const own = webhookItemDisplayTitle(item);
+  if (own) return own;
   if (totalItems === 1) return orderTitle;
   const productLabel = item.product?.trim() || `Item ${itemIndex + 1}`;
   if (!orderTitle.trim()) return productLabel;
@@ -1327,17 +1333,30 @@ export function resolveItemTitle(
 /**
  * Human-readable label after the source (`CRM | …`), stored as
  * `specs.webhook_order_title`. Prefer payload `title`; never fall back to
- * `order_number` (omit/empty → blank on the board).
+ * `order_number` (omit/empty → blank on the board). CRM often copies the first
+ * line's PO name into order `title` — that is not a shared job name.
  */
 function resolveOrderLevelTitle(
   body: WebhookOrderPayload,
   orderNumber: string
 ): string {
   const title = typeof body.title === "string" ? body.title.trim() : "";
-  if (title && !isOrderNumberLikeTitle(title, orderNumber)) {
+  if (
+    title &&
+    !isOrderNumberLikeTitle(title, orderNumber) &&
+    parseCrmPoLineNumber(title) == null
+  ) {
     return title;
   }
   return "";
+}
+
+function isSharedJobTitle(title: string, orderNumber: string): boolean {
+  const t = title.trim();
+  if (!t) return false;
+  if (isOrderNumberLikeTitle(t, orderNumber)) return false;
+  if (parseCrmPoLineNumber(t) != null) return false;
+  return true;
 }
 
 /** True when a "title" is really just the order number (or a short form of it). */
@@ -3037,10 +3056,9 @@ async function refreshPortalOrdersFromWebhook(params: {
   const orderLevelTitle = resolveOrderLevelTitle(body, baseOrderNumber);
   const payloadTitle =
     typeof body.title === "string" ? body.title.trim() : "";
-  const itemParentLabel =
-    payloadTitle && !isOrderNumberLikeTitle(payloadTitle, baseOrderNumber)
-      ? payloadTitle
-      : shortOrderCardBase(baseOrderNumber);
+  const itemParentLabel = isSharedJobTitle(payloadTitle, baseOrderNumber)
+    ? payloadTitle
+    : shortOrderCardBase(baseOrderNumber);
   const portalCompanyName =
     (typeof body.company_name === "string" && body.company_name.trim()) ||
     (typeof body.company?.name === "string" && body.company.name.trim()) ||
@@ -3069,17 +3087,32 @@ async function refreshPortalOrdersFromWebhook(params: {
     typeof o.specs?.[key] === "string" ? (o.specs[key] as string).trim() : "";
   const cardByLineId = new Map<string, (typeof sorted)[number]>();
   const cardByTitle = new Map<string, (typeof sorted)[number]>();
+  const cardByPart = new Map<number, (typeof sorted)[number]>();
+  const cardByIndex = new Map<number, (typeof sorted)[number]>();
   for (const c of sorted) {
     const lid = specStr(c, "crm_line_id");
     if (lid) cardByLineId.set(lid, c);
     const wt = specStr(c, "webhook_item_title").toLowerCase();
     if (wt && !cardByTitle.has(wt)) cardByTitle.set(wt, c);
+    const part = cardPartNumber(c);
+    if (part != null && !cardByPart.has(part)) cardByPart.set(part, c);
+    const idxRaw = c.specs?.webhook_item_index;
+    if (
+      typeof idxRaw === "number" &&
+      Number.isInteger(idxRaw) &&
+      idxRaw >= 0 &&
+      !cardByIndex.has(idxRaw)
+    ) {
+      cardByIndex.set(idxRaw, c);
+    }
   }
   const itemLineId = (it: WebhookItem) =>
     typeof it.crm_line_id === "string" ? it.crm_line_id.trim() : "";
   const noIdsAnywhere =
     [...cardByLineId.keys()].length === 0 && items.every((it) => !itemLineId(it));
   const usedCardIds = new Set<string>();
+  const unused = (c: (typeof sorted)[number] | undefined) =>
+    c && !usedCardIds.has(cardIdOf(c)) ? c : null;
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
@@ -3087,11 +3120,17 @@ async function refreshPortalOrdersFromWebhook(params: {
     // Resolve which existing card this line belongs to.
     let order: (typeof sorted)[number] | null = null;
     const lid = itemLineId(item);
-    const itTitle = typeof item.title === "string" ? item.title.trim().toLowerCase() : "";
-    if (lid && cardByLineId.has(lid)) order = cardByLineId.get(lid)!;
-    else if (itTitle && cardByTitle.has(itTitle)) order = cardByTitle.get(itTitle)!;
-    else if (noIdsAnywhere && sorted.length === items.length) order = sorted[i]!;
-    if (!order || usedCardIds.has(cardIdOf(order))) continue;
+    const displayTitle = webhookItemDisplayTitle(item);
+    const itTitle = displayTitle.toLowerCase();
+    const poLine = parseCrmPoLineNumber(displayTitle);
+    if (lid) order = unused(cardByLineId.get(lid));
+    if (!order && poLine != null) order = unused(cardByPart.get(poLine));
+    if (!order && itTitle) order = unused(cardByTitle.get(itTitle));
+    if (!order) order = unused(cardByIndex.get(i));
+    if (!order && noIdsAnywhere && sorted.length === items.length) {
+      order = unused(sorted[i]);
+    }
+    if (!order) continue;
     usedCardIds.add(cardIdOf(order));
     // Re-read specs after updateExistingOrdersDue so due_* keys are not wiped.
     const { data: freshRow } = await client
@@ -3886,10 +3925,9 @@ export async function createOrderFromWebhook(
   }
   const payloadTitle =
     typeof body.title === "string" ? body.title.trim() : "";
-  const itemParentLabel =
-    payloadTitle && !isOrderNumberLikeTitle(payloadTitle, baseOrderNumber)
-      ? payloadTitle
-      : shortBaseOrderNumber;
+  const itemParentLabel = isSharedJobTitle(payloadTitle, baseOrderNumber)
+    ? payloadTitle
+    : shortBaseOrderNumber;
   const crmOrderId = crmOrderIdFromPayload(body);
   const crmCustomerId = crmCustomerIdFromPayload(body);
   const orderDescription =

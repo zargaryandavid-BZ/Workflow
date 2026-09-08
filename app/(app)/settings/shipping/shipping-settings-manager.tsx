@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import type { ShippingSettingsPublic } from "@/lib/types";
+import type { ShippingPickupLocationDraft, ShippingSettingsPublic } from "@/lib/types";
+import { emptyPickupLocationDraft } from "@/lib/pickup-locations";
 
 interface Props {
   initialSettings: ShippingSettingsPublic;
@@ -56,25 +57,37 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
     settings.fedex_account_number ?? ""
   );
   const [fedexSandbox, setFedexSandbox] = useState(settings.fedex_sandbox);
-  const [shipperStreet, setShipperStreet] = useState(
-    settings.shipper_street ?? ""
-  );
-  const [shipperCity, setShipperCity] = useState(settings.shipper_city ?? "");
-  const [shipperState, setShipperState] = useState(
-    settings.shipper_state ?? ""
-  );
-  const [shipperZip, setShipperZip] = useState(settings.shipper_zip ?? "");
-  const [shipperCountry, setShipperCountry] = useState(
-    settings.shipper_country ?? "US"
-  );
   const [shipperContactName, setShipperContactName] = useState(
     settings.shipper_contact_name ?? ""
   );
   const [shipperPhone, setShipperPhone] = useState(
     settings.shipper_phone ?? ""
   );
-  const [pickupHoursNote, setPickupHoursNote] = useState(
-    settings.pickup_hours_note ?? ""
+  const [locations, setLocations] = useState<ShippingPickupLocationDraft[]>(() =>
+    initialSettings.pickup_locations?.length
+      ? initialSettings.pickup_locations.map((loc) => ({
+          id: loc.id,
+          name: loc.name,
+          street: loc.street,
+          city: loc.city,
+          state: loc.state,
+          zip: loc.zip,
+          country: loc.country,
+          hours_note: loc.hours_note ?? "",
+          use_for_fedex: loc.use_for_fedex,
+        }))
+      : [
+          {
+            name: initialSettings.shipper_street ?? "Shop",
+            street: initialSettings.shipper_street ?? "",
+            city: initialSettings.shipper_city ?? "",
+            state: initialSettings.shipper_state ?? "",
+            zip: initialSettings.shipper_zip ?? "",
+            country: initialSettings.shipper_country ?? "US",
+            hours_note: initialSettings.pickup_hours_note ?? "",
+            use_for_fedex: true,
+          },
+        ]
   );
   const [offerPickup, setOfferPickup] = useState(settings.offer_pickup);
   const [offerFedex, setOfferFedex] = useState(settings.offer_fedex);
@@ -101,14 +114,18 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
     const body: Record<string, unknown> = {
       fedex_account_number: fedexAccountNumber.trim() || null,
       fedex_sandbox: fedexSandbox,
-      shipper_street: shipperStreet.trim() || null,
-      shipper_city: shipperCity.trim() || null,
-      shipper_state: shipperState.trim() || null,
-      shipper_zip: shipperZip.trim() || null,
-      shipper_country: shipperCountry.trim() || "US",
       shipper_contact_name: shipperContactName.trim() || null,
       shipper_phone: shipperPhone.trim() || null,
-      pickup_hours_note: pickupHoursNote.trim() || null,
+      pickup_locations: locations.map((loc) => ({
+        name: loc.name.trim(),
+        street: loc.street.trim(),
+        city: loc.city.trim(),
+        state: loc.state.trim(),
+        zip: loc.zip.trim(),
+        country: (loc.country ?? "US").trim() || "US",
+        hours_note: loc.hours_note.trim(),
+        use_for_fedex: loc.use_for_fedex,
+      })),
       offer_pickup: offerPickup,
       offer_fedex: offerFedex,
       offer_uber: offerUber,
@@ -147,6 +164,21 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
     setOfferCurri(next.offer_curri);
     setShipperContactName(next.shipper_contact_name ?? "");
     setShipperPhone(next.shipper_phone ?? "");
+    if (next.pickup_locations?.length) {
+      setLocations(
+        next.pickup_locations.map((loc) => ({
+          id: loc.id,
+          name: loc.name,
+          street: loc.street,
+          city: loc.city,
+          state: loc.state,
+          zip: loc.zip,
+          country: loc.country,
+          hours_note: loc.hours_note ?? "",
+          use_for_fedex: loc.use_for_fedex,
+        }))
+      );
+    }
     setFedexApiKey("");
     setFedexSecretKey("");
     setStripeSecretKey("");
@@ -305,8 +337,9 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-800">Ship-from / pickup</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Shown to clients who choose self pickup. Contact name and phone are
-          required to print FedEx shipping labels.
+          Addresses shown when staff notify a customer for pickup. Check one
+          location for FedEx rate calculation and labels. Contact name and phone
+          are required to print FedEx shipping labels.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="block text-sm text-slate-600">
@@ -327,48 +360,154 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
               className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
             />
           </label>
-          <label className="block text-sm text-slate-600 sm:col-span-2">
-            Street
-            <input
-              value={shipperStreet}
-              onChange={(e) => setShipperStreet(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block text-sm text-slate-600">
-            City
-            <input
-              value={shipperCity}
-              onChange={(e) => setShipperCity(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm text-slate-600">
-              State
-              <input
-                value={shipperState}
-                onChange={(e) => setShipperState(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block text-sm text-slate-600">
-              ZIP
-              <input
-                value={shipperZip}
-                onChange={(e) => setShipperZip(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-              />
-            </label>
-          </div>
-          <label className="block text-sm text-slate-600 sm:col-span-2">
-            Pickup hours note
-            <input
-              value={pickupHoursNote}
-              onChange={(e) => setPickupHoursNote(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-            />
-          </label>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          {locations.map((loc, index) => (
+            <div
+              key={loc.id ?? `new-${index}`}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+            >
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-800">
+                  Location {index + 1}
+                </p>
+                {locations.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLocations((prev) => {
+                        const next = prev.filter((_, i) => i !== index);
+                        if (!next.some((l) => l.use_for_fedex) && next[0]) {
+                          next[0] = { ...next[0], use_for_fedex: true };
+                        }
+                        return next;
+                      });
+                    }}
+                    className="text-xs font-medium text-red-600 hover:text-red-700"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm text-slate-600 sm:col-span-2">
+                  Name
+                  <input
+                    value={loc.name}
+                    onChange={(e) =>
+                      setLocations((prev) =>
+                        prev.map((row, i) =>
+                          i === index ? { ...row, name: e.target.value } : row
+                        )
+                      )
+                    }
+                    placeholder="Boyd St"
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-sm text-slate-600 sm:col-span-2">
+                  Street
+                  <input
+                    value={loc.street}
+                    onChange={(e) =>
+                      setLocations((prev) =>
+                        prev.map((row, i) =>
+                          i === index ? { ...row, street: e.target.value } : row
+                        )
+                      )
+                    }
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-sm text-slate-600">
+                  City
+                  <input
+                    value={loc.city}
+                    onChange={(e) =>
+                      setLocations((prev) =>
+                        prev.map((row, i) =>
+                          i === index ? { ...row, city: e.target.value } : row
+                        )
+                      )
+                    }
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm text-slate-600">
+                    State
+                    <input
+                      value={loc.state}
+                      onChange={(e) =>
+                        setLocations((prev) =>
+                          prev.map((row, i) =>
+                            i === index ? { ...row, state: e.target.value } : row
+                          )
+                        )
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="block text-sm text-slate-600">
+                    ZIP
+                    <input
+                      value={loc.zip}
+                      onChange={(e) =>
+                        setLocations((prev) =>
+                          prev.map((row, i) =>
+                            i === index ? { ...row, zip: e.target.value } : row
+                          )
+                        )
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+                <label className="block text-sm text-slate-600 sm:col-span-2">
+                  Pickup hours note
+                  <input
+                    value={loc.hours_note}
+                    onChange={(e) =>
+                      setLocations((prev) =>
+                        prev.map((row, i) =>
+                          i === index
+                            ? { ...row, hours_note: e.target.value }
+                            : row
+                        )
+                      )
+                    }
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={loc.use_for_fedex}
+                    onChange={() =>
+                      setLocations((prev) =>
+                        prev.map((row, i) => ({
+                          ...row,
+                          use_for_fedex: i === index,
+                        }))
+                      )
+                    }
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Use for FedEx rate calculation
+                </label>
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() =>
+              setLocations((prev) => [...prev, emptyPickupLocationDraft(false)])
+            }
+            className="text-sm font-medium text-slate-700 hover:text-slate-900"
+          >
+            + Add location
+          </button>
         </div>
       </section>
 

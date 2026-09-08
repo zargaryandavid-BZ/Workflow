@@ -76,3 +76,21 @@ test("sourceLabelOrderTitle keeps the parent name when the part title differs", 
   assert.equal(cardTitle, "SUPER BOOF box");
   assert.equal(sourceLabelOrderTitle(order, cardTitle), "INCURE LIVE RESIN BOXES");
 });
+
+test("sourceLabelOrderTitle hides another PO line copied onto order title", () => {
+  const order = {
+    title: "15137-4",
+    webhook_source: "crm",
+    specs: {
+      webhook_order_title: "PO #117686-1- 2 skus 1 inch circle- 10,000 total",
+      webhook_item_title: "DIE FOR 2.5INCH SQAURE WITH ROUNDED CORNERS",
+      webhook_item_index: 3,
+    },
+  };
+  const cardTitle = partCardTitle(order);
+  assert.equal(
+    cardTitle,
+    "DIE FOR 2.5INCH SQAURE WITH ROUNDED CORNERS"
+  );
+  assert.equal(sourceLabelOrderTitle(order, cardTitle), null);
+});

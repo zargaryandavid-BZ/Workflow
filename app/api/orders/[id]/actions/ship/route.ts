@@ -22,9 +22,7 @@ import {
 } from "@/lib/shipping";
 import { getMessageTemplates } from "@/lib/message-templates.server";
 import {
-  loadShippingSettings,
-  pickupLocationFromConfig,
-  resolveFedExConfig,
+  resolvePickupNotifyFields,
 } from "@/lib/shipping-settings";
 import type { ShippingDimUnit, ShippingWeightUnit, ShippingBox } from "@/lib/types";
 
@@ -42,6 +40,7 @@ export async function POST(
     dimUnit?: ShippingDimUnit;
     weightUnit?: ShippingWeightUnit;
     fulfillment?: "choose" | "pickup";
+    pickup_location_id?: string;
   };
 
   if (!body.button_id) {
@@ -151,17 +150,19 @@ export async function POST(
 
   const notify = pickupOnly
     ? await (async () => {
-        const settings = await loadShippingSettings(supabase, ctx.tenant.id);
-        const config = resolveFedExConfig(settings);
-        const [street, cityLine, hours] = pickupLocationFromConfig(config);
+        const { pickupLocation, pickupHours } = await resolvePickupNotifyFields(
+          supabase,
+          ctx.tenant.id,
+          body.pickup_location_id
+        );
         return sendPickupReadyNotifications({
           email,
           phone,
           customerName: exportData.customerName,
           orderNumber,
           portalUrl,
-          pickupLocation: [street, cityLine].filter(Boolean).join(", "),
-          pickupHours: hours ?? "",
+          pickupLocation,
+          pickupHours,
           tenantName: ctx.tenant.name,
           templates,
         });
