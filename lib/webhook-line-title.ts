@@ -33,13 +33,11 @@ export function cardPartNumber(order: {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-export function webhookItemDisplayTitle(item: {
-  title?: string | null;
-  [key: string]: unknown;
-}): string {
+export function webhookItemDisplayTitle(item: unknown): string {
+  if (!item || typeof item !== "object") return "";
   const rec = item as Record<string, unknown>;
   const candidates = [
-    item.title,
+    rec.title,
     rec.name,
     rec.line_title,
     rec.item_title,
