@@ -558,7 +558,7 @@ export function OrderReview({
                         SEE LAYERS
                         <Layers className="h-3.5 w-3.5" aria-hidden />
                       </span>{" "}
-                      buttons.
+                      checkboxes.
                     </p>
                   ) : null}
                   <div className="flex items-start justify-between gap-3">

@@ -552,8 +552,10 @@ export function PdfOcgFromUrl({
     }
   }
 
-  function showAllLayers() {
-    void applyVisibility(new Set(layers.map((layer) => layer.id)));
+  function setAllLayers(on: boolean) {
+    void applyVisibility(
+      on ? new Set(layers.map((layer) => layer.id)) : new Set()
+    );
   }
 
   function toggleLayer(id: string) {
@@ -655,34 +657,52 @@ export function PdfOcgFromUrl({
           <div className="flex flex-wrap items-center gap-1.5">
             {!(onRoll && rollDirection) ? (
               <>
-            <span className="animate-see-layers inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide">
-              SEE LAYERS
-              <Layers className="h-3.5 w-3.5" aria-hidden />
-            </span>
             {layers.length > 0 ? (
-              <>
-                <button
-                  type="button"
-                  onClick={showAllLayers}
-                  className={cn("shrink-0", chip(allOn))}
+              <div className="flex w-full flex-col gap-2">
+                <div className="flex items-start gap-1.5 rounded-md bg-blue-50 px-2.5 py-2 text-xs text-blue-800">
+                  <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>
+                    This proof has <strong>{namedLayers.length} print layer{namedLayers.length !== 1 ? "s" : ""}</strong> (e.g. Cut line, Foil, Artwork). Check the layers you want to preview before approving.
+                  </span>
+                </div>
+                <div
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2"
+                  role="group"
+                  aria-label="Print layers"
                 >
-                  ALL
-                </button>
-                {namedLayers.map((layer) => (
-                  <button
-                    key={layer.id}
-                    type="button"
-                    onClick={() => toggleLayer(layer.id)}
-                    className={cn(
-                      "max-w-[12rem] shrink-0 truncate",
-                      chip(visibleIds.has(layer.id))
-                    )}
-                    title={layer.name}
-                  >
-                    {layer.name}
-                  </button>
-                ))}
-              </>
+                  <span className="animate-see-layers inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide">
+                    SEE LAYERS
+                    <Layers className="h-3.5 w-3.5" aria-hidden />
+                  </span>
+                  <label className="inline-flex max-w-[12rem] cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={allOn}
+                      onChange={(e) => setAllLayers(e.target.checked)}
+                      className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>ALL</span>
+                  </label>
+                  {namedLayers.map((layer) => {
+                    const on = visibleIds.has(layer.id);
+                    return (
+                      <label
+                        key={layer.id}
+                        className="inline-flex max-w-[12rem] cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700"
+                        title={`${layer.name} — ${on ? "on" : "off"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => toggleLayer(layer.id)}
+                          className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="truncate">{layer.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             ) : (
               <span className="text-[11px] text-slate-400">No layers in this file</span>
             )}

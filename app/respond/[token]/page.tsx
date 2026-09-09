@@ -1,9 +1,12 @@
+import { Suspense } from "react";
 import { Printer } from "lucide-react";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  collectSkuApprovalImages,
+  RespondProof,
+  RespondProofFallback,
+} from "./respond-proof";
+import {
   imagesBySkuId,
   buildRespondOrderRows,
   skusForRespond,
@@ -231,7 +234,7 @@ export default async function RespondPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data } = await supabase.rpc("get_notification_by_token", {
     p_token: token,
   });
@@ -384,13 +387,7 @@ export default async function RespondPage({
   }
 
   if (!orderReview) {
-    const orderRows = buildRespondOrderRows(
-      notification.order_description,
-      orderFields,
-      notification.order_specs ?? {}
-    );
     const skus = skusForRespond(notification.order_specs ?? {});
-    let reviewSkus = skus;
     let assets: RespondOrderAsset[] = [];
     let skuImages: Record<string, RespondSkuImage[]> = {};
     // Customer approval: serve the frozen snapshot captured when THIS round was
@@ -415,46 +412,22 @@ export default async function RespondPage({
         // non-critical; proceed without assets
       }
     }
-    let finalPdfs: Record<string, RespondFinalPdf> = {};
-    try {
-      const admin = createAdminClient();
-      const { data: orderRow } = await admin
-        .from("orders")
-        .select("id, title, tenant_id, specs")
-        .eq("id", notification.order_id)
-        .maybeSingle();
-      if (orderRow?.tenant_id) {
-        const pack = await fetchRespondArtworkPack(
-          admin,
-          orderRow.tenant_id as string,
-          {
-            id: orderRow.id as string,
-            title: String(orderRow.title ?? ""),
-            specs: (orderRow.specs ?? {}) as Record<string, unknown>,
-          },
-          skus
-        );
-        finalPdfs = pack.bySku;
-        if (Object.keys(pack.bySku).length > 0) reviewSkus = pack.skus;
-      }
-    } catch {
-      // Drive lookup is optional
-    }
     orderReview = (
-      <OrderReview
-        token={token}
-        rows={orderRows}
-        skus={reviewSkus}
-        assets={assets}
-        skuImages={skuImages}
-        orderId={notification.order_id}
-        finalPdfs={finalPdfs}
-      />
+      <Suspense fallback={<RespondProofFallback />}>
+        <RespondProof
+          token={token}
+          orderId={notification.order_id}
+          description={notification.order_description}
+          fields={orderFields}
+          specs={notification.order_specs ?? {}}
+          assets={assets}
+          skuImages={skuImages}
+        />
+      </Suspense>
     );
     reviewAssets = assets;
     reviewSkuImages = skuImages;
-    approvalPdfPageBySku = pdfPageLocksFromFinalPdfs(finalPdfs);
-    approvalSkus = reviewSkus;
+    approvalSkus = skus;
   }
 
   if (expired && !alreadyDone) {
