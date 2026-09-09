@@ -950,6 +950,17 @@ Full order detail: order, custom field values, assets, notifications, activity.
 | **Response** | `{ order, customFields, fieldValues, assets, notifications, activity }` |
 | **Errors** | 404 |
 
+### `POST /api/orders/[id]/hold-reason`
+
+After a card is dropped on a Hold column, the board asks why. The reason is appended to **Internal notes** (author + datetime) and logged as `hold_reason` activity.
+
+| | |
+| --- | --- |
+| **Auth** | Session + tenant |
+| **Body** | `{ reason, columnName? }` |
+| **Response** | `{ ok: true }` |
+| **Errors** | 400 missing reason; 401; 404 |
+
 ### `GET /api/orders/[id]/final-artwork`
 
 Staff preview of PDFs: **Final production** first, then the **Designer folder** (and its non-Final subfolders) if Final has no PDF. Bytes are streamed with the Drive **service account** — never an embedded Google Drive preview (that uses a different Google login and often shows “You need access”).
@@ -1912,7 +1923,7 @@ Automated, operator-free email/SMS fired whenever a card enters a column.
 
 When an order enters any column, `onEnterColumn()` (`lib/automation.ts`):
 
-- If the column is Hold (`isHoldColumn`), writes in-app `user_notifications` (`order_hold`) to the card owner (`orders.created_by`) and teammate Rafayel (matched on `profiles.full_name`). The person who moved the card is skipped.
+- If the column is Hold (`isHoldColumn`), the board opens **Why is this on hold?** and requires a reason (no skip). `POST /api/orders/[id]/hold-reason` appends Internal notes with the mover’s name and datetime (`Hold (column): …`) and logs `hold_reason` activity. Also writes in-app `user_notifications` (`order_hold`) to the card owner (`orders.created_by`) and teammate Rafayel (matched on `profiles.full_name`). The person who moved the card is skipped.
 - Runs enabled `on_enter_column` rules (excluding `notify` actions to avoid loops).
 - Single hop — no chaining.
 

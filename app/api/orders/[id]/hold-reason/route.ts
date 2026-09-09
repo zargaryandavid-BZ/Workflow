@@ -2,14 +2,18 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity } from "@/lib/automation";
+import {
+  appendNoteEntry,
+  parseNoteHistory,
+  serializeNoteHistory,
+} from "@/lib/note-history";
+import { notifyMentionedInNotes } from "@/lib/user-notifications";
 
 /**
- * Record WHY a card was put on hold. Logged as a `hold_reason` activity so it
- * shows in the card's activity timeline right under the "→ Hold" move line
- * (and reads back in the notes/activity panel). Kept as an activity entry only
- * — no destructive write to the order.
+ * Record WHY a card was put on hold.
+ * Appends Internal notes (author + datetime) and logs `hold_reason` activity.
  *
- * POST { reason }  ->  { ok }
+ * POST { reason, columnName? }  ->  { ok }
  */
 export async function POST(
   request: Request,
@@ -35,10 +39,9 @@ export async function POST(
 
   const supabase = await createClient();
 
-  // Confirm the order is in this tenant before logging against it.
   const { data: order, error: loadError } = await supabase
     .from("orders")
-    .select("id")
+    .select("id, title, internal_note, specs")
     .eq("id", orderId)
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
@@ -49,6 +52,25 @@ export async function POST(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const author = ctx.fullName?.trim() || ctx.email?.trim() || "Someone";
+  const noteText = columnName ? `Hold (${columnName}): ${reason}` : `Hold: ${reason}`;
+  const previousInternal =
+    typeof (order as { internal_note?: string | null }).internal_note === "string"
+      ? (order as { internal_note: string }).internal_note
+      : null;
+  const nextInternal = serializeNoteHistory(
+    appendNoteEntry(parseNoteHistory(previousInternal), noteText, author)
+  );
+
+  const { error: updateError } = await supabase
+    .from("orders")
+    .update({ internal_note: nextInternal })
+    .eq("id", orderId)
+    .eq("tenant_id", ctx.tenant.id);
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
   await logActivity(supabase, {
     tenantId: ctx.tenant.id,
     orderId,
@@ -56,6 +78,27 @@ export async function POST(
     action: "hold_reason",
     metadata: { reason, ...(columnName ? { columnName } : {}) },
   });
+
+  const specs =
+    order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
+      ? (order.specs as Record<string, unknown>)
+      : {};
+  try {
+    await notifyMentionedInNotes({
+      client: supabase,
+      tenantId: ctx.tenant.id,
+      orderId,
+      orderTitle: String(order.title ?? "order"),
+      actorId: ctx.userId,
+      actorName: author,
+      previousInternalNote: previousInternal,
+      nextInternalNote: nextInternal,
+      previousSpecs: specs,
+      nextSpecs: specs,
+    });
+  } catch (err) {
+    console.error("[hold-reason] mention notify", err);
+  }
 
   return NextResponse.json({ ok: true });
 }

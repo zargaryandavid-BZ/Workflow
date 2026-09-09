@@ -14,22 +14,20 @@ const QUICK_REASONS = [
 ] as const;
 
 /**
- * Shown right after a card is moved into a Hold column. Requires a reason before
- * closing so the board always records WHY a job is paused — the reason is logged
- * as a hold_reason activity and shows in the card's activity timeline under the
- * "→ Hold" line.
+ * Shown right after a card is moved into a Hold column. Requires a reason
+ * (no skip). Saved as Internal notes with the mover’s name and datetime, and
+ * as a hold_reason activity under the “→ Hold” line.
  */
 export function HoldReasonPopup({
   orderId,
   orderTitle,
   columnName,
-  onClose,
   onSaved,
 }: {
   orderId: string;
   orderTitle: string;
   columnName: string;
-  onClose: () => void;
+  onClose?: () => void;
   onSaved: (message: string) => void;
 }) {
   const [reason, setReason] = useState("");
@@ -62,7 +60,13 @@ export function HoldReasonPopup({
   }
 
   return (
-    <Modal open onClose={onClose}>
+    <Modal
+      open
+      onClose={() => {
+        if (saving) return;
+        setError("Please add a reason.");
+      }}
+    >
       <div className="w-[420px] max-w-full p-5">
         <div className="mb-3 flex items-center gap-2">
           <PauseCircle className="h-5 w-5 text-amber-500" />
@@ -72,7 +76,7 @@ export function HoldReasonPopup({
         </div>
         <p className="mb-3 text-[13px] text-slate-500">
           {orderTitle} moved to <span className="font-medium">{columnName}</span>.
-          Add a reason so everyone can see why it&rsquo;s paused.
+          Add a reason — it is saved in Internal notes with your name and the time.
         </p>
 
         <div className="mb-3 flex flex-wrap gap-1.5">
@@ -102,14 +106,6 @@ export function HoldReasonPopup({
         ) : null}
 
         <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 disabled:opacity-50"
-          >
-            Skip
-          </button>
           <button
             type="button"
             onClick={() => void save()}
