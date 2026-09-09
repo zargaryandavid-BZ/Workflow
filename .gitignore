@@ -21,6 +21,15 @@ yarn-error.log*
 .cursor/debug-*.log
 .cursor/hooks/.bazaar-inbox-state.json
 
+# Personal Bazaar inbox hook (local only — do not commit)
+.cursor/hooks.json
+.cursor/hooks/bazaar-inbox.py
+.cursor/hooks/watch-bazaar-inbox.sh
+.cursor/rules/bazaar-agent-inbox.mdc
+.cursor/commands/hook-admin.md
+.cursor/commands/hook/
+.cursor/skills/hook-admin/
+
 # local env files
 .env
 .env*.local
