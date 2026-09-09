@@ -1,0 +1,196 @@
+# Cursor Prompt: Customer Contact Sync — Workflow → Bazaar CRM
+
+## Problem
+
+When a customer changes their phone number, a staff member updates it on the customer card in Workflow. But the Bazaar CRM still has the old number. The next time Bazaar sends an order webhook, it arrives with the old phone — and `upsertCustomer` creates a **new duplicate customer** (because neither email nor phone matches the updated record).
+
+**Fix:** When a staff member saves a customer's phone/email in Workflow, push that change back to Bazaar CRM immediately, so the CRM's record is updated before the next order arrives.
+
+---
+
+## How customer–CRM linking works today
+
+- Bazaar webhooks arrive at `POST /api/webhook/orders` and call `upsertCustomer` in `lib/customers.ts`
+- The Bazaar customer ID is stored in `specs.crm_customer_id` on **orders** (not on the `customers` table directly)
+- The tenant's Bazaar API base URL is in `webhook_configs.bazaar_api_url`
+- The outbound auth key is stored in `webhook_configs.bazaar_portal_inbound_keys[brokerId].osk` (the `osk_…` key)
+- Status callbacks already POST to `{bazaar_api_url}/api/v1/production/status` using `x-bazaar-portal-key: osk_…`
+
+---
+
+## Changes required
+
+### 1. Add `crm_customer_id` column to `customers` table
+
+Right now `crm_customer_id` only lives on order `specs`. We need it on the `customers` row so we can sync back without scanning orders.
+
+**Migration:**
+
+```sql
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS crm_customer_id text;
+CREATE INDEX IF NOT EXISTS idx_customers_crm_customer_id
+  ON customers(tenant_id, crm_customer_id)
+  WHERE crm_customer_id IS NOT NULL;
+```
+
+**Backfill:** After migrating, populate `customers.crm_customer_id` from existing orders:
+
+```sql
+UPDATE customers c
+SET crm_customer_id = sub.crm_customer_id
+FROM (
+  SELECT DISTINCT ON (customer_id)
+    customer_id,
+    specs->>'crm_customer_id' AS crm_customer_id
+  FROM orders
+  WHERE specs->>'crm_customer_id' IS NOT NULL
+    AND customer_id IS NOT NULL
+    AND removed_at IS NULL
+  ORDER BY customer_id, created_at DESC
+) sub
+WHERE c.id = sub.customer_id
+  AND sub.crm_customer_id IS NOT NULL
+  AND c.crm_customer_id IS NULL;
+```
+
+### 2. Stamp `crm_customer_id` on the `customers` row when a webhook creates/updates a customer
+
+In `lib/webhook-order.ts`, after calling `upsertCustomer`, if `crmCustomerId` is present, update the customer row:
+
+```ts
+// After: const { customerId: id } = await upsertCustomer(client, tenantId, {...})
+if (id && crmCustomerId) {
+  await client
+    .from("customers")
+    .update({ crm_customer_id: crmCustomerId })
+    .eq("id", id)
+    .eq("tenant_id", tenantId)
+    .is("crm_customer_id", null); // only set if not already stamped
+}
+```
+
+### 3. Push contact update to Bazaar when staff edits a customer
+
+**File:** `app/api/customers/[id]/route.ts` — in the `PATCH` handler, after `updateCustomerByAdmin` succeeds, fire-and-forget a sync to Bazaar.
+
+**New lib file:** `lib/bazaar-customer-sync.ts`
+
+```ts
+import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
+
+/**
+ * Fire-and-forget: push updated phone/email for a customer back to Bazaar CRM.
+ * Called after admin edits a customer in Workflow so the CRM record stays current.
+ * Silently no-ops if the customer has no crm_customer_id or the tenant has no Bazaar config.
+ */
+export async function syncCustomerToBazaar(
+  supabase: ReturnType<typeof createSupabaseServerClient> extends Promise<infer T> ? T : never,
+  tenantId: string,
+  customerId: string,
+  updates: { phone?: string | null; email?: string | null; name?: string }
+): Promise<void> {
+  // 1. Get crm_customer_id from the customer row
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("crm_customer_id")
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  const crmCustomerId = customer?.crm_customer_id;
+  if (!crmCustomerId) return; // not linked to CRM — nothing to sync
+
+  // 2. Get bazaar_api_url and osk key from webhook_configs
+  const { data: config } = await supabase
+    .from("webhook_configs")
+    .select("bazaar_api_url, bazaar_portal_inbound_keys")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  const apiUrl = config?.bazaar_api_url?.replace(/\/$/, "");
+  if (!apiUrl) return;
+
+  // Pick the first available osk key (any broker will do for customer updates)
+  const keys = config?.bazaar_portal_inbound_keys as
+    | Record<string, { osk: string; label: string }>
+    | null
+    | undefined;
+  const oskEntry = keys ? Object.values(keys)[0] : null;
+  const osk = oskEntry?.osk;
+  if (!osk) return;
+
+  // 3. Build the patch body — only send fields that were changed
+  const body: Record<string, string | null | undefined> = {};
+  if (updates.phone !== undefined) body.phone = updates.phone ?? null;
+  if (updates.email !== undefined) body.email = updates.email ?? null;
+  if (updates.name !== undefined) body.name = updates.name;
+
+  if (Object.keys(body).length === 0) return;
+
+  // 4. PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}
+  // ⚠️ CONFIRM THIS ENDPOINT WITH THE BAZAAR/ADMIN TEAM before shipping.
+  // The endpoint below is the expected pattern based on the existing API structure.
+  try {
+    const res = await fetch(`${apiUrl}/api/v1/customers/${crmCustomerId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-bazaar-portal-key": osk,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      console.warn(
+        `[bazaar-customer-sync] PATCH customer ${crmCustomerId} failed: ${res.status}`
+      );
+    }
+  } catch (err) {
+    console.warn("[bazaar-customer-sync] fetch error:", err);
+  }
+}
+```
+
+**Wire it into the PATCH handler** (`app/api/customers/[id]/route.ts`):
+
+```ts
+// After: const customer = await updateCustomerByAdmin(...)
+// Fire-and-forget — do not await, do not block the response
+void syncCustomerToBazaar(supabase, ctx.tenant.id, id, {
+  phone: body.phone,
+  email: body.email,
+  name: body.name,
+}).catch((err) => console.warn("[customers] bazaar sync error:", err));
+
+return NextResponse.json({ customer });
+```
+
+---
+
+## What this fixes end-to-end
+
+1. Staff edits phone on customer card → Workflow saves to DB → fires sync to Bazaar
+2. Bazaar updates customer record with new phone
+3. Next order webhook from Bazaar arrives with updated phone → `upsertCustomer` finds existing customer by phone → no duplicate created
+
+---
+
+## ⚠️ Requires confirmation from Bazaar Admin team
+
+Before shipping Step 3, confirm with the Bazaar/Admin team:
+
+1. **Endpoint:** Is `PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}` the correct URL?
+2. **Auth header:** Is `x-bazaar-portal-key: osk_…` the correct header for this endpoint? (Same as status callback auth?)
+3. **Payload fields:** What field names does Bazaar expect? (`phone`, `email`, `name` — or different?)
+4. **Response:** What does Bazaar return on success? (`{ ok: true }` or `{ id: "..." }`?)
+
+Steps 1 and 2 (DB migration + stamping `crm_customer_id` on the customers row) can ship immediately — they are internal and risk-free. Step 3 must wait for the API contract above to be confirmed.
+
+---
+
+## Files to create/edit
+
+- `supabase/migrations/<timestamp>_customers_crm_id.sql` — ADD COLUMN + index + backfill
+- `lib/bazaar-customer-sync.ts` — NEW file
+- `lib/webhook-order.ts` — stamp `crm_customer_id` on customer row after upsert
+- `app/api/customers/[id]/route.ts` — fire sync after `updateCustomerByAdmin`

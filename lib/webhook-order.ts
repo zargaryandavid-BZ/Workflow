@@ -185,6 +185,7 @@ const WEBHOOK_CUSTOM_FIELD_MAP: Record<string, string> = {
   die_cut: "Die Cut",
   application: "Application",
   need_a_design: "Need a Design",
+  design_fee: "Design Fee",
   perforation: "Perforation",
 };
 
@@ -361,6 +362,7 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   die_cut?: boolean;
   application?: boolean;
   need_a_design?: boolean;
+  design_fee?: number;
   perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
@@ -531,6 +533,7 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   die_cut?: boolean;
   application?: boolean;
   need_a_design?: boolean;
+  design_fee?: number;
   perforation?: boolean;
   order_qty?: number | string;
   artwork_url?: string;
@@ -1362,6 +1365,7 @@ export function normalizeItems(body: WebhookOrderPayload): WebhookItem[] {
       die_cut: body.die_cut,
       application: body.application,
       need_a_design: body.need_a_design,
+      design_fee: body.design_fee !== undefined ? Number(body.design_fee) || 0 : undefined,
       perforation: body.perforation,
       order_qty: body.order_qty,
       artwork_url: body.artwork_url,
@@ -1562,6 +1566,11 @@ function mergeItemWithOrder(
     die_cut: item.die_cut ?? order.die_cut,
     application: item.application ?? order.application,
     need_a_design: item.need_a_design ?? order.need_a_design,
+    design_fee: item.design_fee !== undefined
+      ? Number(item.design_fee) || 0
+      : order.design_fee !== undefined
+        ? Number(order.design_fee) || 0
+        : undefined,
     perforation: item.perforation ?? order.perforation,
     order_qty: item.order_qty ?? order.order_qty,
     artwork_url: firstNonEmpty(item.artwork_url, order.artwork_url),
@@ -1776,6 +1785,7 @@ function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
     die_cut: item.die_cut,
     application: item.application,
     need_a_design: item.need_a_design,
+    design_fee: item.design_fee,
     perforation: item.perforation,
   };
 }

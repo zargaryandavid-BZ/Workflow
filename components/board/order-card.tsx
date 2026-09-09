@@ -24,6 +24,7 @@ import {
   User,
   AlertTriangle,
   Layers,
+  Pencil,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -288,6 +289,10 @@ export function OrderCard({
 
   const orderQty = cardOrderQty(customFields, fieldValues, order.specs);
   const skuCount = cardSkuCount(order.specs);
+  const needsDesign = order.specs?.need_a_design === true;
+  const designFee = needsDesign
+    ? (typeof order.specs?.design_fee === "number" ? order.specs.design_fee : 0)
+    : 0;
   const customerName = customerNameFromOrder(
     order,
     fieldValues,
@@ -1097,6 +1102,18 @@ export function OrderCard({
                 >
                   <AlertTriangle className="h-3 w-3" />
                   {dieAlert.label}
+                </span>
+              </>
+            ) : null}
+            {needsDesign ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <span
+                  className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold bg-orange-100 text-orange-800"
+                  title={designFee > 0 ? `Design fee: $${designFee.toFixed(2)}` : "Design required"}
+                >
+                  <Pencil className="h-3 w-3" />
+                  Design Required
                 </span>
               </>
             ) : null}
