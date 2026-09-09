@@ -184,30 +184,24 @@ export function buildBrandedEmailLayout(params: {
     p { margin: 0 !important; }
   </style>
 </head>
-<body style="margin:0!important;padding:0!important;background-color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;background-color:#ffffff;width:100%;">
+<body style="margin:0!important;padding:0!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table align="center" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0 auto;padding:0;border-collapse:collapse;max-width:520px;width:100%;background:#ffffff;">
     <tr>
-      <td align="center" valign="top" style="margin:0;padding:0;vertical-align:top;">
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;max-width:520px;width:100%;background:#ffffff;">
+      <td style="margin:0;padding:10px 16px;background:#2563EB;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;">
           <tr>
-            <td style="margin:0;padding:10px 16px;background:#2563EB;">
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:0;padding:0;border-collapse:collapse;">
-                <tr>
-                  <td style="margin:0;padding:0;color:#ffffff;font-size:16px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;">${brand}</td>
-                  <td align="right" style="margin:0;padding:0;color:rgba(255,255,255,0.85);font-size:13px;line-height:1.2;">${contextLabel}</td>
-                </tr>
-              </table>
-            </td>
+            <td style="margin:0;padding:0;color:#ffffff;font-size:16px;font-weight:700;letter-spacing:-0.2px;line-height:1.2;">${brand}</td>
+            <td align="right" style="margin:0;padding:0;color:rgba(255,255,255,0.85);font-size:13px;line-height:1.2;">${contextLabel}</td>
           </tr>
-          <tr>
-            <td style="margin:0;padding:12px 16px;background:#ffffff;">
-              ${params.bodyHtml}
-            </td>
-          </tr>
-          ${footerRow}
         </table>
       </td>
     </tr>
+    <tr>
+      <td style="margin:0;padding:12px 16px;background:#ffffff;">
+        ${params.bodyHtml}
+      </td>
+    </tr>
+    ${footerRow}
   </table>
 </body>
 </html>`;

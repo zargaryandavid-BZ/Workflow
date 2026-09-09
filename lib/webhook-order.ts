@@ -9,7 +9,11 @@ import {
   normalizeSourceChannel,
   shouldApplyMissingInfoFallback,
 } from "@/lib/source-channel";
-import { upsertCustomer, getCustomerDefaultPriorityScore } from "@/lib/customers";
+import {
+  upsertCustomer,
+  getCustomerDefaultPriorityScore,
+  stampCustomerCrmId,
+} from "@/lib/customers";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
@@ -4325,7 +4329,11 @@ export async function createOrderFromWebhook(
         name: customerInfo.customerName,
         email: customerInfo.customerEmail,
         phone: customerInfo.customerPhone,
+        crmCustomerId,
       });
+      if (id && crmCustomerId) {
+        await stampCustomerCrmId(client, tenantId, id, crmCustomerId);
+      }
       customerId = id;
       customerPriorityScore = await getCustomerDefaultPriorityScore(
         client,

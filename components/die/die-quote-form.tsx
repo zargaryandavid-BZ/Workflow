@@ -79,7 +79,12 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
       setError("Confirm due date is required.");
       return;
     }
-    if (!/^\d{1,5}(\.\d{1,2})?$/.test(price.trim()) || Number(price) < 0) {
+    const priceNum = parseFloat(price);
+    if (!price.trim() || Number.isNaN(priceNum) || priceNum <= 0) {
+      setError("Please enter a price greater than 0.");
+      return;
+    }
+    if (!/^\d{1,5}(\.\d{1,2})?$/.test(price.trim()) || priceNum > 99_999.99) {
       setError("Enter a price up to 5 digits.");
       return;
     }

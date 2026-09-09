@@ -196,6 +196,8 @@ export interface Customer {
   preferred_channel: PreferredChannel;
   /** Default board priority 1–5 for new orders from this customer. */
   default_priority_score?: number | null;
+  /** Bazaar CRM customer id (stamped from webhooks). */
+  crm_customer_id?: string | null;
   /** Additional approval/notification recipients (CC) applied to every order. */
   cc_emails?: string[] | null;
   created_at: string;

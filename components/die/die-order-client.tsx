@@ -159,6 +159,7 @@ export function DieOrderClient({
     setWidth(hit.width ?? "");
     setHeight(hit.height ?? "");
     setDepth(hit.depth ?? "");
+    setFiles([]);
     if (hit.dueDate && !requiredDate) {
       setRequiredDate(hit.dueDate.slice(0, 10));
     }
@@ -218,6 +219,7 @@ export function DieOrderClient({
       setWidth("");
       setHeight("");
       setDepth("");
+      setRequiredDate("");
       setComment("");
       setFiles([]);
       setAllowOwnDate(false);

@@ -152,12 +152,11 @@ export async function GET(req: NextRequest) {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
+    // Data query: no count window function (avoids full-table scan per page).
     const runColumnQuery = (select: string) => {
       let query = supabase
         .from("orders")
-        .select(select, {
-          count: "exact",
-        })
+        .select(select)
         .eq("tenant_id", tenantId)
         .eq("column_id", columnId)
         .is("removed_at", null);
@@ -171,15 +170,35 @@ export async function GET(req: NextRequest) {
       return query.range(from, to);
     };
 
-    let { data: rawOrders, error: ordersError, count } =
-      await runColumnQuery(BOARD_ORDER_LIST_SELECT);
+    // Count query: HEAD request — returns count via Content-Range header only,
+    // no row data transferred. Uses the partial index and runs in parallel.
+    const runCountQuery = () => {
+      let q = supabase
+        .from("orders")
+        .select("*", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("column_id", columnId)
+        .is("removed_at", null);
+      if (ctx.role === "designer") {
+        q = q.eq("specs->>designer_id", ctx.userId);
+      }
+      return q;
+    };
+
+    let [
+      { data: rawOrders, error: ordersError },
+      { count },
+    ] = await Promise.all([
+      runColumnQuery(BOARD_ORDER_LIST_SELECT),
+      runCountQuery(),
+    ]);
 
     if (ordersError && isMissingRelationColumnError(ordersError)) {
       console.warn(
         "[column-orders] list select missing a column; retrying broader select:",
         ordersError.message
       );
-      ({ data: rawOrders, error: ordersError, count } = await runColumnQuery(
+      ({ data: rawOrders, error: ordersError } = await runColumnQuery(
         BOARD_ORDER_LIST_SELECT_FALLBACK
       ));
     }

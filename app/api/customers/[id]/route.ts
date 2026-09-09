@@ -9,6 +9,7 @@ import { canSetBoardTagAndPriority } from "@/lib/permissions";
 import { parsePriorityScore } from "@/lib/order-priority-score";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { syncCustomerToBazaar } from "@/lib/bazaar-customer-sync";
 
 export async function GET(
   _request: Request,
@@ -164,6 +165,20 @@ export async function PATCH(
       },
       { syncClient }
     );
+
+    if (
+      body.phone !== undefined ||
+      body.email !== undefined ||
+      body.name !== undefined
+    ) {
+      void syncCustomerToBazaar(syncClient, ctx.tenant.id, id, {
+        phone: body.phone,
+        email: body.email,
+        name: body.name,
+      }).catch((err) =>
+        console.warn("[customers] bazaar sync error:", err)
+      );
+    }
 
     return NextResponse.json({ customer });
   } catch (err) {

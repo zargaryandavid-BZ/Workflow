@@ -2339,7 +2339,6 @@ export function CardDetailModal({
               missingFields={missingFieldsOnOrder}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
-              role={role}
               onSent={() => {
                 load();
                 onChanged();

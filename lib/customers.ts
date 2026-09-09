@@ -20,6 +20,26 @@ import {
 
 type Client = SupabaseClient;
 
+/** Set crm_customer_id only when the row does not already have one. */
+export async function stampCustomerCrmId(
+  client: Client,
+  tenantId: string,
+  customerId: string,
+  crmCustomerId: string | null | undefined
+): Promise<void> {
+  const id = crmCustomerId?.trim() ?? "";
+  if (!id || !customerId) return;
+  const { error } = await client
+    .from("customers")
+    .update({ crm_customer_id: id })
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .is("crm_customer_id", null);
+  if (error) {
+    console.error("[customers] stamp crm_customer_id failed:", error.message);
+  }
+}
+
 export type CustomerContactKind = "email" | "phone";
 export type UpsertCustomerAction = "created" | "updated" | "merged";
 
@@ -29,6 +49,8 @@ export interface UpsertCustomerInput {
   phone?: string | null;
   company?: string | null;
   existingCustomerId?: string | null;
+  /** Bazaar CRM id — stamped on the customers row when empty. */
+  crmCustomerId?: string | null;
 }
 
 export interface UpsertCustomerResult {
@@ -37,7 +59,7 @@ export interface UpsertCustomerResult {
 }
 
 const CUSTOMER_SELECT =
-  "id, tenant_id, name, email, phone, company, preferred_channel, default_priority_score, created_at, updated_at";
+  "id, tenant_id, name, email, phone, company, preferred_channel, default_priority_score, crm_customer_id, created_at, updated_at";
 
 export function normalizeCustomerContact(
   contact: string
@@ -228,6 +250,11 @@ async function mergeCustomers(
   if (phone && winner.phone !== phone) updates.phone = phone;
   if (name && !winner.name?.trim()) updates.name = name;
   if (company && !winner.company) updates.company = company;
+  const winnerCrm =
+    typeof winner.crm_customer_id === "string" ? winner.crm_customer_id.trim() : "";
+  const loserCrm =
+    typeof loser.crm_customer_id === "string" ? loser.crm_customer_id.trim() : "";
+  if (!winnerCrm && loserCrm) updates.crm_customer_id = loserCrm;
 
   // Free unique contact keys on the loser BEFORE applying them to the winner,
   // otherwise Postgres rejects the update with customers_tenant_phone/email_unique.
@@ -433,6 +460,18 @@ export async function upsertCustomer(
   const phone = normalizePhone(input.phone);
   const name = input.name?.trim();
 
+  async function done(
+    result: UpsertCustomerResult
+  ): Promise<UpsertCustomerResult> {
+    await stampCustomerCrmId(
+      client,
+      tenantId,
+      result.customerId,
+      input.crmCustomerId
+    );
+    return result;
+  }
+
   if (!email && !phone) {
     throw new Error(
       "At least one of email or phone is required to upsert customer"
@@ -479,21 +518,23 @@ export async function upsertCustomer(
       { name, email, phone, company: input.company },
       orderId
     );
-    return {
+    return done({
       customerId: afterMerge.customerId,
       action: "merged",
-    };
+    });
   }
 
   const existing = matches[0] ?? null;
 
   if (existing) {
-    return updateCustomerHandlingUnique(
-      client,
-      tenantId,
-      existing,
-      { name, email, phone, company: input.company },
-      orderId
+    return done(
+      await updateCustomerHandlingUnique(
+        client,
+        tenantId,
+        existing,
+        { name, email, phone, company: input.company },
+        orderId
+      )
     );
   }
 
@@ -505,12 +546,15 @@ export async function upsertCustomer(
       email,
       phone,
       company: input.company ?? null,
+      ...(input.crmCustomerId?.trim()
+        ? { crm_customer_id: input.crmCustomerId.trim() }
+        : {}),
     })
     .select("id")
     .single();
 
   if (!insertError && created) {
-    return { customerId: created.id as string, action: "created" };
+    return done({ customerId: created.id as string, action: "created" });
   }
 
   if (isUniqueViolation(insertError)) {
@@ -522,12 +566,14 @@ export async function upsertCustomer(
       throw new Error(insertError?.message ?? "Failed to save customer");
     }
 
-    return updateCustomerHandlingUnique(
-      client,
-      tenantId,
-      afterConflict,
-      { name, email, phone, company: input.company },
-      orderId
+    return done(
+      await updateCustomerHandlingUnique(
+        client,
+        tenantId,
+        afterConflict,
+        { name, email, phone, company: input.company },
+        orderId
+      )
     );
   }
 

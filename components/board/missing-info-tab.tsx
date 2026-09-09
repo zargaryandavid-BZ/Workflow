@@ -18,7 +18,7 @@ import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
-import type { Asset, BoardColumn, Customer, MissingInfoNote, Role } from "@/lib/types";
+import type { Asset, BoardColumn, Customer, MissingInfoNote } from "@/lib/types";
 
 interface MissingInfoTabProps {
   notes: MissingInfoNote[];
@@ -30,7 +30,6 @@ interface MissingInfoTabProps {
   missingFields?: MissingField[];
   contactEmail?: string | null;
   contactPhone?: string | null;
-  role?: Role;
   onSent: () => void;
   /** When the card is moved to In Progress from this tab. */
   onMoved?: (toColumnId: string) => void;
@@ -131,8 +130,17 @@ function AttachmentList({ assets }: { assets: Asset[] }) {
   );
 }
 
+function isCustomerFacingNote(note: MissingInfoNote) {
+  return note.channel !== "none";
+}
+
+function canReuseNotification(note: MissingInfoNote) {
+  return isCustomerFacingNote(note) && note.status !== "expired";
+}
+
 function NotifyRow({
   note,
+  orderId,
   customer,
   contactEmail,
   contactPhone,
@@ -140,7 +148,8 @@ function NotifyRow({
   sendLabel = "Send",
   onSent,
 }: {
-  note: MissingInfoNote;
+  note: MissingInfoNote | null;
+  orderId: string;
   customer: Customer | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -210,18 +219,40 @@ function NotifyRow({
     }
     setSending(true);
     try {
+      const reuse = note && canReuseNotification(note);
       const { ok, data } = await postJsonWithTimeout<{
         error?: string;
         warning?: string | null;
-      }>(`/api/notifications/${note.id}/send`, {
-        channel,
-        toEmail: selected.includes("email")
-          ? email.trim() || undefined
-          : undefined,
-        toPhone: selected.includes("sms")
-          ? phone.trim() || undefined
-          : undefined,
-      }, NOTIFICATION_SEND_TIMEOUT_MS);
+      }>(
+        reuse
+          ? `/api/notifications/${note.id}/send`
+          : "/api/notifications/send",
+        reuse
+          ? {
+              channel,
+              toEmail: selected.includes("email")
+                ? email.trim() || undefined
+                : undefined,
+              toPhone: selected.includes("sms")
+                ? phone.trim() || undefined
+                : undefined,
+            }
+          : {
+              orderId,
+              type: "missing_info",
+              channel,
+              staffNote:
+                note?.staff_note?.trim() ||
+                "Follow-up: please send the missing information.",
+              toEmail: selected.includes("email")
+                ? email.trim() || undefined
+                : undefined,
+              toPhone: selected.includes("sms")
+                ? phone.trim() || undefined
+                : undefined,
+            },
+        NOTIFICATION_SEND_TIMEOUT_MS
+      );
       if (!ok) {
         setError(
           data.error ??
@@ -253,9 +284,9 @@ function NotifyRow({
   const hasSelection = wantEmail || wantSms;
 
   return (
-    <div className="space-y-2 border-t border-slate-100 pt-3">
+    <div className="space-y-2 rounded-lg border border-slate-200 p-3">
       <p className="text-sm font-medium text-slate-700">{label}</p>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => toggleChannel("email")}
@@ -389,18 +420,14 @@ function HistoryEntry({
   note,
   customer,
   isLatest,
-  canSend,
   contactEmail,
   contactPhone,
-  onSent,
 }: {
   note: MissingInfoNote;
   customer: Customer | null;
   isLatest: boolean;
-  canSend: boolean;
   contactEmail?: string | null;
   contactPhone?: string | null;
-  onSent: () => void;
 }) {
   const isInternalNote = note.channel === "none";
   const status = statusSummary(note);
@@ -481,31 +508,19 @@ function HistoryEntry({
             <p className="mt-2 text-sm text-slate-500">Response submitted.</p>
           ) : null}
         </div>
-      ) : !isInternalNote && isLatest && canSend && note.channel === "manual" ? (
-        <NotifyRow
-          note={note}
-          customer={customer}
-          contactEmail={contactEmail}
-          contactPhone={contactPhone}
-          label="Send notification"
-          sendLabel="Send"
-          onSent={onSent}
-        />
-      ) : !isInternalNote && isLatest && canSend && note.channel !== "manual" ? (
-        <NotifyRow
-          note={note}
-          customer={customer}
-          contactEmail={contactEmail}
-          contactPhone={contactPhone}
-          label={note.status === "sent" ? "Resend notification" : "Send notification"}
-          sendLabel={note.status === "sent" ? "Resend" : "Send"}
-          onSent={onSent}
-        />
       ) : !isInternalNote && !isLatest ? (
         <p className="text-sm text-slate-400">No client response yet</p>
       ) : null}
     </div>
   );
+}
+
+function sendPanelCopy(note: MissingInfoNote | null) {
+  const hasSent = note?.status === "sent";
+  return {
+    label: hasSent ? "Resend notification" : "Send notification",
+    sendLabel: hasSent ? "Resend" : "Send",
+  };
 }
 
 export function MissingInfoTab({
@@ -518,11 +533,11 @@ export function MissingInfoTab({
   missingFields = [],
   contactEmail,
   contactPhone,
-  role,
   onSent,
   onMoved,
 }: MissingInfoTabProps) {
-  const canSend = role !== "designer";
+  const reusableNote = notes.find(canReuseNotification) ?? null;
+  const sendCopy = sendPanelCopy(reusableNote);
 
   if (notes.length === 0) {
     return (
@@ -559,19 +574,23 @@ export function MissingInfoTab({
             stage when ready.
           </p>
         )}
-        {canSend ? (
-          <p className="text-sm text-slate-400">
-            To email or text the customer, move the card into Missing Info from
-            another column with automations enabled, or log a manual follow-up after
-            a notification is created.
-          </p>
-        ) : null}
+        <NotifyRow
+          note={null}
+          orderId={orderId}
+          customer={customer}
+          contactEmail={contactEmail}
+          contactPhone={contactPhone}
+          label={sendCopy.label}
+          sendLabel={sendCopy.sendLabel}
+          onSent={onSent}
+        />
       </div>
     );
   }
 
   const latest = notes[0];
-  const latestStatus = statusSummary(latest);
+  const statusNote = notes.find(isCustomerFacingNote) ?? latest;
+  const latestStatus = statusSummary(statusNote);
   const history = [...notes].sort(
     (a, b) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -579,18 +598,27 @@ export function MissingInfoTab({
 
   return (
     <div className="space-y-5">
-      {canSend ? (
-        <div className="text-sm">
-          <span className="font-medium text-slate-700">Status: </span>
-          <span className={latestStatus.className}>{latestStatus.label}</span>
-          {latest.status === "responded" && latest.responded_at ? (
-            <span className="text-slate-500">
-              {" "}
-              — {formatDateTime(latest.responded_at)}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      <div className="text-sm">
+        <span className="font-medium text-slate-700">Status: </span>
+        <span className={latestStatus.className}>{latestStatus.label}</span>
+        {statusNote.status === "responded" && statusNote.responded_at ? (
+          <span className="text-slate-500">
+            {" "}
+            — {formatDateTime(statusNote.responded_at)}
+          </span>
+        ) : null}
+      </div>
+
+      <NotifyRow
+        note={reusableNote}
+        orderId={orderId}
+        customer={customer}
+        contactEmail={contactEmail}
+        contactPhone={contactPhone}
+        label={sendCopy.label}
+        sendLabel={sendCopy.sendLabel}
+        onSent={onSent}
+      />
 
       <div>
         <p className="mb-3 text-sm font-semibold text-slate-700">
@@ -603,16 +631,14 @@ export function MissingInfoTab({
               note={note}
               customer={customer}
               isLatest={note.id === latest.id}
-              canSend={canSend}
               contactEmail={contactEmail}
               contactPhone={contactPhone}
-              onSent={onSent}
             />
           ))}
         </div>
       </div>
 
-      {latest.status === "responded" ? (
+      {statusNote.status === "responded" ? (
         <MoveToInProgressButton
           orderId={orderId}
           sourceColumnId={sourceColumnId}

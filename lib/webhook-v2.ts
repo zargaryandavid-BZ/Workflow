@@ -160,11 +160,13 @@ function customerFromPayload(payload: WebhookV2Payload): {
   name?: string;
   email?: string | null;
   phone?: string | null;
+  crmCustomerId?: string | null;
 } {
   return {
     name: asTrimmedString(payload.customer?.name) ?? undefined,
     email: asTrimmedString(payload.customer?.email),
     phone: asTrimmedString(payload.customer?.phone),
+    crmCustomerId: crmCustomerIdFromPayload(payload) ?? undefined,
   };
 }
 

@@ -60,6 +60,7 @@ create table if not exists public.customers (
   company text,
   preferred_channel text not null default 'sms'
     check (preferred_channel in ('sms', 'email')),
+  crm_customer_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -68,6 +69,9 @@ create unique index if not exists customers_tenant_email_unique
   on public.customers (tenant_id, email) where email is not null;
 create unique index if not exists customers_tenant_phone_unique
   on public.customers (tenant_id, phone) where phone is not null;
+create index if not exists idx_customers_crm_customer_id
+  on public.customers (tenant_id, crm_customer_id)
+  where crm_customer_id is not null;
 
 -- Orders (print jobs / cards) ------------------------------------------------
 create type public.order_priority as enum ('low', 'normal', 'high', 'urgent');

@@ -25,9 +25,9 @@ export async function POST(
     body.clientNote ?? body.note ?? ""
   ).trim() || null;
 
-  if (!Number.isFinite(price) || price < 0 || price > 99_999.99) {
+  if (!Number.isFinite(price) || price <= 0 || price > 99_999.99) {
     return NextResponse.json(
-      { error: "Enter a price up to 5 digits." },
+      { error: "Please enter a price greater than 0." },
       { status: 422 }
     );
   }

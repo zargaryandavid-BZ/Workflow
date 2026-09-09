@@ -372,7 +372,7 @@ Full reference: [API routes](#api-routes).
 | Team | `GET /api/team`, `POST .../invite`, `PATCH/DELETE .../[id]` |
 | Tenant | `POST /api/tenant/switch`, `POST /api/onboarding` |
 | Auth | `POST /api/auth/signout` |
-| Die orders | `POST /api/die-requests`, `PATCH /api/die-requests/[id]`, `POST /api/die-requests/[id]/confirm`, `GET /api/die-requests/quoted-count`, public `POST /api/die/[token]/quote`. Board cards show Die requested / Die manuf. waiting / Die ordered - DD.MM |
+| Die orders | `POST /api/die-requests`, `PATCH /api/die-requests/[id]`, `POST /api/die-requests/[id]/confirm`, `GET /api/die-requests/quoted-count`, public `POST /api/die/[token]/quote` (**price must be > 0**). Board cards show Die requested / Die manuf. waiting / Die ordered - DD.MM. Die Order form clears required date after send and attached files when switching orders. Branded emails (`buildBrandedEmailLayout`) use one centered table so Yahoo Mail does not add a large gap under the header. |
 | CRM export | `GET /api/export/board-columns` (webhook secret) |
 
 ## Legacy approval system
@@ -616,6 +616,9 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `email` | `text` | Email (unique per tenant when set) |
 | `phone` | `text` | Phone (unique per tenant when set) |
 | `company` | `text` | Company name |
+| `preferred_channel` | `text` | Default notify channel (`sms` / `email`) |
+| `default_priority_score` | `int` | Default board priority 1–5 |
+| `crm_customer_id` | `text` | Bazaar CRM customer id (migration `0101`); stamped from webhooks |
 | `created_at` | `timestamptz` | Created |
 | `updated_at` | `timestamptz` | Auto-updated (migration `0012`) |
 
@@ -890,6 +893,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `0088_die_manufacturer_contact_2.sql` | Second contact |
 | `0089_die_request_ordered.sql` | Status `ordered` + `ordered_at` |
 | `0090_die_allow_own_date.sql` | Manufacturer may offer own due date |
+| `0101_customers_crm_customer_id.sql` | `customers.crm_customer_id` + backfill from order specs |
 
 **Note:** There is no `0010_*.sql` in the repo. `sku_key`, `drop_in_roles`, and extended `member_role` values are in `setup.sql` only.
 
@@ -1375,7 +1379,7 @@ Returns **403** — customers are auto-managed from orders.
 
 ### `PATCH /api/customers/[id]`
 
-Returns **403**.
+Admin can update name, email, phone, company, preferred channel, and default priority. After a contact/name save, Workflow fire-and-forget PATCHes Bazaar CRM (`lib/bazaar-customer-sync.ts`) when `customers.crm_customer_id` and `webhook_configs.bazaar_api_url` + an `osk_…` key exist. Auth matches status callbacks (`x-webhook-secret`). Endpoint assumed: `PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}`. Confirm the contract with Bazaar before relying on it in production.
 
 ### `DELETE /api/customers/[id]`
 
@@ -1758,6 +1762,8 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
   - If Instantly unset, logs URL to server console.
   - Writes `activity_log` (`notification_sent`).
 - Order **remains** in Missing Info column until customer responds.
+
+Staff (including designers) can **Send / Resend** from the Missing Info tab (`components/board/missing-info-tab.tsx`) even when there is no prior notification, the latest history row is an internal note, or the customer already replied.
 
 ### 4. Customer opens `/respond/[token]`
 

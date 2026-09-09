@@ -78,3 +78,9 @@ On **create** and **portal/CRM re-fire** (`refreshPortalOrdersFromWebhook`):
 - **Legacy** (no `bazaar_item_id`): existing aliases (`Roll Labels` → `Labels (Roll)`).
 
 Workflow does not call Admin HTTP. `schema_version === 2` connected-mode routing is unchanged. Status callbacks Workflow → Admin (`bazaar-portal-sync`) are unchanged.
+
+## Customer contact sync (Workflow → Bazaar)
+
+`upsertCustomer` matches on email/phone only. If staff change a phone in Workflow and the CRM still has the old number, the next order webhook can create a **duplicate** customer.
+
+Workflow now stores `customers.crm_customer_id` (from `crm_customer_id` / `customer.crm_id` on ingest) and, after an admin customer PATCH, fire-and-forget PATCHes `{bazaar_api_url}/api/v1/customers/{id}` with `x-webhook-secret: osk_…`. Confirm that endpoint with Bazaar.
