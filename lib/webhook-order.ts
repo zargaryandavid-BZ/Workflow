@@ -1492,6 +1492,7 @@ type WebhookSpecFields = {
   die_cut?: boolean;
   application?: boolean;
   need_a_design?: boolean;
+  design_fee?: number;
   perforation?: boolean;
 };
 
