@@ -90,28 +90,54 @@ function brokerIdFromOrder(order: BazaarPortalStatusOrder): string | null {
   return typeof id === "string" && id.trim() ? id.trim() : null;
 }
 
-/**
- * Bazaar accepts BZ-{alias}, BZ-{alias}-{lineIndex}, BZ-{alias}-{orderItemId}.
- * Prefer the card title when it is a BZ ref; otherwise fall back to specs.
- */
-export function resolveBazaarStatusOrderNumber(
-  order: BazaarPortalStatusOrder
-): string | null {
-  const title = String(order.title ?? "").trim();
-  if (/^BZ-\d+/i.test(title)) return title;
+const BAZAAR_ORDER_NUMBER_RE = /^BZ-\d+/i;
 
-  const specs = specsRecord(order.specs);
-  const parent =
-    typeof specs.webhook_order_number === "string"
-      ? specs.webhook_order_number.trim()
-      : "";
-  if (!parent || !/^BZ-\d+/i.test(parent)) return null;
+export function parseBazaarOrderNumber(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  return BAZAAR_ORDER_NUMBER_RE.test(value) ? value : null;
+}
 
+export function pickBazaarOrderNumber(...candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    const parsed = parseBazaarOrderNumber(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function withLineSuffix(
+  parent: string,
+  specs: Record<string, unknown>
+): string {
+  if (/^BZ-\d+-\S+/i.test(parent)) return parent;
   const idx = specs.webhook_item_index;
   if (typeof idx === "number" && Number.isFinite(idx) && idx >= 0) {
     return `${parent}-${idx + 1}`;
   }
   return parent;
+}
+
+/**
+ * Bazaar accepts BZ-{alias}, BZ-{alias}-{lineIndex}, BZ-{alias}-{orderItemId}.
+ * Prefer specs.bazaar_order_number (CRM portal-intake). Never ORD-….
+ */
+export function resolveBazaarStatusOrderNumber(
+  order: BazaarPortalStatusOrder
+): string | null {
+  const specs = specsRecord(order.specs);
+  const fromStamp = parseBazaarOrderNumber(specs.bazaar_order_number);
+  if (fromStamp) return withLineSuffix(fromStamp, specs);
+
+  const title = String(order.title ?? "").trim();
+  if (BAZAAR_ORDER_NUMBER_RE.test(title)) return title;
+
+  const parent =
+    typeof specs.webhook_order_number === "string"
+      ? specs.webhook_order_number.trim()
+      : "";
+  if (!parent || !BAZAAR_ORDER_NUMBER_RE.test(parent)) return null;
+  return withLineSuffix(parent, specs);
 }
 
 /**

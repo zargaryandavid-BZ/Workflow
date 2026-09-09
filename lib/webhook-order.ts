@@ -44,6 +44,10 @@ import {
   parseWebhookSourceKey,
 } from "@/lib/webhook-source-styles";
 import {
+  parseBazaarOrderNumber,
+  pickBazaarOrderNumber,
+} from "@/lib/bazaar-portal-sync";
+import {
   isWebsiteWebhookSource,
   withWebOrderLetter,
 } from "@/lib/web-order-number";
@@ -442,6 +446,10 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   bazaar_connection_test?: boolean | string | number;
   /** Bazaar partner/broker id (Order Sync) — used for status callbacks. */
   bazaar_broker_id?: string;
+  /** Portal-intake Admin order ref (`BZ-…`). Not the CRM `ORD-…` card title. */
+  bazaar_order_number?: string;
+  /** Optional nested specs — CRM may send `specs.bazaar_order_number`. */
+  specs?: Record<string, unknown>;
   company_name?: string;
   company?: {
     id?: string;
@@ -1165,6 +1173,77 @@ function resolveOrderNumber(body: WebhookOrderPayload): string {
   if (orderNumber) return orderNumber;
   const stamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
   return `WH-${stamp}-${randomUUID().slice(0, 8)}`;
+}
+
+async function notifyWhenBazaarOrderNumberFirstStamped(args: {
+  client: Client;
+  tenantId: string;
+  orderId: string;
+  title: string;
+  webhookSource?: string | null;
+  specs: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const { data: row } = await args.client
+      .from("orders")
+      .select("webhook_source, column_id")
+      .eq("id", args.orderId)
+      .eq("tenant_id", args.tenantId)
+      .maybeSingle();
+    const columnId =
+      typeof row?.column_id === "string" ? row.column_id : "";
+    if (!columnId) return;
+    const { data: col } = await args.client
+      .from("board_columns")
+      .select("name")
+      .eq("id", columnId)
+      .eq("tenant_id", args.tenantId)
+      .maybeSingle();
+    const columnName = typeof col?.name === "string" ? col.name.trim() : "";
+    if (!columnName) return;
+    const { notifyBazaarPortalStatus } = await import(
+      "@/lib/bazaar-portal-sync"
+    );
+    await notifyBazaarPortalStatus({
+      client: args.client,
+      tenantId: args.tenantId,
+      order: {
+        id: args.orderId,
+        title: args.title,
+        webhook_source:
+          typeof row?.webhook_source === "string"
+            ? row.webhook_source
+            : args.webhookSource ?? null,
+        specs: args.specs,
+      },
+      columnName,
+    });
+  } catch (err) {
+    console.error(
+      "[webhook/orders] first BZ-… notify failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+function bazaarOrderNumberFromWebhook(
+  body: WebhookOrderPayload,
+  item?: WebhookItem | Record<string, unknown> | null
+): string | null {
+  const itemRec =
+    item && typeof item === "object"
+      ? (item as Record<string, unknown>)
+      : null;
+  const itemSpecs =
+    itemRec?.specs && typeof itemRec.specs === "object"
+      ? (itemRec.specs as Record<string, unknown>)
+      : null;
+  return pickBazaarOrderNumber(
+    itemRec?.bazaar_order_number,
+    itemSpecs?.bazaar_order_number,
+    body.bazaar_order_number,
+    body.specs?.bazaar_order_number
+  );
 }
 
 /** CRM reference codes look like ORD-2026-0298 (optional item suffix allowed on card titles only). */
@@ -3175,6 +3254,8 @@ async function refreshPortalOrdersFromWebhook(params: {
     else delete nextSpecs.webhook_order_title;
     if (portalCompanyName) nextSpecs.company_name = portalCompanyName;
     if (portalBrokerId) nextSpecs.bazaar_broker_id = portalBrokerId;
+    const stampedBz = bazaarOrderNumberFromWebhook(body, item);
+    if (stampedBz) nextSpecs.bazaar_order_number = stampedBz;
     if (items.length > 1) nextSpecs.webhook_item_index = i;
 
     const sourceChannelClean = normalizeSourceChannel(body.source_channel);
@@ -3242,6 +3323,22 @@ async function refreshPortalOrdersFromWebhook(params: {
         order_id: order.id,
         message: error.message,
       });
+    } else {
+      const hadBz = parseBazaarOrderNumber(baseSpecs.bazaar_order_number);
+      const nowBz = parseBazaarOrderNumber(nextSpecs.bazaar_order_number);
+      const broker =
+        typeof nextSpecs.bazaar_broker_id === "string"
+          ? nextSpecs.bazaar_broker_id.trim()
+          : "";
+      if (!hadBz && nowBz && broker) {
+        await notifyWhenBazaarOrderNumberFirstStamped({
+          client,
+          tenantId,
+          orderId: order.id,
+          title: order.title,
+          specs: nextSpecs,
+        });
+      }
     }
 
     const rows = buildCustomFieldValues(
@@ -3351,6 +3448,8 @@ interface CreateSingleJobParams {
   skipProductRouting?: boolean;
   /** Bazaar Order Sync partner id (portal source). */
   portalBrokerId?: string | null;
+  /** Portal-intake `BZ-…` (not the CRM `ORD-…` title). */
+  bazaarOrderNumber?: string | null;
   /** Partner/broker display name for Portal | Name label. */
   portalCompanyName?: string | null;
   /** CRM design capture — who provides artwork: has_files | files_coming | needs_design. */
@@ -3452,6 +3551,7 @@ async function createSingleWebhookJob(
     customerPriorityScore = null,
     portalBrokerId = null,
     portalCompanyName = null,
+    bazaarOrderNumber = null,
     skipProductRouting = false,
     designSource = null,
     designReference = null,
@@ -3708,8 +3808,11 @@ async function createSingleWebhookJob(
     specs.priority_score = customerPriorityScore;
     specs.priority_source = "customer";
   }
+  // Status only / Send quotes: CRM create still needs the partner id so
+  // notifyBazaarPortalStatus can pick that row's osk_. Staff BZ Quote omits it.
+  if (portalBrokerId) specs.bazaar_broker_id = portalBrokerId;
+  if (bazaarOrderNumber) specs.bazaar_order_number = bazaarOrderNumber;
   if (webhookSource.trim().toLowerCase() === "portal") {
-    if (portalBrokerId) specs.bazaar_broker_id = portalBrokerId;
     if (portalCompanyName) specs.company_name = portalCompanyName;
   }
 
@@ -4430,6 +4533,7 @@ export async function createOrderFromWebhook(
       customerPriorityScore,
       portalBrokerId,
       portalCompanyName,
+      bazaarOrderNumber: bazaarOrderNumberFromWebhook(body, item),
       skipProductRouting: startCreateIndex > 0,
       designSource:
         typeof body.design_source === "string" ? body.design_source.trim() : null,
