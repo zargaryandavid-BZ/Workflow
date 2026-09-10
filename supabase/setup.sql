@@ -246,7 +246,7 @@ create or replace function public.is_tenant_member(p_tenant uuid)
 returns boolean
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select exists (
@@ -260,7 +260,7 @@ create or replace function public.is_tenant_admin(p_tenant uuid)
 returns boolean
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select exists (
@@ -276,7 +276,7 @@ create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   insert into public.profiles (id, full_name)
@@ -296,7 +296,7 @@ create or replace function public.create_tenant(p_name text, p_slug text)
 returns public.tenants
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   v_tenant public.tenants;
@@ -358,7 +358,7 @@ returns table (
 )
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select
@@ -697,7 +697,7 @@ returns table (
 )
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select
@@ -780,7 +780,7 @@ returns table (
 )
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select
@@ -918,7 +918,7 @@ returns table (
 )
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select
@@ -1002,7 +1002,7 @@ returns table (
 )
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select
@@ -1093,7 +1093,7 @@ returns table (
 )
 language sql
 security definer
-set search_path = public
+set search_path = ''
 stable
 as $$
   select

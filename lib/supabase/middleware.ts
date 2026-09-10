@@ -38,10 +38,18 @@ function isPublicApi(path: string) {
 
 export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  const isPublicPage = PUBLIC_PATHS.some(
+    (p) => path === p || path.startsWith(`${p}/`)
+  );
 
-  // Customer PDF preview: do not wait on auth (the worker request was hanging
-  // the approval page on "Almost there").
-  if (path === "/api/pdf-worker" || path === "/api/notifications/asset") {
+  // Customer/token pages must not wait on Supabase auth. Logged-in staff with
+  // an expired cookie were hanging on getUser() so /respond never opened
+  // (or the PDF stayed on "Almost there").
+  if (
+    path === "/api/pdf-worker" ||
+    path === "/api/notifications/asset" ||
+    isPublicPage
+  ) {
     return NextResponse.next({ request });
   }
 
@@ -72,9 +80,6 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isPublicPage = PUBLIC_PATHS.some(
-    (p) => path === p || path.startsWith(`${p}/`)
-  );
   const isApi = path.startsWith("/api/");
 
   // API routes handle their own 401 JSON — never redirect them to /login.

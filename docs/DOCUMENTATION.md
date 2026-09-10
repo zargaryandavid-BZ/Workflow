@@ -896,6 +896,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `0090_die_allow_own_date.sql` | Manufacturer may offer own due date |
 | `0101_customers_crm_customer_id.sql` | `customers.crm_customer_id` + backfill from order specs |
 | `0102_memberships_outsourced.sql` | `memberships.outsourced` (team Outsource checkbox) |
+| `20260910000000_fix_search_path_and_security_definer_views.sql` | Pin `search_path = ''` on token/tenant RPCs; `security_invoker` on dashboard views |
 
 **Note:** There is no `0010_*.sql` in the repo. `sku_key`, `drop_in_roles`, and extended `member_role` values are in `setup.sql` only.
 

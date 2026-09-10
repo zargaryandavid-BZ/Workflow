@@ -43,9 +43,12 @@ function looksLikePdf(buf: ArrayBuffer): boolean {
 }
 
 async function fetchPdfBuffer(src: string): Promise<ArrayBuffer> {
-  const res = src.startsWith("blob:")
-    ? await fetch(src)
-    : await fetchWithAuth(src);
+  // Token proof URLs are public. fetchWithAuth would send the staff session
+  // and, on 401, bounce the whole tab to /login — that is why some employees
+  // "cannot open" the customer link while the customer can.
+  const publicTokenPdf =
+    src.startsWith("blob:") || src.includes("/api/notifications/asset");
+  const res = publicTokenPdf ? await fetch(src) : await fetchWithAuth(src);
   if (!res.ok) {
     let message = "Could not load the PDF.";
     try {
@@ -389,7 +392,11 @@ export function PdfOcgFromUrl({
       lastDrawHeightRef.current = 0;
       await closePdf();
       try {
-        const data = await fetchPdfBuffer(src);
+        const data = await withTimeout(
+          fetchPdfBuffer(src),
+          PDF_OPEN_MS,
+          "The PDF preview is taking too long. Open the file below to review it."
+        );
         if (cancelled) return;
         const loadingTask = getDocument({
           data,
