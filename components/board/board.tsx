@@ -256,6 +256,14 @@ interface BoardProps {
   appUrl: string;
 }
 
+function formatTimeBudget(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
+
 export function Board({
   tenantId,
   tenantName,
@@ -2215,6 +2223,31 @@ export function Board({
     }
   }
 
+  async function handleSetTimeBudget(
+    order: OrderWithRelations,
+    seconds: number | null
+  ) {
+    const snapshot = boardOrdersRef.current;
+    const specs = {
+      ...((order.specs ?? {}) as Record<string, unknown>),
+      time_budget_seconds: seconds,
+    };
+    patchOrderFields(order.id, { specs });
+    try {
+      await patchOrderApi(order.id, { specs });
+      flashToast(
+        seconds != null
+          ? `Budget set to ${formatTimeBudget(seconds)}`
+          : "Budget cleared"
+      );
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update budget"
+      );
+    }
+  }
+
   async function handleGroupSetDueDates(updates: GroupDueDateUpdate[]) {
     if (updates.length === 0) return;
     const snapshot = boardOrdersRef.current;
@@ -3712,6 +3745,9 @@ export function Board({
                 }
                 onSetLocked={
                   canSetBoardTagAndPriority(role) ? handleSetLocked : undefined
+                }
+                onSetTimeBudget={
+                  canSetBoardTagAndPriority(role) ? handleSetTimeBudget : undefined
                 }
                 onGroupSetDueDates={handleGroupSetDueDates}
                 onSetDueDate={handleSetDueDate}

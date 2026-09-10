@@ -40,11 +40,13 @@ export async function POST(request: Request) {
     role?: string;
     fullName?: string;
     phone?: string | null;
+    outsourced?: boolean;
   };
   const email = body.email?.trim().toLowerCase();
   const fullName = body.fullName?.trim() || null;
   let phone = body.phone?.trim() || null;
   const role: Role = isAssignableRole(body.role) ? body.role : "designer";
+  const outsourced = body.outsourced === true;
   if (!email) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
   }
@@ -114,11 +116,19 @@ export async function POST(request: Request) {
       user_id: userId,
       tenant_id: ctx.tenant.id,
       role,
+      outsourced,
     },
     { onConflict: "user_id,tenant_id" }
   );
   if (membershipError) {
-    return NextResponse.json({ error: membershipError.message }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: /outsourced/i.test(membershipError.message)
+          ? "Run migration 0102_memberships_outsourced.sql in Supabase, then try again."
+          : membershipError.message,
+      },
+      { status: 400 }
+    );
   }
 
   if (!alreadyActive) {

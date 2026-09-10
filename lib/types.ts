@@ -128,6 +128,8 @@ export interface TeamMemberRow {
   user_id: string;
   role: Role;
   created_at: string;
+  /** External / outsourced teammate for this tenant. */
+  outsourced: boolean;
   profile: Profile | null;
   email: string | null;
   pending: boolean;
@@ -138,6 +140,7 @@ export interface Membership {
   tenant_id: string;
   role: Role;
   created_at: string;
+  outsourced?: boolean;
 }
 
 export type VisibilityMode = "all" | "roles" | "individuals";

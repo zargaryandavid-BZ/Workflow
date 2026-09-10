@@ -478,6 +478,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `user_id` | `uuid` PK (composite) | User |
 | `tenant_id` | `uuid` PK (composite) | Tenant |
 | `role` | `member_role` | `admin` or `member` (app may use extended roles) |
+| `outsourced` | `boolean` | External / outsourced teammate (migration `0102`) |
 | `created_at` | `timestamptz` | Joined at |
 
 **FKs:** `user_id` → `auth.users`; `tenant_id` → `tenants`.
@@ -894,6 +895,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `0089_die_request_ordered.sql` | Status `ordered` + `ordered_at` |
 | `0090_die_allow_own_date.sql` | Manufacturer may offer own due date |
 | `0101_customers_crm_customer_id.sql` | `customers.crm_customer_id` + backfill from order specs |
+| `0102_memberships_outsourced.sql` | `memberships.outsourced` (team Outsource checkbox) |
 
 **Note:** There is no `0010_*.sql` in the repo. `sku_key`, `drop_in_roles`, and extended `member_role` values are in `setup.sql` only.
 
@@ -1357,13 +1359,13 @@ Invite teammate (admin).
 
 | | |
 | --- | --- |
-| **Body** | `{ email, role, fullName? }` |
+| **Body** | `{ email, role, fullName?, phone?, outsourced? }` |
 | **Response** | `{ ok: true, emailSent?, inviteUrl? }` |
 | **Errors** | 400 / 500 if service role missing |
 
 ### `PATCH /api/members/[userId]`
 
-Change member role (admin).
+Change member role, profile, or Outsource flag (admin).
 
 ### `DELETE /api/members/[userId]`
 

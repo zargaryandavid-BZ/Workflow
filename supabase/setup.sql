@@ -32,6 +32,7 @@ create table if not exists public.memberships (
   user_id uuid not null references auth.users (id) on delete cascade,
   tenant_id uuid not null references public.tenants (id) on delete cascade,
   role public.member_role not null default 'member',
+  outsourced boolean not null default false,
   created_at timestamptz not null default now(),
   primary key (user_id, tenant_id)
 );

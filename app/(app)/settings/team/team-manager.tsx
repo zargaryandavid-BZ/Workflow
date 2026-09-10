@@ -49,6 +49,7 @@ export function TeamManager({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<Role>("designer");
+  const [outsourced, setOutsourced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -121,7 +122,13 @@ export function TeamManager({
     const res = await fetch("/api/members", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fullName, email, phone: phone.trim() || null, role }),
+      body: JSON.stringify({
+        fullName,
+        email,
+        phone: phone.trim() || null,
+        role,
+        outsourced,
+      }),
     });
     const json = await res.json();
     setLoading(false);
@@ -133,6 +140,7 @@ export function TeamManager({
     setFullName("");
     setEmail("");
     setPhone("");
+    setOutsourced(false);
     await afterMembershipChange();
   }
 
@@ -141,6 +149,32 @@ export function TeamManager({
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function changeOutsourced(userId: string, next: boolean) {
+    const previous = members.find((m) => m.user_id === userId)?.outsourced;
+    setMembers((list) =>
+      list.map((m) =>
+        m.user_id === userId ? { ...m, outsourced: next } : m
+      )
+    );
+    const res = await fetch(`/api/members/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outsourced: next }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setMembers((list) =>
+        list.map((m) =>
+          m.user_id === userId
+            ? { ...m, outsourced: previous === true }
+            : m
+        )
+      );
+      alert(json.error ?? "Failed to update");
+      return;
+    }
   }
 
   async function changeRole(userId: string, newRole: Role) {
@@ -302,6 +336,15 @@ export function TeamManager({
             </Select>
           </div>
         </div>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={outsourced}
+            onChange={(e) => setOutsourced(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          />
+          Outsource
+        </label>
         {error ? (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
@@ -443,7 +486,18 @@ export function TeamManager({
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={m.outsourced}
+                          onChange={(e) =>
+                            changeOutsourced(m.user_id, e.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Outsource
+                      </label>
                       <Select
                         className="h-8 w-44 text-xs"
                         value={m.role}
@@ -613,6 +667,17 @@ export function TeamManager({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={m.outsourced}
+                          onChange={(e) =>
+                            changeOutsourced(m.user_id, e.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Outsource
+                      </label>
                       <Badge className="bg-amber-100 text-amber-700">Pending</Badge>
                       <Button
                         type="button"

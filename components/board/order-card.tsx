@@ -23,8 +23,11 @@ import {
   Truck,
   User,
   AlertTriangle,
+  Clock,
   Layers,
   Pencil,
+  Play,
+  Square,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -170,6 +173,8 @@ interface OrderCardProps {
   onSetReprint?: (on: boolean) => void;
   /** Toggle the Lock on this order (locked cards can't be moved). */
   onSetLocked?: (on: boolean) => void;
+  /** Admin-only: set/clear the time budget for this card via right-click. */
+  onSetTimeBudget?: (seconds: number | null) => void;
   /** Persist due date from right-click on the due chip. */
   onSetDueDate?: (update: {
     mode: DueDateMode;
@@ -230,6 +235,239 @@ interface OrderCardProps {
   role?: Role;
 }
 
+// ─── Time budget helpers ────────────────────────────────────────────────────
+
+function formatTimeBudget(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
+
+function TimeBudgetPicker({
+  currentSeconds,
+  onSave,
+  onClear,
+}: {
+  currentSeconds: number | null;
+  onSave: (seconds: number) => void;
+  onClear: () => void;
+}) {
+  const [hours, setHours] = useState(
+    currentSeconds != null ? Math.floor(currentSeconds / 3600) : 0
+  );
+  const [minutes, setMinutes] = useState(
+    currentSeconds != null ? Math.floor((currentSeconds % 3600) / 60) : 0
+  );
+
+  function handleSave() {
+    const total = hours * 3600 + minutes * 60;
+    if (total <= 0) return;
+    onSave(total);
+  }
+
+  return (
+    <div className="border-t border-slate-100 bg-slate-50/80 px-3 py-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+            Hours
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={99}
+            value={hours}
+            onChange={(e) =>
+              setHours(Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))
+            }
+            className="w-14 rounded border border-slate-200 bg-white px-2 py-1 text-sm tabular-nums text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <span className="mt-4 text-slate-400 text-sm">:</span>
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+            Min
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={59}
+            value={minutes}
+            onChange={(e) =>
+              setMinutes(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))
+            }
+            className="w-14 rounded border border-slate-200 bg-white px-2 py-1 text-sm tabular-nums text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={hours === 0 && minutes === 0}
+          className="flex-1 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+        >
+          Save
+        </button>
+        {currentSeconds != null ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ─── Inline timer chip for employees ────────────────────────────────────────
+
+function fmtSec(s: number): string {
+  const abs = Math.abs(Math.floor(s));
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  const sec = abs % 60;
+  const sign = s < 0 ? "+" : "";
+  if (h > 0)
+    return `${sign}${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${sign}${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function elapsedSec(entry: {
+  started_at: string;
+  paused_seconds: number;
+  paused_at: string | null;
+}): number {
+  const raw = (Date.now() - new Date(entry.started_at).getTime()) / 1000;
+  const frozenPause = entry.paused_at
+    ? (Date.now() - new Date(entry.paused_at).getTime()) / 1000
+    : 0;
+  return Math.max(0, raw - entry.paused_seconds - frozenPause);
+}
+
+interface RunningEntry {
+  id: string;
+  started_at: string;
+  paused_seconds: number;
+  paused_at: string | null;
+}
+
+function CardTimer({
+  orderId,
+  timeBudgetSeconds,
+}: {
+  orderId: string;
+  timeBudgetSeconds: number | null;
+}) {
+  const [entry, setEntry] = useState<RunningEntry | null | undefined>(
+    undefined
+  );
+  const [, setTick] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/time-entries?order_id=${orderId}&running=true`)
+      .then((r) => r.json())
+      .then((json: { entries?: RunningEntry[] }) => {
+        if (!cancelled) setEntry(json.entries?.[0] ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setEntry(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
+  useEffect(() => {
+    if (!entry || entry.paused_at) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [entry]);
+
+  if (entry === undefined) return null;
+
+  if (!entry) {
+    return (
+      <button
+        type="button"
+        disabled={loading}
+        onClick={(e) => {
+          e.stopPropagation();
+          setLoading(true);
+          void fetch("/api/time-entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId, activity_type: "Design" }),
+          })
+            .then((r) => r.json())
+            .then((json: { entry?: RunningEntry }) => {
+              setEntry(json.entry ?? null);
+            })
+            .finally(() => setLoading(false));
+        }}
+        className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
+        title="Start timer"
+      >
+        <Play className="h-2.5 w-2.5" />
+        {timeBudgetSeconds != null ? formatTimeBudget(timeBudgetSeconds) : "Start"}
+      </button>
+    );
+  }
+
+  const elapsed = elapsedSec(entry);
+  const paused = Boolean(entry.paused_at);
+  const remaining =
+    timeBudgetSeconds != null ? timeBudgetSeconds - elapsed : null;
+  const overBudget = remaining != null && remaining < 0;
+
+  const displayText = paused
+    ? `${fmtSec(elapsed)} ⏸`
+    : remaining != null
+      ? overBudget
+        ? `+${fmtSec(-remaining)}`
+        : fmtSec(remaining)
+      : fmtSec(elapsed);
+
+  const colorClass =
+    paused
+      ? "bg-amber-100 text-amber-700"
+      : overBudget
+        ? "bg-red-100 text-red-700"
+        : "bg-blue-100 text-blue-700";
+
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={(e) => {
+        e.stopPropagation();
+        setLoading(true);
+        void fetch(`/api/time-entries/${entry.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ended_at: new Date().toISOString() }),
+        })
+          .then(() => setEntry(null))
+          .finally(() => setLoading(false));
+      }}
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold ${colorClass} disabled:opacity-50`}
+      title="Stop timer"
+    >
+      <Square className="h-2.5 w-2.5" />
+      {displayText}
+    </button>
+  );
+}
+
+// ─── Main card component ────────────────────────────────────────────────────
+
 export function OrderCard({
   order,
   canDrag = true,
@@ -245,6 +483,7 @@ export function OrderCard({
   onSetPriorityScore,
   onSetReprint,
   onSetLocked,
+  onSetTimeBudget,
   onSetDueDate,
   highlighted = false,
   notificationBadge,
@@ -473,6 +712,7 @@ export function OrderCard({
   const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
   const canSetTag = Boolean(onSetTag) && tags.length > 0;
   const canSetPriorityScore = Boolean(onSetPriorityScore);
+  const canSetTimeBudget = Boolean(onSetTimeBudget);
   const canSetDueDate = Boolean(onSetDueDate);
   const canResendApproval =
     notificationBadge === "rejected" && Boolean(onResendApproval);
@@ -484,11 +724,17 @@ export function OrderCard({
     canSetPriorityScore ||
     Boolean(onSetReprint) ||
     Boolean(onSetLocked) ||
-    canResendApproval;
+    canResendApproval ||
+    canSetTimeBudget;
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
   const [tagSubOpen, setTagSubOpen] = useState(false);
   const [prioritySubOpen, setPrioritySubOpen] = useState(false);
+  const [timeBudgetSubOpen, setTimeBudgetSubOpen] = useState(false);
   const currentPriorityScore = priorityScoreFromSpecs(order.specs);
+  const currentTimeBudgetSeconds =
+    typeof order.specs?.time_budget_seconds === "number"
+      ? order.specs.time_budget_seconds
+      : null;
 
   const dueExactOpenRef = useRef(false);
   dueExactOpenRef.current = dueExactOpen;
@@ -578,10 +824,12 @@ export function OrderCard({
     canAssignDesigner,
     canSetTag,
     canSetPriorityScore,
+    canSetTimeBudget,
     canResendApproval,
     designerSubOpen,
     tagSubOpen,
     prioritySubOpen,
+    timeBudgetSubOpen,
     actionButtons.length,
     availableColumns.length,
     designers.length,
@@ -634,6 +882,7 @@ export function OrderCard({
     setDesignerSubOpen(false);
     setTagSubOpen(false);
     setPrioritySubOpen(false);
+    setTimeBudgetSubOpen(false);
     setMenuPos({ x: e.clientX, y: e.clientY });
     setMenuOpen(true);
   }
@@ -1117,6 +1366,29 @@ export function OrderCard({
                 </span>
               </>
             ) : null}
+            {/* Time budget pill (admin) or live timer chip (employee) */}
+            {canSetTimeBudget ? (
+              currentTimeBudgetSeconds != null ? (
+                <>
+                  <span className="text-slate-300"> · </span>
+                  <span
+                    className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold bg-slate-100 text-slate-500"
+                    title="Time budget"
+                  >
+                    <Clock className="h-2.5 w-2.5" />
+                    {formatTimeBudget(currentTimeBudgetSeconds)}
+                  </span>
+                </>
+              ) : null
+            ) : (
+              <>
+                <span className="text-slate-300"> · </span>
+                <CardTimer
+                  orderId={order.id}
+                  timeBudgetSeconds={currentTimeBudgetSeconds}
+                />
+              </>
+            )}
           </p>
 
           {shippingSign ? (
@@ -1542,6 +1814,46 @@ export function OrderCard({
                   <Lock className="h-3.5 w-3.5 shrink-0 text-red-600" />
                   {isLocked ? "Unlock card" : "Lock card (no move)"}
                 </button>
+              ) : null}
+              {canSetTimeBudget ? (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeBudgetSubOpen((v) => !v);
+                      setDesignerSubOpen(false);
+                      setTagSubOpen(false);
+                      setPrioritySubOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="flex-1 whitespace-nowrap">
+                      Set time budget
+                      {currentTimeBudgetSeconds != null ? (
+                        <span className="ml-1 text-xs text-slate-400">
+                          ({formatTimeBudget(currentTimeBudgetSeconds)})
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="text-slate-300">▶</span>
+                  </button>
+                  {timeBudgetSubOpen ? (
+                    <TimeBudgetPicker
+                      currentSeconds={currentTimeBudgetSeconds}
+                      onSave={(seconds) => {
+                        onSetTimeBudget?.(seconds);
+                        setMenuOpen(false);
+                        setTimeBudgetSubOpen(false);
+                      }}
+                      onClear={() => {
+                        onSetTimeBudget?.(null);
+                        setMenuOpen(false);
+                        setTimeBudgetSubOpen(false);
+                      }}
+                    />
+                  ) : null}
+                </div>
               ) : null}
               {hasMoveMenu ? (
                 <>

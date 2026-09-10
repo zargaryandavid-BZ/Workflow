@@ -92,18 +92,31 @@ export async function loadTeamMembers(tenantId: string): Promise<{
   authConfigured: boolean;
 }> {
   const supabase = await createClient();
-  const { data: membershipRows, error: membershipError } = await supabase
+  let { data: membershipRows, error: membershipError } = await supabase
     .from("memberships")
-    .select("user_id, role, created_at")
+    .select("user_id, role, created_at, outsourced")
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: true });
+
+  if (membershipError && /outsourced/i.test(membershipError.message)) {
+    const fallback = await supabase
+      .from("memberships")
+      .select("user_id, role, created_at")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: true });
+    membershipRows = (fallback.data ?? []).map((r) => ({
+      ...r,
+      outsourced: false,
+    }));
+    membershipError = fallback.error;
+  }
 
   if (membershipError) {
     return { members: [], error: membershipError.message, authConfigured: false };
   }
 
   const rows = membershipRows ?? [];
-  const userIds = rows.map((r) => r.user_id);
+  const userIds = rows.map((r) => r.user_id as string);
 
   const profilesById = new Map<string, Profile>();
   if (userIds.length > 0) {
@@ -140,10 +153,11 @@ export async function loadTeamMembers(tenantId: string): Promise<{
   const members: TeamMemberRow[] = rows.map((r) => {
     const auth = authById.get(r.user_id);
     return {
-      user_id: r.user_id,
+      user_id: r.user_id as string,
       role: r.role as Role,
-      created_at: r.created_at,
-      profile: profilesById.get(r.user_id) ?? null,
+      created_at: r.created_at as string,
+      outsourced: r.outsourced === true,
+      profile: profilesById.get(r.user_id as string) ?? null,
       email: auth?.email ?? null,
       pending: memberIsPendingFromAuth(auth),
     };

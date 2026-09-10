@@ -22,6 +22,7 @@ export async function PATCH(
     role?: string;
     fullName?: string;
     phone?: string | null;
+    outsourced?: boolean;
   };
 
   const supabase = await createClient();
@@ -74,6 +75,24 @@ export async function PATCH(
       .eq("tenant_id", ctx.tenant.id)
       .eq("user_id", userId);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (typeof body.outsourced === "boolean") {
+    const { error } = await supabase
+      .from("memberships")
+      .update({ outsourced: body.outsourced })
+      .eq("tenant_id", ctx.tenant.id)
+      .eq("user_id", userId);
+    if (error) {
+      return NextResponse.json(
+        {
+          error: /outsourced/i.test(error.message)
+            ? "Run migration 0102_memberships_outsourced.sql in Supabase, then try again."
+            : error.message,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   const updatingProfile =
