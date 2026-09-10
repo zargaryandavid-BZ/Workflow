@@ -4,6 +4,7 @@ import { OrderReview } from "@/components/respond/order-review";
 import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import {
   buildRespondOrderRows,
+  respondCustomerNote,
   skusForRespond,
   type RespondFinalPdf,
 } from "@/lib/respond-order";
@@ -124,6 +125,10 @@ export default async function ApprovalPage({
                   skuImages={skuImages}
                   orderId={approval.order_id}
                   finalPdfs={finalPdfs}
+                  customerNote={respondCustomerNote(
+                    approval.order_description,
+                    approval.order_specs ?? {}
+                  )}
                 />
               </div>
 

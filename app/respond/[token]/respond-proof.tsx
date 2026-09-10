@@ -1,7 +1,7 @@
 import { OrderReview } from "@/components/respond/order-review";
 import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
 import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
-import { buildRespondOrderRows, skusForRespond } from "@/lib/respond-order";
+import { buildRespondOrderRows, respondCustomerNote, skusForRespond } from "@/lib/respond-order";
 import type {
   RespondOrderAsset,
   RespondOrderRow,
@@ -85,6 +85,7 @@ export async function RespondProof({
       skuImages={skuImages}
       orderId={orderId}
       finalPdfs={finalPdfs}
+      customerNote={respondCustomerNote(description, specRecord)}
     />
   );
 }

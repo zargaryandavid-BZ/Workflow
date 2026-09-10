@@ -9,6 +9,7 @@ import {
 import {
   imagesBySkuId,
   buildRespondOrderRows,
+  respondCustomerNote,
   skusForRespond,
   type RespondOrderAsset,
   type RespondOrderRow,
@@ -76,6 +77,7 @@ type RespondPart = {
   assets: RespondOrderAsset[];
   skuImages: Record<string, RespondSkuImage[]>;
   finalPdfs: Record<string, RespondFinalPdf>;
+  customerNote: string | null;
 };
 
 function productFromFields(fields: Record<string, unknown>): string {
@@ -158,6 +160,7 @@ async function buildRespondParts(
       assets,
       skuImages,
       finalPdfs,
+      customerNote: respondCustomerNote(description, specs as Record<string, unknown>),
     });
   }
 
@@ -341,6 +344,7 @@ export default async function RespondPage({
               skuImages={part.skuImages}
               orderId={part.id}
               finalPdfs={part.finalPdfs}
+              customerNote={part.customerNote}
             />
           ))}
         </div>

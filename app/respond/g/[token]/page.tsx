@@ -11,6 +11,7 @@ import {
 } from "@/lib/ready-to-ship-group";
 import {
   buildRespondOrderRows,
+  respondCustomerNote,
   skusForRespond,
   type RespondOrderAsset,
 } from "@/lib/respond-order";
@@ -164,6 +165,7 @@ async function buildItem(
         skuImages={skuImages}
         orderId={member.id}
         finalPdfs={finalPdfs}
+        customerNote={respondCustomerNote(member.description, specs)}
       />
     ) : null;
 

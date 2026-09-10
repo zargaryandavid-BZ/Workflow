@@ -76,11 +76,6 @@ export function buildRespondOrderRows(
     });
   }
 
-  // Description appears last (bottom-left in the 2-column grid) before Designer.
-  if (description?.trim()) {
-    rows.push({ label: "Description", value: description.trim() });
-  }
-
   const designerName =
     typeof specs.designer_name === "string" ? specs.designer_name.trim() : "";
   if (designerName) {
@@ -88,6 +83,20 @@ export function buildRespondOrderRows(
   }
 
   return rows;
+}
+
+/** Staff “Customer note” for the portal — facing note, then order description. */
+export function respondCustomerNote(
+  description: string | null | undefined,
+  specs: Record<string, unknown> | null | undefined
+): string | null {
+  const facing =
+    typeof specs?.customer_facing_note === "string"
+      ? specs.customer_facing_note.trim()
+      : "";
+  if (facing) return facing;
+  const desc = description?.trim() ?? "";
+  return desc || null;
 }
 
 export function isRespondImageAsset(

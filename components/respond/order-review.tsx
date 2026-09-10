@@ -61,6 +61,8 @@ interface OrderReviewProps {
   orderId?: string;
   /** Final-for-Prod multilayer PDFs keyed by SKU id. */
   finalPdfs?: Record<string, RespondFinalPdf>;
+  /** Staff customer note — shown above the SKU list. */
+  customerNote?: string | null;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -472,6 +474,19 @@ function SkuArtworkBlock({
   );
 }
 
+function CustomerNoteBlock({ note }: { note: string }) {
+  return (
+    <div className="mb-3 rounded-md border border-sky-100 bg-sky-50 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-700">
+        Customer note
+      </p>
+      <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
+        {note}
+      </p>
+    </div>
+  );
+}
+
 export function OrderReview({
   token,
   rows,
@@ -481,16 +496,18 @@ export function OrderReview({
   heading,
   orderId,
   finalPdfs = {},
+  customerNote,
 }: OrderReviewProps) {
   const skuUi = useSkuDecision();
   const orderAssets: RespondOrderAsset[] = assets.filter((a) => !a.sku_key);
   const rollDirection = rollDirectionFromRespondRows(rows);
 
+  const note = customerNote?.trim() || "";
   const hasSkus = skus.length > 0;
   const hasAssets = assets.length > 0;
   const hasRows = rows.length > 0;
 
-  if (!hasSkus && !hasAssets && !hasRows) return null;
+  if (!hasSkus && !hasAssets && !hasRows && !note) return null;
 
   return (
     <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white p-3">
@@ -518,6 +535,7 @@ export function OrderReview({
 
       {hasSkus ? (
         <div>
+          {note ? <CustomerNoteBlock note={note} /> : null}
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
             SKUs
           </p>
@@ -589,6 +607,8 @@ export function OrderReview({
             })}
           </ul>
         </div>
+      ) : note ? (
+        <CustomerNoteBlock note={note} />
       ) : null}
 
       {orderAssets.length > 0 ? (
