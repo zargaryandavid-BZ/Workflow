@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isInvalidRefreshTokenError } from "@/lib/supabase/invalid-refresh";
 
 const PUBLIC_PATHS = [
   "/login",
@@ -78,7 +79,12 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+
+  if (!user && isInvalidRefreshTokenError(authError)) {
+    await supabase.auth.signOut({ scope: "local" });
+  }
 
   const isApi = path.startsWith("/api/");
 

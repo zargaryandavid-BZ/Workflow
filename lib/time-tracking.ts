@@ -1,3 +1,7 @@
+import { formatShortOrderNumber } from "@/lib/order-number-tokens";
+import { skuCountFromSpecs } from "@/lib/skus";
+import { partCardTitle } from "@/lib/group-orders";
+
 export const ACTIVITY_TYPES = [
   "Design",
   "Revision",
@@ -69,11 +73,23 @@ export interface TimeEntry {
 }
 
 export interface TimeReportResponse {
-  daily_totals: { date: string; seconds: number }[];
+  daily_totals: {
+    date: string;
+    seconds: number;
+    /** Distinct jobs with time on this day. */
+    job_count: number;
+    /** Sum of SKU counts for those jobs (custom tasks count as 1). */
+    sku_count: number;
+  }[];
   per_job: {
     job_id: string | null;
+    /** Short order # / custom task — used as fallback. */
     job_title: string;
+    /** `3021-1 | SKU qty: 200 | Customer | Line item` */
+    job_label: string;
     seconds: number;
+    /** Designers who logged time on this job (deduped, sorted). */
+    designers?: string[];
   }[];
   per_activity: { activity_type: string; seconds: number }[];
   per_user?: { user_id: string; display_name: string; seconds: number }[];
@@ -168,6 +184,33 @@ export function addDays(d: Date, n: number): Date {
   const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   copy.setDate(copy.getDate() + n);
   return copy;
+}
+
+/** Per-job report row: `3021-1 | SKU qty: 6 | Customer | Line item` (SKU count, same as the board card). */
+export function formatTimeReportJobLabel(params: {
+  customTaskName?: string | null;
+  orderTitle: string;
+  specs?: Record<string, unknown> | null;
+  customerName?: string | null;
+}): string {
+  const custom = params.customTaskName?.trim();
+  if (custom && !params.orderTitle) return custom;
+  if (custom && !params.specs) return custom;
+
+  const jobNo = formatShortOrderNumber(params.orderTitle) || params.orderTitle;
+  const skuCount = skuCountFromSpecs(params.specs);
+  const skuPart = skuCount > 0 ? `SKU qty: ${skuCount}` : null;
+  const customer = params.customerName?.trim() || null;
+  const item = partCardTitle({
+    title: params.orderTitle,
+    specs: params.specs ?? null,
+  });
+  const itemPart =
+    item && item.trim() && item.trim() !== jobNo && item.trim() !== params.orderTitle
+      ? item.trim()
+      : null;
+
+  return [jobNo, skuPart, customer, itemPart].filter(Boolean).join(" | ");
 }
 
 /** Fired in the browser when timers start/stop so the sidebar widget refreshes. */

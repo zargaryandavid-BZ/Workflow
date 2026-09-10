@@ -1,13 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Trash2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { ActiveTimerCard } from "@/components/time/ActiveTimerCard";
 import {
-  ACTIVITY_TYPES,
-  durationSeconds,
   entrySubjectLabel,
   formatDuration,
   localDateString,
@@ -33,10 +30,16 @@ function fromLocalInputValue(value: string): string | null {
   return d.toISOString();
 }
 
+interface DesignerOption {
+  id: string;
+  name: string;
+}
+
 interface TimeLogProps {
   highlightedEntryId?: string | null;
   orderId?: string | null;
   isAdmin?: boolean;
+  designers?: DesignerOption[];
   onChanged?: () => void;
 }
 
@@ -44,14 +47,13 @@ export function TimeLog({
   highlightedEntryId,
   orderId,
   isAdmin = false,
+  designers = [],
   onChanged,
 }: TimeLogProps) {
   const [date, setDate] = useState(() => localDateString());
   const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [running, setRunning] = useState<TimeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<{
     activity_type: ActivityType;
@@ -60,43 +62,27 @@ export function TimeLog({
     ended_at: string;
   } | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
+  const [designerId, setDesignerId] = useState("");
+  const [jobQuery, setJobQuery] = useState("");
+  const [durationSort, setDurationSort] = useState<"none" | "asc" | "desc">(
+    "none"
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [dayRes, runRes] = await Promise.all([
-        fetch(
-          orderId
-            ? `/api/time-entries?order_id=${encodeURIComponent(orderId)}`
-            : `/api/time-entries?started_gte=${encodeURIComponent(localDayStartIso(date))}&started_lt=${encodeURIComponent(localDayEndExclusiveIso(date))}${isAdmin ? "&all=true" : ""}`
-        ),
-        fetch(
-          isAdmin
-            ? "/api/time-entries?running=true&all=true"
-            : "/api/time-entries?running=true"
-        ),
-      ]);
+      const dayRes = await fetch(
+        orderId
+          ? `/api/time-entries?order_id=${encodeURIComponent(orderId)}`
+          : `/api/time-entries?started_gte=${encodeURIComponent(localDayStartIso(date))}&started_lt=${encodeURIComponent(localDayEndExclusiveIso(date))}${isAdmin ? "&all=true" : ""}`
+      );
       const dayData = (await dayRes.json()) as {
         entries?: TimeEntry[];
         error?: string;
       };
-      const runData = (await runRes.json()) as {
-        entries?: TimeEntry[];
-        error?: string;
-      };
       if (!dayRes.ok) throw new Error(dayData.error ?? "Failed to load log");
-      if (!runRes.ok) throw new Error(runData.error ?? "Failed to load timers");
-
-      const dayEntries = dayData.entries ?? [];
-      const runEntries = (runData.entries ?? []).filter((e) =>
-        orderId ? e.order_id === orderId : true
-      );
-      setRunning(runEntries);
-      // Completed for the day + any running that started today (avoid dupes)
-      const runIds = new Set(runEntries.map((e) => e.id));
-      setEntries(dayEntries.filter((e) => !runIds.has(e.id) || e.ended_at));
+      setEntries(dayData.entries ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load log");
     } finally {
@@ -116,92 +102,6 @@ export function TimeLog({
     return () =>
       window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChangedEvent);
   }, [load]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  async function stopTimer(id: string) {
-    setSavingId(id);
-    try {
-      const res = await fetch(`/api/time-entries/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ended_at: new Date().toISOString() }),
-      });
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Failed to stop");
-      }
-      await load();
-      notifyTimeEntriesChanged();
-      onChanged?.();
-    } finally {
-      setSavingId(null);
-    }
-  }
-
-  async function pauseTimer(id: string) {
-    setSavingId(id);
-    try {
-      const res = await fetch(`/api/time-entries/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "pause" }),
-      });
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Failed to pause");
-      }
-      await load();
-      notifyTimeEntriesChanged();
-      onChanged?.();
-    } finally {
-      setSavingId(null);
-    }
-  }
-
-  async function resumeTimer(id: string) {
-    setSavingId(id);
-    try {
-      const res = await fetch(`/api/time-entries/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "resume" }),
-      });
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Failed to resume");
-      }
-      await load();
-      notifyTimeEntriesChanged();
-      onChanged?.();
-    } finally {
-      setSavingId(null);
-    }
-  }
-
-  async function saveNotes(id: string) {
-    const notes = notesDrafts[id];
-    if (notes === undefined) return;
-    setSavingId(id);
-    try {
-      const res = await fetch(`/api/time-entries/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes }),
-      });
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Failed to save notes");
-      }
-      await load();
-      onChanged?.();
-    } finally {
-      setSavingId(null);
-    }
-  }
 
   function beginEdit(entry: TimeEntry) {
     setEditingId(entry.id);
@@ -275,31 +175,70 @@ export function TimeLog({
   }
 
   const completed = entries.filter((e) => e.ended_at);
-  const dayTotalSeconds =
-    running.reduce(
-      (sum, e) =>
-        sum +
-        durationSeconds(e.started_at, null, nowMs, {
-          pausedAt: e.paused_at,
-          pausedSeconds: e.paused_seconds,
-        }),
-      0
-    ) + completed.reduce((sum, e) => sum + e.duration_seconds, 0);
 
-  // Running that started on selected day (or all running when viewing today)
-  const today = localDateString();
-  const visibleRunning = orderId
-    ? running
-    : date === today
-      ? running
-      : running.filter((e) => localDateString(new Date(e.started_at)) === date);
+  const designerOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const d of designers) {
+      const name = d.name.trim();
+      if (d.id && name) byId.set(d.id, name);
+    }
+    for (const e of completed) {
+      const name = e.user_display_name?.trim();
+      if (e.user_id && name && !byId.has(e.user_id)) byId.set(e.user_id, name);
+    }
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }, [designers, completed]);
 
-  const jobLabel =
-    orderId
-      ? running.find((e) => e.order_id === orderId)?.job_title ||
-        completed.find((e) => e.order_id === orderId)?.job_title ||
-        null
-      : null;
+  const visible = useMemo(() => {
+    const q = jobQuery.trim().toLowerCase();
+    let rows = completed.filter((e) => {
+      if (designerId && e.user_id !== designerId) return false;
+      if (!q) return true;
+      const hay = [
+        e.job_number,
+        e.job_title,
+        e.order_title,
+        e.custom_task_name,
+        entrySubjectLabel(e),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+    if (durationSort === "asc") {
+      rows = [...rows].sort((a, b) => a.duration_seconds - b.duration_seconds);
+    } else if (durationSort === "desc") {
+      rows = [...rows].sort((a, b) => b.duration_seconds - a.duration_seconds);
+    }
+    return rows;
+  }, [completed, designerId, jobQuery, durationSort]);
+
+  const dayTotalSeconds = visible.reduce(
+    (sum, e) => sum + e.duration_seconds,
+    0
+  );
+
+  // Per-designer summary for the day (unfiltered, admin only)
+  const perDesignerTotals = useMemo(() => {
+    if (!isAdmin) return [];
+    const map = new Map<string, { name: string; seconds: number }>();
+    for (const e of completed) {
+      const key = e.user_id ?? "unknown";
+      const name = e.user_display_name ?? "Unknown";
+      const cur = map.get(key) ?? { name, seconds: 0 };
+      map.set(key, { name, seconds: cur.seconds + e.duration_seconds });
+    }
+    return [...map.values()].sort((a, b) => b.seconds - a.seconds);
+  }, [completed, isAdmin]);
+
+  const allDaySeconds = completed.reduce((s, e) => s + e.duration_seconds, 0);
+
+  const jobLabel = orderId
+    ? completed.find((e) => e.order_id === orderId)?.job_title || null
+    : null;
 
   return (
     <div className="space-y-4">
@@ -314,28 +253,86 @@ export function TimeLog({
             Show all today
           </a>
         </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-slate-700">
-            Date
-            <Input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="mt-1 w-auto"
-            />
-          </label>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="mt-5"
-            onClick={() => setDate(localDateString())}
-          >
-            Today
-          </Button>
+      ) : null}
+
+      {/* Day summary strip */}
+      {!loading && !orderId && completed.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm">
+          <span className="tabular-nums">
+            <span className="font-semibold text-slate-800">{formatDuration(allDaySeconds)}</span>
+            <span className="ml-1 text-slate-500">total</span>
+          </span>
+          {perDesignerTotals.map((d) => (
+            <span key={d.name} className="tabular-nums text-slate-600">
+              <span className="font-medium">{d.name}</span>
+              <span className="ml-1 text-slate-400">{formatDuration(d.seconds)}</span>
+            </span>
+          ))}
         </div>
       )}
+      <div className="flex flex-nowrap items-end gap-3 overflow-x-auto">
+        {orderId ? null : (
+          <>
+            <label className="text-sm font-medium text-slate-700">
+              Date
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="mt-1 w-[11.5rem] appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+              />
+            </label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mb-0.5"
+              onClick={() => setDate(localDateString())}
+            >
+              Today
+            </Button>
+          </>
+        )}
+        <label className="text-sm font-medium text-slate-700">
+          Designer
+          <Select
+            value={designerId}
+            onChange={(e) => setDesignerId(e.target.value)}
+            className="mt-1 w-48"
+          >
+            <option value="">All designers</option>
+            {designerOptions.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Job number
+          <Input
+            type="search"
+            value={jobQuery}
+            onChange={(e) => setJobQuery(e.target.value)}
+            placeholder="Search job #"
+            className="mt-1 w-44"
+          />
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Duration
+          <Select
+            value={durationSort}
+            onChange={(e) =>
+              setDurationSort(e.target.value as "none" | "asc" | "desc")
+            }
+            className="mt-1 w-40"
+          >
+            <option value="none">Start time</option>
+            <option value="asc">Duration A–Z</option>
+            <option value="desc">Duration Z–A</option>
+          </Select>
+        </label>
+      </div>
 
       {error ? (
         <p className="text-sm text-red-600" role="alert">
@@ -347,33 +344,6 @@ export function TimeLog({
         <p className="text-sm text-slate-400">Loading…</p>
       ) : (
         <>
-          {visibleRunning.length > 0 ? (
-            <div className="space-y-1.5">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Running
-              </h3>
-              {visibleRunning.map((entry) => (
-                <ActiveTimerCard
-                  key={entry.id}
-                  entry={entry}
-                  nowMs={nowMs}
-                  highlighted={highlightedEntryId === entry.id}
-                  notesEditable
-                  notesDraft={notesDrafts[entry.id] ?? entry.notes ?? ""}
-                  onNotesChange={(v) =>
-                    setNotesDrafts((prev) => ({ ...prev, [entry.id]: v }))
-                  }
-                  onNotesBlur={() => void saveNotes(entry.id)}
-                  stopping={savingId === entry.id}
-                  pausing={savingId === entry.id}
-                  onStop={(id) => void stopTimer(id)}
-                  onPause={(id) => void pauseTimer(id)}
-                  onResume={(id) => void resumeTimer(id)}
-                />
-              ))}
-            </div>
-          ) : null}
-
           <div className="overflow-x-auto rounded-lg border border-slate-200">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -382,16 +352,16 @@ export function TimeLog({
                   <th className="px-3 py-2 font-semibold">End</th>
                   <th className="px-3 py-2 font-semibold">Duration</th>
                   <th className="px-3 py-2 font-semibold">Job / Task</th>
+                  <th className="px-3 py-2 font-semibold">Customer</th>
                   {isAdmin ? (
                     <th className="px-3 py-2 font-semibold">Who</th>
                   ) : null}
-                  <th className="px-3 py-2 font-semibold">Activity</th>
                   <th className="px-3 py-2 font-semibold">Notes</th>
                   <th className="px-3 py-2 font-semibold" />
                 </tr>
               </thead>
               <tbody>
-                {completed.length === 0 ? (
+                {visible.length === 0 ? (
                   <tr>
                     <td
                       colSpan={isAdmin ? 8 : 7}
@@ -401,7 +371,7 @@ export function TimeLog({
                     </td>
                   </tr>
                 ) : (
-                  completed.map((entry) => {
+                  visible.map((entry) => {
                     const editing = editingId === entry.id && editDraft;
                     return (
                       <tr
@@ -446,30 +416,14 @@ export function TimeLog({
                             <td className="px-3 py-2 font-medium text-slate-800">
                               {entrySubjectLabel(entry)}
                             </td>
+                            <td className="px-3 py-2 text-slate-500">
+                              {entry.customer_name ?? "—"}
+                            </td>
                             {isAdmin ? (
                               <td className="px-3 py-2 text-slate-600">
                                 {entry.user_display_name ?? "—"}
                               </td>
                             ) : null}
-                            <td className="px-3 py-2">
-                              <Select
-                                value={editDraft.activity_type}
-                                onChange={(e) =>
-                                  setEditDraft({
-                                    ...editDraft,
-                                    activity_type: e.target
-                                      .value as ActivityType,
-                                  })
-                                }
-                                className="h-8 text-xs"
-                              >
-                                {ACTIVITY_TYPES.map((t) => (
-                                  <option key={t} value={t}>
-                                    {t}
-                                  </option>
-                                ))}
-                              </Select>
-                            </td>
                             <td className="px-3 py-2">
                               <Input
                                 value={editDraft.notes}
@@ -533,14 +487,14 @@ export function TimeLog({
                             <td className="px-3 py-2 font-medium text-slate-800">
                               {entrySubjectLabel(entry)}
                             </td>
+                            <td className="max-w-[10rem] truncate px-3 py-2 text-slate-500">
+                              {entry.customer_name ?? "—"}
+                            </td>
                             {isAdmin ? (
                               <td className="px-3 py-2 text-slate-600">
                                 {entry.user_display_name ?? "—"}
                               </td>
                             ) : null}
-                            <td className="px-3 py-2 text-slate-600">
-                              {entry.activity_type}
-                            </td>
                             <td className="max-w-[12rem] truncate px-3 py-2 text-slate-500">
                               {entry.notes || "—"}
                             </td>

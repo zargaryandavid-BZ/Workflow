@@ -1,8 +1,7 @@
 import { Printer } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { OrderReview } from "@/components/respond/order-review";
 import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
-import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildRespondOrderRows,
   skusForRespond,
@@ -34,7 +33,7 @@ export default async function ApprovalPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data } = await supabase.rpc("get_approval_by_token", {
     p_token: token,
   });

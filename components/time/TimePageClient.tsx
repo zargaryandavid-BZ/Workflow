@@ -8,10 +8,164 @@ import { ActiveTimerCard } from "@/components/time/ActiveTimerCard";
 import { NewTimerModal } from "@/components/time/NewTimerModal";
 import { TimeLog } from "@/components/time/TimeLog";
 import { TimeReports } from "@/components/time/TimeReports";
-import { type TimeEntry, TIME_ENTRIES_CHANGED_EVENT, notifyTimeEntriesChanged } from "@/lib/time-tracking";
+import {
+  type TimeEntry,
+  TIME_ENTRIES_CHANGED_EVENT,
+  notifyTimeEntriesChanged,
+  durationSeconds,
+  formatDuration,
+  isTimerPaused,
+} from "@/lib/time-tracking";
 import { cn } from "@/lib/utils";
 
 type Tab = "active" | "log" | "reports";
+
+// ─── Active timers tab ────────────────────────────────────────────────────────
+
+function ActiveTimersTab({
+  loading,
+  running,
+  nowMs,
+  entryParam,
+  notesDrafts,
+  stoppingId,
+  pausingId,
+  isAdmin,
+  onNotesChange,
+  onNotesBlur,
+  onStop,
+  onPause,
+  onResume,
+  onStart,
+}: {
+  loading: boolean;
+  running: TimeEntry[];
+  nowMs: number;
+  entryParam: string | null;
+  notesDrafts: Record<string, string>;
+  stoppingId: string | null;
+  pausingId: string | null;
+  isAdmin: boolean;
+  onNotesChange: (id: string, v: string) => void;
+  onNotesBlur: (id: string) => void;
+  onStop: (id: string) => void;
+  onPause: (id: string) => void;
+  onResume: (id: string) => void;
+  onStart: () => void;
+}) {
+  if (loading) return <p className="text-sm text-slate-400">Loading…</p>;
+
+  if (running.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 px-6 py-12 text-center">
+        <p className="text-sm text-slate-500">No timers running</p>
+        <p className="mt-1 text-xs text-slate-400">
+          Press Start on a board card, or start a timer here.
+        </p>
+        <Button type="button" className="mt-4" onClick={onStart}>
+          <Plus className="h-4 w-4" />
+          Start Timer
+        </Button>
+      </div>
+    );
+  }
+
+  const runningCount = running.filter((e) => !isTimerPaused(e)).length;
+  const pausedCount = running.filter((e) => isTimerPaused(e)).length;
+  const totalElapsed = running.reduce(
+    (sum, e) =>
+      sum +
+      durationSeconds(e.started_at, null, nowMs, {
+        pausedAt: e.paused_at ?? null,
+        pausedSeconds: e.paused_seconds ?? 0,
+      }),
+    0
+  );
+
+  // Group by designer for admin view
+  const groups: { name: string; entries: TimeEntry[] }[] = [];
+  if (isAdmin) {
+    const byDesigner = new Map<string, { name: string; entries: TimeEntry[] }>();
+    for (const e of running) {
+      const key = e.user_id ?? "unknown";
+      const name = e.user_display_name ?? "Unknown";
+      if (!byDesigner.has(key)) byDesigner.set(key, { name, entries: [] });
+      byDesigner.get(key)!.entries.push(e);
+    }
+    groups.push(...byDesigner.values());
+    groups.sort((a, b) => a.name.localeCompare(b.name));
+  } else {
+    groups.push({ name: "", entries: running });
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary strip */}
+      <div className="flex flex-wrap items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm">
+        <span>
+          <span className="font-semibold text-emerald-600">{runningCount}</span>
+          <span className="ml-1 text-slate-500">running</span>
+        </span>
+        {pausedCount > 0 && (
+          <span>
+            <span className="font-semibold text-amber-500">{pausedCount}</span>
+            <span className="ml-1 text-slate-500">paused</span>
+          </span>
+        )}
+        <span className="ml-auto tabular-nums text-slate-700">
+          <span className="font-semibold">{formatDuration(totalElapsed)}</span>
+          <span className="ml-1 text-slate-400">total tracked</span>
+        </span>
+      </div>
+
+      {/* Timer cards grouped by designer */}
+      {groups.map((group) => {
+        const groupElapsed = group.entries.reduce(
+          (sum, e) =>
+            sum +
+            durationSeconds(e.started_at, null, nowMs, {
+              pausedAt: e.paused_at ?? null,
+              pausedSeconds: e.paused_seconds ?? 0,
+            }),
+          0
+        );
+        return (
+          <div key={group.name || "self"}>
+            {isAdmin && (
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {group.name}
+                </span>
+                <span className="text-xs tabular-nums text-slate-400">
+                  {formatDuration(groupElapsed)}
+                </span>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              {group.entries.map((entry) => (
+                <ActiveTimerCard
+                  key={entry.id}
+                  entry={entry}
+                  nowMs={nowMs}
+                  highlighted={entryParam === entry.id}
+                  notesEditable
+                  notesDraft={notesDrafts[entry.id] ?? entry.notes ?? ""}
+                  onNotesChange={(v) => onNotesChange(entry.id, v)}
+                  onNotesBlur={() => onNotesBlur(entry.id)}
+                  stopping={stoppingId === entry.id}
+                  pausing={pausingId === entry.id}
+                  onStop={onStop}
+                  onPause={onPause}
+                  onResume={onResume}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "active", label: "Active Timers" },
@@ -211,46 +365,22 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
         ) : null}
 
         {tab === "active" ? (
-          <div className="space-y-1.5">
-            {loading ? (
-              <p className="text-sm text-slate-400">Loading…</p>
-            ) : running.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 px-6 py-12 text-center">
-                <p className="text-sm text-slate-500">No timers running</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Press Start on a board card, or start a timer here.
-                </p>
-                <Button
-                  type="button"
-                  className="mt-4"
-                  onClick={() => setModalOpen(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Start Timer
-                </Button>
-              </div>
-            ) : (
-              running.map((entry) => (
-                <ActiveTimerCard
-                  key={entry.id}
-                  entry={entry}
-                  nowMs={nowMs}
-                  highlighted={entryParam === entry.id}
-                  notesEditable
-                  notesDraft={notesDrafts[entry.id] ?? entry.notes ?? ""}
-                  onNotesChange={(v) =>
-                    setNotesDrafts((prev) => ({ ...prev, [entry.id]: v }))
-                  }
-                  onNotesBlur={() => void saveNotes(entry.id)}
-                  stopping={stoppingId === entry.id}
-                  pausing={pausingId === entry.id}
-                  onStop={(id) => void stopTimer(id)}
-                  onPause={(id) => void pauseTimer(id)}
-                  onResume={(id) => void resumeTimer(id)}
-                />
-              ))
-            )}
-          </div>
+          <ActiveTimersTab
+            loading={loading}
+            running={running}
+            nowMs={nowMs}
+            entryParam={entryParam}
+            notesDrafts={notesDrafts}
+            stoppingId={stoppingId}
+            pausingId={pausingId}
+            isAdmin={isAdmin}
+            onNotesChange={(id, v) => setNotesDrafts((prev) => ({ ...prev, [id]: v }))}
+            onNotesBlur={(id) => void saveNotes(id)}
+            onStop={(id) => void stopTimer(id)}
+            onPause={(id) => void pauseTimer(id)}
+            onResume={(id) => void resumeTimer(id)}
+            onStart={() => setModalOpen(true)}
+          />
         ) : null}
 
         {tab === "log" ? (
@@ -258,6 +388,7 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
             highlightedEntryId={entryParam}
             orderId={orderParam}
             isAdmin={isAdmin}
+            designers={designers}
             onChanged={() => void refetchRunning()}
           />
         ) : null}

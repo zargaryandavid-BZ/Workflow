@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   loadApprovalGroupItemSummaries,
@@ -181,7 +180,7 @@ export default async function ApprovalGroupPage({
   const { token } = await params;
   const sp = await searchParams;
   const initialItem = Array.isArray(sp.item) ? sp.item[0] : sp.item ?? null;
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data } = await supabase.rpc("get_approval_group_portal_by_token", {
     p_token: token,
   });

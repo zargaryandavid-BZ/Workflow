@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { isInvalidRefreshTokenError } from "@/lib/supabase/invalid-refresh";
 
 let refreshPromise: Promise<boolean> | null = null;
 
@@ -12,8 +13,21 @@ async function refreshAuthOnce(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.refresh_token) {
+        await supabase.auth.signOut({ scope: "local" });
+        return false;
+      }
       const { data, error } = await supabase.auth.refreshSession();
-      return !error && !!data.session;
+      if (error || !data.session) {
+        if (isInvalidRefreshTokenError(error)) {
+          await supabase.auth.signOut({ scope: "local" });
+        }
+        return false;
+      }
+      return true;
     })().finally(() => {
       refreshPromise = null;
     });
