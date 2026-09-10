@@ -45,6 +45,7 @@ import type { ActionButtonResult } from "./action-button";
 import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
+import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { fetchRetryingStale404, fetchWithAuth, isStaleNext404 } from "@/lib/fetch-with-auth";
 import {
@@ -1733,7 +1734,7 @@ export function Board({
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event: string, session: Session | null) => {
       if (session?.access_token) {
         await supabase.realtime.setAuth(session.access_token);
       }

@@ -89,7 +89,7 @@ export function MentionNotificationPopup({
             table: "user_notifications",
             filter: `user_id=eq.${userId}`,
           },
-          (payload) => {
+          (payload: { new?: unknown }) => {
             const n = asNotification(
               (payload.new ?? {}) as Record<string, unknown>
             );
