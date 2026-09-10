@@ -6,28 +6,27 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import Image from "next/image";
 import {
+  AlertTriangle,
+  Boxes,
+  CalendarClock,
+  Car,
   ChevronDown,
   ChevronUp,
   Clock,
   CreditCard,
-  Car,
-  CalendarClock,
   Flag,
-  Boxes,
+  Layers,
   Lock,
   MapPin,
   MoveRight,
+  Pencil,
+  Play,
   RefreshCw,
+  Square,
   Star,
   Tag,
   Truck,
   User,
-  AlertTriangle,
-  Clock,
-  Layers,
-  Pencil,
-  Play,
-  Square,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
