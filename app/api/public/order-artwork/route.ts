@@ -4,23 +4,36 @@ import { normalizeSkus } from "@/lib/skus";
 
 const BUCKET = "order-assets";
 const SIGNED_URL_TTL_SEC = 60 * 60 * 24 * 7;
-const PULSE_ORIGIN = "https://pulse-jade-five.vercel.app";
+const PULSE_ORIGIN = "https://pulse-crm-git-pulsedavit-bazaardavit.vercel.app";
+const PULSE_ORIGINS = new Set([
+  PULSE_ORIGIN,
+  "https://pulse-jade-five.vercel.app",
+]);
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": PULSE_ORIGIN,
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+function allowOrigin(req: NextRequest): string {
+  const origin = req.headers.get("origin") || "";
+  if (PULSE_ORIGINS.has(origin)) return origin;
+  if (/^https:\/\/pulse-crm[a-z0-9-]*\.vercel\.app$/i.test(origin)) return origin;
+  return PULSE_ORIGIN;
+}
 
-function jsonWithCors(body: unknown, init?: { status?: number }) {
+function corsHeaders(req: NextRequest) {
+  return {
+    "Access-Control-Allow-Origin": allowOrigin(req),
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
+function jsonWithCors(req: NextRequest, body: unknown, init?: { status?: number }) {
   return NextResponse.json(body, {
     status: init?.status,
-    headers: CORS_HEADERS,
+    headers: corsHeaders(req),
   });
 }
 
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(request) });
 }
 
 interface AssetRow {
@@ -55,14 +68,14 @@ export async function GET(request: NextRequest) {
   const orderRef = request.nextUrl.searchParams.get("order_ref")?.trim();
 
   if (!orderRef) {
-    return jsonWithCors({ error: "order_ref is required" }, { status: 400 });
+    return jsonWithCors(request, { error: "order_ref is required" }, { status: 400 });
   }
 
   let admin;
   try {
     admin = createAdminClient();
   } catch {
-    return jsonWithCors({ error: "Server error" }, { status: 500 });
+    return jsonWithCors(request, { error: "Server error" }, { status: 500 });
   }
 
   // Order numbers are stored in `orders.title` (e.g. ORD-2026-004-1).
@@ -72,11 +85,11 @@ export async function GET(request: NextRequest) {
     .or(`title.eq.${orderRef},title.like.${orderRef}-%`);
 
   if (orderError) {
-    return jsonWithCors({ error: "Failed to fetch order" }, { status: 500 });
+    return jsonWithCors(request, { error: "Failed to fetch order" }, { status: 500 });
   }
 
   if (!orders || orders.length === 0) {
-    return jsonWithCors({ error: "Order not found" }, { status: 404 });
+    return jsonWithCors(request, { error: "Order not found" }, { status: 404 });
   }
 
   const orderIds = orders.map((o) => o.id as string);
@@ -88,7 +101,7 @@ export async function GET(request: NextRequest) {
     .not("sku_key", "is", null);
 
   if (assetError) {
-    return jsonWithCors({ error: "Failed to fetch artwork" }, { status: 500 });
+    return jsonWithCors(request, { error: "Failed to fetch artwork" }, { status: 500 });
   }
 
   const assetsByOrderSku = new Map<string, AssetRow>();
@@ -134,7 +147,7 @@ export async function GET(request: NextRequest) {
     })
   );
 
-  return jsonWithCors({
+  return jsonWithCors(request, {
     success: true,
     order_ref: orderRef,
     orders: result,

@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Access-Control-Allow-Origin",
-            value: "https://pulse-jade-five.vercel.app",
+            value: "https://pulse-crm-git-pulsedavit-bazaardavit.vercel.app",
           },
           { key: "Access-Control-Allow-Methods", value: "GET, OPTIONS" },
           { key: "Access-Control-Allow-Headers", value: "Content-Type" },
