@@ -1592,6 +1592,7 @@ export function OrderCard({
                       setDesignerSubOpen((v) => !v);
                       setTagSubOpen(false);
                       setPrioritySubOpen(false);
+                      setTimeBudgetSubOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                   >
@@ -1653,6 +1654,7 @@ export function OrderCard({
                       setTagSubOpen((v) => !v);
                       setDesignerSubOpen(false);
                       setPrioritySubOpen(false);
+                      setTimeBudgetSubOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                   >
@@ -1731,6 +1733,7 @@ export function OrderCard({
                       setPrioritySubOpen((v) => !v);
                       setDesignerSubOpen(false);
                       setTagSubOpen(false);
+                      setTimeBudgetSubOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                   >
@@ -1824,18 +1827,18 @@ export function OrderCard({
                       setTagSubOpen(false);
                       setPrioritySubOpen(false);
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex w-full items-center gap-2 bg-sky-50 px-3 py-1.5 text-left text-sm font-medium text-sky-900 hover:bg-sky-100"
                   >
-                    <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-sky-600" />
                     <span className="flex-1 whitespace-nowrap">
                       Set time budget
                       {currentTimeBudgetSeconds != null ? (
-                        <span className="ml-1 text-xs text-slate-400">
+                        <span className="ml-1 text-xs font-normal text-sky-700/80">
                           ({formatTimeBudget(currentTimeBudgetSeconds)})
                         </span>
                       ) : null}
                     </span>
-                    <span className="text-slate-300">▶</span>
+                    <span className="text-sky-500">▶</span>
                   </button>
                   {timeBudgetSubOpen ? (
                     <TimeBudgetPicker

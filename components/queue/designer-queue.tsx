@@ -18,7 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 type Designer = { id: string; name: string };
-type QueueOrder = { id: string; title: string; priority: string; due_date: string | null; queue_pos: number };
+type QueueOrder = { id: string; title: string; priority: string; due_date: string | null; queue_pos: number; customer_name: string | null };
 
 const PRIORITY_STYLE: Record<string, { bg: string; fg: string }> = {
   urgent: { bg: "#fee2e2", fg: "#b91c1c" },
@@ -76,6 +76,12 @@ function SortableRow({
       </span>
       <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
         {order.title || "Untitled"}
+        {order.customer_name && (
+          <>
+            <span className="mx-1.5 text-slate-300">|</span>
+            <span className="font-normal text-slate-500">{order.customer_name}</span>
+          </>
+        )}
       </span>
       <span
         className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"

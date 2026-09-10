@@ -53,7 +53,7 @@ export async function GET(request: Request) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("orders")
-    .select("id, title, priority, due_date, specs, column_id")
+    .select("id, title, priority, due_date, specs, column_id, customer:customers(name)")
     .eq("tenant_id", ctx.tenant.id)
     .eq("specs->>designer_id", designerId)
     .is("removed_at", null)
@@ -67,6 +67,7 @@ export async function GET(request: Request) {
       priority: (o.priority as string) ?? "normal",
       due_date: (o.due_date as string | null) ?? null,
       queue_pos: queuePos(o.specs),
+      customer_name: ((o.customer as { name?: string } | null)?.name) ?? null,
     }))
     .sort((a, b) => {
       if (a.queue_pos !== b.queue_pos) return a.queue_pos - b.queue_pos;
