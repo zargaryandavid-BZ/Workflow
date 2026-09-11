@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { Check, Download, FileText, Layers, X } from "lucide-react";
 import {
@@ -67,6 +67,8 @@ interface OrderReviewProps {
   finalPdfs?: Record<string, RespondFinalPdf>;
   /** Staff customer note — shown above the SKU list. */
   customerNote?: string | null;
+  /** Skip Google Drive PDF lookup (missing-info pages have no proof). */
+  skipDrivePdf?: boolean;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -302,6 +304,7 @@ function SkuArtworkBlock({
   multiImage,
   skuId,
   finalPdf,
+  pdfPending = false,
   rollDirection,
 }: {
   token: string;
@@ -310,6 +313,7 @@ function SkuArtworkBlock({
   multiImage: boolean;
   skuId: string;
   finalPdf: RespondFinalPdf | null;
+  pdfPending?: boolean;
   rollDirection: ReturnType<typeof rollDirectionFromRespondRows>;
 }) {
   const canShowPdf = Boolean(finalPdf && orderId);
@@ -322,10 +326,11 @@ function SkuArtworkBlock({
   const perImage =
     approvalImageSlotCount(skuArt.length, pdfPages, finalPdf?.page) >= 2;
 
-  if (skuArt.length === 0 && !canShowPdf) return null;
+  if (skuArt.length === 0 && !canShowPdf && !pdfPending) return null;
 
   return (
     <div className="mt-2">
+      {pdfPending && !canShowPdf ? <PdfLoadingBar /> : null}
       {pdfOn && finalPdf && orderId && pdfView ? (
         <Suspense fallback={<PdfPreviewLoading fileName={finalPdf.fileName} />}>
           <PdfOcgFromUrl
@@ -478,6 +483,8 @@ function SkuArtworkBlock({
                       <OnRollPreview
                         artworkSrc={href}
                         direction={rollDirection}
+                        labelWidthIn={labelWidthIn}
+                        labelHeightIn={labelHeightIn}
                       />
                     ) : null}
                   </div>
@@ -513,17 +520,68 @@ export function OrderReview({
   orderId,
   finalPdfs = {},
   customerNote,
+  skipDrivePdf = false,
 }: OrderReviewProps) {
   const skuUi = useSkuDecision();
   const orderAssets: RespondOrderAsset[] = assets.filter((a) => !a.sku_key);
   const rollDirection = rollDirectionFromRespondRows(rows);
 
+  // Extract label dimensions from order rows for the roll preview sizing.
+  const labelWidthIn = parseFloat(
+    rows.find((r) => r.label.trim().toLowerCase() === "width")?.value ?? ""
+  ) || null;
+  const labelHeightIn = parseFloat(
+    rows.find((r) => r.label.trim().toLowerCase() === "height")?.value ?? ""
+  ) || null;
+  const [drivePdfs, setDrivePdfs] = useState(finalPdfs);
+  const [driveSkus, setDriveSkus] = useState(skus);
+  const [pdfPending, setPdfPending] = useState(
+    () =>
+      !skipDrivePdf &&
+      Object.keys(finalPdfs).length === 0 &&
+      Boolean(orderId)
+  );
+
+  useEffect(() => {
+    if (skipDrivePdf || Object.keys(finalPdfs).length > 0 || !orderId) {
+      setDrivePdfs(finalPdfs);
+      setPdfPending(false);
+      return;
+    }
+    let cancelled = false;
+    setPdfPending(true);
+    void fetch(
+      `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}`
+    )
+      .then(async (res) => {
+        const data = (await res.json()) as {
+          skus?: SkuItem[];
+          bySku?: Record<string, RespondFinalPdf>;
+        };
+        if (cancelled) return;
+        if (res.ok && data.bySku) setDrivePdfs(data.bySku);
+        if (res.ok && Array.isArray(data.skus) && data.skus.length > 0) {
+          setDriveSkus(data.skus);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setPdfPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, orderId, skipDrivePdf]);
+
+  const reviewSkus = driveSkus;
+  const reviewPdfs = Object.keys(drivePdfs).length > 0 ? drivePdfs : finalPdfs;
+
   const note = customerNote?.trim() || "";
-  const hasSkus = skus.length > 0;
+  const hasSkus = reviewSkus.length > 0;
   const hasAssets = assets.length > 0;
   const hasRows = rows.length > 0;
 
-  if (!hasSkus && !hasAssets && !hasRows && !note) return null;
+  if (!hasSkus && !hasAssets && !hasRows && !note && !pdfPending) return null;
 
   return (
     <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white p-3">
@@ -552,11 +610,16 @@ export function OrderReview({
       {hasSkus ? (
         <div>
           {note ? <CustomerNoteBlock note={note} /> : null}
+          {pdfPending ? (
+            <div className="mb-3">
+              <PdfLoadingBar />
+            </div>
+          ) : null}
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
             SKUs
           </p>
           <ul className="space-y-3">
-            {skus.map((sku, index) => {
+            {reviewSkus.map((sku, index) => {
               const skuArt = collectSkuApprovalImages(sku.id, assets, skuImages);
               const multiImage = skuArt.length >= 2;
               const pdfPages = skuUi.pdfPageCountBySku?.[sku.id] ?? 0;
@@ -616,7 +679,8 @@ export function OrderReview({
                     skuArt={skuArt}
                     multiImage={multiImage}
                     skuId={sku.id}
-                    finalPdf={finalPdfs[sku.id] ?? null}
+                    finalPdf={reviewPdfs[sku.id] ?? null}
+                    pdfPending={false}
                     rollDirection={rollDirection}
                   />
                 </li>
@@ -624,6 +688,8 @@ export function OrderReview({
             })}
           </ul>
         </div>
+      ) : pdfPending ? (
+        <PdfLoadingBar />
       ) : note ? (
         <CustomerNoteBlock note={note} />
       ) : null}

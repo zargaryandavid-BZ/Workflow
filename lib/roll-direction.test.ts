@@ -47,20 +47,22 @@ describe("roll direction", () => {
       ]),
       "4-Left"
     );
+    assert.equal(rollDirectionArtworkRotateDeg("2-Bottom"), 0);
+    assert.equal(rollDirectionArtworkRotateDeg("1-Top"), 180);
+    assert.equal(rollDirectionArtworkRotateDeg("3-Right"), 90);
     assert.equal(rollDirectionArtworkRotateDeg("4-Left"), -90);
-    assert.equal(rollDirectionArtworkRotateDeg("1-Top"), 0);
     assert.equal(
       rollDirectionPrintCaption("4-Left"),
       "Left of copy off first"
     );
   });
 
-  it("preview buttons change angle from the order Roll Direction", () => {
-    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "4-Left"), 0);
-    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "1-Top"), 90);
-    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "3-Right"), 180);
-    assert.equal(rollDirectionPreviewRotateDeg("1-Top", "4-Left"), -90);
-    assert.equal(rollDirectionPreviewRotateDeg("1-Top", "2-Bottom"), 180);
+  it("preview rotation is absolute from 2-Bottom, not relative to the order", () => {
+    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "2-Bottom"), 0);
+    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "1-Top"), 180);
+    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "3-Right"), 90);
+    assert.equal(rollDirectionPreviewRotateDeg("4-Left", "4-Left"), -90);
+    assert.equal(rollDirectionPreviewRotateDeg("1-Top", "2-Bottom"), 0);
     assert.equal(formatRollDirectionPreviewAngle(90), "+90°");
     assert.equal(formatRollDirectionPreviewAngle(-90), "-90°");
     assert.equal(formatRollDirectionPreviewAngle(0), "0°");

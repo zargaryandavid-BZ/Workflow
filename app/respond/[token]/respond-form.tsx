@@ -67,6 +67,18 @@ interface Props {
   onDecided?: (decision: "approved" | "rejected") => void;
 }
 
+async function readJson(res: Response): Promise<{ error?: string } & Record<string, unknown>> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as { error?: string } & Record<string, unknown>;
+  } catch {
+    if (res.status === 413) {
+      return { error: "File is too large to upload through this link." };
+    }
+    return { error: "Upload failed. Please try again." };
+  }
+}
+
 /** A single titled upload control (its own file input + drag state). */
 function UploadDropzone({
   label,
@@ -351,17 +363,65 @@ export function RespondForm({
         const files = filesBySlot[slotIndex] ?? [];
         const { skuKey } = slots[slotIndex];
         for (const file of files) {
-          const form = new FormData();
-          form.append("file", file);
-          form.append("token", token);
-          if (skuKey) form.append("skuKey", skuKey);
-          const uploadRes = await fetch("/api/notifications/upload", {
+          const signRes = await fetch("/api/notifications/upload", {
             method: "POST",
-            body: form,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              token,
+              fileName: file.name,
+              size: file.size,
+              mimeType: file.type || null,
+              skuKey: skuKey || undefined,
+            }),
           });
-          const uploadJson = await uploadRes.json();
-          if (!uploadRes.ok) {
-            throw new Error(uploadJson.error ?? `Failed to upload ${file.name}`);
+          const signJson = (await readJson(signRes)) as {
+            error?: string;
+            signedUrl?: string;
+            path?: string;
+            token?: string;
+          };
+          if (!signRes.ok || !signJson.signedUrl || !signJson.path) {
+            throw new Error(
+              signJson.error ?? `Failed to upload ${file.name}`
+            );
+          }
+          const putHeaders: Record<string, string> = {
+            "Content-Type": file.type || "application/octet-stream",
+            "x-upsert": "false",
+          };
+          if (signJson.token) {
+            putHeaders.Authorization = `Bearer ${signJson.token}`;
+          }
+          const putRes = await fetch(signJson.signedUrl, {
+            method: "PUT",
+            headers: putHeaders,
+            body: file,
+          });
+          if (!putRes.ok) {
+            throw new Error(
+              `${file.name} could not be uploaded. Try a smaller file or another format.`
+            );
+          }
+          const completeRes = await fetch("/api/notifications/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "complete",
+              token,
+              path: signJson.path,
+              fileName: file.name,
+              size: file.size,
+              mimeType: file.type || null,
+              skuKey: skuKey || undefined,
+            }),
+          });
+          const completeJson = (await readJson(completeRes)) as {
+            error?: string;
+          };
+          if (!completeRes.ok) {
+            throw new Error(
+              completeJson.error ?? `Failed to upload ${file.name}`
+            );
           }
         }
       }

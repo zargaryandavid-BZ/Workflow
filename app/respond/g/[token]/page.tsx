@@ -20,8 +20,6 @@ import {
   fetchRespondSkuImages,
 } from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
-import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
-import { pdfPageLocksFromFinalPdfs } from "@/lib/shared-pdf-pages";
 import { orderMetaChips } from "@/lib/respond-page";
 import type { OrderSpecs } from "@/lib/types";
 import {
@@ -124,34 +122,17 @@ async function buildItem(
   }
 
   const approvalSkus = skusForRespond(specs);
-  let reviewSkus = approvalSkus;
-  let finalPdfs: Record<
-    string,
-    Awaited<ReturnType<typeof fetchRespondArtworkPack>>["bySku"][string]
-  > = {};
-  try {
-    const pack = await fetchRespondArtworkPack(
-      admin,
-      member.tenant_id,
-      { id: member.id, title: member.title, specs },
-      approvalSkus
-    );
-    finalPdfs = pack.bySku;
-    if (Object.keys(pack.bySku).length > 0) reviewSkus = pack.skus;
-  } catch {
-    // Drive lookup is optional; page still works without PDFs.
-  }
-  const skuIds = new Set(reviewSkus.map((s) => s.id));
+  const skuIds = new Set(approvalSkus.map((s) => s.id));
   const payload: ApprovalGroupItemPayload = {
     summary,
     metaChips: orderMetaChips(fields, specs),
     productLabel: product,
-    approvalSkus: reviewSkus,
+    approvalSkus,
     approvalAssets: assets.filter(
       (a) => a.sku_key != null && skuIds.has(a.sku_key)
     ),
     approvalSkuGallery: skuImages,
-    approvalPdfPageBySku: pdfPageLocksFromFinalPdfs(finalPdfs),
+    approvalPdfPageBySku: {},
   };
 
   const review =
@@ -160,11 +141,10 @@ async function buildItem(
         token={summary.notificationToken}
         heading={summary.itemLabel}
         rows={buildRespondOrderRows(member.description, fields, specs)}
-        skus={reviewSkus}
+        skus={approvalSkus}
         assets={assets}
         skuImages={skuImages}
         orderId={member.id}
-        finalPdfs={finalPdfs}
         customerNote={respondCustomerNote(member.description, specs)}
       />
     ) : null;
@@ -291,14 +271,20 @@ export default async function ApprovalGroupPage({
   const payloads: ApprovalGroupItemPayload[] = [];
   const reviews: Record<string, ReactNode> = {};
 
-  for (const summary of summaries) {
-    const member = members.find((m) => m.id === summary.orderId)!;
-    const { payload, review } = await buildItem(
-      admin,
-      summary,
-      member,
-      fieldByOrderId.get(member.id) ?? {}
-    );
+  const built = await Promise.all(
+    summaries.map((summary) => {
+      const member = members.find((m) => m.id === summary.orderId)!;
+      return buildItem(
+        admin,
+        summary,
+        member,
+        fieldByOrderId.get(member.id) ?? {}
+      );
+    })
+  );
+  for (let i = 0; i < summaries.length; i++) {
+    const summary = summaries[i]!;
+    const { payload, review } = built[i]!;
     payloads.push(payload);
     if (review) reviews[summary.orderId] = review;
   }

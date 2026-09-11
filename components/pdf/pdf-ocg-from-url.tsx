@@ -11,7 +11,6 @@ import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-map-polyfill";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
   isUnnamedPdfLayer,
-  isPdfArtworkLayer,
   layersFromOptionalContent,
   mergePdfLayers,
   parsePdfOcgs,
@@ -356,10 +355,9 @@ export function PdfOcgFromUrl({
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
     const list = layersRef.current;
-    const art = list.find((layer) => isPdfArtworkLayer(layer.name));
     if (oc) {
       for (const layer of list) {
-        oc.setVisibility(layer.id, art ? layer.id === art.id : true, false);
+        oc.setVisibility(layer.id, true, false);
       }
     }
     try {

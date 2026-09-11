@@ -3,33 +3,33 @@
 import { useEffect, useState } from "react";
 import {
   ROLL_DIRECTION_OPTIONS,
-  formatRollDirectionPreviewAngle,
-  rollDirectionPreviewRotateDeg,
+  rollDirectionArtworkRotateDeg,
   type RollDirectionValue,
 } from "@/lib/roll-direction";
 import { cn } from "@/lib/utils";
 
 const ROLL_SRC = "/roll-direction/roll-mockup.png";
-/** Space between the roll box and the unwind arrow. */
-const LABEL_TO_ARROW_PX = 20;
-/** Space between artwork and the hanging web: top, bottom, and right. */
-const WEB_INSET_PX = 10;
-/** Space between the three labels. */
-const LABEL_GAP_PX = 10;
+/** Gap between the three label thumbnails on the roll face. */
+const LABEL_GAP_PX = 6;
 const LABEL_COUNT = 3;
+
+/**
+ * The roll-mockup.png was designed with these proportions.
+ * Adjust if the image changes:
+ *   - Face starts at 42% from the left edge of the image
+ *   - Face runs to the right edge (minus a small inset)
+ *   - Face occupies from ~26% top to ~90% of image height
+ */
+const FACE_LEFT_PCT = 42; // % from left where the flat unwind face begins
+const FACE_TOP_PCT = 26;  // % from top where the face starts
+const FACE_BOTTOM_PCT = 90; // % from top where the face ends
+const FACE_RIGHT_INSET_PX = 12; // px from right edge to keep clear
 
 const DIRECTION_TITLE: Record<RollDirectionValue, string> = {
   "1-Top": "Roll Direction 1-Top",
   "2-Bottom": "Roll Direction 2-Bottom",
   "3-Right": "Roll Direction 3-Right",
   "4-Left": "Roll Direction 4-Left",
-};
-
-const DIR_SHORT: Record<RollDirectionValue, string> = {
-  "1-Top": "1 · Top",
-  "2-Bottom": "2 · Bottom",
-  "3-Right": "3 · Right",
-  "4-Left": "4 · Left",
 };
 
 function paintRotated(img: HTMLImageElement, deg: number): string {
@@ -54,16 +54,22 @@ function paintRotated(img: HTMLImageElement, deg: number): string {
 export function OnRollPreview({
   artworkSrc,
   direction,
+  /** Label width in inches (used to compute aspect ratio for proper sizing). */
+  labelWidthIn,
+  /** Label height in inches. */
+  labelHeightIn,
   className,
 }: {
   artworkSrc: string;
   direction: RollDirectionValue;
+  labelWidthIn?: number | null;
+  labelHeightIn?: number | null;
   className?: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const [cellSrc, setCellSrc] = useState<string | null>(null);
   const [active, setActive] = useState<RollDirectionValue>(direction);
-  const rotateDeg = rollDirectionPreviewRotateDeg(direction, active);
+  const rotateDeg = rollDirectionArtworkRotateDeg(active);
 
   useEffect(() => {
     setActive(direction);
@@ -105,12 +111,24 @@ export function OnRollPreview({
     img.src = src;
   }, [src, rotateDeg]);
 
+  // Compute aspect ratio of the rotated label so we can set exact dimensions.
+  // For 90° / -90° rotations, width and height swap.
+  const turn = ((rotateDeg % 360) + 360) % 360;
+  const isQuarterTurn = turn === 90 || turn === 270;
+  const rawW = labelWidthIn ?? 1;
+  const rawH = labelHeightIn ?? 1;
+  const rotatedW = isQuarterTurn ? rawH : rawW;
+  const rotatedH = isQuarterTurn ? rawW : rawH;
+  // aspect = width / height of the rotated label
+  const aspect = rotatedW / rotatedH;
+
   return (
     <div className={cn("flex flex-col items-center gap-3 px-4 py-4", className)}>
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {DIRECTION_TITLE[active]}
       </p>
 
+      {/* Direction picker */}
       <div
         className="flex w-full max-w-[680px] flex-wrap items-center justify-center gap-1.5"
         role="group"
@@ -132,15 +150,9 @@ export function OnRollPreview({
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200",
                 isOnOrder && !isActive && "ring-2 ring-blue-500 ring-offset-1"
               )}
-              title={
-                isOnOrder ? `${opt.label} — set on this order` : opt.label
-              }
+              title={isOnOrder ? `${opt.label} — set on this order` : opt.label}
             >
-              {isOnOrder
-                ? DIR_SHORT[opt.value]
-                : formatRollDirectionPreviewAngle(
-                    rollDirectionPreviewRotateDeg(direction, opt.value)
-                  )}
+              {opt.label}
               {isOnOrder ? (
                 <span
                   className={cn(
@@ -156,11 +168,10 @@ export function OnRollPreview({
         })}
       </div>
 
-      <div
-        className="flex w-full max-w-[680px] items-center"
-        style={{ gap: LABEL_TO_ARROW_PX }}
-      >
-        <div className="relative min-w-0 flex-1 overflow-hidden">
+      {/* Roll mockup + arrow */}
+      <div className="flex w-full max-w-[680px] items-center gap-3">
+        {/* Roll image with labels overlaid */}
+        <div className="relative min-w-0 flex-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={ROLL_SRC}
@@ -168,57 +179,67 @@ export function OnRollPreview({
             className="block h-auto w-full"
             draggable={false}
           />
-          {src ? (
-            <div
-              className="absolute box-border overflow-hidden"
-              style={{
-                left: "42%",
-                top: "26%",
-                right: WEB_INSET_PX,
-                height: "70%",
-                paddingTop: WEB_INSET_PX,
-                paddingBottom: WEB_INSET_PX,
-                paddingRight: WEB_INSET_PX,
-              }}
-            >
-              {cellSrc ? (
-                <div
-                  className="flex h-full w-full items-center justify-end"
-                  style={{ gap: LABEL_GAP_PX }}
-                >
-                  {Array.from({ length: LABEL_COUNT }, (_, i) => (
-                    <div
-                      key={i}
-                      className="flex h-full min-w-0 flex-1 items-center justify-end"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={cellSrc}
-                        alt=""
-                        className="max-h-full max-w-full object-contain object-right"
-                        draggable={false}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-400">
-                  Placing label…
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="absolute inset-x-[44%] top-1/2 text-center text-[11px] text-slate-400">
-              Placing label…
-            </p>
-          )}
+
+          {/* Label overlay: positioned over the flat face of the roll */}
+          <div
+            className="pointer-events-none absolute overflow-hidden"
+            style={{
+              left: `${FACE_LEFT_PCT}%`,
+              top: `${FACE_TOP_PCT}%`,
+              right: FACE_RIGHT_INSET_PX,
+              bottom: `${100 - FACE_BOTTOM_PCT}%`,
+            }}
+          >
+            {cellSrc ? (
+              /*
+               * Labels are sized by HEIGHT to fill the face area, with width
+               * computed from the rotated aspect ratio. This eliminates the
+               * vertical "gap" that appeared when labels were flex-1 (equal
+               * width) and constrained by max-width in a tall container.
+               *
+               * Layout: row, end-aligned (labels emerge from the right where
+               * the web exits the roll) with a small gap between them.
+               */
+              <div
+                className="flex h-full items-center justify-end"
+                style={{ gap: LABEL_GAP_PX }}
+              >
+                {Array.from({ length: LABEL_COUNT }, (_, i) => (
+                  /*
+                   * Each label: full height, width = height × aspect.
+                   * We use a fixed aspect-ratio box so the image never
+                   * exceeds its natural proportions regardless of the
+                   * container width.
+                   */
+                  <div
+                    key={i}
+                    className="relative h-full shrink-0 overflow-hidden rounded-[2px]"
+                    style={{ aspectRatio: String(aspect) }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={cellSrc}
+                      alt=""
+                      className="absolute inset-0 h-full w-full object-fill"
+                      draggable={false}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="flex h-full items-center justify-center text-[11px] text-slate-400">
+                Placing label…
+              </p>
+            )}
+          </div>
         </div>
+
+        {/* Unwind direction arrow */}
         <svg
-          className="h-8 w-8 shrink-0 text-slate-800"
-          style={{ transform: "translate(-10px, 10px)" }}
+          className="h-8 w-8 shrink-0 text-slate-700"
           viewBox="0 0 24 24"
           fill="none"
-          aria-hidden
+          aria-label="Unwind direction"
         >
           <path
             d="M5 12h14M12 5l7 7-7 7"

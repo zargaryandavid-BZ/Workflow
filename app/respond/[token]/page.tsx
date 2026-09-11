@@ -21,8 +21,6 @@ import {
   fetchRespondSkuImages,
 } from "@/lib/respond-order-server";
 import { OrderReview } from "@/components/respond/order-review";
-import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
-import { pdfPageLocksFromFinalPdfs } from "@/lib/shared-pdf-pages";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
@@ -135,22 +133,6 @@ async function buildRespondParts(
 
     let finalPdfs: RespondPart["finalPdfs"] = {};
     let partSkus = skusForRespond(specs as Record<string, unknown>);
-    try {
-      const pack = await fetchRespondArtworkPack(
-        admin,
-        member.tenant_id,
-        {
-          id: member.id,
-          title: member.title,
-          specs: specs as Record<string, unknown>,
-        },
-        partSkus
-      );
-      finalPdfs = pack.bySku;
-      if (Object.keys(pack.bySku).length > 0) partSkus = pack.skus;
-    } catch {
-      // Drive lookup is optional
-    }
 
     parts.push({
       id: member.id,
@@ -325,12 +307,6 @@ export default async function RespondPage({
     if (members.length > 1) {
       headerTitle = formatReadyToShipGroupLabel(members);
       const parts = await buildRespondParts(members, notification);
-      for (const part of parts) {
-        Object.assign(
-          approvalPdfPageBySku,
-          pdfPageLocksFromFinalPdfs(part.finalPdfs)
-        );
-      }
       orderReview = (
         <div className="space-y-4">
           {parts.map((part) => (
@@ -353,8 +329,12 @@ export default async function RespondPage({
   }
 
   // Multi-item customer approvals use a stable group portal (one SMS link for
-  // the whole order). Old per-item tokens redirect there.
-  if (notification.type === "customer_approval") {
+  // the whole order). Old per-item tokens redirect there — skip once the
+  // customer already responded so this page can paint immediately.
+  if (
+    notification.type === "customer_approval" &&
+    notification.status !== "responded"
+  ) {
     const admin = createAdminClient();
     const { data: primaryOrder } = await admin
       .from("orders")
@@ -426,6 +406,7 @@ export default async function RespondPage({
           specs={notification.order_specs ?? {}}
           assets={assets}
           skuImages={skuImages}
+          skipDrivePdf={notification.type !== "customer_approval"}
         />
       </Suspense>
     );

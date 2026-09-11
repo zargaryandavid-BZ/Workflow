@@ -43,14 +43,17 @@ export function rollDirectionOption(
   return ROLL_DIRECTION_OPTIONS.find((o) => o.value === canonical) ?? null;
 }
 
-/** Rotate artwork on the hanging web so unwind matches 1-Top … 4-Left. */
+/**
+ * Rotate hanging-web artwork from the PDF/photo as-is.
+ * Proofs are drawn as 2-Bottom (0°).
+ */
 export function rollDirectionArtworkRotateDeg(
   value: RollDirectionValue
 ): number {
   switch (value) {
-    case "1-Top":
-      return 0;
     case "2-Bottom":
+      return 0;
+    case "1-Top":
       return 180;
     case "3-Right":
       return 90;
@@ -60,17 +63,14 @@ export function rollDirectionArtworkRotateDeg(
 }
 
 /**
- * Artwork in the proof already matches the order's Roll Direction.
- * Preview buttons change that angle; they do not set an absolute unwind.
+ * Preview rotation is absolute from the file (2-Bottom).
+ * The order Roll Direction is only used to pick the default / Set chip.
  */
 export function rollDirectionPreviewRotateDeg(
-  orderDirection: RollDirectionValue,
+  _orderDirection: RollDirectionValue,
   previewDirection: RollDirectionValue
 ): number {
-  return (
-    rollDirectionArtworkRotateDeg(previewDirection) -
-    rollDirectionArtworkRotateDeg(orderDirection)
-  );
+  return rollDirectionArtworkRotateDeg(previewDirection);
 }
 
 /** e.g. `+90°`, `-90°`, `0°`, `+180°`. */

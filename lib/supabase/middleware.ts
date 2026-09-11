@@ -22,6 +22,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/notifications/respond",
   "/api/notifications/upload",
   "/api/notifications/asset",
+  "/api/notifications/final-artwork",
   "/api/approvals/decide",
   "/api/shipping/",
   "/api/warehouse-confirm/",
@@ -48,7 +49,7 @@ export async function updateSession(request: NextRequest) {
   // (or the PDF stayed on "Almost there").
   if (
     path === "/api/pdf-worker" ||
-    path === "/api/notifications/asset" ||
+    isPublicApi(path) ||
     isPublicPage
   ) {
     return NextResponse.next({ request });
