@@ -229,7 +229,9 @@ export function PdfOcgFromUrl({
       canvas.style.maxWidth = "100%";
       canvas.style.maxHeight = boxH ? "100%" : "none";
       canvas.style.objectFit = "contain";
-      canvas.style.height = "auto";
+      if (!boxH) {
+        canvas.style.height = "auto";
+      }
       canvas.className = grid
         ? "mx-auto max-w-full bg-white"
         : "mx-auto max-w-full rounded bg-white shadow-sm";
@@ -318,19 +320,16 @@ export function PdfOcgFromUrl({
       return;
     }
 
+    const fitToHost = fillHostRef.current || expandedRef.current;
     const availH = Math.max(host.clientHeight - pad, 1);
     if (availH < 8 && grid) return;
+    if (fitToHost && host.clientHeight < 40) return;
     const locked = lockedPageRef.current;
     const n =
       locked != null
         ? Math.min(Math.max(locked, 1), pdf.numPages)
         : Math.min(Math.max(pageNumberRef.current, 1), pdf.numPages);
-    await paintPage(
-      n,
-      availW,
-      fillHostRef.current ? availH : null,
-      staging
-    );
+    await paintPage(n, availW, fitToHost ? availH : null, staging);
     if (gen !== drawGenRef.current) return;
     host.replaceChildren(...Array.from(staging.childNodes));
     lastDrawWidthRef.current = Math.round(host.clientWidth);
@@ -468,7 +467,7 @@ export function PdfOcgFromUrl({
       if (onRollRef.current || loadingRef.current) return;
       const w = Math.round(host.clientWidth);
       const h = Math.round(host.clientHeight);
-      if (fillHostRef.current) {
+      if (fillHostRef.current || expandedRef.current) {
         if (
           Math.abs(w - lastDrawWidthRef.current) < 4 &&
           Math.abs(h - lastDrawHeightRef.current) < 4
@@ -773,7 +772,7 @@ export function PdfOcgFromUrl({
           className={cn(
             "relative flex w-full flex-col items-stretch",
             expanded
-              ? "min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]"
+              ? "min-h-0 flex-1 overflow-hidden"
               : fillHost
                 ? "min-h-0 flex-1 overflow-hidden"
               : loading
