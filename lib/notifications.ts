@@ -399,9 +399,16 @@ async function deliverNotification(
       ? "both"
       : sentParts[0];
 
+  const sentAt = new Date().toISOString();
   await client
     .from("job_notifications")
-    .update({ channel: storedChannel, status: "sent" })
+    .update({
+      channel: storedChannel,
+      status: "sent",
+      // Resend reuses this row; bump created_at so Com. History shows the latest send.
+      created_at: sentAt,
+      ...(params.actorUserId ? { created_by: params.actorUserId } : {}),
+    })
     .eq("id", params.notification.id);
 
   await logActivity(client, {
@@ -821,7 +828,11 @@ export async function createNotification(
     if (extraNotificationIds.length > 0 && delivery.channel) {
       await client
         .from("job_notifications")
-        .update({ channel: delivery.channel, status: "sent" })
+        .update({
+          channel: delivery.channel,
+          status: "sent",
+          created_at: new Date().toISOString(),
+        })
         .in("id", extraNotificationIds);
     }
     warning = delivery.error ?? null;

@@ -58,8 +58,9 @@ export interface UpsertCustomerResult {
   action: UpsertCustomerAction;
 }
 
+/** Omit `fedex_account_number` until migration 0101 is applied on the live DB. */
 const CUSTOMER_SELECT =
-  "id, tenant_id, name, email, phone, company, preferred_channel, default_priority_score, crm_customer_id, fedex_account_number, created_at, updated_at";
+  "id, tenant_id, name, email, phone, company, preferred_channel, default_priority_score, crm_customer_id, created_at, updated_at";
 
 export function normalizeCustomerContact(
   contact: string
