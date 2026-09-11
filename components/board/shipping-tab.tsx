@@ -16,7 +16,11 @@ import {
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import type { ShippingBox, ShippingDeliveryAddress, ShippingRequest } from "@/lib/types";
-import { maskFedExAccountNumber } from "@/lib/client-fedex";
+import {
+  clientFedExAccountFromSelection,
+  isClientFedExSelection,
+  maskFedExAccountNumber,
+} from "@/lib/client-fedex";
 
 interface ShippingTabProps {
   shippingRequest: ShippingRequest;
@@ -203,9 +207,14 @@ export function ShippingTab({
     (shippingRequest.client_choice === "delivery" &&
       shippingRequest.fedex_selection?.provider === "curri");
   const isCourier = isUber || isCurri;
+  const isClientFedex =
+    shippingRequest.client_choice === "delivery" &&
+    isClientFedExSelection(shippingRequest.fedex_selection);
   const isDelivery =
-    shippingRequest.client_choice === "delivery" && !isCurri;
+    shippingRequest.client_choice === "delivery" && !isCurri && !isClientFedex;
   const rate = shippingRequest.fedex_selection;
+  const clientAccountOnResponse =
+    clientFedExAccountFromSelection(rate) ?? clientFedexAccount ?? null;
   const address = shippingRequest.delivery_address;
   const money = formatMoney(rate?.totalCharge, rate?.currency);
   const transit = formatTransit(rate?.transitDays);
@@ -342,7 +351,7 @@ export function ShippingTab({
 
   return (
     <div className="space-y-4 py-1">
-      {clientFedexAccount ? (
+      {clientAccountOnResponse ? (
         <section className="rounded-xl border border-purple-200 bg-purple-50 p-4">
           <div className="mb-1 flex items-center gap-2">
             <Truck className="h-4 w-4 text-purple-700" />
@@ -353,7 +362,7 @@ export function ShippingTab({
           <p className="text-sm text-purple-900">
             Ship this job on the customer&apos;s FedEx account{" "}
             <span className="font-semibold">
-              {maskFedExAccountNumber(clientFedexAccount)}
+              {maskFedExAccountNumber(clientAccountOnResponse)}
             </span>
             . Do not bill shop FedEx.
           </p>
@@ -545,6 +554,37 @@ export function ShippingTab({
                 Confirmed {formatDateTime(shippingRequest.responded_at)}
               </p>
             ) : null}
+          </div>
+        ) : isClientFedex ? (
+          <div className="space-y-3 text-sm text-slate-700">
+            <p className="flex items-center gap-2 font-medium text-slate-900">
+              <Truck className="h-4 w-4 text-purple-700" />
+              FedEx with client account
+            </p>
+            <dl className="space-y-1.5">
+              <div className="flex justify-between gap-4">
+                <dt className="text-slate-500">FedEx account</dt>
+                <dd className="font-mono font-semibold text-slate-900">
+                  {clientFedExAccountFromSelection(rate) ?? "—"}
+                </dd>
+              </div>
+            </dl>
+            {address ? (
+              <AddressBlock
+                address={address}
+                label="Deliver to"
+                copied={addressCopied}
+                onCopy={() => void copyDeliveryAddress()}
+              />
+            ) : null}
+            {shippingRequest.responded_at ? (
+              <p className="text-slate-500">
+                Confirmed {formatDateTime(shippingRequest.responded_at)}
+              </p>
+            ) : null}
+            <p className="rounded-lg bg-purple-50 px-3 py-2 text-sm text-purple-900">
+              Buy the label in FedEx using this account. Do not bill shop FedEx.
+            </p>
           </div>
         ) : isDelivery ? (
           <div className="space-y-3 text-sm text-slate-700">

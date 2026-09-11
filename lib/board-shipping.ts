@@ -1,3 +1,4 @@
+import { isClientFedExSelection } from "@/lib/client-fedex";
 import type {
   FedExRateOption,
   ShippingClientChoice,
@@ -9,6 +10,7 @@ export type BoardShippingKind =
   | "payment_pending"
   | "pickup"
   | "delivery"
+  | "client_fedex"
   | "uber"
   | "curri";
 
@@ -153,6 +155,14 @@ export function boardShippingSignFromRequest(row: {
         title: `Client chose Curri · ${name}`,
       };
     }
+    if (isClientFedExSelection(row.fedex_selection)) {
+      return {
+        kind: "client_fedex",
+        choice: "delivery",
+        label: "Self FedEx",
+        title: "Client chose FedEx billed to their account",
+      };
+    }
     const { label, title } = shortDeliveryLabel(row.fedex_selection);
     return {
       kind: "delivery",
@@ -195,6 +205,7 @@ export function shippingCardBorderColor(
     return "#fbbf24"; // amber-400
   }
   if (sign.kind === "pickup") return "#34d399"; // emerald-400
+  if (sign.kind === "client_fedex") return "#c084fc"; // purple-400
   if (sign.kind === "uber") return "#a78bfa"; // violet-400
   if (sign.kind === "curri") return "#fb923c"; // orange-400
   return "#38bdf8"; // sky-400 — FedEx delivery
@@ -209,6 +220,7 @@ export function shippingTagClass(
     return "bg-amber-50 text-amber-700";
   }
   if (sign.kind === "pickup") return "bg-emerald-50 text-emerald-700";
+  if (sign.kind === "client_fedex") return "bg-purple-50 text-purple-800";
   if (sign.kind === "uber") return "bg-violet-50 text-violet-700";
   if (sign.kind === "curri") return "bg-orange-50 text-orange-700";
   if (isOvernightShippingSign(sign)) return "bg-red-50 text-red-700";

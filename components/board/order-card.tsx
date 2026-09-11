@@ -1416,13 +1416,14 @@ export function OrderCard({
                 {shippingSign.label}
               </span>
               ) : null}
-              {order.customer?.fedex_account_number ? (
+              {order.customer?.fedex_account_number &&
+              shippingSign?.kind !== "client_fedex" ? (
                 <span
                   className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-800"
                   title={`Deliver on client FedEx ${maskFedExAccountNumber(order.customer.fedex_account_number)}`}
                 >
                   <Truck className="h-3 w-3" />
-                  FedEx
+                  Self FedEx
                 </span>
               ) : null}
             </div>

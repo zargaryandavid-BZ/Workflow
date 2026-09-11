@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureFedExLabel } from "@/lib/fedex-label";
+import { verifyFedExAccountNumber } from "@/lib/fedex";
+import {
+  clientFedExSelection,
+  isClientFedExSelection,
+  normalizeFedExAccountNumber,
+} from "@/lib/client-fedex";
 import { completeShippingResponse } from "@/lib/shipping-confirm";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { dollarsToCents } from "@/lib/shipping-markup";
@@ -71,10 +77,12 @@ export async function POST(
   const paymentRequired =
     (body.choice === "delivery" || body.choice === "curri") &&
     Boolean(body.fedexSelection?.serviceType) &&
+    !isClientFedExSelection(body.fedexSelection) &&
     (settings?.payment_enabled ?? false);
 
   if (body.choice === "delivery" || body.choice === "curri") {
     const hasRate = Boolean(body.fedexSelection?.serviceType);
+    const clientFedex = isClientFedExSelection(body.fedexSelection);
     // Unquoted delivery is allowed when staff did not enter box sizes —
     // customer submits an address and the shop follows up with a quote.
     if (!hasRate && body.choice === "curri") {
@@ -82,6 +90,31 @@ export async function POST(
         { error: "Select a Curri delivery option." },
         { status: 422 }
       );
+    }
+    if (clientFedex) {
+      try {
+        body.fedexSelection = clientFedExSelection(
+          body.fedexSelection?.clientAccountNumber ?? ""
+        );
+      } catch (err) {
+        return NextResponse.json(
+          {
+            error:
+              err instanceof Error
+                ? err.message
+                : "Enter a valid FedEx account number (8–12 digits).",
+          },
+          { status: 422 }
+        );
+      }
+      const check = await verifyFedExAccountNumber(
+        normalizeFedExAccountNumber(body.fedexSelection.clientAccountNumber) ??
+          "",
+        settings
+      );
+      if (!check.ok) {
+        return NextResponse.json({ error: check.error }, { status: 400 });
+      }
     }
     if (
       hasRate &&
@@ -216,6 +249,7 @@ export async function POST(
   const isFedExDelivery =
     body.choice === "delivery" &&
     body.fedexSelection?.provider !== "curri" &&
+    !isClientFedExSelection(body.fedexSelection) &&
     Boolean(body.fedexSelection?.serviceType);
 
   if (isFedExDelivery) {

@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Car,
   ChevronDown,
+  IdCard,
   Loader2,
   MapPin,
   Package,
@@ -18,6 +19,11 @@ import type {
   ShippingDeliveryAddress,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  clientFedExSelection,
+  isClientFedExSelection,
+  maskFedExAccountNumber,
+} from "@/lib/client-fedex";
 
 export interface ShippingPortalData {
   token: string;
@@ -401,8 +407,9 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   const hasBoxes = data.boxes.length > 0;
   // FedEx / Curri need box sizes — hide that option entirely when qty is 0.
   const offerDelivery = hasBoxes && (data.offerFedex || data.offerCurri);
+  const offerClientFedex = data.offerFedex;
   const [step, setStep] = useState<
-    "choose" | "pickup" | "delivery" | "uber" | "done"
+    "choose" | "pickup" | "delivery" | "client_fedex" | "uber" | "done"
   >(
     data.status === "client_responded" || data.paymentReturnSessionId
       ? data.status === "client_responded"
@@ -441,8 +448,14 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   const [doneNotes, setDoneNotes] = useState(data.deliveryNotes ?? "");
   // Highlight Self Pickup by default so customers notice the recommended option.
   const [selectedChoice, setSelectedChoice] = useState<
-    "pickup" | "delivery" | "uber"
-  >(data.offerPickup ? "pickup" : offerDelivery ? "delivery" : "uber");
+    "pickup" | "delivery" | "client_fedex" | "uber"
+  >(data.offerPickup ? "pickup" : offerDelivery ? "delivery" : offerClientFedex ? "client_fedex" : "uber");
+  const [clientAccount, setClientAccount] = useState("");
+  const [clientAccountMasked, setClientAccountMasked] = useState<string | null>(
+    null
+  );
+  const [clientAccountValid, setClientAccountValid] = useState(false);
+  const [validatingAccount, setValidatingAccount] = useState(false);
   const shippingOptionsRef = useRef<HTMLDivElement | null>(null);
   const ratesPanelRef = useRef<HTMLDivElement | null>(null);
   const [optionsEl, setOptionsEl] = useState<HTMLDivElement | null>(null);
@@ -548,6 +561,69 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       setDoneChoice(choice);
       setDoneRate(rate);
       setDoneAddress(data.deliveryAddress ?? address);
+      setStep("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to confirm");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  async function validateClientFedexAccount() {
+    setValidatingAccount(true);
+    setError(null);
+    setClientAccountValid(false);
+    setClientAccountMasked(null);
+    try {
+      const res = await fetch(
+        `/api/shipping/${data.token}/verify-fedex-account`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountNumber: clientAccount }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error ?? "Could not validate that FedEx account.");
+      }
+      setClientAccountValid(true);
+      setClientAccountMasked(
+        typeof json.accountMasked === "string" ? json.accountMasked : null
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not validate that FedEx account."
+      );
+    } finally {
+      setValidatingAccount(false);
+    }
+  }
+
+  async function confirmClientFedex() {
+    if (!clientAccountValid) {
+      setError("Validate your FedEx account number first.");
+      return;
+    }
+    setConfirming(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/shipping/${data.token}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          choice: "delivery" as const,
+          fedexSelection: clientFedExSelection(clientAccount),
+          deliveryAddress: address,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to save your FedEx account.");
+      }
+      setDoneChoice("delivery");
+      setDoneRate(clientFedExSelection(clientAccount));
+      setDoneAddress(address);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to confirm");
@@ -1034,8 +1110,54 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 </p>
               </button>
             ) : null}
+            {offerClientFedex ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedChoice("client_fedex");
+                  setStep("client_fedex");
+                  setError(null);
+                }}
+                className={cn(
+                  "rounded-xl border-2 border-solid p-4 text-left transition active:scale-[0.99]",
+                  selectedChoice === "client_fedex"
+                    ? "border-black bg-purple-50 shadow-md ring-2 ring-black/15"
+                    : "border-purple-200 bg-purple-50 shadow-sm hover:border-purple-400 hover:bg-purple-100 hover:shadow-md"
+                )}
+              >
+                <IdCard
+                  className={cn(
+                    "mb-2 h-5 w-5",
+                    selectedChoice === "client_fedex"
+                      ? "text-black"
+                      : "text-purple-700"
+                  )}
+                />
+                <p className="font-semibold text-slate-900">
+                  FedEx with my account
+                </p>
+                {selectedChoice === "client_fedex" ? (
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-black">
+                    Selected
+                  </p>
+                ) : null}
+                <p className="mt-1 text-sm text-slate-500">
+                  We ship on your FedEx account number
+                </p>
+                <p
+                  className={cn(
+                    "mt-3 text-xs font-semibold uppercase tracking-wide",
+                    selectedChoice === "client_fedex"
+                      ? "text-black"
+                      : "text-purple-700"
+                  )}
+                >
+                  Tap to select →
+                </p>
+              </button>
+            ) : null}
           </div>
-          {!data.offerPickup && !offerDelivery && !data.offerUber ? (
+          {!data.offerPickup && !offerDelivery && !offerClientFedex && !data.offerUber ? (
             <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
               No shipping options are available right now. Please contact the
               shop.
@@ -1087,6 +1209,75 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : null}
             Confirm Self Pickup
+          </button>
+        </div>
+      ) : null}
+
+      {step === "client_fedex" ? (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => {
+              setStep("choose");
+              setError(null);
+            }}
+            className="text-sm font-bold text-black hover:text-slate-800"
+          >
+            ← Back
+          </button>
+
+          <p className="text-sm font-medium text-slate-800">
+            Enter the address and your FedEx account. We will bill that account
+            for the shipment.
+          </p>
+
+          <DeliveryAddressFields address={address} onChange={editAddress} />
+
+          <label className="block text-sm font-semibold text-slate-800">
+            My FedEx account number
+            <input
+              value={clientAccount}
+              onChange={(e) => {
+                setClientAccount(e.target.value);
+                setClientAccountValid(false);
+                setClientAccountMasked(null);
+              }}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="8–12 digits"
+              className={addressInputClass}
+            />
+          </label>
+          {clientAccountValid ? (
+            <p className="text-sm font-medium text-emerald-700">
+              Account verified
+              {clientAccountMasked ? ` · ${clientAccountMasked}` : null}. You
+              can apply.
+            </p>
+          ) : null}
+
+          <button
+            type="button"
+            disabled={validatingAccount || !clientAccount.trim()}
+            onClick={() => void validateClientFedexAccount()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border-2 border-purple-300 bg-white px-4 py-2.5 text-sm font-medium text-purple-900 hover:bg-purple-50 disabled:opacity-50"
+          >
+            {validatingAccount ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            Validate account
+          </button>
+
+          <button
+            type="button"
+            disabled={confirming || !clientAccountValid}
+            onClick={() => void confirmClientFedex()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1a1f2e] px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          >
+            {confirming ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            Apply
           </button>
         </div>
       ) : null}
@@ -1263,7 +1454,9 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 ? "Uber delivery confirmed"
                 : doneRate?.provider === "curri"
                   ? "Curri delivery confirmed"
-                  : "Shipping preference saved"}
+                  : isClientFedExSelection(doneRate)
+                    ? "FedEx with your account confirmed"
+                    : "Shipping preference saved"}
           </p>
           {doneChoice === "pickup" ? (
             <div className="mt-3 text-sm text-emerald-800">
@@ -1290,8 +1483,11 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
           ) : doneRate ? (
             <div className="mt-3 space-y-1 text-sm text-emerald-800">
               <p>
-                {doneRate.serviceName}
-                {doneRate.totalCharge != null
+                {isClientFedExSelection(doneRate)
+                  ? `We will ship on your FedEx account ${maskFedExAccountNumber(doneRate.clientAccountNumber ?? "")}`
+                  : doneRate.serviceName}
+                {!isClientFedExSelection(doneRate) &&
+                doneRate.totalCharge != null
                   ? ` · ${formatMoney(doneRate.totalCharge, doneRate.currency)}`
                   : null}
               </p>

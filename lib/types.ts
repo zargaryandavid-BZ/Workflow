@@ -741,6 +741,8 @@ export interface FedExRateOption {
   quoteId?: string;
   /** Curri priority: rush | sameday | scheduled */
   priority?: string;
+  /** Customer-owned FedEx account when they chose “FedEx with my account”. */
+  clientAccountNumber?: string | null;
   feeComparison?: {
     rush?: number;
     sameday?: number;

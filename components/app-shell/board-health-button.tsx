@@ -10,7 +10,6 @@ import {
   type BoardHealthLevel,
   type BoardHealthResult,
 } from "@/lib/board-health";
-import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 
 const EMPTY: BoardHealthResult = {
   level: 5,
@@ -168,33 +167,34 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
             </p>
           </div>
           <p className="mb-3 text-sm text-slate-600">{result.summary}</p>
-          <div className="divide-y divide-slate-100 border-t border-slate-100 text-sm">
+          <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-2">
             {show.late ? (
-              <HealthRow label="Late" count={c.late} tone="late" />
+              <StatCard label="Late" count={c.late} tone="late" />
             ) : null}
             {show.dueToday ? (
-              <HealthRow label="Due today" count={c.dueToday} tone="today" />
+              <StatCard label="Due today" count={c.dueToday} tone="today" />
             ) : null}
             {show.warnings ? (
-              <HealthRow label="Warnings" count={c.warnings} tone="warn" />
+              <StatCard label="Warnings" count={c.warnings} tone="warn" />
             ) : null}
             {show.stuck ? (
-              <HealthRow label="Stuck" count={c.stuck} tone="stuck" />
+              <StatCard label="Stuck" count={c.stuck} tone="stuck" />
             ) : null}
           </div>
           {designers.length > 0 ? (
             <div className="mt-2 border-t border-slate-100 pt-2">
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Designer load
               </p>
               <div className="max-h-40 overflow-y-auto">
                 {designers.map((d) => (
-                  <DesignerLoadRow key={d.id} designer={d} />
+                  <DesignerLoadRow
+                    key={d.id}
+                    designer={d}
+                    maxLoad={Math.max(...designers.map((x) => x.load), 1)}
+                  />
                 ))}
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Start / In Progress cards / SKUs
-              </p>
             </div>
           ) : null}
           <p className="mt-2 text-[11px] text-slate-400">
@@ -247,18 +247,33 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
   );
 }
 
-function DesignerLoadRow({ designer }: { designer: BoardHealthDesignerLoad }) {
+function DesignerLoadRow({
+  designer,
+  maxLoad,
+}: {
+  designer: BoardHealthDesignerLoad;
+  maxLoad: number;
+}) {
+  const pct = maxLoad > 0 ? Math.round((designer.load / maxLoad) * 100) : 0;
   return (
-    <div className="flex items-center justify-between gap-2 py-1 text-sm">
-      <span className="truncate text-slate-700">{designer.name}</span>
+    <div className="flex items-center gap-2 py-1 text-xs">
+      <span className="w-20 shrink-0 truncate font-medium text-slate-700">
+        {designer.name}
+      </span>
+      <div className="relative min-w-0 flex-1 h-1.5 rounded-full bg-slate-100">
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-blue-400"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
       <span className="shrink-0 tabular-nums text-slate-500">
-        {formatDesignerLoadSuffix(designer.load, designer.skuCount)}
+        {designer.load}/{designer.skuCount}
       </span>
     </div>
   );
 }
 
-function HealthRow({
+function StatCard({
   label,
   count,
   tone,
@@ -267,18 +282,46 @@ function HealthRow({
   count: number;
   tone: "late" | "today" | "warn" | "stuck";
 }) {
-  const countClass =
+  const { bg, border, labelClass, countClass } =
     tone === "late"
-      ? "font-semibold text-red-600"
+      ? {
+          bg: "bg-red-50",
+          border: "border-red-100",
+          labelClass: "text-red-700",
+          countClass: "text-red-600",
+        }
       : tone === "today"
-        ? "font-semibold text-orange-600"
+        ? {
+            bg: "bg-orange-50",
+            border: "border-orange-100",
+            labelClass: "text-orange-700",
+            countClass: "text-orange-600",
+          }
         : tone === "warn"
-          ? "font-semibold text-amber-600"
-          : "font-semibold text-slate-800";
+          ? {
+              bg: "bg-amber-50",
+              border: "border-amber-100",
+              labelClass: "text-amber-700",
+              countClass: "text-amber-600",
+            }
+          : {
+              bg: "bg-slate-50",
+              border: "border-slate-200",
+              labelClass: "text-slate-600",
+              countClass: "text-slate-800",
+            };
   return (
-    <div className="flex items-center justify-between py-1.5">
-      <span className="text-slate-600">{label}</span>
-      <span className={countClass}>{count}</span>
+    <div
+      className={cn(
+        "flex flex-col rounded-lg border px-2.5 py-2",
+        bg,
+        border
+      )}
+    >
+      <span className={cn("text-[11px] font-medium", labelClass)}>{label}</span>
+      <span className={cn("text-lg font-bold leading-tight tabular-nums", countClass)}>
+        {count}
+      </span>
     </div>
   );
 }

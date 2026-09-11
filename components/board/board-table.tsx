@@ -732,13 +732,14 @@ export function BoardTable({
                         {shippingSign.label}
                       </span>
                     ) : null}
-                    {order.customer?.fedex_account_number ? (
+                    {order.customer?.fedex_account_number &&
+                    shippingSign?.kind !== "client_fedex" ? (
                       <span
                         className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-full bg-purple-50 px-1.5 py-px text-[10px] font-semibold text-purple-800"
                         title={`Deliver on client FedEx ${maskFedExAccountNumber(order.customer.fedex_account_number)}`}
                       >
                         <Truck className="h-2.5 w-2.5" />
-                        FedEx
+                        Self FedEx
                       </span>
                     ) : null}
                     {dieStatus ? (

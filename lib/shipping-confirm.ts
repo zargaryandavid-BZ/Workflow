@@ -1,23 +1,16 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  clientFedExAccountFromSelection,
+  isClientFedExSelection,
+} from "@/lib/client-fedex";
+import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import type {
   FedExRateOption,
   ShippingClientChoice,
   ShippingDeliveryAddress,
 } from "@/lib/types";
-
-function normalizeAddress(
-  addr: ShippingDeliveryAddress
-): ShippingDeliveryAddress {
-  return {
-    street: addr.street.trim(),
-    city: addr.city.trim(),
-    state: addr.state.trim().toUpperCase(),
-    zip: addr.zip.trim(),
-    country: (addr.country ?? "US").trim().toUpperCase() || "US",
-  };
-}
 
 export async function completeShippingResponse(
   admin: SupabaseClient,
@@ -39,7 +32,7 @@ export async function completeShippingResponse(
 > {
   const { data: existing, error: findError } = await admin
     .from("shipping_requests")
-    .select("id, status")
+    .select("id, status, order_id, tenant_id")
     .eq("token", token)
     .maybeSingle();
 
@@ -61,7 +54,7 @@ export async function completeShippingResponse(
     args.choice === "curri";
   const deliveryAddress =
     needsAddress && args.deliveryAddress
-      ? normalizeAddress(args.deliveryAddress)
+      ? normalizeDeliveryAddress(args.deliveryAddress)
       : null;
 
   const deliveryNotes = args.deliveryNotes?.trim() || null;
@@ -94,6 +87,35 @@ export async function completeShippingResponse(
       status: 500,
       error: updateError.message ?? "Failed to save choice",
     };
+  }
+
+  if (isClientFedExSelection(args.fedexSelection)) {
+    const account = clientFedExAccountFromSelection(args.fedexSelection);
+    if (account) {
+      const { data: order } = await admin
+        .from("orders")
+        .select("customer_id")
+        .eq("id", existing.order_id)
+        .maybeSingle();
+      const customerId =
+        order && typeof order.customer_id === "string"
+          ? order.customer_id
+          : null;
+      if (customerId) {
+        const { error: stampErr } = await admin
+          .from("customers")
+          .update({ fedex_account_number: account })
+          .eq("id", customerId)
+          .eq("tenant_id", existing.tenant_id);
+        if (
+          stampErr &&
+          stampErr.code !== "42703" &&
+          !/fedex_account_number/i.test(stampErr.message)
+        ) {
+          console.error("[shipping-confirm] stamp client FedEx:", stampErr);
+        }
+      }
+    }
   }
 
   return { ok: true, shippingRequestId: existing.id };

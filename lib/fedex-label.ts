@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
 import { createFedExShipment } from "@/lib/fedex";
+import { isClientFedExSelection } from "@/lib/client-fedex";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import {
   loadShippingSettings,
@@ -37,6 +38,7 @@ function isFedExDeliveryRequest(row: {
 }): boolean {
   if (row.client_choice !== "delivery") return false;
   if (row.fedex_selection?.provider === "curri") return false;
+  if (isClientFedExSelection(row.fedex_selection)) return false;
   return Boolean(row.fedex_selection?.serviceType);
 }
 
