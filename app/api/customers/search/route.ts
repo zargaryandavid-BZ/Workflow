@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   }
 
   // Name search
-  if (q.length < 5) {
+  if (q.length < 2) {
     return NextResponse.json({ customers: [] });
   }
 

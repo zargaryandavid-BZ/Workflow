@@ -20,7 +20,7 @@ export const BOARD_ORDER_LIST_SELECT = [
   "updated_at",
   "last_moved_at",
   "webhook_source",
-  "customer:customers(id, name, email, phone, company)",
+    "customer:customers(id, name, email, phone, company, fedex_account_number)",
   "tag:tags(id, name, color)",
 ].join(", ");
 
@@ -44,7 +44,7 @@ export const ORDER_DETAIL_SELECT = [
   "last_moved_at",
   "webhook_source",
   "internal_note",
-  "customer:customers(id, name, email, phone, company)",
+    "customer:customers(id, name, email, phone, company, fedex_account_number)",
   "tag:tags(id, name, color)",
 ].join(", ");
 

@@ -16,11 +16,13 @@ import {
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import type { ShippingBox, ShippingDeliveryAddress, ShippingRequest } from "@/lib/types";
+import { maskFedExAccountNumber } from "@/lib/client-fedex";
 
 interface ShippingTabProps {
   shippingRequest: ShippingRequest;
   orderId: string;
   appUrl?: string;
+  clientFedexAccount?: string | null;
   onStaffNotesSaved?: (notes: string | null) => void;
   onShippingRequestUpdated?: (next: ShippingRequest) => void;
 }
@@ -144,6 +146,7 @@ export function ShippingTab({
   shippingRequest,
   orderId,
   appUrl,
+  clientFedexAccount = null,
   onStaffNotesSaved,
   onShippingRequestUpdated,
 }: ShippingTabProps) {
@@ -339,6 +342,24 @@ export function ShippingTab({
 
   return (
     <div className="space-y-4 py-1">
+      {clientFedexAccount ? (
+        <section className="rounded-xl border border-purple-200 bg-purple-50 p-4">
+          <div className="mb-1 flex items-center gap-2">
+            <Truck className="h-4 w-4 text-purple-700" />
+            <h3 className="text-sm font-semibold text-purple-900">
+              Client FedEx
+            </h3>
+          </div>
+          <p className="text-sm text-purple-900">
+            Ship this job on the customer&apos;s FedEx account{" "}
+            <span className="font-semibold">
+              {maskFedExAccountNumber(clientFedexAccount)}
+            </span>
+            . Do not bill shop FedEx.
+          </p>
+        </section>
+      ) : null}
+
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-3 flex items-center gap-2">
           <Package className="h-4 w-4 text-slate-500" />

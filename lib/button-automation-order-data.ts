@@ -46,6 +46,7 @@ import type {
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface OrderExportSkuRow {
+  id: string;
   index: number;
   name: string;
   qty: number | null;
@@ -246,6 +247,7 @@ function buildSkuRows(
       })
       .filter((f): f is { name: string; url: string } => Boolean(f));
     return {
+      id: sku.id,
       index: index + 1,
       name: sku.name.trim() || `SKU ${index + 1}`,
       qty: sku.qty,

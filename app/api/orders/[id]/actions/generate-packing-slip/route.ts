@@ -5,7 +5,10 @@ import {
   assertButtonVisibleForOrder,
   loadOrderExportData,
 } from "@/lib/button-automation-order-data";
-import { generatePackingSlipPdf } from "@/lib/packing-slip-pdf";
+import { generatePackingSlipPdf, stampPackingSlipPdfArtwork } from "@/lib/packing-slip-pdf";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchStaffArtworkPack, downloadArtworkPdfBytesByFileId } from "@/lib/respond-final-pdf";
+import type { OrderExportSkuRow } from "@/lib/button-automation-order-data";
 
 export const runtime = "nodejs";
 
@@ -105,12 +108,71 @@ export async function POST(
   try {
     const poNumber =
       typeof body.poNumber === "string" ? body.poNumber.trim() : "";
-    pdfBuffer = await generatePackingSlipPdf(exportData, {
-      part,
-      totalParts,
-      blind: Boolean(body.blind),
-      poNumber: poNumber || undefined,
-    });
+
+    let skuRows: OrderExportSkuRow[] = exportData.skuRows;
+    let pdfArt: { skuId: string; fileId: string; page: number }[] = [];
+    try {
+      const pack = await fetchStaffArtworkPack(
+        createAdminClient(),
+        ctx.tenant.id,
+        {
+          id: exportData.order.id,
+          title: exportData.order.title,
+          specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
+        },
+        exportData.skus
+      );
+      if (Object.keys(pack.bySku).length > 0) {
+        skuRows = pack.skus.map((sku, index) => {
+          const prev =
+            exportData.skuRows.find((row) => row.id === sku.id) ??
+            exportData.skuRows[index];
+          return {
+            id: sku.id,
+            index: index + 1,
+            name: sku.name.trim() || prev?.name || `SKU ${index + 1}`,
+            qty: sku.qty ?? prev?.qty ?? null,
+            imageLinks: prev?.imageLinks ?? [],
+            imageFiles: prev?.imageFiles ?? [],
+          };
+        });
+        pdfArt = pack.skus.flatMap((sku) => {
+          const pdf = pack.bySku[sku.id];
+          if (!pdf?.fileId || pdf.page == null) return [];
+          return [{ skuId: sku.id, fileId: pdf.fileId, page: pdf.page }];
+        });
+      }
+    } catch (err) {
+      console.error("[generate-packing-slip] artwork pack", err);
+    }
+
+    const { buffer, artSlots } = await generatePackingSlipPdf(
+      { ...exportData, skuRows },
+      {
+        part,
+        totalParts,
+        blind: Boolean(body.blind),
+        poNumber: poNumber || undefined,
+        pdfArt,
+      }
+    );
+
+    const fileIds = [...new Set(artSlots.map((s) => s.fileId))];
+    if (fileIds.length > 0) {
+      try {
+        const bytes = await downloadArtworkPdfBytesByFileId(
+          createAdminClient(),
+          ctx.tenant.id,
+          fileIds
+        );
+        pdfBuffer = await stampPackingSlipPdfArtwork(buffer, artSlots, bytes);
+      } catch (err) {
+        console.error("[generate-packing-slip] stamp artwork", err);
+        pdfBuffer = buffer;
+      }
+    } else {
+      pdfBuffer = buffer;
+    }
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to generate packing slip";

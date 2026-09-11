@@ -9,7 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const ROLL_SRC = "/roll-direction/roll-mockup.png";
-/** Gap between the three label thumbnails on the roll face. */
+/** Gap between the label thumbnails on the roll face. */
 const LABEL_GAP_PX = 6;
 const LABEL_COUNT = 3;
 
@@ -20,10 +20,10 @@ const LABEL_COUNT = 3;
  *   - Face runs to the right edge (minus a small inset)
  *   - Face occupies from ~26% top to ~90% of image height
  */
-const FACE_LEFT_PCT = 42; // % from left where the flat unwind face begins
-const FACE_TOP_PCT = 26;  // % from top where the face starts
-const FACE_BOTTOM_PCT = 90; // % from top where the face ends
-const FACE_RIGHT_INSET_PX = 12; // px from right edge to keep clear
+const FACE_LEFT_PCT = 42;  // % from left where the flat unwind face begins
+const FACE_TOP_PCT = 20;   // % from top where the face starts
+const FACE_BOTTOM_PCT = 94; // % from top where the face ends
+const FACE_RIGHT_PCT = 3;  // % from right edge — adds right margin so labels sit centered
 
 const DIRECTION_TITLE: Record<RollDirectionValue, string> = {
   "1-Top": "Roll Direction 1-Top",
@@ -69,6 +69,8 @@ export function OnRollPreview({
   const [src, setSrc] = useState<string | null>(null);
   const [cellSrc, setCellSrc] = useState<string | null>(null);
   const [active, setActive] = useState<RollDirectionValue>(direction);
+  const [labelScale, setLabelScale] = useState(1.45);  // 0.5–2.0 — user-calibrated default
+  const [hShift, setHShift] = useState(12);             // -20 to +20 (% left/right) — user-calibrated default
   const rotateDeg = rollDirectionArtworkRotateDeg(active);
 
   useEffect(() => {
@@ -121,6 +123,20 @@ export function OnRollPreview({
   const rotatedH = isQuarterTurn ? rawW : rawH;
   // aspect = width / height of the rotated label
   const aspect = rotatedW / rotatedH;
+
+  // Dynamic face box — driven by labelScale and hShift controls
+  const baseFaceH = FACE_BOTTOM_PCT - FACE_TOP_PCT;
+  const scaledH = baseFaceH * labelScale;
+  const faceCenterV = (FACE_BOTTOM_PCT + FACE_TOP_PCT) / 2;
+  const dynTop = Math.max(FACE_TOP_PCT, faceCenterV - scaledH / 2);
+  const dynBottom = Math.min(FACE_BOTTOM_PCT, faceCenterV + scaledH / 2);
+
+  const baseFaceW = 100 - FACE_LEFT_PCT - FACE_RIGHT_PCT;
+  const scaledW = baseFaceW * labelScale;
+  const faceCenterX = FACE_LEFT_PCT + baseFaceW / 2;
+  // Clamp so labels never overflow the roll face boundaries
+  const dynLeft = Math.max(FACE_LEFT_PCT, faceCenterX - scaledW / 2 - hShift);
+  const dynRight = Math.max(8, 100 - (faceCenterX + scaledW / 2) + hShift);
 
   return (
     <div className={cn("flex flex-col items-center gap-3 px-4 py-4", className)}>
@@ -184,10 +200,10 @@ export function OnRollPreview({
           <div
             className="pointer-events-none absolute overflow-hidden"
             style={{
-              left: `${FACE_LEFT_PCT}%`,
-              top: `${FACE_TOP_PCT}%`,
-              right: FACE_RIGHT_INSET_PX,
-              bottom: `${100 - FACE_BOTTOM_PCT}%`,
+              left: `${dynLeft}%`,
+              top: `${dynTop}%`,
+              right: `${dynRight}%`,
+              bottom: `${100 - dynBottom}%`,
             }}
           >
             {cellSrc ? (
@@ -201,20 +217,22 @@ export function OnRollPreview({
                * the web exits the roll) with a small gap between them.
                */
               <div
-                className="flex h-full items-center justify-end"
+                className="flex h-full items-center justify-center"
                 style={{ gap: LABEL_GAP_PX }}
               >
                 {Array.from({ length: LABEL_COUNT }, (_, i) => (
                   /*
-                   * Each label: full height, width = height × aspect.
-                   * We use a fixed aspect-ratio box so the image never
-                   * exceeds its natural proportions regardless of the
-                   * container width.
+                   * Each label: width = equal share of the row (85% of face),
+                   * height derived from aspect ratio (capped by face height).
                    */
                   <div
                     key={i}
-                    className="relative h-full shrink-0 overflow-hidden rounded-[2px]"
-                    style={{ aspectRatio: String(aspect) }}
+                    className="relative shrink-0 overflow-hidden rounded-[2px]"
+                    style={{
+                      width: `calc((100% - ${(LABEL_COUNT - 1) * LABEL_GAP_PX}px) / ${LABEL_COUNT})`,
+                      aspectRatio: String(aspect),
+                      maxHeight: "100%",
+                    }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img

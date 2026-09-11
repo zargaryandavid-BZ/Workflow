@@ -73,6 +73,7 @@ import {
   type DieBoardStatus,
 } from "@/lib/die-request";
 import { shippingTagClass } from "@/lib/board-shipping";
+import { maskFedExAccountNumber } from "@/lib/client-fedex";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import { MoveMenuSections } from "./move-menu-sections";
@@ -729,6 +730,15 @@ export function BoardTable({
                           <Truck className="h-2.5 w-2.5" />
                         )}
                         {shippingSign.label}
+                      </span>
+                    ) : null}
+                    {order.customer?.fedex_account_number ? (
+                      <span
+                        className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-full bg-purple-50 px-1.5 py-px text-[10px] font-semibold text-purple-800"
+                        title={`Deliver on client FedEx ${maskFedExAccountNumber(order.customer.fedex_account_number)}`}
+                      >
+                        <Truck className="h-2.5 w-2.5" />
+                        FedEx
                       </span>
                     ) : null}
                     {dieStatus ? (

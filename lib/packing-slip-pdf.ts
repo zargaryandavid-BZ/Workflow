@@ -1,6 +1,15 @@
 import "server-only";
 
 import { createRequire } from "node:module";
+import {
+  PDFDocument as PdfLibDocument,
+  clip,
+  endPath,
+  popGraphicsState,
+  pushGraphicsState,
+  rectangle,
+  rgb,
+} from "pdf-lib";
 import type { OrderExportData, OrderExportSkuRow } from "@/lib/button-automation-order-data";
 
 const require = createRequire(import.meta.url);
@@ -409,8 +418,9 @@ function drawSkuCell(
   cellX: number,
   cellTop: number,
   cellW: number,
-  cellH: number
-) {
+  cellH: number,
+  stampPdfLater: boolean
+): { imgX: number; imgY: number; imgW: number; imgH: number } {
   doc
     .rect(cellX, cellTop, cellW, cellH)
     .strokeColor("#e2e5e8")
@@ -435,7 +445,7 @@ function drawSkuCell(
     } catch {
       drawDashedPlaceholder(doc, imgX, imgY, imgW, imgH);
     }
-  } else {
+  } else if (!stampPdfLater) {
     drawDashedPlaceholder(doc, imgX, imgY, imgW, imgH);
   }
 
@@ -483,17 +493,38 @@ function drawSkuCell(
     });
 
   doc.fillColor("#000000").font("Helvetica");
+  return { imgX, imgY, imgW, imgH };
 }
+
+export type PackingSlipPdfArt = {
+  skuId: string;
+  fileId: string;
+  /** 1-based PDF page. */
+  page: number;
+};
+
+export type PackingSlipArtSlot = {
+  slipPageIndex: number;
+  fileId: string;
+  pdfPage: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
 
 function drawItemsGrid(
   doc: PdfDoc,
   data: OrderExportData,
   pageSkus: OrderExportSkuRow[],
   imageBuffers: Map<string, Buffer | null>,
-  startY: number
-) {
+  startY: number,
+  slipPageIndex: number,
+  pdfArtBySku: Map<string, PackingSlipPdfArt>
+): PackingSlipArtSlot[] {
   let y = drawSectionBar(doc, startY, "ITEMS");
   y += 6;
+  const slots: PackingSlipArtSlot[] = [];
 
   const n = pageSkus.length;
   if (n === 0) {
@@ -505,11 +536,10 @@ function drawItemsGrid(
         align: "center",
       });
     doc.fillColor("#000000");
-    return;
+    return slots;
   }
 
   const availableH = PAGE_H - MARGIN - y;
-  // Fixed 2 columns; row count from SKU count. Single SKU uses full width.
   const cols = n === 1 ? 1 : COLS;
   const rows = Math.max(1, Math.ceil(n / cols));
   const cellH = Math.max(
@@ -525,11 +555,35 @@ function drawItemsGrid(
     const col = i % cols;
     const cellX = MARGIN + col * cellW;
     const cellTop = y + row * (cellH + ROW_GAP);
-    const buf = sku.imageLinks[0]
-      ? (imageBuffers.get(sku.imageLinks[0]) ?? null)
-      : null;
-    drawSkuCell(doc, sku, buf, spec, cellX, cellTop, cellW, cellH);
+    const art = pdfArtBySku.get(sku.id);
+    const buf =
+      !art && sku.imageLinks[0]
+        ? (imageBuffers.get(sku.imageLinks[0]) ?? null)
+        : null;
+    const box = drawSkuCell(
+      doc,
+      sku,
+      buf,
+      spec,
+      cellX,
+      cellTop,
+      cellW,
+      cellH,
+      Boolean(art)
+    );
+    if (art) {
+      slots.push({
+        slipPageIndex,
+        fileId: art.fileId,
+        pdfPage: art.page,
+        x: box.imgX,
+        y: box.imgY,
+        w: box.imgW,
+        h: box.imgH,
+      });
+    }
   }
+  return slots;
 }
 
 export async function generatePackingSlipPdf(
@@ -539,8 +593,9 @@ export async function generatePackingSlipPdf(
     totalParts: number;
     blind?: boolean;
     poNumber?: string;
+    pdfArt?: PackingSlipPdfArt[];
   }
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; artSlots: PackingSlipArtSlot[] }> {
   const blind = Boolean(opts.blind);
   const orderLabel = blind
     ? packingSlipBlindOrderLabel(opts.poNumber, opts.totalParts)
@@ -549,6 +604,10 @@ export async function generatePackingSlipPdf(
         data.orderNumber,
         opts.totalParts
       );
+
+  const pdfArtBySku = new Map(
+    (opts.pdfArt ?? []).map((a) => [a.skuId, a] as const)
+  );
 
   const skus = data.skuRows ?? [];
   const pages: OrderExportSkuRow[][] = [];
@@ -560,10 +619,10 @@ export async function generatePackingSlipPdf(
     }
   }
 
-  // Prefetch first image per SKU
   const urls = [
     ...new Set(
       skus
+        .filter((s) => !pdfArtBySku.has(s.id))
         .map((s) => s.imageLinks[0])
         .filter((u): u is string => Boolean(u))
     ),
@@ -590,18 +649,23 @@ export async function generatePackingSlipPdf(
     doc.on("error", reject);
   });
 
+  const artSlots: PackingSlipArtSlot[] = [];
   try {
     for (let pageNum = 0; pageNum < pages.length; pageNum++) {
       doc.addPage();
       drawPageHeader(doc, orderLabel, pageNum + 1, pages.length);
       drawHRule(doc, HEADER_H, "#1a1f2e");
       const afterTop = drawTopInfoRow(doc, data, blind, HEADER_H + 8);
-      drawItemsGrid(
-        doc,
-        data,
-        pages[pageNum],
-        imageBuffers,
-        afterTop + 8
+      artSlots.push(
+        ...drawItemsGrid(
+          doc,
+          data,
+          pages[pageNum],
+          imageBuffers,
+          afterTop + 8,
+          pageNum,
+          pdfArtBySku
+        )
       );
     }
     doc.end();
@@ -614,5 +678,62 @@ export async function generatePackingSlipPdf(
     throw err;
   }
 
-  return done;
+  const buffer = await done;
+  return { buffer, artSlots };
+}
+
+export async function stampPackingSlipPdfArtwork(
+  slipPdf: Buffer,
+  slots: PackingSlipArtSlot[],
+  pdfBytesByFileId: Map<string, Buffer>
+): Promise<Buffer> {
+  if (slots.length === 0) return slipPdf;
+  const slip = await PdfLibDocument.load(slipPdf);
+  const pages = slip.getPages();
+
+  for (const slot of slots) {
+    const src = pdfBytesByFileId.get(slot.fileId);
+    if (!src?.length) continue;
+    const pageIndex = slot.pdfPage - 1;
+    if (pageIndex < 0) continue;
+    let embedded;
+    try {
+      const embeddedPages = await slip.embedPdf(src, [pageIndex]);
+      embedded = embeddedPages[0];
+    } catch {
+      continue;
+    }
+    if (!embedded) continue;
+    const dest = pages[slot.slipPageIndex];
+    if (!dest) continue;
+
+    const pw = embedded.width;
+    const ph = embedded.height;
+    if (!pw || !ph) continue;
+    const scale = Math.min(slot.w / pw, slot.h / ph);
+    const drawW = pw * scale;
+    const drawH = ph * scale;
+    const x = slot.x + (slot.w - drawW) / 2;
+    const y = PAGE_H - slot.y - slot.h + (slot.h - drawH) / 2;
+    const clipY = PAGE_H - slot.y - slot.h;
+
+    dest.pushOperators(
+      pushGraphicsState(),
+      rectangle(slot.x, clipY, slot.w, slot.h),
+      clip(),
+      endPath()
+    );
+    dest.drawPage(embedded, { x, y, width: drawW, height: drawH });
+    dest.pushOperators(popGraphicsState());
+    dest.drawRectangle({
+      x: slot.x,
+      y: PAGE_H - (slot.y + 1) - 13,
+      width: 13,
+      height: 13,
+      borderColor: rgb(0.216, 0.255, 0.318),
+      borderWidth: 1,
+    });
+  }
+
+  return Buffer.from(await slip.save());
 }

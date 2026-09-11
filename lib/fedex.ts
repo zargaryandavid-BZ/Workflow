@@ -688,3 +688,140 @@ export async function createFedExShipment(args: {
     labelPdfs: result.labels,
   };
 }
+
+/**
+ * Probe FedEx: a real account number returns rates (or a non-account error).
+ * Unknown / invalid numbers come back as account errors.
+ */
+export async function verifyFedExAccountNumber(
+  accountNumber: string,
+  settings?: ShippingSettings | null
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const config = resolveFedExConfig(settings ?? null);
+  if (!isFedExConfigured(config)) {
+    return {
+      ok: false,
+      error:
+        "FedEx is not configured. Add shop API keys and account in Settings → Shipping first.",
+    };
+  }
+
+  try {
+    const accessToken = await getFedExAccessToken(config);
+    const origin = shipperAddress(config);
+    const destZip = origin.postalCode?.trim() || "10001";
+    const destState = origin.stateOrProvinceCode?.trim() || "NY";
+    const destCity = origin.city?.trim() || "New York";
+    const destCountry = origin.countryCode?.trim() || "US";
+    const destStreet = origin.streetLines[0]?.trim() || "1 Main St";
+
+    const today = new Date();
+    const shipDateStamp = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    const ratesUrl = `${fedexBaseUrl(config)}/rate/v1/rates/quotes`;
+    const ratesRes = await fetchWithTimeout(ratesUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        accountNumber: { value: accountNumber },
+        rateRequestControlParameters: { returnTransitTimes: false },
+        requestedShipment: {
+          shipDateStamp,
+          shipper: { address: origin },
+          recipient: {
+            address: {
+              streetLines: [destStreet],
+              city: destCity,
+              stateOrProvinceCode: destState,
+              postalCode: destZip,
+              countryCode: destCountry,
+              residential: false,
+            },
+          },
+          pickupType: "DROPOFF_AT_FEDEX_LOCATION",
+          packagingType: "YOUR_PACKAGING",
+          rateRequestType: ["LIST"],
+          requestedPackageLineItems: [
+            {
+              sequenceNumber: 1,
+              weight: { units: "LB", value: 1 },
+              dimensions: {
+                length: 8,
+                width: 6,
+                height: 4,
+                units: "IN",
+              },
+            },
+          ],
+        },
+      }),
+    });
+
+    const ratesData = (await ratesRes.json().catch(() => ({}))) as {
+      errors?: Array<{ message?: string; code?: string }>;
+      output?: { rateReplyDetails?: unknown[] };
+    };
+    const code = (ratesData.errors?.[0]?.code ?? "").toUpperCase();
+    const msg = (ratesData.errors?.[0]?.message ?? "").toLowerCase();
+    const accountBad =
+      code.includes("ACCOUNT") ||
+      msg.includes("account number") ||
+      msg.includes("accountnumber") ||
+      msg.includes("not a valid") ||
+      msg.includes("invalid account");
+
+    if (ratesRes.ok) return { ok: true };
+    if (accountBad) {
+      const unknown =
+        msg.includes("does not exist") ||
+        msg.includes("not found") ||
+        msg.includes("not a valid") ||
+        msg.includes("invalid account") ||
+        code.includes("NOT.FOUND") ||
+        code.includes("INVALID");
+      const shopMismatch =
+        msg.includes("match") ||
+        msg.includes("authorized") ||
+        msg.includes("permission") ||
+        msg.includes("not associated");
+      if (unknown && !shopMismatch) {
+        return {
+          ok: false,
+          error: "FedEx has no account for that number.",
+        };
+      }
+      // Shop API keys cannot rate a third-party account — number format already passed.
+      if (shopMismatch) return { ok: true };
+      return {
+        ok: false,
+        error: "FedEx has no account for that number.",
+      };
+    }
+    if (ratesData.output?.rateReplyDetails?.length) return { ok: true };
+    return {
+      ok: false,
+      error:
+        ratesData.errors?.[0]?.message ??
+        "FedEx did not confirm this account number.",
+    };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not reach FedEx.";
+    const lower = message.toLowerCase();
+    if (
+      lower.includes("account") ||
+      lower.includes("not valid") ||
+      lower.includes("not found")
+    ) {
+      return { ok: false, error: "FedEx has no account for that number." };
+    }
+    return { ok: false, error: message };
+  }
+}

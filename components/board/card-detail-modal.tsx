@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Pencil,
   Trash2,
+  Truck,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { CardWorkingPrompt } from "@/components/board/card-working-prompt";
@@ -48,6 +49,7 @@ import {
   validateOrderFormFields,
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
+import { maskFedExAccountNumber } from "@/lib/client-fedex";
 import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { DueDateFields } from "./due-date-fields";
 import { ApplicationFields } from "./application-fields";
@@ -1395,7 +1397,9 @@ export function CardDetailModal({
   const hasApproval =
     (data?.approvalNotes.length ?? 0) > 0 ||
     Boolean(data?.tabHints?.hasApproval);
-  const hasShipping = Boolean(data?.shippingRequest);
+  const hasShipping = Boolean(
+    data?.shippingRequest || data?.order.customer?.fedex_account_number
+  );
   const sentMessageCount = data
     ? sentMessagesFromActivity(data.activity).length
     : 0;
@@ -2394,6 +2398,9 @@ export function CardDetailModal({
               shippingRequest={data.shippingRequest}
               orderId={data.order.id}
               appUrl={appUrl}
+              clientFedexAccount={
+                data.order.customer?.fedex_account_number ?? null
+              }
               onStaffNotesSaved={(notes) => {
                 setData((prev) =>
                   prev?.shippingRequest
@@ -2418,6 +2425,25 @@ export function CardDetailModal({
                 );
               }}
             />
+          ) : tab === "shipping" &&
+            data.order.customer?.fedex_account_number ? (
+            <section className="rounded-xl border border-purple-200 bg-purple-50 p-4">
+              <div className="mb-1 flex items-center gap-2">
+                <Truck className="h-4 w-4 text-purple-700" />
+                <h3 className="text-sm font-semibold text-purple-900">
+                  Client FedEx
+                </h3>
+              </div>
+              <p className="text-sm text-purple-900">
+                Ship this job on the customer&apos;s FedEx account{" "}
+                <span className="font-semibold">
+                  {maskFedExAccountNumber(
+                    data.order.customer.fedex_account_number
+                  )}
+                </span>
+                . Do not bill shop FedEx.
+              </p>
+            </section>
           ) : tab === "history" ? (
             data.timelinePending && data.activity.length === 0 ? (
               <p className="py-8 text-center text-sm text-slate-400">Loading…</p>

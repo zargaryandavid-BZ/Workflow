@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { ShippingPickupLocationDraft, ShippingSettingsPublic } from "@/lib/types";
 import { emptyPickupLocationDraft } from "@/lib/pickup-locations";
+import { ClientFedexAccountsPanel } from "./client-fedex-accounts-panel";
 
 interface Props {
   initialSettings: ShippingSettingsPublic;
@@ -601,6 +602,8 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
           </div>
         </div>
       </section>
+
+      <ClientFedexAccountsPanel />
 
       <div className="flex justify-end">
         <Button type="button" onClick={() => void save()} disabled={saving}>

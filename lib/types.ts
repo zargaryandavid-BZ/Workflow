@@ -203,6 +203,8 @@ export interface Customer {
   crm_customer_id?: string | null;
   /** Additional approval/notification recipients (CC) applied to every order. */
   cc_emails?: string[] | null;
+  /** Customer-owned FedEx account for third-party shipping. */
+  fedex_account_number?: string | null;
   created_at: string;
   updated_at?: string;
 }

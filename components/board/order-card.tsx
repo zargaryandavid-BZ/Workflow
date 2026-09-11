@@ -109,7 +109,7 @@ import {
   priorityScoreFromSpecs,
   type PriorityScore,
 } from "@/lib/order-priority-score";
-import type { BoardShippingSign } from "@/lib/board-shipping";
+import { maskFedExAccountNumber } from "@/lib/client-fedex";
 import {
   shippingCardBorderColor,
   shippingTagClass,
@@ -1390,8 +1390,9 @@ export function OrderCard({
             )}
           </p>
 
-          {shippingSign ? (
-            <div className="mt-1.5 flex items-center gap-2">
+          {(shippingSign || order.customer?.fedex_account_number) ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              {shippingSign ? (
               <span
                 className={cn(
                   "inline-flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
@@ -1413,6 +1414,16 @@ export function OrderCard({
                 )}
                 {shippingSign.label}
               </span>
+              ) : null}
+              {order.customer?.fedex_account_number ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-800"
+                  title={`Deliver on client FedEx ${maskFedExAccountNumber(order.customer.fedex_account_number)}`}
+                >
+                  <Truck className="h-3 w-3" />
+                  FedEx
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>
