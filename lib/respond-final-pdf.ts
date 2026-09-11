@@ -456,37 +456,3 @@ export async function downloadArtworkPdfBytesByFileId(
   }
   return out;
 }
-
-/** Drive file id → PDF bytes for packing-slip / ticket artwork. */
-export async function downloadArtworkPdfBytesByFileId(
-  supabase: SupabaseClient,
-  tenantId: string,
-  fileIds: string[]
-): Promise<Map<string, Buffer>> {
-  const unique = [...new Set(fileIds.filter(Boolean))];
-  const out = new Map<string, Buffer>();
-  if (unique.length === 0) return out;
-
-  let settings;
-  try {
-    settings = await ensureGdriveSettings(supabase, tenantId);
-  } catch {
-    return out;
-  }
-  let client: ProofsDrive;
-  try {
-    client = proofsDriveClient(settings);
-  } catch {
-    return out;
-  }
-
-  for (const fileId of unique) {
-    try {
-      const downloaded = await downloadDriveFileBytes(client, fileId);
-      if (downloaded?.buffer?.length) out.set(fileId, downloaded.buffer);
-    } catch {
-      /* skip */
-    }
-  }
-  return out;
-}
