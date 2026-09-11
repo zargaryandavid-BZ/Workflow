@@ -30,6 +30,8 @@ const PDF_INTENT = "any" as const;
 const PDF_OPEN_MS = 45_000;
 /** Inline SKU proof (expand still uses the full pane). */
 const INLINE_PROOF_MAX_W = 420;
+/** Keep the die/artwork off the preview card edges. */
+const INLINE_PROOF_PAD = 48;
 
 function looksLikePdf(buf: ArrayBuffer): boolean {
   if (buf.byteLength < 5) return false;
@@ -181,7 +183,10 @@ export function PdfOcgFromUrl({
     const host = pagesRef.current;
     if (!pdf || !host) return;
     if (onRollRef.current && rollDirectionRef.current) return;
-    const pad = 8;
+    const pad =
+      expandedRef.current || fillHostRef.current
+        ? 16
+        : INLINE_PROOF_PAD;
     const grid = layoutRef.current === "grid" && lockedPageRef.current == null;
     const rawW = Math.max(host.clientWidth - pad, 1);
     const availW =
@@ -223,8 +228,8 @@ export function PdfOcgFromUrl({
       canvas.style.objectFit = "contain";
       canvas.style.height = "auto";
       canvas.className = grid
-        ? "w-full max-w-full bg-white"
-        : "rounded border border-slate-200 bg-white shadow-sm";
+        ? "mx-auto max-w-full bg-white"
+        : "mx-auto max-w-full rounded bg-white shadow-sm";
       parent.appendChild(canvas);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const task = page.render({
@@ -275,8 +280,8 @@ export function PdfOcgFromUrl({
       for (let i = 1; i <= nPages; i++) {
         const wrap = document.createElement("div");
         wrap.className = fill
-          ? "flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch overflow-hidden rounded-lg border border-slate-200 bg-white p-2 shadow-sm"
-          : "flex min-w-0 w-full flex-col items-stretch gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm";
+          ? "flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          : "flex min-w-0 w-full flex-col items-stretch gap-2 rounded-lg border border-slate-200 bg-white p-6 shadow-sm";
         const canvasHold = document.createElement("div");
         canvasHold.className = fill
           ? "flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden"
@@ -795,16 +800,16 @@ export function PdfOcgFromUrl({
                 : "Click to open large view"
             }
             className={cn(
-              "w-full p-1",
+              "w-full",
               onRoll && rollDirection && !loading
                 ? "hidden"
                 : layout === "grid"
                 ? fillHost || expanded
-                  ? "flex h-full min-h-0 w-full flex-col items-stretch gap-3 overflow-hidden"
-                  : "flex w-full flex-col items-stretch gap-3"
+                  ? "flex h-full min-h-0 w-full flex-col items-stretch gap-3 overflow-hidden p-3"
+                  : "flex w-full flex-col items-stretch gap-3 p-0"
                 : fillHost || expanded
-                  ? "flex h-full min-h-0 items-center justify-center overflow-hidden"
-                  : "flex min-h-full items-start justify-center",
+                  ? "flex h-full min-h-0 items-center justify-center overflow-hidden p-4"
+                  : "flex min-h-full items-start justify-center px-8 pb-8 pt-[50px]",
               !onRoll && !expanded && !loading && !fillHost
                 ? layout === "grid"
                   ? "p-0"

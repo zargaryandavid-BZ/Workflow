@@ -24,7 +24,11 @@ import {
 } from "@/lib/sku-approval";
 import { isRollDirectionFieldName, rollDirectionFromRespondRows } from "@/lib/roll-direction";
 import { finalPdfOcgView } from "@/lib/shared-pdf-pages";
-import { useSkuDecision } from "@/components/respond/sku-decision-context";
+import {
+  RESPOND_SKU_ANCHOR_PREFIX,
+  scrollAfterSkuChoice,
+  useSkuDecision,
+} from "@/components/respond/sku-decision-context";
 import { OnRollPreview } from "@/components/respond/on-roll-preview";
 import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -190,29 +194,29 @@ function ApprovalChoiceButtons({
   if (skuUi.mode !== "choose") return null;
 
   return (
-    <div className="flex w-full min-w-[8.5rem] flex-col gap-1">
+    <div className="flex w-full min-w-[10rem] flex-col gap-1.5">
       <button
         type="button"
         onClick={onApproved}
-        className={`inline-flex w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-[11px] font-medium ${
+        className={`inline-flex h-11 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border-2 px-3 text-sm font-bold shadow-sm ${
           decision === "approved"
-            ? "border-emerald-400 bg-emerald-50 text-emerald-800"
-            : "border-emerald-200 bg-white text-emerald-700 hover:border-emerald-400 hover:bg-emerald-50"
+            ? "border-emerald-600 bg-emerald-600 text-white"
+            : "border-emerald-600 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
         }`}
       >
-        <Check className="h-3 w-3 shrink-0" />
+        <Check className="h-4 w-4 shrink-0" strokeWidth={2.5} />
         Approve
       </button>
       <button
         type="button"
         onClick={onRejected}
-        className={`inline-flex w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-[11px] font-medium ${
+        className={`inline-flex h-11 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border-2 px-3 text-sm font-bold shadow-sm ${
           decision === "rejected"
-            ? "border-red-400 bg-red-50 text-red-800"
-            : "border-red-200 bg-white text-red-700 hover:border-red-400 hover:bg-red-50"
+            ? "border-red-600 bg-red-600 text-white"
+            : "border-red-600 bg-red-50 text-red-800 hover:bg-red-100"
         }`}
       >
-        <X className="h-3 w-3 shrink-0" />
+        <X className="h-4 w-4 shrink-0" strokeWidth={2.5} />
         Not approved
       </button>
     </div>
@@ -245,8 +249,14 @@ function ImageDecisionControls({
   return (
     <ApprovalChoiceButtons
       decision={decision}
-      onApproved={() => skuUi.onImageChange?.(skuId, assetId, "approved")}
-      onRejected={() => skuUi.onImageChange?.(skuId, assetId, "rejected")}
+      onApproved={() => {
+        skuUi.onImageChange?.(skuId, assetId, "approved");
+        scrollAfterSkuChoice(skuId, skuUi.skuIds ?? []);
+      }}
+      onRejected={() => {
+        skuUi.onImageChange?.(skuId, assetId, "rejected");
+        scrollAfterSkuChoice(skuId, skuUi.skuIds ?? []);
+      }}
     />
   );
 }
@@ -269,11 +279,17 @@ function SkuDecisionControls({ skuId }: { skuId: string }) {
   if (skuUi.mode !== "choose" || !skuUi.onChange) return null;
 
   return (
-    <div className="w-[8.75rem] shrink-0">
+    <div className="w-[10.5rem] shrink-0">
       <ApprovalChoiceButtons
         decision={decision}
-        onApproved={() => skuUi.onChange?.(skuId, "approved")}
-        onRejected={() => skuUi.onChange?.(skuId, "rejected")}
+        onApproved={() => {
+          skuUi.onChange?.(skuId, "approved");
+          scrollAfterSkuChoice(skuId, skuUi.skuIds ?? []);
+        }}
+        onRejected={() => {
+          skuUi.onChange?.(skuId, "rejected");
+          scrollAfterSkuChoice(skuId, skuUi.skuIds ?? []);
+        }}
       />
     </div>
   );
@@ -565,7 +581,8 @@ export function OrderReview({
               return (
                 <li
                   key={sku.id}
-                  className={`rounded-lg border p-4 ${resultBorder}`}
+                  id={`${RESPOND_SKU_ANCHOR_PREFIX}${sku.id}`}
+                  className={`scroll-mt-4 rounded-lg border p-4 ${resultBorder}`}
                 >
                   {index === 0 && skuUi.mode === "choose" ? (
                     <p className="mb-3 text-sm leading-relaxed text-slate-600">

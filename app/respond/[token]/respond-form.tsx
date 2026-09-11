@@ -18,7 +18,11 @@ import {
   type OrderMetaChip,
   type UploadSlot,
 } from "@/lib/respond-page";
-import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
+import {
+  RESPOND_REVIEW_FOOTER_ID,
+  RESPOND_REVIEW_SUBMIT_ID,
+  SkuDecisionProvider,
+} from "@/components/respond/sku-decision-context";
 import {
   approvalImageSlotCount,
   approvalSlotAssetId,
@@ -523,6 +527,7 @@ export function RespondForm({
     const review = perSkuApproval ? (
       <SkuDecisionProvider
         mode="choose"
+        skuIds={approvalSkus.map((s) => s.id)}
         byId={skuRollup}
         onChange={(skuId, decision) => {
           setSkuChoices((prev) => ({ ...prev, [skuId]: decision }));
@@ -586,6 +591,7 @@ export function RespondForm({
           <ProofLayerLegend />
         ) : null}
 
+        <div id={RESPOND_REVIEW_FOOTER_ID} className="scroll-mt-4 space-y-5">
         <p className="text-sm font-medium text-slate-700">
           {perSkuApproval
             ? "Please mark each SKU and confirm below:"
@@ -616,7 +622,8 @@ export function RespondForm({
         ) : null}
         {perSkuApproval ? (
           <Button
-            className="w-full"
+            id={RESPOND_REVIEW_SUBMIT_ID}
+            className="h-11 w-full border-2 text-sm font-bold"
             onClick={submitPerSku}
             disabled={loading}
           >
@@ -647,6 +654,7 @@ export function RespondForm({
             </Button>
           </div>
         )}
+        </div>
       </div>
     );
   }

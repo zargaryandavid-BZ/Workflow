@@ -8,8 +8,8 @@ import {
 } from "@/lib/gdrive-proofs";
 import { compressPdfKeepLayers } from "@/lib/pdf-preview-compress";
 
-/** In-request compress cap. 700 MB files cannot be processed on Vercel. */
-export const WEB_PREVIEW_SOURCE_MAX_BYTES = 90 * 1024 * 1024;
+/** In-request preview cap (docs: 200 MB). Larger files need a Drive web preview. */
+export const WEB_PREVIEW_SOURCE_MAX_BYTES = 200 * 1024 * 1024;
 const SKIP_COMPRESS_UNDER_BYTES = 8 * 1024 * 1024;
 const PREVIEW_PROP = "workflowPreviewOf";
 

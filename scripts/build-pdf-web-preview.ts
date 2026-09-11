@@ -2,7 +2,7 @@
  * Build a layer-preserving web preview in Drive for a huge print PDF.
  * JPEGs are downsampled; OCG layers are not flattened.
  *
- * Use this on your Mac for files over ~90 MB (Vercel cannot load 700 MB).
+ * Use this on your Mac for files over 200 MB (Vercel cannot load 700 MB).
  *
  *   npx tsx --import ./scripts/fedex/register-server-only.mjs --env-file=.env.local scripts/build-pdf-web-preview.ts --fileId=DRIVE_FILE_ID
  */
