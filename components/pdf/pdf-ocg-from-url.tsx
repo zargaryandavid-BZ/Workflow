@@ -94,6 +94,8 @@ export function PdfOcgFromUrl({
   page: lockedPage,
   renderPageActions,
   rollDirection = null,
+  labelWidthIn = null,
+  labelHeightIn = null,
   fillHost = false,
 }: {
   src: string;
@@ -107,6 +109,8 @@ export function PdfOcgFromUrl({
   renderPageActions?: (page: number) => ReactNode;
   /** When set, customers can place the artwork layer onto a roll (one label). */
   rollDirection?: RollDirectionValue | null;
+  labelWidthIn?: number | null;
+  labelHeightIn?: number | null;
   /** Fill the parent and scale the page to the available width and height. */
   fillHost?: boolean;
 }) {
@@ -829,6 +833,8 @@ export function PdfOcgFromUrl({
             <OnRollPreview
               artworkSrc={proofBitmap}
               direction={rollDirection}
+              labelWidthIn={labelWidthIn}
+              labelHeightIn={labelHeightIn}
             />
           ) : onRoll && rollDirection && !loading ? (
             <p className="px-3 py-8 text-center text-sm text-slate-500">

@@ -306,6 +306,8 @@ function SkuArtworkBlock({
   finalPdf,
   pdfPending = false,
   rollDirection,
+  labelWidthIn,
+  labelHeightIn,
 }: {
   token: string;
   orderId?: string;
@@ -315,6 +317,8 @@ function SkuArtworkBlock({
   finalPdf: RespondFinalPdf | null;
   pdfPending?: boolean;
   rollDirection: ReturnType<typeof rollDirectionFromRespondRows>;
+  labelWidthIn?: number | null;
+  labelHeightIn?: number | null;
 }) {
   const canShowPdf = Boolean(finalPdf && orderId);
   const pdfOn = canShowPdf;
@@ -339,6 +343,8 @@ function SkuArtworkBlock({
             page={pdfView.page}
             layout={pdfView.layout}
             rollDirection={rollDirection}
+            labelWidthIn={labelWidthIn}
+            labelHeightIn={labelHeightIn}
             onPageCount={(n) =>
               skuUi.setPdfPageCount?.(
                 skuId,
@@ -682,6 +688,8 @@ export function OrderReview({
                     finalPdf={reviewPdfs[sku.id] ?? null}
                     pdfPending={false}
                     rollDirection={rollDirection}
+                    labelWidthIn={labelWidthIn}
+                    labelHeightIn={labelHeightIn}
                   />
                 </li>
               );
