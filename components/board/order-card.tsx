@@ -113,6 +113,7 @@ import { maskFedExAccountNumber } from "@/lib/client-fedex";
 import {
   shippingCardBorderColor,
   shippingTagClass,
+  type BoardShippingSign,
 } from "@/lib/board-shipping";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import {
