@@ -242,6 +242,21 @@ describe("spec_display", () => {
     );
   });
 
+  it("hides Die kind and Die number on the floor; Die stays on the custom field", () => {
+    assert.equal(isHiddenFloorSpecKey("DIE_KIND"), true);
+    assert.equal(isHiddenFloorSpecKey("Die number"), true);
+    assert.equal(specKeyCoveredByCustomFields("DIE_KIND", ["Die"]), true);
+    const floor = floorSpecDisplayRows([
+      { key: "DIE_KIND", label: "Die kind", value: "existing" },
+      { key: "DIE_NUMBER", label: "Die number", value: "DIE-0143" },
+      { key: "BOX", label: "Box size", value: "12x8x4" },
+    ]);
+    assert.deepEqual(
+      floor.map((r) => r.label),
+      ["Box size"]
+    );
+  });
+
   it("drops ROLL_DIRECTION spec_display; keeps Application Service / Box size", () => {
     assert.equal(isSpecDisplayCoveredByCustomFields("ROLL_DIRECTION"), true);
     const floor = floorSpecDisplayRows([

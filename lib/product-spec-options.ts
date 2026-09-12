@@ -185,6 +185,9 @@ const SPEC_KEY_CUSTOM_FIELDS: Record<string, string[]> = {
   SIDES: ["Sides"],
   DIE_METHOD: ["Die"],
   DIE_NAME: ["Die"],
+  DIE_KIND: ["Die"],
+  DIE_NUMBER: ["Die"],
+  DIE_NO: ["Die"],
   CUTTING_TYPE: ["Die"],
   CUTTING: ["Die"],
 };
@@ -229,7 +232,13 @@ export function catalogSpecHasDisplayValue(value: string): boolean {
 }
 
 /** Mapper-only ids — stay on spec_selections, never on the floor form. */
-const HIDDEN_FLOOR_SPEC_KEYS = new Set(["BAZAAR_ITEM_ID", "BAZAAR_DIE_ID"]);
+const HIDDEN_FLOOR_SPEC_KEYS = new Set([
+  "BAZAAR_ITEM_ID",
+  "BAZAAR_DIE_ID",
+  "DIE_KIND",
+  "DIE_NUMBER",
+  "DIE_NO",
+]);
 
 /** Already shown as Product / Die / Materials / Finished Size / Roll Direction (Q12). */
 const SPEC_DISPLAY_COVERED_KEYS = new Set([
@@ -237,6 +246,9 @@ const SPEC_DISPLAY_COVERED_KEYS = new Set([
   "DIE_NAME",
   "SIZE",
   "DIE",
+  "DIE_KIND",
+  "DIE_NUMBER",
+  "DIE_NO",
   "ROLL_DIRECTION",
 ]);
 
@@ -298,9 +310,12 @@ export function resolveLineSpecDisplay(
 
 /** Floor rows after Q12: drop Size / Die already on custom fields. */
 export function floorSpecDisplayRows(raw: unknown): SpecDisplayRow[] {
-  return parseSpecDisplay(raw).filter(
-    (row) => !row.key || !isSpecDisplayCoveredByCustomFields(row.key)
-  );
+  return parseSpecDisplay(raw).filter((row) => {
+    if (row.key && isSpecDisplayCoveredByCustomFields(row.key)) return false;
+    const label = row.label.replace(/[\s-]+/g, " ").trim().toLowerCase();
+    if (label === "die kind" || label === "die number") return false;
+    return true;
+  });
 }
 
 /** "APPAREL_CLIENT_PROVIDED" → "Apparel client provided" (Product-label style). */

@@ -37,6 +37,8 @@ export const ORDER_FORM_PRINT_FIELD_NAMES = [
 const ORDER_FORM_HIDDEN_FIELD_NAMES = [
   "Unit Price ($)",
   "Unit Price",
+  "Die kind",
+  "Die number",
 ] as const;
 
 /** Labels that differ from the stored custom-field name. */
