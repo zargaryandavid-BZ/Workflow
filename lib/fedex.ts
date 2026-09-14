@@ -1,7 +1,10 @@
 import "server-only";
 
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
-import { pickRatedDetail } from "@/lib/fedex-rate-pick";
+import {
+  pickRatedDetail,
+  type RatedShipmentDetail,
+} from "@/lib/fedex-rate-pick";
 import { friendlyFedExServiceName } from "@/lib/fedex-service-display";
 import type {
   FedExConfig,
@@ -172,12 +175,15 @@ function parseNetCharge(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-type RatedShipmentDetail = {
-  rateType?: string;
-  actualRateType?: string;
-  totalNetCharge?: number | string;
-  currency?: string;
-};
+function parseCurrency(detail?: RatedShipmentDetail): string {
+  if (detail?.currency?.trim()) return detail.currency.trim();
+  const tnc = detail?.totalNetCharge;
+  if (tnc && typeof tnc === "object" && !Array.isArray(tnc) && "currency" in tnc) {
+    const c = tnc.currency;
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return "USD";
+}
 
 export async function fetchFedExRates(args: {
   boxes: ShippingBox[];
@@ -300,7 +306,7 @@ export async function fetchFedExRates(args: {
       ),
       totalCharge,
       fedexBaseCharge: totalCharge,
-      currency: detail?.currency ?? "USD",
+      currency: parseCurrency(detail),
       deliveryDate,
       transitDays,
     };

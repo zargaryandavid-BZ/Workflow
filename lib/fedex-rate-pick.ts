@@ -1,7 +1,8 @@
-type RatedShipmentDetail = {
+export type RatedShipmentDetail = {
   rateType?: string;
   actualRateType?: string;
-  totalNetCharge?: number | string | { amount?: number | string };
+  totalNetCharge?: number | string | { amount?: number | string; currency?: string };
+  currency?: string;
 };
 
 /**
