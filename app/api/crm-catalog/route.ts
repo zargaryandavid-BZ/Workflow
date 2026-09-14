@@ -168,7 +168,7 @@ export async function GET() {
         fieldOptionsByProduct,
         optionTogglesByProduct,
       },
-      { headers: { "Cache-Control": "private, max-age=60" } }
+      { headers: { "Cache-Control": "private, no-store" } }
     );
   } catch (err) {
     return NextResponse.json(

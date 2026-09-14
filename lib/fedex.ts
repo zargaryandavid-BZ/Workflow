@@ -1,6 +1,8 @@
 import "server-only";
 
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { pickRatedDetail } from "@/lib/fedex-rate-pick";
+import { friendlyFedExServiceName } from "@/lib/fedex-service-display";
 import type {
   FedExConfig,
   FedExRateOption,
@@ -9,19 +11,6 @@ import type {
 } from "@/lib/types";
 import { resolveFedExConfig } from "@/lib/shipping-settings";
 import type { ShippingSettings } from "@/lib/types";
-
-const FEDEX_SERVICE_NAMES: Record<string, string> = {
-  FEDEX_GROUND: "FedEx Ground",
-  GROUND_HOME_DELIVERY: "FedEx Home Delivery",
-  FEDEX_2_DAY: "FedEx 2Day",
-  FEDEX_2_DAY_AM: "FedEx 2Day A.M.",
-  FEDEX_EXPRESS_SAVER: "FedEx Express Saver",
-  STANDARD_OVERNIGHT: "FedEx Standard Overnight",
-  PRIORITY_OVERNIGHT: "FedEx Priority Overnight",
-  FIRST_OVERNIGHT: "FedEx First Overnight",
-  INTERNATIONAL_ECONOMY: "FedEx International Economy",
-  INTERNATIONAL_PRIORITY: "FedEx International Priority",
-};
 
 function fedexBaseUrl(config: FedExConfig): string {
   return config.sandbox
@@ -34,10 +23,6 @@ export function isFedExConfigured(config?: FedExConfig | null): boolean {
   return Boolean(
     c.apiKey?.trim() && c.secretKey?.trim() && c.accountNumber?.trim()
   );
-}
-
-export function friendlyFedExServiceName(serviceType: string, fallback?: string) {
-  return FEDEX_SERVICE_NAMES[serviceType] ?? fallback ?? serviceType;
 }
 
 /**
@@ -75,6 +60,13 @@ export function friendlyFedExCustomerError(raw: string): string {
     lower.includes("package")
   ) {
     return "FedEx couldn’t quote this package size. Please contact the shop for help.";
+  }
+
+  if (
+    lower.includes("account number mismatch") ||
+    lower.includes("payor accountnumber should match")
+  ) {
+    return "FedEx account number doesn’t match these API keys. In Settings → Shipping, use the account tied to this API key, or paste the new account’s API key and secret.";
   }
 
   if (
@@ -171,8 +163,11 @@ export function mockFedExRates(
   ];
 }
 
-function parseNetCharge(raw: number | string | null | undefined): number | null {
+function parseNetCharge(raw: unknown): number | null {
   if (raw == null) return null;
+  if (typeof raw === "object" && !Array.isArray(raw) && "amount" in raw) {
+    return parseNetCharge((raw as { amount?: unknown }).amount);
+  }
   const n = typeof raw === "number" ? raw : Number.parseFloat(String(raw));
   return Number.isFinite(n) ? n : null;
 }
@@ -183,18 +178,6 @@ type RatedShipmentDetail = {
   totalNetCharge?: number | string;
   currency?: string;
 };
-
-/** Prefer LIST (published) rates so quotes align closer to fedex.com. */
-function pickRatedDetail(
-  details: RatedShipmentDetail[] | undefined
-): RatedShipmentDetail | undefined {
-  if (!details?.length) return undefined;
-  const list = details.find((d) => {
-    const t = `${d.rateType ?? ""} ${d.actualRateType ?? ""}`.toUpperCase();
-    return t.includes("LIST");
-  });
-  return list ?? details[0];
-}
 
 export async function fetchFedExRates(args: {
   boxes: ShippingBox[];
@@ -244,7 +227,7 @@ export async function fetchFedExRates(args: {
       },
       pickupType: "DROPOFF_AT_FEDEX_LOCATION",
       packagingType: usingOwnBox ? "YOUR_PACKAGING" : "FEDEX_BOX",
-      rateRequestType: ["LIST", "ACCOUNT"],
+      rateRequestType: ["ACCOUNT", "LIST"],
       rateRequestControlParameters: {
         returnTransitTimes: true,
       },

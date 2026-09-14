@@ -1,5 +1,5 @@
 /**
- * One-off FedEx rate quote (residential + own box + LIST preference).
+ * One-off FedEx rate quote (residential + own box + ACCOUNT preference).
  * Usage: node scripts/quote-fedex-rates.mjs [street] [city] [state] [zip]
  */
 import { readFileSync } from "node:fs";
@@ -54,13 +54,13 @@ function applyPercent(base, pct) {
   return Math.round((base + (base * pct) / 100) * 100) / 100;
 }
 
-function pickListDetail(details) {
+function pickAccountDetail(details) {
   if (!details?.length) return undefined;
-  const list = details.find((d) => {
+  const account = details.find((d) => {
     const t = `${d.rateType ?? ""} ${d.actualRateType ?? ""}`.toUpperCase();
-    return t.includes("LIST");
+    return t.includes("ACCOUNT") && !t.includes("LIST");
   });
-  return list ?? details[0];
+  return account ?? details[0];
 }
 
 function parseCharge(raw) {
@@ -102,9 +102,9 @@ async function quote() {
         options: {
           residential: true,
           packagingType: "YOUR_PACKAGING",
-          ratePreference: "LIST",
+          ratePreference: "ACCOUNT",
         },
-        clientPrice: `FedEx LIST + ${MARKUP_PERCENT}%`,
+        clientPrice: `FedEx ACCOUNT + ${MARKUP_PERCENT}%`,
       },
       null,
       2
@@ -128,7 +128,7 @@ async function quote() {
       },
       pickupType: "DROPOFF_AT_FEDEX_LOCATION",
       packagingType: "YOUR_PACKAGING",
-      rateRequestType: ["LIST", "ACCOUNT"],
+      rateRequestType: ["ACCOUNT", "LIST"],
       requestedPackageLineItems: [
         {
           sequenceNumber: 1,
@@ -162,7 +162,7 @@ async function quote() {
 
   const rows = (ratesData.output?.rateReplyDetails ?? [])
     .map((r) => {
-      const detail = pickListDetail(r.ratedShipmentDetails);
+      const detail = pickAccountDetail(r.ratedShipmentDetails);
       const account = r.ratedShipmentDetails?.find((d) =>
         `${d.rateType ?? ""}`.toUpperCase().includes("ACCOUNT")
       );

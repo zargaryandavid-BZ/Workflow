@@ -23,9 +23,12 @@ export async function GET() {
     return NextResponse.json({ error: "No catalog cache" }, { status: 404 });
   }
 
-  return NextResponse.json({
-    cached_at: data.cached_at,
-    payload: data.payload,
-    product_count: catalogProductCount(data.payload),
-  });
+  return NextResponse.json(
+    {
+      cached_at: data.cached_at,
+      payload: data.payload,
+      product_count: catalogProductCount(data.payload),
+    },
+    { headers: { "Cache-Control": "private, no-store" } }
+  );
 }

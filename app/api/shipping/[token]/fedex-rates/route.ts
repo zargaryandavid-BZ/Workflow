@@ -76,6 +76,8 @@ export async function POST(
       settings,
     });
 
+    // Customer price uses FedEx ACCOUNT rates (see pickRatedDetail).
+
     const paymentEnabled = settings?.payment_enabled ?? false;
     const markupPercent = settings?.markup_percent ?? 0;
 

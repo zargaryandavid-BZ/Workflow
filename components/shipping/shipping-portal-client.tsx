@@ -24,6 +24,12 @@ import {
   isClientFedExSelection,
   maskFedExAccountNumber,
 } from "@/lib/client-fedex";
+import {
+  estimateDeliveryDate,
+  fedexCommitmentLabel,
+  groupRatesForPriceChart,
+} from "@/lib/fedex-service-display";
+import { defaultResidentialFlag } from "@/lib/shipping-address";
 
 export interface ShippingPortalData {
   token: string;
@@ -118,156 +124,14 @@ function formatMoney(amount: number | null, currency: string) {
   }
 }
 
-/** FedEx.com-style commitment labels (time of day / end of day). */
-const FEDEX_COMMITMENT_LABEL: Record<string, string> = {
-  FIRST_OVERNIGHT: "8:00 AM",
-  PRIORITY_OVERNIGHT: "12:00 PM",
-  STANDARD_OVERNIGHT: "8:00 PM",
-  FEDEX_2_DAY_AM: "12:00 PM",
-  FEDEX_2_DAY: "8:00 PM",
-  FEDEX_EXPRESS_SAVER: "End of Day",
-  GROUND_HOME_DELIVERY: "End of Day",
-  FEDEX_GROUND: "End of Day",
-};
-
-/** Calendar-day timestamp for sorting (time-of-day ignored so price can break ties). */
 function deliverySortKey(rate: FedExRateOption): number {
-  const startOfLocalDay = (d: Date) => {
-    if (Number.isNaN(d.getTime())) return null;
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  };
-
-  const raw = rate.deliveryDate?.trim();
-  if (raw) {
-    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-    if (dateOnly) {
-      const key = startOfLocalDay(
-        new Date(
-          Number(dateOnly[1]),
-          Number(dateOnly[2]) - 1,
-          Number(dateOnly[3])
-        )
-      );
-      if (key != null) return key;
-    }
-    const monDay = /^([A-Za-z]{3})-(\d{1,2})-(\d{2,4})$/.exec(raw);
-    if (monDay) {
-      const yearRaw = Number(monDay[3]);
-      const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
-      const key = startOfLocalDay(new Date(`${monDay[1]} ${monDay[2]}, ${year}`));
-      if (key != null) return key;
-    }
-    const key = startOfLocalDay(new Date(raw));
-    if (key != null) return key;
-  }
   if (rate.provider === "curri") {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d.getTime();
   }
-  return Number.POSITIVE_INFINITY;
-}
-
-/** e.g. "Aug 05" — prefers calendar date over transit codes like TWO_DAYS / 2D. */
-function formatDeliveryDateShort(iso: string | null | undefined): string | null {
-  if (!iso?.trim()) return null;
-  const raw = iso.trim();
-  try {
-    // Date-only (YYYY-MM-DD) — parse as local calendar day to avoid UTC shift.
-    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-    if (dateOnly) {
-      const d = new Date(
-        Number(dateOnly[1]),
-        Number(dateOnly[2]) - 1,
-        Number(dateOnly[3])
-      );
-      if (Number.isNaN(d.getTime())) return null;
-      return d.toLocaleDateString("en-US", {
-        month: "short",
-        day: "2-digit",
-      });
-    }
-
-    // FedEx sometimes returns "Aug-05-26" / "Aug-05-2026"
-    const monDay = /^([A-Za-z]{3})-(\d{1,2})-(\d{2,4})$/.exec(raw);
-    if (monDay) {
-      const yearRaw = Number(monDay[3]);
-      const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
-      const d = new Date(`${monDay[1]} ${monDay[2]}, ${year}`);
-      if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-        });
-      }
-    }
-
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "2-digit",
-    });
-  } catch {
-    return null;
-  }
-}
-
-/** Estimate a delivery calendar date from FedEx transit / service type. */
-function estimateDeliveryDateFromTransit(rate: FedExRateOption): string | null {
-  const transit = (rate.transitDays ?? "").toUpperCase().replace(/\s+/g, "_");
-  const service = rate.serviceType.toUpperCase();
-
-  let businessDays: number | null = null;
-  if (
-    transit.includes("ONE_DAY") ||
-    transit === "1D" ||
-    transit === "ONE_DAY"
-  ) {
-    businessDays = 1;
-  } else if (
-    transit.includes("TWO_DAY") ||
-    transit === "2D" ||
-    transit === "TWO_DAYS"
-  ) {
-    businessDays = 2;
-  } else if (
-    transit.includes("THREE_DAY") ||
-    transit === "3D" ||
-    transit === "THREE_DAYS"
-  ) {
-    businessDays = 3;
-  } else if (transit.includes("FOUR_DAY") || transit === "4D") {
-    businessDays = 4;
-  } else if (transit.includes("FIVE_DAY") || transit === "5D") {
-    businessDays = 5;
-  } else if (
-    service.includes("FIRST_OVERNIGHT") ||
-    service.includes("PRIORITY_OVERNIGHT") ||
-    service.includes("STANDARD_OVERNIGHT")
-  ) {
-    businessDays = 1;
-  } else if (service.includes("2_DAY") || service.includes("2DAY")) {
-    businessDays = 2;
-  } else if (service.includes("EXPRESS_SAVER")) {
-    businessDays = 3;
-  } else if (service.includes("GROUND") || service.includes("HOME_DELIVERY")) {
-    businessDays = 5;
-  }
-
-  if (businessDays == null) return null;
-
-  const d = new Date();
-  let added = 0;
-  while (added < businessDays) {
-    d.setDate(d.getDate() + 1);
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) added += 1;
-  }
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "2-digit",
-  });
+  const date = estimateDeliveryDate(rate);
+  return date?.getTime() ?? Number.POSITIVE_INFINITY;
 }
 
 function formatTransit(rate: FedExRateOption) {
@@ -283,21 +147,7 @@ function formatTransit(rate: FedExRateOption) {
     }
   }
 
-  const deliveryLabel =
-    formatDeliveryDateShort(rate.deliveryDate) ??
-    estimateDeliveryDateFromTransit(rate);
-  if (deliveryLabel) return deliveryLabel;
-
-  const commitment =
-    FEDEX_COMMITMENT_LABEL[rate.serviceType] ??
-    (rate.serviceType.includes("HOME_DELIVERY") ||
-    /home delivery/i.test(rate.serviceName)
-      ? "End of Day"
-      : null);
-
-  if (commitment) return commitment;
-
-  return "Est. arrival TBD";
+  return fedexCommitmentLabel(rate) ?? "Est. arrival TBD";
 }
 
 function rateKey(rate: FedExRateOption) {
@@ -342,58 +192,65 @@ function DeliveryAddressFields({
           className={addressInputClass}
         />
       </label>
-      <label className="block text-sm font-semibold text-slate-800 sm:col-span-3">
-        Street
-        <input
-          value={address.street}
-          onChange={(e) => onChange({ street: e.target.value })}
-          autoComplete="street-address"
-          className={addressInputClass}
-        />
-      </label>
-      <label className="block text-sm font-semibold text-slate-800">
-        City
-        <input
-          value={address.city}
-          onChange={(e) => onChange({ city: e.target.value })}
-          autoComplete="address-level2"
-          className={addressInputClass}
-        />
-      </label>
-      <label className="block text-sm font-semibold text-slate-800">
-        State
-        <select
-          value={address.state}
-          onChange={(e) => onChange({ state: e.target.value })}
-          autoComplete="address-level1"
-          className={addressInputClass}
-        >
-          <option value="">Select</option>
-          {US_STATES.map((s) => (
-            <option key={s.code} value={s.code}>
-              {s.code} — {s.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="block text-sm font-semibold text-slate-800">
-        ZIP
-        <input
-          value={address.zip}
-          onChange={(e) => onChange({ zip: e.target.value })}
-          autoComplete="postal-code"
-          className={addressInputClass}
-        />
-      </label>
-      <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800 sm:col-span-3">
-        <input
-          type="checkbox"
-          checked={address.residential !== false}
-          onChange={(e) => onChange({ residential: e.target.checked })}
-          className="h-4 w-4 rounded border-slate-400 text-sky-700 focus:ring-sky-500"
-        />
-        Residential address
-      </label>
+      <div className="sm:col-span-3">
+        <span className="text-sm font-semibold text-slate-800">Street</span>
+        <div className="mt-1 flex items-center gap-3">
+          <input
+            value={address.street}
+            onChange={(e) => onChange({ street: e.target.value })}
+            autoComplete="street-address"
+            className={`${addressInputClass} mt-0 min-w-0 flex-1`}
+          />
+          <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap text-sm font-medium text-slate-800">
+            <input
+              type="checkbox"
+              checked={address.residential === true}
+              onChange={(e) => onChange({ residential: e.target.checked })}
+              className="h-4 w-4 rounded border-slate-400 text-sky-700 focus:ring-sky-500"
+            />
+            Residential
+          </label>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:col-span-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(12rem,2fr)_calc(10ch+1.75rem)]">
+        <label className="block min-w-0 text-sm font-semibold text-slate-800">
+          City
+          <input
+            value={address.city}
+            onChange={(e) => onChange({ city: e.target.value })}
+            autoComplete="address-level2"
+            className={addressInputClass}
+          />
+        </label>
+        <label className="block min-w-0 text-sm font-semibold text-slate-800">
+          State
+          <select
+            value={address.state}
+            onChange={(e) => onChange({ state: e.target.value })}
+            autoComplete="address-level1"
+            className={addressInputClass}
+          >
+            <option value="">Select</option>
+            {US_STATES.map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.code} — {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block min-w-0 text-sm font-semibold text-slate-800">
+          ZIP
+          <input
+            value={address.zip}
+            onChange={(e) => onChange({ zip: e.target.value.slice(0, 10) })}
+            autoComplete="postal-code"
+            inputMode="text"
+            maxLength={10}
+            size={10}
+            className={addressInputClass}
+          />
+        </label>
+      </div>
     </div>
   );
 }
@@ -425,7 +282,10 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     state: data.deliveryAddress?.state ?? "",
     zip: data.deliveryAddress?.zip ?? "",
     country: data.deliveryAddress?.country ?? "US",
-    residential: data.deliveryAddress?.residential !== false,
+    residential: defaultResidentialFlag(
+      data.deliveryAddress?.street ?? "",
+      data.deliveryAddress?.residential
+    ),
     usingOwnBox: data.deliveryAddress?.usingOwnBox !== false,
   });
   const [deliveryNotes, setDeliveryNotes] = useState(data.deliveryNotes ?? "");
@@ -458,6 +318,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   const [validatingAccount, setValidatingAccount] = useState(false);
   const shippingOptionsRef = useRef<HTMLDivElement | null>(null);
   const ratesPanelRef = useRef<HTMLDivElement | null>(null);
+  const ratesLoadSeq = useRef(0);
   const [optionsEl, setOptionsEl] = useState<HTMLDivElement | null>(null);
   const [optionsInView, setOptionsInView] = useState(false);
 
@@ -649,10 +510,23 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
 
   /** Editing the address invalidates any prior rate error/quote. */
   function editAddress(patch: Partial<ShippingDeliveryAddress>) {
-    setAddress((a) => ({ ...a, ...patch }));
+    const next = { ...address, ...patch };
+    setAddress(next);
     setError(null);
-    setRates([]);
     setSelectedRate(null);
+    if (
+      Object.prototype.hasOwnProperty.call(patch, "residential") &&
+      next.name?.trim() &&
+      next.phone?.trim() &&
+      next.street.trim() &&
+      next.city.trim() &&
+      next.state.trim() &&
+      next.zip.trim()
+    ) {
+      void loadRates(next);
+      return;
+    }
+    setRates([]);
   }
 
   async function confirmPickup() {
@@ -679,24 +553,26 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     }
   }
 
-  async function loadRates() {
+  async function loadRates(fromAddress?: ShippingDeliveryAddress) {
+    const addr = fromAddress ?? address;
     setError(null);
     if (
-      !address.name?.trim() ||
-      !address.phone?.trim() ||
-      !address.street.trim() ||
-      !address.city.trim() ||
-      !address.state.trim() ||
-      !address.zip.trim()
+      !addr.name?.trim() ||
+      !addr.phone?.trim() ||
+      !addr.street.trim() ||
+      !addr.city.trim() ||
+      !addr.state.trim() ||
+      !addr.zip.trim()
     ) {
       setError(
         "Please fill in customer name, contact number, street, city, state, and ZIP."
       );
       return;
     }
+    const seq = ++ratesLoadSeq.current;
     setLoadingRates(true);
     try {
-      const payload = JSON.stringify({ deliveryAddress: address });
+      const payload = JSON.stringify({ deliveryAddress: addr });
       const headers = { "Content-Type": "application/json" };
 
       const fetches: Promise<{
@@ -747,6 +623,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       }
 
       const results = await Promise.all(fetches);
+      if (seq !== ratesLoadSeq.current) return;
       const fedexResult = results.find((r) => r.source === "fedex");
       if (fedexResult && !fedexResult.ok) {
         throw new Error(fedexResult.error ?? "Failed to get FedEx rates");
@@ -780,11 +657,12 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         );
       }
     } catch (err) {
+      if (seq !== ratesLoadSeq.current) return;
       setError(err instanceof Error ? err.message : "Failed to get rates");
       setRates([]);
       setSelectedRate(null);
     } finally {
-      setLoadingRates(false);
+      if (seq === ratesLoadSeq.current) setLoadingRates(false);
     }
   }
 
@@ -1369,63 +1247,58 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               ref={ratesPanelRef}
               className="space-y-2 rounded-xl border border-slate-200 p-3"
             >
-              <p className="text-sm font-medium text-slate-800">
-                Select a shipping option
-              </p>
-              {rates.map((rate) => {
-                const selected = isSameRate(selectedRate, rate);
-                const isCurri = rate.provider === "curri";
-                const showFees =
-                  rate.fedexBaseCharge != null &&
-                  rate.totalCharge != null &&
-                  rate.fedexBaseCharge !== rate.totalCharge;
-                return (
-                  <label
-                    key={rateKey(rate)}
-                    className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm ${
-                      selected
-                        ? "border-slate-800 bg-slate-50"
-                        : "border-slate-200 hover:border-slate-300"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      checked={selected}
-                      onChange={() => setSelectedRate(rate)}
-                      className="mt-1"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline justify-between gap-3">
-                        <span className="font-semibold text-slate-900">
-                          {formatTransit(rate)}
-                        </span>
-                        <span className="shrink-0 text-right">
-                          <span className="font-semibold text-slate-900">
-                            {formatMoney(rate.totalCharge, rate.currency)}
-                          </span>
-                          {showFees ? (
-                            <span className="ml-1 text-xs font-normal text-slate-400">
-                              incl. fees
+              {groupRatesForPriceChart(rates).map((group) => (
+                <div key={group.key} className="space-y-2">
+                  <p className="pt-1 text-sm font-semibold text-slate-800 first:pt-0">
+                    {group.heading}
+                  </p>
+                  {group.rates.map((rate) => {
+                    const selected = isSameRate(selectedRate, rate);
+                    const isCurri = rate.provider === "curri";
+                    const showFees =
+                      rate.fedexBaseCharge != null &&
+                      rate.totalCharge != null &&
+                      rate.fedexBaseCharge !== rate.totalCharge;
+                    return (
+                      <label
+                        key={rateKey(rate)}
+                        className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm ${
+                          selected
+                            ? "border-slate-800 bg-slate-50"
+                            : "border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          checked={selected}
+                          onChange={() => setSelectedRate(rate)}
+                          className="mt-1"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline justify-between gap-3">
+                            <span className="font-semibold text-slate-900">
+                              {formatTransit(rate)}
                             </span>
-                          ) : null}
+                            <span className="shrink-0 text-right">
+                              <span className="font-semibold text-slate-900">
+                                {formatMoney(rate.totalCharge, rate.currency)}
+                              </span>
+                              {showFees ? (
+                                <span className="ml-1 text-xs font-normal text-slate-400">
+                                  incl. fees
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-2 text-slate-600">
+                            {rate.serviceName}
+                          </span>
                         </span>
-                      </span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-2 text-slate-600">
-                        {rate.serviceName}
-                        {isCurri ? (
-                          <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-700">
-                            Curri · Same Day
-                          </span>
-                        ) : (
-                          <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700">
-                            FedEx
-                          </span>
-                        )}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
+                      </label>
+                    );
+                  })}
+                </div>
+              ))}
               <button
                 type="button"
                 disabled={confirming || !selectedRate}

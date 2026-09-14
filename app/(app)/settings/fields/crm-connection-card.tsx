@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { invalidateCatalogCache } from "@/lib/use-catalog-cache";
+import { invalidateCrmCatalog } from "@/lib/use-crm-catalog";
 import type { IntegrationMode } from "@/lib/types";
 
 function formatSyncedAt(iso: string | null): string {
@@ -68,6 +70,8 @@ export function CrmConnectionCard({
       setError(json.error ?? "Failed to refresh catalog");
       return false;
     }
+    invalidateCatalogCache();
+    invalidateCrmCatalog();
     if (json.cached_at) setCachedAt(json.cached_at);
     setMessage(
       typeof json.product_count === "number"
@@ -126,8 +130,11 @@ export function CrmConnectionCard({
     setError(null);
     setMessage(null);
     setRefreshing(true);
-    await refreshCatalog(catalogUrl);
-    setRefreshing(false);
+    try {
+      await refreshCatalog(catalogUrl);
+    } finally {
+      setRefreshing(false);
+    }
     router.refresh();
   }
 

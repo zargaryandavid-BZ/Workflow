@@ -103,6 +103,13 @@ describe("set size helpers", () => {
     assert.deepEqual(lookupCatalogMap(map, "🏷️ Roll Labels"), {
       SET_SIZE: [1],
     });
+    assert.deepEqual(
+      lookupCatalogMap(
+        { "Packaging & Boxes": ["Sleeves", "Corrugated box"] },
+        "📦 Packaging & Boxes"
+      ),
+      ["Sleeves", "Corrugated box"]
+    );
     assert.equal(
       preferLinkedCatalogName("Labels (Roll)", ["Roll Labels", "Labels (Sheet)"]),
       "Roll Labels"

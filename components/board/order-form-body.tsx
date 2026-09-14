@@ -16,7 +16,7 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { NoteMentionTextarea } from "@/components/board/note-mention-textarea";
 import { CustomFieldInput } from "./custom-field-input";
 import { ProductMaterialsFields } from "./product-materials-fields";
-import { useCrmCatalog, catalogLookup } from "@/lib/use-crm-catalog";
+import { useCrmCatalog } from "@/lib/use-crm-catalog";
 import { SkuEditor, type SkuItem, type PendingSkuImage } from "./sku-editor";
 import { DueDateFields } from "./due-date-fields";
 import { ApplicationFields } from "./application-fields";
@@ -648,8 +648,14 @@ export function OrderFormBody({
   const productOptionsOverride = (() => {
     if (!categoryField || !productField) return null;
     const category = String(fieldValues[categoryField.id] ?? "").trim();
-    const fromCrm = crmCatalog ? catalogLookup(crmCatalog.productsByCategory, category) : null;
-    if (fromCrm) return category ? fromCrm : [];
+    const fromCrm = crmCatalog
+      ? lookupCatalogMap(crmCatalog.productsByCategory, category)
+      : null;
+    if (crmCatalog) {
+      // Connected mode: never fall back to the old Workflow product list.
+      if (!category) return [];
+      return fromCrm ?? [];
+    }
     const linked = linkedTargetOptions(
       fieldLinks,
       categoryField.id,
@@ -669,7 +675,10 @@ export function OrderFormBody({
     const fromCrm = crmCatalog
       ? lookupCatalogMap(crmCatalog.materialsByProduct, product)
       : null;
-    if (fromCrm) return product ? fromCrm : [];
+    if (crmCatalog) {
+      if (!product) return [];
+      return fromCrm ?? [];
+    }
     const linked = linkedTargetOptions(
       fieldLinks,
       productField.id,

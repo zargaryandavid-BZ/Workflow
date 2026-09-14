@@ -77,6 +77,22 @@ function nameFromOrderFields(
   ]);
 }
 
+/** Suite / floor / unit usually means a business for FedEx Ground vs Home Delivery. */
+export function streetSuggestsCommercial(street: string): boolean {
+  return /\b(?:ste\.?|suite|unit|fl\.?|floor|bldg\.?|building)\b/i.test(
+    street.trim()
+  );
+}
+
+/** Home vs business. Suites default to business; the client can still check Residential. */
+export function defaultResidentialFlag(
+  street: string,
+  saved?: boolean
+): boolean {
+  if (streetSuggestsCommercial(street)) return false;
+  return saved !== false;
+}
+
 /** Trim + normalize a delivery address for API storage / carrier calls. */
 export function normalizeDeliveryAddress(
   addr: ShippingDeliveryAddress
@@ -89,7 +105,7 @@ export function normalizeDeliveryAddress(
     state: addr.state.trim().toUpperCase(),
     zip: addr.zip.trim(),
     country: (addr.country ?? "US").trim().toUpperCase() || "US",
-    residential: addr.residential !== false,
+    residential: addr.residential === true,
     usingOwnBox: addr.usingOwnBox !== false,
   };
 }
@@ -108,7 +124,10 @@ export function defaultDeliveryAddress(
     state: saved?.state?.trim() ?? "",
     zip: saved?.zip?.trim() ?? "",
     country: saved?.country?.trim() || "US",
-    residential: saved?.residential !== false,
+    residential: defaultResidentialFlag(
+      saved?.street?.trim() ?? "",
+      saved?.residential
+    ),
     usingOwnBox: saved?.usingOwnBox !== false,
   };
 
@@ -147,6 +166,10 @@ export function defaultDeliveryAddress(
       state: base.state || state,
       zip: base.zip || zip,
       country: base.country || "US",
+      residential: defaultResidentialFlag(
+        base.street || street,
+        saved?.residential
+      ),
     };
   }
 
@@ -166,6 +189,10 @@ export function defaultDeliveryAddress(
       state: base.state || parsed.state || "",
       zip: base.zip || parsed.zip || "",
       country: base.country || "US",
+      residential: defaultResidentialFlag(
+        base.street || parsed.street || "",
+        saved?.residential
+      ),
     };
   }
 

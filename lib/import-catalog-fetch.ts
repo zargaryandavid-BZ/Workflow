@@ -124,7 +124,7 @@ function catalogHeaders(): Record<string, string> {
 async function fetchCatalogPage(url: URL): Promise<unknown> {
   const res = await fetch(url.toString(), {
     headers: catalogHeaders(),
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(45_000),
     cache: "no-store",
   });
   if (!res.ok) {
