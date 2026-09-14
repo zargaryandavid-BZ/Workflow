@@ -86,7 +86,7 @@ import {
   type ColumnSortMap,
   type ColumnSortMode,
 } from "@/lib/board-column-sort";
-import { isStartColumn } from "@/lib/board-columns";
+import { isPrepressColumn, isStartColumn } from "@/lib/board-columns";
 import type { TimeChip } from "@/lib/time-chips";
 import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
 
@@ -270,6 +270,7 @@ export function BoardTable({
         list,
         getColumnSortMode(columnSortById, columnId, {
           isStartColumn: isStartColumn(columnId, columns),
+          isPrepressColumn: isPrepressColumn(columnId, columns),
         })
       )
     );
@@ -279,6 +280,7 @@ export function BoardTable({
     const modes = columns.map((c) =>
       getColumnSortMode(columnSortById, c.id, {
         isStartColumn: isStartColumn(c.id, columns),
+        isPrepressColumn: isPrepressColumn(c.id, columns),
       })
     );
     if (modes.length === 0) return DEFAULT_COLUMN_SORT;

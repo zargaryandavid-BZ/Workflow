@@ -5,8 +5,9 @@
 export const QUEUE_CHANGED_EVENT = "workflow:designer-queue-changed";
 
 export type QueueChangedDetail = {
-  designerId: string;
-  /** order id → new 0-based queue position for that designer */
+  designerId?: string;
+  kind?: "designer" | "prepress";
+  /** order id → new 0-based queue position */
   posById: Record<string, number>;
 };
 

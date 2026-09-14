@@ -13,6 +13,7 @@ import type { BoardThumbnail } from "@/lib/card-image";
 import type { OrderWithRelations } from "@/lib/types";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { rankDesignerQueue } from "@/lib/designer-queue-rank";
+import { isPrepressColumnName, rankPrepressQueue } from "@/lib/prepress-queue";
 import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
 import {
   BOARD_ORDER_LIST_SELECT,
@@ -341,9 +342,8 @@ async function withSameColumnGroupSiblings(
 }
 
 /**
- * Attach `queue_rank` to each order when the fetched column is Start / In
- * Progress. Ranks a designer's cards across BOTH those columns so the number is
- * their true queue position, honoring any saved order first. Mutates `orders`.
+ * Attach `queue_rank` for Start / In Progress (per designer) and Prepress
+ * (shared queue matching `/queue/prepress`). Mutates `orders`.
  */
 async function attachQueueRanks(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -362,6 +362,49 @@ async function attachQueueRanks(
     (cols ?? []).map((c: { id: string; name: string }) => [c.id, c.name])
   );
   const currentName = columnsById.get(columnId);
+  if (isPrepressColumnName(currentName)) {
+    const prepressColumnIds = (cols ?? [])
+      .filter((c: { name: string }) => isPrepressColumnName(c.name))
+      .map((c: { id: string }) => c.id);
+    if (prepressColumnIds.length === 0) return;
+    const { data: rows } = await supabase
+      .from("orders")
+      .select("id, priority, due_date, specs")
+      .eq("tenant_id", tenantId)
+      .in("column_id", prepressColumnIds)
+      .is("removed_at", null)
+      .limit(4000);
+    const rankByOrder = rankPrepressQueue(
+      (rows ?? []).map(
+        (r: {
+          id: string;
+          priority: string | null;
+          due_date: string | null;
+          specs: unknown;
+        }) => {
+          const specs = (r.specs ?? {}) as Record<string, unknown>;
+          const posRaw = specs.prepress_queue_pos;
+          const pos =
+            typeof posRaw === "number"
+              ? posRaw
+              : Number.isFinite(Number(posRaw))
+                ? Number(posRaw)
+                : null;
+          return {
+            id: r.id,
+            queuePos: pos,
+            priority: r.priority,
+            dueDate: r.due_date,
+          };
+        }
+      )
+    );
+    for (const o of orders) {
+      o.queue_rank = rankByOrder[o.id] ?? null;
+    }
+    return;
+  }
+
   if (!isDesignerQueueColumnName(currentName)) return;
 
   const queueColumnIds = (cols ?? [])

@@ -81,17 +81,24 @@ export function saveColumnSortMap(tenantId: string, map: ColumnSortMap): void {
   }
 }
 
-export function defaultSortForColumn(isStart: boolean): ColumnSortMode {
-  return isStart ? START_COLUMN_DEFAULT_SORT : DEFAULT_COLUMN_SORT;
+export function defaultSortForColumn(
+  isStart: boolean,
+  isPrepress = false
+): ColumnSortMode {
+  return isStart || isPrepress
+    ? START_COLUMN_DEFAULT_SORT
+    : DEFAULT_COLUMN_SORT;
 }
 
 export function getColumnSortMode(
   map: ColumnSortMap,
   columnId: string,
-  options?: { isStartColumn?: boolean }
+  options?: { isStartColumn?: boolean; isPrepressColumn?: boolean }
 ): ColumnSortMode {
-  // Start column is always Priority: 5 → None for every user (no localStorage override).
-  if (options?.isStartColumn) return START_COLUMN_DEFAULT_SORT;
+  // Start and Prepress always use Priority: 5 → None (no localStorage override).
+  if (options?.isStartColumn || options?.isPrepressColumn) {
+    return START_COLUMN_DEFAULT_SORT;
+  }
   return map[columnId] ?? DEFAULT_COLUMN_SORT;
 }
 
@@ -138,10 +145,8 @@ export function sortOrdersForColumn<
 >(orders: T[], mode: ColumnSortMode): T[] {
   const list = [...orders];
 
-  // Start / In Progress carry a designer queue number — always show cards in
-  // that ascending order (1, 2, 3 …). Ranked cards first; unranked fall to the
-  // bottom by position. Only these columns set queue_rank, so others are
-  // unaffected and the chosen sort mode still applies there.
+  // Start / In Progress (designer) and Prepress carry a queue number —
+  // always show cards in that ascending order (1, 2, 3 …).
   if (orders.some((o) => typeof o.queue_rank === "number")) {
     return list.sort((a, b) => {
       const ra = typeof a.queue_rank === "number" ? a.queue_rank : Number.POSITIVE_INFINITY;

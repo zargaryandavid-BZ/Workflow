@@ -10,6 +10,8 @@ interface QueueRankBadgeProps {
   rank: number;
   /** Managers can click to re-rank; others just see the number. */
   canEdit: boolean;
+  /** Designer queue (Start / In Progress) or Prepress queue. */
+  queue?: "designer" | "prepress";
   className?: string;
 }
 
@@ -22,6 +24,7 @@ export function QueueRankBadge({
   orderId,
   rank,
   canEdit,
+  queue = "designer",
   className,
 }: QueueRankBadgeProps) {
   const [open, setOpen] = useState(false);
@@ -56,7 +59,11 @@ export function QueueRankBadge({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/designers/queue/move", {
+      const url =
+        queue === "prepress"
+          ? "/api/prepress/queue/move"
+          : "/api/designers/queue/move";
+      const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order_id: orderId, position: next }),
@@ -67,8 +74,9 @@ export function QueueRankBadge({
         posById?: Record<string, number>;
       };
       if (!res.ok) throw new Error(data.error ?? "Failed to move");
-      if (data.designer_id && data.posById) {
+      if (data.posById) {
         notifyQueueChanged({
+          kind: queue,
           designerId: data.designer_id,
           posById: data.posById,
         });
@@ -89,7 +97,11 @@ export function QueueRankBadge({
         className
       )}
       title={canEdit ? `Queue #${rank} — click to change` : `Queue #${rank}`}
-      aria-label={`Designer queue position ${rank}`}
+      aria-label={
+        queue === "prepress"
+          ? `Prepress queue position ${rank}`
+          : `Designer queue position ${rank}`
+      }
     >
       {rank}
     </span>

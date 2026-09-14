@@ -80,6 +80,7 @@ import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
 import { DesignFlagChip, SourceChannelChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
+import { isPrepressColumnName } from "@/lib/prepress-queue";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
@@ -579,24 +580,30 @@ export function OrderCard({
       : "") ||
     null;
 
-  // Designer queue rank (per-designer). Shown as a small #N badge on the card;
-  // managers click it to re-rank. Only when the card has a designer + a position.
+  // Designer queue (Start / In Progress) or Prepress queue (#N).
   const designerId =
     typeof order.specs?.designer_id === "string"
       ? order.specs.designer_id
       : null;
+  const isPrepressCard = isPrepressColumnName(columnName);
+  const queueKind: "designer" | "prepress" | null = isPrepressCard
+    ? "prepress"
+    : designerId && isDesignerQueueColumnName(columnName)
+      ? "designer"
+      : null;
   const queueRank = (() => {
-    if (!designerId) return null;
-    // Only Start / In Progress cards carry a queue number.
-    if (!isDesignerQueueColumnName(columnName)) return null;
-    // Saved position wins (updates live after a manual re-rank); otherwise fall
-    // back to the rank computed server-side at fetch time.
-    const v = (order.specs as { designer_queue_pos?: unknown } | null)
-      ?.designer_queue_pos;
+    if (!queueKind) return null;
+    const key =
+      queueKind === "prepress" ? "prepress_queue_pos" : "designer_queue_pos";
+    const v = (order.specs as Record<string, unknown> | null)?.[key];
     const n = typeof v === "number" ? v : Number(v);
     if (Number.isFinite(n)) return n + 1;
     return typeof order.queue_rank === "number" ? order.queue_rank : null;
   })();
+  const canEditPrepressQueue =
+    role === "admin" ||
+    role === "preprod_owner" ||
+    role === "account_manager";
 
   const isOwnerUnassigned = !order.created_by;
 
@@ -1140,11 +1147,16 @@ export function OrderCard({
                 {currentPriorityScore != null ? (
                   <PriorityScoreBadge score={currentPriorityScore} />
                 ) : null}
-                {queueRank != null ? (
+                {queueRank != null && queueKind ? (
                   <QueueRankBadge
                     orderId={order.id}
                     rank={queueRank}
-                    canEdit={canAssignDesigner}
+                    canEdit={
+                      queueKind === "prepress"
+                        ? canEditPrepressQueue
+                        : canAssignDesigner
+                    }
+                    queue={queueKind}
                   />
                 ) : null}
                 <DesignFlagChip specs={order.specs} />

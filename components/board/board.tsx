@@ -111,7 +111,7 @@ import {
   type ColumnSortMap,
   type ColumnSortMode,
 } from "@/lib/board-column-sort";
-import { isStartColumn } from "@/lib/board-columns";
+import { isPrepressColumn, isStartColumn } from "@/lib/board-columns";
 import {
   buildStaffDueSpecs,
   DEFAULT_PROCESSING_DAYS,
@@ -665,8 +665,10 @@ export function Board({
   }, [persistedUiReady, tenantId, columnSortById]);
 
   function setColumnSortMode(columnId: string, mode: ColumnSortMode) {
-    // Start column sort is locked to Priority: 5 → None for all users.
-    if (isStartColumn(columnId, columns)) return;
+    // Start and Prepress always sort by Priority: 5 → None.
+    if (isStartColumn(columnId, columns) || isPrepressColumn(columnId, columns)) {
+      return;
+    }
     const columnDefault = defaultSortForColumn(false);
     setColumnSortById((prev) => {
       let next: ColumnSortMap;
@@ -693,14 +695,24 @@ export function Board({
   function setAllColumnsSortMode(mode: ColumnSortMode) {
     const next: ColumnSortMap = {};
     for (const col of columns) {
-      if (isStartColumn(col.id, columns)) continue;
+      if (
+        isStartColumn(col.id, columns) ||
+        isPrepressColumn(col.id, columns)
+      ) {
+        continue;
+      }
       const colDefault = defaultSortForColumn(false);
       if (mode !== colDefault) next[col.id] = mode;
     }
     columnSortByIdRef.current = next;
     setColumnSortById(next);
     for (const col of columns) {
-      if (isStartColumn(col.id, columns)) continue;
+      if (
+        isStartColumn(col.id, columns) ||
+        isPrepressColumn(col.id, columns)
+      ) {
+        continue;
+      }
       columnCurrentPageRef.current = {
         ...columnCurrentPageRef.current,
         [col.id]: 0,
@@ -1351,6 +1363,7 @@ export function Board({
           columnId,
           {
             isStartColumn: isStartColumn(columnId, columnsRef.current),
+            isPrepressColumn: isPrepressColumn(columnId, columnsRef.current),
           }
         );
         const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}&sort=${encodeURIComponent(sortMode)}${groupedViewRef.current ? "&groupSiblings=1" : ""}`;
@@ -2134,7 +2147,9 @@ export function Board({
                 queue_rank: posById[o.id] + 1,
                 specs: {
                   ...(o.specs ?? {}),
-                  designer_queue_pos: posById[o.id],
+                  ...(detail.kind === "prepress"
+                    ? { prepress_queue_pos: posById[o.id] }
+                    : { designer_queue_pos: posById[o.id] }),
                 },
               }
             : o
@@ -2571,6 +2586,7 @@ export function Board({
         : orders;
     const sortMode = getColumnSortMode(columnSortById, overColumn, {
       isStartColumn: isStartColumn(overColumn, columns),
+      isPrepressColumn: isPrepressColumn(overColumn, columns),
     });
     const columnOrders = sortOrdersForColumn(
       placementSource.filter((o) => o.column_id === overColumn),
@@ -3680,6 +3696,7 @@ export function Board({
                 orders={columnOrders}
                 sortMode={getColumnSortMode(columnSortById, column.id, {
                   isStartColumn: isStartColumn(column.id, columns),
+                  isPrepressColumn: isPrepressColumn(column.id, columns),
                 })}
                 onSortModeChange={(mode) => setColumnSortMode(column.id, mode)}
                 customFields={customFields}
@@ -3705,7 +3722,10 @@ export function Board({
                 webhookSourceStyles={webhookSourceStyles}
                 timeChips={timeChips}
                 isFirst={index === 0}
-                sortLocked={isStartColumn(column.id, columns)}
+                sortLocked={
+                  isStartColumn(column.id, columns) ||
+                  isPrepressColumn(column.id, columns)
+                }
                 availableColumns={getMoveableColumns(column.id)}
                 onMoveToColumn={handleContextMove}
                 actionButtons={

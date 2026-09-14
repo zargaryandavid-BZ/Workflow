@@ -349,7 +349,7 @@ export function Column({
               )}
               title={
                 sortLocked
-                  ? "Start column always sorts by Priority: 5 → None"
+                  ? "Start and Prepress always sort by Priority: 5 → None"
                   : "Sort cards in this column"
               }
             >
