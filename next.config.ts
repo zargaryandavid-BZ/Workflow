@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "fontkit", "sharp"],
+  serverExternalPackages: ["pdfkit", "fontkit", "sharp", "@napi-rs/canvas"],
   transpilePackages: ["pdfjs-dist"],
   experimental: {
     serverActions: {

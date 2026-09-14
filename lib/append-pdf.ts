@@ -36,5 +36,5 @@ export async function appendPdfDocuments(
       /* skip unreadable Final PDFs */
     }
   }
-  return Buffer.from(await out.save());
+  return Buffer.from(await out.save({ useObjectStreams: true }));
 }

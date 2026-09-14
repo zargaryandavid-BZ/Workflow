@@ -85,6 +85,12 @@ const settingsChildren: NavChild[] = SETTINGS_NAV_GROUPS.flatMap((group) =>
 const nav: NavItem[] = [
   { href: "/board", label: "Board", icon: LayoutGrid },
   { href: "/queue", label: "Designer Queue", icon: ListOrdered },
+  {
+    href: "/queue/prepress",
+    label: "Pre-press Queue",
+    icon: ListOrdered,
+    visibleTo: ["admin", "preprod_owner", "account_manager"],
+  },
   { href: "/customers", label: "Customers", icon: Users },
   {
     href: "/die-order",

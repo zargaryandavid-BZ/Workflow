@@ -10,6 +10,7 @@ import {
   rollDirectionOption,
 } from "@/lib/roll-direction";
 import { appendPdfDocuments, pdfPageCount } from "@/lib/append-pdf";
+import { rasterizePdfForJobTicket } from "@/lib/pdf-rasterize-preview";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -900,7 +901,22 @@ export async function generateJobTicketPdf(
   data: OrderExportData,
   options?: { finalPdfBuffers?: Buffer[] }
 ): Promise<Buffer> {
-  const finalBuffers = options?.finalPdfBuffers ?? [];
+  const rawFinalBuffers = options?.finalPdfBuffers ?? [];
+  const finalBuffers: Buffer[] = [];
+  for (const buf of rawFinalBuffers) {
+    try {
+      const preview = await rasterizePdfForJobTicket(buf);
+      console.warn(
+        `[job-ticket] rasterized Final PDF ${(buf.byteLength / 1024 / 1024).toFixed(1)}MB → ${(preview.byteLength / 1024 / 1024).toFixed(1)}MB`
+      );
+      finalBuffers.push(preview);
+    } catch (err) {
+      console.warn(
+        "[job-ticket] rasterize failed; skipping Final PDF pages",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
   const extraFinalPages = await pdfPageCount(finalBuffers);
   const useFinalPdf = extraFinalPages > 0;
   const artworkPages = useFinalPdf ? 0 : totalArtworkPages(data);

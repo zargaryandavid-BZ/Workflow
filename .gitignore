@@ -43,5 +43,7 @@ next-env.d.ts
 /supabase/.temp
 .vercel
 
+/tmp/
+
 # FedEx sandbox sample labels (may contain account/tracking data)
 /fedex-samples/
