@@ -18,6 +18,17 @@ type LayerPic = {
   layer: string;
 };
 
+/**
+ * Build the lookup key matching what respond-proof.tsx writes into
+ * preSignedLayerUrls: `${fileId}|${rev}|${page}|${layer}`.
+ */
+function preSignKey(
+  preview: RespondLayerPreview,
+  layer: string
+): string {
+  return `${preview.fileId}|${preview.rev}|${preview.page}|${layer}`;
+}
+
 export function ProofLayerImages({
   token,
   orderId,
@@ -26,6 +37,7 @@ export function ProofLayerImages({
   rollDirection = null,
   labelWidthIn = null,
   labelHeightIn = null,
+  preSignedLayerUrls,
   onReady,
 }: {
   token: string;
@@ -35,6 +47,8 @@ export function ProofLayerImages({
   rollDirection?: RollDirectionValue | null;
   labelWidthIn?: number | null;
   labelHeightIn?: number | null;
+  /** Pre-signed Supabase URLs keyed by `${fileId}|${rev}|${page}|${layer}`. */
+  preSignedLayerUrls?: Record<string, string>;
   onReady?: () => void;
 }) {
   const namedLayers = useMemo(
@@ -85,12 +99,9 @@ export function ProofLayerImages({
     });
   }
 
-  const compositeSrc = respondLayerPreviewUrl(
-    token,
-    orderId,
-    preview,
-    "composite"
-  );
+  const compositeSrc =
+    preSignedLayerUrls?.[preSignKey(preview, "composite")] ??
+    respondLayerPreviewUrl(token, orderId, preview, "composite");
   const expanded = pics.find((p) => p.id === expandedId) ?? null;
 
   return (
@@ -203,12 +214,9 @@ export function ProofLayerImages({
           }
         >
           {pics.map((pic) => {
-            const src = respondLayerPreviewUrl(
-              token,
-              orderId,
-              preview,
-              pic.layer
-            );
+            const src =
+              preSignedLayerUrls?.[preSignKey(preview, pic.layer)] ??
+              respondLayerPreviewUrl(token, orderId, preview, pic.layer);
             return (
               <li key={pic.id} className="space-y-1.5">
                 <button
@@ -250,12 +258,10 @@ export function ProofLayerImages({
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-50 p-6">
                 <img
-                  src={respondLayerPreviewUrl(
-                    token,
-                    orderId,
-                    preview,
-                    expanded.layer
-                  )}
+                  src={
+                    preSignedLayerUrls?.[preSignKey(preview, expanded.layer)] ??
+                    respondLayerPreviewUrl(token, orderId, preview, expanded.layer)
+                  }
                   alt={expanded.name}
                   className="max-h-full max-w-full object-contain"
                   draggable={false}
