@@ -9,6 +9,9 @@ import {
 import { generateJobTicketPdf } from "@/lib/button-automation-pdf";
 import { downloadUniqueFinalPdfBuffers } from "@/lib/respond-final-pdf";
 
+export const runtime = "nodejs";
+export const maxDuration = 180;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -48,16 +51,21 @@ export async function POST(
 
   let pdfBuffer: Buffer;
   try {
-    const finalPdfBuffers = await downloadUniqueFinalPdfBuffers(
-      createAdminClient(),
-      ctx.tenant.id,
-      {
-        id: exportData.order.id,
-        title: exportData.order.title,
-        specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
-      },
-      exportData.skus
-    );
+    let finalPdfBuffers: Buffer[] = [];
+    try {
+      finalPdfBuffers = await downloadUniqueFinalPdfBuffers(
+        createAdminClient(),
+        ctx.tenant.id,
+        {
+          id: exportData.order.id,
+          title: exportData.order.title,
+          specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
+        },
+        exportData.skus
+      );
+    } catch (err) {
+      console.error("[generate-pdf] Final PDF download failed; ticket cover only", err);
+    }
     pdfBuffer = await generateJobTicketPdf(exportData, { finalPdfBuffers });
   } catch (err) {
     const message =

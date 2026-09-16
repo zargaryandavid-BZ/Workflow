@@ -11,6 +11,28 @@ import {
 } from "@/lib/roll-direction";
 import { appendPdfDocuments, pdfPageCount } from "@/lib/append-pdf";
 import { rasterizePdfForJobTicket } from "@/lib/pdf-rasterize-preview";
+import { compressPdfForJobTicket } from "@/lib/pdf-preview-compress";
+
+const require = createRequire(import.meta.url);
+const PDFDocument = require("pdfkit") as typeof import("pdfkit");
+
+const RASTERIZE_MS = 40_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(label)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(t);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(t);
+        reject(err);
+      }
+    );
+  });
+}
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -905,16 +927,28 @@ export async function generateJobTicketPdf(
   const finalBuffers: Buffer[] = [];
   for (const buf of rawFinalBuffers) {
     try {
-      const preview = await rasterizePdfForJobTicket(buf);
+      const preview = await withTimeout(
+        rasterizePdfForJobTicket(buf),
+        RASTERIZE_MS,
+        "rasterize timed out"
+      );
       console.warn(
         `[job-ticket] rasterized Final PDF ${(buf.byteLength / 1024 / 1024).toFixed(1)}MB → ${(preview.byteLength / 1024 / 1024).toFixed(1)}MB`
       );
       finalBuffers.push(preview);
     } catch (err) {
       console.warn(
-        "[job-ticket] rasterize failed; skipping Final PDF pages",
+        "[job-ticket] rasterize failed; compressing original for ticket",
         err instanceof Error ? err.message : err
       );
+      try {
+        finalBuffers.push(await compressPdfForJobTicket(buf));
+      } catch (compressErr) {
+        console.warn(
+          "[job-ticket] compress also failed; skipping Final PDF pages",
+          compressErr instanceof Error ? compressErr.message : compressErr
+        );
+      }
     }
   }
   const extraFinalPages = await pdfPageCount(finalBuffers);

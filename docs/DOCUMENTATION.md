@@ -58,10 +58,11 @@ Complete project reference for developers and AI agents.
 | Service | Purpose | Env vars |
 | --- | --- | --- |
 | **Supabase** | Postgres, Auth, Storage, Realtime | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` |
-| **Instantly** | Customer notification emails, team invite emails | `INSTANTLY_API_KEY`, `INSTANTLY_FROM_EMAIL` |
+| **Gmail API** | Customer notification emails, team invite emails | `GMAIL_FROM_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_JSON` or `GMAIL_REFRESH_TOKEN` |
+| **Instantly** | Fallback if Gmail is not configured | `INSTANTLY_API_KEY`, `INSTANTLY_FROM_EMAIL` |
 | **Twilio** | Customer SMS notifications | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` |
 
-If Instantly/Twilio are unset, links are **logged to the server console** instead of sent.
+If Gmail/Twilio are unset, Instantly may still send (if configured); otherwise links are **logged to the server console**.
 
 ## Environment variables
 
@@ -73,7 +74,11 @@ Copy `.env.local.example` → `.env.local`.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Public anon key (browser + server with cookies) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key — **server only**; bypasses RLS for token routes and invites |
 | `NEXT_PUBLIC_APP_URL` | Yes | Public app base URL for customer links (e.g. `http://localhost:3000`) |
-| `INSTANTLY_API_KEY` | No | Instantly API v2 key |
+| `GMAIL_FROM_EMAIL` | No | From address for customer emails (default `noreply@bazaarprinting.com`) |
+| `GMAIL_FROM_NAME` | No | From display name (default `Bazaar Printing`) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | No | Workspace service account JSON (or base64) with Gmail domain-wide send |
+| `GMAIL_REFRESH_TOKEN` | No | Alternate OAuth refresh token for the noreply mailbox |
+| `INSTANTLY_API_KEY` | No | Instantly API v2 key (fallback if Gmail is not set) |
 | `INSTANTLY_FROM_EMAIL` | No | Connected Instantly sender (`eaccount`) |
 | `TWILIO_ACCOUNT_SID` | No | Twilio account SID |
 | `TWILIO_AUTH_TOKEN` | No | Twilio auth token |
@@ -1315,7 +1320,7 @@ Delete button.
 
 Trigger a button action on a given order.
 
-**`generate_pdf`:** Job ticket page 1 is order/specs/SKUs. After that, every page of the Drive **Final for Prod** PDF is appended (not a single thumbnail). If there is no Final PDF, SKU artwork images are used as before.
+**`generate_pdf`:** Job ticket page 1 is order/specs/SKUs. After that, every page of the Drive **Final for Prod** PDF is appended as a flattened preview (rasterize, 40s cap; if that fails, a compressed original). The route allows 180s so Vercel does not kill the download. If there is no Final PDF, SKU artwork images are used as before.
 
 | | |
 | --- | --- |
@@ -1760,14 +1765,14 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 - Email shows a read-only preview from `lib/notification-messages.ts` (staff note included).
 - Operator clicks Send.
 
-### 3. Email path → Instantly → customer link
+### 3. Email path → Gmail → customer link
 
 - `POST /api/notifications/send` with `type: "missing_info"`, `channel: "email"`.
 - `createNotification()` in `lib/notifications.ts`:
   - Inserts `job_notifications` row (`status: sent`, unique `token`).
   - Builds URL: `{NEXT_PUBLIC_APP_URL}/respond/{token}`.
-  - Calls `sendCustomerNotificationEmail()` → Instantly API (`lib/email.ts`).
-  - If Instantly unset, logs URL to server console.
+  - Calls `sendNotificationEmail()` → Gmail API (`lib/gmail-send.ts` via `lib/email.ts`), from `noreply@bazaarprinting.com`. Instantly is used only if Gmail is not configured.
+  - If neither is set, logs URL to server console.
   - Writes `activity_log` (`notification_sent`).
 - Order **remains** in Missing Info column until customer responds.
 

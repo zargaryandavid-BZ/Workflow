@@ -160,6 +160,7 @@ export function ActionButton({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ button_id: button.id }),
+          signal: AbortSignal.timeout(170_000),
         });
         await downloadPdfBlob(
           res,
@@ -183,7 +184,16 @@ export function ActionButton({
         return;
       }
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Action failed");
+      const timedOut =
+        err instanceof Error &&
+        (err.name === "TimeoutError" || /timed out/i.test(err.message));
+      onError(
+        timedOut
+          ? "Job ticket took too long. Try again — a large Final PDF can delay the download."
+          : err instanceof Error
+            ? err.message
+            : "Action failed"
+      );
     } finally {
       setLoading(false);
     }
