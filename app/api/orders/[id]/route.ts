@@ -277,7 +277,7 @@ export async function GET(
     assetsResult,
     valuesResult,
     shippingResult,
-    skuImagesRaw,
+    skuImagesSigned,
     notificationTypesResult,
   ] = await Promise.all([
     loadOrderWithRelations(supabase, id, tenantId),
@@ -293,7 +293,11 @@ export async function GET(
       .eq("order_id", id)
       .order("created_at", { ascending: false })
       .limit(1),
-    listSkuImagesForOrder(supabase, id).catch(() => []),
+    // Chain signed-URL generation within the same parallel batch so it does
+    // not block the response as an extra sequential round trip.
+    listSkuImagesForOrder(supabase, id)
+      .then((imgs) => attachSignedUrlsToSkuImages(supabase, imgs))
+      .catch(() => []),
     supabase.from("job_notifications").select("type").eq("order_id", id),
   ]);
 
@@ -307,10 +311,6 @@ export async function GET(
       : (shippingResult.data[0] as ShippingRequest);
 
   const assets = (assetsResult.data ?? []) as Asset[];
-  const skuImagesSigned = await attachSignedUrlsToSkuImages(
-    supabase,
-    skuImagesRaw
-  ).catch(() => []);
 
   const orderSkus = normalizeSkus(
     (order.specs as { skus?: unknown } | null)?.skus
@@ -707,26 +707,23 @@ export async function PATCH(
       ? (updates.internal_note as string | null)
       : ((existingOrder as { internal_note?: string | null }).internal_note ??
         null);
-  try {
-    await notifyMentionedInNotes({
-      client: supabase,
-      tenantId,
-      orderId: id,
-      orderTitle: String(
-        (updates.title as string | undefined) ?? existingOrder.title ?? "order"
-      ),
-      actorId: ctx.userId,
-      actorName: ctx.fullName?.trim() || ctx.email || "Someone",
-      previousInternalNote:
-        (existingOrder as { internal_note?: string | null }).internal_note ??
-        null,
-      nextInternalNote: nextInternalForMentions,
-      previousSpecs: existingSpecs,
-      nextSpecs: nextSpecsForMentions,
-    });
-  } catch (err) {
-    console.error("[user-notifications]", err);
-  }
+  // Fire-and-forget — do not await; mention notifications are non-critical
+  void notifyMentionedInNotes({
+    client: supabase,
+    tenantId,
+    orderId: id,
+    orderTitle: String(
+      (updates.title as string | undefined) ?? existingOrder.title ?? "order"
+    ),
+    actorId: ctx.userId,
+    actorName: ctx.fullName?.trim() || ctx.email || "Someone",
+    previousInternalNote:
+      (existingOrder as { internal_note?: string | null }).internal_note ??
+      null,
+    nextInternalNote: nextInternalForMentions,
+    previousSpecs: existingSpecs,
+    nextSpecs: nextSpecsForMentions,
+  }).catch((err) => console.error("[user-notifications]", err));
 
   // Fire-and-forget — do not await; client doesn't need activity log data
   void recordSaveActivity(supabase, {

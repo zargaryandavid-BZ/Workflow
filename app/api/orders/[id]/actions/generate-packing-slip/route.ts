@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import {
   assertButtonVisibleForOrder,
   loadOrderExportData,
 } from "@/lib/button-automation-order-data";
-import { generatePackingSlipPdf, stampPackingSlipPdfArtwork } from "@/lib/packing-slip-pdf";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchStaffArtworkPack, downloadArtworkPdfBytesByFileId } from "@/lib/respond-final-pdf";
+import { generatePackingSlipPdf } from "@/lib/packing-slip-pdf";
 import type { OrderExportSkuRow } from "@/lib/button-automation-order-data";
 
 export const runtime = "nodejs";
+// Long enough for layer-preview fetches + PDF generation.
+export const maxDuration = 120;
+
+const BUCKET = "order-assets";
 
 function parsePositiveInt(value: unknown, fallback: number): number {
   const n =
@@ -21,6 +24,64 @@ function parsePositiveInt(value: unknown, fallback: number): number {
         : NaN;
   if (!Number.isFinite(n) || n < 1) return fallback;
   return Math.floor(n);
+}
+
+/**
+ * Load the composite layer-preview signed URL for each SKU so the packing slip
+ * shows a clean artwork-only JPEG instead of the raw production PDF (which
+ * includes dielines, cut marks, registration marks, etc.).
+ *
+ * Returns a map of skuId → signed URL. Missing entries mean no preview exists
+ * and the slip should fall back to the existing uploaded image.
+ */
+async function loadCompositePreviewUrls(
+  orderId: string,
+  skus: { id: string }[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (skus.length === 0) return out;
+
+  try {
+    const { loadRespondCustomerProofForOrderId } = await import(
+      "@/lib/approval-layer-previews"
+    );
+    const proof = await loadRespondCustomerProofForOrderId(orderId, skus as never);
+    const previews = proof.layerPreviews as Record<
+      string,
+      { fileId: string; rev: string; page: number }
+    >;
+    if (Object.keys(previews).length === 0) return out;
+
+    const { layerPreviewObjectPath } = await import(
+      "@/lib/approval-layer-preview-paths"
+    );
+
+    // Build path → skuId map so we can look up results by path.
+    const pathToSku = new Map<string, string>();
+    for (const [skuId, p] of Object.entries(previews)) {
+      pathToSku.set(
+        layerPreviewObjectPath(p.fileId, p.rev, p.page, "composite"),
+        skuId
+      );
+    }
+
+    const admin = createAdminClient();
+    // One storage round-trip for all composite paths.
+    const { data: signed } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrls([...pathToSku.keys()], 180);
+
+    for (const row of signed ?? []) {
+      if (row.path && row.signedUrl && !row.error) {
+        const skuId = pathToSku.get(row.path);
+        if (skuId) out.set(skuId, row.signedUrl);
+      }
+    }
+  } catch (err) {
+    console.error("[generate-packing-slip] composite preview load", err);
+  }
+
+  return out;
 }
 
 export async function POST(
@@ -97,7 +158,7 @@ export async function POST(
       {
         error:
           buttonError === "Invalid button action"
-            ? "This button is not a Packing Slip action. Recreate it in Settings → Button Automation with action “Generate Packing Slip” (requires DB migration 0043)."
+            ? "This button is not a Packing Slip action. Recreate it in Settings → Button Automation with action \"Generate Packing Slip\" (requires DB migration 0043)."
             : buttonError,
       },
       { status: 400 }
@@ -109,70 +170,33 @@ export async function POST(
     const poNumber =
       typeof body.poNumber === "string" ? body.poNumber.trim() : "";
 
-    let skuRows: OrderExportSkuRow[] = exportData.skuRows;
-    let pdfArt: { skuId: string; fileId: string; page: number }[] = [];
-    try {
-      const pack = await fetchStaffArtworkPack(
-        createAdminClient(),
-        ctx.tenant.id,
-        {
-          id: exportData.order.id,
-          title: exportData.order.title,
-          specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
-        },
-        exportData.skus
-      );
-      if (Object.keys(pack.bySku).length > 0) {
-        skuRows = pack.skus.map((sku, index) => {
-          const prev =
-            exportData.skuRows.find((row) => row.id === sku.id) ??
-            exportData.skuRows[index];
-          return {
-            id: sku.id,
-            index: index + 1,
-            name: sku.name.trim() || prev?.name || `SKU ${index + 1}`,
-            qty: sku.qty ?? prev?.qty ?? null,
-            imageLinks: prev?.imageLinks ?? [],
-            imageFiles: prev?.imageFiles ?? [],
-          };
-        });
-        pdfArt = pack.skus.flatMap((sku) => {
-          const pdf = pack.bySku[sku.id];
-          if (!pdf?.fileId || pdf.page == null) return [];
-          return [{ skuId: sku.id, fileId: pdf.fileId, page: pdf.page }];
-        });
-      }
-    } catch (err) {
-      console.error("[generate-packing-slip] artwork pack", err);
-    }
+    // --- Artwork images ---
+    // Prefer the composite layer-preview JPEG (artwork-only, no dielines/cut marks).
+    // Falls back to the original uploaded image when no proof exists yet.
+    const compositeUrls = await loadCompositePreviewUrls(
+      orderId,
+      exportData.skus
+    );
 
-    const { buffer, artSlots } = await generatePackingSlipPdf(
+    const skuRows: OrderExportSkuRow[] = exportData.skuRows.map((row) => {
+      const compositeUrl = compositeUrls.get(row.id);
+      if (compositeUrl) {
+        return { ...row, imageLinks: [compositeUrl] };
+      }
+      return row;
+    });
+
+    const { buffer } = await generatePackingSlipPdf(
       { ...exportData, skuRows },
       {
         part,
         totalParts,
         blind: Boolean(body.blind),
         poNumber: poNumber || undefined,
-        pdfArt,
+        // No pdfArt — we use JPEG composites, not embedded PDF pages.
       }
     );
-
-    const fileIds = [...new Set(artSlots.map((s) => s.fileId))];
-    if (fileIds.length > 0) {
-      try {
-        const bytes = await downloadArtworkPdfBytesByFileId(
-          createAdminClient(),
-          ctx.tenant.id,
-          fileIds
-        );
-        pdfBuffer = await stampPackingSlipPdfArtwork(buffer, artSlots, bytes);
-      } catch (err) {
-        console.error("[generate-packing-slip] stamp artwork", err);
-        pdfBuffer = buffer;
-      }
-    } else {
-      pdfBuffer = buffer;
-    }
+    pdfBuffer = buffer;
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to generate packing slip";
@@ -189,7 +213,7 @@ export async function POST(
 
   const safeName = exportData.orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_");
 
-  return new NextResponse(new Uint8Array(pdfBuffer), {
+  return new NextResponse(pdfBuffer, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="packing-slip-${safeName}-${part}of${totalParts}.pdf"`,

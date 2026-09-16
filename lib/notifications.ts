@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isCustomerEmailConfigured,
@@ -115,6 +116,28 @@ async function prepareApprovalLayerPreviews(order: Order) {
     );
   } catch (err) {
     console.error("[approval-layer-previews] send continues without JPEGs:", err);
+  }
+}
+
+/**
+ * Schedule layer-preview rasterization to run **after** the HTTP response is
+ * already returned to the browser (using Next.js `after()`). This cuts the
+ * staff-facing "Sending…" wait from 30-120 s down to the time needed for the
+ * DB insert + email/SMS delivery (~1-3 s).
+ *
+ * `after()` keeps the serverless function alive until the callback resolves,
+ * so the images will be ready well before the customer clicks the link in the
+ * email. Falls back to a fire-and-forget promise if called outside a request
+ * context (e.g. tests).
+ */
+function scheduleLayerPreviews(order: Order) {
+  try {
+    after(() => prepareApprovalLayerPreviews(order));
+  } catch {
+    // Outside a request context — run without blocking (test / local script).
+    prepareApprovalLayerPreviews(order).catch((err) =>
+      console.error("[approval-layer-previews] background gen failed:", err)
+    );
   }
 }
 
@@ -488,12 +511,12 @@ async function deliverNotification(
 function deliveryErrorMessage(channel: "email" | "sms" | "both"): string {
   if (channel === "email") {
     if (!isCustomerEmailConfigured()) {
-      return "Email not configured. Add INSTANTLY_API_KEY.";
+      return "Email not configured. Add Gmail API credentials to send from noreply@bazaarprinting.com.";
     }
-    return "Email failed. Check Instantly.";
+    return "Email failed. Check Gmail API configuration.";
   }
   if (channel === "both") {
-    return "Failed to send email and/or SMS. Check Instantly and Twilio config.";
+    return "Failed to send email and/or SMS. Check Gmail and Twilio config.";
   }
   if (!isSmsConfigured()) {
     return "SMS not configured. Please add Twilio credentials.";
@@ -581,7 +604,7 @@ export async function saveNotificationRequest(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
-    await prepareApprovalLayerPreviews(params.order);
+    scheduleLayerPreviews(params.order);
   }
 
   let emailSent = false;
@@ -647,7 +670,7 @@ export async function dispatchNotification(
   }
 ) {
   if (params.notification.type === "customer_approval") {
-    await prepareApprovalLayerPreviews(params.order);
+    scheduleLayerPreviews(params.order);
   }
   const delivery = await deliverNotification(client, params);
   if (!delivery.sent) {
@@ -740,7 +763,7 @@ export async function createNotification(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
-    await prepareApprovalLayerPreviews(params.order);
+    scheduleLayerPreviews(params.order);
   }
 
   const extraNotificationIds: string[] = [];
@@ -799,7 +822,7 @@ export async function createNotification(
         .eq("id", orderId)
         .maybeSingle();
       if (extraOrder) {
-        await prepareApprovalLayerPreviews(extraOrder as Order);
+        scheduleLayerPreviews(extraOrder as Order);
       }
     }
   }

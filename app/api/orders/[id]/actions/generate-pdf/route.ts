@@ -5,12 +5,68 @@ import { getTenantContext } from "@/lib/auth";
 import {
   assertButtonVisibleForOrder,
   loadOrderExportData,
+  type OrderExportSkuRow,
 } from "@/lib/button-automation-order-data";
 import { generateJobTicketPdf } from "@/lib/button-automation-pdf";
 import { downloadUniqueFinalPdfBuffers } from "@/lib/respond-final-pdf";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
+
+const BUCKET = "order-assets";
+
+/**
+ * Load the composite layer-preview signed URL for each SKU.
+ * Returns a map of skuId → signed URL (180 s TTL — enough to embed in ticket).
+ * Returns an empty map when no approval proof has been generated yet.
+ */
+async function loadCompositePreviewUrls(
+  orderId: string,
+  skus: { id: string }[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (skus.length === 0) return out;
+
+  try {
+    const { loadRespondCustomerProofForOrderId } = await import(
+      "@/lib/approval-layer-previews"
+    );
+    const proof = await loadRespondCustomerProofForOrderId(orderId, skus as never);
+    const previews = proof.layerPreviews as Record<
+      string,
+      { fileId: string; rev: string; page: number }
+    >;
+    if (Object.keys(previews).length === 0) return out;
+
+    const { layerPreviewObjectPath } = await import(
+      "@/lib/approval-layer-preview-paths"
+    );
+
+    const pathToSku = new Map<string, string>();
+    for (const [skuId, p] of Object.entries(previews)) {
+      pathToSku.set(
+        layerPreviewObjectPath(p.fileId, p.rev, p.page, "composite"),
+        skuId
+      );
+    }
+
+    const admin = createAdminClient();
+    const { data: signed } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrls([...pathToSku.keys()], 180);
+
+    for (const row of signed ?? []) {
+      if (row.path && row.signedUrl && !row.error) {
+        const skuId = pathToSku.get(row.path);
+        if (skuId) out.set(skuId, row.signedUrl);
+      }
+    }
+  } catch (err) {
+    console.error("[generate-pdf] composite preview load failed:", err);
+  }
+
+  return out;
+}
 
 export async function POST(
   request: Request,
@@ -51,22 +107,51 @@ export async function POST(
 
   let pdfBuffer: Buffer;
   try {
+    // --- Fast path: use composite layer-preview JPEGs from Supabase ---
+    // These are the same artwork-only images already generated when the
+    // approval proof was built. Fetching them avoids downloading the raw
+    // Drive PDF and rasterizing it (which takes 40-120 s).
+    const compositeUrls = await loadCompositePreviewUrls(
+      orderId,
+      exportData.skus
+    );
+
+    let skuRows: OrderExportSkuRow[];
     let finalPdfBuffers: Buffer[] = [];
-    try {
-      finalPdfBuffers = await downloadUniqueFinalPdfBuffers(
-        createAdminClient(),
-        ctx.tenant.id,
-        {
-          id: exportData.order.id,
-          title: exportData.order.title,
-          specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
-        },
-        exportData.skus
-      );
-    } catch (err) {
-      console.error("[generate-pdf] Final PDF download failed; ticket cover only", err);
+
+    if (compositeUrls.size > 0) {
+      // Inject composite URLs as the artwork image for each SKU.
+      // generateJobTicketPdf will fetch and embed them directly.
+      skuRows = exportData.skuRows.map((row) => {
+        const compositeUrl = compositeUrls.get(row.id);
+        if (compositeUrl) return { ...row, imageLinks: [compositeUrl] };
+        return row;
+      });
+      // No finalPdfBuffers → generateJobTicketPdf uses imageLinks path.
+    } else {
+      // Slow fallback: download the Final-for-Prod PDF from Drive and
+      // rasterize it. Only used when no approval proof exists yet.
+      skuRows = exportData.skuRows;
+      try {
+        finalPdfBuffers = await downloadUniqueFinalPdfBuffers(
+          createAdminClient(),
+          ctx.tenant.id,
+          {
+            id: exportData.order.id,
+            title: exportData.order.title,
+            specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
+          },
+          exportData.skus
+        );
+      } catch (err) {
+        console.error("[generate-pdf] Final PDF download failed; ticket cover only", err);
+      }
     }
-    pdfBuffer = await generateJobTicketPdf(exportData, { finalPdfBuffers });
+
+    pdfBuffer = await generateJobTicketPdf(
+      { ...exportData, skuRows },
+      { finalPdfBuffers }
+    );
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to generate PDF";

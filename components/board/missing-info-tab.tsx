@@ -258,7 +258,7 @@ function NotifyRow({
           data.error ??
             (selected.includes("sms") && !selected.includes("email")
               ? "SMS failed to send. Please check Twilio config."
-              : "Email failed. Check Instantly.")
+              : "Email failed. Check Gmail.")
         );
         return;
       }
@@ -269,10 +269,10 @@ function NotifyRow({
     } catch (err) {
       setError(
         isTimeoutError(err)
-          ? "Send is still running on the server. Wait before retrying — Instantly may already have delivered."
+          ? "Send is still running on the server. Wait before retrying — the email may already have been sent."
           : selected.includes("sms") && !selected.includes("email")
             ? "SMS failed to send. Please check Twilio config."
-            : "Email failed. Check Instantly."
+            : "Email failed. Check Gmail."
       );
     } finally {
       setSending(false);

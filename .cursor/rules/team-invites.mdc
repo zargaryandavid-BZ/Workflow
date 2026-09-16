@@ -1,5 +1,5 @@
 ---
-description: Team member invites use Instantly for email delivery and Supabase Auth for signup links.
+description: Team member invites use Gmail for email delivery and Supabase Auth for signup links.
 globs:
   - app/api/members/**
   - lib/team-invite.ts
@@ -7,12 +7,12 @@ globs:
   - app/(app)/settings/team/**
 ---
 
-# Team invites: Instantly + Supabase Auth
+# Team invites: Gmail + Supabase Auth
 
-- Send team invite **emails** through Instantly (`INSTANTLY_API_KEY`, `INSTANTLY_FROM_EMAIL`) via `lib/email.ts` → `sendTeamInviteEmail()`.
+- Send team invite **emails** through Gmail API (`GMAIL_FROM_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_JSON` or `GMAIL_REFRESH_TOKEN`) via `lib/email.ts` → `sendTeamInviteEmail()`. Instantly is only a fallback if Gmail is not configured.
 - Use `lib/team-invite.ts` → `sendTeamInvite()`:
   - Create users and signup links with `admin.auth.admin.generateLink` only — **never** `inviteUserByEmail` or `resetPasswordForEmail` (those trigger Supabase's mailer).
-  - New users: `generateLink({ type: "invite" })` → Instantly email with link.
-  - Pending users (never signed in): `generateLink({ type: "recovery" })` → Instantly email with link.
-  - Instantly failed: return copyable `inviteUrl` fallback in the UI.
+  - New users: `generateLink({ type: "invite" })` → Gmail with link.
+  - Pending users (never signed in): `generateLink({ type: "recovery" })` → Gmail with link.
+  - Email failed: return copyable `inviteUrl` fallback in the UI.
 - Supabase Auth still handles signup token exchange on `/signup` and password setup.

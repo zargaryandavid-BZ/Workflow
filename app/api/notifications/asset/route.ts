@@ -151,7 +151,11 @@ export async function GET(request: Request) {
         { status: 400 }
       );
     }
-    return NextResponse.redirect(signed.signedUrl);
+    const layerRedirect = NextResponse.redirect(signed.signedUrl);
+    // Cache the redirect for the life of the signed URL so the browser
+    // doesn't re-validate on every page load (saves DB query + sign round-trip).
+    layerRedirect.headers.set("Cache-Control", "private, max-age=3600");
+    return layerRedirect;
   }
 
   if (type === "final_pdf") {
@@ -213,7 +217,9 @@ export async function GET(request: Request) {
       const { resolveWebPreviewPdf } = await import("@/lib/gdrive-pdf-preview");
       const preview = await resolveWebPreviewPdf(client, id);
       if (preview) {
-        return new NextResponse(new Uint8Array(preview.buffer), {
+        // Pass the Buffer directly — avoids a redundant Uint8Array copy since
+        // Node Buffer already extends Uint8Array.
+        return new NextResponse(preview.buffer, {
           headers: {
             "Content-Type": "application/pdf",
             "Content-Length": String(preview.buffer.byteLength),

@@ -77,8 +77,11 @@ cp .env.local.example .env.local
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key |
 | `NEXT_PUBLIC_APP_URL` | App base URL (for approval links) |
-| `INSTANTLY_API_KEY` | Optional; customer emails via Instantly API v2. If empty, links are logged |
-| `INSTANTLY_FROM_EMAIL` | Connected Instantly workspace sender (`eaccount`) for customer emails |
+| `GMAIL_FROM_EMAIL` | From address for customer emails (default `noreply@bazaarprinting.com`) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Optional; Workspace service account JSON for Gmail send |
+| `GMAIL_REFRESH_TOKEN` | Optional alternate OAuth token if not using a service account |
+| `INSTANTLY_API_KEY` | Fallback if Gmail is not configured; otherwise unused |
+| `INSTANTLY_FROM_EMAIL` | Instantly sender (`eaccount`) only when Gmail is not set |
 | `TWILIO_ACCOUNT_SID` | Optional; customer SMS. If empty, SMS is logged |
 | `TWILIO_AUTH_TOKEN` | Twilio auth token |
 | `TWILIO_PHONE_NUMBER` | Twilio sending number (E.164) |

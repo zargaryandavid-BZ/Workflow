@@ -156,7 +156,7 @@ export function MissingInfoPopup({
           data.error ??
             (wantSms && !wantEmail
               ? "SMS failed to send. Please check Twilio config."
-              : "Email failed. Check Instantly.")
+              : "Email failed. Check Gmail.")
         );
         return;
       }
@@ -170,10 +170,10 @@ export function MissingInfoPopup({
     } catch (err) {
       setError(
         isTimeoutError(err)
-          ? "Send is still running on the server. Wait before retrying — Instantly may already have delivered."
+          ? "Send is still running on the server. Wait before retrying — the email may already have been sent."
           : wantSms && !wantEmail
             ? "SMS failed to send. Please check Twilio config."
-            : "Email failed. Check Instantly."
+            : "Email failed. Check Gmail."
       );
     } finally {
       setLoading(false);

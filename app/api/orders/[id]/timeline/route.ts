@@ -3,11 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { columnMoveColumnIds, enrichActivityLog, isColumnMoveActivity, mergeActivityById } from "@/lib/activity";
 import { ACTIVITY_LOG_LIMIT, ACTIVITY_MOVE_LOG_LIMIT } from "@/lib/constants";
-import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import type {
   ActivityLog,
   Asset,
-  Order,
   OrderNote,
 } from "@/lib/types";
 
@@ -29,14 +27,22 @@ export async function GET(
   const tenantId = ctx.tenant.id;
 
   const [
-    order,
+    orderMinimal,
     activityResult,
     moveActivityResult,
     approvalsResult,
     notificationResult,
     notesResult,
   ] = await Promise.all([
-    loadOrderWithRelations(supabase, id, tenantId),
+    // Lightweight fetch — enrichActivityLog only needs created_at + created_by.
+    // The full order was already fetched by GET /api/orders/[id] (the fast payload).
+    supabase
+      .from("orders")
+      .select("id, created_at, created_by")
+      .eq("id", id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle()
+      .then((r) => r.data as { id: string; created_at: string; created_by: string | null } | null),
     supabase
       .from("activity_log")
       .select("*")
@@ -73,10 +79,11 @@ export async function GET(
       .order("created_at", { ascending: false }),
   ]);
 
-  if (!order) {
+  if (!orderMinimal) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const order = orderMinimal;
   const approvals = approvalsResult.data;
   const notificationRows = notificationResult.data;
   const notesRows = notesResult.data;
@@ -194,7 +201,7 @@ export async function GET(
   const enrichedActivity = await enrichActivityLog(
     supabase,
     activityRows,
-    order as Order,
+    order,
     {
       nameById: creatorNameById,
       columnNameById,

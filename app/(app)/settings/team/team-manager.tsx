@@ -108,7 +108,7 @@ export function TeamManager({
       json.emailError ??
         (json.inviteUrl
           ? null
-          : "No signup link was generated. Check Instantly configuration and redirect URLs.")
+          : "No signup link was generated. Check Gmail configuration and redirect URLs.")
     );
   }
 

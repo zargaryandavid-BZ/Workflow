@@ -227,7 +227,7 @@ export async function POST(
         {
           error:
             notify.errors[0] ??
-            "Could not send email or SMS. Check Instantly/Twilio configuration.",
+            "Could not send email or SMS. Check Gmail/Twilio configuration.",
           token: shippingReq.token,
           portalUrl,
         },

@@ -218,7 +218,7 @@ export function ApprovalPopup({
             (wantSms && !wantEmail
               ? "SMS failed to send. Please check Twilio config."
               : wantEmail
-                ? "Email failed. Check Instantly."
+                ? "Email failed. Check Gmail."
                 : "Failed to save")
         );
         return;
@@ -239,11 +239,11 @@ export function ApprovalPopup({
     } catch (err) {
       setError(
         isTimeoutError(err)
-          ? "Send is still running on the server. Wait before retrying — Instantly may already have delivered."
+          ? "Send is still running on the server. Wait before retrying — the email may already have been sent."
           : wantSms && !wantEmail
             ? "SMS failed to send. Please check Twilio config."
             : wantEmail
-              ? "Email failed. Check Instantly."
+              ? "Email failed. Check Gmail."
               : "Failed to save"
       );
     } finally {

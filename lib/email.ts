@@ -8,6 +8,7 @@ import {
   normalizeEaccount,
   resolveInstantlyEaccount,
 } from "@/lib/instantly";
+import { isGmailSendConfigured, sendViaGmailApi } from "@/lib/gmail-send";
 import {
   approvalSubject,
   buildApprovalEmailBody,
@@ -66,13 +67,14 @@ function instantlyConfig() {
   return { apiKey, from };
 }
 
-/** True when Instantly env vars are set and a workspace sender account is configured. */
+/** True when Gmail API or Instantly can send customer email. */
 export function isCustomerEmailConfigured(): boolean {
-  return Boolean(instantlyConfig().apiKey);
+  return isGmailSendConfigured() || Boolean(instantlyConfig().apiKey);
 }
 
 /**
  * Sends HTML email via Instantly API v2 with a 10s timeout.
+ * Used only when Gmail API is not configured.
  * Uses a connected workspace account (`INSTANTLY_FROM_EMAIL` as `eaccount`).
  */
 async function postInstantlyEmail(
@@ -104,12 +106,17 @@ async function sendCustomerEmail(params: {
   html: string;
   text?: string;
 }): Promise<EmailSendResult> {
+  if (isGmailSendConfigured()) {
+    return sendViaGmailApi(params);
+  }
+
   const { apiKey, from } = instantlyConfig();
 
   if (!apiKey) {
     return {
       sent: false,
-      error: "Email not configured. Add INSTANTLY_API_KEY.",
+      error:
+        "Email not configured. Add GOOGLE_SERVICE_ACCOUNT_JSON (or GMAIL_REFRESH_TOKEN) to send from noreply@bazaarprinting.com.",
     };
   }
 
@@ -200,7 +207,7 @@ async function sendCustomerEmail(params: {
   }
 }
 
-/** Sends the customer approval email via Instantly. When not configured, logs the link. */
+/** Sends the customer approval email. When not configured, logs the link. */
 export async function sendApprovalEmail(
   args: ApprovalEmailArgs
 ): Promise<EmailSendResult & { url?: string }> {
@@ -352,7 +359,7 @@ export async function sendNotificationEmail(
   return { ...result, url: args.actionUrl };
 }
 
-/** Sends a team invite email via Instantly with the Supabase-generated signup link. */
+/** Sends a team invite email with the Supabase-generated signup link. */
 export async function sendTeamInviteEmail(args: {
   to: string;
   tenantName: string;
@@ -424,7 +431,7 @@ export async function sendPasswordResetEmail(args: {
   });
 }
 
-/** Generic transactional email via Instantly (staff / automation use). */
+/** Generic transactional email (staff / automation use). */
 export async function sendTransactionalEmail(params: {
   to: string;
   subject: string;

@@ -37,16 +37,25 @@ export async function POST(
   }
 
   const supabase = await createClient();
-  const { data: notification } = await supabase
+  // Single join query — fetches notification + order in one round trip.
+  const { data: notificationRow } = await supabase
     .from("job_notifications")
-    .select("*")
+    .select("*, order:orders(*)")
     .eq("id", id)
     .maybeSingle();
-  if (!notification || notification.tenant_id !== ctx.tenant.id) {
+  if (!notificationRow || notificationRow.tenant_id !== ctx.tenant.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const typed = notification as JobNotification;
+  const order = (notificationRow as Record<string, unknown>).order as Order | null;
+  if (!order) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  // Strip the joined relation so typed matches JobNotification shape.
+  const { order: _o, ...notificationData } = notificationRow as typeof notificationRow & { order: unknown };
+  const typed = notificationData as unknown as JobNotification;
+
   if (typed.status === "expired") {
     return NextResponse.json(
       {
@@ -55,15 +64,6 @@ export async function POST(
       },
       { status: 400 }
     );
-  }
-
-  const { data: order } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("id", notification.order_id)
-    .maybeSingle();
-  if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
   try {
