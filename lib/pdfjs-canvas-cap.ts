@@ -20,17 +20,22 @@ export function capCanvasDims(
   return { w, h, scaleX: w / srcW, scaleY: h / srcH };
 }
 
-type FactoryTarget = {
-  canvas: unknown;
-  context: {
-    createImageData?: (w: number, h: number) => ImageData;
-    putImageData?: (data: ImageData, x: number, y: number) => void;
-  };
+type PutImageContext = {
+  createImageData?: (w: number, h: number) => ImageData;
+  putImageData?: (data: ImageData, x: number, y: number) => void;
 };
 
 type CanvasFactoryLike = {
-  create: (width: number, height: number) => FactoryTarget;
+  create: (
+    width: number,
+    height: number
+  ) => { canvas: unknown; context: unknown };
 };
+
+function asPutImageContext(context: unknown): PutImageContext | null {
+  if (!context || typeof context !== "object") return null;
+  return context as PutImageContext;
+}
 
 function downsampleImageData(
   src: ImageData,
@@ -61,12 +66,16 @@ function downsampleImageData(
 /** Shrink huge pdf.js scratch canvases and downsample putImageData to match. */
 export function wrapPdfJsCanvasFactory<T extends CanvasFactoryLike>(factory: T): T {
   const origCreate = factory.create.bind(factory);
-  factory.create = (width: number, height: number) => {
+  factory.create = ((width: number, height: number) => {
     const cap = capCanvasDims(width, height);
     const target = origCreate(cap.w, cap.h);
     if (cap.scaleX >= 0.999 && cap.scaleY >= 0.999) return target;
-    const ctx = target.context;
-    if (typeof ctx.putImageData !== "function" || typeof ctx.createImageData !== "function") {
+    const ctx = asPutImageContext(target.context);
+    if (
+      !ctx ||
+      typeof ctx.putImageData !== "function" ||
+      typeof ctx.createImageData !== "function"
+    ) {
       return target;
     }
     const origPut = ctx.putImageData.bind(ctx);
@@ -85,6 +94,6 @@ export function wrapPdfJsCanvasFactory<T extends CanvasFactoryLike>(factory: T):
       origPut(data, Math.floor(x * cap.scaleX), Math.floor(y * cap.scaleY));
     };
     return target;
-  };
+  }) as T["create"];
   return factory;
 }

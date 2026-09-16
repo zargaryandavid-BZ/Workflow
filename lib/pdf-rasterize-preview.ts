@@ -2,6 +2,7 @@ import "server-only";
 
 import { PDFDocument } from "pdf-lib";
 import { pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
+import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
 
 const MAX_EDGE = 1400;
 const JPEG_QUALITY = 68;
@@ -38,25 +39,27 @@ export async function rasterizePdfForJobTicket(
   const loadingTask = getDocument(pdfjsNodeGetDocumentOptions(data));
 
   const pdf = await loadingTask.promise;
-  const canvasFactory = (
-    pdf as unknown as {
-      canvasFactory: {
-        create: (
-          width: number,
-          height: number
-        ) => {
-          canvas: {
-            encode?: (format: string, quality?: number) => Promise<Buffer>;
-            toBuffer?: (mime?: string) => Buffer;
-            width: number;
-            height: number;
+  const canvasFactory = wrapPdfJsCanvasFactory(
+    (
+      pdf as unknown as {
+        canvasFactory: {
+          create: (
+            width: number,
+            height: number
+          ) => {
+            canvas: {
+              encode?: (format: string, quality?: number) => Promise<Buffer>;
+              toBuffer?: (mime?: string) => Buffer;
+              width: number;
+              height: number;
+            };
+            context: unknown;
           };
-          context: unknown;
+          destroy: (target: { canvas: unknown; context: unknown }) => void;
         };
-        destroy: (target: { canvas: unknown; context: unknown }) => void;
-      };
-    }
-  ).canvasFactory;
+      }
+    ).canvasFactory
+  );
 
   const out = await PDFDocument.create();
   try {
