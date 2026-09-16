@@ -162,6 +162,8 @@ export function PdfOcgFromUrl({
   labelWidthIn = null,
   labelHeightIn = null,
   fillHost = false,
+  showLoadingBar = true,
+  onDrawn,
 }: {
   src: string;
   fileName: string;
@@ -178,6 +180,10 @@ export function PdfOcgFromUrl({
   labelHeightIn?: number | null;
   /** Fill the parent and scale the page to the available width and height. */
   fillHost?: boolean;
+  /** When false, parent shows a single shared proof spinner. */
+  showLoadingBar?: boolean;
+  /** First successful paint (or open failure). */
+  onDrawn?: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -220,8 +226,10 @@ export function PdfOcgFromUrl({
   const drawGenRef = useRef(0);
   const onPageCountRef = useRef(onPageCount);
   const onPageNumberRef = useRef(onPageNumber);
+  const onDrawnRef = useRef(onDrawn);
   onPageCountRef.current = onPageCount;
   onPageNumberRef.current = onPageNumber;
+  onDrawnRef.current = onDrawn;
   pageNumberRef.current = pageNumber;
 
   const cancelRenders = useCallback(() => {
@@ -490,9 +498,11 @@ export function PdfOcgFromUrl({
         // drawPages already queues on pdfDrawLock — do not wrap it again
         // (that deadlocks and leaves a blank page after loading).
         if (!cancelled) await drawPages();
+        if (!cancelled) onDrawnRef.current?.();
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Could not open this PDF.");
+          onDrawnRef.current?.();
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -830,7 +840,7 @@ export function PdfOcgFromUrl({
                   : "overflow-hidden"
           )}
         >
-          {loading ? (
+          {loading && showLoadingBar ? (
             splitPageCards && !expanded ? (
               <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
                 <PdfLoadingBar seconds={loadSeconds} />

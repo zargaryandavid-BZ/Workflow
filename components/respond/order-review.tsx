@@ -58,6 +58,12 @@ interface OrderReviewProps {
   finalPdfs?: Record<string, RespondFinalPdf>;
   /** Per-SKU rasterized proof images (built when staff send approval). */
   layerPreviews?: Record<string, RespondLayerPreview>;
+  /**
+   * Pre-signed Supabase CDN URLs for layer preview images, keyed by
+   * `${fileId}|${rev}|${page}|${layer}`. When present the client uses these
+   * directly instead of routing each image through /api/notifications/asset.
+   */
+  preSignedLayerUrls?: Record<string, string>;
   /** Staff customer note — shown above the SKU list. */
   customerNote?: string | null;
   /** Skip Google Drive PDF lookup (missing-info pages have no proof). */
@@ -305,6 +311,9 @@ function SkuArtworkBlock({
   labelHeightIn,
   layerPreview = null,
   pdfProofOnly = false,
+  preSignedLayerUrls,
+  showPdfLoadingBar = true,
+  onPdfDrawn,
 }: {
   token: string;
   orderId?: string;
@@ -318,6 +327,9 @@ function SkuArtworkBlock({
   labelHeightIn?: number | null;
   layerPreview?: RespondLayerPreview | null;
   pdfProofOnly?: boolean;
+  preSignedLayerUrls?: Record<string, string>;
+  showPdfLoadingBar?: boolean;
+  onPdfDrawn?: () => void;
 }) {
   const canShowPdf = Boolean(orderId && (finalPdf || layerPreview));
   const pdfOn = canShowPdf;
@@ -330,7 +342,7 @@ function SkuArtworkBlock({
 
   return (
     <div className="mt-2">
-      {pdfPending && !layerPreview ? <PdfLoadingBar /> : null}
+      {pdfPending && !layerPreview && showPdfLoadingBar ? <PdfLoadingBar /> : null}
       {pdfOn && orderId && layerPreview ? (
         <ProofLayerImages
           token={token}
@@ -340,7 +352,11 @@ function SkuArtworkBlock({
           rollDirection={rollDirection}
           labelWidthIn={labelWidthIn}
           labelHeightIn={labelHeightIn}
-          onReady={() => skuUi.setPdfPageCount?.(skuId, 1)}
+          preSignedLayerUrls={preSignedLayerUrls}
+          onReady={() => {
+            skuUi.setPdfPageCount?.(skuId, 1);
+            onPdfDrawn?.();
+          }}
         />
       ) : pdfOn && finalPdf && orderId && !pdfPending && !layerPreview ? (
         <PdfOcgFromUrl
@@ -351,7 +367,9 @@ function SkuArtworkBlock({
           rollDirection={rollDirection}
           labelWidthIn={labelWidthIn}
           labelHeightIn={labelHeightIn}
+          showLoadingBar={showPdfLoadingBar}
           onPageCount={() => skuUi.setPdfPageCount?.(skuId, 1)}
+          onDrawn={onPdfDrawn}
         />
       ) : null}
       {showUploads ? (
@@ -516,6 +534,7 @@ export function OrderReview({
   orderId,
   finalPdfs = {},
   layerPreviews: layerPreviewsProp = {},
+  preSignedLayerUrls,
   customerNote,
   skipDrivePdf = false,
   pdfProofOnly = false,
@@ -538,12 +557,19 @@ export function OrderReview({
   const [layerBySku, setLayerBySku] = useState<
     Record<string, RespondLayerPreview>
   >(layerPreviewsProp);
+  const [pdfDrawn, setPdfDrawn] = useState(
+    () => Object.keys(layerPreviewsProp).length > 0
+  );
   const [pdfPending, setPdfPending] = useState(
     () =>
       Object.keys(finalPdfs).length === 0 &&
       Object.keys(layerPreviewsProp).length === 0 &&
       Boolean(orderId)
   );
+
+  useEffect(() => {
+    setPdfDrawn(Object.keys(layerPreviewsProp).length > 0);
+  }, [token, orderId]);
 
   useEffect(() => {
     if (!orderId) {
@@ -579,7 +605,10 @@ export function OrderReview({
         if (res.ok && Array.isArray(data.skus) && data.skus.length > 0) {
           setDriveSkus(data.skus);
         }
-        if (res.ok && data.layerPreviews) setLayerBySku(data.layerPreviews);
+        if (res.ok && data.layerPreviews) {
+          setLayerBySku(data.layerPreviews);
+          if (Object.keys(data.layerPreviews).length > 0) setPdfDrawn(true);
+        }
       })
       .catch(() => undefined)
       .finally(() => {
@@ -592,6 +621,10 @@ export function OrderReview({
 
   const reviewSkus = driveSkus;
   const reviewPdfs = Object.keys(drivePdfs).length > 0 ? drivePdfs : finalPdfs;
+  const hasLayerPics = Object.keys(layerBySku).length > 0;
+  const usingLivePdf =
+    !pdfPending && Object.keys(reviewPdfs).length > 0 && !hasLayerPics;
+  const proofWaiting = pdfPending || (usingLivePdf && !pdfDrawn);
 
   const note = customerNote?.trim() || "";
   const hasSkus = reviewSkus.length > 0;
@@ -627,11 +660,13 @@ export function OrderReview({
       {hasSkus ? (
         <div>
           {note ? <CustomerNoteBlock note={note} /> : null}
-          {pdfPending ? (
-            <div className="mb-3">
-              <PdfLoadingBar />
-            </div>
-          ) : null}
+          <div className="relative min-h-[16rem]">
+            {proofWaiting ? (
+              <div className="absolute inset-0 z-10 bg-white">
+                <PdfLoadingBar />
+              </div>
+            ) : null}
+            <div className={proofWaiting ? "invisible" : undefined}>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
             SKUs
           </p>
@@ -701,11 +736,18 @@ export function OrderReview({
                     labelHeightIn={labelHeightIn}
                     layerPreview={layerBySku[sku.id] ?? null}
                     pdfProofOnly={pdfProofOnly}
+                    preSignedLayerUrls={preSignedLayerUrls}
+                    showPdfLoadingBar={!proofWaiting}
+                    onPdfDrawn={
+                      index === 0 ? () => setPdfDrawn(true) : undefined
+                    }
                   />
                 </li>
               );
             })}
           </ul>
+            </div>
+          </div>
         </div>
       ) : pdfPending ? (
         <PdfLoadingBar />
