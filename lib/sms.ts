@@ -1,4 +1,10 @@
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  normalizeSmsPhone,
+  validateSmsRecipient,
+} from "@/lib/sms-phone";
+
+export { normalizeSmsPhone, validateSmsRecipient };
 
 interface SmsArgs {
   to: string;
@@ -15,42 +21,19 @@ export function isSmsConfigured(): boolean {
   );
 }
 
-/** Reject emails and other non-phone values before calling Twilio. */
-export function validateSmsRecipient(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return "Phone number is required for SMS.";
-  if (value.includes("@")) {
-    return "SMS requires a phone number, not an email address.";
-  }
-  const digits = value.replace(/\D/g, "");
-  if (digits.length < 10) {
-    return "Enter a valid phone number (at least 10 digits, e.g. +1 818 555 1234).";
-  }
-  return null;
-}
-
-/** Normalize to E.164; US numbers without country code get +1. */
-export function normalizeSmsPhone(raw: string): string {
-  const value = raw.trim();
-  if (value.startsWith("+")) {
-    return `+${value.slice(1).replace(/\D/g, "")}`;
-  }
-  const digits = value.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return `+${digits}`;
-}
-
-function twilioErrorMessage(responseText: string): string {
+function twilioErrorMessage(responseText: string, to: string): string {
   try {
     const parsed = JSON.parse(responseText) as {
       message?: string;
       code?: number;
     };
     if (parsed.message) {
+      // Twilio redacts the last four digits as X's — that is not the number we sent.
+      const message = parsed.message.replace(/\+\d*X+/gi, to);
+      if (parsed.code === 21211) {
+        return `Twilio could not send to ${to}. That number is not a reachable mobile. Use E.164 (e.g. +18185551234). If this is international, include the country code and do not add an extra 1.`;
+      }
       const hints: Record<number, string> = {
-        21211:
-          "Use a valid mobile number in E.164 format (e.g. +18185551234).",
         21610:
           "This number has opted out of messages from your Twilio number.",
         21614: "This number cannot receive SMS.",
@@ -59,8 +42,8 @@ function twilioErrorMessage(responseText: string): string {
       };
       const hint = parsed.code ? hints[parsed.code] : undefined;
       const base = parsed.code
-        ? `Twilio (${parsed.code}): ${parsed.message}`
-        : parsed.message;
+        ? `Twilio (${parsed.code}): ${message}`
+        : message;
       return hint ? `${base} ${hint}` : base;
     }
   } catch {
@@ -111,7 +94,7 @@ export async function sendSms(args: SmsArgs): Promise<SmsSendResult> {
       console.error("[twilio] failed to send SMS", text);
       return {
         sent: false,
-        error: twilioErrorMessage(text),
+        error: twilioErrorMessage(text, to),
       };
     }
 
