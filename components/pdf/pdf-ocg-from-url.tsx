@@ -85,6 +85,70 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
+type SharedPdfDoc = {
+  pdf: PDFDocumentProxy;
+  layers: PdfLayer[];
+};
+
+const sharedDocs = new Map<
+  string,
+  { refs: number; promise: Promise<SharedPdfDoc> }
+>();
+
+let pdfDrawLock: Promise<void> = Promise.resolve();
+
+function enqueuePdfDraw<T>(fn: () => Promise<T>): Promise<T> {
+  const run = pdfDrawLock.then(fn, fn);
+  pdfDrawLock = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+function acquireSharedPdf(src: string): Promise<SharedPdfDoc> {
+  let entry = sharedDocs.get(src);
+  if (!entry) {
+    const promise = (async () => {
+      const data = await fetchPdfBuffer(src);
+      const loadingTask = getDocument({
+        ...pdfjsDocumentOptions(data),
+        disableAutoFetch: true,
+        disableStream: true,
+      });
+      const pdf = await loadingTask.promise;
+      const oc = await pdf.getOptionalContentConfig({ intent: PDF_INTENT });
+      const fromOc = layersFromOptionalContent(oc);
+      const PARSE_OCG_MAX = 40 * 1024 * 1024;
+      const layers =
+        fromOc.length > 0 && data.byteLength > 12 * 1024 * 1024
+          ? fromOc
+          : data.byteLength > PARSE_OCG_MAX
+            ? fromOc
+            : mergePdfLayers(fromOc, parsePdfOcgs(data));
+      return { pdf, layers };
+    })();
+    entry = { refs: 0, promise };
+    sharedDocs.set(src, entry);
+  }
+  entry.refs += 1;
+  return entry.promise;
+}
+
+function releaseSharedPdf(src: string) {
+  const entry = sharedDocs.get(src);
+  if (!entry) return;
+  entry.refs -= 1;
+  if (entry.refs > 0) return;
+  sharedDocs.delete(src);
+  void entry.promise
+    .then(async (doc) => {
+      await doc.pdf.cleanup();
+      await doc.pdf.loadingTask.destroy();
+    })
+    .catch(() => undefined);
+}
+
 export function PdfOcgFromUrl({
   src,
   fileName,
@@ -172,16 +236,12 @@ export function PdfOcgFromUrl({
 
   const closePdf = useCallback(async () => {
     cancelRenders();
-    const pdf = pdfRef.current;
     pdfRef.current = null;
     ocRef.current = null;
-    if (pdf) {
-      await pdf.cleanup();
-      await pdf.loadingTask.destroy();
-    }
   }, [cancelRenders]);
 
   const drawPages = useCallback(async () => {
+    return enqueuePdfDraw(async () => {
     const pdf = pdfRef.current;
     const host = pagesRef.current;
     if (!pdf || !host) return;
@@ -334,6 +394,7 @@ export function PdfOcgFromUrl({
     host.replaceChildren(...Array.from(staging.childNodes));
     lastDrawWidthRef.current = Math.round(host.clientWidth);
     lastDrawHeightRef.current = Math.round(host.clientHeight);
+    });
   }, [cancelRenders]);
 
   const captureRollBitmap = useCallback(async () => {
@@ -398,27 +459,13 @@ export function PdfOcgFromUrl({
       lastDrawHeightRef.current = 0;
       await closePdf();
       try {
-        const data = await withTimeout(
-          fetchPdfBuffer(src),
+        const shared = await withTimeout(
+          acquireSharedPdf(src),
           PDF_OPEN_MS,
           "The PDF preview is taking too long. Open the file below to review it."
         );
         if (cancelled) return;
-        const loadingTask = getDocument({
-          ...pdfjsDocumentOptions(data),
-          disableAutoFetch: true,
-          disableStream: true,
-        });
-        const pdf = await withTimeout(
-          loadingTask.promise,
-          PDF_OPEN_MS,
-          "The PDF preview is taking too long. Open the file below to review it."
-        );
-        if (cancelled) {
-          await pdf.cleanup();
-          await pdf.loadingTask.destroy();
-          return;
-        }
+        const pdf = shared.pdf;
         pdfRef.current = pdf;
         setPageCount(pdf.numPages);
         if (lockedPage != null && lockedPage > pdf.numPages) {
@@ -429,22 +476,12 @@ export function PdfOcgFromUrl({
         pageNumberRef.current = startPage;
         const oc = await pdf.getOptionalContentConfig({ intent: PDF_INTENT });
         ocRef.current = oc;
-        const fromOc = layersFromOptionalContent(oc);
-        // Skip a full-file OCG scan on huge PDFs when pdf.js already found
-        // layers. Still scan when pdf.js found none (117711_cards.pdf is ~13 MB
-        // with Cast & Cure / Cut layers pdf.js often misses).
-        const PARSE_OCG_MAX = 40 * 1024 * 1024;
-        const found =
-          fromOc.length > 0 && data.byteLength > 12 * 1024 * 1024
-            ? fromOc
-            : data.byteLength > PARSE_OCG_MAX
-              ? fromOc
-              : mergePdfLayers(fromOc, parsePdfOcgs(data));
+        const found = shared.layers;
         setLayers(found);
         setVisibleIds(new Set(found.map((layer) => layer.id)));
         for (const layer of found) oc.setVisibility(layer.id, true, false);
         if (!cancelled) setLoading(false);
-        await drawPages();
+        await enqueuePdfDraw(() => drawPages());
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Could not open this PDF.");
@@ -456,6 +493,7 @@ export function PdfOcgFromUrl({
     return () => {
       cancelled = true;
       void closePdf();
+      releaseSharedPdf(src);
     };
   }, [src, closePdf, drawPages, lockedPage]);
 
