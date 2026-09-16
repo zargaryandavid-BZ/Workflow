@@ -8,7 +8,6 @@ import {
   type OrderExportSkuRow,
 } from "@/lib/button-automation-order-data";
 import { generateJobTicketPdf } from "@/lib/button-automation-pdf";
-import { downloadUniqueFinalPdfBuffers } from "@/lib/respond-final-pdf";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -117,36 +116,17 @@ export async function POST(
     );
 
     let skuRows: OrderExportSkuRow[];
-    let finalPdfBuffers: Buffer[] = [];
+    const finalPdfBuffers: Buffer[] = [];
 
-    if (compositeUrls.size > 0) {
-      // Inject composite URLs as the artwork image for each SKU.
-      // generateJobTicketPdf will fetch and embed them directly.
-      skuRows = exportData.skuRows.map((row) => {
-        const compositeUrl = compositeUrls.get(row.id);
-        if (compositeUrl) return { ...row, imageLinks: [compositeUrl] };
-        return row;
-      });
-      // No finalPdfBuffers → generateJobTicketPdf uses imageLinks path.
-    } else {
-      // Slow fallback: download the Final-for-Prod PDF from Drive and
-      // rasterize it. Only used when no approval proof exists yet.
-      skuRows = exportData.skuRows;
-      try {
-        finalPdfBuffers = await downloadUniqueFinalPdfBuffers(
-          createAdminClient(),
-          ctx.tenant.id,
-          {
-            id: exportData.order.id,
-            title: exportData.order.title,
-            specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
-          },
-          exportData.skus
-        );
-      } catch (err) {
-        console.error("[generate-pdf] Final PDF download failed; ticket cover only", err);
-      }
-    }
+    // Inject composite URLs when available; otherwise use the uploaded
+    // artwork images already on each skuRow. Both paths are fast — we no
+    // longer fall back to the slow Drive download + rasterization path.
+    skuRows = exportData.skuRows.map((row) => {
+      const compositeUrl = compositeUrls.get(row.id);
+      if (compositeUrl) return { ...row, imageLinks: [compositeUrl] };
+      return row;
+    });
+    // No finalPdfBuffers → generateJobTicketPdf uses the imageLinks path.
 
     pdfBuffer = await generateJobTicketPdf(
       { ...exportData, skuRows },
