@@ -24,8 +24,8 @@ import {
 import { alignSkusToPdfPages, sharedPdfPagesForSkus } from "@/lib/shared-pdf-pages";
 import type { RespondFinalPdf } from "@/lib/respond-order";
 
-/** Print PDFs can be hundreds of MB; we only keep small PNG/JPEGs. */
-const SOURCE_MAX_BYTES = 800 * 1024 * 1024;
+/** Print PDFs can exceed 800 MB; we only keep small PNG/JPEGs. */
+const SOURCE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
 async function driveModifiedTime(
   client: ReturnType<typeof proofsDriveClient>,
@@ -223,10 +223,10 @@ export async function generateApprovalLayerPreviewsForOrder(
   const meta = await getDriveFileMeta(drive, fileId);
   if (!meta) return {};
   if (meta.size > SOURCE_MAX_BYTES) {
-    console.warn(
-      `[approval-layer-previews] skip ${fileName}: ${meta.size} bytes over cap`
+    const mb = Math.round(meta.size / (1024 * 1024));
+    throw new Error(
+      `Final PDF is ${mb} MB — too large to convert into proof pictures.`
     );
-    return {};
   }
 
   const modifiedTime = await driveModifiedTime(drive, fileId);
@@ -255,7 +255,9 @@ export async function generateApprovalLayerPreviewsForOrder(
   }
 
   const downloaded = await downloadDriveFileBytes(drive, fileId);
-  if (!downloaded?.buffer?.length) return {};
+  if (!downloaded?.buffer?.length) {
+    throw new Error("Could not download the Final PDF from Drive.");
+  }
 
   const counted = await pdfPageCount([downloaded.buffer]);
   const pagesToRaster =
@@ -275,6 +277,9 @@ export async function generateApprovalLayerPreviewsForOrder(
     downloaded.buffer,
     pagesToRaster
   );
+  if (raster.pages.length === 0) {
+    throw new Error("Could not convert the Final PDF into proof pictures.");
+  }
   const pageNums = raster.pages.map((p) => p.page);
 
   for (const page of raster.pages) {

@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
 import { Check, Download, FileText, X } from "lucide-react";
 import {
   collectSkuApprovalImages,
   isRespondImageAsset,
   respondAssetUrl,
-  respondFinalPdfUrl,
   respondSkuImageUrl,
   type RespondOrderAsset,
   type RespondOrderRow,
@@ -34,15 +32,6 @@ import { ProofLayerImages } from "@/components/respond/proof-layer-images";
 import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
-
-const PdfOcgFromUrl = dynamic(
-  () =>
-    import("@/components/pdf/pdf-ocg-from-url").then((m) => m.PdfOcgFromUrl),
-  {
-    ssr: false,
-    loading: () => <PdfLoadingBar />,
-  }
-);
 
 interface OrderReviewProps {
   token: string;
@@ -359,18 +348,11 @@ function SkuArtworkBlock({
           }}
         />
       ) : pdfOn && finalPdf && orderId && !pdfPending && !layerPreview ? (
-        <PdfOcgFromUrl
-          src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
-          fileName={finalPdf.fileName}
-          page={finalPdf.page}
-          layout="single"
-          rollDirection={rollDirection}
-          labelWidthIn={labelWidthIn}
-          labelHeightIn={labelHeightIn}
-          showLoadingBar={showPdfLoadingBar}
-          onPageCount={() => skuUi.setPdfPageCount?.(skuId, 1)}
-          onDrawn={onPdfDrawn}
-        />
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Proof pictures are not ready. Staff must send the approval again so
+          the print file is converted to small pictures before you open this
+          link.
+        </p>
       ) : null}
       {showUploads ? (
         <>
@@ -576,21 +558,20 @@ export function OrderReview({
       setPdfPending(false);
       return;
     }
+    if (pdfProofOnly || skipDrivePdf) {
+      setDrivePdfs(finalPdfs);
+      setLayerBySku(layerPreviewsProp);
+      setPdfPending(false);
+      return;
+    }
     if (Object.keys(finalPdfs).length > 0) {
       setDrivePdfs(finalPdfs);
       setLayerBySku(layerPreviewsProp);
       setPdfPending(false);
       return;
     }
-    if (skipDrivePdf && Object.keys(layerPreviewsProp).length > 0) {
-      setDrivePdfs(finalPdfs);
-      setLayerBySku(layerPreviewsProp);
-      setPdfPending(false);
-      return;
-    }
     let cancelled = false;
-    const needListing = Object.keys(finalPdfs).length === 0;
-    if (needListing) setPdfPending(true);
+    setPdfPending(true);
     void fetch(
       `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}`
     )
@@ -617,14 +598,12 @@ export function OrderReview({
     return () => {
       cancelled = true;
     };
-  }, [token, orderId, skipDrivePdf]);
+  }, [token, orderId, skipDrivePdf, pdfProofOnly]);
 
   const reviewSkus = driveSkus;
   const reviewPdfs = Object.keys(drivePdfs).length > 0 ? drivePdfs : finalPdfs;
   const hasLayerPics = Object.keys(layerBySku).length > 0;
-  const usingLivePdf =
-    !pdfPending && Object.keys(reviewPdfs).length > 0 && !hasLayerPics;
-  const proofWaiting = pdfPending || (usingLivePdf && !pdfDrawn);
+  const proofWaiting = pdfPending && !hasLayerPics;
 
   const note = customerNote?.trim() || "";
   const hasSkus = reviewSkus.length > 0;

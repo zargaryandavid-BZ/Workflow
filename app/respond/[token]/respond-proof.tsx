@@ -85,6 +85,7 @@ export async function RespondProof({
   specs,
   assets,
   skuImages,
+  skipDrivePdf = false,
   pdfProofOnly = false,
   proof,
 }: {
@@ -149,7 +150,7 @@ export async function RespondProof({
       finalPdfs={finalPdfs}
       layerPreviews={layerPreviews}
       preSignedLayerUrls={preSignedLayerUrls}
-      skipDrivePdf={haveProofs}
+      skipDrivePdf={skipDrivePdf || pdfProofOnly || haveProofs}
       pdfProofOnly={pdfProofOnly}
     />
   );

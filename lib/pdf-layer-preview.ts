@@ -1,12 +1,12 @@
 import "server-only";
 
-import { layersFromOptionalContent, mergePdfLayers, parsePdfOcgs, type OcLike, type PdfLayer } from "@/lib/pdf-ocg";
+import { isUnnamedPdfLayer, layersFromOptionalContent, mergePdfLayers, parsePdfOcgs, type OcLike, type PdfLayer } from "@/lib/pdf-ocg";
 import { installPdfJsMapPolyfills } from "@/lib/pdfjs-map-polyfill";
 import { pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 
-const MAX_EDGE = 1000;
-const JPEG_QUALITY = 72;
-const TARGET_DPI = 110;
+const MAX_EDGE = 800;
+const JPEG_QUALITY = 58;
+const TARGET_DPI = 72;
 
 type NodeCanvas = {
   encode?: (format: string, quality?: number) => Promise<Buffer>;
@@ -102,7 +102,8 @@ export async function rasterizePdfLayerPreviews(
   }
 
   const fromOc = oc ? layersFromOptionalContent(oc) : [];
-  const layers = mergePdfLayers(fromOc, parsePdfOcgs(data.buffer as ArrayBuffer));
+  const allLayers = mergePdfLayers(fromOc, parsePdfOcgs(data.buffer as ArrayBuffer));
+  const layers = allLayers.filter((layer) => !isUnnamedPdfLayer(layer.name));
 
   const wanted = [
     ...new Set(
@@ -131,7 +132,7 @@ export async function rasterizePdfLayerPreviews(
       const height = Math.max(1, Math.ceil(viewport.height));
 
       const renderOnce = async (mode: "all" | "none" | Set<string>, opaque: boolean) => {
-        applyVisibility(oc, layers, mode);
+        applyVisibility(oc, allLayers, mode);
         const target = canvasFactory.create(width, height);
         try {
           await page.render({
@@ -155,7 +156,6 @@ export async function rasterizePdfLayerPreviews(
       };
 
       const compositeJpg = await renderOnce("all", true);
-      const basePng = layers.length > 0 ? await renderOnce("none", false) : Buffer.from([]);
       const layerPngs: Record<string, Buffer> = {};
 
       if (layers.length > 0) {
@@ -169,7 +169,7 @@ export async function rasterizePdfLayerPreviews(
         width,
         height,
         compositeJpg,
-        basePng,
+        basePng: Buffer.from([]),
         layerPngs,
       });
       page.cleanup();

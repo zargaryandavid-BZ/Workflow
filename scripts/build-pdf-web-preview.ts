@@ -76,7 +76,7 @@ async function main() {
   console.log("Downloading and compressing (layers kept)…");
   const result = await resolveWebPreviewPdf(client, fileId, {
     force: true,
-    sourceMaxBytes: 800 * 1024 * 1024,
+    sourceMaxBytes: 2 * 1024 * 1024 * 1024,
   });
   if (!result) {
     console.error("Failed. Check the Drive file id and service-account access.");

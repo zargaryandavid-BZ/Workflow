@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isCustomerEmailConfigured,
@@ -106,39 +105,14 @@ async function resolveCustomerContact(
 
 async function prepareApprovalLayerPreviews(order: Order) {
   const started = Date.now();
-  try {
-    const { generateApprovalLayerPreviewsForOrder } = await import(
-      "@/lib/approval-layer-previews"
-    );
-    const previews = await generateApprovalLayerPreviewsForOrder(order);
-    console.info(
-      `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
-    );
-  } catch (err) {
-    console.error("[approval-layer-previews] send continues without JPEGs:", err);
-  }
-}
-
-/**
- * Schedule layer-preview rasterization to run **after** the HTTP response is
- * already returned to the browser (using Next.js `after()`). This cuts the
- * staff-facing "Sending…" wait from 30-120 s down to the time needed for the
- * DB insert + email/SMS delivery (~1-3 s).
- *
- * `after()` keeps the serverless function alive until the callback resolves,
- * so the images will be ready well before the customer clicks the link in the
- * email. Falls back to a fire-and-forget promise if called outside a request
- * context (e.g. tests).
- */
-function scheduleLayerPreviews(order: Order) {
-  try {
-    after(() => prepareApprovalLayerPreviews(order));
-  } catch {
-    // Outside a request context — run without blocking (test / local script).
-    prepareApprovalLayerPreviews(order).catch((err) =>
-      console.error("[approval-layer-previews] background gen failed:", err)
-    );
-  }
+  const { generateApprovalLayerPreviewsForOrder } = await import(
+    "@/lib/approval-layer-previews"
+  );
+  const previews = await generateApprovalLayerPreviewsForOrder(order);
+  console.info(
+    `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
+  );
+  return previews;
 }
 
 function productFromOrder(order: Order): string {
@@ -604,7 +578,7 @@ export async function saveNotificationRequest(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
-    scheduleLayerPreviews(params.order);
+    await prepareApprovalLayerPreviews(params.order);
   }
 
   let emailSent = false;
@@ -670,7 +644,7 @@ export async function dispatchNotification(
   }
 ) {
   if (params.notification.type === "customer_approval") {
-    scheduleLayerPreviews(params.order);
+    await prepareApprovalLayerPreviews(params.order);
   }
   const delivery = await deliverNotification(client, params);
   if (!delivery.sent) {
@@ -763,7 +737,7 @@ export async function createNotification(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
-    scheduleLayerPreviews(params.order);
+    await prepareApprovalLayerPreviews(params.order);
   }
 
   const extraNotificationIds: string[] = [];
@@ -822,7 +796,7 @@ export async function createNotification(
         .eq("id", orderId)
         .maybeSingle();
       if (extraOrder) {
-        scheduleLayerPreviews(extraOrder as Order);
+        await prepareApprovalLayerPreviews(extraOrder as Order);
       }
     }
   }

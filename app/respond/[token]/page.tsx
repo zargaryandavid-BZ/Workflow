@@ -430,7 +430,7 @@ export default async function RespondPage({
           specs={notification.order_specs ?? {}}
           assets={assets}
           skuImages={skuImages}
-          skipDrivePdf={notification.type !== "customer_approval"}
+          skipDrivePdf
           pdfProofOnly={notification.type === "customer_approval"}
           proof={approvalProof}
         />

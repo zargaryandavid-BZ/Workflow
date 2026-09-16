@@ -9,7 +9,7 @@ import type {
   Order,
 } from "@/lib/types";
 
-export const maxDuration = 180;
+export const maxDuration = 300;
 
 const TYPES: NotificationType[] = ["missing_info", "customer_approval", "ready_to_ship"];
 const CHANNELS: NotificationChannel[] = [

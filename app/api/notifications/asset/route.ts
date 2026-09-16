@@ -214,17 +214,21 @@ export async function GET(request: Request) {
         order.tenant_id as string
       );
       const client = proofsDriveClient(settings);
-      const { resolveWebPreviewPdf } = await import("@/lib/gdrive-pdf-preview");
-      const preview = await resolveWebPreviewPdf(client, id);
-      if (preview) {
-        return new NextResponse(new Uint8Array(preview.buffer), {
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Length": String(preview.buffer.byteLength),
-            "Cache-Control": "private, max-age=300",
-            "X-Workflow-Pdf-Preview": preview.preview ? "1" : "0",
-          },
-        });
+      const { findWebPreviewFileId } = await import("@/lib/gdrive-pdf-preview");
+      const { downloadDriveFileBytes } = await import("@/lib/gdrive-proofs");
+      const cachedId = await findWebPreviewFileId(client, id);
+      if (cachedId) {
+        const cached = await downloadDriveFileBytes(client, cachedId);
+        if (cached) {
+          return new NextResponse(new Uint8Array(cached.buffer), {
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Length": String(cached.buffer.byteLength),
+              "Cache-Control": "private, max-age=300",
+              "X-Workflow-Pdf-Preview": "1",
+            },
+          });
+        }
       }
       const meta = await getDriveFileMeta(client, id);
       if (!meta) {
@@ -233,7 +237,7 @@ export async function GET(request: Request) {
       const mb = Math.round(meta.size / (1024 * 1024));
       return NextResponse.json(
         {
-          error: `This PDF is ${mb} MB — too large to preview in the browser. Production needs to generate a web preview (layers are kept).`,
+          error: `This PDF is ${mb} MB — too large to preview in the browser. Ask staff to send the approval again so proof pictures can be built first.`,
         },
         { status: 413 }
       );

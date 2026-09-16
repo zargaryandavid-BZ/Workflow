@@ -493,7 +493,7 @@ export function ApprovalPopup({
           </Button>
           <Button onClick={saveAndSend} disabled={loading || dismissing}>
             {loading
-              ? "Preparing web preview…"
+              ? "Converting PDF to pictures…"
               : isManual
                 ? "Save"
                 : "Send & notify"}
