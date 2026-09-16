@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { ARTWORK_FIELD_NAME } from "@/lib/constants";
-import {
-  ensureGdriveSettings,
-  isGdriveConfigured,
-} from "@/lib/gdrive-settings";
 import { folderHasFiles, parseDriveIdFromUrl } from "@/lib/google-drive";
-import { proofsDriveClient } from "@/lib/gdrive-proofs";
 import {
-  orderFolderNeedles,
-  resolveOrderDriveFolders,
-  seedDriveIdsFromOrder,
-} from "@/lib/resolve-order-drive-folders";
-import { applyResolvedDriveFolderUrls } from "@/lib/order-gdrive";
+  applyResolvedDriveFolderUrls,
+  loadOrderFinalDriveContext,
+} from "@/lib/order-gdrive";
 
 /**
  * GET — whether the order's Final production Drive folder has files / a PDF.
@@ -30,43 +22,16 @@ export async function GET(
 
   const { id: orderId } = await params;
   const supabase = await createClient();
+  const loaded = await loadOrderFinalDriveContext(
+    supabase,
+    ctx.tenant.id,
+    orderId
+  );
 
-  const { data: order, error: orderError } = await supabase
-    .from("orders")
-    .select("id, title, specs")
-    .eq("id", orderId)
-    .eq("tenant_id", ctx.tenant.id)
-    .maybeSingle();
-
-  if (orderError) {
-    return NextResponse.json({ error: orderError.message }, { status: 500 });
-  }
-  if (!order) {
+  if (loaded.kind === "not_found") {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
-
-  let settings;
-  try {
-    settings = await ensureGdriveSettings(supabase, ctx.tenant.id);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (
-      message.includes("gdrive_settings") ||
-      message.includes("schema cache") ||
-      message.includes("does not exist")
-    ) {
-      return NextResponse.json({
-        hasFiles: false,
-        hasDesignerFiles: false,
-        fileCount: 0,
-        hasPdf: false,
-        configured: false,
-      });
-    }
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-
-  if (!settings.enabled || !isGdriveConfigured(settings)) {
+  if (loaded.kind === "not_configured") {
     return NextResponse.json({
       hasFiles: false,
       hasDesignerFiles: false,
@@ -75,64 +40,32 @@ export async function GET(
       configured: false,
     });
   }
-
-  const { data: field } = await supabase
-    .from("custom_fields")
-    .select("id")
-    .eq("tenant_id", ctx.tenant.id)
-    .ilike("name", ARTWORK_FIELD_NAME)
-    .maybeSingle();
-
-  const fieldId = (field as { id: string } | null)?.id;
-  let artworkUrl = "";
-  if (fieldId) {
-    const { data: valueRow } = await supabase
-      .from("custom_field_values")
-      .select("value")
-      .eq("order_id", orderId)
-      .eq("custom_field_id", fieldId)
-      .maybeSingle();
-    artworkUrl =
-      typeof (valueRow as { value?: unknown } | null)?.value === "string"
-        ? String((valueRow as { value: string }).value).trim()
-        : "";
+  if (loaded.kind === "error") {
+    return NextResponse.json({ error: loaded.message }, { status: 500 });
   }
 
-  const specs =
-    order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
-      ? (order.specs as Record<string, unknown>)
-      : {};
-  const seedIds = seedDriveIdsFromOrder({
-    specs,
-    artworkUrl: artworkUrl || null,
-  });
+  const { order, settings, artworkUrl, seedIds, resolved, resolveError } = loaded;
 
-  if (seedIds.length === 0) {
-    return NextResponse.json({
-      hasFiles: false,
-      hasDesignerFiles: false,
-      fileCount: 0,
-      hasPdf: false,
-      configured: true,
-      folderId: null,
-    });
+  if (!resolved) {
+    if (resolveError) {
+      console.error("[gdrive-status]", resolveError);
+    }
+    return NextResponse.json(
+      {
+        hasFiles: false,
+        hasDesignerFiles: false,
+        fileCount: 0,
+        hasPdf: false,
+        configured: true,
+        folderId: seedIds[0] ?? null,
+        ...(resolveError ? { error: resolveError } : {}),
+      },
+      { status: 200 }
+    );
   }
 
   try {
-    const proofs = proofsDriveClient(settings);
-    const resolved = await resolveOrderDriveFolders(proofs, {
-      seedIds,
-      extraRootId: settings.final_root_folder_id?.trim() || null,
-      excludeParentIds: [
-        settings.root_folder_id?.trim() || "",
-        settings.shared_drive_id?.trim() || "",
-      ].filter(Boolean),
-      orderNeedles: orderFolderNeedles({
-        title: String(order.title ?? ""),
-        specs,
-      }),
-    });
-
+    const specs = order.specs;
     const storedDesigner =
       typeof specs.design_task === "string" ? specs.design_task.trim() : "";
     const storedDesignerId = storedDesigner

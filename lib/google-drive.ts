@@ -489,6 +489,92 @@ export async function folderHasFiles(
   };
 }
 
+export type DrivePdfRef = {
+  id: string;
+  name: string;
+  modifiedTime: string;
+};
+
+function pdfRefFromFile(file: {
+  id?: string | null;
+  name?: string | null;
+  mimeType?: string | null;
+  modifiedTime?: string | null;
+  shortcutDetails?: { targetId?: string | null; targetMimeType?: string | null } | null;
+}): DrivePdfRef | null {
+  if (!isDrivePdfFile(file) || !file.id) return null;
+  const shortcutTarget = file.shortcutDetails?.targetId?.trim();
+  return {
+    id: shortcutTarget || file.id,
+    name: file.name || "file.pdf",
+    modifiedTime: file.modifiedTime || "",
+  };
+}
+
+/**
+ * Newest PDF in the given folders (direct files, then one nested folder level).
+ */
+export async function findLatestPdfInFolders(
+  settings: GdriveSettings,
+  folderIds: string[]
+): Promise<DrivePdfRef | null> {
+  if (!isGdriveConfigured(settings) || folderIds.length === 0) return null;
+
+  const drive = driveClient(settings);
+  const listOpts = {
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  };
+  const uniqueIds = [...new Set(folderIds.filter(Boolean))];
+  const found: DrivePdfRef[] = [];
+
+  for (const folderId of uniqueIds) {
+    const listing = await drive.files.list({
+      q: [`'${folderId}' in parents`, "trashed=false"].join(" and "),
+      fields:
+        "files(id,mimeType,name,modifiedTime,shortcutDetails(targetId,targetMimeType))",
+      pageSize: 50,
+      ...listOpts,
+    });
+    const entries = listing.data.files ?? [];
+    const directCount = found.length;
+    for (const file of entries) {
+      if (file.mimeType === FOLDER_MIME) continue;
+      const ref = pdfRefFromFile(file);
+      if (ref) found.push(ref);
+    }
+
+    if (found.length > directCount) continue;
+
+    const childFolders = entries.filter(
+      (f) => f.mimeType === FOLDER_MIME && f.id
+    );
+    const nested = await Promise.all(
+      childFolders.map(async (child) => {
+        const nestedRes = await drive.files.list({
+          q: [
+            `'${child.id}' in parents`,
+            `mimeType!='${FOLDER_MIME}'`,
+            "trashed=false",
+          ].join(" and "),
+          fields:
+            "files(id,mimeType,name,modifiedTime,shortcutDetails(targetId,targetMimeType))",
+          pageSize: 20,
+          ...listOpts,
+        });
+        return (nestedRes.data.files ?? [])
+          .map((f) => pdfRefFromFile(f))
+          .filter((r): r is DrivePdfRef => r != null);
+      })
+    );
+    for (const group of nested) found.push(...group);
+  }
+
+  if (found.length === 0) return null;
+  found.sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime));
+  return found[0] ?? null;
+}
+
 /** Lightweight check used by Settings → Test connection. */
 export async function testGdriveConnection(
   settings: GdriveSettings

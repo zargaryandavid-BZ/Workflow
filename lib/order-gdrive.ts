@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ARTWORK_FIELD_NAME, CUSTOMER_NAME_FIELD_NAME } from "@/lib/constants";
+import type { GdriveSettings } from "@/lib/types";
 import { driveOrderKeyFromTitle } from "@/lib/drive-folder-names";
 import {
   ensureGdriveSettings,
@@ -13,6 +14,7 @@ import {
   orderFolderNeedles,
   resolveOrderDriveFolders,
   seedDriveIdsFromOrder,
+  type ResolvedOrderDriveFolders,
 } from "@/lib/resolve-order-drive-folders";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
 
@@ -181,6 +183,140 @@ async function upsertDesignTaskLink(
     if (error) {
       console.error("[gdrive] failed to save Design files link", error);
     }
+  }
+}
+
+export type OrderFinalDriveContext =
+  | { kind: "not_found" }
+  | { kind: "not_configured" }
+  | { kind: "error"; message: string }
+  | {
+      kind: "ok";
+      order: { id: string; title: string; specs: Record<string, unknown> };
+      settings: GdriveSettings;
+      artworkUrl: string;
+      seedIds: string[];
+      resolved: ResolvedOrderDriveFolders | null;
+      resolveError?: string;
+    };
+
+/**
+ * Shared Drive folder resolution for gdrive-status and pdf-check.
+ * Does not persist resolved URLs — callers decide whether to write back.
+ */
+export async function loadOrderFinalDriveContext(
+  client: Client,
+  tenantId: string,
+  orderId: string
+): Promise<OrderFinalDriveContext> {
+  const { data: order, error: orderError } = await client
+    .from("orders")
+    .select("id, title, specs")
+    .eq("id", orderId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (orderError) return { kind: "error", message: orderError.message };
+  if (!order) return { kind: "not_found" };
+
+  let settings: GdriveSettings;
+  try {
+    settings = await ensureGdriveSettings(client, tenantId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (
+      message.includes("gdrive_settings") ||
+      message.includes("schema cache") ||
+      message.includes("does not exist")
+    ) {
+      return { kind: "not_configured" };
+    }
+    return { kind: "error", message };
+  }
+
+  if (!settings.enabled || !isGdriveConfigured(settings)) {
+    return { kind: "not_configured" };
+  }
+
+  const { data: field } = await client
+    .from("custom_fields")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .ilike("name", ARTWORK_FIELD_NAME)
+    .maybeSingle();
+
+  const fieldId = (field as { id: string } | null)?.id;
+  let artworkUrl = "";
+  if (fieldId) {
+    const { data: valueRow } = await client
+      .from("custom_field_values")
+      .select("value")
+      .eq("order_id", orderId)
+      .eq("custom_field_id", fieldId)
+      .maybeSingle();
+    artworkUrl =
+      typeof (valueRow as { value?: unknown } | null)?.value === "string"
+        ? String((valueRow as { value: string }).value).trim()
+        : "";
+  }
+
+  const specs =
+    order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
+      ? (order.specs as Record<string, unknown>)
+      : {};
+  const seedIds = seedDriveIdsFromOrder({
+    specs,
+    artworkUrl: artworkUrl || null,
+  });
+  const orderRow = {
+    id: order.id as string,
+    title: String(order.title ?? ""),
+    specs,
+  };
+
+  if (seedIds.length === 0) {
+    return {
+      kind: "ok",
+      order: orderRow,
+      settings,
+      artworkUrl,
+      seedIds,
+      resolved: null,
+    };
+  }
+
+  try {
+    const proofs = proofsDriveClient(settings);
+    const resolved = await resolveOrderDriveFolders(proofs, {
+      seedIds,
+      extraRootId: settings.final_root_folder_id?.trim() || null,
+      excludeParentIds: [
+        settings.root_folder_id?.trim() || "",
+        settings.shared_drive_id?.trim() || "",
+      ].filter(Boolean),
+      orderNeedles: orderFolderNeedles({
+        title: orderRow.title,
+        specs,
+      }),
+    });
+    return {
+      kind: "ok",
+      order: orderRow,
+      settings,
+      artworkUrl,
+      seedIds,
+      resolved,
+    };
+  } catch (err) {
+    return {
+      kind: "ok",
+      order: orderRow,
+      settings,
+      artworkUrl,
+      seedIds,
+      resolved: null,
+      resolveError: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

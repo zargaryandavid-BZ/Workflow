@@ -3,6 +3,7 @@ import "server-only";
 import { isUnnamedPdfLayer, layersFromOptionalContent, mergePdfLayers, parsePdfOcgs, type OcLike, type PdfLayer } from "@/lib/pdf-ocg";
 import { installPdfJsMapPolyfills } from "@/lib/pdfjs-map-polyfill";
 import { pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
+import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
 
 const MAX_EDGE = 800;
 const JPEG_QUALITY = 58;
@@ -90,9 +91,11 @@ export async function rasterizePdfLayerPreviews(
   const loadingTask = getDocument(pdfjsNodeGetDocumentOptions(data));
 
   const pdf = await loadingTask.promise;
-  const canvasFactory = (
-    pdf as unknown as { canvasFactory: CanvasFactory }
-  ).canvasFactory;
+  const canvasFactory = wrapPdfJsCanvasFactory(
+    (
+      pdf as unknown as { canvasFactory: CanvasFactory }
+    ).canvasFactory
+  );
 
   let oc: OcConfig | null = null;
   try {

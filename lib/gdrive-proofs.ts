@@ -367,6 +367,39 @@ export async function downloadDriveFileBytes(
 }
 
 /**
+ * First `maxBytes` of a Drive file (Range request). Follows shortcuts.
+ * Returns null on auth/network failure so callers can skip a false alarm.
+ */
+export async function downloadDriveFileHead(
+  client: ProofsDrive,
+  fileId: string,
+  maxBytes: number
+): Promise<Buffer | null> {
+  const info = await resolveDriveDownloadTarget(client, fileId);
+  if (!info) return null;
+  const tokenRes = await client.auth.getAccessToken();
+  const token = typeof tokenRes === "string" ? tokenRes : tokenRes?.token;
+  if (!token) return null;
+
+  const last = Math.max(0, maxBytes - 1);
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(info.id)}?alt=media&supportsAllDrives=true`;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Range: `bytes=0-${last}`,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!resp.ok && resp.status !== 206) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    return buf.subarray(0, maxBytes);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Produce image bytes for a proof file suitable for a SKU gallery slot.
  * - Real images → download the bytes directly.
  * - PDF/AI/anything else → use Drive's own generated thumbnail (a JPEG), bumped

@@ -327,7 +327,16 @@ function SkuArtworkBlock({
   const skuUi = useSkuDecision();
   const showUploads = !pdfProofOnly && skuArt.length > 0 && !pdfOn;
 
-  if (!canShowPdf && !pdfPending && !showUploads) return null;
+  if (!canShowPdf && !pdfPending && !showUploads) {
+    if (pdfProofOnly) {
+      return (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Proof pictures are being prepared. Refresh this page in a minute.
+        </p>
+      );
+    }
+    return null;
+  }
 
   return (
     <div className="mt-2">
@@ -558,7 +567,10 @@ export function OrderReview({
       setPdfPending(false);
       return;
     }
-    if (pdfProofOnly || skipDrivePdf) {
+    const haveServerProof =
+      Object.keys(finalPdfs).length > 0 ||
+      Object.keys(layerPreviewsProp).length > 0;
+    if ((pdfProofOnly || skipDrivePdf) && haveServerProof) {
       setDrivePdfs(finalPdfs);
       setLayerBySku(layerPreviewsProp);
       setPdfPending(false);

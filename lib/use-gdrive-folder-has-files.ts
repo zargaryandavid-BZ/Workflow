@@ -126,6 +126,9 @@ export function clearGdriveFolderHasFilesCache(orderId?: string) {
     statusCache.clear();
     inFlight.clear();
   }
+  void import("./use-order-pdf-check").then((m) =>
+    m.clearOrderPdfCheckCache(orderId)
+  );
 }
 
 /**
@@ -137,6 +140,9 @@ export async function refreshGdriveFolderHasFiles(
 ): Promise<boolean> {
   statusCache.delete(orderId);
   inFlight.delete(orderId);
+  void import("./use-order-pdf-check").then((m) =>
+    m.clearOrderPdfCheckCache(orderId)
+  );
   try {
     const next = await fetchStatusDeduped(orderId);
     notify(orderId);

@@ -994,6 +994,16 @@ Whether Drive folders for this order have files.
 | **Response** | `{ hasFiles, hasDesignerFiles, hasPdf, designerUrl, finalUrl }` |
 | **Notes** | `hasFiles` / `hasPdf` = **Final production**. `hasDesignerFiles` = files in the Designer folder only (Final production subfolder is ignored). |
 
+### `GET /api/orders/[id]/pdf-check`
+
+Print-spec check on the newest PDF in **Final production** (Acrobat layers + Fast Web View). Downloads only the first 64KB.
+
+| | |
+| --- | --- |
+| **Auth** | Session + tenant |
+| **Response** | `{ checked, hasLayers, isLinearized, valid, fileName }` |
+| **Notes** | `checked: false` when there is no PDF, Drive is not configured, or the download failed (no false alarm). `valid` is true only when both flags pass. Board cards show a red **PDF** badge on the thumbnail when `checked && !valid`. |
+
 ### `PATCH /api/orders/[id]`
 
 Update order fields, specs, custom values, customer link.
@@ -1519,7 +1529,7 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit.
+**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit. A red **PDF** badge on the thumbnail (from `GET /api/orders/[id]/pdf-check`) means the Final PDF is missing Acrobat layers or Fast Web View.
 
 ---
 

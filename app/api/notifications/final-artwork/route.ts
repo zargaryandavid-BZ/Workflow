@@ -77,14 +77,15 @@ export async function GET(request: Request) {
         tenant_id: order.tenant_id as string,
         specs,
       },
-      { generateIfMissing: false }
+      // Generate on demand if the background rasterization (scheduleLayerPreviews)
+      // hasn't completed yet — e.g. in local dev, or if it failed silently.
+      // This endpoint has maxDuration=180 and is fetched in the background after
+      // the page renders, so the customer sees a spinner then images appear.
+      { generateIfMissing: true }
     );
   } catch (err) {
     console.error("[approval-layer-previews] load failed:", err);
   }
 
-  return NextResponse.json(
-    { skus: pack.skus, bySku: pack.bySku, layerPreviews },
-    { headers: { "Cache-Control": "private, max-age=30" } }
-  );
+  return NextResponse.json({ skus: pack.skus, bySku: pack.bySku, layerPreviews });
 }

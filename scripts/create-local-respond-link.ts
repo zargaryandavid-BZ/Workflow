@@ -2,6 +2,7 @@
  * Create a customer_approval row (no email) and print a localhost /respond link.
  *
  *   npx tsx --import ./scripts/fedex/register-server-only.mjs scripts/create-local-respond-link.ts 15166-1
+ *   npx tsx --import ./scripts/fedex/register-server-only.mjs scripts/create-local-respond-link.ts 15231-1 --new
  */
 import { readFileSync } from "node:fs";
 import { Module } from "node:module";
@@ -59,7 +60,11 @@ async function main() {
   if (error) throw new Error(error.message);
   if (!order) throw new Error(`No order matching ${needle}`);
 
-  if (process.argv.includes("--previews")) {
+  const forceNew =
+    process.argv.includes("--new") || process.argv.includes("--create");
+  const wantPreviews = forceNew || process.argv.includes("--previews");
+
+  if (wantPreviews) {
     const { generateApprovalLayerPreviewsForOrder } = await import(
       "../lib/approval-layer-previews.ts"
     );
@@ -68,19 +73,64 @@ async function main() {
     console.log(`layer SKUs ${Object.keys(previews).length}`);
   }
 
-  const { data: existing } = await sb
-    .from("job_notifications")
-    .select("token, status")
-    .eq("order_id", order.id)
-    .eq("type", "customer_approval")
-    .neq("status", "expired")
-    .order("created_at", { ascending: false })
+  const { data: waitingCol } = await sb
+    .from("columns")
+    .select("id, name")
+    .eq("tenant_id", order.tenant_id)
+    .ilike("name", "%waiting%approval%")
     .limit(1)
     .maybeSingle();
-  const token = existing?.token as string | undefined;
-  const local = token
-    ? `http://localhost:3000/respond/${token}`
-    : "(no open approval — run with a new Request approval)";
+  if (waitingCol?.id && order.column_id !== waitingCol.id) {
+    const { error: moveErr } = await sb
+      .from("orders")
+      .update({ column_id: waitingCol.id })
+      .eq("id", order.id);
+    if (moveErr) throw new Error(moveErr.message);
+    console.log(`moved to ${waitingCol.name}`);
+  }
+
+  let token: string | undefined;
+  if (!forceNew) {
+    const { data: existing } = await sb
+      .from("job_notifications")
+      .select("token, status")
+      .eq("order_id", order.id)
+      .eq("type", "customer_approval")
+      .neq("status", "expired")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    token = existing?.token as string | undefined;
+  }
+
+  if (!token) {
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: created, error: createErr } = await sb
+      .from("job_notifications")
+      .insert({
+        tenant_id: order.tenant_id,
+        order_id: order.id,
+        type: "customer_approval",
+        channel: "none",
+        token_expires_at: expiresAt,
+        staff_note: "Local waiting approval (no email)",
+        status: "sent",
+        column_id: waitingCol?.id ?? order.column_id ?? null,
+      })
+      .select("id, token")
+      .single();
+    if (createErr) throw new Error(createErr.message);
+    token = created.token as string;
+    await sb
+      .from("job_notifications")
+      .update({ status: "expired" })
+      .eq("order_id", order.id)
+      .eq("type", "customer_approval")
+      .in("status", ["pending", "sent"])
+      .neq("id", created.id);
+  }
+
+  const local = `http://localhost:3000/respond/${token}`;
   console.log(`order ${order.title}`);
   console.log(`local ${local}`);
 }

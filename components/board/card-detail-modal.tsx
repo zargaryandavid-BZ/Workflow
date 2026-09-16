@@ -16,6 +16,7 @@ import {
   Pencil,
   Trash2,
   Truck,
+  AlertTriangle,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { CardWorkingPrompt } from "@/components/board/card-working-prompt";
@@ -69,6 +70,8 @@ import {
   mergeApplicationIntoOrderSpecs,
 } from "@/lib/order-application";
 import { preserveDesignTaskUrl } from "@/lib/design-task";
+import { useGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
+import { useOrderPdfCheck } from "@/lib/use-order-pdf-check";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { type WebhookSourceStyles } from "@/lib/webhook-source-styles";
@@ -372,6 +375,8 @@ export function CardDetailModal({
   const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "history">(
     "details"
   );
+  const { hasPdf: hasFinalPdf } = useGdriveFolderStatus(orderId);
+  const pdfCheck = useOrderPdfCheck(orderId, hasFinalPdf);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -2274,6 +2279,29 @@ export function CardDetailModal({
           ) : null}
 
           {tab === "details" && data ? (
+            <>
+            {pdfCheck.checked && !pdfCheck.valid ? (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-medium">PDF does not meet print spec</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
+                    {!pdfCheck.hasLayers ? (
+                      <li>
+                        Missing Acrobat layers (re-export with &quot;Create
+                        Acrobat Layers from Top-Level Layers&quot;)
+                      </li>
+                    ) : null}
+                    {!pdfCheck.isLinearized ? (
+                      <li>
+                        Not optimized for Fast Web View (re-export with
+                        &quot;Optimize for Fast Web View&quot;)
+                      </li>
+                    ) : null}
+                  </ul>
+                </div>
+              </div>
+            ) : null}
             <ButtonAutomationBar
               buttons={buttonAutomations}
               columnId={data.order.column_id}
@@ -2321,6 +2349,7 @@ export function CardDetailModal({
               }}
               onError={(msg) => setSaveError(msg)}
             />
+            </>
           ) : null}
 
           {tab === "details" && data ? (

@@ -69,6 +69,7 @@ import { getComboStock, COMBO_STOCK_LABELS } from "@/lib/combo-stock";
 import { dueDateStatus } from "@/lib/board-due-date";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { useGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
+import { useOrderPdfCheck } from "@/lib/use-order-pdf-check";
 import {
   DEFAULT_PROCESSING_DAYS,
   type DueDateMode,
@@ -468,6 +469,33 @@ function CardTimer({
 
 // ─── Main card component ────────────────────────────────────────────────────
 
+function PdfSpecWarningBadge({
+  show,
+  pdfCheck,
+}: {
+  show: boolean;
+  pdfCheck: { hasLayers: boolean; isLinearized: boolean };
+}) {
+  if (!show) return null;
+  const reasons = [
+    !pdfCheck.hasLayers ? "Missing Acrobat layers" : "",
+    !pdfCheck.isLinearized ? "Not optimized for Fast Web View" : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-end p-1">
+      <span
+        className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md ring-1 ring-white"
+        title={reasons}
+      >
+        <AlertTriangle className="h-3 w-3" />
+        PDF
+      </span>
+    </div>
+  );
+}
+
 export function OrderCard({
   order,
   canDrag = true,
@@ -570,6 +598,8 @@ export function OrderCard({
 
   const { hasFiles: folderHasFiles, hasPdf: hasFinalPdf } =
     useGdriveFolderStatus(order.id);
+  const pdfCheck = useOrderPdfCheck(order.id, hasFinalPdf);
+  const showPdfWarning = hasFinalPdf && pdfCheck.checked && !pdfCheck.valid;
   /** Only when Final/Artwork Drive actually has files — not just a folder URL. */
   const showArtworkButton = folderHasFiles || hasFinalPdf;
 
@@ -1097,6 +1127,7 @@ export function OrderCard({
               {formatShortOrderNumber(order.title)}
               {groupSize != null && groupSize >= 2 ? ` (${groupSize})` : ""}
             </span>
+            <PdfSpecWarningBadge show={showPdfWarning} pdfCheck={pdfCheck} />
           </div>
           {showArtworkButton ? (
             <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
@@ -1104,6 +1135,7 @@ export function OrderCard({
           </div>
         ) : showArtworkButton ? (
           <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <div className="relative h-28 w-28 shrink-0 overflow-hidden">
             <button
               type="button"
               onClick={(e) => {
@@ -1116,6 +1148,8 @@ export function OrderCard({
             >
               <Layers className="h-8 w-8" aria-hidden />
             </button>
+            <PdfSpecWarningBadge show={showPdfWarning} pdfCheck={pdfCheck} />
+            </div>
             <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
           </div>
         ) : null}
