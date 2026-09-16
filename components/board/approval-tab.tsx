@@ -70,8 +70,24 @@ function findColumn(columns: BoardColumn[], match: (c: BoardColumn) => boolean) 
   return columns.find(match) ?? null;
 }
 
+function canReuseApprovalNote(note: ApprovalNote) {
+  return note.status !== "expired";
+}
+
+function sendPanelCopy(notes: ApprovalNote[]) {
+  const hasSent = notes.some(
+    (n) =>
+      n.channel === "email" || n.channel === "sms" || n.channel === "both"
+  );
+  return {
+    title: hasSent ? "Resend notification" : "Send approval request",
+    sendLabel: hasSent ? "Resend" : "Send",
+  };
+}
+
 function NotifyRow({
   note,
+  orderId,
   customer,
   contactEmail,
   contactPhone,
@@ -79,7 +95,8 @@ function NotifyRow({
   title = "Resend notification",
   sendLabel = "Resend",
 }: {
-  note: ApprovalNote;
+  note: ApprovalNote | null;
+  orderId: string;
   customer: Customer | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -126,9 +143,13 @@ function NotifyRow({
   ]);
 
   function toggleChannel(next: "email" | "sms") {
-    setSelected((prev) =>
-      prev.includes(next) ? prev.filter((c) => c !== next) : [...prev, next]
-    );
+    setSelected((prev) => {
+      if (prev.includes(next)) {
+        const nextSel = prev.filter((c) => c !== next);
+        return nextSel.length === 0 ? prev : nextSel;
+      }
+      return [...prev, next];
+    });
     setError(null);
   }
 
@@ -149,18 +170,37 @@ function NotifyRow({
     }
     setSending(true);
     try {
+      const reuse = note && canReuseApprovalNote(note);
       const { ok, data } = await postJsonWithTimeout<{
         error?: string;
         warning?: string | null;
-      }>(`/api/notifications/${note.id}/send`, {
-        channel,
-        toEmail: selected.includes("email")
-          ? email.trim() || undefined
-          : undefined,
-        toPhone: selected.includes("sms")
-          ? phone.trim() || undefined
-          : undefined,
-      }, APPROVAL_SEND_TIMEOUT_MS);
+      }>(
+        reuse
+          ? `/api/notifications/${note.id}/send`
+          : "/api/notifications/send",
+        reuse
+          ? {
+              channel,
+              toEmail: selected.includes("email")
+                ? email.trim() || undefined
+                : undefined,
+              toPhone: selected.includes("sms")
+                ? phone.trim() || undefined
+                : undefined,
+            }
+          : {
+              orderId,
+              type: "customer_approval",
+              channel,
+              toEmail: selected.includes("email")
+                ? email.trim() || undefined
+                : undefined,
+              toPhone: selected.includes("sms")
+                ? phone.trim() || undefined
+                : undefined,
+            },
+        APPROVAL_SEND_TIMEOUT_MS
+      );
       if (!ok) {
         setError(
           data.error ??
@@ -329,12 +369,29 @@ export function ApprovalTab({
   const [error, setError] = useState<string | null>(null);
 
   if (notes.length === 0) {
+    const copy = sendPanelCopy(notes);
     return (
-      <p className="text-sm text-slate-400">No approval requests yet.</p>
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          No approval request has been logged yet. Send Email or SMS here.
+        </p>
+        <NotifyRow
+          note={null}
+          orderId={orderId}
+          customer={customer}
+          contactEmail={contactEmail}
+          contactPhone={contactPhone}
+          onSent={onChanged}
+          title={copy.title}
+          sendLabel={copy.sendLabel}
+        />
+      </div>
     );
   }
 
   const latest = notes[0];
+  const reusableNote = notes.find(canReuseApprovalNote) ?? null;
+  const sendCopy = sendPanelCopy(notes);
   const decisions = notes
     .filter(
       (n) =>
@@ -387,20 +444,38 @@ export function ApprovalTab({
   }
 
   function renderLatestActions() {
+    const sendRow = (
+      <NotifyRow
+        note={reusableNote}
+        orderId={orderId}
+        customer={customer}
+        contactEmail={contactEmail}
+        contactPhone={contactPhone}
+        onSent={onChanged}
+        title={sendCopy.title}
+        sendLabel={sendCopy.sendLabel}
+      />
+    );
+
     if (
       statusNote.status === "responded" &&
       statusNote.customer_response === "approved"
     ) {
-      return productionColumn ? (
-        <MoveButton
-          orderId={orderId}
-          columnId={productionColumn.id}
-          sourceColumnId={sourceColumnId}
-          columns={columns}
-          label="Move to production →"
-          onMoved={(toColumnId) => onChanged({ column_id: toColumnId })}
-        />
-      ) : null;
+      return (
+        <div className="space-y-3">
+          {sendRow}
+          {productionColumn ? (
+            <MoveButton
+              orderId={orderId}
+              columnId={productionColumn.id}
+              sourceColumnId={sourceColumnId}
+              columns={columns}
+              label="Move to production →"
+              onMoved={(toColumnId) => onChanged({ column_id: toColumnId })}
+            />
+          ) : null}
+        </div>
+      );
     }
 
     if (
@@ -409,15 +484,7 @@ export function ApprovalTab({
     ) {
       return (
         <div className="space-y-3">
-          <NotifyRow
-            note={statusNote}
-            customer={customer}
-            contactEmail={contactEmail}
-            contactPhone={contactPhone}
-            onSent={onChanged}
-            title="Resend Approve Request"
-            sendLabel="Send"
-          />
+          {sendRow}
           {returningColumn ? (
             <MoveButton
               orderId={orderId}
@@ -437,13 +504,12 @@ export function ApprovalTab({
       statusNote.status !== "responded"
     ) {
       return (
-        <div className="space-y-2">
-          <p className="text-sm text-slate-600">
-            No notification sent. Contact customer directly.
-          </p>
+        <div className="space-y-3">
+          {sendRow}
           <Button
             type="button"
             size="sm"
+            variant="outline"
             disabled={manualLoading}
             onClick={markManualApproved}
           >
@@ -454,22 +520,7 @@ export function ApprovalTab({
       );
     }
 
-    if (
-      (statusNote.status === "sent" || statusNote.status === "pending") &&
-      statusNote.channel !== "manual"
-    ) {
-      return (
-        <NotifyRow
-          note={statusNote}
-          customer={customer}
-          contactEmail={contactEmail}
-          contactPhone={contactPhone}
-          onSent={onChanged}
-        />
-      );
-    }
-
-    return null;
+    return sendRow;
   }
 
   function entryStatus(note: ApprovalNote) {
