@@ -8,7 +8,7 @@ import {
 } from "@/lib/notifications";
 import type { JobNotification, Order } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 export async function POST(
   request: Request,

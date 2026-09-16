@@ -1,13 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import dynamic from "next/dynamic";
-import { Check, Download, FileText, Layers, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Download, FileText, X } from "lucide-react";
 import {
   collectSkuApprovalImages,
   isRespondImageAsset,
   respondAssetUrl,
-  respondFinalPdfUrl,
   respondSkuImageUrl,
   type RespondOrderAsset,
   type RespondOrderRow,
@@ -23,35 +21,17 @@ import {
   skuLabel,
 } from "@/lib/sku-approval";
 import { isRollDirectionFieldName, rollDirectionFromRespondRows } from "@/lib/roll-direction";
-import { finalPdfOcgView } from "@/lib/shared-pdf-pages";
+import type { RespondLayerPreview } from "@/lib/approval-layer-preview-paths";
 import {
   RESPOND_SKU_ANCHOR_PREFIX,
   scrollAfterSkuChoice,
   useSkuDecision,
 } from "@/components/respond/sku-decision-context";
 import { OnRollPreview } from "@/components/respond/on-roll-preview";
+import { ProofLayerImages } from "@/components/respond/proof-layer-images";
 import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
-
-const PdfOcgFromUrl = dynamic(
-  () =>
-    import("@/components/pdf/pdf-ocg-from-url").then((m) => m.PdfOcgFromUrl),
-  { ssr: false }
-);
-
-function PdfPreviewLoading({ fileName }: { fileName: string }) {
-  return (
-    <div className="flex min-h-[16rem] flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
-      <div className="shrink-0 border-b border-slate-100 px-3 py-2">
-        <span className="min-w-0 truncate text-sm font-medium text-slate-600">
-          {fileName}
-        </span>
-      </div>
-      <PdfLoadingBar />
-    </div>
-  );
-}
 
 interface OrderReviewProps {
   token: string;
@@ -65,6 +45,8 @@ interface OrderReviewProps {
   orderId?: string;
   /** Final-for-Prod multilayer PDFs keyed by SKU id. */
   finalPdfs?: Record<string, RespondFinalPdf>;
+  /** Per-SKU rasterized proof images (built when staff send approval). */
+  layerPreviews?: Record<string, RespondLayerPreview>;
   /** Staff customer note — shown above the SKU list. */
   customerNote?: string | null;
   /** Skip Google Drive PDF lookup (missing-info pages have no proof). */
@@ -308,6 +290,7 @@ function SkuArtworkBlock({
   rollDirection,
   labelWidthIn,
   labelHeightIn,
+  layerPreview = null,
 }: {
   token: string;
   orderId?: string;
@@ -319,50 +302,35 @@ function SkuArtworkBlock({
   rollDirection: ReturnType<typeof rollDirectionFromRespondRows>;
   labelWidthIn?: number | null;
   labelHeightIn?: number | null;
+  layerPreview?: RespondLayerPreview | null;
 }) {
-  const canShowPdf = Boolean(finalPdf && orderId);
+  const canShowPdf = Boolean(orderId && (finalPdf || layerPreview));
   const pdfOn = canShowPdf;
-  const [photoOnRoll, setPhotoOnRoll] = useState(false);
+  const [photoOnRoll, setPhotoOnRoll] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
-  const pdfPages = skuUi.pdfPageCountBySku?.[skuId] ?? 0;
-  const pdfView = finalPdf ? finalPdfOcgView(finalPdf) : null;
-  const perImage =
-    approvalImageSlotCount(skuArt.length, pdfPages, finalPdf?.page) >= 2;
 
   if (skuArt.length === 0 && !canShowPdf && !pdfPending) return null;
 
   return (
     <div className="mt-2">
-      {pdfPending && !canShowPdf ? <PdfLoadingBar /> : null}
-      {pdfOn && finalPdf && orderId && pdfView ? (
-        <Suspense fallback={<PdfPreviewLoading fileName={finalPdf.fileName} />}>
-          <PdfOcgFromUrl
-            src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
-            fileName={finalPdf.fileName}
-            page={pdfView.page}
-            layout={pdfView.layout}
-            rollDirection={rollDirection}
-            labelWidthIn={labelWidthIn}
-            labelHeightIn={labelHeightIn}
-            onPageCount={(n) =>
-              skuUi.setPdfPageCount?.(
-                skuId,
-                finalPdf.page != null ? 1 : n
-              )
-            }
-            renderPageActions={
-              finalPdf.page == null && (perImage || pdfPages > 1)
-                ? (page) => (
-                    <ImageDecisionControls
-                      skuId={skuId}
-                      assetId={`pdfpage:${page}`}
-                    />
-                  )
-                : undefined
-            }
-          />
-        </Suspense>
+      {pdfPending && !layerPreview ? <PdfLoadingBar /> : null}
+      {pdfOn && orderId && layerPreview ? (
+        <ProofLayerImages
+          token={token}
+          orderId={orderId}
+          preview={layerPreview}
+          fileName={finalPdf?.fileName ?? layerPreview.fileName}
+          rollDirection={rollDirection}
+          labelWidthIn={labelWidthIn}
+          labelHeightIn={labelHeightIn}
+          onReady={() => skuUi.setPdfPageCount?.(skuId, 1)}
+        />
+      ) : pdfOn && finalPdf && orderId && !pdfPending && !layerPreview ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Proof images are not ready yet. Refresh this page in a moment, or ask
+          us to send the approval again.
+        </p>
       ) : null}
       {skuArt.length > 0 && !pdfOn ? (
         <>
@@ -370,11 +338,11 @@ function SkuArtworkBlock({
             Artwork
           </p>
           <ul
-            className={`grid gap-2 ${
+            className={
               multiImage
-                ? "grid-cols-2 sm:grid-cols-3"
-                : "grid-cols-1 sm:grid-cols-2"
-            }`}
+                ? "grid grid-cols-2 gap-2 sm:grid-cols-3"
+                : "mx-auto flex w-full max-w-xl flex-col"
+            }
           >
             {skuArt.map((img, imgIdx) => {
               const href =
@@ -388,7 +356,7 @@ function SkuArtworkBlock({
                     <button
                       type="button"
                       onClick={() => setLightboxIndex(imgIdx)}
-                      className="block w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                      className="flex w-full items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50"
                       title="Open large view"
                     >
                       <img
@@ -397,7 +365,7 @@ function SkuArtworkBlock({
                         className={
                           multiImage
                             ? "aspect-square w-full object-cover"
-                            : "h-[28rem] w-full object-contain"
+                            : "mx-auto max-h-[28rem] w-auto max-w-full object-contain"
                         }
                       />
                     </button>
@@ -525,6 +493,7 @@ export function OrderReview({
   heading,
   orderId,
   finalPdfs = {},
+  layerPreviews: layerPreviewsProp = {},
   customerNote,
   skipDrivePdf = false,
 }: OrderReviewProps) {
@@ -541,21 +510,36 @@ export function OrderReview({
   ) || null;
   const [drivePdfs, setDrivePdfs] = useState(finalPdfs);
   const [driveSkus, setDriveSkus] = useState(skus);
+  const [layerBySku, setLayerBySku] = useState<
+    Record<string, RespondLayerPreview>
+  >(layerPreviewsProp);
   const [pdfPending, setPdfPending] = useState(
     () =>
       !skipDrivePdf &&
       Object.keys(finalPdfs).length === 0 &&
+      Object.keys(layerPreviewsProp).length === 0 &&
       Boolean(orderId)
   );
 
   useEffect(() => {
-    if (skipDrivePdf || Object.keys(finalPdfs).length > 0 || !orderId) {
+    if (skipDrivePdf || !orderId) {
       setDrivePdfs(finalPdfs);
+      setLayerBySku(layerPreviewsProp);
+      setPdfPending(false);
+      return;
+    }
+    if (
+      Object.keys(finalPdfs).length > 0 &&
+      Object.keys(layerPreviewsProp).length > 0
+    ) {
+      setDrivePdfs(finalPdfs);
+      setLayerBySku(layerPreviewsProp);
       setPdfPending(false);
       return;
     }
     let cancelled = false;
-    setPdfPending(true);
+    const needListing = Object.keys(finalPdfs).length === 0;
+    if (needListing) setPdfPending(true);
     void fetch(
       `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}`
     )
@@ -563,12 +547,14 @@ export function OrderReview({
         const data = (await res.json()) as {
           skus?: SkuItem[];
           bySku?: Record<string, RespondFinalPdf>;
+          layerPreviews?: Record<string, RespondLayerPreview>;
         };
         if (cancelled) return;
         if (res.ok && data.bySku) setDrivePdfs(data.bySku);
         if (res.ok && Array.isArray(data.skus) && data.skus.length > 0) {
           setDriveSkus(data.skus);
         }
+        if (res.ok && data.layerPreviews) setLayerBySku(data.layerPreviews);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -656,13 +642,9 @@ export function OrderReview({
                   {index === 0 && skuUi.mode === "choose" ? (
                     <p className="mb-3 text-sm leading-relaxed text-slate-600">
                       Your print proof is ready. Please Approve or Not
-                      Approved each SKU. You can toggle specific layers using
-                      the{" "}
-                      <span className="animate-see-layers inline-flex items-center gap-1 font-semibold">
-                        SEE LAYERS
-                        <Layers className="h-3.5 w-3.5" aria-hidden />
-                      </span>{" "}
-                      checkboxes.
+                      Approved each SKU. Each PDF page is one SKU. If a SKU
+                      has several print layers, each layer is shown as its
+                      own picture.
                     </p>
                   ) : null}
                   <div className="flex items-start justify-between gap-3">
@@ -690,6 +672,7 @@ export function OrderReview({
                     rollDirection={rollDirection}
                     labelWidthIn={labelWidthIn}
                     labelHeightIn={labelHeightIn}
+                    layerPreview={layerBySku[sku.id] ?? null}
                   />
                 </li>
               );

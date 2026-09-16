@@ -1,5 +1,8 @@
 export const API_TIMEOUT_MS = 10_000;
 
+/** Approval send rasterizes a web preview of the print PDF before email/SMS. */
+export const APPROVAL_SEND_TIMEOUT_MS = 180_000;
+
 /** Approval / missing-info send copies proof files then hits Instantly + Twilio. */
 export const NOTIFICATION_SEND_TIMEOUT_MS = 30_000;
 

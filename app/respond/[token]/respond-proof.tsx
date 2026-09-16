@@ -1,25 +1,28 @@
 import { OrderReview } from "@/components/respond/order-review";
-import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
-import { buildRespondOrderRows, respondCustomerNote, skusForRespond } from "@/lib/respond-order";
+import {
+  buildRespondOrderRows,
+  respondCustomerNote,
+  skusForRespond,
+  type RespondFinalPdf,
+} from "@/lib/respond-order";
 import type {
   RespondOrderAsset,
   RespondSkuImage,
 } from "@/lib/respond-order";
+import type { RespondLayerPreview } from "@/lib/approval-layer-preview-paths";
 import type { OrderSpecs } from "@/lib/types";
+import { alignSkusToPdfPages } from "@/lib/shared-pdf-pages";
 
 export function RespondProofFallback() {
   return (
-    <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-3 py-2">
-        <span className="text-sm font-medium text-slate-600">Loading proof…</span>
-      </div>
-      <PdfLoadingBar />
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-4">
+      <p className="text-sm text-slate-500">Loading proof…</p>
     </div>
   );
 }
 
-/** Specs/SKUs only — Drive PDF lookup happens in the browser after first paint. */
-export function RespondProof({
+/** SKUs immediately; web-preview images from send-time storage (no Drive). */
+export async function RespondProof({
   token,
   orderId,
   description,
@@ -27,7 +30,7 @@ export function RespondProof({
   specs,
   assets,
   skuImages,
-  skipDrivePdf = false,
+  skipDrivePdf: _skipDrivePdf = false,
 }: {
   token: string;
   orderId: string;
@@ -39,16 +42,42 @@ export function RespondProof({
   skipDrivePdf?: boolean;
 }) {
   const specRecord = (specs ?? {}) as Record<string, unknown>;
+  let reviewSkus = skusForRespond(specRecord);
+  let finalPdfs: Record<string, RespondFinalPdf> = {};
+  let layerPreviews: Record<string, RespondLayerPreview> = {};
+
+  if (orderId) {
+    try {
+      const {
+        loadRespondPreviewIndex,
+        expandRespondPreviewIndex,
+        respondProofFromIndex,
+      } = await import("@/lib/approval-layer-previews");
+      const index = await loadRespondPreviewIndex(orderId);
+      if (index) {
+        const expanded = expandRespondPreviewIndex(index, reviewSkus);
+        reviewSkus = alignSkusToPdfPages(reviewSkus, expanded.pages.length);
+        const proof = respondProofFromIndex(expanded);
+        finalPdfs = proof.finalPdfs;
+        layerPreviews = proof.layerPreviews;
+      }
+    } catch (err) {
+      console.error("[respond-proof] preview index failed:", err);
+    }
+  }
+
   return (
     <OrderReview
       token={token}
       rows={buildRespondOrderRows(description, fields, specRecord)}
-      skus={skusForRespond(specRecord)}
+      skus={reviewSkus}
       assets={assets}
       skuImages={skuImages}
       orderId={orderId}
       customerNote={respondCustomerNote(description, specRecord)}
-      skipDrivePdf={skipDrivePdf}
+      finalPdfs={finalPdfs}
+      layerPreviews={layerPreviews}
+      skipDrivePdf
     />
   );
 }

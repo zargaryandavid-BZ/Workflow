@@ -117,6 +117,43 @@ export async function GET(request: Request) {
     return NextResponse.redirect(signed.signedUrl);
   }
 
+  if (type === "layer_preview") {
+    const orderId = searchParams.get("order");
+    const rev = searchParams.get("rev")?.trim() ?? "";
+    const page = Number(searchParams.get("page") ?? "0");
+    const layer = searchParams.get("layer")?.trim() ?? "";
+    if (!orderId || !rev || !layer || !Number.isFinite(page) || page < 1) {
+      return NextResponse.json(
+        { error: "order, rev, page, and layer are required" },
+        { status: 400 }
+      );
+    }
+    const { orderIds, expired } = await resolveTokenOrderIds(admin, token);
+    if (!orderIds.includes(orderId)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (expired) {
+      return NextResponse.json({ error: "Link expired" }, { status: 403 });
+    }
+    const { layerPreviewObjectPath, LAYER_PREVIEW_BUCKET_PREFIX } = await import(
+      "@/lib/approval-layer-preview-paths"
+    );
+    const path = layerPreviewObjectPath(id, rev, page, layer);
+    if (!path.startsWith(`${LAYER_PREVIEW_BUCKET_PREFIX}/`)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const { data: signed, error } = await admin.storage
+      .from(BUCKET)
+      .createSignedUrl(path, 3600);
+    if (error || !signed) {
+      return NextResponse.json(
+        { error: error?.message ?? "Could not sign URL" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.redirect(signed.signedUrl);
+  }
+
   if (type === "final_pdf") {
     const orderId = searchParams.get("order");
     if (!orderId) {

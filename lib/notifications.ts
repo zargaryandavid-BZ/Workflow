@@ -103,6 +103,17 @@ async function resolveCustomerContact(
   return { customerEmail, customerPhone, customerName };
 }
 
+async function prepareApprovalLayerPreviews(order: Order) {
+  const started = Date.now();
+  const { generateApprovalLayerPreviewsForOrder } = await import(
+    "@/lib/approval-layer-previews"
+  );
+  const previews = await generateApprovalLayerPreviewsForOrder(order);
+  console.info(
+    `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
+  );
+}
+
 function productFromOrder(order: Order): string {
   const specs = order.specs ?? {};
   const product =
@@ -566,6 +577,7 @@ export async function saveNotificationRequest(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
+    await prepareApprovalLayerPreviews(params.order);
   }
 
   let emailSent = false;
@@ -630,6 +642,9 @@ export async function dispatchNotification(
     actorUserId?: string | null;
   }
 ) {
+  if (params.notification.type === "customer_approval") {
+    await prepareApprovalLayerPreviews(params.order);
+  }
   const delivery = await deliverNotification(client, params);
   if (!delivery.sent) {
     throw new Error(delivery.error ?? deliveryErrorMessage(params.channel));
@@ -721,6 +736,7 @@ export async function createNotification(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
+    await prepareApprovalLayerPreviews(params.order);
   }
 
   const extraNotificationIds: string[] = [];
@@ -772,6 +788,14 @@ export async function createNotification(
         await snapshotApprovalFiles(client, extra.id as string);
       } catch (err) {
         console.error("[approval-snapshot] failed:", err);
+      }
+      const { data: extraOrder } = await client
+        .from("orders")
+        .select("*")
+        .eq("id", orderId)
+        .maybeSingle();
+      if (extraOrder) {
+        await prepareApprovalLayerPreviews(extraOrder as Order);
       }
     }
   }

@@ -12,10 +12,12 @@ import {
   localDayEndExclusiveIso,
   localDayStartIso,
 } from "@/lib/time-tracking";
+import { skuCountFromSpecs } from "@/lib/skus";
 
 type OrderJoin = {
   id: string;
   title: string;
+  specs?: Record<string, unknown> | null;
   customer: { name: string } | { name: string }[] | null;
 } | null;
 
@@ -34,7 +36,7 @@ type RawEntry = {
   pause_reason: string | null;
   notes: string | null;
   created_at: string;
-  order?: OrderJoin;
+  order?: OrderJoin | OrderJoin[] | null;
 };
 
 function customerNameFromJoin(order: OrderJoin): string | null {
@@ -43,13 +45,20 @@ function customerNameFromJoin(order: OrderJoin): string | null {
   return c?.name?.trim() || null;
 }
 
+function joinedOrder(order: OrderJoin | OrderJoin[] | undefined): OrderJoin {
+  if (!order) return null;
+  return Array.isArray(order) ? order[0] ?? null : order;
+}
+
 function mapEntry(
   row: RawEntry,
   nowMs = Date.now(),
   userNames?: Map<string, string>
 ): TimeEntry {
-  const liveTitle = row.order?.title?.trim() || null;
+  const order = joinedOrder(row.order);
+  const liveTitle = order?.title?.trim() || null;
   const pausedSeconds = Number(row.paused_seconds) || 0;
+  const skuCount = skuCountFromSpecs(order?.specs ?? null);
   return {
     id: row.id,
     tenant_id: row.tenant_id,
@@ -71,13 +80,14 @@ function mapEntry(
     }),
     job_title: liveTitle ?? row.order_title,
     job_number: liveTitle ?? row.order_title,
-    customer_name: customerNameFromJoin(row.order ?? null),
+    customer_name: customerNameFromJoin(order),
     user_display_name: userNames?.get(row.user_id) ?? null,
+    sku_count: skuCount > 0 ? skuCount : null,
   };
 }
 
 const SELECT =
-  "id, tenant_id, user_id, order_id, order_title, custom_task_name, activity_type, started_at, ended_at, paused_at, paused_seconds, pause_reason, notes, created_at, order:orders(id, title, customer:customers(name))";
+  "id, tenant_id, user_id, order_id, order_title, custom_task_name, activity_type, started_at, ended_at, paused_at, paused_seconds, pause_reason, notes, created_at, order:orders(id, title, specs, customer:customers(name))";
 
 export async function GET(request: Request) {
   const ctx = await getTenantContext();

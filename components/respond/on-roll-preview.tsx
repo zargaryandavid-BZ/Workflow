@@ -3,27 +3,25 @@
 import { useEffect, useState } from "react";
 import {
   ROLL_DIRECTION_OPTIONS,
+  formatRollDirectionPreviewAngle,
   rollDirectionArtworkRotateDeg,
   type RollDirectionValue,
 } from "@/lib/roll-direction";
 import { cn } from "@/lib/utils";
 
 const ROLL_SRC = "/roll-direction/roll-mockup.png";
-/** Gap between the label thumbnails on the roll face. */
+/** Gap between the label thumbnails on the hanging web. */
 const LABEL_GAP_PX = 6;
 const LABEL_COUNT = 3;
 
 /**
- * The roll-mockup.png was designed with these proportions.
- * Adjust if the image changes:
- *   - Face starts at 42% from the left edge of the image
- *   - Face runs to the right edge (minus a small inset)
- *   - Face occupies from ~26% top to ~90% of image height
+ * Vertical roll-mockup.png (608×930): hanging web on the left, core top-right,
+ * unwind arrow at the bottom. Percentages are of the full image box.
  */
-const FACE_LEFT_PCT = 42;  // % from left where the flat unwind face begins
-const FACE_TOP_PCT = 20;   // % from top where the face starts
-const FACE_BOTTOM_PCT = 94; // % from top where the face ends
-const FACE_RIGHT_PCT = 3;  // % from right edge — adds right margin so labels sit centered
+const FACE_LEFT_PCT = 13;
+const FACE_TOP_PCT = 18;
+const FACE_BOTTOM_PCT = 88;
+const FACE_RIGHT_PCT = 46;
 
 const DIRECTION_TITLE: Record<RollDirectionValue, string> = {
   "1-Top": "Roll Direction 1-Top",
@@ -69,8 +67,6 @@ export function OnRollPreview({
   const [src, setSrc] = useState<string | null>(null);
   const [cellSrc, setCellSrc] = useState<string | null>(null);
   const [active, setActive] = useState<RollDirectionValue>(direction);
-  const [labelScale, setLabelScale] = useState(1.45);  // 0.5–2.0 — user-calibrated default
-  const [hShift, setHShift] = useState(12);             // -20 to +20 (% left/right) — user-calibrated default
   const rotateDeg = rollDirectionArtworkRotateDeg(active);
 
   useEffect(() => {
@@ -113,7 +109,6 @@ export function OnRollPreview({
     img.src = src;
   }, [src, rotateDeg]);
 
-  // Compute aspect ratio of the rotated label so we can set exact dimensions.
   // For 90° / -90° rotations, width and height swap.
   const turn = ((rotateDeg % 360) + 360) % 360;
   const isQuarterTurn = turn === 90 || turn === 270;
@@ -121,30 +116,17 @@ export function OnRollPreview({
   const rawH = labelHeightIn ?? 1;
   const rotatedW = isQuarterTurn ? rawH : rawW;
   const rotatedH = isQuarterTurn ? rawW : rawH;
-  // aspect = width / height of the rotated label
   const aspect = rotatedW / rotatedH;
-
-  // Dynamic face box — driven by labelScale and hShift controls
-  const baseFaceH = FACE_BOTTOM_PCT - FACE_TOP_PCT;
-  const scaledH = baseFaceH * labelScale;
-  const faceCenterV = (FACE_BOTTOM_PCT + FACE_TOP_PCT) / 2;
-  const dynTop = Math.max(FACE_TOP_PCT, faceCenterV - scaledH / 2);
-  const dynBottom = Math.min(FACE_BOTTOM_PCT, faceCenterV + scaledH / 2);
-
-  const baseFaceW = 100 - FACE_LEFT_PCT - FACE_RIGHT_PCT;
-  const scaledW = baseFaceW * labelScale;
-  const faceCenterX = FACE_LEFT_PCT + baseFaceW / 2;
-  // Clamp so labels never overflow the roll face boundaries
-  const dynLeft = Math.max(FACE_LEFT_PCT, faceCenterX - scaledW / 2 - hShift);
-  const dynRight = Math.max(8, 100 - (faceCenterX + scaledW / 2) + hShift);
 
   return (
     <div className={cn("flex flex-col items-center gap-3 px-4 py-4", className)}>
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {DIRECTION_TITLE[active]}
+        {DIRECTION_TITLE[active]}{" "}
+        <span className="font-bold text-slate-700">
+          {formatRollDirectionPreviewAngle(rotateDeg)}
+        </span>
       </p>
 
-      {/* Direction picker */}
       <div
         className="flex w-full max-w-[680px] flex-wrap items-center justify-center gap-1.5"
         role="group"
@@ -184,89 +166,54 @@ export function OnRollPreview({
         })}
       </div>
 
-      {/* Roll mockup + arrow */}
-      <div className="flex w-full max-w-[680px] items-center gap-3">
-        {/* Roll image with labels overlaid */}
-        <div className="relative min-w-0 flex-1">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={ROLL_SRC}
-            alt=""
-            className="block h-auto w-full"
-            draggable={false}
-          />
+      <div className="relative mx-auto w-full max-w-[280px]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={ROLL_SRC}
+          alt=""
+          className="block h-auto w-full"
+          draggable={false}
+        />
 
-          {/* Label overlay: positioned over the flat face of the roll */}
-          <div
-            className="pointer-events-none absolute overflow-hidden"
-            style={{
-              left: `${dynLeft}%`,
-              top: `${dynTop}%`,
-              right: `${dynRight}%`,
-              bottom: `${100 - dynBottom}%`,
-            }}
-          >
-            {cellSrc ? (
-              /*
-               * Labels are sized by HEIGHT to fill the face area, with width
-               * computed from the rotated aspect ratio. This eliminates the
-               * vertical "gap" that appeared when labels were flex-1 (equal
-               * width) and constrained by max-width in a tall container.
-               *
-               * Layout: row, end-aligned (labels emerge from the right where
-               * the web exits the roll) with a small gap between them.
-               */
-              <div
-                className="flex h-full items-center justify-center"
-                style={{ gap: LABEL_GAP_PX }}
-              >
-                {Array.from({ length: LABEL_COUNT }, (_, i) => (
-                  /*
-                   * Each label: width = equal share of the row (85% of face),
-                   * height derived from aspect ratio (capped by face height).
-                   */
-                  <div
-                    key={i}
-                    className="relative shrink-0 overflow-hidden rounded-[2px]"
-                    style={{
-                      width: `calc((100% - ${(LABEL_COUNT - 1) * LABEL_GAP_PX}px) / ${LABEL_COUNT})`,
-                      aspectRatio: String(aspect),
-                      maxHeight: "100%",
-                    }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={cellSrc}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-fill"
-                      draggable={false}
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="flex h-full items-center justify-center text-[11px] text-slate-400">
-                Placing label…
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Unwind direction arrow */}
-        <svg
-          className="h-8 w-8 shrink-0 text-slate-700"
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-label="Unwind direction"
+        <div
+          className="pointer-events-none absolute overflow-hidden"
+          style={{
+            left: `${FACE_LEFT_PCT}%`,
+            top: `${FACE_TOP_PCT}%`,
+            right: `${FACE_RIGHT_PCT}%`,
+            bottom: `${100 - FACE_BOTTOM_PCT}%`,
+          }}
         >
-          <path
-            d="M5 12h14M12 5l7 7-7 7"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+          {cellSrc ? (
+            <div
+              className="flex h-full w-full flex-col items-center justify-end"
+              style={{ gap: LABEL_GAP_PX }}
+            >
+              {Array.from({ length: LABEL_COUNT }, (_, i) => (
+                <div
+                  key={i}
+                  className="relative w-full shrink-0 overflow-hidden rounded-[2px]"
+                  style={{
+                    aspectRatio: String(aspect),
+                    maxHeight: `calc((100% - ${(LABEL_COUNT - 1) * LABEL_GAP_PX}px) / ${LABEL_COUNT})`,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={cellSrc}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-fill"
+                    draggable={false}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="flex h-full items-center justify-center text-[11px] text-slate-400">
+              Placing label…
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

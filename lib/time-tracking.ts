@@ -70,6 +70,8 @@ export interface TimeEntry {
   job_number?: string | null;
   customer_name?: string | null;
   user_display_name?: string | null;
+  /** SKU row count on the job (same as the board card). */
+  sku_count?: number | null;
 }
 
 export interface TimeReportResponse {
@@ -80,6 +82,8 @@ export interface TimeReportResponse {
     job_count: number;
     /** Sum of SKU counts for those jobs (custom tasks count as 1). */
     sku_count: number;
+    /** Clock time at the desk this day (overlapping jobs count once per person). */
+    pc_seconds?: number;
   }[];
   per_job: {
     job_id: string | null;
@@ -88,11 +92,18 @@ export interface TimeReportResponse {
     /** `3021-1 | SKU qty: 200 | Customer | Line item` */
     job_label: string;
     seconds: number;
+    /** SKU row count on the job (same as the board card). Custom tasks count as 1. */
+    sku_count?: number;
     /** Designers who logged time on this job (deduped, sorted). */
     designers?: string[];
   }[];
   per_activity: { activity_type: string; seconds: number }[];
   per_user?: { user_id: string; display_name: string; seconds: number }[];
+  /**
+   * Wall-clock time at the desk: overlapping timers for the same person count once.
+   * Total hours (sum of daily_totals) still adds every job.
+   */
+  pc_seconds?: number;
 }
 
 /** HH:MM:SS elapsed display */

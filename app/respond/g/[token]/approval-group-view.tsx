@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { RespondForm } from "@/app/respond/[token]/respond-form";
+import { OrderReview } from "@/components/respond/order-review";
 import {
   PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
@@ -15,8 +16,11 @@ import type { SkuItem } from "@/lib/skus";
 import {
   imagesBySkuId,
   type RespondOrderAsset,
+  type RespondOrderRow,
   type RespondSkuImage,
+  type RespondFinalPdf,
 } from "@/lib/respond-order";
+import type { RespondLayerPreview } from "@/lib/approval-layer-preview-paths";
 import { cn } from "@/lib/utils";
 import { Printer } from "lucide-react";
 import {
@@ -27,6 +31,19 @@ import {
 } from "@/lib/sku-approval";
 import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 
+export type ApprovalGroupProof = {
+  token: string;
+  heading: string;
+  rows: RespondOrderRow[];
+  skus: SkuItem[];
+  assets: RespondOrderAsset[];
+  skuImages: Record<string, RespondSkuImage[]>;
+  orderId: string;
+  customerNote: string | null;
+  finalPdfs: Record<string, RespondFinalPdf>;
+  layerPreviews: Record<string, RespondLayerPreview>;
+};
+
 export type ApprovalGroupItemPayload = {
   summary: ApprovalGroupItemSummary;
   metaChips: OrderMetaChip[];
@@ -35,6 +52,7 @@ export type ApprovalGroupItemPayload = {
   approvalAssets?: RespondOrderAsset[];
   approvalSkuGallery?: Record<string, RespondSkuImage[]>;
   approvalPdfPageBySku?: Record<string, number>;
+  proof?: ApprovalGroupProof | null;
 };
 
 function shortStatusLabel(status: ApprovalItemStatus): string {
@@ -103,14 +121,11 @@ export function ApprovalGroupView({
   groupLabel,
   tenantName,
   items: initialItems,
-  reviews,
   initialItem = null,
 }: {
   groupLabel: string;
   tenantName: string;
   items: ApprovalGroupItemPayload[];
-  /** Server-rendered OrderReview nodes keyed by order id. */
-  reviews: Record<string, ReactNode>;
   /** Prefer selecting this order id or title from ?item=. */
   initialItem?: string | null;
 }) {
@@ -142,7 +157,21 @@ export function ApprovalGroupView({
   });
 
   const selected = items.find((i) => i.summary.orderId === selectedId) ?? null;
-  const selectedReview = selectedId ? reviews[selectedId] ?? null : null;
+  const selectedReview = selected?.proof ? (
+    <OrderReview
+      token={selected.proof.token}
+      heading={selected.proof.heading}
+      rows={selected.proof.rows}
+      skus={selected.proof.skus}
+      assets={selected.proof.assets}
+      skuImages={selected.proof.skuImages}
+      orderId={selected.proof.orderId}
+      customerNote={selected.proof.customerNote}
+      finalPdfs={selected.proof.finalPdfs}
+      layerPreviews={selected.proof.layerPreviews}
+      skipDrivePdf
+    />
+  ) : null;
 
   function syncItemQuery(orderId: string) {
     if (typeof window === "undefined") return;
@@ -313,7 +342,7 @@ function RespondedGroupItem({
   skus: SkuItem[];
   assets?: RespondOrderAsset[];
   skuGallery?: Record<string, RespondSkuImage[]>;
-  review: ReactNode;
+  review: React.ReactNode;
 }) {
   const parsed = parseSkuApprovalNote(customerNote);
   const displayLines = skuApprovalDisplayLines(parsed);

@@ -50,6 +50,13 @@ function productType(jobLabel: string): string {
   return parts[parts.length - 1] || jobLabel;
 }
 
+function skuCountFromJob(job: TimeReportResponse["per_job"][number]): number {
+  if (typeof job.sku_count === "number" && job.sku_count > 0) return job.sku_count;
+  const match = (job.job_label ?? "").match(/SKU qty:\s*(\d+)/i);
+  if (match) return Number(match[1]);
+  return 1;
+}
+
 // ─── Stat card ─────────────────────────────────────────────────────────────
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -321,20 +328,30 @@ function ProductInsights({ jobs }: { jobs: TimeReportResponse["per_job"] }) {
   if (jobs.length === 0) return null;
 
   // Group by product type (last segment of label), compute avg duration + collect designers
-  const typeMap = new Map<string, { count: number; totalSecs: number; designers: Set<string> }>();
+  const typeMap = new Map<
+    string,
+    { count: number; skuTotal: number; totalSecs: number; designers: Set<string> }
+  >();
   for (const j of jobs) {
     const t = productType(j.job_label ?? j.job_title);
-    const cur = typeMap.get(t) ?? { count: 0, totalSecs: 0, designers: new Set<string>() };
+    const cur = typeMap.get(t) ?? {
+      count: 0,
+      skuTotal: 0,
+      totalSecs: 0,
+      designers: new Set<string>(),
+    };
     cur.count += 1;
+    cur.skuTotal += skuCountFromJob(j);
     cur.totalSecs += j.seconds;
     for (const d of j.designers ?? []) cur.designers.add(d);
     typeMap.set(t, cur);
   }
 
   const types = [...typeMap.entries()]
-    .map(([label, { count, totalSecs, designers }]) => ({
+    .map(([label, { count, skuTotal, totalSecs, designers }]) => ({
       label,
       count,
+      skuTotal,
       avgSecs: totalSecs / count,
       totalSecs,
       designers: [...designers].sort((a, b) => a.localeCompare(b)),
@@ -379,7 +396,8 @@ function ProductInsights({ jobs }: { jobs: TimeReportResponse["per_job"] }) {
                       fast
                     </span>
                   )}
-                  {formatHours(t.avgSecs)} avg · {t.count} {t.count === 1 ? "job" : "jobs"}
+                  {formatHours(t.avgSecs)} avg · {t.count} {t.count === 1 ? "job" : "jobs"} ·{" "}
+                  {t.skuTotal} {t.skuTotal === 1 ? "SKU" : "SKUs"}
                   {t.designers.length > 0 && (
                     <span className="text-slate-400">· {t.designers.join(", ")}</span>
                   )}
@@ -438,6 +456,7 @@ export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
   useEffect(() => { void load(); }, [load]);
 
   const totalSeconds = report?.daily_totals.reduce((s, d) => s + d.seconds, 0) ?? 0;
+  const pcSeconds = report?.pc_seconds ?? 0;
   const totalJobs = report?.per_job.length ?? 0;
   const dayCount = report?.daily_totals.filter((d) => d.seconds > 0).length ?? 0;
   const avgJobsPerDay = dayCount > 0
@@ -445,6 +464,7 @@ export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
     : 0;
   const avgJobDuration = totalJobs > 0 ? totalSeconds / totalJobs : 0;
   const totalHrs = totalSeconds / 3600;
+  const pcHrs = pcSeconds / 3600;
 
   return (
     <div className="space-y-5">
@@ -502,19 +522,32 @@ export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
       ) : (
         <>
           {/* ── Summary stats ── */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="Total jobs" value={String(totalJobs)} />
+            <Stat label="PC time" value={pcHrs.toFixed(1)} sub="hrs" />
             <Stat label="Total hours" value={totalHrs.toFixed(1)} sub="hrs" />
             <Stat label="Avg job duration" value={formatHours(avgJobDuration)} />
             <Stat label="Jobs / active day" value={avgJobsPerDay.toFixed(1)} />
           </div>
+          <p className="-mt-2 text-[10px] text-slate-400">
+            PC time is clock time at the desk — two jobs running at once count as one. Total hours sums every job.
+          </p>
 
           {/* ── Charts side by side ── */}
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-3">
             <DayBars
               title="Hours per day"
               totalLabel={`Total ${totalHrs.toFixed(1)} hrs`}
               points={report.daily_totals}
+            />
+            <DayBars
+              title="PC time per day"
+              color="#0d9488"
+              totalLabel={`Total ${pcHrs.toFixed(1)} hrs`}
+              points={report.daily_totals.map((d) => ({
+                date: d.date,
+                seconds: d.pc_seconds ?? 0,
+              }))}
             />
             <DayBars
               title="Avg hours per SKU"

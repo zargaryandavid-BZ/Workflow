@@ -1,8 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   loadApprovalGroupItemSummaries,
-  ensureMissingGroupApprovalNotifications,
-  refreshOpenGroupApprovalExpiry,
   type ApprovalGroupItemSummary,
 } from "@/lib/approval-group";
 import {
@@ -19,14 +17,14 @@ import {
   fetchRespondOrderAssets,
   fetchRespondSkuImages,
 } from "@/lib/respond-order-server";
-import { OrderReview } from "@/components/respond/order-review";
 import { orderMetaChips } from "@/lib/respond-page";
 import type { OrderSpecs } from "@/lib/types";
 import {
   ApprovalGroupView,
   type ApprovalGroupItemPayload,
+  type ApprovalGroupProof,
 } from "./approval-group-view";
-import type { ReactNode } from "react";
+import { alignSkusToPdfPages } from "@/lib/shared-pdf-pages";
 
 async function loadOrderFields(
   admin: ReturnType<typeof createAdminClient>,
@@ -90,7 +88,6 @@ async function buildItem(
   fields: Record<string, unknown>
 ): Promise<{
   payload: ApprovalGroupItemPayload;
-  review: ReactNode | null;
 }> {
   const specs = (member.specs ?? {}) as OrderSpecs;
   const rawProduct = fields["Product"] ?? fields["product"];
@@ -121,8 +118,49 @@ async function buildItem(
     }
   }
 
-  const approvalSkus = skusForRespond(specs);
+  const ticketSkus = skusForRespond(specs);
+  let approvalSkus = ticketSkus;
+  let finalPdfs: Record<string, import("@/lib/respond-order").RespondFinalPdf> =
+    {};
+  let layerPreviews: Record<
+    string,
+    import("@/lib/approval-layer-preview-paths").RespondLayerPreview
+  > = {};
+  if (summary.notificationToken) {
+    try {
+      const {
+        loadRespondPreviewIndex,
+        expandRespondPreviewIndex,
+        respondProofFromIndex,
+      } = await import("@/lib/approval-layer-previews");
+      const index = await loadRespondPreviewIndex(member.id);
+      if (index) {
+        const expanded = expandRespondPreviewIndex(index, ticketSkus);
+        approvalSkus = alignSkusToPdfPages(ticketSkus, expanded.pages.length);
+        const proof = respondProofFromIndex(expanded);
+        finalPdfs = proof.finalPdfs;
+        layerPreviews = proof.layerPreviews;
+      }
+    } catch (err) {
+      console.error("[approval-group] proof load failed:", err);
+    }
+  }
   const skuIds = new Set(approvalSkus.map((s) => s.id));
+  const proof: ApprovalGroupProof | null =
+    summary.notificationToken != null
+      ? {
+          token: summary.notificationToken,
+          heading: summary.itemLabel,
+          rows: buildRespondOrderRows(member.description, fields, specs),
+          skus: approvalSkus,
+          assets,
+          skuImages,
+          orderId: member.id,
+          customerNote: respondCustomerNote(member.description, specs),
+          finalPdfs,
+          layerPreviews,
+        }
+      : null;
   const payload: ApprovalGroupItemPayload = {
     summary,
     metaChips: orderMetaChips(fields, specs),
@@ -133,23 +171,10 @@ async function buildItem(
     ),
     approvalSkuGallery: skuImages,
     approvalPdfPageBySku: {},
+    proof,
   };
 
-  const review =
-    summary.notificationToken != null ? (
-      <OrderReview
-        token={summary.notificationToken}
-        heading={summary.itemLabel}
-        rows={buildRespondOrderRows(member.description, fields, specs)}
-        skus={approvalSkus}
-        assets={assets}
-        skuImages={skuImages}
-        orderId={member.id}
-        customerNote={respondCustomerNote(member.description, specs)}
-      />
-    ) : null;
-
-  return { payload, review };
+  return { payload };
 }
 
 export default async function ApprovalGroupPage({
@@ -237,23 +262,6 @@ export default async function ApprovalGroupPage({
   }
 
   const members = await listOrderGroupMembers(admin, portal.tenant_id, seed);
-  const columnIds = [
-    ...new Set(
-      members.map((m) => m.column_id).filter((id): id is string => Boolean(id))
-    ),
-  ];
-  const kindById = new Map<string, string>();
-  if (columnIds.length > 0) {
-    const { data: cols } = await admin
-      .from("board_columns")
-      .select("id, kind")
-      .in("id", columnIds);
-    for (const col of cols ?? []) {
-      kindById.set(col.id as string, col.kind as string);
-    }
-  }
-  await ensureMissingGroupApprovalNotifications(admin, members, kindById);
-  await refreshOpenGroupApprovalExpiry(admin, members);
 
   const fieldByOrderId = new Map<string, Record<string, unknown>>();
   await Promise.all(
@@ -269,7 +277,6 @@ export default async function ApprovalGroupPage({
   );
 
   const payloads: ApprovalGroupItemPayload[] = [];
-  const reviews: Record<string, ReactNode> = {};
 
   const built = await Promise.all(
     summaries.map((summary) => {
@@ -283,10 +290,7 @@ export default async function ApprovalGroupPage({
     })
   );
   for (let i = 0; i < summaries.length; i++) {
-    const summary = summaries[i]!;
-    const { payload, review } = built[i]!;
-    payloads.push(payload);
-    if (review) reviews[summary.orderId] = review;
+    payloads.push(built[i]!.payload);
   }
 
   const groupLabel = formatReadyToShipGroupLabel(members);
@@ -296,7 +300,6 @@ export default async function ApprovalGroupPage({
       groupLabel={groupLabel}
       tenantName={portal.tenant_name}
       items={payloads}
-      reviews={reviews}
       initialItem={initialItem}
     />
   );

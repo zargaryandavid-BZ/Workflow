@@ -4,6 +4,7 @@ import {
   productFromOrder,
 } from "@/lib/notification-messages";
 import {
+  APPROVAL_SEND_TIMEOUT_MS,
   NOTIFICATION_SEND_TIMEOUT_MS,
   postJsonWithTimeout,
 } from "@/lib/fetch-with-timeout";
@@ -132,7 +133,9 @@ export async function runColumnNotify(params: {
     const { ok, data } = await postJsonWithTimeout<{ error?: string }>(
       "/api/notifications/send",
       body,
-      NOTIFICATION_SEND_TIMEOUT_MS
+      params.notifyColumn.notify_type === "customer_approval"
+        ? APPROVAL_SEND_TIMEOUT_MS
+        : NOTIFICATION_SEND_TIMEOUT_MS
     );
     if (!ok) {
       return {

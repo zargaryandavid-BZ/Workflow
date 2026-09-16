@@ -4,7 +4,7 @@ import { notificationBlocksCustomerAssets } from "@/lib/notification-asset-acces
 import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import { skusForRespond } from "@/lib/respond-order";
 
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 /**
  * Public (token) Drive file map for /respond. Kept off the HTML request so
@@ -65,8 +65,26 @@ export async function GET(request: Request) {
     skusForRespond(specs)
   );
 
+  let layerPreviews: Record<string, unknown> = {};
+  try {
+    const { loadApprovalLayerPreviewsForOrder } = await import(
+      "@/lib/approval-layer-previews"
+    );
+    layerPreviews = await loadApprovalLayerPreviewsForOrder(
+      {
+        id: order.id as string,
+        title: String(order.title ?? ""),
+        tenant_id: order.tenant_id as string,
+        specs,
+      },
+      { generateIfMissing: false }
+    );
+  } catch (err) {
+    console.error("[approval-layer-previews] load failed:", err);
+  }
+
   return NextResponse.json(
-    { skus: pack.skus, bySku: pack.bySku },
-    { headers: { "Cache-Control": "private, max-age=60" } }
+    { skus: pack.skus, bySku: pack.bySku, layerPreviews },
+    { headers: { "Cache-Control": "private, max-age=30" } }
   );
 }

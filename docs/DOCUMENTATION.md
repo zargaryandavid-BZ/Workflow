@@ -1072,6 +1072,8 @@ Create notification, send email/SMS, return customer link.
 | **Response** | `{ ok: true, channel, token, actionUrl }` |
 | **Errors** | 400 send failure; 404 order |
 
+Customer approval also rasterizes the Final PDF into per-layer preview images (stored under `approval-layer-previews/` in `order-assets`) and writes `approval-layer-previews/orders/{orderId}/latest.json`. `/respond` loads that index from storage so the customer page does not wait on Google Drive.
+
 ### `POST /api/notifications/save`
 
 Save draft notification without sending (staff note only).
@@ -1150,9 +1152,11 @@ Staff manually marks customer approval as approved (moves card).
 
 | | |
 | --- | --- |
-| **Auth** | Query `?token=...&assetId=...` |
+| **Auth** | Query `?token=...&id=...` (`type` optional: `asset`, `sku_image`, `final_pdf`, `layer_preview`) |
 | **Response** | File stream / redirect |
 | **Errors** | 403 / 404 |
+
+`type=layer_preview` also needs `order`, `rev`, `page`, `layer` (`composite`, `base`, or an OCG id). These are small JPEG/PNGs built when staff request approval.
 
 ---
 
@@ -1632,7 +1636,7 @@ Public server page for `/respond/[token]`. Loads notification via `get_notificat
 
 ### `OrderReview` — `components/respond/order-review.tsx`
 
-Read-only order summary for customers: meta chips, SKU table, artwork. A multilayer PDF is always shown when present (Final production first, then the Designer folder if Final has no PDF). **PDF page N is SKU N** (names are ignored). The photo **Artwork** gallery and the static “Layers & line colors” key are hidden when that PDF exists. Each SKU shows that page (layers/OCG still apply). Asset URLs still go through `/api/notifications/asset`. Shared helper: `sharedPdfPagesForSkus` / `finalPdfOcgView` (`lib/shared-pdf-pages.ts`), also used by the board **Artwork** popup (`FinalArtworkModal`).
+Read-only order summary for customers: meta chips, SKU table, artwork. A multilayer PDF is always shown when present (Final production first, then the Designer folder if Final has no PDF). **PDF page N is SKU N** (names are ignored). When staff send a customer approval, Workflow rasterizes that PDF into small per-layer PNGs (plus a composite JPEG) in the `order-assets` bucket, including print files up to ~800 MB. `/respond` loads those images and **SEE LAYERS** toggles the stack — the browser does not download the print PDF. If previews are missing, `/api/notifications/final-artwork` generates them. The photo **Artwork** gallery and the static “Layers & line colors” key are hidden when that PDF exists. Asset URLs still go through `/api/notifications/asset` (`type=layer_preview`). Shared helper: `sharedPdfPagesForSkus` / `finalPdfOcgView` (`lib/shared-pdf-pages.ts`), also used by the board **Artwork** popup (`FinalArtworkModal`).
 
 ---
 
@@ -1812,7 +1816,7 @@ Staff (including designers) can **Send / Resend** from the Missing Info tab (`co
 
 - `RespondForm` shows Approve / Not Approved buttons. The SKU 1 intro reads: print proof is ready; approve or not approve each SKU; toggle layers with **SEE LAYERS**.
 - Customer may leave a note on rejection.
-- Per-SKU Final-for-Prod PDF preview opens whenever a PDF exists in Drive (no customer checkbox). Photo gallery is hidden while the PDF is shown; approval slots follow PDF pages only. The preview loads via `GET /api/notifications/asset?type=final_pdf` (files up to **200 MB**; larger ones ask the customer to open in Acrobat from Drive). Named layers are **checkboxes** (more than one can be on; `ALL` checks or unchecks every layer). The **SEE LAYERS** label (soft pulse) has a layers icon. Generic `Layer 1` / `Layer N` chips are hidden. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. One PDF with several pages on a card with several SKUs maps **SKU 1 → page 1**, **SKU 2 → page 2**, and records **one Approve / Not approved per SKU** (not Image 1 and Image 2 on every SKU). A single-SKU multi-page PDF still shows **Side N of M**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` refreshes open tokens on load so artwork URLs stay valid.
+- Per-SKU Final-for-Prod PDF preview opens whenever a PDF exists in Drive (no customer checkbox). Photo gallery is hidden while the PDF is shown; approval slots follow PDF pages only. Proof **images** come from send-time JPEG/PNG in storage (`latest.json`); the page does not pull the print PDF from Drive. Named layers are **checkboxes** (more than one can be on; `ALL` checks or unchecks every layer). The **SEE LAYERS** label (soft pulse) has a layers icon. Generic `Layer 1` / `Layer N` chips are hidden. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. One PDF with several pages on a card with several SKUs maps **SKU 1 → page 1**, **SKU 2 → page 2**, and records **one Approve / Not approved per SKU** (not Image 1 and Image 2 on every SKU). A single-SKU multi-page PDF still shows **Side N of M**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` does not block the first paint on expiry refresh.
 
 ### 4a. Approved → card moves per Automations settings
 

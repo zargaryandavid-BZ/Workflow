@@ -12,6 +12,7 @@ import {
   addDays,
   type TimeReportResponse,
 } from "@/lib/time-tracking";
+import { pcWorkedSeconds, pcWorkedSecondsByLocalDay } from "@/lib/pc-worked-time";
 
 type OrderJoin = {
   title: string;
@@ -121,7 +122,14 @@ export async function GET(request: Request) {
   const dailyJobs = new Map<string, Map<string, number>>();
   const jobMap = new Map<
     string,
-    { job_id: string | null; job_title: string; job_label: string; seconds: number; userIds: Set<string> }
+    {
+      job_id: string | null;
+      job_title: string;
+      job_label: string;
+      seconds: number;
+      sku_count: number;
+      userIds: Set<string>;
+    }
   >();
   const activityMap = new Map<string, number>();
   const userMap = new Map<string, number>();
@@ -153,6 +161,7 @@ export async function GET(request: Request) {
     const existing = jobMap.get(key);
     if (existing) {
       existing.seconds += secs;
+      existing.sku_count = skuCount;
       existing.userIds.add(row.user_id);
     } else {
       jobMap.set(key, {
@@ -160,10 +169,13 @@ export async function GET(request: Request) {
         job_title: title,
         job_label: label,
         seconds: secs,
+        sku_count: skuCount,
         userIds: new Set([row.user_id]),
       });
     }
   }
+
+  const dailyPc = pcWorkedSecondsByLocalDay(rows, nowMs);
 
   // Fill every day in range so the chart has continuous bars
   const daily_totals: TimeReportResponse["daily_totals"] = [];
@@ -184,6 +196,7 @@ export async function GET(request: Request) {
         seconds: dailyMap.get(key) ?? 0,
         job_count: jobs?.size ?? 0,
         sku_count,
+        pc_seconds: dailyPc.get(key) ?? 0,
       });
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -222,6 +235,7 @@ export async function GET(request: Request) {
     daily_totals,
     per_job,
     per_activity,
+    pc_seconds: pcWorkedSeconds(rows, nowMs),
   };
 
   if (isAdmin && filterUserId === null) {

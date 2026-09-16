@@ -1,5 +1,4 @@
 import { Printer } from "lucide-react";
-import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
 import { PORTAL_PRODUCT_NAME } from "@/lib/portal-branding";
 
 export default function RespondGroupLoading() {
@@ -13,7 +12,7 @@ export default function RespondGroupLoading() {
           <span className="text-sm font-semibold">{PORTAL_PRODUCT_NAME}</span>
         </div>
         <div className="p-6">
-          <PdfLoadingBar />
+          <p className="text-sm text-slate-500">Loading proof…</p>
         </div>
       </div>
     </div>

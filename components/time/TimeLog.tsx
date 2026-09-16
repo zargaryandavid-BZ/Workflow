@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Trash2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -67,6 +67,7 @@ export function TimeLog({
   const [durationSort, setDurationSort] = useState<"none" | "asc" | "desc">(
     "none"
   );
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -276,10 +277,18 @@ export function TimeLog({
             <label className="text-sm font-medium text-slate-700">
               Date
               <Input
+                ref={dateInputRef}
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="mt-1 w-[11.5rem] appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+                onClick={() => {
+                  try {
+                    dateInputRef.current?.showPicker?.();
+                  } catch {
+                    /* showPicker can throw if the input is not visible */
+                  }
+                }}
+                className="mt-1 w-[13rem] cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100"
               />
             </label>
             <Button
@@ -352,6 +361,7 @@ export function TimeLog({
                   <th className="px-3 py-2 font-semibold">End</th>
                   <th className="px-3 py-2 font-semibold">Duration</th>
                   <th className="px-3 py-2 font-semibold">Job / Task</th>
+                  <th className="px-3 py-2 text-right font-semibold">SKU QTY</th>
                   <th className="px-3 py-2 font-semibold">Customer</th>
                   {isAdmin ? (
                     <th className="px-3 py-2 font-semibold">Who</th>
@@ -364,7 +374,7 @@ export function TimeLog({
                 {visible.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={isAdmin ? 8 : 7}
+                      colSpan={isAdmin ? 9 : 8}
                       className="px-3 py-6 text-center text-slate-400"
                     >
                       No completed entries for this day
@@ -415,6 +425,11 @@ export function TimeLog({
                             </td>
                             <td className="px-3 py-2 font-medium text-slate-800">
                               {entrySubjectLabel(entry)}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums text-slate-500">
+                              {entry.sku_count != null && entry.sku_count > 0
+                                ? entry.sku_count
+                                : "—"}
                             </td>
                             <td className="px-3 py-2 text-slate-500">
                               {entry.customer_name ?? "—"}
@@ -486,6 +501,11 @@ export function TimeLog({
                             </td>
                             <td className="px-3 py-2 font-medium text-slate-800">
                               {entrySubjectLabel(entry)}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                              {entry.sku_count != null && entry.sku_count > 0
+                                ? entry.sku_count
+                                : "—"}
                             </td>
                             <td className="max-w-[10rem] truncate px-3 py-2 text-slate-500">
                               {entry.customer_name ?? "—"}

@@ -19,7 +19,7 @@ import {
 } from "@/lib/preferred-channel";
 import {
   isTimeoutError,
-  NOTIFICATION_SEND_TIMEOUT_MS,
+  APPROVAL_SEND_TIMEOUT_MS,
   postJsonWithTimeout,
 } from "@/lib/fetch-with-timeout";
 import { formatEmailList, mergeEmailLists, parseEmailList } from "@/lib/email-list";
@@ -210,7 +210,7 @@ export function ApprovalPopup({
               ? [...new Set([order.id, ...groupOrderIds])]
               : undefined,
         },
-        NOTIFICATION_SEND_TIMEOUT_MS
+        APPROVAL_SEND_TIMEOUT_MS
       );
       if (!ok) {
         setError(
@@ -493,7 +493,7 @@ export function ApprovalPopup({
           </Button>
           <Button onClick={saveAndSend} disabled={loading || dismissing}>
             {loading
-              ? "Saving…"
+              ? "Preparing web preview…"
               : isManual
                 ? "Save"
                 : "Send & notify"}

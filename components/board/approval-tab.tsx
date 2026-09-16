@@ -10,7 +10,7 @@ import { CustomerLinkRow } from "./customer-link-row";
 import { MoveBlockedModal } from "./move-blocked-modal";
 import {
   isTimeoutError,
-  NOTIFICATION_SEND_TIMEOUT_MS,
+  APPROVAL_SEND_TIMEOUT_MS,
   postJsonWithTimeout,
 } from "@/lib/fetch-with-timeout";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
@@ -160,7 +160,7 @@ function NotifyRow({
         toPhone: selected.includes("sms")
           ? phone.trim() || undefined
           : undefined,
-      }, NOTIFICATION_SEND_TIMEOUT_MS);
+      }, APPROVAL_SEND_TIMEOUT_MS);
       if (!ok) {
         setError(
           data.error ??
