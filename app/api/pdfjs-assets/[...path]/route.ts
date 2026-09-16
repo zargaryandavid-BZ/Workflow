@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { pdfjsDistRoot } from "@/lib/pdfjs-node-assets";
 
-const ROOT = path.resolve(process.cwd(), "node_modules/pdfjs-dist");
+const ROOT = path.resolve(pdfjsDistRoot());
 const ALLOWED = new Set(["cmaps", "standard_fonts", "wasm", "iccs"]);
 
 const MIME: Record<string, string> = {

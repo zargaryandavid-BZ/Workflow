@@ -1,21 +1,11 @@
 import "server-only";
 
-import { createRequire } from "node:module";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { PDFDocument } from "pdf-lib";
+import { pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 
 const MAX_EDGE = 1400;
 const JPEG_QUALITY = 68;
 const TARGET_DPI = 150;
-
-function pdfjsDir(subdir: string): string {
-  const require = createRequire(import.meta.url);
-  const root = join(require.resolve("pdfjs-dist/package.json"), "..");
-  const dir = join(root, subdir);
-  const href = pathToFileURL(dir).href;
-  return href.endsWith("/") ? href : `${href}/`;
-}
 
 function jpegFromCanvas(canvas: {
   encode?: (format: string, quality?: number) => Promise<Buffer>;
@@ -45,17 +35,7 @@ export async function rasterizePdfForJobTicket(
 
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = Uint8Array.from(input);
-  const loadingTask = getDocument({
-    data,
-    cMapUrl: pdfjsDir("cmaps"),
-    cMapPacked: true,
-    standardFontDataUrl: pdfjsDir("standard_fonts"),
-    wasmUrl: pdfjsDir("wasm"),
-    iccUrl: pdfjsDir("iccs"),
-    useSystemFonts: true,
-    isOffscreenCanvasSupported: false,
-    verbosity: 0,
-  });
+  const loadingTask = getDocument(pdfjsNodeGetDocumentOptions(data));
 
   const pdf = await loadingTask.promise;
   const canvasFactory = (

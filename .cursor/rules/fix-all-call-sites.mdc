@@ -1,0 +1,14 @@
+---
+description: When fixing a shared helper or dependency, update every call site.
+alwaysApply: true
+---
+
+# Fix every dependent call site
+
+When you change or fix a shared helper, path, or third-party option (pdf.js CMaps, `require.resolve`, asset URLs, etc.):
+
+1. Search the repo for **every** call site and sibling interface that uses the same pattern.
+2. Put the correct behavior in **one** helper and reuse it (browser vs Node if they truly differ).
+3. Do not ship a fix for one UI (e.g. `/respond`) while send/resend, job tickets, or API routes still use the broken lookup.
+
+A browser HTTP `cMapUrl` does not fix Node `fs.readFile` rasterize. Those are different interfaces of the same dependency.

@@ -105,13 +105,17 @@ async function resolveCustomerContact(
 
 async function prepareApprovalLayerPreviews(order: Order) {
   const started = Date.now();
-  const { generateApprovalLayerPreviewsForOrder } = await import(
-    "@/lib/approval-layer-previews"
-  );
-  const previews = await generateApprovalLayerPreviewsForOrder(order);
-  console.info(
-    `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
-  );
+  try {
+    const { generateApprovalLayerPreviewsForOrder } = await import(
+      "@/lib/approval-layer-previews"
+    );
+    const previews = await generateApprovalLayerPreviewsForOrder(order);
+    console.info(
+      `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
+    );
+  } catch (err) {
+    console.error("[approval-layer-previews] send continues without JPEGs:", err);
+  }
 }
 
 function productFromOrder(order: Order): string {

@@ -187,6 +187,7 @@ See the [Database](#database) section below for full schema.
 - Order terminology: DB table is `orders`; notification table is `job_notifications`.
 - Run `npm run typecheck` after substantive changes.
 - Do not invent tables or routes — verify in `supabase/migrations/` and `app/api/`.
+- When fixing a shared helper or dependency, update **every** call site (browser `/respond` vs Node send/resend rasterize vs job-ticket JPEG vs `/api/pdfjs-assets` / `/api/pdf-worker`). Node pdf.js CMaps/fonts go through `lib/pdfjs-node-assets.ts` (`process.cwd()`), never `require.resolve`.
 
 ---
 
@@ -1072,7 +1073,7 @@ Create notification, send email/SMS, return customer link.
 | **Response** | `{ ok: true, channel, token, actionUrl }` |
 | **Errors** | 400 send failure; 404 order |
 
-Customer approval also rasterizes the Final PDF into per-layer preview images (stored under `approval-layer-previews/` in `order-assets`) and writes `approval-layer-previews/orders/{orderId}/latest.json`. **Approval artwork is only the production Final PDF** (`lib/approval-proof-source.ts`): each page is one SKU; named print layers on that page are extra pictures with SEE LAYERS checkboxes. Ticket screenshots and gallery uploads are not used. If the send-time index is missing, `/respond` still maps SKU 1 → PDF page 1 from Drive.
+Customer approval also rasterizes the Final PDF into per-layer preview images (stored under `approval-layer-previews/` in `order-assets`) and writes `approval-layer-previews/orders/{orderId}/latest.json`. Node rasterize reads pdf.js CMaps/fonts from `node_modules/pdfjs-dist/` via `process.cwd()` (not `require.resolve`, which Turbopack can return as a numeric module id). **Approval artwork is only the production Final PDF** (`lib/approval-proof-source.ts`): each page is one SKU; named print layers on that page are extra pictures with SEE LAYERS checkboxes. Ticket screenshots and gallery uploads are not used. If the send-time index is missing, `/respond` still maps SKU 1 → PDF page 1 from Drive.
 
 ### `POST /api/notifications/save`
 
