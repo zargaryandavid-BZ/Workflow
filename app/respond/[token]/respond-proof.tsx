@@ -11,7 +11,6 @@ import type {
 } from "@/lib/respond-order";
 import type { RespondLayerPreview } from "@/lib/approval-layer-preview-paths";
 import type { OrderSpecs } from "@/lib/types";
-import { alignSkusToPdfPages } from "@/lib/shared-pdf-pages";
 
 export function RespondProofFallback() {
   return (
@@ -21,7 +20,7 @@ export function RespondProofFallback() {
   );
 }
 
-/** SKUs immediately; web-preview images from send-time storage (no Drive). */
+/** SKUs + proof pages from send-time storage, or Drive PDF page map if that is missing. */
 export async function RespondProof({
   token,
   orderId,
@@ -30,7 +29,8 @@ export async function RespondProof({
   specs,
   assets,
   skuImages,
-  skipDrivePdf: _skipDrivePdf = false,
+  pdfProofOnly = false,
+  proof,
 }: {
   token: string;
   orderId: string;
@@ -40,31 +40,42 @@ export async function RespondProof({
   assets: RespondOrderAsset[];
   skuImages: Record<string, RespondSkuImage[]>;
   skipDrivePdf?: boolean;
+  pdfProofOnly?: boolean;
+  proof?: {
+    skus: import("@/lib/skus").SkuItem[];
+    finalPdfs: Record<string, RespondFinalPdf>;
+    layerPreviews: Record<string, RespondLayerPreview>;
+  };
 }) {
   const specRecord = (specs ?? {}) as Record<string, unknown>;
   let reviewSkus = skusForRespond(specRecord);
   let finalPdfs: Record<string, RespondFinalPdf> = {};
   let layerPreviews: Record<string, RespondLayerPreview> = {};
 
-  if (orderId) {
+  if (proof) {
+    reviewSkus = proof.skus;
+    finalPdfs = proof.finalPdfs;
+    layerPreviews = proof.layerPreviews;
+  } else if (orderId) {
     try {
-      const {
-        loadRespondPreviewIndex,
-        expandRespondPreviewIndex,
-        respondProofFromIndex,
-      } = await import("@/lib/approval-layer-previews");
-      const index = await loadRespondPreviewIndex(orderId);
-      if (index) {
-        const expanded = expandRespondPreviewIndex(index, reviewSkus);
-        reviewSkus = alignSkusToPdfPages(reviewSkus, expanded.pages.length);
-        const proof = respondProofFromIndex(expanded);
-        finalPdfs = proof.finalPdfs;
-        layerPreviews = proof.layerPreviews;
-      }
+      const { loadRespondCustomerProofForOrderId } = await import(
+        "@/lib/approval-layer-previews"
+      );
+      const loaded = await loadRespondCustomerProofForOrderId(
+        orderId,
+        reviewSkus
+      );
+      reviewSkus = loaded.skus;
+      finalPdfs = loaded.finalPdfs;
+      layerPreviews = loaded.layerPreviews;
     } catch (err) {
-      console.error("[respond-proof] preview index failed:", err);
+      console.error("[respond-proof] proof load failed:", err);
     }
   }
+
+  const haveProofs =
+    Object.keys(layerPreviews).length > 0 ||
+    Object.keys(finalPdfs).length > 0;
 
   return (
     <OrderReview
@@ -77,7 +88,8 @@ export async function RespondProof({
       customerNote={respondCustomerNote(description, specRecord)}
       finalPdfs={finalPdfs}
       layerPreviews={layerPreviews}
-      skipDrivePdf
+      skipDrivePdf={haveProofs}
+      pdfProofOnly={pdfProofOnly}
     />
   );
 }

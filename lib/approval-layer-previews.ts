@@ -336,3 +336,63 @@ export async function loadApprovalLayerPreviewsForOrder(
     return {};
   }
 }
+
+/**
+ * Customer /respond proof: JPEG index when send already rasterized it,
+ * otherwise SKU → PDF page from Drive so a 10-page file still shows 10 SKUs.
+ */
+export async function loadRespondCustomerProof(
+  order: Pick<Order, "id" | "title" | "tenant_id" | "specs">,
+  ticketSkus: { id: string; name: string; qty: number | null }[]
+): Promise<{
+  skus: { id: string; name: string; qty: number | null }[];
+  finalPdfs: Record<string, RespondFinalPdf>;
+  layerPreviews: Record<string, RespondLayerPreview>;
+}> {
+  const stored = await loadRespondPreviewIndex(order.id);
+  if (stored) {
+    const expanded = expandRespondPreviewIndex(stored, ticketSkus);
+    const proof = respondProofFromIndex(expanded);
+    return {
+      skus: alignSkusToPdfPages(ticketSkus, expanded.pages.length),
+      finalPdfs: proof.finalPdfs,
+      layerPreviews: proof.layerPreviews,
+    };
+  }
+
+  // Do not list Drive during the HTML request — that closed the Next.js
+  // stream ("Connection closed"). The client loads `/api/notifications/final-artwork`.
+  return {
+    skus: ticketSkus,
+    finalPdfs: {},
+    layerPreviews: {},
+  };
+}
+
+export async function loadRespondCustomerProofForOrderId(
+  orderId: string,
+  ticketSkus: { id: string; name: string; qty: number | null }[]
+): Promise<{
+  skus: { id: string; name: string; qty: number | null }[];
+  finalPdfs: Record<string, RespondFinalPdf>;
+  layerPreviews: Record<string, RespondLayerPreview>;
+}> {
+  const admin = createAdminClient();
+  const { data: order } = await admin
+    .from("orders")
+    .select("id, title, tenant_id, specs")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order?.tenant_id) {
+    return { skus: ticketSkus, finalPdfs: {}, layerPreviews: {} };
+  }
+  return loadRespondCustomerProof(
+    {
+      id: order.id as string,
+      title: String(order.title ?? ""),
+      tenant_id: order.tenant_id as string,
+      specs: (order.specs ?? {}) as Order["specs"],
+    },
+    ticketSkus
+  );
+}

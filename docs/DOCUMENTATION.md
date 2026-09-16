@@ -1072,7 +1072,7 @@ Create notification, send email/SMS, return customer link.
 | **Response** | `{ ok: true, channel, token, actionUrl }` |
 | **Errors** | 400 send failure; 404 order |
 
-Customer approval also rasterizes the Final PDF into per-layer preview images (stored under `approval-layer-previews/` in `order-assets`) and writes `approval-layer-previews/orders/{orderId}/latest.json`. `/respond` loads that index from storage so the customer page does not wait on Google Drive.
+Customer approval also rasterizes the Final PDF into per-layer preview images (stored under `approval-layer-previews/` in `order-assets`) and writes `approval-layer-previews/orders/{orderId}/latest.json`. **Approval artwork is only the production Final PDF** (`lib/approval-proof-source.ts`): each page is one SKU; named print layers on that page are extra pictures with SEE LAYERS checkboxes. Ticket screenshots and gallery uploads are not used. If the send-time index is missing, `/respond` still maps SKU 1 → PDF page 1 from Drive.
 
 ### `POST /api/notifications/save`
 
@@ -1816,7 +1816,7 @@ Staff (including designers) can **Send / Resend** from the Missing Info tab (`co
 
 - `RespondForm` shows Approve / Not Approved buttons. The SKU 1 intro reads: print proof is ready; approve or not approve each SKU; toggle layers with **SEE LAYERS**.
 - Customer may leave a note on rejection.
-- Per-SKU Final-for-Prod PDF preview opens whenever a PDF exists in Drive (no customer checkbox). Photo gallery is hidden while the PDF is shown; approval slots follow PDF pages only. Proof **images** come from send-time JPEG/PNG in storage (`latest.json`); the page does not pull the print PDF from Drive. Named layers are **checkboxes** (more than one can be on; `ALL` checks or unchecks every layer). The **SEE LAYERS** label (soft pulse) has a layers icon. Generic `Layer 1` / `Layer N` chips are hidden. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. One PDF with several pages on a card with several SKUs maps **SKU 1 → page 1**, **SKU 2 → page 2**, and records **one Approve / Not approved per SKU** (not Image 1 and Image 2 on every SKU). A single-SKU multi-page PDF still shows **Side N of M**. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response. Multi-item `/respond/g/{token}` does not block the first paint on expiry refresh.
+- Per-SKU proof is **only** the production Final PDF (not ticket screenshots). Each PDF page is one SKU. If that page has several named print layers, each layer is its own picture; **SEE LAYERS** checkboxes show or hide those pictures. Photo gallery and other uploads are hidden on approval. Approve / Not approved is per SKU (one PDF page), not per upload. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response.
 
 ### 4a. Approved → card moves per Automations settings
 

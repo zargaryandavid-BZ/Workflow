@@ -11,20 +11,15 @@ import {
   buildRespondOrderRows,
   respondCustomerNote,
   skusForRespond,
-  type RespondOrderAsset,
 } from "@/lib/respond-order";
-import {
-  fetchRespondOrderAssets,
-  fetchRespondSkuImages,
-} from "@/lib/respond-order-server";
 import { orderMetaChips } from "@/lib/respond-page";
+import { approvalPdfPageBySku as pagesFromPdfs } from "@/lib/approval-proof-source";
 import type { OrderSpecs } from "@/lib/types";
 import {
   ApprovalGroupView,
   type ApprovalGroupItemPayload,
   type ApprovalGroupProof,
 } from "./approval-group-view";
-import { alignSkusToPdfPages } from "@/lib/shared-pdf-pages";
 
 async function loadOrderFields(
   admin: ReturnType<typeof createAdminClient>,
@@ -47,36 +42,8 @@ async function loadOrderFields(
   return fields;
 }
 
-async function loadFrozenApprovalAssets(
-  admin: ReturnType<typeof createAdminClient>,
-  notificationId: string | null
-): Promise<RespondOrderAsset[] | null> {
-  if (!notificationId) return null;
-  const { data } = await admin
-    .from("job_notifications")
-    .select("approval_files")
-    .eq("id", notificationId)
-    .maybeSingle();
-  const files = (data as { approval_files?: unknown } | null)?.approval_files;
-  if (!Array.isArray(files) || files.length === 0) return null;
-  return files.map((f, i) => {
-    const file = f as {
-      file_name?: string;
-      mime_type?: string | null;
-      sku_key?: string | null;
-    };
-    return {
-      id: `snap:${i}`,
-      file_name: file.file_name ?? `File ${i + 1}`,
-      mime_type: file.mime_type ?? null,
-      sku_key: file.sku_key ?? null,
-      size: null,
-    };
-  });
-}
-
 async function buildItem(
-  admin: ReturnType<typeof createAdminClient>,
+  _admin: ReturnType<typeof createAdminClient>,
   summary: ApprovalGroupItemSummary,
   member: {
     id: string;
@@ -93,31 +60,6 @@ async function buildItem(
   const rawProduct = fields["Product"] ?? fields["product"];
   const product = rawProduct ? String(rawProduct) : "order";
 
-  let assets: RespondOrderAsset[] = [];
-  let skuImages: Record<
-    string,
-    Awaited<ReturnType<typeof fetchRespondSkuImages>>[string]
-  > = {};
-
-  const frozen = await loadFrozenApprovalAssets(admin, summary.notificationId);
-  if (frozen) {
-    assets = frozen;
-    try {
-      skuImages = await fetchRespondSkuImages(member.id);
-    } catch {
-      // non-critical
-    }
-  } else {
-    try {
-      [assets, skuImages] = await Promise.all([
-        fetchRespondOrderAssets(member.id),
-        fetchRespondSkuImages(member.id),
-      ]);
-    } catch {
-      // non-critical
-    }
-  }
-
   const ticketSkus = skusForRespond(specs);
   let approvalSkus = ticketSkus;
   let finalPdfs: Record<string, import("@/lib/respond-order").RespondFinalPdf> =
@@ -128,24 +70,25 @@ async function buildItem(
   > = {};
   if (summary.notificationToken) {
     try {
-      const {
-        loadRespondPreviewIndex,
-        expandRespondPreviewIndex,
-        respondProofFromIndex,
-      } = await import("@/lib/approval-layer-previews");
-      const index = await loadRespondPreviewIndex(member.id);
-      if (index) {
-        const expanded = expandRespondPreviewIndex(index, ticketSkus);
-        approvalSkus = alignSkusToPdfPages(ticketSkus, expanded.pages.length);
-        const proof = respondProofFromIndex(expanded);
-        finalPdfs = proof.finalPdfs;
-        layerPreviews = proof.layerPreviews;
-      }
+      const { loadRespondCustomerProof } = await import(
+        "@/lib/approval-layer-previews"
+      );
+      const proofPack = await loadRespondCustomerProof(
+        {
+          id: member.id,
+          title: member.title,
+          tenant_id: member.tenant_id,
+          specs,
+        },
+        ticketSkus
+      );
+      approvalSkus = proofPack.skus;
+      finalPdfs = proofPack.finalPdfs;
+      layerPreviews = proofPack.layerPreviews;
     } catch (err) {
       console.error("[approval-group] proof load failed:", err);
     }
   }
-  const skuIds = new Set(approvalSkus.map((s) => s.id));
   const proof: ApprovalGroupProof | null =
     summary.notificationToken != null
       ? {
@@ -153,8 +96,8 @@ async function buildItem(
           heading: summary.itemLabel,
           rows: buildRespondOrderRows(member.description, fields, specs),
           skus: approvalSkus,
-          assets,
-          skuImages,
+          assets: [],
+          skuImages: {},
           orderId: member.id,
           customerNote: respondCustomerNote(member.description, specs),
           finalPdfs,
@@ -166,11 +109,9 @@ async function buildItem(
     metaChips: orderMetaChips(fields, specs),
     productLabel: product,
     approvalSkus,
-    approvalAssets: assets.filter(
-      (a) => a.sku_key != null && skuIds.has(a.sku_key)
-    ),
-    approvalSkuGallery: skuImages,
-    approvalPdfPageBySku: {},
+    approvalAssets: [],
+    approvalSkuGallery: {},
+    approvalPdfPageBySku: pagesFromPdfs(finalPdfs),
     proof,
   };
 

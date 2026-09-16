@@ -169,7 +169,11 @@ export function ApprovalGroupView({
       customerNote={selected.proof.customerNote}
       finalPdfs={selected.proof.finalPdfs}
       layerPreviews={selected.proof.layerPreviews}
-      skipDrivePdf
+      skipDrivePdf={
+        Object.keys(selected.proof.layerPreviews).length > 0 ||
+        Object.keys(selected.proof.finalPdfs).length > 0
+      }
+      pdfProofOnly
     />
   ) : null;
 

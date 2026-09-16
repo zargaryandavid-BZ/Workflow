@@ -374,26 +374,50 @@ export default async function RespondPage({
     const skus = skusForRespond(notification.order_specs ?? {});
     let assets: RespondOrderAsset[] = [];
     let skuImages: Record<string, RespondSkuImage[]> = {};
-    // Customer approval: serve the frozen snapshot captured when THIS round was
-    // sent, so the customer always sees exactly what went out — even if the
-    // designer later changed the live file. Falls back to live files if this
-    // round has no snapshot (older rounds / missing_info).
-    const frozen = await loadFrozenApprovalAssets(notification);
-    if (frozen) {
-      assets = frozen;
+    let approvalProof:
+      | {
+          skus: typeof skus;
+          finalPdfs: Record<string, RespondFinalPdf>;
+          layerPreviews: Record<
+            string,
+            import("@/lib/approval-layer-preview-paths").RespondLayerPreview
+          >;
+        }
+      | undefined;
+    if (notification.type === "customer_approval") {
       try {
-        skuImages = await fetchRespondSkuImages(notification.order_id);
-      } catch {
-        // non-critical
+        const { loadRespondCustomerProofForOrderId } = await import(
+          "@/lib/approval-layer-previews"
+        );
+        const { approvalPdfPageBySku: pagesFromPdfs } = await import(
+          "@/lib/approval-proof-source"
+        );
+        approvalProof = await loadRespondCustomerProofForOrderId(
+          notification.order_id,
+          skus
+        );
+        approvalPdfPageBySku = pagesFromPdfs(approvalProof.finalPdfs);
+      } catch (err) {
+        console.error("[respond] production PDF proof failed:", err);
       }
     } else {
-      try {
-        [assets, skuImages] = await Promise.all([
-          fetchRespondOrderAssets(notification.order_id),
-          fetchRespondSkuImages(notification.order_id),
-        ]);
-      } catch {
-        // non-critical; proceed without assets
+      const frozen = await loadFrozenApprovalAssets(notification);
+      if (frozen) {
+        assets = frozen;
+        try {
+          skuImages = await fetchRespondSkuImages(notification.order_id);
+        } catch {
+          // non-critical
+        }
+      } else {
+        try {
+          [assets, skuImages] = await Promise.all([
+            fetchRespondOrderAssets(notification.order_id),
+            fetchRespondSkuImages(notification.order_id),
+          ]);
+        } catch {
+          // non-critical; proceed without assets
+        }
       }
     }
     orderReview = (
@@ -407,12 +431,14 @@ export default async function RespondPage({
           assets={assets}
           skuImages={skuImages}
           skipDrivePdf={notification.type !== "customer_approval"}
+          pdfProofOnly={notification.type === "customer_approval"}
+          proof={approvalProof}
         />
       </Suspense>
     );
     reviewAssets = assets;
     reviewSkuImages = skuImages;
-    approvalSkus = skus;
+    approvalSkus = approvalProof?.skus ?? skus;
   }
 
   if (expired && !alreadyDone) {

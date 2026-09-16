@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2, X } from "lucide-react";
+import { Layers, Maximize2, X } from "lucide-react";
 import { isUnnamedPdfLayer } from "@/lib/pdf-ocg";
 import {
   respondLayerPreviewUrl,
@@ -41,26 +41,49 @@ export function ProofLayerImages({
     () => preview.layers.filter((layer) => !isUnnamedPdfLayer(layer.name)),
     [preview.layers]
   );
-  const pics = useMemo<LayerPic[]>(() => {
-    const layers = namedLayers.map((layer) => ({
-      id: layer.id,
-      name: layer.name,
-      layer: layer.id,
-    }));
-    if (layers.length === 0) {
-      return [{ id: "composite", name: "Proof", layer: "composite" }];
-    }
-    return [
-      { id: "composite", name: "All layers", layer: "composite" },
-      ...layers,
-    ];
-  }, [namedLayers]);
+  const [visibleIds, setVisibleIds] = useState<Set<string>>(
+    () => new Set(namedLayers.map((layer) => layer.id))
+  );
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [onRoll, setOnRoll] = useState(false);
 
   useEffect(() => {
+    setVisibleIds(new Set(namedLayers.map((layer) => layer.id)));
+  }, [preview.fileId, preview.page, preview.rev]);
+
+  useEffect(() => {
     onReady?.();
   }, [preview.fileId, preview.page, preview.rev]);
+
+  const pics = useMemo<LayerPic[]>(() => {
+    if (namedLayers.length === 0) {
+      return [{ id: "composite", name: "Proof", layer: "composite" }];
+    }
+    return namedLayers
+      .filter((layer) => visibleIds.has(layer.id))
+      .map((layer) => ({
+        id: layer.id,
+        name: layer.name,
+        layer: layer.id,
+      }));
+  }, [namedLayers, visibleIds]);
+
+  const allOn =
+    namedLayers.length > 0 &&
+    namedLayers.every((layer) => visibleIds.has(layer.id));
+
+  function setAllLayers(on: boolean) {
+    setVisibleIds(on ? new Set(namedLayers.map((layer) => layer.id)) : new Set());
+  }
+
+  function toggleLayer(id: string) {
+    setVisibleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const compositeSrc = respondLayerPreviewUrl(
     token,
@@ -113,6 +136,53 @@ export function ProofLayerImages({
         )}
       </div>
 
+      {namedLayers.length > 0 && !(onRoll && rollDirection) ? (
+        <div className="flex flex-col gap-2 border-b border-slate-100 px-3 py-2">
+          <p className="flex items-start gap-1.5 text-xs text-slate-600">
+            <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
+            <span>
+              This SKU is one PDF page. Each print layer is its own picture.
+            </span>
+          </p>
+          <div
+            className="flex flex-wrap items-center gap-x-3 gap-y-2"
+            role="group"
+            aria-label="Print layers"
+          >
+            <span className="animate-see-layers inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide">
+              SEE LAYERS
+              <Layers className="h-3.5 w-3.5" aria-hidden />
+            </span>
+            <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={allOn}
+                onChange={(e) => setAllLayers(e.target.checked)}
+                className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>ALL</span>
+            </label>
+            {namedLayers.map((layer) => {
+              const on = visibleIds.has(layer.id);
+              return (
+                <label
+                  key={layer.id}
+                  className="inline-flex max-w-[12rem] cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggleLayer(layer.id)}
+                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="truncate">{layer.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {onRoll && rollDirection ? (
         <OnRollPreview
           artworkSrc={compositeSrc}
@@ -120,6 +190,10 @@ export function ProofLayerImages({
           labelWidthIn={labelWidthIn}
           labelHeightIn={labelHeightIn}
         />
+      ) : pics.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-slate-500">
+          Turn on a layer to preview this SKU.
+        </p>
       ) : (
         <ul
           className={

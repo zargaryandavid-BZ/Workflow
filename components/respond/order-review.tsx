@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Check, Download, FileText, X } from "lucide-react";
 import {
   collectSkuApprovalImages,
   isRespondImageAsset,
   respondAssetUrl,
+  respondFinalPdfUrl,
   respondSkuImageUrl,
   type RespondOrderAsset,
   type RespondOrderRow,
@@ -33,6 +35,15 @@ import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
 
+const PdfOcgFromUrl = dynamic(
+  () =>
+    import("@/components/pdf/pdf-ocg-from-url").then((m) => m.PdfOcgFromUrl),
+  {
+    ssr: false,
+    loading: () => <PdfLoadingBar />,
+  }
+);
+
 interface OrderReviewProps {
   token: string;
   rows: RespondOrderRow[];
@@ -51,6 +62,8 @@ interface OrderReviewProps {
   customerNote?: string | null;
   /** Skip Google Drive PDF lookup (missing-info pages have no proof). */
   skipDrivePdf?: boolean;
+  /** Customer approval: production Final PDF only — never ticket screenshots. */
+  pdfProofOnly?: boolean;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -291,6 +304,7 @@ function SkuArtworkBlock({
   labelWidthIn,
   labelHeightIn,
   layerPreview = null,
+  pdfProofOnly = false,
 }: {
   token: string;
   orderId?: string;
@@ -303,14 +317,16 @@ function SkuArtworkBlock({
   labelWidthIn?: number | null;
   labelHeightIn?: number | null;
   layerPreview?: RespondLayerPreview | null;
+  pdfProofOnly?: boolean;
 }) {
   const canShowPdf = Boolean(orderId && (finalPdf || layerPreview));
   const pdfOn = canShowPdf;
   const [photoOnRoll, setPhotoOnRoll] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
+  const showUploads = !pdfProofOnly && skuArt.length > 0 && !pdfOn;
 
-  if (skuArt.length === 0 && !canShowPdf && !pdfPending) return null;
+  if (!canShowPdf && !pdfPending && !showUploads) return null;
 
   return (
     <div className="mt-2">
@@ -327,12 +343,18 @@ function SkuArtworkBlock({
           onReady={() => skuUi.setPdfPageCount?.(skuId, 1)}
         />
       ) : pdfOn && finalPdf && orderId && !pdfPending && !layerPreview ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Proof images are not ready yet. Refresh this page in a moment, or ask
-          us to send the approval again.
-        </p>
+        <PdfOcgFromUrl
+          src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
+          fileName={finalPdf.fileName}
+          page={finalPdf.page}
+          layout="single"
+          rollDirection={rollDirection}
+          labelWidthIn={labelWidthIn}
+          labelHeightIn={labelHeightIn}
+          onPageCount={() => skuUi.setPdfPageCount?.(skuId, 1)}
+        />
       ) : null}
-      {skuArt.length > 0 && !pdfOn ? (
+      {showUploads ? (
         <>
           <p className="mb-2 mt-3 text-[10px] font-medium uppercase tracking-wide text-slate-400">
             Artwork
@@ -496,9 +518,12 @@ export function OrderReview({
   layerPreviews: layerPreviewsProp = {},
   customerNote,
   skipDrivePdf = false,
+  pdfProofOnly = false,
 }: OrderReviewProps) {
   const skuUi = useSkuDecision();
-  const orderAssets: RespondOrderAsset[] = assets.filter((a) => !a.sku_key);
+  const orderAssets: RespondOrderAsset[] = pdfProofOnly
+    ? []
+    : assets.filter((a) => !a.sku_key);
   const rollDirection = rollDirectionFromRespondRows(rows);
 
   // Extract label dimensions from order rows for the roll preview sizing.
@@ -515,23 +540,23 @@ export function OrderReview({
   >(layerPreviewsProp);
   const [pdfPending, setPdfPending] = useState(
     () =>
-      !skipDrivePdf &&
       Object.keys(finalPdfs).length === 0 &&
       Object.keys(layerPreviewsProp).length === 0 &&
       Boolean(orderId)
   );
 
   useEffect(() => {
-    if (skipDrivePdf || !orderId) {
+    if (!orderId) {
+      setPdfPending(false);
+      return;
+    }
+    if (Object.keys(finalPdfs).length > 0) {
       setDrivePdfs(finalPdfs);
       setLayerBySku(layerPreviewsProp);
       setPdfPending(false);
       return;
     }
-    if (
-      Object.keys(finalPdfs).length > 0 &&
-      Object.keys(layerPreviewsProp).length > 0
-    ) {
+    if (skipDrivePdf && Object.keys(layerPreviewsProp).length > 0) {
       setDrivePdfs(finalPdfs);
       setLayerBySku(layerPreviewsProp);
       setPdfPending(false);
@@ -612,7 +637,9 @@ export function OrderReview({
           </p>
           <ul className="space-y-3">
             {reviewSkus.map((sku, index) => {
-              const skuArt = collectSkuApprovalImages(sku.id, assets, skuImages);
+              const skuArt = pdfProofOnly
+                ? []
+                : collectSkuApprovalImages(sku.id, assets, skuImages);
               const multiImage = skuArt.length >= 2;
               const pdfPages = skuUi.pdfPageCountBySku?.[sku.id] ?? 0;
               const perImage =
@@ -642,9 +669,9 @@ export function OrderReview({
                   {index === 0 && skuUi.mode === "choose" ? (
                     <p className="mb-3 text-sm leading-relaxed text-slate-600">
                       Your print proof is ready. Please Approve or Not
-                      Approved each SKU. Each PDF page is one SKU. If a SKU
-                      has several print layers, each layer is shown as its
-                      own picture.
+                      Approved each SKU. Each PDF page is one SKU. If a
+                      page has several print layers, each layer is its own
+                      picture — use the SEE LAYERS checkboxes.
                     </p>
                   ) : null}
                   <div className="flex items-start justify-between gap-3">
@@ -673,6 +700,7 @@ export function OrderReview({
                     labelWidthIn={labelWidthIn}
                     labelHeightIn={labelHeightIn}
                     layerPreview={layerBySku[sku.id] ?? null}
+                    pdfProofOnly={pdfProofOnly}
                   />
                 </li>
               );
