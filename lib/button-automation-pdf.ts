@@ -34,9 +34,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-const require = createRequire(import.meta.url);
-const PDFDocument = require("pdfkit") as typeof import("pdfkit");
-
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
 const MARGIN = 40;
