@@ -213,7 +213,7 @@ export async function POST(
 
   const safeName = exportData.orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_");
 
-  return new NextResponse(pdfBuffer, {
+  return new NextResponse(new Uint8Array(pdfBuffer), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="packing-slip-${safeName}-${part}of${totalParts}.pdf"`,

@@ -217,9 +217,7 @@ export async function GET(request: Request) {
       const { resolveWebPreviewPdf } = await import("@/lib/gdrive-pdf-preview");
       const preview = await resolveWebPreviewPdf(client, id);
       if (preview) {
-        // Pass the Buffer directly — avoids a redundant Uint8Array copy since
-        // Node Buffer already extends Uint8Array.
-        return new NextResponse(preview.buffer, {
+        return new NextResponse(new Uint8Array(preview.buffer), {
           headers: {
             "Content-Type": "application/pdf",
             "Content-Length": String(preview.buffer.byteLength),

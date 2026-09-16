@@ -33,7 +33,7 @@ export async function GET(
   try {
     const buf = await readFile(filePath);
     const ext = path.extname(filePath).toLowerCase();
-    return new NextResponse(buf, {
+    return new NextResponse(new Uint8Array(buf), {
       headers: {
         "Content-Type": MIME[ext] ?? "application/octet-stream",
         "Cache-Control": "public, max-age=86400",
