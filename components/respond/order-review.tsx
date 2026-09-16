@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { Check, Download, FileText, X } from "lucide-react";
 import {
@@ -292,24 +292,6 @@ function SkuDecisionControls({ skuId }: { skuId: string }) {
   );
 }
 
-function useNearViewport() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) setVisible(true);
-      },
-      { rootMargin: "240px" }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-  return { ref, visible };
-}
-
 function SkuArtworkBlock({
   token,
   orderId,
@@ -343,12 +325,11 @@ function SkuArtworkBlock({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const skuUi = useSkuDecision();
   const showUploads = !pdfProofOnly && skuArt.length > 0 && !pdfOn;
-  const { ref: nearRef, visible } = useNearViewport();
 
   if (!canShowPdf && !pdfPending && !showUploads) return null;
 
   return (
-    <div ref={nearRef} className="mt-2">
+    <div className="mt-2">
       {pdfPending && !layerPreview ? <PdfLoadingBar /> : null}
       {pdfOn && orderId && layerPreview ? (
         <ProofLayerImages
@@ -362,20 +343,16 @@ function SkuArtworkBlock({
           onReady={() => skuUi.setPdfPageCount?.(skuId, 1)}
         />
       ) : pdfOn && finalPdf && orderId && !pdfPending && !layerPreview ? (
-        visible ? (
-          <PdfOcgFromUrl
-            src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
-            fileName={finalPdf.fileName}
-            page={finalPdf.page}
-            layout="single"
-            rollDirection={rollDirection}
-            labelWidthIn={labelWidthIn}
-            labelHeightIn={labelHeightIn}
-            onPageCount={() => skuUi.setPdfPageCount?.(skuId, 1)}
-          />
-        ) : (
-          <div className="min-h-[16rem] rounded-md border border-slate-200 bg-slate-50" />
-        )
+        <PdfOcgFromUrl
+          src={respondFinalPdfUrl(token, orderId, finalPdf.fileId)}
+          fileName={finalPdf.fileName}
+          page={finalPdf.page}
+          layout="single"
+          rollDirection={rollDirection}
+          labelWidthIn={labelWidthIn}
+          labelHeightIn={labelHeightIn}
+          onPageCount={() => skuUi.setPdfPageCount?.(skuId, 1)}
+        />
       ) : null}
       {showUploads ? (
         <>

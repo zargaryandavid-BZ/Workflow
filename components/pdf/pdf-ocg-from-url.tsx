@@ -97,6 +97,7 @@ const sharedDocs = new Map<
 
 let pdfDrawLock: Promise<void> = Promise.resolve();
 
+/** One draw at a time (shared pdf.js doc). Never nest this around drawPages(). */
 function enqueuePdfDraw<T>(fn: () => Promise<T>): Promise<T> {
   const run = pdfDrawLock.then(fn, fn);
   pdfDrawLock = run.then(
@@ -297,6 +298,8 @@ export function PdfOcgFromUrl({
         : "mx-auto max-w-full rounded bg-white shadow-sm";
       parent.appendChild(canvas);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, viewport.width, viewport.height);
       const task = page.render({
         canvas,
         canvasContext: ctx,
@@ -481,7 +484,12 @@ export function PdfOcgFromUrl({
         setVisibleIds(new Set(found.map((layer) => layer.id)));
         for (const layer of found) oc.setVisibility(layer.id, true, false);
         if (!cancelled) setLoading(false);
-        await enqueuePdfDraw(() => drawPages());
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+        // drawPages already queues on pdfDrawLock — do not wrap it again
+        // (that deadlocks and leaves a blank page after loading).
+        if (!cancelled) await drawPages();
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Could not open this PDF.");
