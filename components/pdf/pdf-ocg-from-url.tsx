@@ -7,7 +7,7 @@ import { Info, Layers, Maximize2, X } from "lucide-react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
-import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-map-polyfill";
+import { PDFJS_WORKER_SRC, pdfjsDocumentOptions } from "@/lib/pdfjs-map-polyfill";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
   isUnnamedPdfLayer,
@@ -405,7 +405,7 @@ export function PdfOcgFromUrl({
         );
         if (cancelled) return;
         const loadingTask = getDocument({
-          data,
+          ...pdfjsDocumentOptions(data),
           disableAutoFetch: true,
           disableStream: true,
         });

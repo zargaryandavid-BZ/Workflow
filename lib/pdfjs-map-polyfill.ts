@@ -58,3 +58,20 @@ if (typeof globalThis !== "undefined") {
 
 /** Bump when the worker file/polyfill changes so phones drop a cached worker. */
 export const PDFJS_WORKER_SRC = "/api/pdf-worker?v=map-polyfill-2";
+
+/** Same-origin cmap/font files so pdf.js does not call Node path.join with a font id. */
+export const PDFJS_CMAP_URL = "/api/pdfjs-assets/cmaps/";
+export const PDFJS_STANDARD_FONT_DATA_URL = "/api/pdfjs-assets/standard_fonts/";
+export const PDFJS_WASM_URL = "/api/pdfjs-assets/wasm/";
+export const PDFJS_ICC_URL = "/api/pdfjs-assets/iccs/";
+
+export function pdfjsDocumentOptions(data: Uint8Array | ArrayBuffer) {
+  return {
+    data,
+    cMapUrl: PDFJS_CMAP_URL,
+    cMapPacked: true,
+    standardFontDataUrl: PDFJS_STANDARD_FONT_DATA_URL,
+    wasmUrl: PDFJS_WASM_URL,
+    iccUrl: PDFJS_ICC_URL,
+  };
+}

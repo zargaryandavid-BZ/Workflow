@@ -9,7 +9,7 @@ import type {
   RenderTask,
 } from "pdfjs-dist";
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
-import { PDFJS_WORKER_SRC } from "@/lib/pdfjs-map-polyfill";
+import { PDFJS_WORKER_SRC, pdfjsDocumentOptions } from "@/lib/pdfjs-map-polyfill";
 import {
   layersFromOptionalContent,
   mergePdfLayers,
@@ -169,7 +169,7 @@ export function PdfLayerViewer() {
 
     try {
       const data = await file.arrayBuffer();
-      const pdf = await getDocument({ data }).promise;
+      const pdf = await getDocument(pdfjsDocumentOptions(data)).promise;
       pdfRef.current = pdf;
       setFileName(file.name);
       setPageCount(pdf.numPages);
