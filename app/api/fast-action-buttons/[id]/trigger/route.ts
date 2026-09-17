@@ -20,7 +20,8 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as {
     order_id?: string;
   };
-  if (!body.order_id) {
+  const orderId = body.order_id?.trim();
+  if (!orderId) {
     return NextResponse.json({ error: "order_id is required" }, { status: 400 });
   }
 
@@ -42,12 +43,13 @@ export async function POST(
       { status: 404 }
     );
   }
+  const destColumnId = button.destination_column_id as string;
 
   // Verify the order exists and belongs to this tenant.
   const { data: order } = await supabase
     .from("orders")
     .select("id, column_id, removed_at")
-    .eq("id", body.order_id)
+    .eq("id", orderId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
 
@@ -62,17 +64,17 @@ export async function POST(
   }
 
   // No-op if already in the destination column.
-  if (order.column_id === button.destination_column_id) {
+  if (order.column_id === destColumnId) {
     return NextResponse.json({ ok: true, alreadyThere: true });
   }
 
   const { error: moveError } = await supabase
     .from("orders")
     .update({
-      column_id: button.destination_column_id,
+      column_id: destColumnId,
       last_moved_at: new Date().toISOString(),
     })
-    .eq("id", body.order_id)
+    .eq("id", orderId)
     .eq("tenant_id", tenantId);
 
   if (moveError) {
@@ -82,12 +84,12 @@ export async function POST(
   const { data: destCol } = await supabase
     .from("board_columns")
     .select("kind, name")
-    .eq("id", button.destination_column_id)
+    .eq("id", destColumnId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
   await maybeStopWorkTimersOnColumnEnter({
     tenantId,
-    orderId: body.order_id,
+    orderId,
     column: {
       kind: (destCol as { kind?: string } | null)?.kind,
       name: (destCol as { name?: string } | null)?.name,
@@ -99,7 +101,7 @@ export async function POST(
       const { data: previewOrder } = await supabase
         .from("orders")
         .select("id, title, tenant_id, specs")
-        .eq("id", body.order_id)
+        .eq("id", orderId)
         .eq("tenant_id", tenantId)
         .maybeSingle();
       if (previewOrder) {
@@ -119,11 +121,7 @@ export async function POST(
     }
     if (button.notification_rule_id) {
       try {
-        await fireNotificationRules(
-          body.order_id,
-          button.destination_column_id,
-          tenantId
-        );
+        await fireNotificationRules(orderId, destColumnId, tenantId);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         console.error("[FastActionBtn] notification error:", message);
@@ -137,13 +135,13 @@ export async function POST(
       const { data: fullOrder } = await supabase
         .from("orders")
         .select("id, title, webhook_source, specs")
-        .eq("id", body.order_id)
+        .eq("id", orderId)
         .eq("tenant_id", tenantId)
         .maybeSingle();
       const { data: col } = await supabase
         .from("board_columns")
         .select("name")
-        .eq("id", button.destination_column_id)
+        .eq("id", destColumnId)
         .eq("tenant_id", tenantId)
         .maybeSingle();
       if (!fullOrder || !col?.name) return;
