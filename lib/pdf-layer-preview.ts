@@ -5,9 +5,9 @@ import { installPdfJsMapPolyfills } from "@/lib/pdfjs-map-polyfill";
 import { initPdfjsNode, pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
 
-const MAX_EDGE = 800;
-const JPEG_QUALITY = 58;
-const TARGET_DPI = 72;
+const MAX_EDGE = 1400;   // medium-quality: fits a 1400-px wide proof image
+const JPEG_QUALITY = 78; // medium quality — good for screen review
+const TARGET_DPI = 110;  // matches a typical PDF viewer at 100 %
 
 type NodeCanvas = {
   encode?: (format: string, quality?: number) => Promise<Buffer>;

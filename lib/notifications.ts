@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isCustomerEmailConfigured,
@@ -105,14 +106,38 @@ async function resolveCustomerContact(
 
 async function prepareApprovalLayerPreviews(order: Order) {
   const started = Date.now();
-  const { generateApprovalLayerPreviewsForOrder } = await import(
-    "@/lib/approval-layer-previews"
-  );
+  const { loadRespondPreviewIndex, generateApprovalLayerPreviewsForOrder } =
+    await import("@/lib/approval-layer-previews");
+
+  // Skip rasterization if images are already stored for this order.
+  const existing = await loadRespondPreviewIndex(order.id);
+  if (existing?.bySku && Object.keys(existing.bySku).length > 0) {
+    console.info(
+      `[approval-layer-previews] ${order.title} already converted — skipping reconversion`
+    );
+    return;
+  }
+
   const previews = await generateApprovalLayerPreviewsForOrder(order);
   console.info(
     `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
   );
-  return previews;
+}
+
+/**
+ * Schedule PDF → image conversion to run AFTER the HTTP response is sent.
+ * If images are already in Supabase, the check inside prepareApprovalLayerPreviews
+ * will skip reconversion immediately. Falls back to a plain promise if after()
+ * is unavailable (e.g. outside a request context).
+ */
+function scheduleLayerPreviews(order: Order) {
+  try {
+    after(() => prepareApprovalLayerPreviews(order));
+  } catch {
+    prepareApprovalLayerPreviews(order).catch((err) =>
+      console.error("[approval-layer-previews] background gen failed:", err)
+    );
+  }
 }
 
 function productFromOrder(order: Order): string {
@@ -546,7 +571,7 @@ export async function saveNotificationRequest(
 
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
   if (params.type === "customer_approval") {
-    await prepareApprovalLayerPreviews(params.order);
+    scheduleLayerPreviews(params.order);
   }
 
   const { data: notification, error } = await client
@@ -647,7 +672,7 @@ export async function dispatchNotification(
   }
 ) {
   if (params.notification.type === "customer_approval") {
-    await prepareApprovalLayerPreviews(params.order);
+    scheduleLayerPreviews(params.order);
   }
   const delivery = await deliverNotification(client, params);
   if (!delivery.sent) {
@@ -710,7 +735,7 @@ export async function createNotification(
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
 
   if (params.type === "customer_approval") {
-    await prepareApprovalLayerPreviews(params.order);
+    scheduleLayerPreviews(params.order);
   }
 
   const { data: notification, error } = await client
@@ -779,7 +804,7 @@ export async function createNotification(
         .eq("id", orderId)
         .maybeSingle();
       if (extraOrder) {
-        await prepareApprovalLayerPreviews(extraOrder as Order);
+        scheduleLayerPreviews(extraOrder as Order);
       }
       const { data: extra, error: extraErr } = await client
         .from("job_notifications")
