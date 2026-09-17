@@ -22,6 +22,10 @@ import {
   skuApprovalDisplayLines,
 } from "@/lib/sku-approval";
 import type { ApprovalNote, BoardColumn, Customer } from "@/lib/types";
+import {
+  latestSentToForNotification,
+  type ActivityLogEntry,
+} from "@/lib/activity";
 
 interface ApprovalTabProps {
   notes: ApprovalNote[];
@@ -31,6 +35,7 @@ interface ApprovalTabProps {
   columns: BoardColumn[];
   contactEmail?: string | null;
   contactPhone?: string | null;
+  activity?: ActivityLogEntry[];
   onChanged: (patch?: { column_id?: string }) => void;
 }
 
@@ -54,10 +59,13 @@ function sentToLabel(
   note: ApprovalNote,
   customer: Customer | null,
   contactEmail?: string | null,
-  contactPhone?: string | null
+  contactPhone?: string | null,
+  activity?: ActivityLogEntry[]
 ) {
-  const email = contactEmail ?? customer?.email ?? null;
-  const phone = contactPhone ?? customer?.phone ?? null;
+  const logged = latestSentToForNotification(activity ?? [], note.id);
+  if (logged?.line) return logged.line;
+  const email = logged?.email ?? contactEmail ?? customer?.email ?? null;
+  const phone = logged?.phone ?? contactPhone ?? customer?.phone ?? null;
   if (note.channel === "both") {
     return [email, phone].filter(Boolean).join(" · ") || "Email + SMS";
   }
@@ -363,6 +371,7 @@ export function ApprovalTab({
   columns,
   contactEmail,
   contactPhone,
+  activity = [],
   onChanged,
 }: ApprovalTabProps) {
   const [manualLoading, setManualLoading] = useState(false);
@@ -671,7 +680,8 @@ export function ApprovalTab({
                         note,
                         customer,
                         contactEmail,
-                        contactPhone
+                        contactPhone,
+                        activity
                       )}
                     </p>
                   ) : null}

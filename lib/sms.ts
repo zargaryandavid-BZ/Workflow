@@ -11,7 +11,12 @@ interface SmsArgs {
   body: string;
 }
 
-export type SmsSendResult = { sent: boolean; error?: string; sid?: string };
+export type SmsSendResult = {
+  sent: boolean;
+  error?: string;
+  sid?: string;
+  to?: string;
+};
 
 export function isSmsConfigured(): boolean {
   return Boolean(
@@ -71,6 +76,7 @@ export async function sendSms(args: SmsArgs): Promise<SmsSendResult> {
     return {
       sent: false,
       error: "SMS not configured. Please add Twilio credentials.",
+      to,
     };
   }
 
@@ -108,7 +114,7 @@ export async function sendSms(args: SmsArgs): Promise<SmsSendResult> {
       /* ignore */
     }
 
-    return { sent: true, sid: messageSid };
+    return { sent: true, sid: messageSid, to };
   } catch (err) {
     const message = err instanceof Error ? err.message : "SMS failed to send.";
     console.error("[twilio] send error", message);

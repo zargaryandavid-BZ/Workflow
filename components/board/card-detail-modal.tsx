@@ -2387,6 +2387,7 @@ export function CardDetailModal({
               missingFields={missingFieldsOnOrder}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
+              activity={data.activity}
               onSent={() => {
                 load();
                 onChanged();
@@ -2416,6 +2417,7 @@ export function CardDetailModal({
               columns={columns}
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
+              activity={data.activity}
               onChanged={(patch) => {
                 if (patch?.column_id) {
                   setData((prev) =>

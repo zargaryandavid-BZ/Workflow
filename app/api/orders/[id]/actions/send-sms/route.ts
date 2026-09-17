@@ -96,6 +96,7 @@ export async function POST(
       { status: 502 }
     );
   }
+  const sentTo = result.to ?? phone;
 
   // Multi-part orders: if every sibling is in this column, tag all of them.
   // Otherwise only tag the card the SMS was sent from.
@@ -126,7 +127,7 @@ export async function POST(
       tenantId: ctx.tenant.id,
       orderId: target.id,
       direction: "outbound",
-      phone,
+      phone: sentTo,
       body: messageBody,
       twilioSid: target.id === orderId ? (result.sid ?? null) : null,
       actorUserId: ctx.userId,
@@ -148,7 +149,7 @@ export async function POST(
     metadata: {
       buttonId: button.id,
       buttonName: button.name,
-      phone,
+      phone: sentTo,
       channel: "sms",
       messageBody,
       twilioSid: result.sid ?? null,

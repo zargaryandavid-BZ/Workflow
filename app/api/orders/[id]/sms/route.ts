@@ -117,11 +117,12 @@ export async function POST(
     );
   }
 
+  const sentTo = result.to ?? phone;
   const message = await insertOrderSmsMessage(supabase, {
     tenantId: ctx.tenant.id,
     orderId,
     direction: "outbound",
-    phone,
+    phone: sentTo,
     body: messageBody,
     twilioSid: result.sid ?? null,
     actorUserId: ctx.userId,
@@ -141,7 +142,7 @@ export async function POST(
     actor: ctx.userId,
     action: "texted",
     metadata: {
-      phone,
+      phone: sentTo,
       messageBody,
       source: "manual_sms",
       twilioSid: result.sid ?? null,

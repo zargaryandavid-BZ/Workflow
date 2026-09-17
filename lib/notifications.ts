@@ -417,13 +417,13 @@ async function deliverNotification(
       const smsResult = await sendSms({ to: customerPhone, body });
       if (smsResult.sent) {
         sentParts.push("sms");
-        sentToPhone = customerPhone;
+        sentToPhone = smsResult.to ?? customerPhone;
         sentSmsBody = body;
         await insertOrderSmsMessage(client, {
           tenantId: params.order.tenant_id,
           orderId: params.order.id,
           direction: "outbound",
-          phone: customerPhone,
+          phone: sentToPhone,
           body,
           twilioSid: smsResult.sid ?? null,
           actorUserId: null,

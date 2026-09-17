@@ -19,6 +19,10 @@ import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
 import type { Asset, BoardColumn, Customer, MissingInfoNote } from "@/lib/types";
+import {
+  latestSentToForNotification,
+  type ActivityLogEntry,
+} from "@/lib/activity";
 
 interface MissingInfoTabProps {
   notes: MissingInfoNote[];
@@ -30,6 +34,7 @@ interface MissingInfoTabProps {
   missingFields?: MissingField[];
   contactEmail?: string | null;
   contactPhone?: string | null;
+  activity?: ActivityLogEntry[];
   onSent: () => void;
   /** When the card is moved to In Progress from this tab. */
   onMoved?: (toColumnId: string) => void;
@@ -55,10 +60,13 @@ function sentToLabel(
   note: MissingInfoNote,
   customer: Customer | null,
   contactEmail?: string | null,
-  contactPhone?: string | null
+  contactPhone?: string | null,
+  activity?: ActivityLogEntry[]
 ) {
-  const email = contactEmail ?? customer?.email ?? null;
-  const phone = contactPhone ?? customer?.phone ?? null;
+  const logged = latestSentToForNotification(activity ?? [], note.id);
+  if (logged?.line) return logged.line;
+  const email = logged?.email ?? contactEmail ?? customer?.email ?? null;
+  const phone = logged?.phone ?? contactPhone ?? customer?.phone ?? null;
   if (note.channel === "both") {
     return [email, phone].filter(Boolean).join(" · ") || "Email + SMS";
   }
@@ -422,12 +430,14 @@ function HistoryEntry({
   isLatest,
   contactEmail,
   contactPhone,
+  activity,
 }: {
   note: MissingInfoNote;
   customer: Customer | null;
   isLatest: boolean;
   contactEmail?: string | null;
   contactPhone?: string | null;
+  activity?: ActivityLogEntry[];
 }) {
   const isInternalNote = note.channel === "none";
   const status = statusSummary(note);
@@ -484,7 +494,7 @@ function HistoryEntry({
         <p className="text-sm text-slate-600">
           <span className="font-medium text-slate-700">Sent: </span>
           via {channelLabel(note.channel)} to{" "}
-          {sentToLabel(note, customer, contactEmail, contactPhone)}
+          {sentToLabel(note, customer, contactEmail, contactPhone, activity)}
         </p>
       ) : null}
 
@@ -533,6 +543,7 @@ export function MissingInfoTab({
   missingFields = [],
   contactEmail,
   contactPhone,
+  activity = [],
   onSent,
   onMoved,
 }: MissingInfoTabProps) {
@@ -633,6 +644,7 @@ export function MissingInfoTab({
               isLatest={note.id === latest.id}
               contactEmail={contactEmail}
               contactPhone={contactPhone}
+              activity={activity}
             />
           ))}
         </div>

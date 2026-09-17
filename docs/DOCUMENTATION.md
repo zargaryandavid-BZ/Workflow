@@ -1575,7 +1575,7 @@ Staff UI inside order detail for missing-info notification history: resend, copy
 
 ### `ApprovalTab` — `components/board/approval-tab.tsx`
 
-Staff UI for customer approval notifications: status, send/resend Email or SMS (always, including after Manual), manual approve, rejection notes.
+Staff UI for customer approval notifications: status, send/resend Email or SMS (always, including after Manual), manual approve, rejection notes. **To:** on a sent request is the number/email from that send (activity log), not the current customer record.
 
 | Prop | Type | Description |
 | --- | --- | --- |

@@ -13,9 +13,12 @@ export interface SentMessageEntry {
   channel: "email" | "sms" | "both" | "unknown";
   title: string;
   to: string | null;
+  email: string | null;
+  phone: string | null;
   subject: string | null;
   messageBody: string | null;
   action: string;
+  notificationId: string | null;
 }
 
 const CUSTOMER_ACTIONS = new Set([
@@ -41,6 +44,59 @@ function metaString(
 ): string | null {
   const value = meta[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function recipientList(meta: Record<string, unknown>): string[] {
+  return Array.isArray(meta.recipients)
+    ? (meta.recipients as unknown[]).filter(
+        (r): r is string => typeof r === "string" && r.trim().length > 0
+      )
+    : [];
+}
+
+function formatSentToLine(opts: {
+  channel: SentMessageEntry["channel"];
+  email: string | null;
+  phone: string | null;
+}): string | null {
+  const email = opts.email?.trim() || null;
+  const phone = opts.phone?.trim() || null;
+  if (opts.channel === "sms") return phone;
+  if (opts.channel === "email") return email;
+  const parts = [email, phone].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Latest logged send destination for a job_notifications row. */
+export function latestSentToForNotification(
+  activity: ActivityLogEntry[],
+  notificationId: string
+): { email: string | null; phone: string | null; line: string | null } | null {
+  for (let i = activity.length - 1; i >= 0; i--) {
+    const log = activity[i];
+    if (!isSentMessageActivity(log)) continue;
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
+    if (metaString(meta, "notificationId") !== notificationId) continue;
+    const email = recipientList(meta)[0] ?? metaString(meta, "email");
+    const phone = metaString(meta, "phone");
+    const channelRaw = metaString(meta, "channel");
+    const channel: SentMessageEntry["channel"] =
+      channelRaw === "email" || channelRaw === "sms" || channelRaw === "both"
+        ? channelRaw
+        : phone && email
+          ? "both"
+          : phone
+            ? "sms"
+            : email
+              ? "email"
+              : "unknown";
+    return {
+      email,
+      phone,
+      line: formatSentToLine({ channel, email, phone }),
+    };
+  }
+  return null;
 }
 
 export function isColumnMoveActivity(
@@ -197,12 +253,8 @@ export function sentMessagesFromActivity(
       title = buttonName ?? "Shipping link";
     }
 
-    const to =
-      recipients.length > 0
-        ? recipients.join(", ")
-        : phone
-          ? phone
-          : null;
+    const email = recipients[0] ?? metaString(meta, "email");
+    const to = formatSentToLine({ channel, email, phone });
 
     return {
       id: log.id,
@@ -211,9 +263,12 @@ export function sentMessagesFromActivity(
       channel,
       title,
       to,
+      email,
+      phone,
       subject,
       messageBody,
       action: log.action,
+      notificationId: metaString(meta, "notificationId"),
     };
   });
 }

@@ -252,6 +252,10 @@ function respondPath(value: string): string | null {
   return match ? match[0].toLowerCase() : null;
 }
 
+function samePhone(a: string, b: string): boolean {
+  return a.replace(/\D/g, "") === b.replace(/\D/g, "");
+}
+
 function sameOutboundSend(
   sms: OrderSmsMessage,
   activityMsg: SentMessageEntry,
@@ -263,6 +267,14 @@ function sameOutboundSend(
       new Date(activityMsg.created_at).getTime()
   );
   if (delta > SAME_SEND_MS) return false;
+
+  if (
+    sms.phone &&
+    activityMsg.phone &&
+    !samePhone(sms.phone, activityMsg.phone)
+  ) {
+    return false;
+  }
 
   const smsBody = normalizeMessageBody(sms.body);
   const bodies = [activityMsg.messageBody, reconstructedBody]
@@ -314,10 +326,10 @@ function SmsComposer({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (contactPhone?.trim() && !phone.trim()) {
+    if (contactPhone?.trim()) {
       setPhone(contactPhone.trim());
     }
-  }, [contactPhone, phone]);
+  }, [contactPhone]);
 
   async function handleSend() {
     setError(null);
@@ -472,7 +484,7 @@ function CommunicationRow({
 }
 
 export function HistoryTab(props: HistoryTabProps) {
-  const { activity, contactEmail, contactPhone, orderId } = props;
+  const { activity, contactPhone, orderId } = props;
   const [smsMessages, setSmsMessages] = useState<OrderSmsMessage[]>([]);
   const [smsConfigured, setSmsConfigured] = useState(true);
   const [smsLoading, setSmsLoading] = useState(true);
@@ -536,17 +548,11 @@ export function HistoryTab(props: HistoryTabProps) {
         continue;
       }
       coveredSmsIds.add(sms.id);
-      const baseTo =
-        next.to ??
-        (next.channel === "sms"
-          ? contactPhone
-          : next.channel === "email"
-            ? contactEmail
-            : [contactEmail, contactPhone].filter(Boolean).join(" · ") ||
-              null);
+      const baseTo = next.to;
       next = {
         ...next,
         to: mergeRecipient(baseTo, sms.phone),
+        phone: next.phone ?? sms.phone,
         channel: next.channel === "email" ? "both" : next.channel,
       };
     }
@@ -623,15 +629,7 @@ export function HistoryTab(props: HistoryTabProps) {
 
                 const msg = item.msg;
                 const content = reconstructMessage(msg, activity, props);
-                const to =
-                  msg.to ??
-                  (msg.channel === "sms"
-                    ? contactPhone
-                    : msg.channel === "email"
-                      ? contactEmail
-                      : [contactEmail, contactPhone]
-                          .filter(Boolean)
-                          .join(" · ") || null);
+                const to = msg.to;
 
                 return (
                   <CommunicationRow
