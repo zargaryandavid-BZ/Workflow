@@ -991,8 +991,8 @@ Whether Drive folders for this order have files.
 | | |
 | --- | --- |
 | **Auth** | Session + tenant |
-| **Response** | `{ hasFiles, hasDesignerFiles, hasPdf, designerUrl, finalUrl }` |
-| **Notes** | `hasFiles` / `hasPdf` = **Final production**. `hasDesignerFiles` = files in the Designer folder only (Final production subfolder is ignored). |
+| **Response** | `{ hasFiles, hasDesignerFiles, hasPdf, hasFinalPdf, designerUrl, finalUrl }` |
+| **Notes** | `hasFiles` / `hasFinalPdf` = **Final production** only. `hasPdf` is true if Final **or** the Designer folder has a PDF (Artwork button). `hasDesignerFiles` = files in the Designer folder only (Final production subfolder is ignored). Opening Artwork or Request customer approval when Final has no PDF pops **No PDF file in production**. |
 
 ### `GET /api/orders/[id]/pdf-check`
 
@@ -1088,7 +1088,7 @@ Create notification, send email/SMS, return customer link.
 | **Response** | `{ ok: true, channel, token, actionUrl }` |
 | **Errors** | 400 send failure; 404 order |
 
-Customer approval also rasterizes the Final PDF into per-layer preview images (stored under `approval-layer-previews/` in `order-assets`) and writes `approval-layer-previews/orders/{orderId}/latest.json`. Node rasterize reads pdf.js CMaps/fonts from `node_modules/pdfjs-dist/` via `process.cwd()` (not `require.resolve`, which Turbopack can return as a numeric module id). **Approval artwork is only the production Final PDF** (`lib/approval-proof-source.ts`): each page is one SKU; named print layers on that page are extra pictures with SEE LAYERS checkboxes. Ticket screenshots and gallery uploads are not used. Pictures are generated when staff send approval, when a card enters **Waiting Approval**, and on demand from `/api/notifications/final-artwork` if they are still missing. `/respond` keeps a spinner until those pictures exist — it does not tell the customer to wait for a staff resend.
+Customer approval also rasterizes the Final PDF into per-layer preview images (stored under `approval-layer-previews/` in `order-assets`) and writes `approval-layer-previews/orders/{orderId}/latest.json`. Node rasterize reads pdf.js CMaps/fonts from `node_modules/pdfjs-dist/` via `process.cwd()` (not `require.resolve`, which Turbopack can return as a numeric module id). **Approval artwork is only the production Final PDF** (`lib/approval-proof-source.ts`): each page is one SKU; named print layers on that page are stacked on one proof with SEE LAYERS checkboxes. Ticket screenshots and gallery uploads are not used. Pictures are generated when staff send approval, when a card enters **Waiting Approval**, and on demand from `/api/notifications/final-artwork` if they are still missing. That public GET returns stored `latest.json` pictures immediately (no Google Drive listing). `?prepare=1` rasterizes only when the index is empty. `/respond` polls that endpoint and keeps a spinner until pictures exist — it does not tell the customer to wait for a staff resend.
 
 ### `POST /api/notifications/save`
 
@@ -1529,7 +1529,7 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit. A red **PDF** badge on the thumbnail (from `GET /api/orders/[id]/pdf-check`) means the Final PDF is missing Acrobat layers or Fast Web View.
+**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit. The job number turns **green** when Final production has files. A red **NO PDF** badge means Final production has no print PDF. A red **PDF** badge (from `GET /api/orders/[id]/pdf-check`) means the Final PDF is missing Acrobat layers or Fast Web View.
 
 ---
 
@@ -1634,7 +1634,7 @@ Operator popup after drop to exception column: staff note, channel (email/SMS/ma
 
 ### `ApprovalPopup` — `components/notify/ApprovalPopup.tsx`
 
-Operator popup after drop to approval column: channel selection, optional note, sends approval request.
+Operator popup after drop to approval column: channel selection, optional note, sends approval request. If Final production has no PDF, a **No PDF file in production** dialog opens and Send is disabled until a print PDF is in that folder.
 
 ---
 
@@ -1833,7 +1833,7 @@ Staff (including designers) can **Send / Resend** from the Missing Info tab (`co
 
 - `RespondForm` shows Approve / Not Approved buttons. The SKU 1 intro reads: print proof is ready; approve or not approve each SKU; toggle layers with **SEE LAYERS**.
 - Customer may leave a note on rejection.
-- Per-SKU proof is **only** the production Final PDF (not ticket screenshots). Each PDF page is one SKU. If that page has several named print layers, each layer is its own picture; **SEE LAYERS** checkboxes show or hide those pictures. Photo gallery and other uploads are hidden on approval. Approve / Not approved is per SKU (one PDF page), not per upload. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. pdf.js loads CMaps/fonts from `/api/pdfjs-assets/` (same origin). Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response.
+- Per-SKU proof is **only** the production Final PDF (not ticket screenshots). Each PDF page is one SKU. If that page has several named print layers, **SEE LAYERS** stacks those plates on one proof (ALL shows the combined picture; turning a layer off removes it from the overlay). Photo gallery and other uploads are hidden on approval. Approve / Not approved is per SKU (one PDF page), not per upload. Roll Direction remains an order-details spec (thumbnail), not a proof overlay. pdf.js loads CMaps/fonts from `/api/pdfjs-assets/` (same origin). Preview is allowed while the notification is still the current round (`pending` / `sent` / `responded`). Status `expired` (a newer round replaced the link) still returns **Link expired**. Calendar `token_expires_at` still blocks *submitting* a response.
 
 ### 4a. Approved → card moves per Automations settings
 

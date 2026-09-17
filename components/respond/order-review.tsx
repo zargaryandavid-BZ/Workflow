@@ -32,6 +32,7 @@ import { ProofLayerImages } from "@/components/respond/proof-layer-images";
 import { RollDirectionThumb } from "@/components/board/roll-direction-select";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
+import { NoProductionPdfDialog } from "@/components/board/no-production-pdf-dialog";
 
 interface OrderReviewProps {
   token: string;
@@ -302,6 +303,7 @@ function SkuArtworkBlock({
   pdfProofOnly = false,
   preSignedLayerUrls,
   showPdfLoadingBar = true,
+  sourceMissing = false,
   onPdfDrawn,
 }: {
   token: string;
@@ -318,6 +320,7 @@ function SkuArtworkBlock({
   pdfProofOnly?: boolean;
   preSignedLayerUrls?: Record<string, string>;
   showPdfLoadingBar?: boolean;
+  sourceMissing?: boolean;
   onPdfDrawn?: () => void;
 }) {
   const canShowPdf = Boolean(
@@ -332,9 +335,10 @@ function SkuArtworkBlock({
   if (!canShowPdf && !pdfPending && !showUploads) {
     if (pdfProofOnly) {
       return (
-        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Proof pictures are being prepared. This page will update when they
-          are ready — you do not need a new email.
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+          {sourceMissing
+            ? "No PDF file in production."
+            : "Proof pictures are being prepared. This page will update when they are ready — you do not need a new email."}
         </p>
       );
     }
@@ -360,9 +364,10 @@ function SkuArtworkBlock({
           }}
         />
       ) : pdfProofOnly && !layerPreview ? (
-        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Proof pictures are being prepared. This page will update when they
-          are ready — you do not need a new email.
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+          {sourceMissing
+            ? "No PDF file in production."
+            : "Proof pictures are being prepared. This page will update when they are ready — you do not need a new email."}
         </p>
       ) : null}
       {showUploads ? (
@@ -559,6 +564,7 @@ export function OrderReview({
       Object.keys(layerPreviewsProp).length === 0 &&
       Boolean(orderId)
   );
+  const [noProductionPdf, setNoProductionPdf] = useState(false);
 
   useEffect(() => {
     setPdfDrawn(Object.keys(layerPreviewsProp).length > 0);
@@ -579,20 +585,21 @@ export function OrderReview({
     }
     let cancelled = false;
     let attempt = 0;
-    const maxAttempts = 6;
+    const maxAttempts = 20;
     let retryTimer: number | undefined;
 
     const run = () => {
       if (cancelled) return;
       setPdfPending(true);
       void fetch(
-        `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}`
+        `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}&prepare=1`
       )
         .then(async (res) => {
           const data = (await res.json()) as {
             skus?: SkuItem[];
             bySku?: Record<string, RespondFinalPdf>;
             layerPreviews?: Record<string, RespondLayerPreview>;
+            sourceMissing?: boolean;
           };
           if (cancelled) return;
           if (res.ok && data.bySku) setDrivePdfs(data.bySku);
@@ -604,6 +611,12 @@ export function OrderReview({
             setLayerBySku(layers);
             setPdfDrawn(true);
             setPdfPending(false);
+            setNoProductionPdf(false);
+            return true;
+          }
+          if (res.ok && data.sourceMissing) {
+            setPdfPending(false);
+            setNoProductionPdf(true);
             return true;
           }
           return false;
@@ -641,6 +654,10 @@ export function OrderReview({
 
   return (
     <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white p-3">
+      <NoProductionPdfDialog
+        open={noProductionPdf}
+        onClose={() => setNoProductionPdf(false)}
+      />
       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
         {heading?.trim() || "Order details"}
       </p>
@@ -711,8 +728,8 @@ export function OrderReview({
                     <p className="mb-3 text-sm leading-relaxed text-slate-600">
                       Your print proof is ready. Please Approve or Not
                       Approved each SKU. Each PDF page is one SKU. If a
-                      page has several print layers, each layer is its own
-                      picture — use the SEE LAYERS checkboxes.
+                      page has several print layers, SEE LAYERS stacks them
+                      on the same proof.
                     </p>
                   ) : null}
                   <div className="flex items-start justify-between gap-3">
@@ -742,6 +759,7 @@ export function OrderReview({
                     labelHeightIn={labelHeightIn}
                     layerPreview={layerBySku[sku.id] ?? null}
                     pdfProofOnly={pdfProofOnly}
+                    sourceMissing={noProductionPdf}
                     preSignedLayerUrls={preSignedLayerUrls}
                     showPdfLoadingBar={!proofWaiting}
                     onPdfDrawn={

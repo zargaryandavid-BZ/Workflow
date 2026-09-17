@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Mail, MessageSquare, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -26,6 +26,8 @@ import { formatEmailList, mergeEmailLists, parseEmailList } from "@/lib/email-li
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
+import { refreshGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
+import { NoProductionPdfDialog } from "@/components/board/no-production-pdf-dialog";
 
 type Mode = "notify" | "manual";
 
@@ -111,6 +113,23 @@ export function ApprovalPopup({
   const [staffNote, setStaffNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [driveLoaded, setDriveLoaded] = useState(false);
+  const [hasFinalPdf, setHasFinalPdf] = useState(true);
+  const [noPdfOpen, setNoPdfOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const status = await refreshGdriveFolderStatus(order.id);
+      if (cancelled) return;
+      setHasFinalPdf(status.hasFinalPdf);
+      setDriveLoaded(status.loaded);
+      if (status.loaded && !status.hasFinalPdf) setNoPdfOpen(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [order.id]);
 
   const wantEmail = mode === "notify" && selected.includes("email");
   const wantSms = mode === "notify" && selected.includes("sms");
@@ -135,6 +154,11 @@ export function ApprovalPopup({
 
   async function saveAndSend() {
     setError(null);
+    if (driveLoaded && !hasFinalPdf) {
+      setNoPdfOpen(true);
+      setError("No PDF file in production.");
+      return;
+    }
 
     if (!isManual) {
       const channel = channelFromSelection(selected);
@@ -252,6 +276,12 @@ export function ApprovalPopup({
   }
 
   return (
+    <>
+    <NoProductionPdfDialog
+      open={noPdfOpen}
+      jobTitle={order.title}
+      onClose={() => setNoPdfOpen(false)}
+    />
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
       <div
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
@@ -476,6 +506,12 @@ export function ApprovalPopup({
             />
           </div>
 
+          {driveLoaded && !hasFinalPdf ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+              No PDF file in production. Add the print PDF to Final production
+              before notifying the customer.
+            </p>
+          ) : null}
           {error ? (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
               {error}
@@ -491,7 +527,10 @@ export function ApprovalPopup({
           >
             Cancel
           </Button>
-          <Button onClick={saveAndSend} disabled={loading || dismissing}>
+          <Button
+            onClick={saveAndSend}
+            disabled={loading || dismissing || (driveLoaded && !hasFinalPdf)}
+          >
             {loading
               ? "Converting PDF to pictures…"
               : isManual
@@ -501,6 +540,7 @@ export function ApprovalPopup({
         </div>
       </div>
     </div>
+    </>
   );
 }
 

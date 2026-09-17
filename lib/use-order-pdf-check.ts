@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 export type PdfCheckResult = {
   checked: boolean;
@@ -65,15 +66,18 @@ function subscribe(orderId: string, fn: () => void) {
   };
 }
 
-async function fetchCheck(orderId: string): Promise<PdfCheckResult> {
-  const res = await fetch(`/api/orders/${orderId}/pdf-check`);
-  if (!res.ok) return DEFAULT;
+async function fetchCheck(orderId: string): Promise<PdfCheckResult | null> {
+  const res = await fetchWithAuth(`/api/orders/${orderId}/pdf-check`);
+  if (!res.ok) return null;
   const json = (await res.json()) as Partial<PdfCheckResult>;
+  const hasLayers = json.hasLayers !== false;
+  const isLinearized = json.isLinearized !== false;
+  const checked = Boolean(json.checked);
   return {
-    checked: Boolean(json.checked),
-    valid: json.valid !== false,
-    hasLayers: json.hasLayers !== false,
-    isLinearized: json.isLinearized !== false,
+    checked,
+    hasLayers,
+    isLinearized,
+    valid: checked ? hasLayers && isLinearized : true,
     fileName: json.fileName ?? null,
   };
 }
@@ -85,13 +89,10 @@ function fetchCheckDeduped(orderId: string): Promise<PdfCheckResult> {
   const promise = enqueueCheck(() =>
     fetchCheck(orderId)
       .then((next) => {
-        resultCache.set(orderId, next);
-        return next;
+        if (next?.checked) resultCache.set(orderId, next);
+        return next ?? DEFAULT;
       })
-      .catch(() => {
-        resultCache.set(orderId, DEFAULT);
-        return DEFAULT;
-      })
+      .catch(() => DEFAULT)
   ).finally(() => {
     inFlight.delete(orderId);
   });
@@ -137,7 +138,7 @@ export function useOrderPdfCheck(
     }
 
     const cached = resultCache.get(orderId);
-    if (cached !== undefined) {
+    if (cached?.checked) {
       setResult(cached);
       return;
     }

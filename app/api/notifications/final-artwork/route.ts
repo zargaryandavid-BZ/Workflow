@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notificationBlocksCustomerAssets } from "@/lib/notification-asset-access";
-import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import { skusForRespond } from "@/lib/respond-order";
 
 export const maxDuration = 300;
 
 /**
- * Public (token) Drive file map for /respond. Kept off the HTML request so
- * the page can show a proof spinner before Google Drive listing finishes.
+ * Public (token) proof pictures for /respond. Stored JPEGs first — no Drive
+ * walk when pictures already exist. Generate only when they are still missing.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const token = searchParams.get("token")?.trim() ?? "";
   const orderId = searchParams.get("order")?.trim() ?? "";
+  const prepare = searchParams.get("prepare") === "1";
   if (!token || !orderId) {
     return NextResponse.json(
       { error: "token and order are required" },
@@ -54,38 +54,53 @@ export async function GET(request: Request) {
   }
 
   const specs = (order.specs ?? {}) as Record<string, unknown>;
-  const pack = await fetchRespondArtworkPack(
-    admin,
-    order.tenant_id as string,
-    {
-      id: order.id as string,
-      title: String(order.title ?? ""),
-      specs,
-    },
-    skusForRespond(specs)
-  );
+  const ticketSkus = skusForRespond(specs);
+  const orderRow = {
+    id: order.id as string,
+    title: String(order.title ?? ""),
+    tenant_id: order.tenant_id as string,
+    specs,
+  };
 
-  let layerPreviews: Record<string, unknown> = {};
-  try {
-    const { loadApprovalLayerPreviewsForOrder } = await import(
-      "@/lib/approval-layer-previews"
-    );
-    layerPreviews = await loadApprovalLayerPreviewsForOrder(
-      {
-        id: order.id as string,
-        title: String(order.title ?? ""),
-        tenant_id: order.tenant_id as string,
-        specs,
-      },
-      // Generate on demand if the background rasterization (scheduleLayerPreviews)
-      // hasn't completed yet — e.g. in local dev, or if it failed silently.
-      // This endpoint has maxDuration=180 and is fetched in the background after
-      // the page renders, so the customer sees a spinner then images appear.
-      { generateIfMissing: true }
-    );
-  } catch (err) {
-    console.error("[approval-layer-previews] load failed:", err);
+  const { loadRespondCustomerProof, loadApprovalLayerPreviewsForOrder, isApprovalProofSourceMissing } =
+    await import("@/lib/approval-layer-previews");
+
+  const stored = await loadRespondCustomerProof(orderRow, ticketSkus);
+  if (Object.keys(stored.layerPreviews).length > 0) {
+    return NextResponse.json({
+      skus: stored.skus,
+      bySku: stored.finalPdfs,
+      layerPreviews: stored.layerPreviews,
+    });
   }
 
-  return NextResponse.json({ skus: pack.skus, bySku: pack.bySku, layerPreviews });
+  if (prepare) {
+    try {
+      await loadApprovalLayerPreviewsForOrder(orderRow, {
+        generateIfMissing: true,
+      });
+    } catch (err) {
+      if (isApprovalProofSourceMissing(err)) {
+        return NextResponse.json({
+          skus: ticketSkus,
+          bySku: {},
+          layerPreviews: {},
+          sourceMissing: true,
+        });
+      }
+      console.error("[approval-layer-previews] load failed:", err);
+    }
+    const ready = await loadRespondCustomerProof(orderRow, ticketSkus);
+    return NextResponse.json({
+      skus: ready.skus,
+      bySku: ready.finalPdfs,
+      layerPreviews: ready.layerPreviews,
+    });
+  }
+
+  return NextResponse.json({
+    skus: ticketSkus,
+    bySku: {},
+    layerPreviews: {},
+  });
 }

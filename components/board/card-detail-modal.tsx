@@ -375,8 +375,11 @@ export function CardDetailModal({
   const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "history">(
     "details"
   );
-  const { hasPdf: hasFinalPdf } = useGdriveFolderStatus(orderId);
+  const { hasFinalPdf, loaded, finalUrl, designerUrl } =
+    useGdriveFolderStatus(orderId);
   const pdfCheck = useOrderPdfCheck(orderId, hasFinalPdf);
+  const showNoProductionPdf =
+    loaded && !hasFinalPdf && Boolean(finalUrl || designerUrl);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -2280,6 +2283,18 @@ export function CardDetailModal({
 
           {tab === "details" && data ? (
             <>
+            {showNoProductionPdf ? (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-medium">No PDF file in production</p>
+                  <p className="mt-1 text-xs">
+                    Put the print PDF in this job&apos;s Final production Drive
+                    folder.
+                  </p>
+                </div>
+              </div>
+            ) : null}
             {pdfCheck.checked && !pdfCheck.valid ? (
               <div className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

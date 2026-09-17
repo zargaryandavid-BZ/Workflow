@@ -8,6 +8,7 @@ import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import { finalPdfOcgView } from "@/lib/shared-pdf-pages";
 import { PdfLoadingBar } from "@/components/pdf/pdf-loading-bar";
+import { NoProductionPdfDialog } from "@/components/board/no-production-pdf-dialog";
 
 const PdfOcgFromUrl = dynamic(
   () =>
@@ -113,9 +114,7 @@ export function FinalArtworkModal({
         setItems(list);
         setActive(0);
         if (list.length === 0) {
-          setError(
-            "No PDF in Final production or the Designer folder. Workflow reads Drive with the service account in Settings → Google Drive — sharing the folder with your login is not enough."
-          );
+          setError("No PDF file in production");
           setLoading(false);
         }
       } catch (err) {
@@ -241,6 +240,11 @@ export function FinalArtworkModal({
       }}
       onClick={(e) => e.stopPropagation()}
     >
+      <NoProductionPdfDialog
+        open={error === "No PDF file in production"}
+        jobTitle={orderTitle}
+        onClose={close}
+      />
       <div
         className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onPointerDown={(e) => e.stopPropagation()}

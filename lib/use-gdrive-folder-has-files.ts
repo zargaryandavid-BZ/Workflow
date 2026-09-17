@@ -5,17 +5,21 @@ import { useEffect, useState } from "react";
 type FolderDriveStatus = {
   hasFiles: boolean;
   hasPdf: boolean;
+  hasFinalPdf: boolean;
   hasDesignerFiles: boolean;
   designerUrl: string | null;
   finalUrl: string | null;
+  loaded: boolean;
 };
 
 const EMPTY: FolderDriveStatus = {
   hasFiles: false,
   hasPdf: false,
+  hasFinalPdf: false,
   hasDesignerFiles: false,
   designerUrl: null,
   finalUrl: null,
+  loaded: false,
 };
 
 /** Avoid re-hitting Drive for the same order while browsing the board. */
@@ -81,6 +85,7 @@ async function fetchStatus(orderId: string): Promise<FolderDriveStatus> {
   const json = (await res.json()) as {
     hasFiles?: boolean;
     hasPdf?: boolean;
+    hasFinalPdf?: boolean;
     hasDesignerFiles?: boolean;
     designerUrl?: string | null;
     finalUrl?: string | null;
@@ -88,9 +93,11 @@ async function fetchStatus(orderId: string): Promise<FolderDriveStatus> {
   return {
     hasFiles: Boolean(json.hasFiles),
     hasPdf: Boolean(json.hasPdf),
+    hasFinalPdf: Boolean(json.hasFinalPdf),
     hasDesignerFiles: Boolean(json.hasDesignerFiles),
     designerUrl: json.designerUrl?.trim() || null,
     finalUrl: json.finalUrl?.trim() || null,
+    loaded: true,
   };
 }
 
@@ -131,13 +138,9 @@ export function clearGdriveFolderHasFilesCache(orderId?: string) {
   );
 }
 
-/**
- * Re-check Drive now (Copy Link, Final production click, column move).
- * Updates cache and notifies mounted cards/forms.
- */
-export async function refreshGdriveFolderHasFiles(
+export async function refreshGdriveFolderStatus(
   orderId: string
-): Promise<boolean> {
+): Promise<FolderDriveStatus> {
   statusCache.delete(orderId);
   inFlight.delete(orderId);
   void import("./use-order-pdf-check").then((m) =>
@@ -146,12 +149,23 @@ export async function refreshGdriveFolderHasFiles(
   try {
     const next = await fetchStatusDeduped(orderId);
     notify(orderId);
-    return next.hasFiles;
+    return next;
   } catch {
     statusCache.set(orderId, EMPTY);
     notify(orderId);
-    return false;
+    return EMPTY;
   }
+}
+
+/**
+ * Re-check Drive now (Copy Link, Final production click, column move).
+ * Updates cache and notifies mounted cards/forms.
+ */
+export async function refreshGdriveFolderHasFiles(
+  orderId: string
+): Promise<boolean> {
+  const next = await refreshGdriveFolderStatus(orderId);
+  return next.hasFiles;
 }
 
 export function useGdriveFolderStatus(

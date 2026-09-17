@@ -118,10 +118,23 @@ async function prepareApprovalLayerPreviews(order: Order) {
     return;
   }
 
-  const previews = await generateApprovalLayerPreviewsForOrder(order);
-  console.info(
-    `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
-  );
+  try {
+    const previews = await generateApprovalLayerPreviewsForOrder(order);
+    console.info(
+      `[approval-layer-previews] ${order.title} ready in ${Date.now() - started}ms (${Object.keys(previews).length} SKUs)`
+    );
+  } catch (err) {
+    const { isApprovalProofSourceMissing } = await import(
+      "@/lib/approval-layer-previews"
+    );
+    if (isApprovalProofSourceMissing(err)) {
+      console.warn(
+        `[approval-layer-previews] ${order.title} has no PDF in Final production`
+      );
+      return;
+    }
+    throw err;
+  }
 }
 
 /**

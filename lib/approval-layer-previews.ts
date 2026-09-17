@@ -28,6 +28,25 @@ import type { RespondFinalPdf } from "@/lib/respond-order";
 /** Print PDFs can exceed 800 MB; we only keep small PNG/JPEGs. */
 const SOURCE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
+export class ApprovalProofSourceMissingError extends Error {
+  readonly orderId: string;
+  constructor(orderId: string, title: string) {
+    super(`No Final PDF on Drive for ${title}`);
+    this.name = "ApprovalProofSourceMissingError";
+    this.orderId = orderId;
+  }
+}
+
+export function isApprovalProofSourceMissing(err: unknown): boolean {
+  return (
+    err instanceof ApprovalProofSourceMissingError ||
+    (typeof err === "object" &&
+      err !== null &&
+      "name" in err &&
+      (err as { name: string }).name === "ApprovalProofSourceMissingError")
+  );
+}
+
 async function driveModifiedTime(
   client: ReturnType<typeof proofsDriveClient>,
   fileId: string
@@ -229,6 +248,11 @@ export async function generateApprovalLayerPreviewsForOrder(
 async function generateApprovalLayerPreviewsForOrderUncached(
   order: Pick<Order, "id" | "title" | "tenant_id" | "specs">
 ): Promise<Record<string, RespondLayerPreview>> {
+  const already = await loadRespondPreviewIndex(order.id);
+  if (already && indexHasLayerPictures(already)) {
+    return respondProofFromIndex(already).layerPreviews;
+  }
+
   const admin = createAdminClient();
   const specs = (order.specs ?? {}) as Record<string, unknown>;
   const pack = await fetchRespondArtworkPack(
@@ -242,7 +266,9 @@ async function generateApprovalLayerPreviewsForOrderUncached(
     skusForRespond(specs)
   );
   const pdfs = Object.values(pack.bySku);
-  if (pdfs.length === 0) return {};
+  if (pdfs.length === 0) {
+    throw new ApprovalProofSourceMissingError(order.id, String(order.title ?? ""));
+  }
 
   const fileId = pdfs[0]!.fileId;
   const fileName = pdfs[0]!.fileName;
@@ -369,6 +395,7 @@ export async function loadApprovalLayerPreviewsForOrder(
   try {
     return await generateApprovalLayerPreviewsForOrder(order);
   } catch (err) {
+    if (isApprovalProofSourceMissing(err)) throw err;
     console.error("[approval-layer-previews] generate failed:", err);
     return {};
   }

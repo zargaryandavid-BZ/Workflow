@@ -469,6 +469,19 @@ function CardTimer({
 
 // ─── Main card component ────────────────────────────────────────────────────
 
+function NoProductionPdfBadge({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <span
+      className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-md ring-1 ring-white"
+      title="No PDF file in production"
+    >
+      <AlertTriangle className="h-3 w-3" />
+      NO PDF
+    </span>
+  );
+}
+
 function PdfSpecWarningBadge({
   show,
   pdfCheck,
@@ -484,14 +497,33 @@ function PdfSpecWarningBadge({
     .filter(Boolean)
     .join("\n");
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-end p-1">
-      <span
-        className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md ring-1 ring-white"
-        title={reasons}
-      >
-        <AlertTriangle className="h-3 w-3" />
-        PDF
-      </span>
+    <span
+      className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md ring-1 ring-white"
+      title={reasons}
+    >
+      <AlertTriangle className="h-3 w-3" />
+      PDF
+    </span>
+  );
+}
+
+function PdfSpecWarningOverlay({
+  show,
+  pdfCheck,
+  showNoProductionPdf,
+}: {
+  show: boolean;
+  pdfCheck: { hasLayers: boolean; isLinearized: boolean };
+  showNoProductionPdf?: boolean;
+}) {
+  if (!show && !showNoProductionPdf) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-end p-1">
+      {showNoProductionPdf ? (
+        <NoProductionPdfBadge show />
+      ) : (
+        <PdfSpecWarningBadge show pdfCheck={pdfCheck} />
+      )}
     </div>
   );
 }
@@ -596,12 +628,17 @@ export function OrderCard({
     ? String(fieldValues[specialEffectsField.id] ?? "").trim()
     : "";
 
-  const { hasFiles: folderHasFiles, hasPdf: hasFinalPdf } =
-    useGdriveFolderStatus(order.id);
+  const driveStatus = useGdriveFolderStatus(order.id);
+  const folderHasFiles = driveStatus.hasFiles;
+  const hasFinalPdf = driveStatus.hasFinalPdf;
   const pdfCheck = useOrderPdfCheck(order.id, hasFinalPdf);
   const showPdfWarning = hasFinalPdf && pdfCheck.checked && !pdfCheck.valid;
-  /** Only when Final/Artwork Drive actually has files — not just a folder URL. */
-  const showArtworkButton = folderHasFiles || hasFinalPdf;
+  const showNoProductionPdf =
+    driveStatus.loaded &&
+    !hasFinalPdf &&
+    Boolean(driveStatus.finalUrl || driveStatus.designerUrl);
+  /** Artwork button: Final files, or a PDF in Final or Designer. */
+  const showArtworkButton = folderHasFiles || driveStatus.hasPdf;
 
   const designerName =
     designerNameProp?.trim() ||
@@ -1127,7 +1164,11 @@ export function OrderCard({
               {formatShortOrderNumber(order.title)}
               {groupSize != null && groupSize >= 2 ? ` (${groupSize})` : ""}
             </span>
-            <PdfSpecWarningBadge show={showPdfWarning} pdfCheck={pdfCheck} />
+            <PdfSpecWarningOverlay
+              show={showPdfWarning}
+              pdfCheck={pdfCheck}
+              showNoProductionPdf={showNoProductionPdf}
+            />
           </div>
           {showArtworkButton ? (
             <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
@@ -1148,7 +1189,11 @@ export function OrderCard({
             >
               <Layers className="h-8 w-8" aria-hidden />
             </button>
-            <PdfSpecWarningBadge show={showPdfWarning} pdfCheck={pdfCheck} />
+            <PdfSpecWarningOverlay
+              show={showPdfWarning}
+              pdfCheck={pdfCheck}
+              showNoProductionPdf={showNoProductionPdf}
+            />
             </div>
             <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
           </div>
@@ -1175,7 +1220,9 @@ export function OrderCard({
                 title={
                   folderHasFiles
                     ? `Final production folder has files (${order.title})`
-                    : order.title
+                    : showNoProductionPdf
+                      ? `No PDF file in production (${order.title})`
+                      : order.title
                 }
               >
                 {currentPriorityScore != null ? (
@@ -1235,6 +1282,8 @@ export function OrderCard({
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                   </span>
                 ) : null}
+                <PdfSpecWarningBadge show={showPdfWarning} pdfCheck={pdfCheck} />
+                <NoProductionPdfBadge show={showNoProductionPdf} />
                 {isReprint ? (
                   <span
                     className="shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-amber-700"

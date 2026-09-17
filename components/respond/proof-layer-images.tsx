@@ -58,7 +58,7 @@ export function ProofLayerImages({
   const [visibleIds, setVisibleIds] = useState<Set<string>>(
     () => new Set(namedLayers.map((layer) => layer.id))
   );
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [stackOpen, setStackOpen] = useState(false);
   const [onRoll, setOnRoll] = useState(false);
 
   useEffect(() => {
@@ -99,10 +99,25 @@ export function ProofLayerImages({
     });
   }
 
-  const compositeSrc =
-    preSignedLayerUrls?.[preSignKey(preview, "composite")] ??
-    respondLayerPreviewUrl(token, orderId, preview, "composite");
-  const expanded = pics.find((p) => p.id === expandedId) ?? null;
+  function layerSrc(layer: string) {
+    return (
+      preSignedLayerUrls?.[preSignKey(preview, layer)] ??
+      respondLayerPreviewUrl(token, orderId, preview, layer)
+    );
+  }
+
+  const compositeSrc = layerSrc("composite");
+  const useComposite = namedLayers.length === 0 || allOn;
+
+  const stack = (
+    <ProofLayerStack
+      useComposite={useComposite}
+      compositeSrc={compositeSrc}
+      pics={pics}
+      srcFor={layerSrc}
+      className="max-h-[22rem]"
+    />
+  );
 
   return (
     <div className="flex min-h-[16rem] flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
@@ -140,7 +155,7 @@ export function ProofLayerImages({
             type="button"
             className="rounded p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
             title="Large view"
-            onClick={() => setExpandedId(pics[0]?.id ?? null)}
+            onClick={() => setStackOpen(true)}
           >
             <Maximize2 className="h-4 w-4" />
           </button>
@@ -152,7 +167,8 @@ export function ProofLayerImages({
           <p className="flex items-start gap-1.5 text-xs text-slate-600">
             <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
             <span>
-              This SKU is one PDF page. Each print layer is its own picture.
+              This SKU is one PDF page. SEE LAYERS stacks print plates on
+              the same proof — they are not separate pictures.
             </span>
           </p>
           <div
@@ -206,71 +222,93 @@ export function ProofLayerImages({
           Turn on a layer to preview this SKU.
         </p>
       ) : (
-        <ul
-          className={
-            pics.length === 1
-              ? "mx-auto flex w-full max-w-xl flex-col gap-3 p-4"
-              : "grid grid-cols-1 gap-3 p-4 sm:grid-cols-2"
-          }
-        >
-          {pics.map((pic) => {
-            const src =
-              preSignedLayerUrls?.[preSignKey(preview, pic.layer)] ??
-              respondLayerPreviewUrl(token, orderId, preview, pic.layer);
-            return (
-              <li key={pic.id} className="space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => setExpandedId(pic.id)}
-                  className="flex w-full items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-[linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%),linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%)] bg-[length:16px_16px] bg-[position:0_0,8px_8px] bg-white"
-                  title={`Open ${pic.name}`}
-                >
-                  <img
-                    src={src}
-                    alt={pic.name}
-                    className="mx-auto max-h-[22rem] w-auto max-w-full object-contain"
-                    draggable={false}
-                  />
-                </button>
-                <p className="truncate text-center text-[11px] font-medium text-slate-600">
-                  {pic.name}
-                </p>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="p-4">
+          <button
+            type="button"
+            onClick={() => setStackOpen(true)}
+            className="mx-auto flex w-full max-w-xl items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-[linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%),linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%)] bg-[length:16px_16px] bg-[position:0_0,8px_8px] bg-white"
+            title="Open large view"
+          >
+            {stack}
+          </button>
+        </div>
       )}
 
-      {expanded && typeof document !== "undefined"
+      {stackOpen && typeof document !== "undefined"
         ? createPortal(
             <div className="fixed inset-0 z-[80] flex flex-col bg-white">
               <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
                 <span className="truncate text-sm font-medium text-slate-700">
-                  {expanded.name}
+                  {useComposite
+                    ? "Proof"
+                    : pics.map((p) => p.name).join(" + ") || "Proof"}
                 </span>
                 <button
                   type="button"
                   className="rounded p-1 text-slate-500 hover:bg-slate-100"
-                  onClick={() => setExpandedId(null)}
+                  onClick={() => setStackOpen(false)}
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-50 p-6">
-                <img
-                  src={
-                    preSignedLayerUrls?.[preSignKey(preview, expanded.layer)] ??
-                    respondLayerPreviewUrl(token, orderId, preview, expanded.layer)
-                  }
-                  alt={expanded.name}
-                  className="max-h-full max-w-full object-contain"
-                  draggable={false}
+                <ProofLayerStack
+                  useComposite={useComposite}
+                  compositeSrc={compositeSrc}
+                  pics={pics}
+                  srcFor={layerSrc}
+                  className="max-h-full max-w-full"
                 />
               </div>
             </div>,
             document.body
           )
         : null}
+    </div>
+  );
+}
+
+function ProofLayerStack({
+  useComposite,
+  compositeSrc,
+  pics,
+  srcFor,
+  className,
+}: {
+  useComposite: boolean;
+  compositeSrc: string;
+  pics: LayerPic[];
+  srcFor: (layer: string) => string;
+  className?: string;
+}) {
+  if (useComposite || pics.length <= 1) {
+    const src = useComposite ? compositeSrc : srcFor(pics[0]?.layer ?? "composite");
+    const alt = useComposite ? "Proof" : pics[0]?.name ?? "Proof";
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className={cn("mx-auto w-auto object-contain", className)}
+        draggable={false}
+      />
+    );
+  }
+
+  return (
+    <div className={cn("relative mx-auto inline-block w-auto bg-white", className)}>
+      {pics.map((pic, i) => (
+        <img
+          key={pic.id}
+          src={srcFor(pic.layer)}
+          alt={pic.name}
+          className={cn(
+            "w-auto object-contain",
+            className,
+            i === 0 ? "relative block" : "absolute inset-0 h-full mix-blend-multiply"
+          )}
+          draggable={false}
+        />
+      ))}
     </div>
   );
 }

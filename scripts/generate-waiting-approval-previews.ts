@@ -3,6 +3,7 @@
  * job (and any open customer_approval notification).
  *
  *   npx tsx --import ./scripts/fedex/register-server-only.mjs scripts/generate-waiting-approval-previews.ts
+ *   npx tsx --import ./scripts/fedex/register-server-only.mjs scripts/generate-waiting-approval-previews.ts 15155-1
  */
 import { readFileSync } from "node:fs";
 import { Module } from "node:module";
@@ -40,6 +41,67 @@ const originalLoad = (Module as unknown as { _load: Function })._load;
 };
 
 async function main() {
+  const needle = (process.argv[2] ?? "").trim();
+  if (needle) {
+    const { createClient } = await import("@supabase/supabase-js");
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) throw new Error("Missing Supabase env");
+    const sb = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: order, error } = await sb
+      .from("orders")
+      .select("id, title, tenant_id, specs")
+      .ilike("title", `%${needle}%`)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!order) throw new Error(`No order matching ${needle}`);
+    const { skusForRespond } = await import("../lib/respond-order.ts");
+    const { fetchRespondArtworkPack } = await import(
+      "../lib/respond-final-pdf.ts"
+    );
+    const specs = (order.specs ?? {}) as Record<string, unknown>;
+    const ticket = skusForRespond(specs);
+    const pack = await fetchRespondArtworkPack(
+      sb,
+      order.tenant_id as string,
+      {
+        id: order.id as string,
+        title: String(order.title ?? ""),
+        specs,
+      },
+      ticket
+    );
+    const sample = Object.values(pack.bySku)[0];
+    console.log(
+      `Drive pack ticketSkus=${ticket.length} aligned=${pack.skus.length} pdfs=${Object.keys(pack.bySku).length}` +
+        (sample ? ` file=${sample.fileName} id=${sample.fileId}` : "")
+    );
+    const {
+      loadRespondPreviewIndex,
+      generateApprovalLayerPreviewsForOrder,
+    } = await import("../lib/approval-layer-previews.ts");
+    const stored = await loadRespondPreviewIndex(order.id as string);
+    console.log(
+      stored
+        ? `stored ${order.title} pages=${stored.pages?.length ?? 0} skus=${Object.keys(stored.bySku || {}).length}`
+        : `no stored index for ${order.title}`
+    );
+    const started = Date.now();
+    const previews = await generateApprovalLayerPreviewsForOrder({
+      id: order.id as string,
+      title: String(order.title ?? ""),
+      tenant_id: order.tenant_id as string,
+      specs: (order.specs ?? {}) as never,
+    });
+    console.log(
+      `OK ${order.title} ${Object.keys(previews).length} SKUs ${((Date.now() - started) / 1000).toFixed(1)}s`
+    );
+    return;
+  }
+
   const { generateApprovalLayerPreviewsForWaitingOrders } = await import(
     "../lib/approval-layer-previews.ts"
   );

@@ -37,6 +37,7 @@ export async function GET(
       hasDesignerFiles: false,
       fileCount: 0,
       hasPdf: false,
+      hasFinalPdf: false,
       configured: false,
     });
   }
@@ -56,6 +57,7 @@ export async function GET(
         hasDesignerFiles: false,
         fileCount: 0,
         hasPdf: false,
+        hasFinalPdf: false,
         configured: true,
         folderId: seedIds[0] ?? null,
         ...(resolveError ? { error: resolveError } : {}),
@@ -116,19 +118,20 @@ export async function GET(
 
     let hasFiles = false;
     let fileCount = 0;
-    let hasPdf = false;
+    let hasFinalPdf = false;
     for (const result of finalResults) {
       hasFiles = hasFiles || result.hasFiles;
-      hasPdf = hasPdf || result.hasPdf;
+      hasFinalPdf = hasFinalPdf || result.hasPdf;
       fileCount += result.fileCount;
     }
-    hasPdf = hasPdf || designerResult.hasPdf;
+    const hasPdf = hasFinalPdf || designerResult.hasPdf;
 
     return NextResponse.json({
       hasFiles,
       hasDesignerFiles: designerResult.hasFiles,
       fileCount,
       hasPdf,
+      hasFinalPdf,
       configured: true,
       folderId: resolved.finalIds[0] ?? null,
       designerUrl: resolved.designerUrl,
@@ -143,6 +146,7 @@ export async function GET(
         hasDesignerFiles: false,
         fileCount: 0,
         hasPdf: false,
+        hasFinalPdf: false,
         configured: true,
         folderId: seedIds[0] ?? null,
         error: message,
