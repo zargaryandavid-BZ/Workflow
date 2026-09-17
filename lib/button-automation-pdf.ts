@@ -850,9 +850,7 @@ function drawArtworkPage(
   totalSkus: number,
   skuName: string,
   skuQty: number | null,
-  imageIndex: number,
-  totalImagesForSku: number,
-  imageBuffer: Buffer | null
+  images: { name: string; buffer: Buffer | null }[]
 ) {
   doc.rect(0, 0, PAGE_WIDTH, 78).fill("#1a1a2e");
   doc
@@ -866,7 +864,6 @@ function drawArtworkPage(
     align: "right",
   });
 
-  // Order number (left) + Qty (right) — balanced, press-readable sizes
   doc.fontSize(13).font("Helvetica-Bold");
   textAt(doc, data.orderNumberDisplay, MARGIN, 30);
   doc.fontSize(11).font("Helvetica-Bold");
@@ -875,11 +872,7 @@ function drawArtworkPage(
     align: "right",
   });
 
-  const skuLabel =
-    totalImagesForSku > 1
-      ? `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}  ·  Image ${imageIndex + 1}/${totalImagesForSku}`
-      : `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}`;
-
+  const skuLabel = `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}`;
   doc.fontSize(10).font("Helvetica").fillColor("#d1d5db");
   textAt(doc, skuLabel, MARGIN, 52, {
     width: PAGE_WIDTH - MARGIN * 2,
@@ -888,32 +881,69 @@ function drawArtworkPage(
   doc.fillColor("#000000");
 
   const imageTop = 86;
-  const imageBottom = PAGE_HEIGHT - 24;
-  const imageAreaH = imageBottom - imageTop;
-  const imageAreaW = PAGE_WIDTH;
+  const imageBottom = PAGE_HEIGHT - 28;
+  const areaH = imageBottom - imageTop;
+  const areaW = PAGE_WIDTH - MARGIN * 2;
+  const x0 = MARGIN;
+  const withBuf = images.filter((img) => img.buffer);
 
-  if (imageBuffer) {
+  if (withBuf.length === 0) {
+    drawNoArtworkPlaceholder(doc, imageTop, areaH, "No artwork uploaded");
+    return;
+  }
+
+  if (withBuf.length === 1) {
     try {
-      doc.image(imageBuffer, 0, imageTop, {
-        width: imageAreaW,
-        height: imageAreaH,
-        fit: [imageAreaW, imageAreaH],
+      doc.image(withBuf[0].buffer as Buffer, x0, imageTop, {
+        fit: [areaW, areaH],
         align: "center",
         valign: "center",
       });
     } catch {
-      drawNoArtworkPlaceholder(doc, imageTop, imageAreaH, "Image could not be loaded");
+      drawNoArtworkPlaceholder(doc, imageTop, areaH, "Image could not be loaded");
     }
-  } else {
-    drawNoArtworkPlaceholder(doc, imageTop, imageAreaH, "No artwork uploaded");
+    return;
   }
+
+  const cols = 2;
+  const rows = Math.ceil(withBuf.length / cols);
+  const gap = 8;
+  const labelH = 12;
+  const cellW = (areaW - gap) / cols;
+  const cellH = (areaH - (rows - 1) * gap) / rows;
+  const imgH = Math.max(24, cellH - labelH);
+
+  withBuf.forEach((pic, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = x0 + col * (cellW + gap);
+    const y = imageTop + row * (cellH + gap);
+    try {
+      doc.image(pic.buffer as Buffer, x, y, {
+        fit: [cellW, imgH],
+        align: "center",
+        valign: "center",
+      });
+    } catch {
+      doc
+        .rect(x, y, cellW, imgH)
+        .strokeColor("#e5e7eb")
+        .lineWidth(0.5)
+        .stroke();
+    }
+    if (pic.name) {
+      doc.fontSize(8).fillColor("#6b7280").font("Helvetica");
+      textAt(doc, pic.name, x, y + imgH + 1, {
+        width: cellW,
+        align: "center",
+      });
+      doc.fillColor("#000000").font("Helvetica");
+    }
+  });
 }
 
 function totalArtworkPages(data: OrderExportData): number {
-  return data.skuRows.reduce(
-    (sum, sku) => sum + Math.max(1, sku.imageLinks.length),
-    0
-  );
+  return data.skuRows.length;
 }
 
 export async function generateJobTicketPdf(
@@ -971,40 +1001,30 @@ export async function generateJobTicketPdf(
   if (!useFinalPdf) {
     for (let skuIdx = 0; skuIdx < data.skuRows.length; skuIdx++) {
       const sku = data.skuRows[skuIdx];
-      const images = sku.imageLinks;
-
-      if (images.length === 0) {
-        doc.addPage();
-        drawArtworkPage(
-          doc,
-          data,
-          skuIdx,
-          data.skuRows.length,
-          sku.name,
-          sku.qty,
-          0,
-          0,
-          null
-        );
-        drawnArtwork += 1;
-      } else {
-        for (let imgIdx = 0; imgIdx < images.length; imgIdx++) {
-          const buf = await fetchImageBuffer(images[imgIdx]);
-          doc.addPage();
-          drawArtworkPage(
-            doc,
-            data,
-            skuIdx,
-            data.skuRows.length,
-            sku.name,
-            sku.qty,
-            imgIdx,
-            images.length,
-            buf
-          );
-          drawnArtwork += 1;
-        }
-      }
+      const files =
+        sku.imageFiles.length > 0
+          ? sku.imageFiles
+          : sku.imageLinks.map((url, i) => ({
+              name: sku.imageLinks.length > 1 ? `Layer ${i + 1}` : "",
+              url,
+            }));
+      const images = await Promise.all(
+        files.map(async (file) => ({
+          name: file.name,
+          buffer: await fetchImageBuffer(file.url),
+        }))
+      );
+      doc.addPage();
+      drawArtworkPage(
+        doc,
+        data,
+        skuIdx,
+        data.skuRows.length,
+        sku.name,
+        sku.qty,
+        images
+      );
+      drawnArtwork += 1;
     }
   }
 

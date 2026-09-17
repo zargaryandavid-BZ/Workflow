@@ -1592,6 +1592,33 @@ export function Board({
   const dragSourceColumnRef = useRef<string | null>(null);
   const dragSnapshotRef = useRef<OrderWithRelations[] | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const columnRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const pendingColumnRefreshRef = useRef<Set<string>>(new Set());
+
+  const flushPendingColumnRefreshes = useCallback(() => {
+    columnRefreshTimerRef.current = null;
+    const ids = [...pendingColumnRefreshRef.current];
+    pendingColumnRefreshRef.current.clear();
+    for (const colId of ids) {
+      if (loadedColumnsRef.current.has(colId)) {
+        void fetchColumnOrders(colId, 0);
+      }
+    }
+  }, [fetchColumnOrders]);
+
+  /** Debounce column refetches without dropping earlier columns. */
+  const scheduleLoadedColumnRefresh = useCallback(
+    (columnId: string) => {
+      pendingColumnRefreshRef.current.add(columnId);
+      if (columnRefreshTimerRef.current) clearTimeout(columnRefreshTimerRef.current);
+      columnRefreshTimerRef.current = setTimeout(() => {
+        flushPendingColumnRefreshes();
+      }, 800);
+    },
+    [flushPendingColumnRefreshes]
+  );
 
   /**
    * Debounced refresh: re-fetches server metadata (column configs, etc.)
@@ -1654,11 +1681,8 @@ export function Board({
         // Re-fetch the affected column if it has been loaded already.
         const colId = row.column_id;
         if (colId && loadedColumnsRef.current.has(colId)) {
-          if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-          refreshTimerRef.current = setTimeout(() => {
-            void fetchColumnOrders(colId, 0);
-            flashToast("New order received");
-          }, 800);
+          flashToast("New order received");
+          scheduleLoadedColumnRefresh(colId);
         }
         return;
       }
@@ -1746,10 +1770,7 @@ export function Board({
               const order = boardOrdersRef.current.find((o) => o.id === orderId);
               const colId = order?.column_id;
               if (colId && loadedColumnsRef.current.has(colId)) {
-                if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-                refreshTimerRef.current = setTimeout(() => {
-                  void fetchColumnOrders(colId, 0);
-                }, 800);
+                scheduleLoadedColumnRefresh(colId);
                 return;
               }
             }
@@ -1774,9 +1795,11 @@ export function Board({
       cancelled = true;
       subscription.unsubscribe();
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      if (columnRefreshTimerRef.current) clearTimeout(columnRefreshTimerRef.current);
+      pendingColumnRefreshRef.current.clear();
       if (channel) supabase.removeChannel(channel);
     };
-  }, [tenantId, scheduleRefresh, fetchColumnOrders]);
+  }, [tenantId, scheduleRefresh, fetchColumnOrders, scheduleLoadedColumnRefresh]);
 
   // 20-second polling fallback for missed realtime events (column configs, etc.)
   useEffect(() => {

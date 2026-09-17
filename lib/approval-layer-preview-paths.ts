@@ -63,6 +63,22 @@ export type RespondLayerPreview = {
   layers: { id: string; name: string }[];
 };
 
+/** Same pictures as /respond SEE LAYERS — named OCGs, or composite if none. */
+export function layerPicsForJobTicket(
+  preview: Pick<RespondLayerPreview, "layers">
+): { layer: string; name: string }[] {
+  const named = preview.layers.filter(
+    (l) => !/^layer\s+\d+$/i.test(l.name.trim())
+  );
+  if (named.length === 0) {
+    return [{ layer: "composite", name: "Proof" }];
+  }
+  return named.map((l) => ({
+    layer: l.id,
+    name: l.name.trim() || "Layer",
+  }));
+}
+
 export function respondLayerPreviewUrl(
   token: string,
   orderId: string,

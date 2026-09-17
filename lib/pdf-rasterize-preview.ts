@@ -4,8 +4,8 @@ import { PDFDocument } from "pdf-lib";
 import { initPdfjsNode, pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
 
-const MAX_EDGE = 1400;
-const JPEG_QUALITY = 68;
+const MAX_EDGE = 1800;   // capped so even large-format files stay under ~1 MB
+const JPEG_QUALITY = 82; // good quality for job ticket review
 const TARGET_DPI = 150;
 
 function jpegFromCanvas(canvas: {

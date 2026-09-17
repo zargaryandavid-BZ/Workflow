@@ -8,6 +8,11 @@ import {
   type OrderExportSkuRow,
 } from "@/lib/button-automation-order-data";
 import { generateJobTicketPdf } from "@/lib/button-automation-pdf";
+import {
+  layerPicsForJobTicket,
+  layerPreviewObjectPath,
+  type RespondLayerPreview,
+} from "@/lib/approval-layer-preview-paths";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -15,15 +20,14 @@ export const maxDuration = 180;
 const BUCKET = "order-assets";
 
 /**
- * Load the composite layer-preview signed URL for each SKU.
- * Returns a map of skuId → signed URL (180 s TTL — enough to embed in ticket).
- * Returns an empty map when no approval proof has been generated yet.
+ * Signed URLs for the same named-layer pictures the customer sees on /respond.
+ * One list per SKU — the ticket draws them 2×2 on a single page.
  */
-async function loadCompositePreviewUrls(
+async function loadLayerPreviewImages(
   orderId: string,
   skus: { id: string }[]
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+): Promise<Map<string, { name: string; url: string }[]>> {
+  const out = new Map<string, { name: string; url: string }[]>();
   if (skus.length === 0) return out;
 
   try {
@@ -31,40 +35,44 @@ async function loadCompositePreviewUrls(
       "@/lib/approval-layer-previews"
     );
     const proof = await loadRespondCustomerProofForOrderId(orderId, skus as never);
-    const previews = proof.layerPreviews as Record<
-      string,
-      { fileId: string; rev: string; page: number }
-    >;
+    const previews = proof.layerPreviews as Record<string, RespondLayerPreview>;
     if (Object.keys(previews).length === 0) return out;
 
-    const { layerPreviewObjectPath } = await import(
-      "@/lib/approval-layer-preview-paths"
-    );
-
-    const pathToSku = new Map<string, string>();
+    const pathToSlot: Array<{ path: string; skuId: string; name: string }> = [];
     for (const [skuId, p] of Object.entries(previews)) {
-      pathToSku.set(
-        layerPreviewObjectPath(p.fileId, p.rev, p.page, "composite"),
-        skuId
-      );
+      const pics = layerPicsForJobTicket(p);
+      for (const pic of pics) {
+        pathToSlot.push({
+          path: layerPreviewObjectPath(p.fileId, p.rev, p.page, pic.layer),
+          skuId,
+          name: pic.name,
+        });
+      }
     }
+    if (pathToSlot.length === 0) return out;
 
     const admin = createAdminClient();
     const { data: signed } = await admin.storage
       .from(BUCKET)
-      .createSignedUrls([...pathToSku.keys()], 180);
+      .createSignedUrls(
+        pathToSlot.map((s) => s.path),
+        180
+      );
 
-    for (const row of signed ?? []) {
-      if (row.path && row.signedUrl && !row.error) {
-        const skuId = pathToSku.get(row.path);
-        if (skuId) out.set(skuId, row.signedUrl);
-      }
+    const byPath = new Map((signed ?? []).map((row) => [row.path, row]));
+    const bySku = new Map<string, { name: string; url: string }[]>();
+    for (const slot of pathToSlot) {
+      const row = byPath.get(slot.path);
+      if (!row?.signedUrl || row.error) continue;
+      const list = bySku.get(slot.skuId) ?? [];
+      list.push({ name: slot.name, url: row.signedUrl });
+      bySku.set(slot.skuId, list);
     }
+    return bySku;
   } catch (err) {
-    console.error("[generate-pdf] composite preview load failed:", err);
+    console.error("[generate-pdf] layer preview load failed:", err);
+    return out;
   }
-
-  return out;
 }
 
 export async function POST(
@@ -106,27 +114,22 @@ export async function POST(
 
   let pdfBuffer: Buffer;
   try {
-    // --- Fast path: use composite layer-preview JPEGs from Supabase ---
-    // These are the same artwork-only images already generated when the
-    // approval proof was built. Fetching them avoids downloading the raw
-    // Drive PDF and rasterizing it (which takes 40-120 s).
-    const compositeUrls = await loadCompositePreviewUrls(
-      orderId,
-      exportData.skus
-    );
+    const layerImages = await loadLayerPreviewImages(orderId, exportData.skus);
 
     let skuRows: OrderExportSkuRow[];
     const finalPdfBuffers: Buffer[] = [];
 
-    // Inject composite URLs when available; otherwise use the uploaded
-    // artwork images already on each skuRow. Both paths are fast — we no
-    // longer fall back to the slow Drive download + rasterization path.
     skuRows = exportData.skuRows.map((row) => {
-      const compositeUrl = compositeUrls.get(row.id);
-      if (compositeUrl) return { ...row, imageLinks: [compositeUrl] };
+      const layers = layerImages.get(row.id);
+      if (layers && layers.length > 0) {
+        return {
+          ...row,
+          imageFiles: layers,
+          imageLinks: layers.map((l) => l.url),
+        };
+      }
       return row;
     });
-    // No finalPdfBuffers → generateJobTicketPdf uses the imageLinks path.
 
     pdfBuffer = await generateJobTicketPdf(
       { ...exportData, skuRows },

@@ -6,7 +6,10 @@ import { Board } from "@/components/board/board";
 import { isPublicAppUrl } from "@/lib/notification-messages";
 import { appOrigin } from "@/lib/app-url";
 import { isSmsConfigured } from "@/lib/sms";
-import { loadAccountManagerOwners } from "@/lib/order-owners";
+import {
+  loadAccountManagerOwners,
+  type OrderOwnerOption,
+} from "@/lib/order-owners";
 import { loadButtonAutomations } from "@/lib/button-automations.server";
 import { isColumnVisibleToUser } from "@/lib/columns";
 import { loadFastActionButtons } from "@/lib/fast-action-buttons.server";
@@ -14,7 +17,10 @@ import { loadEnabledCardWarningRules } from "@/lib/card-warning-rules.server";
 import type {
   AutomationRule,
   BoardColumn,
+  ButtonAutomation,
   CardWarningRule,
+  Designer,
+  FastActionButton,
   Tag,
   CustomField,
   NotificationType,
@@ -30,9 +36,19 @@ import {
   countDesignerLoads,
   designerLoadColumnIds,
 } from "@/lib/designer-load";
-import type { Designer } from "@/lib/types";
 import { listTimeChips } from "@/lib/time-chips.server";
 import type { TimeChip } from "@/lib/time-chips";
+
+function boardAux<T>(
+  promise: Promise<T>,
+  fallback: T,
+  label: string
+): Promise<T> {
+  return promise.catch((err) => {
+    console.error(`[board] ${label}`, err);
+    return fallback;
+  });
+}
 
 export default async function BoardPage({
   searchParams,
@@ -49,11 +65,31 @@ export default async function BoardPage({
 
   // Start Round-2 fetches that have no Round-1 dependencies immediately,
   // so they run in parallel with Round 1 instead of waiting for it to finish.
-  const ownersPromise = loadAccountManagerOwners(supabase, tenantId);
-  const buttonAutomationsPromise = loadButtonAutomations(supabase, tenantId);
-  const fastActionButtonsPromise = loadFastActionButtons(supabase, tenantId);
-  const warningRulesPromise = loadEnabledCardWarningRules(supabase, tenantId);
-  const timeChipsPromise = listTimeChips(supabase, tenantId).catch(() => [] as TimeChip[]);
+  const ownersPromise = boardAux(
+    loadAccountManagerOwners(supabase, tenantId),
+    [] as OrderOwnerOption[],
+    "owners"
+  );
+  const buttonAutomationsPromise = boardAux(
+    loadButtonAutomations(supabase, tenantId),
+    [] as ButtonAutomation[],
+    "button-automations"
+  );
+  const fastActionButtonsPromise = boardAux(
+    loadFastActionButtons(supabase, tenantId),
+    [] as FastActionButton[],
+    "fast-action-buttons"
+  );
+  const warningRulesPromise = boardAux(
+    loadEnabledCardWarningRules(supabase, tenantId),
+    [] as CardWarningRule[],
+    "warning-rules"
+  );
+  const timeChipsPromise = boardAux(
+    listTimeChips(supabase, tenantId),
+    [] as TimeChip[],
+    "time-chips"
+  );
 
   // Fast parallel fetch — columns + config only, no orders.
   // Orders are loaded lazily per-column by the client Board component.

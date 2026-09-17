@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   layerPreviewCachePrefix,
+  layerPicsForJobTicket,
   respondLayerPreviewUrl,
   respondPreviewIndexPath,
   sanitizeLayerPreviewRev,
@@ -35,4 +36,25 @@ test("respondLayerPreviewUrl is token-gated through the asset route", () => {
   assert.match(href, /type=layer_preview/);
   assert.match(href, /page=2/);
   assert.match(href, /layer=composite/);
+});
+
+test("layerPicsForJobTicket uses named layers, not composite", () => {
+  const pics = layerPicsForJobTicket({
+    layers: [
+      { id: "w", name: "White" },
+      { id: "a", name: "ART WORK" },
+      { id: "x", name: "Layer 3" },
+    ],
+  });
+  assert.deepEqual(
+    pics.map((p) => p.name),
+    ["White", "ART WORK"]
+  );
+});
+
+test("layerPicsForJobTicket falls back to composite when only unnamed layers", () => {
+  const pics = layerPicsForJobTicket({
+    layers: [{ id: "1", name: "Layer 1" }],
+  });
+  assert.deepEqual(pics, [{ layer: "composite", name: "Proof" }]);
 });
