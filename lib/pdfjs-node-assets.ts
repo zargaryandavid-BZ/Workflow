@@ -15,19 +15,26 @@ export function pdfjsNodeAssetUrl(subdir: string): string {
 }
 
 /**
- * Disable the pdf.js worker in Node.js contexts.
+ * Configure pdfjs for Node.js server-side rendering.
  *
- * pdfjs-dist defaults to loading pdf.worker.mjs via a dynamic import whose
- * resolved path breaks inside the Next.js server bundle. In Node.js we don't
- * need a real Web Worker — setting workerSrc to an empty string tells pdfjs to
- * run the worker logic in-thread (the "fake worker" mode) without trying to
- * load an external file. Call this once before the first getDocument() call.
+ * When pdfjs-dist is a serverExternalPackage (not bundled by Next.js), the
+ * worker file exists at its real node_modules path. Point workerSrc there so
+ * pdfjs can set up its fake-worker shim without a broken dynamic import.
+ * Call this once before the first getDocument() call on each rasterize path.
  */
 export async function initPdfjsNode(): Promise<void> {
   const { GlobalWorkerOptions } = await import(
     "pdfjs-dist/legacy/build/pdf.mjs"
   );
-  GlobalWorkerOptions.workerSrc = "";
+  // Point to the real worker file in node_modules so pdfjs can resolve it.
+  // In Node.js, pdfjs never spawns a real thread — it uses its in-process
+  // "fake worker" — but it still needs workerSrc set to a non-empty string.
+  GlobalWorkerOptions.workerSrc = join(
+    pdfjsDistRoot(),
+    "legacy",
+    "build",
+    "pdf.worker.mjs"
+  );
 }
 
 /** Shared getDocument() options for every Node rasterize path. */
