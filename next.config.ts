@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "fontkit", "sharp", "@napi-rs/canvas"],
-  transpilePackages: ["pdfjs-dist"],
+  serverExternalPackages: ["pdfkit", "fontkit", "sharp", "@napi-rs/canvas", "pdfjs-dist"],
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

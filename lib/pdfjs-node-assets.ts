@@ -14,6 +14,22 @@ export function pdfjsNodeAssetUrl(subdir: string): string {
   return `${dir.replace(/\\/g, "/")}/`;
 }
 
+/**
+ * Disable the pdf.js worker in Node.js contexts.
+ *
+ * pdfjs-dist defaults to loading pdf.worker.mjs via a dynamic import whose
+ * resolved path breaks inside the Next.js server bundle. In Node.js we don't
+ * need a real Web Worker — setting workerSrc to an empty string tells pdfjs to
+ * run the worker logic in-thread (the "fake worker" mode) without trying to
+ * load an external file. Call this once before the first getDocument() call.
+ */
+export async function initPdfjsNode(): Promise<void> {
+  const { GlobalWorkerOptions } = await import(
+    "pdfjs-dist/legacy/build/pdf.mjs"
+  );
+  GlobalWorkerOptions.workerSrc = "";
+}
+
 /** Shared getDocument() options for every Node rasterize path. */
 export function pdfjsNodeGetDocumentOptions(data: Uint8Array) {
   return {

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { PDFDocument } from "pdf-lib";
-import { pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
+import { initPdfjsNode, pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
 
 const MAX_EDGE = 1400;
@@ -34,6 +34,7 @@ export async function rasterizePdfForJobTicket(
   g.ImageData ??= ImageData;
   g.Path2D ??= Path2D;
 
+  await initPdfjsNode();
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = Uint8Array.from(input);
   const loadingTask = getDocument(pdfjsNodeGetDocumentOptions(data));
