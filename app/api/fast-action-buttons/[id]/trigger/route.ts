@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
@@ -6,6 +6,8 @@ import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfi
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import type { Order } from "@/lib/types";
 import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
+
+export const maxDuration = 300;
 
 export async function POST(
   request: Request,
@@ -92,17 +94,42 @@ export async function POST(
     },
   });
 
-  // Fire notification rules linked to this button (fire-and-forget).
-  if (button.notification_rule_id) {
-    fireNotificationRules(
-      body.order_id,
-      button.destination_column_id,
-      tenantId
-    ).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[FastActionBtn] notification error:", message);
-    });
-  }
+  after(async () => {
+    try {
+      const { data: previewOrder } = await supabase
+        .from("orders")
+        .select("id, title, tenant_id, specs")
+        .eq("id", body.order_id)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (previewOrder) {
+        const { generateApprovalLayerPreviewsIfWaitingColumn } = await import(
+          "@/lib/approval-layer-previews"
+        );
+        await generateApprovalLayerPreviewsIfWaitingColumn(
+          previewOrder as Pick<Order, "id" | "title" | "tenant_id" | "specs">,
+          destCol
+        );
+      }
+    } catch (err: unknown) {
+      console.error(
+        "[FastActionBtn] approval layer previews:",
+        err instanceof Error ? err.message : err
+      );
+    }
+    if (button.notification_rule_id) {
+      try {
+        await fireNotificationRules(
+          body.order_id,
+          button.destination_column_id,
+          tenantId
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[FastActionBtn] notification error:", message);
+      }
+    }
+  });
 
   // Portal → Bazaar status (fire-and-forget).
   void (async () => {

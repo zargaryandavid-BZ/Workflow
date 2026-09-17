@@ -116,6 +116,15 @@ async function systemMoveOrder(
   }
 
   try {
+    const { generateApprovalLayerPreviewsIfWaitingColumn } = await import(
+      "@/lib/approval-layer-previews"
+    );
+    await generateApprovalLayerPreviewsIfWaitingColumn(moved, toColumn);
+  } catch (err) {
+    console.error("[idle-move] approval layer previews", err);
+  }
+
+  try {
     await fireNotificationRules(order.id, toColumn.id, order.tenant_id);
   } catch (err) {
     console.error("[idle-move] fireNotificationRules", err);

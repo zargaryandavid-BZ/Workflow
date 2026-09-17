@@ -356,6 +356,20 @@ export async function POST(request: Request) {
         );
       }
       try {
+        const { generateApprovalLayerPreviewsIfWaitingColumn } = await import(
+          "@/lib/approval-layer-previews"
+        );
+        await generateApprovalLayerPreviewsIfWaitingColumn(
+          movedOrder,
+          typedColumn
+        );
+      } catch (err: unknown) {
+        console.error(
+          "[move] approval layer previews failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
+      try {
         await fireNotificationRules(body.orderId!, body.toColumnId!, tenantId);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

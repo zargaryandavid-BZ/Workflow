@@ -4,7 +4,7 @@ import { notificationBlocksCustomerAssets } from "@/lib/notification-asset-acces
 import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import { skusForRespond } from "@/lib/respond-order";
 
-export const maxDuration = 180;
+export const maxDuration = 300;
 
 /**
  * Public (token) Drive file map for /respond. Kept off the HTML request so

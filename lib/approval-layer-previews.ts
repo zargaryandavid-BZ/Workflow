@@ -13,6 +13,7 @@ import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
 import { pdfPageCount } from "@/lib/append-pdf";
 import { skusForRespond } from "@/lib/respond-order";
 import { rasterizePdfLayerPreviews } from "@/lib/pdf-layer-preview";
+import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import {
   layerPreviewManifestPath,
   layerPreviewPageDir,
@@ -175,6 +176,16 @@ export function respondProofFromIndex(index: RespondPreviewIndex): {
   return { layerPreviews, finalPdfs };
 }
 
+function indexHasLayerPictures(index: RespondPreviewIndex): boolean {
+  if (!index.pages?.length) return false;
+  return Object.keys(respondProofFromIndex(index).layerPreviews).length > 0;
+}
+
+const generatingByOrderId = new Map<
+  string,
+  Promise<Record<string, RespondLayerPreview>>
+>();
+
 function previewIndexFromPack(
   packBySku: Record<string, { fileId: string; fileName: string; page?: number }>,
   manifest: LayerPreviewManifest,
@@ -193,8 +204,29 @@ function previewIndexFromPack(
 /**
  * Build (or reuse) small per-layer proof images for the order's Final PDF.
  * Print PDF on Drive is unchanged. Failures are thrown to the caller.
+ * Call this before email/SMS when entering Waiting Approval.
  */
+export async function generateApprovalLayerPreviewsIfWaitingColumn(
+  order: Pick<Order, "id" | "title" | "tenant_id" | "specs">,
+  column: { kind?: string | null; name?: string | null } | null | undefined
+): Promise<Record<string, RespondLayerPreview> | null> {
+  if (!isWaitingApprovalColumn(column)) return null;
+  return generateApprovalLayerPreviewsForOrder(order);
+}
+
 export async function generateApprovalLayerPreviewsForOrder(
+  order: Pick<Order, "id" | "title" | "tenant_id" | "specs">
+): Promise<Record<string, RespondLayerPreview>> {
+  const inflight = generatingByOrderId.get(order.id);
+  if (inflight) return inflight;
+  const work = generateApprovalLayerPreviewsForOrderUncached(order).finally(
+    () => generatingByOrderId.delete(order.id)
+  );
+  generatingByOrderId.set(order.id, work);
+  return work;
+}
+
+async function generateApprovalLayerPreviewsForOrderUncached(
   order: Pick<Order, "id" | "title" | "tenant_id" | "specs">
 ): Promise<Record<string, RespondLayerPreview>> {
   const admin = createAdminClient();
@@ -329,7 +361,7 @@ export async function loadApprovalLayerPreviewsForOrder(
   opts?: { generateIfMissing?: boolean }
 ): Promise<Record<string, RespondLayerPreview>> {
   const stored = await loadRespondPreviewIndex(order.id);
-  if (stored) {
+  if (stored && indexHasLayerPictures(stored)) {
     return respondProofFromIndex(stored).layerPreviews;
   }
 
@@ -355,7 +387,7 @@ export async function loadRespondCustomerProof(
   layerPreviews: Record<string, RespondLayerPreview>;
 }> {
   const stored = await loadRespondPreviewIndex(order.id);
-  if (stored) {
+  if (stored && indexHasLayerPictures(stored)) {
     const expanded = expandRespondPreviewIndex(stored, ticketSkus);
     const proof = respondProofFromIndex(expanded);
     return {
@@ -365,8 +397,8 @@ export async function loadRespondCustomerProof(
     };
   }
 
-  // Do not list Drive during the HTML request — that closed the Next.js
-  // stream ("Connection closed"). The client loads `/api/notifications/final-artwork`.
+  // Pictures missing: keep the page fast. /api/notifications/final-artwork
+  // generates in the background and the client retries.
   return {
     skus: ticketSkus,
     finalPdfs: {},
@@ -400,4 +432,118 @@ export async function loadRespondCustomerProofForOrderId(
     },
     ticketSkus
   );
+}
+
+export type WaitingApprovalPreviewResult = {
+  orderId: string;
+  title: string;
+  skus: number;
+  error?: string;
+};
+
+/**
+ * Rasterize Final PDFs for every live card in Waiting Approval, plus any
+ * order with an open customer_approval notification.
+ */
+export async function generateApprovalLayerPreviewsForWaitingOrders(
+  tenantId?: string
+): Promise<WaitingApprovalPreviewResult[]> {
+  const admin = createAdminClient();
+  let colQuery = admin
+    .from("board_columns")
+    .select("id, tenant_id, name, kind");
+  if (tenantId) colQuery = colQuery.eq("tenant_id", tenantId);
+  const { data: cols, error: colErr } = await colQuery;
+  if (colErr) throw new Error(colErr.message);
+
+  const waitingColIds = (cols ?? [])
+    .filter((c) =>
+      isWaitingApprovalColumn({
+        kind: (c as { kind?: string }).kind,
+        name: (c as { name?: string }).name,
+      })
+    )
+    .map((c) => c.id as string);
+
+  const byId = new Map<
+    string,
+    { id: string; title: string; tenant_id: string; specs: unknown }
+  >();
+
+  if (waitingColIds.length > 0) {
+    let oq = admin
+      .from("orders")
+      .select("id, title, tenant_id, specs")
+      .is("removed_at", null)
+      .in("column_id", waitingColIds);
+    if (tenantId) oq = oq.eq("tenant_id", tenantId);
+    const { data: waitingOrders, error } = await oq;
+    if (error) throw new Error(error.message);
+    for (const row of waitingOrders ?? []) {
+      byId.set(row.id as string, row as never);
+    }
+  }
+
+  let noteQuery = admin
+    .from("job_notifications")
+    .select("order_id, tenant_id")
+    .eq("type", "customer_approval")
+    .in("status", ["pending", "sent"]);
+  if (tenantId) noteQuery = noteQuery.eq("tenant_id", tenantId);
+  const { data: notes, error: noteErr } = await noteQuery;
+  if (noteErr) throw new Error(noteErr.message);
+
+  const extraIds = [
+    ...new Set(
+      (notes ?? [])
+        .map((n) => n.order_id as string)
+        .filter((id) => id && !byId.has(id))
+    ),
+  ];
+  if (extraIds.length > 0) {
+    let extraQ = admin
+      .from("orders")
+      .select("id, title, tenant_id, specs")
+      .is("removed_at", null)
+      .in("id", extraIds);
+    if (tenantId) extraQ = extraQ.eq("tenant_id", tenantId);
+    const { data: extraOrders, error } = await extraQ;
+    if (error) throw new Error(error.message);
+    for (const row of extraOrders ?? []) {
+      byId.set(row.id as string, row as never);
+    }
+  }
+
+  const results: WaitingApprovalPreviewResult[] = [];
+  for (const order of byId.values()) {
+    try {
+      const previews = await generateApprovalLayerPreviewsForOrder({
+        id: order.id,
+        title: String(order.title ?? ""),
+        tenant_id: order.tenant_id,
+        specs: (order.specs ?? {}) as Order["specs"],
+      });
+      results.push({
+        orderId: order.id,
+        title: String(order.title ?? ""),
+        skus: Object.keys(previews).length,
+      });
+      console.info(
+        `[approval-layer-previews] waiting ${order.title} → ${Object.keys(previews).length} SKUs`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[approval-layer-previews] waiting ${order.title} failed:`,
+        message
+      );
+      results.push({
+        orderId: order.id,
+        title: String(order.title ?? ""),
+        skus: 0,
+        error: message,
+      });
+    }
+  }
+  return results;
 }

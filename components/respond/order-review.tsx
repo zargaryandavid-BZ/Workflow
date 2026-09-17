@@ -320,7 +320,9 @@ function SkuArtworkBlock({
   showPdfLoadingBar?: boolean;
   onPdfDrawn?: () => void;
 }) {
-  const canShowPdf = Boolean(orderId && (finalPdf || layerPreview));
+  const canShowPdf = Boolean(
+    orderId && (layerPreview || (!pdfProofOnly && finalPdf))
+  );
   const pdfOn = canShowPdf;
   const [photoOnRoll, setPhotoOnRoll] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -331,7 +333,8 @@ function SkuArtworkBlock({
     if (pdfProofOnly) {
       return (
         <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Proof pictures are being prepared. Refresh this page in a minute.
+          Proof pictures are being prepared. This page will update when they
+          are ready — you do not need a new email.
         </p>
       );
     }
@@ -356,11 +359,10 @@ function SkuArtworkBlock({
             onPdfDrawn?.();
           }}
         />
-      ) : pdfOn && finalPdf && orderId && !pdfPending && !layerPreview ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Proof pictures are not ready. Staff must send the approval again so
-          the print file is converted to small pictures before you open this
-          link.
+      ) : pdfProofOnly && !layerPreview ? (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Proof pictures are being prepared. This page will update when they
+          are ready — you do not need a new email.
         </p>
       ) : null}
       {showUploads ? (
@@ -567,50 +569,63 @@ export function OrderReview({
       setPdfPending(false);
       return;
     }
-    const haveServerProof =
-      Object.keys(finalPdfs).length > 0 ||
+    const hasLayerPics =
       Object.keys(layerPreviewsProp).length > 0;
-    if ((pdfProofOnly || skipDrivePdf) && haveServerProof) {
-      setDrivePdfs(finalPdfs);
-      setLayerBySku(layerPreviewsProp);
-      setPdfPending(false);
-      return;
-    }
-    if (Object.keys(finalPdfs).length > 0) {
+    if (hasLayerPics) {
       setDrivePdfs(finalPdfs);
       setLayerBySku(layerPreviewsProp);
       setPdfPending(false);
       return;
     }
     let cancelled = false;
-    setPdfPending(true);
-    void fetch(
-      `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}`
-    )
-      .then(async (res) => {
-        const data = (await res.json()) as {
-          skus?: SkuItem[];
-          bySku?: Record<string, RespondFinalPdf>;
-          layerPreviews?: Record<string, RespondLayerPreview>;
-        };
-        if (cancelled) return;
-        if (res.ok && data.bySku) setDrivePdfs(data.bySku);
-        if (res.ok && Array.isArray(data.skus) && data.skus.length > 0) {
-          setDriveSkus(data.skus);
-        }
-        if (res.ok && data.layerPreviews) {
-          setLayerBySku(data.layerPreviews);
-          if (Object.keys(data.layerPreviews).length > 0) setPdfDrawn(true);
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setPdfPending(false);
-      });
+    let attempt = 0;
+    const maxAttempts = 6;
+    let retryTimer: number | undefined;
+
+    const run = () => {
+      if (cancelled) return;
+      setPdfPending(true);
+      void fetch(
+        `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}`
+      )
+        .then(async (res) => {
+          const data = (await res.json()) as {
+            skus?: SkuItem[];
+            bySku?: Record<string, RespondFinalPdf>;
+            layerPreviews?: Record<string, RespondLayerPreview>;
+          };
+          if (cancelled) return;
+          if (res.ok && data.bySku) setDrivePdfs(data.bySku);
+          if (res.ok && Array.isArray(data.skus) && data.skus.length > 0) {
+            setDriveSkus(data.skus);
+          }
+          const layers = data.layerPreviews ?? {};
+          if (res.ok && Object.keys(layers).length > 0) {
+            setLayerBySku(layers);
+            setPdfDrawn(true);
+            setPdfPending(false);
+            return true;
+          }
+          return false;
+        })
+        .catch(() => false)
+        .then((done) => {
+          if (cancelled || done) return;
+          attempt += 1;
+          if (attempt < maxAttempts) {
+            retryTimer = window.setTimeout(run, attempt === 1 ? 4000 : 8000);
+          } else {
+            setPdfPending(false);
+          }
+        });
+    };
+
+    run();
     return () => {
       cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [token, orderId, skipDrivePdf, pdfProofOnly]);
+  }, [token, orderId]);
 
   const reviewSkus = driveSkus;
   const reviewPdfs = Object.keys(drivePdfs).length > 0 ? drivePdfs : finalPdfs;

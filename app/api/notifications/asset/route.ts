@@ -237,7 +237,7 @@ export async function GET(request: Request) {
       const mb = Math.round(meta.size / (1024 * 1024));
       return NextResponse.json(
         {
-          error: `This PDF is ${mb} MB — too large to preview in the browser. Ask staff to send the approval again so proof pictures can be built first.`,
+          error: `This PDF is ${mb} MB — too large to open in the browser. Use the proof pictures on this page.`,
         },
         { status: 413 }
       );

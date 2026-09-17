@@ -545,6 +545,10 @@ export async function saveNotificationRequest(
   const autoSend = Boolean(rule);
 
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
+  if (params.type === "customer_approval") {
+    await prepareApprovalLayerPreviews(params.order);
+  }
+
   const { data: notification, error } = await client
     .from("job_notifications")
     .insert({
@@ -578,7 +582,6 @@ export async function saveNotificationRequest(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
-    await prepareApprovalLayerPreviews(params.order);
   }
 
   let emailSent = false;
@@ -706,6 +709,10 @@ export async function createNotification(
 ) {
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
 
+  if (params.type === "customer_approval") {
+    await prepareApprovalLayerPreviews(params.order);
+  }
+
   const { data: notification, error } = await client
     .from("job_notifications")
     .insert({
@@ -737,7 +744,6 @@ export async function createNotification(
     } catch (err) {
       console.error("[approval-snapshot] failed:", err);
     }
-    await prepareApprovalLayerPreviews(params.order);
   }
 
   const extraNotificationIds: string[] = [];
@@ -767,6 +773,14 @@ export async function createNotification(
       console.error("[approval-group] failed to load same-column siblings:", err);
     }
     for (const orderId of extraIds) {
+      const { data: extraOrder } = await client
+        .from("orders")
+        .select("*")
+        .eq("id", orderId)
+        .maybeSingle();
+      if (extraOrder) {
+        await prepareApprovalLayerPreviews(extraOrder as Order);
+      }
       const { data: extra, error: extraErr } = await client
         .from("job_notifications")
         .insert({
@@ -789,14 +803,6 @@ export async function createNotification(
         await snapshotApprovalFiles(client, extra.id as string);
       } catch (err) {
         console.error("[approval-snapshot] failed:", err);
-      }
-      const { data: extraOrder } = await client
-        .from("orders")
-        .select("*")
-        .eq("id", orderId)
-        .maybeSingle();
-      if (extraOrder) {
-        await prepareApprovalLayerPreviews(extraOrder as Order);
       }
     }
   }
