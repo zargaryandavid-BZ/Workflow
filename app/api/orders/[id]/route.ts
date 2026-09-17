@@ -766,13 +766,15 @@ export async function PATCH(
         .maybeSingle();
 
       if (tagRow && (tagRow as Tag).notify_enabled && order) {
-        const { data: customFields } = await supabase
-          .from("custom_fields")
-          .select("*")
-          .eq("tenant_id", tenantId)
-          .order("position", { ascending: true });
-
-        const fieldValues = await loadOrderFieldValueMap(supabase, id);
+        // Fetch custom fields and field values in parallel — neither depends on the other.
+        const [{ data: customFields }, fieldValues] = await Promise.all([
+          supabase
+            .from("custom_fields")
+            .select("*")
+            .eq("tenant_id", tenantId)
+            .order("position", { ascending: true }),
+          loadOrderFieldValueMap(supabase, id),
+        ]);
         const result = await sendTagNotifications({
           client: supabase,
           tenantId,

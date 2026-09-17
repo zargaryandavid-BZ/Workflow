@@ -1738,7 +1738,24 @@ export function Board({
             table: "job_notifications",
             filter: `tenant_id=eq.${tenantId}`,
           },
-          () => scheduleRefresh("job_notifications")
+          (payload: { new: Record<string, unknown> }) => {
+            if (draggingRef.current) return;
+            const orderId = payload.new.order_id as string | undefined;
+            if (orderId) {
+              // Only re-fetch the single column that contains this order.
+              const order = boardOrdersRef.current.find((o) => o.id === orderId);
+              const colId = order?.column_id;
+              if (colId && loadedColumnsRef.current.has(colId)) {
+                if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+                refreshTimerRef.current = setTimeout(() => {
+                  void fetchColumnOrders(colId, 0);
+                }, 800);
+                return;
+              }
+            }
+            // Fallback: order not in current board state — do a full refresh.
+            scheduleRefresh("job_notifications");
+          }
         )
         .subscribe();
     }

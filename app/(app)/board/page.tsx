@@ -47,6 +47,14 @@ export default async function BoardPage({
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
+  // Start Round-2 fetches that have no Round-1 dependencies immediately,
+  // so they run in parallel with Round 1 instead of waiting for it to finish.
+  const ownersPromise = loadAccountManagerOwners(supabase, tenantId);
+  const buttonAutomationsPromise = loadButtonAutomations(supabase, tenantId);
+  const fastActionButtonsPromise = loadFastActionButtons(supabase, tenantId);
+  const warningRulesPromise = loadEnabledCardWarningRules(supabase, tenantId);
+  const timeChipsPromise = listTimeChips(supabase, tenantId).catch(() => [] as TimeChip[]);
+
   // Fast parallel fetch — columns + config only, no orders.
   // Orders are loaded lazily per-column by the client Board component.
   const [columnsRes, fieldsRes, tagsRes, memberRes, rulesRes, webhookRes] =
@@ -134,63 +142,60 @@ export default async function BoardPage({
     .map((m) => m.user_id);
   const loadColIds = designerLoadColumnIds(allBoardColumns);
 
-  // Round 2: designers, owners, buttons, warnings, time chips — all parallel.
-  const [
-    designers,
-    owners,
-    buttonAutomations,
-    fastActionButtons,
-    warningRules,
-    timeChipsResult,
-  ] = await Promise.all([
-    (async (): Promise<Designer[]> => {
-      if (designerIds.length === 0) return [];
+  // Round 2: designers query (needs memberships + columns from Round 1).
+  // The other Round-2 fetches were already started before Round 1 above.
+  const designers = await (async (): Promise<Designer[]> => {
+    if (designerIds.length === 0) return [];
 
-      const [profilesRes, loadOrdersRes] = await Promise.all([
-        supabase.from("profiles").select("id, full_name").in("id", designerIds),
-        loadColIds.length > 0
-          ? supabase
-              .from("orders")
-              .select("column_id, specs")
-              .eq("tenant_id", tenantId)
-              .is("removed_at", null)
-              .in("column_id", loadColIds)
-          : Promise.resolve({ data: [] as { column_id: string; specs?: Record<string, unknown> | null }[] }),
-      ]);
+    const [profilesRes, loadOrdersRes] = await Promise.all([
+      supabase.from("profiles").select("id, full_name").in("id", designerIds),
+      loadColIds.length > 0
+        ? supabase
+            .from("orders")
+            .select("column_id, specs")
+            .eq("tenant_id", tenantId)
+            .is("removed_at", null)
+            .in("column_id", loadColIds)
+        : Promise.resolve({ data: [] as { column_id: string; specs?: Record<string, unknown> | null }[] }),
+    ]);
 
-      const nameById = new Map(
-        (
-          (profilesRes.data ?? []) as { id: string; full_name: string | null }[]
-        ).map((p) => [p.id, p.full_name])
-      );
-      const counts =
-        loadColIds.length > 0
-          ? countDesignerLoads(
-              designerIds,
-              (loadOrdersRes.data ?? []) as {
-                column_id: string;
-                specs?: Record<string, unknown> | null;
-              }[],
-              loadColIds
-            )
-          : new Map<string, { load: number; skuCount: number }>();
+    const nameById = new Map(
+      (
+        (profilesRes.data ?? []) as { id: string; full_name: string | null }[]
+      ).map((p) => [p.id, p.full_name])
+    );
+    const counts =
+      loadColIds.length > 0
+        ? countDesignerLoads(
+            designerIds,
+            (loadOrdersRes.data ?? []) as {
+              column_id: string;
+              specs?: Record<string, unknown> | null;
+            }[],
+            loadColIds
+          )
+        : new Map<string, { load: number; skuCount: number }>();
 
-      return designerIds.map((id) => {
-        const stats = counts.get(id);
-        return {
-          id,
-          name: nameById.get(id) ?? "Unnamed designer",
-          load: stats?.load ?? 0,
-          skuCount: stats?.skuCount ?? 0,
-        };
-      });
-    })(),
-    loadAccountManagerOwners(supabase, tenantId),
-    loadButtonAutomations(supabase, tenantId),
-    loadFastActionButtons(supabase, tenantId),
-    loadEnabledCardWarningRules(supabase, tenantId),
-    listTimeChips(supabase, tenantId).catch(() => [] as TimeChip[]),
-  ]);
+    return designerIds.map((id) => {
+      const stats = counts.get(id);
+      return {
+        id,
+        name: nameById.get(id) ?? "Unnamed designer",
+        load: stats?.load ?? 0,
+        skuCount: stats?.skuCount ?? 0,
+      };
+    });
+  })();
+
+  // Await the already-in-flight independent fetches started before Round 1.
+  const [owners, buttonAutomations, fastActionButtons, warningRules, timeChipsResult] =
+    await Promise.all([
+      ownersPromise,
+      buttonAutomationsPromise,
+      fastActionButtonsPromise,
+      warningRulesPromise,
+      timeChipsPromise,
+    ]);
 
   // Migration 0060 may not be applied yet — cards fall back to legacy chips.
   const timeChips = timeChipsResult;

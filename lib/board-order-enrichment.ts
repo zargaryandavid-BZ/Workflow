@@ -32,6 +32,9 @@ import { dieBoardStateByOrder } from "@/lib/die-requests.server";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import { orderGroupKey } from "@/lib/ready-to-ship-group";
 
+/** Module-level cache for Supabase signed URLs (1-hour expiry, reused across polls). */
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
 export interface BoardOrderEnrichment {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, BoardThumbnail[]>;
@@ -91,6 +94,7 @@ export async function enrichBoardOrders(
     ownerProfiles,
     designerProfiles,
     shippingRes,
+    dieState,
   ] =
     await Promise.all([
       supabase
@@ -130,16 +134,36 @@ export async function enrichBoardOrders(
         // catalog pic, not a shared Drive dieline/VDP thumbnail.
         const combined = [...assetRows, ...skuRows];
         const thumbs = await boardThumbnailsByOrder(combined, async (paths) => {
-          const { data: signed } = await supabase.storage
-            .from("order-assets")
-            .createSignedUrls(paths, 3600);
-          return new Map(
-            (
+          const now = Date.now();
+          const result = new Map<string, string>();
+          const toFetch: string[] = [];
+
+          for (const p of paths) {
+            const cached = signedUrlCache.get(p);
+            // Keep cached URL if it has more than 5 minutes remaining.
+            if (cached && cached.expiresAt > now + 5 * 60 * 1000) {
+              result.set(p, cached.url);
+            } else {
+              toFetch.push(p);
+            }
+          }
+
+          if (toFetch.length > 0) {
+            const { data: signed } = await supabase.storage
+              .from("order-assets")
+              .createSignedUrls(toFetch, 3600);
+            for (const s of (
               (signed ?? []) as { path: string | null; signedUrl: string }[]
-            )
-              .filter((s) => s.path)
-              .map((s) => [s.path as string, s.signedUrl])
-          );
+            ).filter((s) => s.path)) {
+              signedUrlCache.set(s.path as string, {
+                url: s.signedUrl,
+                expiresAt: now + 3600 * 1000,
+              });
+              result.set(s.path as string, s.signedUrl);
+            }
+          }
+
+          return result;
         });
         for (const order of orders) {
           thumbs[order.id] = preferCardImage(
@@ -179,6 +203,8 @@ export async function enrichBoardOrders(
         .select("order_id, status, client_choice, fedex_selection, created_at")
         .in("order_id", orderIds)
         .order("created_at", { ascending: false }),
+
+      dieBoardStateByOrder(supabase, orderIds),
     ]);
 
   const fieldValuesByOrder: Record<string, Record<string, unknown>> = {};
@@ -318,10 +344,7 @@ export async function enrichBoardOrders(
     }
   }
 
-  const { dieAlertByOrder, dieStatusByOrder } = await dieBoardStateByOrder(
-    supabase,
-    orderIds
-  );
+  const { dieAlertByOrder, dieStatusByOrder } = dieState;
 
   return {
     fieldValuesByOrder,

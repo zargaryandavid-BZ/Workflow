@@ -247,11 +247,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(empty);
     }
 
-    const enrichment = await enrichBoardOrders(supabase, orders);
-
-    // Designer queue rank (#N badge): only for Start / In Progress columns.
-    // Computed live so the badge works with zero stored data on any tenant.
-    await attachQueueRanks(supabase, tenantId, columnId, orders);
+    // Run enrichment and queue-rank in parallel — they touch different data.
+    const [enrichment] = await Promise.all([
+      enrichBoardOrders(supabase, orders),
+      // Designer queue rank (#N badge): only for Start / In Progress columns.
+      // Computed live so the badge works with zero stored data on any tenant.
+      attachQueueRanks(supabase, tenantId, columnId, orders),
+    ]);
 
     const response: ColumnOrdersResponse = {
       orders,
