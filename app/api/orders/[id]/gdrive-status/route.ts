@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { folderHasFiles, parseDriveIdFromUrl } from "@/lib/google-drive";
+import {
+  folderHasFiles,
+  parseDriveIdFromUrl,
+} from "@/lib/google-drive";
 import {
   applyResolvedDriveFolderUrls,
   loadOrderFinalDriveContext,
@@ -80,7 +83,8 @@ export async function GET(
     const resolvedDesignerId = resolved.designerUrl
       ? parseDriveIdFromUrl(resolved.designerUrl)
       : null;
-    const needPersistFinal = Boolean(resolvedFinalId) && resolvedFinalId !== storedArtId;
+    const needPersistFinal =
+      Boolean(resolvedFinalId) && resolvedFinalId !== storedArtId;
     const needPersistDesigner =
       Boolean(resolvedDesignerId) &&
       resolved.designerFromSeed &&
@@ -123,6 +127,20 @@ export async function GET(
       hasFiles = hasFiles || result.hasFiles;
       hasFinalPdf = hasFinalPdf || result.hasPdf;
       fileCount += result.fileCount;
+    }
+    // No live Final folder (often trashed) — a PDF sitting in the job folder
+    // is the production file.
+    if (!hasFinalPdf && designerCheckId) {
+      const jobRoot = await folderHasFiles(settings, designerCheckId, {
+        excludeChildIds: resolved.finalIds,
+        skipFinalProdChildren: true,
+        directOnly: true,
+      });
+      if (jobRoot.hasPdf) {
+        hasFiles = true;
+        hasFinalPdf = true;
+        fileCount += jobRoot.fileCount;
+      }
     }
     const hasPdf = hasFinalPdf || designerResult.hasPdf;
 

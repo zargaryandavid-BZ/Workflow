@@ -42,9 +42,12 @@ export async function GET(
     }
 
     const finalIds = loaded.resolved?.finalIds ?? [];
+    const fallbackDesigner =
+      finalIds.length === 0 ? loaded.resolved?.designerId : null;
     const result = await checkFinalFolderPdfPrintSpec(
       loaded.settings,
-      finalIds
+      fallbackDesigner ? [fallbackDesigner] : finalIds,
+      fallbackDesigner ? { directOnly: true } : undefined
     );
     return NextResponse.json(result);
   } catch (err) {

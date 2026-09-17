@@ -30,12 +30,13 @@ export const PDF_CHECK_UNCHECKED: PdfPrintCheckResult = {
 
 export async function checkFinalFolderPdfPrintSpec(
   settings: GdriveSettings,
-  finalIds: string[]
+  finalIds: string[],
+  opts?: { directOnly?: boolean }
 ): Promise<PdfPrintCheckResult> {
   if (finalIds.length === 0) return PDF_CHECK_UNCHECKED;
 
   try {
-    const latest = await findLatestPdfInFolders(settings, finalIds);
+    const latest = await findLatestPdfInFolders(settings, finalIds, opts);
     if (!latest) return PDF_CHECK_UNCHECKED;
 
     const client = proofsDriveClient(settings);

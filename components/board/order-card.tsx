@@ -1282,8 +1282,6 @@ export function OrderCard({
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                   </span>
                 ) : null}
-                <PdfSpecWarningBadge show={showPdfWarning} pdfCheck={pdfCheck} />
-                <NoProductionPdfBadge show={showNoProductionPdf} />
                 {isReprint ? (
                   <span
                     className="shrink-0 rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-amber-700"

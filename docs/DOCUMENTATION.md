@@ -992,7 +992,7 @@ Whether Drive folders for this order have files.
 | --- | --- |
 | **Auth** | Session + tenant |
 | **Response** | `{ hasFiles, hasDesignerFiles, hasPdf, hasFinalPdf, designerUrl, finalUrl }` |
-| **Notes** | `hasFiles` / `hasFinalPdf` = **Final production** only. `hasPdf` is true if Final **or** the Designer folder has a PDF (Artwork button). `hasDesignerFiles` = files in the Designer folder only (Final production subfolder is ignored). Opening Artwork or Request customer approval when Final has no PDF pops **No PDF file in production**. |
+| **Notes** | `hasFiles` / `hasFinalPdf` = **Final production** only (trashed folders are ignored). If there is no live Final folder, a PDF sitting in the job folder counts as production. `hasPdf` is true if Final **or** the Designer folder has a PDF (Artwork button). `hasDesignerFiles` = files in the Designer folder only (Final production subfolder is ignored). Opening Artwork or Request customer approval when Final has no PDF pops **No PDF file in production**. |
 
 ### `GET /api/orders/[id]/pdf-check`
 

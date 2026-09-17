@@ -417,9 +417,18 @@ function isDrivePdfFile(file: {
 export async function folderHasFiles(
   settings: GdriveSettings,
   folderId: string,
-  opts?: { excludeChildIds?: string[]; skipFinalProdChildren?: boolean }
+  opts?: {
+    excludeChildIds?: string[];
+    skipFinalProdChildren?: boolean;
+    /** Only files sitting in this folder — do not walk child folders. */
+    directOnly?: boolean;
+  }
 ): Promise<{ hasFiles: boolean; fileCount: number; hasPdf: boolean }> {
   if (!isGdriveConfigured(settings)) {
+    return { hasFiles: false, fileCount: 0, hasPdf: false };
+  }
+
+  if (!(await isLiveDriveFolder(settings, folderId))) {
     return { hasFiles: false, fileCount: 0, hasPdf: false };
   }
 
@@ -445,6 +454,10 @@ export async function folderHasFiles(
       fileCount: directFiles.length,
       hasPdf: directFiles.some((f) => isDrivePdfFile(f)),
     };
+  }
+
+  if (opts?.directOnly) {
+    return { hasFiles: false, fileCount: 0, hasPdf: false };
   }
 
   const excludeChildIds = new Set(opts?.excludeChildIds ?? []);
@@ -516,7 +529,8 @@ function pdfRefFromFile(file: {
  */
 export async function findLatestPdfInFolders(
   settings: GdriveSettings,
-  folderIds: string[]
+  folderIds: string[],
+  opts?: { directOnly?: boolean }
 ): Promise<DrivePdfRef | null> {
   if (!isGdriveConfigured(settings) || folderIds.length === 0) return null;
 
@@ -529,6 +543,7 @@ export async function findLatestPdfInFolders(
   const found: DrivePdfRef[] = [];
 
   for (const folderId of uniqueIds) {
+    if (!(await isLiveDriveFolder(settings, folderId))) continue;
     const listing = await drive.files.list({
       q: [`'${folderId}' in parents`, "trashed=false"].join(" and "),
       fields:
@@ -545,6 +560,7 @@ export async function findLatestPdfInFolders(
     }
 
     if (found.length > directCount) continue;
+    if (opts?.directOnly) continue;
 
     const childFolders = entries.filter(
       (f) => f.mimeType === FOLDER_MIME && f.id

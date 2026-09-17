@@ -314,10 +314,10 @@ export async function getDriveFolderMeta(
 ): Promise<DriveFolderMeta | null> {
   const meta = await drive.files.get({
     fileId,
-    fields: "id,name,parents,webViewLink",
+    fields: "id,name,parents,webViewLink,trashed",
     supportsAllDrives: true,
   });
-  if (!meta.data.id) return null;
+  if (!meta.data.id || meta.data.trashed) return null;
   return {
     id: meta.data.id,
     name: meta.data.name || "folder",

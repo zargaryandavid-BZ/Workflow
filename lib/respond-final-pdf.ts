@@ -9,6 +9,7 @@ import {
   getDriveFileMeta,
   isFinalProdFolderName,
   listChildFolders,
+  listProofFiles,
   listProofFilesRecursive,
   proofsDriveClient,
   type ProofFile,
@@ -224,6 +225,10 @@ async function fetchRespondArtworkPackUncached(
       orderFolderNeedles(order)
     );
     files = await listPdfFilesInFolders(client, resolved.finalIds);
+    if (files.length === 0 && resolved.designerId) {
+      const root = await listProofFiles(client, resolved.designerId);
+      files = root.filter((f) => isPdfFile(f));
+    }
     if (files.length === 0 && opts?.includeDesignerFallback) {
       const designerFolders = new Set<string>();
       if (resolved.designerId) designerFolders.add(resolved.designerId);
