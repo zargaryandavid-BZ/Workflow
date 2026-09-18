@@ -3,18 +3,23 @@ import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
   DESIGNER_FIELD_NAME,
-} from "@/lib/constants";
+} from "./constants.ts";
 import {
   formatFieldDisplayValue,
   isEmptyFieldValue,
+  isOrderSizeDimensionField,
   orderFormFieldLabel,
+  orderSizeDimensionRank,
   ORDER_FORM_PRINT_FIELD_NAMES,
-} from "@/lib/order-form";
-import { normalizeSkus, type SkuItem } from "@/lib/skus";
+} from "./order-form.ts";
+import { parseSpecDisplay } from "./product-spec-options.ts";
+import { normalizeSkus, type SkuItem } from "./skus.ts";
 
 export interface RespondOrderRow {
   label: string;
   value: string;
+  /** Width / Height / Depth — one 3-column row on `/respond`. */
+  group?: "size";
 }
 
 export interface RespondOrderAsset {
@@ -38,6 +43,47 @@ function pickFieldInsensitive(
   return null;
 }
 
+function respondRowForField(name: string, value: string): RespondOrderRow {
+  return {
+    label: orderFormFieldLabel(name),
+    value,
+    group: isOrderSizeDimensionField(name) ? "size" : undefined,
+  };
+}
+
+function shouldSkipDieCut(
+  name: string,
+  dieValue: string | null
+): boolean {
+  return name.trim().toLowerCase() === "die cut" && Boolean(dieValue);
+}
+
+/** Size fields in one block; other rows keep print-field order around them. */
+export function partitionRespondOrderRows(rows: RespondOrderRow[]): {
+  before: RespondOrderRow[];
+  size: RespondOrderRow[];
+  after: RespondOrderRow[];
+} {
+  const size = rows
+    .filter((row) => row.group === "size")
+    .sort(
+      (a, b) =>
+        orderSizeDimensionRank(a.label) - orderSizeDimensionRank(b.label)
+    );
+  const before: RespondOrderRow[] = [];
+  const after: RespondOrderRow[] = [];
+  let seenSize = false;
+  for (const row of rows) {
+    if (row.group === "size") {
+      seenSize = true;
+      continue;
+    }
+    if (!seenSize) before.push(row);
+    else after.push(row);
+  }
+  return { before, size, after };
+}
+
 /** Build labeled order rows mirroring the staff order detail form. */
 export function buildRespondOrderRows(
   description: string | null,
@@ -46,19 +92,27 @@ export function buildRespondOrderRows(
 ): RespondOrderRow[] {
   const rows: RespondOrderRow[] = [];
   const usedKeys = new Set<string>();
+  const usedLabels = new Set<string>();
+  const dieValue = pickFieldInsensitive(fields, "Die");
+
+  const pushRow = (name: string, value: string) => {
+    const row = respondRowForField(name, value);
+    rows.push(row);
+    usedKeys.add(name.toLowerCase());
+    usedLabels.add(row.label.trim().toLowerCase());
+  };
 
   for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
     if (name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase()) continue;
+    if (shouldSkipDieCut(name, dieValue)) continue;
     const value = pickFieldInsensitive(fields, name);
-    if (value) {
-      rows.push({ label: orderFormFieldLabel(name), value });
-      usedKeys.add(name.toLowerCase());
-    }
+    if (value) pushRow(name, value);
   }
 
   for (const [name, raw] of Object.entries(fields)) {
     const key = name.toLowerCase();
     if (usedKeys.has(key)) continue;
+    if (shouldSkipDieCut(name, dieValue)) continue;
     if (
       name === CUSTOMER_NAME_FIELD_NAME ||
       name === CUSTOMER_CONTACT_FIELD_NAME ||
@@ -70,10 +124,22 @@ export function buildRespondOrderRows(
       continue;
     }
     if (isEmptyFieldValue(raw)) continue;
+    pushRow(name, formatFieldDisplayValue(raw));
+  }
+
+  for (const specRow of parseSpecDisplay(specs.spec_display)) {
+    const labelKey = specRow.label.trim().toLowerCase();
+    const nameKey = specRow.key.trim().toLowerCase();
+    if (usedLabels.has(labelKey)) continue;
+    if (nameKey && usedKeys.has(nameKey)) continue;
+    if (shouldSkipDieCut(specRow.label, dieValue)) continue;
     rows.push({
-      label: orderFormFieldLabel(name),
-      value: formatFieldDisplayValue(raw),
+      label: specRow.label,
+      value: specRow.value,
+      group: isOrderSizeDimensionField(specRow.label) ? "size" : undefined,
     });
+    usedLabels.add(labelKey);
+    if (nameKey) usedKeys.add(nameKey);
   }
 
   const designerName =
@@ -124,7 +190,7 @@ export type RespondFinalPdf = {
   page?: number;
 };
 
-export { sharedPdfPagesForSkus } from "@/lib/shared-pdf-pages";
+export { sharedPdfPagesForSkus } from "./shared-pdf-pages.ts";
 
 export function respondFinalPdfUrl(
   token: string,

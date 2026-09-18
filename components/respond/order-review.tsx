@@ -5,6 +5,7 @@ import { Check, Download, FileText, X } from "lucide-react";
 import {
   collectSkuApprovalImages,
   isRespondImageAsset,
+  partitionRespondOrderRows,
   respondAssetUrl,
   respondSkuImageUrl,
   type RespondOrderAsset,
@@ -64,6 +65,48 @@ interface OrderReviewProps {
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
+}
+
+function OrderDetailRows({ rows }: { rows: RespondOrderRow[] }) {
+  const { before, size, after } = partitionRespondOrderRows(rows);
+  return (
+    <div className="space-y-1.5">
+      {before.length > 0 ? (
+        <dl className="grid grid-cols-2 gap-1.5">
+          {before.map((row) => (
+            <OrderDetailCell key={row.label} row={row} />
+          ))}
+        </dl>
+      ) : null}
+      {size.length > 0 ? (
+        <dl className="grid grid-cols-3 gap-1.5">
+          {size.map((row) => (
+            <OrderDetailCell key={row.label} row={row} />
+          ))}
+        </dl>
+      ) : null}
+      {after.length > 0 ? (
+        <dl className="grid grid-cols-2 gap-1.5">
+          {after.map((row) => (
+            <OrderDetailCell key={row.label} row={row} />
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+function OrderDetailCell({ row }: { row: RespondOrderRow }) {
+  return (
+    <div className="min-w-0 overflow-hidden rounded-md border border-slate-100 bg-slate-50 px-2 py-1">
+      <dt className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+        {row.label}
+      </dt>
+      <dd className="mt-0 min-w-0 leading-tight">
+        <OrderRowValue label={row.label} value={row.value} />
+      </dd>
+    </div>
+  );
 }
 
 function OrderRowValue({
@@ -662,23 +705,7 @@ export function OrderReview({
         {heading?.trim() || "Order details"}
       </p>
 
-      {hasRows ? (
-        <dl className="grid grid-cols-2 gap-1.5">
-          {rows.map((row) => (
-            <div
-              key={row.label}
-              className="min-w-0 overflow-hidden rounded-md border border-slate-100 bg-slate-50 px-2 py-1"
-            >
-              <dt className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
-                {row.label}
-              </dt>
-              <dd className="mt-0 min-w-0 leading-tight">
-                <OrderRowValue label={row.label} value={row.value} />
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
+      {hasRows ? <OrderDetailRows rows={rows} /> : null}
 
       {hasSkus ? (
         <div>

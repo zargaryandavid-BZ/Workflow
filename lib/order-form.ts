@@ -1,6 +1,6 @@
-import type { CustomField } from "@/lib/types";
-import { isPastDateInputValue } from "@/lib/utils";
-import { skuCountFromSpecs, skuQtySumFromSpecs } from "@/lib/skus";
+import type { CustomField } from "./types.ts";
+import { isPastDateInputValue } from "./utils.ts";
+import { skuCountFromSpecs, skuQtySumFromSpecs } from "./skus.ts";
 import {
   ARTWORK_FIELD_NAME,
   CUSTOMER_CONTACT_FIELD_NAME,
@@ -9,7 +9,7 @@ import {
   ORDER_QTY_FIELD_ALIASES,
   ORDER_QTY_FIELD_NAME,
   QUANTITY_FIELD_NAME,
-} from "@/lib/constants";
+} from "./constants.ts";
 
 /** Print fields after customer / designer, in display order on create + edit forms. */
 export const ORDER_FORM_PRINT_FIELD_NAMES = [
@@ -26,6 +26,7 @@ export const ORDER_FORM_PRINT_FIELD_NAMES = [
   "Die",
   "Width",
   "Height",
+  "Depth",
   "Finished Size",
   "Application",
   "Die Cut",
@@ -59,6 +60,20 @@ export const ORDER_FORM_ALWAYS_REQUIRED = [
 
 export function orderFormFieldLabel(name: string): string {
   return ORDER_FORM_FIELD_LABELS[name] ?? name;
+}
+
+/** Width / Height / Depth (Length counts as depth) — one row on the order form. */
+export function isOrderSizeDimensionField(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n === "width" || n === "height" || n === "depth" || n === "length";
+}
+
+export function orderSizeDimensionRank(name: string): number {
+  const n = name.trim().toLowerCase();
+  if (n === "width") return 0;
+  if (n === "height") return 1;
+  if (n === "depth" || n === "length") return 2;
+  return 99;
 }
 
 export function isEmptyFieldValue(v: unknown): boolean {

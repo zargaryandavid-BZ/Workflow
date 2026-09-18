@@ -3,6 +3,8 @@
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "@/components/board/card-timer-control";
 import { BoardWorkerChip } from "@/components/board/board-worker-chip";
+import { CardDesignerWorkedBadge } from "@/components/board/card-designer-worked-badge";
+import { designerWorkedDisplaySeconds } from "@/lib/card-designer-worked";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import type { Role } from "@/lib/types";
 
@@ -25,13 +27,27 @@ export function OrderTimerButton({
 }) {
   const activeTimer = useActiveTimer();
   if (!orderId) return null;
-  if (columnStopsWorkTimer({ kind: columnKind, name: columnName })) {
-    return null;
-  }
   const timer = activeTimer.forOrder(orderId);
   const boardTimer = activeTimer.boardActiveForOrder(orderId);
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
   const canControlOthers = role === "admin";
+  const designerWorkedSeconds = designerWorkedDisplaySeconds({
+    boardTotal: activeTimer.boardWorkedTotalForOrder(orderId),
+    myTotal: activeTimer.workedTotalForOrder(orderId),
+    liveElapsed: timer?.running
+      ? timer.elapsedSeconds
+      : otherWorker?.running
+        ? otherWorker.elapsedSeconds
+        : 0,
+  });
+  if (columnStopsWorkTimer({ kind: columnKind, name: columnName })) {
+    return (
+      <CardDesignerWorkedBadge
+        orderId={orderId}
+        seconds={designerWorkedSeconds}
+      />
+    );
+  }
 
   if (otherWorker) {
     return (

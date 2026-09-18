@@ -23,7 +23,7 @@ import {
 import { withCanonicalDesignerName } from "@/lib/order-designer";
 import { preserveDesignTaskUrl } from "@/lib/design-task";
 import { preserveCardImage } from "@/lib/card-image";
-import { preserveFinishedCustomerSms } from "@/lib/finished-order-sms";
+import { preservePriorityScore } from "@/lib/order-priority-score";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
   canEditOrderDetails,
@@ -515,22 +515,26 @@ export async function PATCH(
         return NextResponse.json({ error: skuError }, { status: 400 });
       }
       nextSpecs = {
+        ...existingSpecs,
         ...body.specs,
         skus: prepareSkusForSave(normalizedSkus),
       };
     } else {
-      nextSpecs = body.specs;
+      nextSpecs = { ...existingSpecs, ...body.specs };
     }
     updates.specs = staffDue
       ? mergeDueSpecsIntoOrderSpecs(nextSpecs, staffDue.specs)
       : nextSpecs;
-    updates.specs = preserveFinishedCustomerSms(
+    updates.specs = preservePriorityScore(
       existingSpecs,
-      preserveCardImage(
+      preserveFinishedCustomerSms(
         existingSpecs,
-        preserveDesignTaskUrl(
+        preserveCardImage(
           existingSpecs,
-          updates.specs as Record<string, unknown>
+          preserveDesignTaskUrl(
+            existingSpecs,
+            updates.specs as Record<string, unknown>
+          )
         )
       )
     );

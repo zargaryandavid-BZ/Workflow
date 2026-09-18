@@ -86,6 +86,8 @@ import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
 import { BoardWorkerChip } from "./board-worker-chip";
+import { CardDesignerWorkedBadge } from "./card-designer-worked-badge";
+import { designerWorkedDisplaySeconds } from "@/lib/card-designer-worked";
 import {
   getActiveWarning,
   CARD_WARNING_BORDER_COLORS,
@@ -1053,6 +1055,15 @@ export function OrderCard({
   const timerRunning =
     !timersOff &&
     ((orderTimer?.running ?? false) || (otherWorker?.running ?? false));
+  const designerWorkedSeconds = designerWorkedDisplaySeconds({
+    boardTotal: activeTimer.boardWorkedTotalForOrder(order.id),
+    myTotal: workedSeconds,
+    liveElapsed: orderTimer?.running
+      ? orderTimer.elapsedSeconds
+      : otherWorker?.running
+        ? otherWorker.elapsedSeconds
+        : 0,
+  });
 
   return (
     <div
@@ -1089,7 +1100,7 @@ export function OrderCard({
       data-order-id={order.id}
     >
       {/* padded content wrapper */}
-      <div className="px-3 py-3.5">
+      <div className={cn("px-3 py-3.5", designerWorkedSeconds > 0 && "pr-[5.75rem]")}>
       {timersOff ? null : otherWorker ? (
         <BoardWorkerChip
           workerName={otherWorker.workerName}
@@ -1117,20 +1128,26 @@ export function OrderCard({
           onStop={() => orderTimer && void activeTimer.stop(orderTimer.entry.id)}
         />
       )}
-      {emergencySeverity ? (
-        <span
-          className="absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full ring-2 ring-white"
-          style={{ backgroundColor: EMERGENCY_SEVERITY_BORDER[emergencySeverity] }}
-          title={`${EMERGENCY_SEVERITY_LABEL[emergencySeverity]}${
-            emergencyReasons.length ? " — " + emergencyReasons.join(" · ") : ""
-          }`}
+      <div className="absolute right-2 top-1.5 z-10 flex items-center gap-1.5">
+        <CardDesignerWorkedBadge
+          orderId={order.id}
+          seconds={designerWorkedSeconds}
         />
-      ) : activeWarning ? (
-        <span
-          className={`warning-dot-${activeWarning.rule.color} absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full`}
-          title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
-        />
-      ) : null}
+        {emergencySeverity ? (
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white"
+            style={{ backgroundColor: EMERGENCY_SEVERITY_BORDER[emergencySeverity] }}
+            title={`${EMERGENCY_SEVERITY_LABEL[emergencySeverity]}${
+              emergencyReasons.length ? " — " + emergencyReasons.join(" · ") : ""
+            }`}
+          />
+        ) : activeWarning ? (
+          <span
+            className={`warning-dot-${activeWarning.rule.color} h-2.5 w-2.5 shrink-0 rounded-full`}
+            title={`${activeWarning.rule.name}: card hasn't moved in ${activeWarning.daysSinceMoved} working day${activeWarning.daysSinceMoved === 1 ? "" : "s"}`}
+          />
+        ) : null}
+      </div>
       {/* Top row: thumbnail + header info */}
       <div className="flex items-start gap-3">
         {thumbnails && thumbnails.length > 0 ? (

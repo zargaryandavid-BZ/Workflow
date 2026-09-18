@@ -64,8 +64,8 @@ export function customerPrioritySpecsPatch(
 ): Record<string, unknown> {
   const next = { ...(existingSpecs ?? {}) };
   if (score == null) {
-    delete next.priority_score;
-    delete next.priority_source;
+    next.priority_score = null;
+    next.priority_source = null;
   } else {
     next.priority_score = score;
     next.priority_source = "customer";
@@ -80,11 +80,40 @@ export function manualPrioritySpecsPatch(
 ): Record<string, unknown> {
   const next = { ...(existingSpecs ?? {}) };
   if (score == null) {
-    delete next.priority_score;
-    delete next.priority_source;
+    next.priority_score = null;
+    next.priority_source = null;
   } else {
     next.priority_score = score;
     next.priority_source = "manual";
   }
   return next;
+}
+
+/**
+ * Keep board priority when a specs PATCH omits it (designer, reprint, lock,
+ * ticket save). Explicit `priority_score: null` still clears it.
+ */
+export function preservePriorityScore(
+  existing: Record<string, unknown>,
+  next: Record<string, unknown>
+): Record<string, unknown> {
+  if (Object.prototype.hasOwnProperty.call(next, "priority_score")) {
+    const score = parsePriorityScore(next.priority_score);
+    if (score != null) return next;
+    const out = { ...next };
+    delete out.priority_score;
+    delete out.priority_source;
+    return out;
+  }
+  const prevScore = parsePriorityScore(existing.priority_score);
+  if (prevScore == null) return next;
+  const out: Record<string, unknown> = {
+    ...next,
+    priority_score: prevScore,
+  };
+  if (!Object.prototype.hasOwnProperty.call(next, "priority_source")) {
+    const source = prioritySourceFromSpecs(existing);
+    if (source) out.priority_source = source;
+  }
+  return out;
 }

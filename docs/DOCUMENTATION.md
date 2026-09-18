@@ -1590,7 +1590,7 @@ Staff UI for customer approval notifications: status, send/resend Email or SMS (
 | Component | Path | Role |
 | --- | --- | --- |
 | `CreateOrderModal` | `create-order-modal.tsx` | New order form |
-| `OrderFormBody` | `order-form-body.tsx` | Shared create/edit form |
+| `OrderFormBody` | `order-form-body.tsx` | Shared create/edit form. Print fields follow `ORDER_FORM_PRINT_FIELD_NAMES` (`lib/order-form.ts`), including **Depth** after Height. Width / Height / Depth render on one 3-column row; other print fields stay 2-column. Hide-empty also drops **Die Cut** when **Die** is filled. |
 | `SkuEditor` | `sku-editor.tsx` | SKU rows + qty |
 | `SkuArtworkCell` | `sku-artwork-cell.tsx` | Per-SKU artwork thumbnail/upload |
 | `CustomFieldInput` | `custom-field-input.tsx` | Renders one custom field; **Roll Direction** / **Position** uses the pictured 1-Top…4-Left dropdown |
@@ -1652,7 +1652,7 @@ Public server page for `/respond/[token]`. Loads notification via `get_notificat
 
 ### `OrderReview` — `components/respond/order-review.tsx`
 
-Read-only order summary for customers: meta chips, SKU table, artwork. A multilayer PDF is always shown when present (Final production first, then the Designer folder if Final has no PDF). **PDF page N is SKU N** (names are ignored). When staff send a customer approval, Workflow rasterizes that PDF into small per-layer PNGs (plus a composite JPEG) in the `order-assets` bucket, including print files up to ~800 MB. Dropping a card into Waiting Approval does the same. `/respond` loads those images and **SEE LAYERS** toggles the stack — the browser does not download the print PDF. If previews are missing, `/api/notifications/final-artwork` generates them and the page retries until they appear. The photo **Artwork** gallery and the static “Layers & line colors” key are hidden when that PDF exists. Asset URLs still go through `/api/notifications/asset` (`type=layer_preview`). Shared helper: `sharedPdfPagesForSkus` / `finalPdfOcgView` (`lib/shared-pdf-pages.ts`), also used by the board **Artwork** popup (`FinalArtworkModal`).
+Read-only order summary for customers: meta chips, SKU table, artwork. Order details use `buildRespondOrderRows` (`lib/respond-order.ts`) in staff print-field order, including **Depth**, and hide **Die Cut** when **Die** is set. Width / Height / Depth share one 3-column row. A multilayer PDF is always shown when present (Final production first, then the Designer folder if Final has no PDF). **PDF page N is SKU N** (names are ignored). When staff send a customer approval, Workflow rasterizes that PDF into small per-layer PNGs (plus a composite JPEG) in the `order-assets` bucket, including print files up to ~800 MB. Dropping a card into Waiting Approval does the same. `/respond` loads those images and **SEE LAYERS** toggles the stack — the browser does not download the print PDF. If previews are missing, `/api/notifications/final-artwork` generates them and the page retries until they appear. The photo **Artwork** gallery and the static “Layers & line colors” key are hidden when that PDF exists. Asset URLs still go through `/api/notifications/asset` (`type=layer_preview`). Shared helper: `sharedPdfPagesForSkus` / `finalPdfOcgView` (`lib/shared-pdf-pages.ts`), also used by the board **Artwork** popup (`FinalArtworkModal`).
 
 ---
 

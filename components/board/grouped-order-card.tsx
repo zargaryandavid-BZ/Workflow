@@ -35,6 +35,9 @@ import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 import { isRushOrder } from "@/lib/order-rush";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { MoveMenuSections } from "./move-menu-sections";
+import { CardDesignerWorkedBadge } from "./card-designer-worked-badge";
+import { designerWorkedDisplaySeconds } from "@/lib/card-designer-worked";
+import { useActiveTimer } from "@/components/time/active-timer-context";
 import {
   GroupDueDatesModal,
   type GroupDueDateUpdate,
@@ -161,6 +164,23 @@ export function GroupedOrderCard({
   const repFieldValues = fieldValuesByOrder[rep.id] ?? {};
   const customerName = customerNameFromOrder(rep, repFieldValues, customFields);
   const displayCustomerName = customerName === "there" ? null : customerName;
+  const activeTimer = useActiveTimer();
+  const groupWorkedSeconds = orders.reduce((sum, o) => {
+    const timer = activeTimer.forOrder(o.id);
+    const boardTimer = activeTimer.boardActiveForOrder(o.id);
+    return (
+      sum +
+      designerWorkedDisplaySeconds({
+        boardTotal: activeTimer.boardWorkedTotalForOrder(o.id),
+        myTotal: activeTimer.workedTotalForOrder(o.id),
+        liveElapsed: timer?.running
+          ? timer.elapsedSeconds
+          : boardTimer?.running
+            ? boardTimer.elapsedSeconds
+            : 0,
+      })
+    );
+  }, 0);
 
   const earliestDue =
     orders
@@ -288,6 +308,10 @@ export function GroupedOrderCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            <CardDesignerWorkedBadge
+              orderId={rep.id}
+              seconds={groupWorkedSeconds}
+            />
             {canDrag ? (
               <button
                 type="button"

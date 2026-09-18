@@ -27,8 +27,10 @@ import { normalizeCustomerContact } from "@/lib/customers";
 import {
   findOrderFormField,
   isEmptyFieldValue,
+  isOrderSizeDimensionField,
   isValidCustomerContact,
   orderFormFieldLabel,
+  orderSizeDimensionRank,
   formatFieldDisplayValue,
   resolveOrderFormFields,
   validateDueDate,
@@ -643,6 +645,57 @@ export function OrderFormBody({
       }
       return true;
     });
+  const sizePrintFields = visiblePrintFields
+    .filter((f) => isOrderSizeDimensionField(f.name))
+    .sort(
+      (a, b) =>
+        orderSizeDimensionRank(a.name) - orderSizeDimensionRank(b.name)
+    );
+  const otherPrintFields = visiblePrintFields.filter(
+    (f) => !isOrderSizeDimensionField(f.name)
+  );
+
+  function renderPrintField(field: CustomField) {
+    const filteredOptions =
+      field.field_type === "select"
+        ? getFilteredOptions(field, fieldValues, fieldLinks)
+        : uniqueOptions(field.options);
+    const current = fieldValues[field.id];
+    let optionsWithCurrent = filteredOptions;
+    if (field.field_type === "select" && current != null && current !== "") {
+      if (isMultiSelectField(field)) {
+        const parts = parseMultiSelectValue(current, filteredOptions);
+        const extras = parts.filter((p) => !filteredOptions.includes(p));
+        if (extras.length > 0) {
+          optionsWithCurrent = uniqueOptions([...filteredOptions, ...extras]);
+        }
+      } else if (
+        typeof current === "string" &&
+        !filteredOptions.includes(current)
+      ) {
+        optionsWithCurrent = uniqueOptions([current, ...filteredOptions]);
+      }
+    }
+
+    return (
+      <CustomFieldInput
+        key={field.id}
+        field={{
+          ...field,
+          name: field.name,
+          options: optionsWithCurrent,
+        }}
+        label={
+          field.name.toLowerCase() === "die cut" && field.field_type === "text"
+            ? "Die"
+            : orderFormFieldLabel(field.name)
+        }
+        value={current}
+        onChange={(v) => handleLinkedFieldChange(field.id, v)}
+        readOnly={readOnly}
+      />
+    );
+  }
 
   /** Prefer field_links for Category→Product when that link exists. */
   const productOptionsOverride = (() => {
@@ -1190,60 +1243,15 @@ export function OrderFormBody({
         />
         )}
 
-        {!hidePrintCustomFields && visiblePrintFields.length > 0 ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {visiblePrintFields.map((field) => {
-              const filteredOptions =
-                field.field_type === "select"
-                  ? getFilteredOptions(field, fieldValues, fieldLinks)
-                  : uniqueOptions(field.options);
-              const current = fieldValues[field.id];
-              let optionsWithCurrent = filteredOptions;
-              if (field.field_type === "select" && current != null && current !== "") {
-                if (isMultiSelectField(field)) {
-                  // Keep individual webhook parts visible — never inject "X, Y" as one option.
-                  const parts = parseMultiSelectValue(current, filteredOptions);
-                  const extras = parts.filter(
-                    (p) => !filteredOptions.includes(p)
-                  );
-                  if (extras.length > 0) {
-                    optionsWithCurrent = uniqueOptions([
-                      ...filteredOptions,
-                      ...extras,
-                    ]);
-                  }
-                } else if (
-                  typeof current === "string" &&
-                  !filteredOptions.includes(current)
-                ) {
-                  optionsWithCurrent = uniqueOptions([
-                    current,
-                    ...filteredOptions,
-                  ]);
-                }
-              }
+        {!hidePrintCustomFields && sizePrintFields.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {sizePrintFields.map((field) => renderPrintField(field))}
+          </div>
+        ) : null}
 
-              return (
-                <CustomFieldInput
-                  key={field.id}
-                  field={{
-                    ...field,
-                    // Keep original name for multi-select detection; label is separate.
-                    name: field.name,
-                    options: optionsWithCurrent,
-                  }}
-                  label={
-                    field.name.toLowerCase() === "die cut" &&
-                    field.field_type === "text"
-                      ? "Die"
-                      : orderFormFieldLabel(field.name)
-                  }
-                  value={current}
-                  onChange={(v) => handleLinkedFieldChange(field.id, v)}
-                  readOnly={readOnly}
-                />
-              );
-            })}
+        {!hidePrintCustomFields && otherPrintFields.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {otherPrintFields.map((field) => renderPrintField(field))}
           </div>
         ) : null}
 
