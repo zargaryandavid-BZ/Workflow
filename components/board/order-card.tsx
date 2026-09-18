@@ -83,6 +83,7 @@ import { DesignFlagChip, SourceChannelChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
+import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
 import { BoardWorkerChip } from "./board-worker-chip";
@@ -1027,9 +1028,14 @@ export function OrderCard({
     skuCount > 0 ? `${skuCount} SKU` : null,
   ].filter(Boolean) as string[];
 
+  const awaitingCustomerApproval = isWaitingApprovalColumn({
+    kind: columnKind,
+    name: columnName,
+  });
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: columnKind === "done",
     specs: order.specs,
+    awaitingCustomerApproval,
   });
   const dueLabel = order.due_date
     ? formatDateShort(order.due_date)

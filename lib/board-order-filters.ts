@@ -12,6 +12,7 @@ import {
   isOrderNumberQuery,
   orderNumberSearchHaystack,
 } from "./order-number-tokens.ts";
+import { holdAfterApprovalLateChip } from "./due-date.ts";
 
 export {
   compactOrderNumberToken,
@@ -59,6 +60,11 @@ export interface BoardOrderFilters {
    * due-today filters, only these columns are included — same scope as Board health.
    */
   activePipelineColumnIds?: ReadonlySet<string>;
+  /**
+   * Waiting Approval column ids. After-approval dues are not overdue / due-today
+   * until the customer actually approves.
+   */
+  waitingApprovalColumnIds?: ReadonlySet<string>;
 }
 
 /** Local calendar date as YYYY-MM-DD (machine / browser timezone). */
@@ -88,8 +94,12 @@ export function businessDateString(now: Date = new Date()): string {
 /** True when due date is before today's business calendar date (same as Board health Late). */
 export function isOrderOverdue(
   dueDate: string | null | undefined,
-  today: string = businessDateString()
+  today: string = businessDateString(),
+  opts?: { specs?: unknown; awaitingCustomerApproval?: boolean }
 ): boolean {
+  if (holdAfterApprovalLateChip(dueDate, opts?.specs, opts?.awaitingCustomerApproval)) {
+    return false;
+  }
   if (!dueDate) return false;
   return dueDate.slice(0, 10) < today;
 }
@@ -97,8 +107,12 @@ export function isOrderOverdue(
 /** True when due_date is exactly today's business calendar date (YYYY-MM-DD). */
 export function isOrderDueToday(
   dueDate: string | null | undefined,
-  today: string = businessDateString()
+  today: string = businessDateString(),
+  opts?: { specs?: unknown; awaitingCustomerApproval?: boolean }
 ): boolean {
+  if (holdAfterApprovalLateChip(dueDate, opts?.specs, opts?.awaitingCustomerApproval)) {
+    return false;
+  }
   if (!dueDate) return false;
   return dueDate.slice(0, 10) === today;
 }
@@ -180,7 +194,14 @@ export function orderMatchesBoardFilters(
     }
   }
   if (filters.overdueOnly) {
-    if (!isOrderOverdue(order.due_date)) return false;
+    const awaiting = filters.waitingApprovalColumnIds?.has(order.column_id);
+    if (
+      !isOrderOverdue(order.due_date, businessDateString(), {
+        specs: order.specs,
+        awaitingCustomerApproval: awaiting,
+      })
+    )
+      return false;
     if (filters.doneColumnIds?.has(order.column_id)) return false;
     if (
       filters.activePipelineColumnIds &&
@@ -190,7 +211,14 @@ export function orderMatchesBoardFilters(
     }
   }
   if (filters.dueTodayOnly) {
-    if (!isOrderDueToday(order.due_date)) return false;
+    const awaiting = filters.waitingApprovalColumnIds?.has(order.column_id);
+    if (
+      !isOrderDueToday(order.due_date, businessDateString(), {
+        specs: order.specs,
+        awaitingCustomerApproval: awaiting,
+      })
+    )
+      return false;
     if (filters.doneColumnIds?.has(order.column_id)) return false;
     if (
       filters.activePipelineColumnIds &&

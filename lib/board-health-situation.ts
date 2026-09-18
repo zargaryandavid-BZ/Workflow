@@ -13,6 +13,7 @@ import {
   type BoardHealthResult,
   type HealthColumn,
 } from "@/lib/board-health";
+import { effectiveDaysUntilDue } from "@/lib/board-due-date";
 import { businessDateString } from "@/lib/board-order-filters";
 import {
   designerSkuRowCount,
@@ -330,9 +331,12 @@ export function buildBoardHealthSituation(opts: {
     const conditions = cfg.by_column[order.column_id] ?? [];
     const stuck = isStuckInColumn(conditions, hoursHere, workingDaysHere);
 
-    const isLate =
-      order.due_date != null &&
-      order.due_date < businessDateString(new Date(nowMs));
+    const col = opts.columns.find((c) => c.id === order.column_id);
+    const daysToDue = effectiveDaysUntilDue(order.due_date, order.specs, {
+      today: businessDateString(new Date(nowMs)),
+      column: col,
+    });
+    const isLate = daysToDue != null && daysToDue < 0;
 
     if (stuck) {
       const h = hoursHere ?? 0;

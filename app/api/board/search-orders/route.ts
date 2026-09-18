@@ -8,6 +8,7 @@ import {
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
 import { columnIdsForQuickFilter } from "@/lib/emergency-quick-filters";
+import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import {
   MANUAL_WEBHOOK_SOURCE_FILTER,
   OTHER_WEBHOOK_SOURCE_FILTER,
@@ -283,6 +284,7 @@ export async function GET(req: NextRequest) {
 
   let doneColumnIds: Set<string> | undefined;
   let activePipelineColumnIds: Set<string> | undefined;
+  let waitingApprovalColumnIds: Set<string> | undefined;
   if (overdueOnly || dueTodayOnly) {
     const { data: cols } = await supabase
       .from("board_columns")
@@ -296,6 +298,9 @@ export async function GET(req: NextRequest) {
     doneColumnIds = new Set(
       columns.filter((c) => c.kind === "done").map((c) => c.id)
     );
+    waitingApprovalColumnIds = new Set(
+      columns.filter((c) => isWaitingApprovalColumn(c)).map((c) => c.id)
+    );
     activePipelineColumnIds = columnIdsForQuickFilter(columns, throughColumnId);
   }
 
@@ -308,6 +313,7 @@ export async function GET(req: NextRequest) {
     overdueOnly,
     dueTodayOnly,
     doneColumnIds,
+    waitingApprovalColumnIds,
     activePipelineColumnIds,
   };
   const orders = allOrders.filter((order) =>

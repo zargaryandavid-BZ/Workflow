@@ -23,6 +23,7 @@ import {
 import { withCanonicalDesignerName } from "@/lib/order-designer";
 import { preserveDesignTaskUrl } from "@/lib/design-task";
 import { preserveCardImage } from "@/lib/card-image";
+import { preserveFinishedCustomerSms } from "@/lib/finished-order-sms";
 import { preservePriorityScore } from "@/lib/order-priority-score";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {

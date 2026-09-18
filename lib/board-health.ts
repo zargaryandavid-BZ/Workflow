@@ -12,7 +12,7 @@ import {
   hoursInCurrentColumn,
   type ActiveWarning,
 } from "@/lib/card-warning-rules";
-import { calendarDaysUntilDue } from "@/lib/board-due-date";
+import { effectiveDaysUntilDue } from "@/lib/board-due-date";
 import { isRushOrder } from "@/lib/order-rush";
 import { businessDateString } from "@/lib/board-order-filters";
 import {
@@ -306,9 +306,10 @@ export function evaluateBoardHealth(opts: {
     const col = colById.get(order.column_id);
     if (!col) continue;
 
-    const daysToDue = order.due_date
-      ? calendarDaysUntilDue(order.due_date, today)
-      : null;
+    const daysToDue = effectiveDaysUntilDue(order.due_date, order.specs, {
+      today,
+      column: col,
+    });
     const hoursHere = hoursInCurrentColumn(order.last_moved_at, nowMs);
     const workingDaysHere = daysInCurrentColumn(
       order.last_moved_at,

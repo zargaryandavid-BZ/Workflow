@@ -67,13 +67,14 @@ export interface MaterializedDue {
  */
 export function materializeAfterApprovalDue(
   specs: unknown,
-  currentDueDate?: string | null,
+  _currentDueDate?: string | null,
   anchorAt: Date | string = new Date()
 ): MaterializedDue | null {
   const due = readOrderDueSpecs(specs);
   if (due.due_date_mode !== "after_approval") return null;
-  // Already has a calendar due — do not overwrite (CRM or prior materialize).
-  if (currentDueDate?.trim()) return null;
+  // Real approval already anchored the clock — keep CRM / prior materialize.
+  // A preview calendar date while still pending is not an anchor; replace it.
+  if (due.due_anchor_at?.trim() && due.due_date_status === "set") return null;
 
   const days = due.due_processing_days ?? DEFAULT_PROCESSING_DAYS;
   if (days < 1) return null;
@@ -420,15 +421,34 @@ export function formatOrderDueDisplay(
   return "—";
 }
 
+export function isAfterApprovalDueMode(specs: unknown): boolean {
+  const due = readOrderDueSpecs(specs);
+  return (
+    due.due_date_mode === "after_approval" ||
+    due.due_date_status === "pending_approval"
+  );
+}
+
 export function isPendingAfterApprovalDue(
   dueDate: string | null | undefined,
   specs: unknown
 ): boolean {
-  if (dueDate?.trim()) return false;
   const due = readOrderDueSpecs(specs);
+  // Preview calendar dates stay pending until approval anchors the clock.
+  if (due.due_date_status === "pending_approval") return true;
+  if (dueDate?.trim()) return false;
+  return due.due_date_mode === "after_approval";
+}
+
+/** Late/due-soon must wait until approval when the job is still after-approval. */
+export function holdAfterApprovalLateChip(
+  dueDate: string | null | undefined,
+  specs: unknown,
+  awaitingCustomerApproval?: boolean
+): boolean {
   return (
-    due.due_date_status === "pending_approval" ||
-    due.due_date_mode === "after_approval"
+    isPendingAfterApprovalDue(dueDate, specs) ||
+    (Boolean(awaitingCustomerApproval) && isAfterApprovalDueMode(specs))
   );
 }
 

@@ -24,6 +24,7 @@ import { dueDateBadgeClass, dueDateStatus } from "@/lib/board-due-date";
 import { formatTimeInColumn } from "@/lib/card-warning-rules";
 import { formatWorkingHours } from "@/lib/working-hours";
 import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
+import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import { PRIORITY_STYLES } from "@/lib/constants";
 import { cn, formatDate, formatDateShort } from "@/lib/utils";
 import type { OrderWithRelations } from "@/lib/types";
@@ -118,9 +119,14 @@ export function OrderCardTimeChips({
     columnKind === "done" ||
     columnNm.includes("finished") ||
     columnNm.includes("shipped customer");
+  const awaitingCustomerApproval = isWaitingApprovalColumn({
+    kind: columnKind,
+    name: columnName,
+  });
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: isTerminalColumn,
     specs: order.specs,
+    awaitingCustomerApproval,
   });
   const timeHere = formatTimeInColumn(
     order.last_moved_at,

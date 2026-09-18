@@ -571,7 +571,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `due_date_label` | Human label for board/PDF |
 | `due_date_status` | `"set"` \| `"pending_approval"` \| `"none"` |
 
-**Mapping:** if `due_date` is set → use it; else if mode is `after_approval` → show “N working days after approval”. On customer/staff approval, Workflow materializes `due_date = local_approval_day + N weekdays` (Mon–Fri). A later CRM webhook with a concrete `due_date` still overwrites. See `lib/due-date.ts` and [WEBHOOK.md](WEBHOOK.md).
+**Mapping:** if `due_date` is set → use it for display; else if mode is `after_approval` → show “N working days after approval”. **Late / due-soon wait until approval** when mode is after-approval (kanban chip, list “Nd late”, Board health Late, Emergency past-due, and Late/Due-today filters), including a preview calendar date on a Waiting Approval card. On customer/staff approval, Workflow materializes `due_date = local_approval_day + N weekdays` (Mon–Fri), replacing a preview date that was never anchored. A later CRM webhook with a concrete `due_date` still overwrites. See `lib/due-date.ts` and [WEBHOOK.md](WEBHOOK.md).
 
 **Website checkouts:** inbound `source: "website"` (or `web` / `webform`) cards use a **W** prefix on the board number (`W15082`, `W15082-1`). CRM `ORD-YYYY-####` cards stay numeric (`15082`). Search still matches `15082` and `W15082`.
 

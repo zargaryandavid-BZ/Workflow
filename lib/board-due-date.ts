@@ -1,9 +1,10 @@
 import { localDateString } from "@/lib/board-order-filters";
 import {
   formatPendingDueChipLabel,
-  isPendingAfterApprovalDue,
+  holdAfterApprovalLateChip,
   readOrderDueSpecs,
 } from "@/lib/due-date";
+import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 
 export type DueDateStatus =
   | { kind: "none"; label: string }
@@ -33,6 +34,27 @@ export function calendarDaysUntilDue(
 }
 
 /**
+ * Calendar days until due, or null when the after-approval clock has not started
+ * (Waiting Approval / pending). Use this instead of calendarDaysUntilDue for
+ * Late, due-today, and emergency overlays.
+ */
+export function effectiveDaysUntilDue(
+  dueDate: string | null | undefined,
+  specs: unknown,
+  opts?: {
+    today?: string;
+    column?: { kind?: string | null; name?: string | null } | null;
+    awaitingCustomerApproval?: boolean;
+  }
+): number | null {
+  const awaiting =
+    opts?.awaitingCustomerApproval ?? isWaitingApprovalColumn(opts?.column);
+  if (holdAfterApprovalLateChip(dueDate, specs, awaiting)) return null;
+  if (!dueDate?.trim()) return null;
+  return calendarDaysUntilDue(dueDate, opts?.today);
+}
+
+/**
  * Due-date badge for cards/rows. Terminal (done) columns skip late/soon flags.
  * @param soonWithinDays — show amber "Due in N days" when 1…N days away
  * @param severeAfterDays — escalate late styling when late ≥ this many days
@@ -46,19 +68,30 @@ export function dueDateStatus(
     severeAfterDays?: number;
     /** Order specs — used for CRM after-approval relative due. */
     specs?: unknown;
+    /**
+     * Waiting Approval (or equivalent): after-approval dues do not count
+     * Late until the customer actually approves.
+     */
+    awaitingCustomerApproval?: boolean;
   }
 ): DueDateStatus {
   const today = opts?.today ?? localDateString();
   const soonWithin = opts?.soonWithinDays ?? 3;
   const severeAfter = opts?.severeAfterDays ?? 7;
+  const pendingAfterApproval = holdAfterApprovalLateChip(
+    dueDate,
+    opts?.specs,
+    opts?.awaitingCustomerApproval
+  );
+
+  if (pendingAfterApproval) {
+    return {
+      kind: "pending_approval",
+      label: formatPendingDueChipLabel(opts?.specs),
+    };
+  }
 
   if (!dueDate?.trim()) {
-    if (isPendingAfterApprovalDue(dueDate, opts?.specs)) {
-      return {
-        kind: "pending_approval",
-        label: formatPendingDueChipLabel(opts?.specs),
-      };
-    }
     const due = readOrderDueSpecs(opts?.specs);
     if (due.due_date_label && due.due_date_status !== "none") {
       return {

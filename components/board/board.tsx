@@ -138,7 +138,7 @@ import {
 } from "@/lib/order-priority-score";
 import { isApplicationEnabled } from "@/lib/order-application";
 import { isRushOrder } from "@/lib/order-rush";
-import { calendarDaysUntilDue } from "@/lib/board-due-date";
+import { effectiveDaysUntilDue } from "@/lib/board-due-date";
 import { columnsIncludedInBoardHealth } from "@/lib/board-health";
 import {
   hoursInCurrentColumn,
@@ -175,6 +175,7 @@ import {
   designerLoadColumnIds,
 } from "@/lib/designer-load";
 import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
+import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import {
   chipsToStampOnEnter,
   withTimeChipStamp,
@@ -463,6 +464,13 @@ export function Board({
     () => new Set(columns.filter((c) => c.kind === "done").map((c) => c.id)),
     [columns]
   );
+  const waitingApprovalColumnIds = useMemo(
+    () =>
+      new Set(
+        columns.filter((c) => isWaitingApprovalColumn(c)).map((c) => c.id)
+      ),
+    [columns]
+  );
   /** Same column set as Board health (through Ready to Ship). */
   const activePipelineColumnIds = useMemo(
     () =>
@@ -562,6 +570,7 @@ export function Board({
       overdueOnly,
       dueTodayOnly,
       doneColumnIds,
+      waitingApprovalColumnIds,
       activePipelineColumnIds: dueDateLoadColumnIds,
     }),
     [
@@ -573,6 +582,7 @@ export function Board({
       overdueOnly,
       dueTodayOnly,
       doneColumnIds,
+      waitingApprovalColumnIds,
       dueDateLoadColumnIds,
     ]
   );
@@ -2923,9 +2933,10 @@ export function Board({
             now,
             warningWorkingDays
           ),
-          daysToDue: order.due_date
-            ? calendarDaysUntilDue(order.due_date, businessToday)
-            : null,
+          daysToDue: effectiveDaysUntilDue(order.due_date, order.specs, {
+            today: businessToday,
+            column: col,
+          }),
           isRush: isRushOrder(order),
           hasApplication: isApplicationEnabled(
             order.specs,
@@ -2964,10 +2975,12 @@ export function Board({
       const colIdx = columnIndexById.get(order.column_id) ?? -1;
       const beforeApplicationStage =
         applicationStageIndex < 0 ? true : colIdx < applicationStageIndex;
+      const col = columns.find((c) => c.id === order.column_id);
       const input = {
-        daysToDue: order.due_date
-          ? calendarDaysUntilDue(order.due_date, businessToday)
-          : null,
+        daysToDue: effectiveDaysUntilDue(order.due_date, order.specs, {
+          today: businessToday,
+          column: col,
+        }),
         hasApplication: isApplicationEnabled(
           order.specs,
           customFields,
@@ -2995,6 +3008,7 @@ export function Board({
     activePipelineColumnIds,
     dueQuickFilterColumnIds,
     businessToday,
+    columns,
   ]);
 
   // Orders that survive the Emergency toggle and/or the active quick-filter.
@@ -3014,12 +3028,14 @@ export function Board({
         const colIdx = columnIndexById.get(order.column_id) ?? -1;
         const beforeApplicationStage =
           applicationStageIndex < 0 ? true : colIdx < applicationStageIndex;
+        const col = columns.find((c) => c.id === order.column_id);
         const match = matchesQuickFilter(
           emergencyQuickFilter,
           {
-            daysToDue: order.due_date
-              ? calendarDaysUntilDue(order.due_date, businessToday)
-              : null,
+            daysToDue: effectiveDaysUntilDue(order.due_date, order.specs, {
+              today: businessToday,
+              column: col,
+            }),
             hasApplication: isApplicationEnabled(
               order.specs,
               customFields,
@@ -3048,6 +3064,7 @@ export function Board({
     activePipelineColumnIds,
     dueQuickFilterColumnIds,
     businessToday,
+    columns,
   ]);
 
   const emergencyFilteredOrders = useMemo(

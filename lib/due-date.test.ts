@@ -4,6 +4,7 @@ import {
   addWorkingDays,
   formatOrderDueDisplay,
   formatPendingDueChipLabel,
+  holdAfterApprovalLateChip,
   isPendingAfterApprovalDue,
   materializeAfterApprovalDue,
   recomputeDueFromProcessingDays,
@@ -98,17 +99,56 @@ describe("display helpers", () => {
     assert.equal(formatPendingDueChipLabel(specs), "5 wd after approval");
   });
 
-  it("prefers absolute date once set", () => {
+  it("treats a preview calendar date as still pending before approval", () => {
+    const specs = {
+      due_date_mode: "after_approval",
+      due_processing_days: 5,
+      due_date_status: "pending_approval",
+      due_date_label: "5 working days after approval",
+    };
+    assert.equal(isPendingAfterApprovalDue("2026-08-31", specs), true);
+    assert.equal(formatPendingDueChipLabel(specs), "5 wd after approval");
+  });
+
+  it("prefers absolute date once approval has set the clock", () => {
     const specs = {
       due_date_mode: "after_approval",
       due_processing_days: 5,
       due_date_status: "set",
+      due_anchor_at: "2026-07-24T19:12:00.000Z",
       due_date_label: "5 working days after approval",
     };
     assert.equal(isPendingAfterApprovalDue("2026-07-31", specs), false);
     assert.equal(
       formatOrderDueDisplay("2026-07-31", specs, (d) => `ABS:${d}`),
       "ABS:2026-07-31"
+    );
+  });
+
+  it("holds Late while Waiting Approval even if a leftover calendar due is set", () => {
+    const specs = {
+      due_date_mode: "after_approval",
+      due_processing_days: 5,
+      due_date_status: "set",
+    };
+    assert.equal(
+      holdAfterApprovalLateChip("2026-08-31", specs, true),
+      true
+    );
+    assert.equal(
+      holdAfterApprovalLateChip("2026-08-31", specs, false),
+      false
+    );
+  });
+
+  it("does not hold Late for a fixed due in Waiting Approval", () => {
+    assert.equal(
+      holdAfterApprovalLateChip(
+        "2026-08-31",
+        { due_date_mode: "fixed", due_date_status: "set" },
+        true
+      ),
+      false
     );
   });
 });
@@ -133,13 +173,31 @@ describe("materializeAfterApprovalDue", () => {
     assert.ok(r!.specs.due_anchor_at);
   });
 
-  it("does not overwrite an existing calendar due", () => {
+  it("replaces a preview calendar date when approval finally happens", () => {
     const specs = {
       due_date_mode: "after_approval",
       due_processing_days: 5,
       due_date_status: "pending_approval",
     };
-    const r = materializeAfterApprovalDue(specs, "2026-08-01", new Date());
+    const r = materializeAfterApprovalDue(
+      specs,
+      "2026-08-01",
+      new Date(2026, 6, 24, 12, 0, 0)
+    );
+    assert.ok(r);
+    assert.equal(r!.dueDate, "2026-07-31");
+    assert.equal(r!.specs.due_date_status, "set");
+    assert.ok(r!.specs.due_anchor_at);
+  });
+
+  it("does not overwrite an already anchored calendar due", () => {
+    const specs = {
+      due_date_mode: "after_approval",
+      due_processing_days: 5,
+      due_date_status: "set",
+      due_anchor_at: "2026-07-24T15:00:00.000Z",
+    };
+    const r = materializeAfterApprovalDue(specs, "2026-07-31", new Date());
     assert.equal(r, null);
   });
 });

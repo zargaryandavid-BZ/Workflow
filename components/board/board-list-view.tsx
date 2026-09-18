@@ -11,7 +11,7 @@ import {
 import { formatShortOrderNumber } from "./order-number-label";
 import { partCardTitle } from "@/lib/group-orders";
 import { formatTimeInColumn } from "@/lib/card-warning-rules";
-import { calendarDaysUntilDue } from "@/lib/board-due-date";
+import { effectiveDaysUntilDue } from "@/lib/board-due-date";
 import { formatDateShort } from "@/lib/utils";
 import { priorityScoreFromSpecs } from "@/lib/order-priority-score";
 import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
@@ -61,6 +61,11 @@ export function BoardListView({
   // order by priority (highest first) then due date — their "do this first" list.
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
 
+  const columnById = useMemo(() => {
+    const m = new Map<string, BoardColumn>();
+    columns.forEach((c) => m.set(c.id, c));
+    return m;
+  }, [columns]);
   const columnName = useMemo(() => {
     const m = new Map<string, string>();
     columns.forEach((c) => m.set(c.id, c.name));
@@ -76,7 +81,9 @@ export function BoardListView({
     const enriched = orders.map((o) => {
       const fv = fieldValuesByOrder[o.id] ?? {};
       const product = productFromOrder(fv, customFields);
-      const daysToDue = o.due_date ? calendarDaysUntilDue(o.due_date) : null;
+      const daysToDue = effectiveDaysUntilDue(o.due_date, o.specs, {
+        column: columnById.get(o.column_id),
+      });
       return {
         order: o,
         orderNo: formatShortOrderNumber(o.title),
@@ -127,6 +134,7 @@ export function BoardListView({
     fieldValuesByOrder,
     customFields,
     columnName,
+    columnById,
     columnIndex,
     ownerNameByOrder,
     designerNameByOrder,
