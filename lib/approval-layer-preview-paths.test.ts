@@ -52,6 +52,16 @@ test("layerPicsForJobTicket uses named layers, not composite", () => {
   );
 });
 
+test("layerPicsForJobTicket replaces blank Cut plate with composite", () => {
+  const pics = layerPicsForJobTicket({
+    layers: [
+      { id: "c", name: "Cut" },
+      { id: "a", name: "Artwork" },
+    ],
+  });
+  assert.deepEqual(pics, [{ layer: "composite", name: "Artwork" }]);
+});
+
 test("layerPicsForJobTicket falls back to composite when only unnamed layers", () => {
   const pics = layerPicsForJobTicket({
     layers: [{ id: "1", name: "Layer 1" }],

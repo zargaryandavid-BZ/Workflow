@@ -11,6 +11,8 @@ import {
   rgb,
 } from "pdf-lib";
 import type { OrderExportData, OrderExportSkuRow } from "@/lib/button-automation-order-data";
+import { orderNumberQrPng } from "@/lib/order-qr";
+import { pdfWinAnsiText } from "@/lib/pdf-winansi-text";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -21,7 +23,9 @@ const PAGE_W = 612;
 const PAGE_H = 792;
 const MARGIN = 36;
 const CONTENT_W = PAGE_W - MARGIN * 2; // 540
-const HEADER_H = 60;
+const HEADER_H = 64;
+const HEADER_QR_INSET = 8;
+const HEADER_QR_SIZE = 48;
 const SKU_PER_PAGE = 6;
 const COLS = 2;
 const ROW_GAP = 16;
@@ -130,8 +134,14 @@ function drawPageHeader(
   doc: PdfDoc,
   orderLabel: string,
   pageNum: number,
-  totalPages: number
+  totalPages: number,
+  qrPng: Buffer | null
 ) {
+  const qrSize = qrPng ? HEADER_QR_SIZE : 0;
+  const qrGap = qrPng ? 10 : 0;
+  const qrX = qrPng ? PAGE_W - HEADER_QR_INSET - qrSize : PAGE_W;
+  const textW = Math.max(0, qrX - qrGap - MARGIN);
+
   doc.rect(0, 0, PAGE_W, HEADER_H).fill("#1a1f2e");
 
   if (orderLabel) {
@@ -139,25 +149,30 @@ function drawPageHeader(
       .fillColor("#ffffff")
       .fontSize(22)
       .font("Helvetica-Bold")
-      .text(orderLabel, MARGIN, 18, { width: CONTENT_W * 0.45 });
+      .text(orderLabel, MARGIN, 20, {
+        width: Math.min(CONTENT_W * 0.42, textW),
+        lineBreak: false,
+      });
   }
 
   doc
     .fillColor("#ffffff")
     .fontSize(14)
     .font("Helvetica-Bold")
-    .text("PACKING SLIP", MARGIN, 12, {
-      width: CONTENT_W,
+    .text("PACKING SLIP", MARGIN, 14, {
+      width: textW,
       align: "right",
+      lineBreak: false,
     });
 
   if (totalPages > 1) {
     doc
       .fontSize(8)
       .font("Helvetica")
-      .text(`Page ${pageNum} of ${totalPages}`, MARGIN, 36, {
-        width: CONTENT_W,
+      .text(`Page ${pageNum} of ${totalPages}`, MARGIN, 38, {
+        width: textW,
         align: "center",
+        lineBreak: false,
       });
   }
 
@@ -171,9 +186,21 @@ function drawPageHeader(
         year: "numeric",
       }),
       MARGIN,
-      32,
-      { width: CONTENT_W, align: "right" }
+      34,
+      { width: textW, align: "right", lineBreak: false }
     );
+
+  if (qrPng) {
+    try {
+      const y = (HEADER_H - qrSize) / 2;
+      doc.save();
+      doc.rect(qrX, y, qrSize, qrSize).fill("#ffffff");
+      doc.image(qrPng, qrX, y, { width: qrSize, height: qrSize });
+      doc.restore();
+    } catch {
+      /* skip a bad PNG rather than fail the slip */
+    }
+  }
 
   doc.fillColor("#000000").font("Helvetica");
 }
@@ -205,7 +232,7 @@ function drawTextLines(
       .fontSize(i === 0 ? 10 : 8)
       .font(i === 0 ? "Helvetica-Bold" : "Helvetica")
       .fillColor("#111827")
-      .text(lines[i], x, rowY, {
+      .text(pdfWinAnsiText(lines[i] ?? ""), x, rowY, {
         width,
         height: lineH,
         ellipsis: true,
@@ -634,6 +661,8 @@ export async function generatePackingSlipPdf(
     })
   );
 
+  const qrPng = orderLabel ? await orderNumberQrPng(orderLabel) : null;
+
   const doc = new PDFDocument({
     size: "LETTER",
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
@@ -653,7 +682,7 @@ export async function generatePackingSlipPdf(
   try {
     for (let pageNum = 0; pageNum < pages.length; pageNum++) {
       doc.addPage();
-      drawPageHeader(doc, orderLabel, pageNum + 1, pages.length);
+      drawPageHeader(doc, orderLabel, pageNum + 1, pages.length, qrPng);
       drawHRule(doc, HEADER_H, "#1a1f2e");
       const afterTop = drawTopInfoRow(doc, data, blind, HEADER_H + 8);
       artSlots.push(

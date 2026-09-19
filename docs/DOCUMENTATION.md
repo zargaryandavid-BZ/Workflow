@@ -1330,7 +1330,9 @@ Delete button.
 
 Trigger a button action on a given order.
 
-**`generate_pdf`:** Job ticket page 1 is order/specs/SKUs. After that, every page of the Drive **Final for Prod** PDF is appended as a flattened preview (rasterize, 40s cap; if that fails, a compressed original). The route allows 180s so Vercel does not kill the download. If there is no Final PDF, SKU artwork images are used as before.
+**`generate_pdf`:** Job ticket page 1 is order/specs/SKUs. The dark header keeps a **QR code** of the printed order number in its own column on the far right (generated at print time, `lib/order-qr.ts`; not stored). Tenant name, JOB TICKET, order number, and date stay left of that column so they do not overlap the QR. SKU pages use the same named-layer pictures as `/respond` (`layerPicsForJobTicket`), except **Cut / Dieline** plates are not drawn as their own cell (those RGB previews are usually blank). The ticket shows the combined proof instead, plus other print plates (White, UV, …). The route allows 180s so Vercel does not kill the download. If there are no layer previews, SKU artwork images are used (same QR on those page headers).
+
+Packing slips (`lib/packing-slip-pdf.ts`) put that QR flush to the **far right** of the header (own column, drawn last so labels cannot cover it). Blind slips with no order label omit it.
 
 | | |
 | --- | --- |
@@ -1757,6 +1759,10 @@ respond/[token]/page (server)
 **Last updated: June 23, 2026**
 
 End-to-end flows as implemented in code. Column **kinds** in the database are `exception` (missing info) and `approval` (customer approval), not the string names `missing_info` / `customer_approval` (those are notification types).
+
+### Fulfillment Send / Received
+
+`/fulfillment/send` and `/fulfillment/received` (`components/fulfillment/`). Box titles are **`DDMMYY_n`** (e.g. `180926_1`) from the send day and box number (`fulfillmentBoxLabel` in `lib/fulfillment-day.ts`). Each order row shows the cardboard **main picture** (`orders.specs.card_image`, same as the Kanban card) to the left of the order number. Send always shows **8 sample packing columns** after any real open boxes, six per row (`padFulfillmentOpenDemoBoxes`). **New Box** always inserts a new empty open box (`POST /api/fulfillment/boxes` with `{ add: n }`) and does not replace a sample column. Long order lists scroll inside each box; extra rows of boxes scroll on the page. Move only lists other **open** packing boxes. Received pads the same way with **8 sample boxes** (`padFulfillmentReceiveDemoBoxes`): 2 delivered (incoming) plus 6 checked in across yesterday, 3 days ago, and a week ago, with mixed receive statuses on the lines. Each box has **Download slip** and **Print slip** (`POST /api/fulfillment/boxes/[id]/packing-slip`, one PDF of every order in the box, with the cardboard main picture to the left of each order number). On Received, each order has one of **Order received**, **Order counted and approved**, or **Missing/wrong info** (`receive_status` on `fulfillment_box_orders`). Those map to board columns in Settings → Fulfillment (`receive_column_id`, `counted_column_id`, `missing_column_id`). The Received toolbar is **Received** (delivered boxes waiting check-in) then one chip per local **receive date**, then **search order id**, then **Add box**. Click a date to see boxes checked in that day (`received_at`). Add box puts a delivered box onto the incoming list.
 
 ---
 

@@ -13,8 +13,8 @@ import {
 
 const DEFAULT_MAX_EDGE = 1600;
 const DEFAULT_JPEG_QUALITY = 72;
-const JOB_TICKET_MAX_EDGE = 1400;
-const JOB_TICKET_JPEG_QUALITY = 68;
+const JOB_TICKET_MAX_EDGE = 2200;
+const JOB_TICKET_JPEG_QUALITY = 82;
 
 type SharpInstance = {
   rotate: () => SharpInstance;

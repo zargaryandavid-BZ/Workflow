@@ -21,7 +21,7 @@ const BUCKET = "order-assets";
 
 /**
  * Signed URLs for the same named-layer pictures the customer sees on /respond.
- * One list per SKU — the ticket draws them 2×2 on a single page.
+ * Cut/dieline plates are omitted (blank in RGB); composite is used instead.
  */
 async function loadLayerPreviewImages(
   orderId: string,

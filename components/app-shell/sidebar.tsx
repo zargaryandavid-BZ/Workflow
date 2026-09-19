@@ -21,6 +21,9 @@ import {
   Mail,
   MessageSquarePlus,
   MousePointerClick,
+  Package,
+  PackageCheck,
+  PackagePlus,
   Plug,
   Printer,
   Scissors,
@@ -72,6 +75,7 @@ const SETTINGS_CHILD_ICONS: Record<string, LucideIcon> = {
   "/settings/removed-orders": Trash2,
   "/settings/emergency-balance": Activity,
   "/settings/team": UserCog,
+  "/settings/fulfillment": Package,
 };
 
 const settingsChildren: NavChild[] = SETTINGS_NAV_GROUPS.flatMap((group) =>
@@ -107,6 +111,16 @@ const nav: NavItem[] = [
     visibleTo: ["admin", "account_manager"],
   },
   { href: "/feedback", label: "Feedback", icon: MessageSquarePlus },
+  {
+    href: "/fulfillment",
+    label: "Fulfillment",
+    icon: Package,
+    adminOnly: true,
+    children: [
+      { href: "/fulfillment/send", label: "Send", icon: PackagePlus },
+      { href: "/fulfillment/received", label: "Received", icon: PackageCheck },
+    ],
+  },
   {
     href: "/settings",
     label: "Settings",

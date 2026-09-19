@@ -64,6 +64,21 @@ export function isFinishedNoReviewStage(
 
 export const FINISHED_CUSTOMER_SMS_SPEC_KEY = "finished_customer_sms";
 
+/** Keep the finished-SMS flag when a specs PATCH omits it. */
+export function preserveFinishedCustomerSms(
+  existing: Record<string, unknown>,
+  next: Record<string, unknown>
+): Record<string, unknown> {
+  const prev = existing[FINISHED_CUSTOMER_SMS_SPEC_KEY];
+  if (
+    prev == null ||
+    Object.prototype.hasOwnProperty.call(next, FINISHED_CUSTOMER_SMS_SPEC_KEY)
+  ) {
+    return next;
+  }
+  return { ...next, [FINISHED_CUSTOMER_SMS_SPEC_KEY]: prev };
+}
+
 export function finishedCompletionSmsSent(
   specs: Record<string, unknown> | null | undefined
 ): boolean {

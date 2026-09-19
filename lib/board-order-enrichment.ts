@@ -63,6 +63,90 @@ const emptyEnrichment = (): BoardOrderEnrichment => ({
   approvalDateByOrder: {},
 });
 
+/** Cardboard main picture first (`specs.card_image`), then SKU/asset gallery. */
+export async function orderCardThumbnails(
+  supabase: SupabaseClient,
+  orders: { id: string; specs?: unknown }[]
+): Promise<Record<string, BoardThumbnail[]>> {
+  if (orders.length === 0) return {};
+  const orderIds = orders.map((o) => o.id);
+
+  const [skuImagesRes, assetsRes] = await Promise.all([
+    supabase
+      .from("order_sku_images")
+      .select(
+        "id, order_id, storage_path, file_name, mime_type, position, created_at"
+      )
+      .in("order_id", orderIds)
+      .order("position", { ascending: true }),
+    supabase
+      .from("assets")
+      .select(
+        "id, order_id, storage_path, external_url, file_name, mime_type, created_at"
+      )
+      .in("order_id", orderIds)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const skuRows = (skuImagesRes.data ?? []).map((r) => ({
+    id: r.id as string,
+    source: "sku_image" as const,
+    order_id: r.order_id as string,
+    storage_path: r.storage_path as string | null,
+    external_url: null,
+    file_name: r.file_name as string,
+    mime_type: r.mime_type as string | null,
+    created_at: r.created_at as string,
+  })) as OrderAssetPreviewRow[];
+  const assetRows = (assetsRes.data ?? []).map((r) => ({
+    ...(r as OrderAssetPreviewRow),
+    id: r.id as string,
+    source: "asset" as const,
+  }));
+  // CRM webhook assets first so split line cards show the matching
+  // catalog pic, not a shared Drive dieline/VDP thumbnail.
+  const combined = [...assetRows, ...skuRows];
+  const thumbs = await boardThumbnailsByOrder(combined, async (paths) => {
+    const now = Date.now();
+    const result = new Map<string, string>();
+    const toFetch: string[] = [];
+
+    for (const p of paths) {
+      const cached = signedUrlCache.get(p);
+      // Keep cached URL if it has more than 5 minutes remaining.
+      if (cached && cached.expiresAt > now + 5 * 60 * 1000) {
+        result.set(p, cached.url);
+      } else {
+        toFetch.push(p);
+      }
+    }
+
+    if (toFetch.length > 0) {
+      const { data: signed } = await supabase.storage
+        .from("order-assets")
+        .createSignedUrls(toFetch, 3600);
+      for (const s of (
+        (signed ?? []) as { path: string | null; signedUrl: string }[]
+      ).filter((s) => s.path)) {
+        signedUrlCache.set(s.path as string, {
+          url: s.signedUrl,
+          expiresAt: now + 3600 * 1000,
+        });
+        result.set(s.path as string, s.signedUrl);
+      }
+    }
+
+    return result;
+  });
+  for (const order of orders) {
+    thumbs[order.id] = preferCardImage(
+      thumbs[order.id] ?? [],
+      parseCardImageRef(order.specs)
+    );
+  }
+  return thumbs;
+}
+
 export async function enrichBoardOrders(
   supabase: SupabaseClient,
   orders: OrderWithRelations[]
@@ -102,77 +186,7 @@ export async function enrichBoardOrders(
         .select("order_id, custom_field_id, value")
         .in("order_id", orderIds),
 
-      Promise.all([
-        supabase
-          .from("order_sku_images")
-          .select("id, order_id, storage_path, file_name, mime_type, position, created_at")
-          .in("order_id", orderIds)
-          .order("position", { ascending: true }),
-        supabase
-          .from("assets")
-          .select("id, order_id, storage_path, external_url, file_name, mime_type, created_at")
-          .in("order_id", orderIds)
-          .order("created_at", { ascending: true }),
-      ]).then(async ([skuImagesRes, assetsRes]) => {
-        // SKU images first (by position), then general assets as fallback
-        const skuRows = (skuImagesRes.data ?? []).map((r) => ({
-          id: r.id as string,
-          source: "sku_image" as const,
-          order_id: r.order_id as string,
-          storage_path: r.storage_path as string | null,
-          external_url: null,
-          file_name: r.file_name as string,
-          mime_type: r.mime_type as string | null,
-          created_at: r.created_at as string,
-        })) as OrderAssetPreviewRow[];
-        const assetRows = (assetsRes.data ?? []).map((r) => ({
-          ...(r as OrderAssetPreviewRow),
-          id: r.id as string,
-          source: "asset" as const,
-        }));
-        // CRM webhook assets first so split line cards show the matching
-        // catalog pic, not a shared Drive dieline/VDP thumbnail.
-        const combined = [...assetRows, ...skuRows];
-        const thumbs = await boardThumbnailsByOrder(combined, async (paths) => {
-          const now = Date.now();
-          const result = new Map<string, string>();
-          const toFetch: string[] = [];
-
-          for (const p of paths) {
-            const cached = signedUrlCache.get(p);
-            // Keep cached URL if it has more than 5 minutes remaining.
-            if (cached && cached.expiresAt > now + 5 * 60 * 1000) {
-              result.set(p, cached.url);
-            } else {
-              toFetch.push(p);
-            }
-          }
-
-          if (toFetch.length > 0) {
-            const { data: signed } = await supabase.storage
-              .from("order-assets")
-              .createSignedUrls(toFetch, 3600);
-            for (const s of (
-              (signed ?? []) as { path: string | null; signedUrl: string }[]
-            ).filter((s) => s.path)) {
-              signedUrlCache.set(s.path as string, {
-                url: s.signedUrl,
-                expiresAt: now + 3600 * 1000,
-              });
-              result.set(s.path as string, s.signedUrl);
-            }
-          }
-
-          return result;
-        });
-        for (const order of orders) {
-          thumbs[order.id] = preferCardImage(
-            thumbs[order.id] ?? [],
-            parseCardImageRef(order.specs)
-          );
-        }
-        return thumbs;
-      }),
+      orderCardThumbnails(supabase, orders),
 
       supabase
         .from("job_notifications")

@@ -135,6 +135,19 @@ export function isPdfArtworkLayer(name: string): boolean {
   return /\bart\s*work\b|\bartwork\b/.test(n);
 }
 
+/**
+ * Isolated Cut / Dieline plates. In RGB they are often invisible (spot
+ * color or white on white), so job tickets should not give them their own cell.
+ */
+export function isPdfCutLineLayer(name: string): boolean {
+  const n = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!n || isPdfArtworkLayer(name)) return false;
+  return (
+    /^(cut|die|dieline)$/.test(n) ||
+    /\bdie\s*line\b|\bdieline\b|\bcut\s*line\b|\bcut\b/.test(n)
+  );
+}
+
 export type OcLike = {
   getOrder?: () => unknown;
   getGroup?: (id: string) => { name?: unknown } | null | undefined;

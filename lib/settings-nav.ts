@@ -125,6 +125,11 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         label: "Team",
         description: "People and roles on this workspace",
       },
+      {
+        href: "/settings/fulfillment",
+        label: "Fulfillment",
+        description: "Columns for delivered, received, counted, and missing/wrong",
+      },
     ],
   },
 ];

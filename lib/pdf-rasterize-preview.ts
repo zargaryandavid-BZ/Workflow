@@ -3,17 +3,19 @@ import "server-only";
 import { PDFDocument } from "pdf-lib";
 import { initPdfjsNode, pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
-
-const MAX_EDGE = 1800;   // capped so even large-format files stay under ~1 MB
-const JPEG_QUALITY = 82; // good quality for job ticket review
-const TARGET_DPI = 150;
+import {
+  JOB_TICKET_JPEG_QUALITY,
+  JOB_TICKET_RASTER_DPI,
+  JOB_TICKET_RASTER_MAX_EDGE,
+  rasterScaleForPdfPage,
+} from "@/lib/pdf-raster-scale";
 
 function jpegFromCanvas(canvas: {
   encode?: (format: string, quality?: number) => Promise<Buffer>;
   toBuffer?: (mime?: string) => Buffer;
 }): Promise<Buffer> {
   if (typeof canvas.encode === "function") {
-    return canvas.encode("jpeg", JPEG_QUALITY);
+    return canvas.encode("jpeg", JOB_TICKET_JPEG_QUALITY);
   }
   if (typeof canvas.toBuffer === "function") {
     return Promise.resolve(canvas.toBuffer("image/jpeg"));
@@ -22,8 +24,8 @@ function jpegFromCanvas(canvas: {
 }
 
 /**
- * Flatten a print-ready PDF into preview-quality JPEG pages for a job ticket.
- * Layers and print resolution are discarded on purpose so the ticket stays small.
+ * Flatten a print-ready PDF into JPEG pages for a job ticket (220 dpi, long
+ * edge up to 2800px). Layers are flattened so the ticket stays a simple preview.
  */
 export async function rasterizePdfForJobTicket(
   input: Buffer
@@ -67,12 +69,11 @@ export async function rasterizePdfForJobTicket(
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const base = page.getViewport({ scale: 1 });
-      const scale = Math.min(
-        TARGET_DPI / 72,
-        MAX_EDGE / Math.max(base.width, 1),
-        MAX_EDGE / Math.max(base.height, 1)
-      );
-      const viewport = page.getViewport({ scale: Math.max(scale, 0.15) });
+      const scale = rasterScaleForPdfPage(base.width, base.height, {
+        maxEdge: JOB_TICKET_RASTER_MAX_EDGE,
+        targetDpi: JOB_TICKET_RASTER_DPI,
+      });
+      const viewport = page.getViewport({ scale });
       const width = Math.max(1, Math.ceil(viewport.width));
       const height = Math.max(1, Math.ceil(viewport.height));
       const target = canvasFactory.create(width, height);

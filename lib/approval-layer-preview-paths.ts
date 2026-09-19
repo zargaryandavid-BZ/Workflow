@@ -1,5 +1,7 @@
 /** Storage + public URL helpers for customer proof layer images (not the print PDF). */
 
+import { isPdfArtworkLayer, isPdfCutLineLayer } from "./pdf-ocg.ts";
+
 export const LAYER_PREVIEW_BUCKET_PREFIX = "approval-layer-previews";
 
 export function sanitizeLayerPreviewRev(modifiedTime: string): string {
@@ -73,6 +75,23 @@ export function layerPicsForJobTicket(
   if (named.length === 0) {
     return [{ layer: "composite", name: "Proof" }];
   }
+
+  const plates = named.filter((l) => !isPdfCutLineLayer(l.name));
+  if (plates.length === 0) {
+    return [{ layer: "composite", name: "Proof" }];
+  }
+  // Isolated Cut/Dieline PNGs are usually blank. One combined proof instead.
+  if (plates.length < named.length) {
+    const extras = plates.filter((l) => !isPdfArtworkLayer(l.name));
+    return [
+      { layer: "composite", name: "Artwork" },
+      ...extras.map((l) => ({
+        layer: l.id,
+        name: l.name.trim() || "Layer",
+      })),
+    ];
+  }
+
   return named.map((l) => ({
     layer: l.id,
     name: l.name.trim() || "Layer",

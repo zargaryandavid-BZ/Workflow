@@ -19,24 +19,10 @@ import { sendSms } from "@/lib/sms";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Order } from "@/lib/types";
 
-export { FINISHED_CUSTOMER_SMS_SPEC_KEY };
+export { FINISHED_CUSTOMER_SMS_SPEC_KEY, preserveFinishedCustomerSms } from "@/lib/net-terms-fulfill";
 
 export const DEFAULT_GOOGLE_REVIEW_URL =
   "https://g.page/r/CX6v8SiBU70cEBM/review";
-
-export function preserveFinishedCustomerSms(
-  existing: Record<string, unknown>,
-  next: Record<string, unknown>
-): Record<string, unknown> {
-  const prev = existing[FINISHED_CUSTOMER_SMS_SPEC_KEY];
-  if (
-    prev == null ||
-    Object.prototype.hasOwnProperty.call(next, FINISHED_CUSTOMER_SMS_SPEC_KEY)
-  ) {
-    return next;
-  }
-  return { ...next, [FINISHED_CUSTOMER_SMS_SPEC_KEY]: prev };
-}
 
 function alreadySent(specs: Record<string, unknown> | null | undefined): boolean {
   const raw = specs?.[FINISHED_CUSTOMER_SMS_SPEC_KEY];

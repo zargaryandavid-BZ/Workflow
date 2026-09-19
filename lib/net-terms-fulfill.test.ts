@@ -5,6 +5,7 @@ import {
   finishedCustomerSmsKind,
   isFinishedNoReviewStage,
   isFulfilledStage,
+  preserveFinishedCustomerSms,
   reviewStateFromStage,
 } from "./net-terms-fulfill.ts";
 
@@ -87,5 +88,15 @@ describe("finishedCustomerSmsKind", () => {
   it("does not send on other columns", () => {
     assert.equal(finishedCustomerSmsKind("Ready to Ship"), null);
     assert.equal(finishedCustomerSmsKind("Design Finished"), null);
+  });
+});
+
+describe("preserveFinishedCustomerSms", () => {
+  it("keeps the saved flag when a specs PATCH omits it", () => {
+    const saved = {
+      finished_customer_sms: { sent_at: "2026-09-18T00:00:00.000Z" },
+    };
+    const next = preserveFinishedCustomerSms(saved, { skus: [] });
+    assert.deepEqual(next.finished_customer_sms, saved.finished_customer_sms);
   });
 });

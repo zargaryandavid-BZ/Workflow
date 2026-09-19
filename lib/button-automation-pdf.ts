@@ -12,6 +12,8 @@ import {
 import { appendPdfDocuments, pdfPageCount } from "@/lib/append-pdf";
 import { rasterizePdfForJobTicket } from "@/lib/pdf-rasterize-preview";
 import { compressPdfForJobTicket } from "@/lib/pdf-preview-compress";
+import { orderNumberQrPng } from "@/lib/order-qr";
+import { pdfWinAnsiText } from "@/lib/pdf-winansi-text";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -39,6 +41,8 @@ type PdfDoc = InstanceType<typeof PDFDocument>;
 const MARGIN = 40;
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
+const HEADER_H = 56;
+const HEADER_QR_SIZE = 40;
 const COL_WIDTH = (PAGE_WIDTH - MARGIN * 2) / 2;
 /** Leave room for footer; never let PDFKit auto-paginate absolute text. */
 const CONTENT_BOTTOM = PAGE_HEIGHT - 32;
@@ -56,7 +60,7 @@ function textAt(
     underline?: boolean;
   } = {}
 ) {
-  doc.text(str, x, y, { ...options, lineBreak: false });
+  doc.text(pdfWinAnsiText(str), x, y, { ...options, lineBreak: false });
 }
 
 function yesNo(value: string): string {
@@ -129,20 +133,42 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   }
 }
 
+function drawHeaderQr(
+  doc: PdfDoc,
+  qrPng: Buffer | null,
+  x: number,
+  y: number,
+  qrSize: number
+) {
+  if (!qrPng) return;
+  try {
+    doc.image(qrPng, x, y, { width: qrSize, height: qrSize });
+  } catch {
+    /* skip a bad PNG rather than fail the ticket */
+  }
+}
+
 function drawHeader(
   doc: PdfDoc,
   tenantName: string,
-  orderNumber: string
+  orderNumber: string,
+  qrPng: Buffer | null = null
 ) {
-  doc.rect(0, 0, PAGE_WIDTH, 44).fill("#1a1a2e");
+  const qrSize = qrPng ? HEADER_QR_SIZE : 0;
+  const qrGap = qrPng ? 8 : 0;
+  const qrX = PAGE_WIDTH - MARGIN - qrSize;
+  const textRight = qrX - qrGap;
+  const textW = textRight - MARGIN;
+
+  doc.rect(0, 0, PAGE_WIDTH, HEADER_H).fill("#1a1a2e");
   doc.fillColor("#ffffff").fontSize(11).font("Helvetica-Bold");
-  textAt(doc, tenantName.toUpperCase(), MARGIN, 14);
+  textAt(doc, tenantName.toUpperCase(), MARGIN, 12, { width: textW });
   doc.fontSize(9).font("Helvetica");
-  textAt(doc, "JOB TICKET", PAGE_WIDTH - MARGIN - 60, 14, {
-    width: 60,
+  textAt(doc, "JOB TICKET", MARGIN, 12, {
+    width: textW,
     align: "right",
   });
-  textAt(doc, orderNumber, MARGIN, 28);
+  textAt(doc, orderNumber, MARGIN, 32, { width: textW });
   textAt(
     doc,
     new Date().toLocaleDateString("en-US", {
@@ -150,10 +176,13 @@ function drawHeader(
       day: "numeric",
       year: "numeric",
     }),
-    PAGE_WIDTH - MARGIN - 100,
-    28,
-    { width: 100, align: "right" }
+    MARGIN,
+    32,
+    { width: textW, align: "right" }
   );
+  if (qrPng) {
+    drawHeaderQr(doc, qrPng, qrX, (HEADER_H - qrSize) / 2, qrSize);
+  }
   doc.fillColor("#000000");
 }
 
@@ -370,6 +399,7 @@ function splitTextToHeight(
 type AttentionPageContext = {
   tenantName: string;
   orderNumber: string;
+  qrPng?: Buffer | null;
   onNewPage?: () => void;
 };
 
@@ -388,12 +418,16 @@ function drawAttentionBlocks(
   const bodyPadBottom = 8;
   const bodyTopOffset = 10 + titleH;
 
-  const productionNotesText = formatNoteHistoryText(
-    typeof data.order.specs?.production_notes === "string"
-      ? data.order.specs.production_notes
-      : null
+  const productionNotesText = pdfWinAnsiText(
+    formatNoteHistoryText(
+      typeof data.order.specs?.production_notes === "string"
+        ? data.order.specs.production_notes
+        : null
+    )
   );
-  const internalNotesText = formatInternalNoteText(data.order.internal_note);
+  const internalNotesText = pdfWinAnsiText(
+    formatInternalNoteText(data.order.internal_note)
+  );
 
   let nextY = startY;
 
@@ -401,9 +435,9 @@ function drawAttentionBlocks(
     doc.addPage();
     pageCtx?.onNewPage?.();
     if (pageCtx) {
-      drawHeader(doc, pageCtx.tenantName, pageCtx.orderNumber);
+      drawHeader(doc, pageCtx.tenantName, pageCtx.orderNumber, pageCtx.qrPng);
     }
-    nextY = 56;
+    nextY = HEADER_H + 12;
   };
 
   const drawBox = (
@@ -463,7 +497,7 @@ function drawAttentionBlocks(
       doc.fontSize(10).font("Helvetica").fillColor("#111827");
       // lineBreak must stay on for wrapping; height clips without ellipsis so
       // overflow is carried to the next page instead of truncated.
-      doc.text(fitted, x + 12, bodyTop, {
+      doc.text(pdfWinAnsiText(fitted), x + 12, bodyTop, {
         width: innerW,
         height: Math.max(12, boxH - (bodyTop - ay) - bodyPadBottom),
       });
@@ -517,12 +551,12 @@ function drawSpecs(
   const LABEL_SIZE = 9;
 
   const specRows: SpecCell[] = data.specRows.map((row) => {
-    const value = yesNo(row.value);
+    const value = pdfWinAnsiText(yesNo(row.value));
     const imagePath = isRollDirectionFieldName(row.label)
       ? rollDirectionImagePath(row.value)
       : null;
     return {
-      label: row.label,
+      label: pdfWinAnsiText(row.label),
       value,
       imagePath,
     };
@@ -686,7 +720,7 @@ function drawSpecs(
     textAt(doc, "Order Description", innerX + 6, y);
     y += 14;
     doc.fontSize(10).font("Helvetica").fillColor("#111827");
-    doc.text(description, innerX + 6, y, {
+    doc.text(pdfWinAnsiText(description), innerX + 6, y, {
       width: innerW - 12,
       height: Math.max(12, descH - 28),
       ellipsis: true,
@@ -731,11 +765,12 @@ function drawDescription(doc: PdfDoc, description: string, startY: number): numb
 
 function drawPage1(
   doc: PdfDoc,
-  data: OrderExportData
+  data: OrderExportData,
+  qrPng: Buffer | null
 ): number {
-  drawHeader(doc, data.tenantName, data.orderNumberDisplay);
+  drawHeader(doc, data.tenantName, data.orderNumberDisplay, qrPng);
 
-  let y = 56;
+  let y = HEADER_H + 12;
   const w = PAGE_WIDTH - MARGIN * 2 - 12;
   let contentPages = 1;
 
@@ -743,8 +778,8 @@ function drawPage1(
     if (y + needed <= CONTENT_BOTTOM) return;
     doc.addPage();
     contentPages += 1;
-    drawHeader(doc, data.tenantName, data.orderNumberDisplay);
-    y = 56;
+    drawHeader(doc, data.tenantName, data.orderNumberDisplay, qrPng);
+    y = HEADER_H + 12;
   };
 
   y = drawSectionTitle(doc, "ORDER", y);
@@ -784,6 +819,7 @@ function drawPage1(
   const pageCtx: AttentionPageContext = {
     tenantName: data.tenantName,
     orderNumber: data.orderNumberDisplay,
+    qrPng,
     onNewPage: () => {
       contentPages += 1;
     },
@@ -795,8 +831,8 @@ function drawPage1(
   if (y > CONTENT_BOTTOM - 40) {
     doc.addPage();
     contentPages += 1;
-    drawHeader(doc, data.tenantName, data.orderNumberDisplay);
-    y = 56;
+    drawHeader(doc, data.tenantName, data.orderNumberDisplay, qrPng);
+    y = HEADER_H + 12;
   }
 
   const skuCount = data.skuRows.length;
@@ -850,33 +886,44 @@ function drawArtworkPage(
   totalSkus: number,
   skuName: string,
   skuQty: number | null,
-  images: { name: string; buffer: Buffer | null }[]
+  images: { name: string; buffer: Buffer | null }[],
+  qrPng: Buffer | null
 ) {
-  doc.rect(0, 0, PAGE_WIDTH, 78).fill("#1a1a2e");
+  const artHeaderH = 78;
+  const qrSize = qrPng ? 48 : 0;
+  const qrGap = qrPng ? 8 : 0;
+  const qrX = PAGE_WIDTH - MARGIN - qrSize;
+  const textW = qrX - qrGap - MARGIN;
+
+  doc.rect(0, 0, PAGE_WIDTH, artHeaderH).fill("#1a1a2e");
   doc
     .fillColor("#ffffff")
     .fontSize(11)
     .font("Helvetica-Bold");
-  textAt(doc, data.tenantName.toUpperCase(), MARGIN, 10);
+  textAt(doc, data.tenantName.toUpperCase(), MARGIN, 10, { width: textW });
   doc.fontSize(10).font("Helvetica");
-  textAt(doc, "JOB TICKET", PAGE_WIDTH - MARGIN - 70, 10, {
-    width: 70,
+  textAt(doc, "JOB TICKET", MARGIN, 10, {
+    width: textW,
     align: "right",
   });
 
   doc.fontSize(13).font("Helvetica-Bold");
-  textAt(doc, data.orderNumberDisplay, MARGIN, 30);
-  doc.fontSize(11).font("Helvetica-Bold");
-  textAt(doc, `Qty: ${fmtQty(skuQty)}`, PAGE_WIDTH - MARGIN - 90, 32, {
-    width: 90,
+  textAt(doc, data.orderNumberDisplay, MARGIN, 30, { width: textW });
+  doc.fillColor("#ffffff").fontSize(11).font("Helvetica-Bold");
+  textAt(doc, `Qty: ${fmtQty(skuQty)}`, MARGIN, 32, {
+    width: textW,
     align: "right",
   });
 
   const skuLabel = `SKU ${skuIndex + 1}/${totalSkus}: ${skuName}`;
   doc.fontSize(10).font("Helvetica").fillColor("#d1d5db");
   textAt(doc, skuLabel, MARGIN, 52, {
-    width: PAGE_WIDTH - MARGIN * 2,
+    width: textW,
   });
+
+  if (qrPng) {
+    drawHeaderQr(doc, qrPng, qrX, (artHeaderH - qrSize) / 2, qrSize);
+  }
 
   doc.fillColor("#000000");
 
@@ -981,6 +1028,7 @@ export async function generateJobTicketPdf(
   const extraFinalPages = await pdfPageCount(finalBuffers);
   const useFinalPdf = extraFinalPages > 0;
   const artworkPages = useFinalPdf ? 0 : totalArtworkPages(data);
+  const qrPng = await orderNumberQrPng(data.orderNumberDisplay);
 
   const doc = new PDFDocument({
     size: "A4",
@@ -993,7 +1041,7 @@ export async function generateJobTicketPdf(
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
 
   doc.addPage();
-  drawPage1(doc, data);
+  drawPage1(doc, data, qrPng);
 
   // Cover (and any overflow note pages) first. Then either every page of the
   // Final-for-Prod PDF, or SKU artwork images when Drive has no Final file.
@@ -1022,7 +1070,8 @@ export async function generateJobTicketPdf(
         data.skuRows.length,
         sku.name,
         sku.qty,
-        images
+        images,
+        qrPng
       );
       drawnArtwork += 1;
     }

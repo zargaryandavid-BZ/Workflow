@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   collectLayerIds,
   isPdfArtworkLayer,
+  isPdfCutLineLayer,
   isUnnamedPdfLayer,
   layersFromOptionalContent,
   parsePdfOcgs,
@@ -80,4 +81,12 @@ test("isPdfArtworkLayer picks ART WORK not dieline", () => {
   assert.equal(isPdfArtworkLayer("Artwork"), true);
   assert.equal(isPdfArtworkLayer("Dieline"), false);
   assert.equal(isPdfArtworkLayer("ALL Dieline Artwork"), false);
+});
+
+test("isPdfCutLineLayer matches Cut / Dieline plates", () => {
+  assert.equal(isPdfCutLineLayer("Cut"), true);
+  assert.equal(isPdfCutLineLayer("CUT LINE"), true);
+  assert.equal(isPdfCutLineLayer("Dieline"), true);
+  assert.equal(isPdfCutLineLayer("Artwork"), false);
+  assert.equal(isPdfCutLineLayer("White"), false);
 });
