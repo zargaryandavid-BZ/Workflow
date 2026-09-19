@@ -13,21 +13,43 @@ export async function GET() {
   const supabase = await createClient();
   await compactOpenFulfillmentBoxes(supabase, ctx.tenant.id);
 
-  // Get boxes
-  let { data: boxData, error } = await supabase
+  type BoxListRow = {
+    id: string;
+    box_number: string;
+    status: string;
+    sent_at: string | null;
+    received_at: string | null;
+    created_at: string;
+    receive_status: string | null;
+    receive_comment: string | null;
+  };
+
+  let boxData: BoxListRow[] | null = null;
+  let error: { message: string } | null = null;
+
+  const full = await supabase
     .from("fulfillment_boxes")
-    .select("id, box_number, status, sent_at, received_at, created_at, receive_status, receive_comment")
+    .select(
+      "id, box_number, status, sent_at, received_at, created_at, receive_status, receive_comment"
+    )
     .eq("tenant_id", ctx.tenant.id)
     .order("created_at", { ascending: false });
 
-  if (error && /receive_status|receive_comment/.test(error.message)) {
+  if (full.error && /receive_status|receive_comment/.test(full.error.message)) {
     const fallback = await supabase
       .from("fulfillment_boxes")
       .select("id, box_number, status, sent_at, received_at, created_at")
       .eq("tenant_id", ctx.tenant.id)
       .order("created_at", { ascending: false });
-    boxData = fallback.data;
     error = fallback.error;
+    boxData = (fallback.data ?? []).map((row) => ({
+      ...row,
+      receive_status: null,
+      receive_comment: null,
+    }));
+  } else {
+    error = full.error;
+    boxData = (full.data ?? []) as BoxListRow[];
   }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
