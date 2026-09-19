@@ -116,16 +116,33 @@ export async function GET(
     return NextResponse.json({ error: ordersError.message }, { status: 500 });
   }
 
-  const orders = (boxOrders ?? []).map((bo) => ({
-    box_order_id: bo.id,
-    quantity_expected: bo.quantity_expected,
-    quantity_received: bo.quantity_received,
-    receive_status:
-      "receive_status" in bo
-        ? ((bo as { receive_status?: string | null }).receive_status ?? null)
-        : null,
-    ...(bo.orders as Record<string, unknown>),
-  }));
+  const orders = (boxOrders ?? []).map((bo) => {
+    const joined = Array.isArray(bo.orders) ? bo.orders[0] : bo.orders;
+    const order =
+      joined && typeof joined === "object"
+        ? (joined as {
+            id?: unknown;
+            title?: unknown;
+            specs?: unknown;
+            column_id?: unknown;
+            customer_id?: unknown;
+          })
+        : null;
+    return {
+      box_order_id: bo.id,
+      quantity_expected: bo.quantity_expected,
+      quantity_received: bo.quantity_received,
+      receive_status:
+        "receive_status" in bo
+          ? ((bo as { receive_status?: string | null }).receive_status ?? null)
+          : null,
+      id: order?.id,
+      title: order?.title,
+      specs: order?.specs,
+      column_id: order?.column_id,
+      customer_id: order?.customer_id,
+    };
+  });
 
   const forThumbs = orders.filter(
     (o): o is typeof o & { id: string } => typeof o.id === "string"
