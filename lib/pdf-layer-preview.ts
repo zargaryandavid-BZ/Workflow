@@ -1,13 +1,12 @@
 import "server-only";
 
-import { isUnnamedPdfLayer, layersFromOptionalContent, mergePdfLayers, parsePdfOcgs, type OcLike, type PdfLayer } from "@/lib/pdf-ocg";
+import { isUnnamedPdfLayer, isPdfCutLineLayer, layersFromOptionalContent, mergePdfLayers, parsePdfOcgs, type OcLike, type PdfLayer } from "@/lib/pdf-ocg";
 import { installPdfJsMapPolyfills } from "@/lib/pdfjs-map-polyfill";
 import { initPdfjsNode, pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
 
-const MAX_EDGE = 1800;   // high-quality: crisp proof image, capped to keep files under ~1 MB
-const JPEG_QUALITY = 85; // high quality — sharp enough for customer approval review
-const TARGET_DPI = 150;  // matches a PDF viewer at 150 % — good for checking fine detail
+const MAX_EDGE = 2200;
+const TARGET_DPI = 150;
 
 type NodeCanvas = {
   encode?: (format: string, quality?: number) => Promise<Buffer>;
@@ -52,28 +51,22 @@ async function pngFromCanvas(canvas: NodeCanvas): Promise<Buffer> {
   throw new Error("canvas cannot encode png");
 }
 
-async function jpegFromCanvas(canvas: NodeCanvas): Promise<Buffer> {
-  if (typeof canvas.encode === "function") {
-    return canvas.encode("jpeg", JPEG_QUALITY);
-  }
-  if (typeof canvas.toBuffer === "function") {
-    return Promise.resolve(canvas.toBuffer("image/jpeg"));
-  }
-  throw new Error("canvas cannot encode jpeg");
-}
-
-function applyVisibility(oc: OcConfig | null, layers: PdfLayer[], on: Set<string> | "all" | "none") {
+function applyVisibility(oc: OcConfig | null, layers: PdfLayer[], on: Set<string> | "print" | "none") {
   if (!oc) return;
   for (const layer of layers) {
     const vis =
-      on === "all" ? true : on === "none" ? false : on.has(layer.id);
+      on === "print"
+        ? !isPdfCutLineLayer(layer.name)
+        : on === "none"
+          ? false
+          : on.has(layer.id);
     oc.setVisibility(layer.id, vis, false);
   }
 }
 
 /**
- * Rasterize selected PDF pages: one composite JPEG, a base (all OCGs off),
- * and a transparent PNG per Acrobat layer for SEE LAYERS stacking.
+ * Rasterize selected PDF pages: one print composite PNG (Cut/dieline off,
+ * same as the staff Artwork PDF view), plus a PNG per Acrobat layer.
  */
 export async function rasterizePdfLayerPreviews(
   input: Buffer,
@@ -135,7 +128,7 @@ export async function rasterizePdfLayerPreviews(
       const width = Math.max(1, Math.ceil(viewport.width));
       const height = Math.max(1, Math.ceil(viewport.height));
 
-      const renderOnce = async (mode: "all" | "none" | Set<string>, opaque: boolean) => {
+      const renderOnce = async (mode: "print" | "none" | Set<string>, opaque: boolean) => {
         applyVisibility(oc, allLayers, mode);
         const target = canvasFactory.create(width, height);
         try {
@@ -151,20 +144,18 @@ export async function rasterizePdfLayerPreviews(
                 >)
               : undefined,
           }).promise;
-          return opaque
-            ? await jpegFromCanvas(target.canvas)
-            : await pngFromCanvas(target.canvas);
+          return await pngFromCanvas(target.canvas);
         } finally {
           canvasFactory.destroy(target);
         }
       };
 
-      const compositeJpg = await renderOnce("all", true);
+      const compositeJpg = await renderOnce("print", true);
       const layerPngs: Record<string, Buffer> = {};
 
       if (layers.length > 0) {
         for (const layer of layers) {
-          layerPngs[layer.id] = await renderOnce(new Set([layer.id]), true);
+          layerPngs[layer.id] = await renderOnce(new Set([layer.id]), false);
         }
       }
 

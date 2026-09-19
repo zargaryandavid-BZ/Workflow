@@ -21,10 +21,10 @@ function previewQuery(originalId: string): string {
   ].join(" and ");
 }
 
-export async function findWebPreviewFileId(
+async function findWebPreviewFile(
   { drive }: ProofsDrive,
   originalId: string
-): Promise<string | null> {
+): Promise<{ id: string; modifiedTime: string } | null> {
   const res = await drive.files.list({
     q: previewQuery(originalId),
     fields: "files(id,modifiedTime)",
@@ -32,7 +32,20 @@ export async function findWebPreviewFileId(
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
-  return res.data.files?.[0]?.id ?? null;
+  const id = res.data.files?.[0]?.id;
+  if (!id) return null;
+  return {
+    id,
+    modifiedTime: String(res.data.files?.[0]?.modifiedTime ?? ""),
+  };
+}
+
+export async function findWebPreviewFileId(
+  client: ProofsDrive,
+  originalId: string
+): Promise<string | null> {
+  const hit = await findWebPreviewFile(client, originalId);
+  return hit?.id ?? null;
 }
 
 async function uploadWebPreview(
@@ -42,14 +55,14 @@ async function uploadWebPreview(
 ): Promise<string> {
   const base = original.name.replace(/\.pdf$/i, "").replace(/\s*\(web preview\)$/i, "");
   const name = `${base} (web preview).pdf`;
-  const existing = await findWebPreviewFileId({ drive } as ProofsDrive, original.id);
-  if (existing) {
+  const existing = await findWebPreviewFile({ drive } as ProofsDrive, original.id);
+  if (existing?.id) {
     await drive.files.update({
-      fileId: existing,
+      fileId: existing.id,
       media: { mimeType: "application/pdf", body: pdf },
       supportsAllDrives: true,
     });
-    return existing;
+    return existing.id;
   }
   const parent = original.parents[0];
   const created = await drive.files.create({
@@ -89,17 +102,34 @@ export async function resolveWebPreviewPdf(
   const fileInfo = await getDriveFileMeta(client, fileId);
   if (!fileInfo) return null;
 
-  const cachedId = await findWebPreviewFileId(client, fileId);
-  if (cachedId && !opts?.force) {
-    const cached = await downloadDriveFileBytes(client, cachedId);
-    if (cached) {
-      return {
-        buffer: cached.buffer,
-        mimeType: "application/pdf",
-        name: cached.name,
-        size: cached.buffer.byteLength,
-        preview: true,
-      };
+  const cached = await findWebPreviewFile(client, fileId);
+  if (cached && !opts?.force) {
+    let sourceModified = "";
+    try {
+      const src = await client.drive.files.get({
+        fileId,
+        fields: "modifiedTime",
+        supportsAllDrives: true,
+      });
+      sourceModified = String(src.data.modifiedTime ?? "");
+    } catch {
+      sourceModified = "";
+    }
+    const previewIsFresh =
+      !sourceModified ||
+      !cached.modifiedTime ||
+      cached.modifiedTime >= sourceModified;
+    if (previewIsFresh) {
+      const bytes = await downloadDriveFileBytes(client, cached.id);
+      if (bytes) {
+        return {
+          buffer: bytes.buffer,
+          mimeType: "application/pdf",
+          name: bytes.name,
+          size: bytes.buffer.byteLength,
+          preview: true,
+        };
+      }
     }
   }
 

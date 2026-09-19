@@ -6,6 +6,7 @@ import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import { ensureGdriveSettings } from "@/lib/gdrive-settings";
 import {
   downloadDriveFileBytes,
+  fetchPreviewBytes,
   getDriveFileMeta,
   proofsDriveClient,
 } from "@/lib/gdrive-proofs";
@@ -24,6 +25,22 @@ import {
 } from "@/lib/approval-layer-preview-paths";
 import { alignSkusToPdfPages, sharedPdfPagesForSkus } from "@/lib/shared-pdf-pages";
 import type { RespondFinalPdf } from "@/lib/respond-order";
+import {
+  approvalPreviewIsStale,
+  drivePdfFingerprint,
+  indexHasLayerPictures,
+  proofRasterRev,
+  shouldRebuildStoredProofs,
+} from "@/lib/approval-preview-freshness";
+import { findLatestPdfInFolders } from "@/lib/google-drive";
+import { skuImageStoragePath } from "@/lib/sku-images";
+import type { GdriveSettings } from "@/lib/types";
+import {
+  PRODUCTION_CARD_FILES,
+  productionCardImageMeta,
+} from "@/lib/production-card-image";
+
+const CARD_PDF_REV_SPEC = "card_pdf_rev";
 
 /** Print PDFs can exceed 800 MB; we only keep small PNG/JPEGs. */
 const SOURCE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
@@ -195,9 +212,118 @@ export function respondProofFromIndex(index: RespondPreviewIndex): {
   return { layerPreviews, finalPdfs };
 }
 
-function indexHasLayerPictures(index: RespondPreviewIndex): boolean {
-  if (!index.pages?.length) return false;
-  return Object.keys(respondProofFromIndex(index).layerPreviews).length > 0;
+async function upsertProductionCardImage(
+  admin: ReturnType<typeof createAdminClient>,
+  order: Pick<Order, "id" | "tenant_id" | "specs">,
+  image: Buffer,
+  fingerprint: string
+): Promise<void> {
+  const specs = (order.specs ?? {}) as Record<string, unknown>;
+  const skuId = skusForRespond(specs)[0]?.id?.trim();
+  if (!skuId) return;
+
+  const { fileName, contentType } = productionCardImageMeta(image);
+  const storagePath = skuImageStoragePath(
+    order.tenant_id,
+    order.id,
+    skuId,
+    0,
+    fileName
+  );
+  const { error: upErr } = await admin.storage
+    .from(ORDER_ASSETS_BUCKET)
+    .upload(storagePath, image, {
+      contentType,
+      upsert: true,
+    });
+  if (upErr) {
+    console.warn("[approval-layer-previews] card image upload failed:", upErr.message);
+    return;
+  }
+
+  const { data: existing } = await admin
+    .from("order_sku_images")
+    .select("id, storage_path")
+    .eq("order_id", order.id)
+    .in("file_name", [...PRODUCTION_CARD_FILES])
+    .limit(1)
+    .maybeSingle();
+
+  let imageId = typeof existing?.id === "string" ? existing.id : null;
+  const oldPath =
+    typeof existing?.storage_path === "string" ? existing.storage_path : "";
+
+  if (imageId) {
+    const { error } = await admin
+      .from("order_sku_images")
+      .update({
+        storage_path: storagePath,
+        file_name: fileName,
+        file_size: image.byteLength,
+        mime_type: contentType,
+      })
+      .eq("id", imageId);
+    if (error) {
+      console.warn("[approval-layer-previews] card image row update failed:", error.message);
+      return;
+    }
+    if (oldPath && oldPath !== storagePath) {
+      await admin.storage.from(ORDER_ASSETS_BUCKET).remove([oldPath]);
+    }
+  } else {
+    const { data: inserted, error } = await admin
+      .from("order_sku_images")
+      .insert({
+        tenant_id: order.tenant_id,
+        order_id: order.id,
+        sku_id: skuId,
+        file_name: fileName,
+        file_size: image.byteLength,
+        mime_type: contentType,
+        storage_path: storagePath,
+        position: 0,
+      })
+      .select("id")
+      .maybeSingle();
+    if (error || !inserted?.id) {
+      console.warn(
+        "[approval-layer-previews] card image insert failed:",
+        error?.message ?? "no id"
+      );
+      return;
+    }
+    imageId = inserted.id as string;
+  }
+
+  await admin
+    .from("orders")
+    .update({
+      specs: {
+        ...specs,
+        card_image: { source: "sku_image", id: imageId },
+        [CARD_PDF_REV_SPEC]: fingerprint,
+      },
+    })
+    .eq("id", order.id)
+    .eq("tenant_id", order.tenant_id);
+}
+
+async function applyStoredCompositeToCard(
+  admin: ReturnType<typeof createAdminClient>,
+  order: Pick<Order, "id" | "tenant_id" | "specs">,
+  fileId: string,
+  rev: string,
+  page: number,
+  fingerprint: string
+): Promise<void> {
+  const path = `${layerPreviewPageDir(fileId, rev, page)}/composite.jpg`;
+  const { data, error } = await admin.storage
+    .from(ORDER_ASSETS_BUCKET)
+    .download(path);
+  if (error || !data) return;
+  const bytes = Buffer.from(await data.arrayBuffer());
+  if (bytes.length === 0) return;
+  await upsertProductionCardImage(admin, order, bytes, fingerprint);
 }
 
 const generatingByOrderId = new Map<
@@ -248,11 +374,6 @@ export async function generateApprovalLayerPreviewsForOrder(
 async function generateApprovalLayerPreviewsForOrderUncached(
   order: Pick<Order, "id" | "title" | "tenant_id" | "specs">
 ): Promise<Record<string, RespondLayerPreview>> {
-  const already = await loadRespondPreviewIndex(order.id);
-  if (already && indexHasLayerPictures(already)) {
-    return respondProofFromIndex(already).layerPreviews;
-  }
-
   const admin = createAdminClient();
   const specs = (order.specs ?? {}) as Record<string, unknown>;
   const pack = await fetchRespondArtworkPack(
@@ -263,7 +384,8 @@ async function generateApprovalLayerPreviewsForOrderUncached(
       title: String(order.title ?? ""),
       specs,
     },
-    skusForRespond(specs)
+    skusForRespond(specs),
+    { skipCache: true }
   );
   const pdfs = Object.values(pack.bySku);
   if (pdfs.length === 0) {
@@ -288,10 +410,15 @@ async function generateApprovalLayerPreviewsForOrderUncached(
   }
 
   const modifiedTime = await driveModifiedTime(drive, fileId);
-  const rev =
-    modifiedTime === "unknown"
-      ? String(meta.size)
-      : modifiedTime;
+  const rev = proofRasterRev(
+    modifiedTime === "unknown" ? String(meta.size) : modifiedTime
+  );
+  const fingerprint = drivePdfFingerprint(fileId, rev);
+  const already = await loadRespondPreviewIndex(order.id);
+  if (!approvalPreviewIsStale(already, { fileId, rev })) {
+    return respondProofFromIndex(already!).layerPreviews;
+  }
+
   const manifestPath = layerPreviewManifestPath(fileId, rev);
   const existing = await readManifest(admin, manifestPath);
   if (existing && existing.pages.length > 0) {
@@ -308,6 +435,14 @@ async function generateApprovalLayerPreviewsForOrderUncached(
       admin,
       order.id,
       previewIndexFromPack(packBySku, existing, rev)
+    );
+    await applyStoredCompositeToCard(
+      admin,
+      order,
+      fileId,
+      rev,
+      existing.pages[0] ?? 1,
+      fingerprint
     );
     return previews;
   }
@@ -346,7 +481,7 @@ async function generateApprovalLayerPreviewsForOrderUncached(
       admin,
       `${dir}/composite.jpg`,
       page.compositeJpg,
-      "image/jpeg"
+      "image/png"
     );
     if (page.basePng.length > 0) {
       await uploadBytes(admin, `${dir}/base.png`, page.basePng, "image/png");
@@ -356,7 +491,7 @@ async function generateApprovalLayerPreviewsForOrderUncached(
         admin,
         `${dir}/${sanitizeLayerPreviewKey(layerId)}.png`,
         png,
-        "image/jpeg"
+        "image/png"
       );
     }
   }
@@ -379,6 +514,20 @@ async function generateApprovalLayerPreviewsForOrderUncached(
     order.id,
     previewIndexFromPack(packBySku, manifest, rev)
   );
+  const firstPage = raster.pages.find((p) => p.page === 1) ?? raster.pages[0];
+  if (firstPage?.compositeJpg?.length) {
+    await upsertProductionCardImage(
+      admin,
+      order,
+      firstPage.compositeJpg,
+      fingerprint
+    ).catch((err) =>
+      console.warn(
+        "[approval-layer-previews] card image update failed:",
+        err instanceof Error ? err.message : err
+      )
+    );
+  }
   return packFromManifest(packBySku, manifest, rev);
 }
 
@@ -386,19 +535,21 @@ export async function loadApprovalLayerPreviewsForOrder(
   order: Pick<Order, "id" | "title" | "tenant_id" | "specs">,
   opts?: { generateIfMissing?: boolean }
 ): Promise<Record<string, RespondLayerPreview>> {
+  if (opts?.generateIfMissing) {
+    try {
+      return await generateApprovalLayerPreviewsForOrder(order);
+    } catch (err) {
+      if (isApprovalProofSourceMissing(err)) throw err;
+      console.error("[approval-layer-previews] generate failed:", err);
+      return {};
+    }
+  }
+
   const stored = await loadRespondPreviewIndex(order.id);
   if (stored && indexHasLayerPictures(stored)) {
     return respondProofFromIndex(stored).layerPreviews;
   }
-
-  if (!opts?.generateIfMissing) return {};
-  try {
-    return await generateApprovalLayerPreviewsForOrder(order);
-  } catch (err) {
-    if (isApprovalProofSourceMissing(err)) throw err;
-    console.error("[approval-layer-previews] generate failed:", err);
-    return {};
-  }
+  return {};
 }
 
 /**
@@ -573,4 +724,49 @@ export async function generateApprovalLayerPreviewsForWaitingOrders(
     }
   }
   return results;
+}
+
+/**
+ * When the Final PDF on Drive changes, rebuild stored approval pictures and
+ * the cardboard main picture. No-ops when nothing stored yet or the PDF is unchanged.
+ */
+export async function refreshProofsIfDrivePdfChanged(
+  order: Pick<Order, "id" | "title" | "tenant_id" | "specs">,
+  settings: GdriveSettings,
+  finalFolderIds: string[]
+): Promise<void> {
+  const latest = await findLatestPdfInFolders(settings, finalFolderIds);
+  if (!latest?.id) return;
+  const rev = proofRasterRev(latest.modifiedTime.trim() || "unknown");
+  const fingerprint = drivePdfFingerprint(latest.id, rev);
+  const index = await loadRespondPreviewIndex(order.id);
+  if (shouldRebuildStoredProofs(index, { fileId: latest.id, rev })) {
+    await generateApprovalLayerPreviewsForOrder(order);
+    return;
+  }
+
+  const specs = (order.specs ?? {}) as Record<string, unknown>;
+  const cardRev =
+    typeof specs[CARD_PDF_REV_SPEC] === "string"
+      ? specs[CARD_PDF_REV_SPEC].trim()
+      : "";
+  if (cardRev === fingerprint) return;
+
+  try {
+    const client = proofsDriveClient(settings);
+    const preview = await fetchPreviewBytes(client, {
+      id: latest.id,
+      name: latest.name,
+      mimeType: "application/pdf",
+      thumbnailLink: null,
+    });
+    if (!preview?.buffer?.length) return;
+    const admin = createAdminClient();
+    await upsertProductionCardImage(admin, order, preview.buffer, fingerprint);
+  } catch (err) {
+    console.warn(
+      "[approval-layer-previews] card thumbnail refresh failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
 }

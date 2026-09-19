@@ -624,7 +624,6 @@ export function OrderReview({
       setDrivePdfs(finalPdfs);
       setLayerBySku(layerPreviewsProp);
       setPdfPending(false);
-      return;
     }
     let cancelled = false;
     let attempt = 0;
@@ -633,7 +632,7 @@ export function OrderReview({
 
     const run = () => {
       if (cancelled) return;
-      setPdfPending(true);
+      if (!hasLayerPics) setPdfPending(true);
       void fetch(
         `/api/notifications/final-artwork?token=${encodeURIComponent(token)}&order=${encodeURIComponent(orderId)}&prepare=1`
       )

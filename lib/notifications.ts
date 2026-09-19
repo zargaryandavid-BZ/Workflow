@@ -106,17 +106,8 @@ async function resolveCustomerContact(
 
 async function prepareApprovalLayerPreviews(order: Order) {
   const started = Date.now();
-  const { loadRespondPreviewIndex, generateApprovalLayerPreviewsForOrder } =
+  const { generateApprovalLayerPreviewsForOrder } =
     await import("@/lib/approval-layer-previews");
-
-  // Skip rasterization if images are already stored for this order.
-  const existing = await loadRespondPreviewIndex(order.id);
-  if (existing?.bySku && Object.keys(existing.bySku).length > 0) {
-    console.info(
-      `[approval-layer-previews] ${order.title} already converted — skipping reconversion`
-    );
-    return;
-  }
 
   try {
     const previews = await generateApprovalLayerPreviewsForOrder(order);
@@ -139,8 +130,8 @@ async function prepareApprovalLayerPreviews(order: Order) {
 
 /**
  * Schedule PDF → image conversion to run AFTER the HTTP response is sent.
- * If images are already in Supabase, the check inside prepareApprovalLayerPreviews
- * will skip reconversion immediately. Falls back to a plain promise if after()
+ * If images are already in Supabase for this Drive PDF revision, generate
+ * returns immediately. Falls back to a plain promise if after()
  * is unavailable (e.g. outside a request context).
  */
 function scheduleLayerPreviews(order: Order) {

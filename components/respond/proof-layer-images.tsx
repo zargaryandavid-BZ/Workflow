@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Layers, Maximize2, X } from "lucide-react";
-import { isUnnamedPdfLayer } from "@/lib/pdf-ocg";
+import { isPdfCutLineLayer, isUnnamedPdfLayer } from "@/lib/pdf-ocg";
 import {
   respondLayerPreviewUrl,
   type RespondLayerPreview,
@@ -55,15 +55,22 @@ export function ProofLayerImages({
     () => preview.layers.filter((layer) => !isUnnamedPdfLayer(layer.name)),
     [preview.layers]
   );
+  const printLayerIds = useMemo(
+    () =>
+      namedLayers
+        .filter((layer) => !isPdfCutLineLayer(layer.name))
+        .map((layer) => layer.id),
+    [namedLayers]
+  );
   const [visibleIds, setVisibleIds] = useState<Set<string>>(
-    () => new Set(namedLayers.map((layer) => layer.id))
+    () => new Set(printLayerIds)
   );
   const [stackOpen, setStackOpen] = useState(false);
   const [onRoll, setOnRoll] = useState(false);
 
   useEffect(() => {
-    setVisibleIds(new Set(namedLayers.map((layer) => layer.id)));
-  }, [preview.fileId, preview.page, preview.rev]);
+    setVisibleIds(new Set(printLayerIds));
+  }, [preview.fileId, preview.page, preview.rev, printLayerIds.join("|")]);
 
   useEffect(() => {
     onReady?.();
@@ -85,6 +92,14 @@ export function ProofLayerImages({
   const allOn =
     namedLayers.length > 0 &&
     namedLayers.every((layer) => visibleIds.has(layer.id));
+  const printAllOn =
+    printLayerIds.length > 0 &&
+    printLayerIds.every((id) => visibleIds.has(id));
+  const cutOn = namedLayers.some(
+    (layer) => isPdfCutLineLayer(layer.name) && visibleIds.has(layer.id)
+  );
+  const useComposite =
+    namedLayers.length === 0 || (printAllOn && !cutOn);
 
   function setAllLayers(on: boolean) {
     setVisibleIds(on ? new Set(namedLayers.map((layer) => layer.id)) : new Set());
@@ -107,7 +122,6 @@ export function ProofLayerImages({
   }
 
   const compositeSrc = layerSrc("composite");
-  const useComposite = namedLayers.length === 0 || allOn;
 
   const stack = (
     <ProofLayerStack
@@ -304,7 +318,7 @@ function ProofLayerStack({
           className={cn(
             "w-auto object-contain",
             className,
-            i === 0 ? "relative block" : "absolute inset-0 h-full mix-blend-multiply"
+            i === 0 ? "relative block" : "absolute inset-0 h-full"
           )}
           draggable={false}
         />

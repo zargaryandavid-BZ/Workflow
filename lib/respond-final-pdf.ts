@@ -142,13 +142,13 @@ export async function fetchRespondArtworkPack(
     specs: Record<string, unknown>;
   },
   skus: SkuItem[],
-  opts?: { includeDesignerFallback?: boolean }
+  opts?: { includeDesignerFallback?: boolean; skipCache?: boolean }
 ): Promise<RespondArtworkPack> {
   const ticket = skus.length > 0 ? skus : skuListForFinalPdfs(order.title, skus);
   const includeDesignerFallback = opts?.includeDesignerFallback ?? true;
   const cacheKey = `${includeDesignerFallback ? "staff:" : ""}pages:${tenantId}:${order.id}:${ticket.map((s) => s.id).join(",")}`;
   const cached = artworkPackCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
+  if (!opts?.skipCache && cached && Date.now() - cached.at < FINAL_PDF_CACHE_MS) {
     return cached.value;
   }
 

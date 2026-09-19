@@ -4,6 +4,7 @@ import { google } from "googleapis";
 import type { GdriveSettings } from "@/lib/types";
 import { isGdriveConfigured } from "@/lib/gdrive-settings";
 import { sanitizeDriveFolderName } from "@/lib/google-drive";
+import { restoreDriveFileFromTrash } from "@/lib/drive-restore-from-trash";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
@@ -230,24 +231,28 @@ export async function listProofFilesRecursive(
 /** Immediate child folders of a parent (not trashed). */
 export async function listChildFolders(
   { drive }: ProofsDrive,
-  parentId: string
-): Promise<{ id: string; name: string }[]> {
-  const out: { id: string; name: string }[] = [];
+  parentId: string,
+  opts?: { includeTrashed?: boolean }
+): Promise<{ id: string; name: string; trashed?: boolean }[]> {
+  const out: { id: string; name: string; trashed?: boolean }[] = [];
   let pageToken: string | undefined;
+  const trashClause = opts?.includeTrashed ? [] : ["trashed=false"];
   do {
     const res = await drive.files.list({
       q: [
         `'${escapeQuery(parentId)}' in parents`,
         `mimeType='${FOLDER_MIME}'`,
-        "trashed=false",
+        ...trashClause,
       ].join(" and "),
-      fields: "nextPageToken, files(id,name)",
+      fields: "nextPageToken, files(id,name,trashed)",
       pageSize: 200,
       pageToken,
       ...folderChildrenListParams(),
     });
     for (const f of res.data.files ?? []) {
-      if (f.id && f.name) out.push({ id: f.id, name: f.name });
+      if (f.id && f.name) {
+        out.push({ id: f.id, name: f.name, trashed: f.trashed === true });
+      }
     }
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken);
@@ -317,7 +322,11 @@ export async function getDriveFolderMeta(
     fields: "id,name,parents,webViewLink,trashed",
     supportsAllDrives: true,
   });
-  if (!meta.data.id || meta.data.trashed) return null;
+  if (!meta.data.id) return null;
+  if (meta.data.trashed === true) {
+    const restored = await restoreDriveFileFromTrash(drive, fileId);
+    if (!restored) return null;
+  }
   return {
     id: meta.data.id,
     name: meta.data.name || "folder",

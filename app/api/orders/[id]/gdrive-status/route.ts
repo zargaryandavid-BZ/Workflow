@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
@@ -128,7 +128,7 @@ export async function GET(
       hasFinalPdf = hasFinalPdf || result.hasPdf;
       fileCount += result.fileCount;
     }
-    // No live Final folder (often trashed) — a PDF sitting in the job folder
+    // No Final PDF after restore — a PDF sitting in the job folder
     // is the production file.
     if (!hasFinalPdf && designerCheckId) {
       const jobRoot = await folderHasFiles(settings, designerCheckId, {
@@ -143,6 +143,34 @@ export async function GET(
       }
     }
     const hasPdf = hasFinalPdf || designerResult.hasPdf;
+
+    if (hasFinalPdf && resolved.finalIds.length > 0) {
+      try {
+        after(() => {
+          void import("@/lib/approval-layer-previews")
+            .then(({ refreshProofsIfDrivePdfChanged }) =>
+              refreshProofsIfDrivePdfChanged(
+                {
+                  id: order.id,
+                  title: String(order.title ?? ""),
+                  tenant_id: ctx.tenant.id,
+                  specs: (order.specs ?? {}) as never,
+                },
+                settings,
+                resolved.finalIds
+              )
+            )
+            .catch((err) =>
+              console.warn(
+                "[gdrive-status] proof refresh failed:",
+                err instanceof Error ? err.message : err
+              )
+            );
+        });
+      } catch {
+        // after() is not available outside a request
+      }
+    }
 
     return NextResponse.json({
       hasFiles,

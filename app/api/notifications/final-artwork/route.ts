@@ -7,7 +7,8 @@ export const maxDuration = 300;
 
 /**
  * Public (token) proof pictures for /respond. Stored JPEGs first — no Drive
- * walk when pictures already exist. Generate only when they are still missing.
+ * walk when pictures already exist. `?prepare=1` rebuilds when the Final PDF
+ * on Drive is a new file or a newer revision.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -66,7 +67,7 @@ export async function GET(request: Request) {
     await import("@/lib/approval-layer-previews");
 
   const stored = await loadRespondCustomerProof(orderRow, ticketSkus);
-  if (Object.keys(stored.layerPreviews).length > 0) {
+  if (!prepare && Object.keys(stored.layerPreviews).length > 0) {
     return NextResponse.json({
       skus: stored.skus,
       bySku: stored.finalPdfs,

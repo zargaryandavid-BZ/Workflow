@@ -7,6 +7,7 @@ import {
   listChildFolders,
   type ProofsDrive,
 } from "@/lib/gdrive-proofs";
+import { restoreDriveFileFromTrash } from "@/lib/drive-restore-from-trash";
 import {
   driveOrderKeyFromTitle,
   pickFinalProdFolders,
@@ -45,6 +46,28 @@ export function orderFolderNeedles(order: {
       : "";
   if (itemTitle) push(itemTitle);
   return [...new Set(out)];
+}
+
+async function restoreMatchingFinals(
+  client: ProofsDrive,
+  parentId: string,
+  needles: string[],
+  scope: "inside-job" | "shared"
+): Promise<{ id: string; name: string }[]> {
+  const children = await listChildFolders(client, parentId, {
+    includeTrashed: true,
+  });
+  const byId = new Map(children.map((c) => [c.id, c]));
+  const picked = pickFinalProdFolders(children, needles, scope);
+  const live: { id: string; name: string }[] = [];
+  for (const child of picked) {
+    if (byId.get(child.id)?.trashed) {
+      const ok = await restoreDriveFileFromTrash(client.drive, child.id);
+      if (!ok) continue;
+    }
+    live.push({ id: child.id, name: child.name });
+  }
+  return live;
 }
 
 export type ResolvedOrderDriveFolders = {
@@ -98,12 +121,13 @@ export async function resolveOrderDriveFolders(
     designerFromSeed.add(seed);
     let foundInsideJob = false;
     try {
-      const children = await listChildFolders(client, seed);
-      for (const child of pickFinalProdFolders(
-        children,
+      const children = await restoreMatchingFinals(
+        client,
+        seed,
         opts.orderNeedles,
         "inside-job"
-      )) {
+      );
+      for (const child of children) {
         finalIds.add(child.id);
         foundInsideJob = true;
       }
@@ -116,12 +140,13 @@ export async function resolveOrderDriveFolders(
       for (const parent of meta.parents) {
         if (excluded.has(parent)) continue;
         try {
-          const siblings = await listChildFolders(client, parent);
-          for (const child of pickFinalProdFolders(
-            siblings,
+          const siblings = await restoreMatchingFinals(
+            client,
+            parent,
             opts.orderNeedles,
             "shared"
-          )) {
+          );
+          for (const child of siblings) {
             if (child.id !== seed) finalIds.add(child.id);
           }
         } catch {
@@ -137,12 +162,13 @@ export async function resolveOrderDriveFolders(
     opts.orderNeedles.length > 0
   ) {
     try {
-      const children = await listChildFolders(client, extraRootId);
-      for (const child of pickFinalProdFolders(
-        children,
+      const children = await restoreMatchingFinals(
+        client,
+        extraRootId,
         opts.orderNeedles,
         "shared"
-      )) {
+      );
+      for (const child of children) {
         finalIds.add(child.id);
       }
     } catch {
