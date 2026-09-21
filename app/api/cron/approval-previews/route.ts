@@ -35,18 +35,31 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const results = await generateApprovalLayerPreviewsForWaitingOrders();
-    const built = results.filter((r) => !r.error && r.skus > 0).length;
-    const failed = results.filter((r) => r.error);
-
-    // Beta: now that proofs are (re)built, send any approval links that were
-    // held back until their proof was ready (no-op unless a tenant is opted
-    // into PROOF_GATE_SEND_TENANTS).
+    // Deliver any held approval links whose proof is ALREADY built FIRST, before
+    // the (potentially minutes-long, ~1GB) rebuild below. Otherwise a single
+    // heavy build can eat the whole cron time budget and the send step never
+    // runs — which left proofs built but their link never auto-sent.
     let queuedSend = { delivered: 0, checked: 0 };
     try {
       queuedSend = await deliverQueuedApprovalsWhenReady();
     } catch (err) {
-      console.error("[cron/approval-previews] queued send failed:", err);
+      console.error("[cron/approval-previews] pre-build queued send failed:", err);
+    }
+
+    const results = await generateApprovalLayerPreviewsForWaitingOrders();
+    const built = results.filter((r) => !r.error && r.skus > 0).length;
+    const failed = results.filter((r) => r.error);
+
+    // Beta: send any approval links whose proof just finished building this run
+    // (no-op unless a tenant is opted into PROOF_GATE_SEND_TENANTS).
+    try {
+      const after = await deliverQueuedApprovalsWhenReady();
+      queuedSend = {
+        delivered: queuedSend.delivered + after.delivered,
+        checked: queuedSend.checked + after.checked,
+      };
+    } catch (err) {
+      console.error("[cron/approval-previews] post-build queued send failed:", err);
     }
 
     return NextResponse.json({
