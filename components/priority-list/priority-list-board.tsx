@@ -126,7 +126,7 @@ function SortableRow({
     <li
       ref={setNodeRef}
       style={style}
-      className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3"
+      className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -200,7 +200,7 @@ function SortableRow({
         </p>
       ) : null}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 pl-8 sm:pl-0">
+      <div className="flex flex-wrap items-center gap-1.5 pl-8">
         <ProductionStageSelect
           orderId={order.id}
           stage={order.production_stage}
