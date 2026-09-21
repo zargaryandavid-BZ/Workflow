@@ -394,9 +394,11 @@ function PressColumn({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
-  const visible = orders.filter(
-    (o) => o.press === press && o.daily_priority_bucket === activeBucket
-  );
+  // Completed jobs sink to the bottom (stable sort keeps relative order
+  // within each group) so the floor sees what's still open at a glance.
+  const visible = orders
+    .filter((o) => o.press === press && o.daily_priority_bucket === activeBucket)
+    .sort((a, b) => Number(a.daily_priority_done) - Number(b.daily_priority_done));
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
