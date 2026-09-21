@@ -553,6 +553,44 @@ export async function loadApprovalLayerPreviewsForOrder(
 }
 
 /**
+ * Resolve the Final Production PDF the proof SHOULD be built from right now
+ * (its Drive fileId + raster rev), so a stored snapshot can be checked against
+ * the live folder. Returns null when the current source can't be resolved
+ * (Drive error, folder empty) — callers treat null as "can't confirm" and keep
+ * the existing behavior rather than blanking a working proof.
+ */
+async function resolveCurrentFinalSource(
+  admin: ReturnType<typeof createAdminClient>,
+  order: Pick<Order, "id" | "title" | "tenant_id" | "specs">
+): Promise<{ fileId: string; rev: string } | null> {
+  try {
+    const specs = (order.specs ?? {}) as Record<string, unknown>;
+    const pack = await fetchRespondArtworkPack(
+      admin,
+      order.tenant_id,
+      { id: order.id, title: String(order.title ?? ""), specs },
+      skusForRespond(specs),
+      { skipCache: true }
+    );
+    const pdfs = Object.values(pack.bySku);
+    if (pdfs.length === 0) return null;
+    const fileId = pdfs[0]!.fileId;
+    const settings = await ensureGdriveSettings(admin, order.tenant_id);
+    const drive = proofsDriveClient(settings);
+    const meta = await getDriveFileMeta(drive, fileId);
+    if (!meta) return null;
+    const modifiedTime = await driveModifiedTime(drive, fileId);
+    const rev = proofRasterRev(
+      modifiedTime === "unknown" ? String(meta.size) : modifiedTime
+    );
+    return { fileId, rev };
+  } catch (err) {
+    console.error("[approval-layer-previews] resolve current source failed:", err);
+    return null;
+  }
+}
+
+/**
  * Customer /respond proof: JPEG index when send already rasterized it,
  * otherwise SKU → PDF page from Drive so a 10-page file still shows 10 SKUs.
  */
@@ -564,8 +602,21 @@ export async function loadRespondCustomerProof(
   finalPdfs: Record<string, RespondFinalPdf>;
   layerPreviews: Record<string, RespondLayerPreview>;
 }> {
+  const admin = createAdminClient();
   const stored = await loadRespondPreviewIndex(order.id);
   if (stored && indexHasLayerPictures(stored)) {
+    // Self-heal: never serve a saved snapshot that no longer matches the current
+    // Final Production file. The rendered images persist even after the source
+    // PDF is replaced/deleted, so without this a resend can still open the old
+    // artwork. Only blank it when we POSITIVELY resolve a different current file
+    // (a null resolve = can't confirm → keep serving to avoid false "preparing").
+    const current = await resolveCurrentFinalSource(admin, order);
+    if (current && approvalPreviewIsStale(stored, current)) {
+      void generateApprovalLayerPreviewsForOrder(order).catch((err) =>
+        console.error("[approval-layer-previews] self-heal rebuild failed:", err)
+      );
+      return { skus: ticketSkus, finalPdfs: {}, layerPreviews: {} };
+    }
     const expanded = expandRespondPreviewIndex(stored, ticketSkus);
     const proof = respondProofFromIndex(expanded);
     return {
