@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notificationBlocksCustomerAssets } from "@/lib/notification-asset-access";
 import { skusForRespond } from "@/lib/respond-order";
@@ -76,26 +76,26 @@ export async function GET(request: Request) {
   }
 
   if (prepare) {
-    try {
-      await loadApprovalLayerPreviewsForOrder(orderRow, {
-        generateIfMissing: true,
-      });
-    } catch (err) {
-      if (isApprovalProofSourceMissing(err)) {
-        return NextResponse.json({
-          skus: ticketSkus,
-          bySku: {},
-          layerPreviews: {},
-          sourceMissing: true,
+    // Never rasterize inside the customer request — a ~1GB Final PDF would hang
+    // the proof link for minutes. Kick the build off in the background and
+    // return immediately; the client polls this endpoint and the cron
+    // (/api/cron/approval-previews) also builds it, so it appears once ready.
+    after(async () => {
+      try {
+        await loadApprovalLayerPreviewsForOrder(orderRow, {
+          generateIfMissing: true,
         });
+      } catch (err) {
+        if (!isApprovalProofSourceMissing(err)) {
+          console.error("[final-artwork] background build failed:", err);
+        }
       }
-      console.error("[approval-layer-previews] load failed:", err);
-    }
-    const ready = await loadRespondCustomerProof(orderRow, ticketSkus);
+    });
     return NextResponse.json({
-      skus: ready.skus,
-      bySku: ready.finalPdfs,
-      layerPreviews: ready.layerPreviews,
+      skus: stored.skus,
+      bySku: stored.finalPdfs,
+      layerPreviews: stored.layerPreviews,
+      preparing: Object.keys(stored.layerPreviews).length === 0,
     });
   }
 

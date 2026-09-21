@@ -4,9 +4,17 @@ import { isUnnamedPdfLayer, isPdfCutLineLayer, layersFromOptionalContent, mergeP
 import { installPdfJsMapPolyfills } from "@/lib/pdfjs-map-polyfill";
 import { initPdfjsNode, pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
+import { ocgOverlayRgba } from "@/lib/ocg-overlay-rgba";
 
-const MAX_EDGE = 2200;
-const TARGET_DPI = 150;
+type Ctx2D = {
+  getImageData: (x: number, y: number, w: number, h: number) => { data: Uint8ClampedArray };
+  putImageData: (img: unknown, x: number, y: number) => void;
+};
+
+// Screen proofs only — a lower cap keeps memory/encode time down so even very
+// large (~1GB) print PDFs finish rasterizing within the server limit.
+const MAX_EDGE = 1600;
+const TARGET_DPI = 110;
 
 type NodeCanvas = {
   encode?: (format: string, quality?: number) => Promise<Buffer>;
@@ -128,6 +136,12 @@ export async function rasterizePdfLayerPreviews(
       const width = Math.max(1, Math.ceil(viewport.width));
       const height = Math.max(1, Math.ceil(viewport.height));
 
+      const ocPromise = oc
+        ? (Promise.resolve(oc) as Promise<
+            import("pdfjs-dist/types/src/display/optional_content_config").OptionalContentConfig
+          >)
+        : undefined;
+
       const renderOnce = async (mode: "print" | "none" | Set<string>, opaque: boolean) => {
         applyVisibility(oc, allLayers, mode);
         const target = canvasFactory.create(width, height);
@@ -138,12 +152,44 @@ export async function rasterizePdfLayerPreviews(
               target.context as unknown as CanvasRenderingContext2D,
             viewport,
             background: opaque ? "rgb(255,255,255)" : "rgba(0,0,0,0)",
-            optionalContentConfigPromise: oc
-              ? (Promise.resolve(oc) as Promise<
-                  import("pdfjs-dist/types/src/display/optional_content_config").OptionalContentConfig
-                >)
-              : undefined,
+            optionalContentConfigPromise: ocPromise,
           }).promise;
+          return await pngFromCanvas(target.canvas);
+        } finally {
+          canvasFactory.destroy(target);
+        }
+      };
+
+      // Render with a transparent background and return the raw RGBA pixels, so
+      // the always-on base artwork can be subtracted out of each layer image.
+      const renderRgba = async (mode: "print" | "none" | Set<string>) => {
+        applyVisibility(oc, allLayers, mode);
+        const target = canvasFactory.create(width, height);
+        try {
+          await page.render({
+            canvas: target.canvas as unknown as HTMLCanvasElement,
+            canvasContext:
+              target.context as unknown as CanvasRenderingContext2D,
+            viewport,
+            background: "rgba(0,0,0,0)",
+            optionalContentConfigPromise: ocPromise,
+          }).promise;
+          const ctx = target.context as unknown as Ctx2D;
+          return new Uint8Array(ctx.getImageData(0, 0, width, height).data);
+        } finally {
+          canvasFactory.destroy(target);
+        }
+      };
+
+      const encodeRgbaPng = async (rgba: Uint8Array): Promise<Buffer> => {
+        const target = canvasFactory.create(width, height);
+        try {
+          const ctx = target.context as unknown as Ctx2D;
+          ctx.putImageData(
+            new ImageData(new Uint8ClampedArray(rgba), width, height) as unknown as object,
+            0,
+            0
+          );
           return await pngFromCanvas(target.canvas);
         } finally {
           canvasFactory.destroy(target);
@@ -152,10 +198,19 @@ export async function rasterizePdfLayerPreviews(
 
       const compositeJpg = await renderOnce("print", true);
       const layerPngs: Record<string, Buffer> = {};
+      let basePng: Buffer = Buffer.from([]);
 
       if (layers.length > 0) {
+        // Base = whatever stays on with every named layer OFF (the always-on
+        // artwork). Each layer image is then ONLY the pixels that layer adds,
+        // transparent everywhere else — so turning on dieline + foil + ...
+        // stacks them all instead of the top opaque image hiding the ones below.
+        const base = await renderRgba("none");
+        basePng = await encodeRgbaPng(base);
         for (const layer of layers) {
-          layerPngs[layer.id] = await renderOnce(new Set([layer.id]), false);
+          const full = await renderRgba(new Set([layer.id]));
+          const delta = ocgOverlayRgba(full, base);
+          layerPngs[layer.id] = await encodeRgbaPng(delta);
         }
       }
 
@@ -164,7 +219,7 @@ export async function rasterizePdfLayerPreviews(
         width,
         height,
         compositeJpg,
-        basePng: Buffer.from([]),
+        basePng,
         layerPngs,
       });
       page.cleanup();
