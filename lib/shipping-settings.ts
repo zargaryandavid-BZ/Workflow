@@ -32,6 +32,8 @@ function rowToSettings(row: Record<string, unknown>): ShippingSettings {
     fedex_api_key: (row.fedex_api_key as string | null) ?? null,
     fedex_secret_key: (row.fedex_secret_key as string | null) ?? null,
     fedex_account_number: (row.fedex_account_number as string | null) ?? null,
+    fedex_rate_account_number:
+      (row.fedex_rate_account_number as string | null) ?? null,
     fedex_sandbox: row.fedex_sandbox !== false,
     shipper_street: (row.shipper_street as string | null) ?? null,
     shipper_city: (row.shipper_city as string | null) ?? null,
@@ -228,6 +230,7 @@ export function toPublicShippingSettings(
     fedex_api_key: maskSecret(settings.fedex_api_key),
     fedex_secret_key: maskSecret(settings.fedex_secret_key),
     fedex_account_number: settings.fedex_account_number,
+    fedex_rate_account_number: settings.fedex_rate_account_number,
     fedex_sandbox: settings.fedex_sandbox,
     shipper_street: settings.shipper_street,
     shipper_city: settings.shipper_city,
@@ -338,6 +341,10 @@ export function resolveFedExConfig(settings: ShippingSettings | null): FedExConf
       settings?.fedex_account_number ?? null,
       process.env.FEDEX_ACCOUNT_NUMBER
     ),
+    rateAccountNumber: resolveSecret(
+      settings?.fedex_rate_account_number ?? null,
+      process.env.FEDEX_RATE_ACCOUNT_NUMBER
+    ),
     // Env wins when set so .env.local FEDEX_SANDBOX=true can fix a bad DB default.
     // Otherwise use tenant setting; default to sandbox when neither is set.
     sandbox: (() => {
@@ -424,6 +431,7 @@ export type ShippingSettingsPatch = Partial<{
   fedex_api_key: string | null;
   fedex_secret_key: string | null;
   fedex_account_number: string | null;
+  fedex_rate_account_number: string | null;
   fedex_sandbox: boolean;
   shipper_street: string | null;
   shipper_city: string | null;
@@ -457,6 +465,7 @@ export function buildShippingSettingsUpdate(
   };
 
   copyIfDefined("fedex_account_number");
+  copyIfDefined("fedex_rate_account_number");
   copyIfDefined("fedex_sandbox");
   copyIfDefined("shipper_street");
   copyIfDefined("shipper_city");

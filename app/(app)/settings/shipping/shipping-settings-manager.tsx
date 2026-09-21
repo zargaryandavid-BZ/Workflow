@@ -57,6 +57,9 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
   const [fedexAccountNumber, setFedexAccountNumber] = useState(
     settings.fedex_account_number ?? ""
   );
+  const [fedexRateAccountNumber, setFedexRateAccountNumber] = useState(
+    settings.fedex_rate_account_number ?? ""
+  );
   const [fedexSandbox, setFedexSandbox] = useState(settings.fedex_sandbox);
   const [shipperContactName, setShipperContactName] = useState(
     settings.shipper_contact_name ?? ""
@@ -114,6 +117,7 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
 
     const body: Record<string, unknown> = {
       fedex_account_number: fedexAccountNumber.trim() || null,
+      fedex_rate_account_number: fedexRateAccountNumber.trim() || null,
       fedex_sandbox: fedexSandbox,
       shipper_contact_name: shipperContactName.trim() || null,
       shipper_phone: shipperPhone.trim() || null,
@@ -159,6 +163,8 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
 
     const next = json.settings as ShippingSettingsPublic;
     setSettings(next);
+    setFedexAccountNumber(next.fedex_account_number ?? "");
+    setFedexRateAccountNumber(next.fedex_rate_account_number ?? "");
     setOfferPickup(next.offer_pickup);
     setOfferFedex(next.offer_fedex);
     setOfferUber(next.offer_uber);
@@ -294,8 +300,8 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-800">FedEx</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Live rate quotes on the client shipping portal. Env vars in
-          .env.local are used as fallback when fields here are empty.
+          Quotes (delivery $) can use a different FedEx account than printed
+          labels. Env vars are used when a field here is empty.
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <SecretInput
@@ -312,13 +318,30 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
             value={fedexSecretKey}
             onChange={setFedexSecretKey}
           />
-          <label className="block text-sm text-slate-600 sm:col-span-2">
-            Account number
+          <label className="block text-sm text-slate-600">
+            Ship / label account
             <input
               value={fedexAccountNumber}
               onChange={(e) => setFedexAccountNumber(e.target.value)}
+              placeholder="210461650"
               className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
             />
+            <span className="mt-1 block text-xs text-slate-500">
+              Printed labels (Ship API). Pin this account on the FedEx project.
+            </span>
+          </label>
+          <label className="block text-sm text-slate-600">
+            Rate / quote account
+            <input
+              value={fedexRateAccountNumber}
+              onChange={(e) => setFedexRateAccountNumber(e.target.value)}
+              placeholder="559065480"
+              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-slate-500">
+              Delivery prices shown to the customer. Falls back to the ship
+              account if empty.
+            </span>
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
             <input

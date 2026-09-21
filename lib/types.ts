@@ -780,7 +780,10 @@ export interface FedExRateOption {
 export interface FedExConfig {
   apiKey: string | null;
   secretKey: string | null;
+  /** Ship API / printed labels. */
   accountNumber: string | null;
+  /** Rate API / delivery quotes. Falls back to accountNumber when empty. */
+  rateAccountNumber: string | null;
   sandbox: boolean;
   shipper: {
     street: string;
@@ -801,6 +804,8 @@ export interface ShippingSettings {
   fedex_api_key: string | null;
   fedex_secret_key: string | null;
   fedex_account_number: string | null;
+  /** Rate quotes; labels use fedex_account_number. */
+  fedex_rate_account_number: string | null;
   fedex_sandbox: boolean;
   shipper_street: string | null;
   shipper_city: string | null;
@@ -882,6 +887,7 @@ export interface ShippingSettingsPublic {
   fedex_api_key: MaskedSecret;
   fedex_secret_key: MaskedSecret;
   fedex_account_number: string | null;
+  fedex_rate_account_number: string | null;
   fedex_sandbox: boolean;
   shipper_street: string | null;
   shipper_city: string | null;

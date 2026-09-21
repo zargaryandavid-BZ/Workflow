@@ -818,6 +818,7 @@ create table if not exists public.shipping_settings (
   fedex_api_key          text,
   fedex_secret_key       text,
   fedex_account_number   text,
+  fedex_rate_account_number text,
   fedex_sandbox          boolean not null default true,
   shipper_street         text,
   shipper_city           text,

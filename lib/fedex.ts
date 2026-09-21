@@ -202,7 +202,9 @@ export async function fetchFedExRates(args: {
   }
 
   const accessToken = await getFedExAccessToken(config);
-  const accountNumber = config.accountNumber!.trim();
+  const accountNumber = (
+    config.rateAccountNumber?.trim() || config.accountNumber!.trim()
+  );
   const residential = args.deliveryAddress.residential !== false;
   const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
