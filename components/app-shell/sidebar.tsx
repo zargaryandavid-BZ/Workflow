@@ -10,6 +10,7 @@ import {
   BarChart3,
   ChevronDown,
   Clock,
+  ClipboardList,
   Columns3,
   Factory,
   FileText,
@@ -88,6 +89,7 @@ const settingsChildren: NavChild[] = SETTINGS_NAV_GROUPS.flatMap((group) =>
 
 const nav: NavItem[] = [
   { href: "/board", label: "Board", icon: LayoutGrid },
+  { href: "/priority-list", label: "Priority List", icon: ClipboardList },
   { href: "/queue", label: "Designer Queue", icon: ListOrdered },
   {
     href: "/queue/prepress",
