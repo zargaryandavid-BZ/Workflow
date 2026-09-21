@@ -1058,8 +1058,10 @@ export function OrderCard({
     ((order.specs as { card_pdf_rev?: string }).card_pdf_rev ?? "").trim()
       .length > 0;
   const proofBuilding = awaitingCustomerApproval && !proofBuilt;
-  const proofReady =
-    awaitingCustomerApproval && proofBuilt && !notificationBadge;
+  // Show proof status on every Waiting-Approval card, independent of any other
+  // badge (a "Waiting"/pending notification badge used to suppress this, which
+  // hid the proof status the team relies on).
+  const proofReady = awaitingCustomerApproval && proofBuilt;
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: columnKind === "done",
     specs: order.specs,
