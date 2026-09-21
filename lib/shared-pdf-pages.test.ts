@@ -56,7 +56,27 @@ describe("sharedPdfPagesForSkus", () => {
 });
 
 describe("pickFinalArtworkPdf", () => {
-  it("uses the first file when names differ", () => {
+  it("uses the most recently modified file when names differ", () => {
+    assert.equal(
+      pickFinalArtworkPdf([
+        { id: "a", name: "front.pdf", modifiedTime: "2026-09-01T00:00:00Z" },
+        { id: "b", name: "back.pdf", modifiedTime: "2026-09-10T00:00:00Z" },
+      ])?.id,
+      "b"
+    );
+  });
+
+  it("never returns a stale leftover file just because it's listed first", () => {
+    assert.equal(
+      pickFinalArtworkPdf([
+        { id: "old", name: "v1-final.pdf", modifiedTime: "2026-09-10T00:00:00Z" },
+        { id: "new", name: "v2-final.pdf", modifiedTime: "2026-09-15T00:00:00Z" },
+      ])?.id,
+      "new"
+    );
+  });
+
+  it("falls back to the first file when modifiedTime is missing on all of them", () => {
     assert.equal(
       pickFinalArtworkPdf([
         { id: "a", name: "front.pdf" },
