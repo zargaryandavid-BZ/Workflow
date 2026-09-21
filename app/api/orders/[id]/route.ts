@@ -187,6 +187,21 @@ async function recordSaveActivity(
     changes.push({ field: "Owner changed" });
   if (updates.tag_id !== undefined && updates.tag_id !== existing.tag_id)
     changes.push({ field: "Tag", from: oldTagName, to: newTagName });
+  if (updates.press !== undefined && updates.press !== existing.press)
+    changes.push({
+      field: "Press",
+      from: existing.press ?? null,
+      to: updates.press ?? null,
+    });
+  if (
+    updates.production_stage !== undefined &&
+    updates.production_stage !== existing.production_stage
+  )
+    changes.push({
+      field: "Production stage",
+      from: existing.production_stage ?? null,
+      to: updates.production_stage ?? null,
+    });
 
   if (updates.specs !== undefined) {
     const oldSpecs = (existing.specs ?? {}) as Record<string, unknown>;
@@ -368,6 +383,16 @@ export async function PATCH(
     tagId?: string | null;
     specs?: Record<string, unknown>;
     customFieldValues?: { customFieldId: string; value: unknown }[];
+    /** Which HP Indigo press this order runs on. null clears it. */
+    press?: "6K" | "15K" | null;
+    /** 5-step shop-floor status tag. null clears it (not started). */
+    production_stage?:
+      | "printing"
+      | "lamination"
+      | "uv"
+      | "cutting"
+      | "folding"
+      | null;
   };
 
   const supabase = await createClient();
@@ -376,7 +401,7 @@ export async function PATCH(
   const { data: existingOrder } = await supabase
     .from("orders")
     .select(
-      "id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, tag_id, webhook_source, internal_note"
+      "id, tenant_id, title, description, priority, due_date, specs, customer_id, created_by, tag_id, webhook_source, internal_note, press, production_stage"
     )
     .eq("id", id)
     .eq("tenant_id", tenantId)
@@ -478,6 +503,25 @@ export async function PATCH(
   if (body.internal_note !== undefined) updates.internal_note = body.internal_note;
   if (body.priority !== undefined) updates.priority = body.priority;
   if (body.tagId !== undefined) updates.tag_id = body.tagId ?? null;
+  if (body.press !== undefined) {
+    if (body.press !== null && body.press !== "6K" && body.press !== "15K") {
+      return NextResponse.json({ error: "Invalid press value" }, { status: 400 });
+    }
+    updates.press = body.press;
+  }
+  if (body.production_stage !== undefined) {
+    const validStages = ["printing", "lamination", "uv", "cutting", "folding"];
+    if (
+      body.production_stage !== null &&
+      !validStages.includes(body.production_stage)
+    ) {
+      return NextResponse.json(
+        { error: "Invalid production stage value" },
+        { status: 400 }
+      );
+    }
+    updates.production_stage = body.production_stage;
+  }
   if (body.ownerId !== undefined) {
     if (body.ownerId) {
       const ownerUnchanged =

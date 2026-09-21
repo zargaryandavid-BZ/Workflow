@@ -18,6 +18,20 @@ export type Role =
 
 export type ColumnKind = "normal" | "exception" | "approval" | "done" | "ready_to_ship";
 
+/** HP Indigo press an order runs on. Null = no press (e.g. apparel/shipping-only). */
+export type PressType = "6K" | "15K";
+
+/** 5-step shop-floor status tag. Null = not started / not applicable. */
+export type ProductionStage =
+  | "printing"
+  | "lamination"
+  | "uv"
+  | "cutting"
+  | "folding";
+
+/** Which bucket of the shared Priority List an order is queued in for its press. */
+export type DailyPriorityBucket = "today" | "tomorrow";
+
 export type CustomFieldType =
   | "text"
   | "number"
@@ -325,6 +339,17 @@ export interface Order {
    * is outside those columns. Used for the on-card queue rank badge.
    */
   queue_rank?: number | null;
+  /** HP Indigo press this order runs on. Null = no press (e.g. apparel/shipping-only). */
+  press?: PressType | null;
+  /** 5-step shop-floor status tag, staff-editable from the card. Null = not started. */
+  production_stage?: ProductionStage | null;
+  /** Shared Priority List: which bucket (today/tomorrow) for this order's press. */
+  daily_priority_bucket?: DailyPriorityBucket | null;
+  /** Shared Priority List: sort order within press+bucket. Lower = higher priority. */
+  daily_priority_rank?: number | null;
+  /** Shared Priority List: staff "done" checkbox. */
+  daily_priority_done?: boolean;
+  daily_priority_done_at?: string | null;
 }
 
 export type CardWarningColor = "amber" | "orange" | "red" | "purple" | "blue" | "pink";

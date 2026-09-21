@@ -79,6 +79,8 @@ import {
 } from "./order-number-label";
 import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
+import { PressBadge } from "./press-badge";
+import { ProductionStageSelect } from "./production-stage-select";
 import { DesignFlagChip, SourceChannelChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
@@ -1355,6 +1357,11 @@ export function OrderCard({
                           : "Stock?"}
                   </span>
                 ) : null}
+                {order.press ? <PressBadge press={order.press} /> : null}
+                <ProductionStageSelect
+                  orderId={order.id}
+                  stage={order.production_stage ?? null}
+                />
               </span>
               </div>
               {cardTitle ? (
