@@ -1357,6 +1357,16 @@ export function OrderCard({
                     <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />
                   </span>
                 ) : null}
+                {order.daily_priority_bucket ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded bg-indigo-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-indigo-700"
+                    title="On the Priority List"
+                  >
+                    <ClipboardList className="h-2.5 w-2.5" />
+                    {order.daily_priority_bucket === "today" ? "Today" : "Tomorrow"}
+                    {order.press ? ` · ${order.press}` : ""}
+                  </span>
+                ) : null}
                 {comboStock ? (
                   <span
                     className={cn(
