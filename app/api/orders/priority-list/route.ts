@@ -3,7 +3,10 @@ import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { canSetBoardTagAndPriority } from "@/lib/permissions";
 import { logActivity } from "@/lib/automation";
+import { normalizeSkus } from "@/lib/skus";
+import { ORDER_QTY_FIELD_NAME, QUANTITY_FIELD_NAME } from "@/lib/constants";
 import type { DailyPriorityBucket, PressType } from "@/lib/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +40,55 @@ function isSameUtcDay(iso: string | null, now: Date): boolean {
     d.getUTCMonth() === now.getUTCMonth() &&
     d.getUTCDate() === now.getUTCDate()
   );
+}
+
+/**
+ * Product + qty for single-item orders that have no specs.skus (multi-SKU
+ * orders already carry name+qty per line in specs.skus — see PRIORITY_LIST
+ * GET below). Batches one lookup for the whole page instead of one per row.
+ */
+async function fetchProductQtyFallback(
+  supabase: SupabaseClient,
+  tenantId: string,
+  orderIds: string[]
+): Promise<Map<string, { product: string | null; qty: number | null }>> {
+  const out = new Map<string, { product: string | null; qty: number | null }>();
+  if (orderIds.length === 0) return out;
+
+  const { data: fields } = await supabase
+    .from("custom_fields")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .in("name", ["Product", ORDER_QTY_FIELD_NAME, QUANTITY_FIELD_NAME]);
+  const fieldRows = (fields ?? []) as { id: string; name: string }[];
+  const productFieldId = fieldRows.find((f) => f.name === "Product")?.id;
+  const qtyFieldId =
+    fieldRows.find((f) => f.name === ORDER_QTY_FIELD_NAME)?.id ??
+    fieldRows.find((f) => f.name === QUANTITY_FIELD_NAME)?.id;
+  const fieldIds = [productFieldId, qtyFieldId].filter(Boolean) as string[];
+  if (fieldIds.length === 0) return out;
+
+  const { data: values } = await supabase
+    .from("custom_field_values")
+    .select("order_id, custom_field_id, value")
+    .in("order_id", orderIds)
+    .in("custom_field_id", fieldIds);
+
+  for (const row of (values ?? []) as {
+    order_id: string;
+    custom_field_id: string;
+    value: unknown;
+  }[]) {
+    const entry = out.get(row.order_id) ?? { product: null, qty: null };
+    if (row.custom_field_id === productFieldId) {
+      entry.product = typeof row.value === "string" ? row.value.trim() || null : null;
+    } else if (row.custom_field_id === qtyFieldId) {
+      const n = Number(row.value);
+      entry.qty = Number.isFinite(n) ? n : null;
+    }
+    out.set(row.order_id, entry);
+  }
+  return out;
 }
 
 /**
@@ -95,16 +147,34 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const now = new Date();
-  const orders = (data ?? []).map((row) => {
+  const rows = data ?? [];
+  const skusByOrderId = new Map(
+    rows.map((row) => {
+      const r = row as unknown as { id: string; specs: Record<string, unknown> | null };
+      return [r.id, normalizeSkus(r.specs?.skus)] as const;
+    })
+  );
+  const fallbackOrderIds = rows
+    .map((row) => (row as unknown as { id: string }).id)
+    .filter((id) => (skusByOrderId.get(id)?.length ?? 0) === 0);
+  const fallback = await fetchProductQtyFallback(supabase, tenantId, fallbackOrderIds);
+
+  const orders = rows.map((row) => {
     const r = row as unknown as Record<string, unknown>;
     const rawDone = Boolean(r.daily_priority_done);
     const doneAt = (r.daily_priority_done_at as string | null) ?? null;
+    const skus = skusByOrderId.get(r.id as string) ?? [];
     return {
       ...r,
       // Staff-facing "done" resets automatically the next day without a
       // separate cron job — see isSameUtcDay(). The underlying DB value is
       // left alone; only what the UI shows is recomputed here.
       daily_priority_done: rawDone && isSameUtcDay(doneAt, now),
+      // Brief job context for the shop floor — SKU name+qty when the order
+      // has line items, else the single-item Product/QTY custom fields.
+      skus: skus.map((s) => ({ name: s.name, qty: s.qty })),
+      product: skus.length === 0 ? (fallback.get(r.id as string)?.product ?? null) : null,
+      qty: skus.length === 0 ? (fallback.get(r.id as string)?.qty ?? null) : null,
     };
   });
 
