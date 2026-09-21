@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/approval-previews",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}
