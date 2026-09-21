@@ -35,9 +35,11 @@ import type {
   ButtonAutomation,
   CardWarningRule,
   CustomField,
+  DailyPriorityBucket,
   Designer,
   OrderTagSummary,
   OrderWithRelations,
+  PressType,
   Role,
   Tag,
 } from "@/lib/types";
@@ -117,6 +119,14 @@ interface ColumnProps {
     order: OrderWithRelations,
     score: PriorityScore | null
   ) => void;
+  /** Add/move an order onto the shared daily Priority List from the board. */
+  onSetDailyPriority?: (
+    order: OrderWithRelations,
+    press: PressType,
+    bucket: DailyPriorityBucket
+  ) => void;
+  /** Take an order off the shared daily Priority List. */
+  onRemoveDailyPriority?: (order: OrderWithRelations) => void;
   onSetReprint?: (order: OrderWithRelations, on: boolean) => void;
   onSetLocked?: (order: OrderWithRelations, on: boolean) => void;
   onSetTimeBudget?: (order: OrderWithRelations, seconds: number | null) => void;
@@ -213,6 +223,8 @@ export function Column({
   tags = [],
   onSetTag,
   onSetPriorityScore,
+  onSetDailyPriority,
+  onRemoveDailyPriority,
   onSetReprint,
   onSetLocked,
   onSetTimeBudget,
@@ -507,6 +519,21 @@ export function Column({
                         ? (score) => onSetPriorityScore(entry.order, score)
                         : undefined
                     }
+                    onSetDailyPriority={
+                      role &&
+                      canSetBoardTagAndPriority(role) &&
+                      onSetDailyPriority
+                        ? (press, bucket) =>
+                            onSetDailyPriority(entry.order, press, bucket)
+                        : undefined
+                    }
+                    onRemoveDailyPriority={
+                      role &&
+                      canSetBoardTagAndPriority(role) &&
+                      onRemoveDailyPriority
+                        ? () => onRemoveDailyPriority(entry.order)
+                        : undefined
+                    }
                     onSetReprint={
                       role && canSetBoardTagAndPriority(role) && onSetReprint
                         ? (on) => onSetReprint(entry.order, on)
@@ -592,6 +619,21 @@ export function Column({
                     canSetBoardTagAndPriority(role) &&
                     onSetPriorityScore
                       ? (score) => onSetPriorityScore(order, score)
+                      : undefined
+                  }
+                  onSetDailyPriority={
+                    role &&
+                    canSetBoardTagAndPriority(role) &&
+                    onSetDailyPriority
+                      ? (press, bucket) =>
+                          onSetDailyPriority(order, press, bucket)
+                      : undefined
+                  }
+                  onRemoveDailyPriority={
+                    role &&
+                    canSetBoardTagAndPriority(role) &&
+                    onRemoveDailyPriority
+                      ? () => onRemoveDailyPriority(order)
                       : undefined
                   }
                   onSetReprint={

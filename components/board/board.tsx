@@ -123,12 +123,14 @@ import type {
   CardWarningRule,
   Tag,
   CustomField,
+  DailyPriorityBucket,
   Designer,
   ButtonAutomation,
   FastActionButton,
   IntegrationMode,
   OrderTagSummary,
   OrderWithRelations,
+  PressType,
   Role,
 } from "@/lib/types";
 import type { PriorityScore } from "@/lib/order-priority-score";
@@ -2253,6 +2255,76 @@ export function Board({
     }
   }
 
+  /**
+   * Add/move a card onto the shared daily Priority List straight from the
+   * board (right-click), instead of only via the separate Priority List
+   * page's search box. Uses the dedicated priority-list endpoint (not
+   * patchOrderApi/`/api/orders/[id]`) since that's the only route that
+   * understands daily_priority_bucket/rank; leaving rank unset here appends
+   * the order to the end of that press+bucket's list.
+   */
+  async function handleSetDailyPriority(
+    order: OrderWithRelations,
+    press: PressType,
+    bucket: DailyPriorityBucket
+  ) {
+    const snapshot = boardOrdersRef.current;
+    patchOrderFields(order.id, {
+      press,
+      daily_priority_bucket: bucket,
+      daily_priority_done: false,
+      daily_priority_done_at: null,
+    });
+    try {
+      const res = await fetchWithAuth("/api/orders/priority-list", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updates: [{ orderId: order.id, press, daily_priority_bucket: bucket }],
+        }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error ?? "Failed to update priority list");
+      }
+      flashToast(
+        `Added to ${bucket === "today" ? "Today's" : "Tomorrow's"} Priority List (${press})`
+      );
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update priority list"
+      );
+    }
+  }
+
+  async function handleRemoveDailyPriority(order: OrderWithRelations) {
+    const snapshot = boardOrdersRef.current;
+    patchOrderFields(order.id, {
+      daily_priority_bucket: null,
+      daily_priority_rank: null,
+    });
+    try {
+      const res = await fetchWithAuth("/api/orders/priority-list", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updates: [{ orderId: order.id, daily_priority_bucket: null }],
+        }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error ?? "Failed to update priority list");
+      }
+      flashToast("Removed from Priority List");
+    } catch (err) {
+      restoreOrdersSnapshot(snapshot);
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to update priority list"
+      );
+    }
+  }
+
   async function handleSetReprint(order: OrderWithRelations, on: boolean) {
     const snapshot = boardOrdersRef.current;
     const specs = {
@@ -3816,6 +3888,16 @@ export function Board({
                 onSetPriorityScore={
                   canSetBoardTagAndPriority(role)
                     ? handleSetPriorityScore
+                    : undefined
+                }
+                onSetDailyPriority={
+                  canSetBoardTagAndPriority(role)
+                    ? handleSetDailyPriority
+                    : undefined
+                }
+                onRemoveDailyPriority={
+                  canSetBoardTagAndPriority(role)
+                    ? handleRemoveDailyPriority
                     : undefined
                 }
                 onSetReprint={
