@@ -22,6 +22,7 @@ const PRIORITY_LIST_SELECT = [
   "daily_priority_rank",
   "daily_priority_done",
   "daily_priority_done_at",
+  "daily_priority_note",
   "column_id",
   "customer:customers(id, name, company)",
 ].join(", ");
@@ -131,6 +132,7 @@ export async function PATCH(request: Request) {
       press?: PressType | null;
       daily_priority_bucket?: DailyPriorityBucket | null;
       daily_priority_rank?: number | null;
+      daily_priority_note?: string | null;
     }>;
   };
   const updates = Array.isArray(body.updates) ? body.updates : [];
@@ -182,6 +184,9 @@ export async function PATCH(request: Request) {
       patch.daily_priority_bucket = u.daily_priority_bucket;
     }
     if (u.daily_priority_rank !== undefined) patch.daily_priority_rank = u.daily_priority_rank;
+    if (u.daily_priority_note !== undefined) {
+      patch.daily_priority_note = u.daily_priority_note?.trim() || null;
+    }
 
     // Assignment changed (press or bucket) → reset the Done checkbox; a
     // re-queued or moved job is not "done" for its new slot.

@@ -36,7 +36,6 @@ import { DesignReferenceBlock, SourceChannelChip } from "./design-reference";
 import { isConnectedOrder } from "@/lib/connected-specs";
 import { NudgeButton } from "./nudge-button";
 import { ComboStockControl } from "./combo-stock-control";
-import { PressProductionControl } from "./press-production-control";
 import { isComboOrder, getComboStock } from "@/lib/combo-stock";
 import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
@@ -2561,21 +2560,6 @@ export function CardDetailModal({
                           ...prev,
                           order: { ...prev.order, ...patch },
                         }
-                      : prev
-                  );
-                  onChanged(patch);
-                }}
-              />
-            ) : null}
-            {mode !== "view" ? (
-              <PressProductionControl
-                orderId={data.order.id}
-                press={data.order.press ?? null}
-                productionStage={data.order.production_stage ?? null}
-                onChanged={(patch) => {
-                  setData((prev) =>
-                    prev
-                      ? { ...prev, order: { ...prev.order, ...patch } }
                       : prev
                   );
                   onChanged(patch);
