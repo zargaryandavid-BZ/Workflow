@@ -32,13 +32,21 @@ export function pdfPageLocksFromFinalPdfs(
 
 /**
  * Final production PDF for the card. Ignore file names: page 1 = SKU 1, page 2 = SKU 2.
- * If several PDFs are listed, one unique file wins; otherwise the first file is used.
+ * If several PDFs are listed, one unique file wins; otherwise the most recently
+ * modified file wins — a leftover older file left in the folder (staff re-uploaded
+ * a new one without deleting the old) must never be the one sent to the customer.
  */
 export function pickFinalArtworkPdf(
-  files: { id: string; name: string }[]
+  files: { id: string; name: string; modifiedTime?: string }[]
 ): { id: string; name: string } | null {
   if (files.length === 0) return null;
-  return uniqueSharedPdfFile(files) ?? files[0]!;
+  const unique = uniqueSharedPdfFile(files);
+  if (unique) return unique;
+  return [...files].sort((a, b) => {
+    const at = a.modifiedTime ? Date.parse(a.modifiedTime) : 0;
+    const bt = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
+    return bt - at;
+  })[0]!;
 }
 
 /**

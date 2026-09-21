@@ -130,6 +130,7 @@ export type ProofFile = {
   name: string;
   mimeType: string;
   thumbnailLink: string | null;
+  modifiedTime?: string;
 };
 
 /** List every non-folder file directly inside a folder (Proofs or designer root). */
@@ -147,7 +148,7 @@ export async function listProofFiles(
         "trashed=false",
       ].join(" and "),
       fields:
-        "nextPageToken, files(id,name,mimeType,thumbnailLink,shortcutDetails(targetId,targetMimeType))",
+        "nextPageToken, files(id,name,mimeType,thumbnailLink,modifiedTime,shortcutDetails(targetId,targetMimeType))",
       pageSize: 200,
       pageToken,
       ...folderChildrenListParams(),
@@ -164,6 +165,7 @@ export async function listProofFiles(
               ? f.shortcutDetails.targetMimeType
               : (f.mimeType ?? ""),
           thumbnailLink: f.thumbnailLink ?? null,
+          modifiedTime: f.modifiedTime ?? "",
         });
       }
     }
@@ -191,7 +193,7 @@ export async function listProofFilesRecursive(
           " and "
         ),
         fields:
-          "nextPageToken, files(id,name,mimeType,thumbnailLink,shortcutDetails(targetId,targetMimeType))",
+          "nextPageToken, files(id,name,mimeType,thumbnailLink,modifiedTime,shortcutDetails(targetId,targetMimeType))",
         pageSize: 200,
         pageToken,
         ...folderChildrenListParams(),
@@ -215,6 +217,7 @@ export async function listProofFilesRecursive(
               ? f.shortcutDetails.targetMimeType
               : (f.mimeType ?? ""),
           thumbnailLink: f.thumbnailLink ?? null,
+          modifiedTime: f.modifiedTime ?? "",
         });
       }
       pageToken = res.data.nextPageToken ?? undefined;
