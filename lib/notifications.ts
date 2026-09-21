@@ -21,6 +21,8 @@ import {
   readyToShipSubject,
 } from "@/lib/notification-messages";
 import { getMessageTemplates } from "@/lib/message-templates.server";
+import { isProofGateSendTenant } from "@/lib/proof-gate";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   formatOrderProductLabel,
   staffNoteBlock,
@@ -715,6 +717,76 @@ export async function dispatchNotification(
  * chosen channel. `channel: "none"` records the request without sending (the
  * staff member chose to skip / notify manually).
  */
+/**
+ * Beta gated-send: deliver approval links that were held back until the proof
+ * was ready. Finds pending customer_approval notifications for tenants opted
+ * into PROOF_GATE_SEND_TENANTS whose light proof now exists, and sends them.
+ * Called from the approval-previews cron after previews are built.
+ */
+export async function deliverQueuedApprovalsWhenReady(
+  tenantId?: string
+): Promise<{ delivered: number; checked: number }> {
+  const admin = createAdminClient();
+  const nowIso = new Date().toISOString();
+  let q = admin
+    .from("job_notifications")
+    .select("*")
+    .eq("type", "customer_approval")
+    .eq("status", "pending")
+    .in("channel", ["email", "sms", "both"])
+    .or(`token_expires_at.is.null,token_expires_at.gt.${nowIso}`);
+  if (tenantId) q = q.eq("tenant_id", tenantId);
+  const { data: rows, error } = await q;
+  if (error) throw new Error(error.message);
+
+  const { loadApprovalLayerPreviewsForOrder } = await import(
+    "@/lib/approval-layer-previews"
+  );
+
+  let delivered = 0;
+  let checked = 0;
+  for (const row of rows ?? []) {
+    const tId = row.tenant_id as string;
+    if (!isProofGateSendTenant(tId)) continue;
+    checked += 1;
+    const { data: order } = await admin
+      .from("orders")
+      .select("*")
+      .eq("id", row.order_id as string)
+      .eq("tenant_id", tId)
+      .maybeSingle();
+    if (!order) continue;
+
+    // Only send once the light proof actually exists.
+    const built = await loadApprovalLayerPreviewsForOrder(order as Order, {});
+    if (Object.keys(built).length === 0) continue;
+
+    const { data: tenant } = await admin
+      .from("tenants")
+      .select("name")
+      .eq("id", tId)
+      .maybeSingle();
+
+    try {
+      const delivery = await deliverNotification(admin, {
+        notification: row as unknown as JobNotification,
+        order: order as Order,
+        tenantName: (tenant?.name as string) ?? "",
+        channel: row.channel as "email" | "sms" | "both",
+        staffNote: (row.staff_note as string | null) ?? null,
+        actorUserId: (row.created_by as string | null) ?? null,
+      });
+      if (delivery.sent) delivered += 1;
+    } catch (err) {
+      console.error(
+        "[proof-gate] queued approval delivery failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+  return { delivered, checked };
+}
+
 export async function createNotification(
   client: Client,
   params: {
@@ -853,7 +925,41 @@ export async function createNotification(
         );
   let warning: string | null = null;
 
+  // Beta: hold the customer approval link until the light proof is built. Leave
+  // the notification pending (undelivered); the approval-previews cron delivers
+  // it automatically once the proof is ready. Off unless the tenant is listed in
+  // PROOF_GATE_SEND_TENANTS — otherwise the send goes out immediately as before.
+  const wantsCustomerSend =
+    params.channel === "email" ||
+    params.channel === "sms" ||
+    params.channel === "both";
+  let gateQueued = false;
   if (
+    wantsCustomerSend &&
+    params.type === "customer_approval" &&
+    isProofGateSendTenant(params.order.tenant_id)
+  ) {
+    try {
+      const { loadApprovalLayerPreviewsForOrder } = await import(
+        "@/lib/approval-layer-previews"
+      );
+      const built = await loadApprovalLayerPreviewsForOrder(params.order, {});
+      gateQueued = Object.keys(built).length === 0;
+    } catch (err) {
+      console.error("[proof-gate] readiness check failed:", err);
+      gateQueued = false;
+    }
+  }
+
+  if (gateQueued) {
+    await logActivity(client, {
+      tenantId: params.order.tenant_id,
+      orderId: params.order.id,
+      actor: params.createdBy ?? null,
+      action: "approval_queued",
+      metadata: { channel: params.channel },
+    });
+  } else if (
     params.channel === "email" ||
     params.channel === "sms" ||
     params.channel === "both"
