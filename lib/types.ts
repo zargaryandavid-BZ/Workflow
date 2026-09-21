@@ -350,6 +350,8 @@ export interface Order {
   /** Shared Priority List: staff "done" checkbox. */
   daily_priority_done?: boolean;
   daily_priority_done_at?: string | null;
+  /** Shared Priority List: short free-text note (e.g. "1000 pieces, hand") shown next to the order so it can be read/texted without opening the board. */
+  daily_priority_note?: string | null;
 }
 
 export type CardWarningColor = "amber" | "orange" | "red" | "purple" | "blue" | "pink";

@@ -16,7 +16,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CheckSquare, Loader2, Plus, Square, X } from "lucide-react";
+import { CheckSquare, Copy, Loader2, Plus, Square, X } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { partCardTitle } from "@/lib/group-orders";
 import { ProductionStageSelect } from "@/components/board/production-stage-select";
@@ -39,6 +39,7 @@ interface PriorityOrder {
   daily_priority_bucket: DailyPriorityBucket | null;
   daily_priority_rank: number | null;
   daily_priority_done: boolean;
+  daily_priority_note: string | null;
   customer: { id?: string; name?: string | null; company?: string | null } | null;
 }
 
@@ -55,6 +56,12 @@ function orderLabel(order: PriorityOrder): string {
   return [custom, customer].filter(Boolean).join(" — ") || order.title;
 }
 
+/** One texting-ready line: "15219 - Customer - note". Skips parts that aren't set. */
+function textLineFor(order: PriorityOrder): string {
+  const customer = order.customer?.company || order.customer?.name || null;
+  return [order.title, customer, order.daily_priority_note].filter(Boolean).join(" - ");
+}
+
 function SortableRow({
   order,
   index,
@@ -62,6 +69,7 @@ function SortableRow({
   onToggleDone,
   onMoveBucket,
   onRemove,
+  onNoteChange,
   busy,
 }: {
   order: PriorityOrder;
@@ -70,10 +78,16 @@ function SortableRow({
   onToggleDone: (order: PriorityOrder) => void;
   onMoveBucket: (order: PriorityOrder, bucket: DailyPriorityBucket) => void;
   onRemove: (order: PriorityOrder) => void;
+  onNoteChange: (order: PriorityOrder, note: string) => void;
   busy: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: order.id, disabled: !canManage });
+
+  const [noteDraft, setNoteDraft] = useState(order.daily_priority_note ?? "");
+  useEffect(() => {
+    setNoteDraft(order.daily_priority_note ?? "");
+  }, [order.daily_priority_note]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -91,6 +105,7 @@ function SortableRow({
       style={style}
       className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3"
     >
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {canManage ? (
           <span
@@ -140,6 +155,24 @@ function SortableRow({
             <span className="font-normal text-slate-500"> — {orderLabel(order)}</span>
           ) : null}
         </span>
+      </div>
+      {canManage ? (
+        <input
+          value={noteDraft}
+          onChange={(e) => setNoteDraft(e.target.value)}
+          onBlur={() => {
+            if (noteDraft !== (order.daily_priority_note ?? "")) {
+              onNoteChange(order, noteDraft);
+            }
+          }}
+          placeholder="Note for the floor — e.g. 1000 pcs, hand run"
+          className="ml-8 w-[calc(100%-2rem)] rounded border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 focus:border-blue-300 focus:bg-white focus:outline-none"
+        />
+      ) : order.daily_priority_note ? (
+        <p className="ml-8 truncate text-xs text-slate-500" title={order.daily_priority_note}>
+          {order.daily_priority_note}
+        </p>
+      ) : null}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 pl-8 sm:pl-0">
         <ProductionStageSelect
@@ -298,6 +331,7 @@ function PressColumn({
   onToggleDone,
   onMoveBucket,
   onRemove,
+  onNoteChange,
   onAdded,
   busyIds,
 }: {
@@ -310,9 +344,11 @@ function PressColumn({
   onToggleDone: (order: PriorityOrder) => void;
   onMoveBucket: (order: PriorityOrder, bucket: DailyPriorityBucket) => void;
   onRemove: (order: PriorityOrder) => void;
+  onNoteChange: (order: PriorityOrder, note: string) => void;
   onAdded: (orderId: string, press: PressType, bucket: DailyPriorityBucket) => void;
   busyIds: Set<string>;
 }) {
+  const [copied, setCopied] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
@@ -332,10 +368,26 @@ function PressColumn({
 
   return (
     <div className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-3">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="text-sm font-bold text-slate-800">
           {PRESS_LABELS[press]} Press
         </h2>
+        <button
+          type="button"
+          onClick={() => {
+            const text = visible.map(textLineFor).join("\n");
+            void navigator.clipboard.writeText(text).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+          disabled={visible.length === 0}
+          className="flex items-center gap-1 rounded border border-slate-200 px-1.5 py-1 text-[10px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+          title="Copy this list to text/send to production"
+        >
+          <Copy className="h-3 w-3" />
+          {copied ? "Copied" : "Copy for text"}
+        </button>
         <div className="flex h-7 items-stretch overflow-hidden rounded-md border border-slate-300 text-xs">
           {DAILY_PRIORITY_BUCKET_OPTIONS.map((b) => (
             <button
@@ -376,6 +428,7 @@ function PressColumn({
                   onToggleDone={onToggleDone}
                   onMoveBucket={onMoveBucket}
                   onRemove={onRemove}
+                  onNoteChange={onNoteChange}
                   busy={busyIds.has(o.id)}
                 />
               ))}
@@ -466,7 +519,7 @@ export function PriorityListBoard() {
   );
 
   const patchAssignment = useCallback(
-    async (updates: Array<{ orderId: string; press?: PressType | null; daily_priority_bucket?: DailyPriorityBucket | null; daily_priority_rank?: number | null }>) => {
+    async (updates: Array<{ orderId: string; press?: PressType | null; daily_priority_bucket?: DailyPriorityBucket | null; daily_priority_rank?: number | null; daily_priority_note?: string | null }>) => {
       await fetch("/api/orders/priority-list", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -511,6 +564,17 @@ export function PriorityListBoard() {
       ]).then(() => void load());
     },
     [orders, patchAssignment, load]
+  );
+
+  const handleNoteChange = useCallback(
+    (order: PriorityOrder, note: string) => {
+      const trimmed = note.trim() || null;
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, daily_priority_note: trimmed } : o))
+      );
+      void patchAssignment([{ orderId: order.id, daily_priority_note: trimmed }]);
+    },
+    [patchAssignment]
   );
 
   const handleReorder = useCallback(
@@ -565,6 +629,7 @@ export function PriorityListBoard() {
             onToggleDone={handleToggleDone}
             onMoveBucket={handleMoveBucket}
             onRemove={handleRemove}
+            onNoteChange={handleNoteChange}
             onAdded={handleAdded}
             busyIds={busyIds}
           />
