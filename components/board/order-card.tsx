@@ -1107,32 +1107,42 @@ export function OrderCard({
     >
       {/* padded content wrapper */}
       <div className={cn("px-3 py-3.5", designerWorkedSeconds > 0 && "pr-[5.75rem]")}>
-      {timersOff ? null : otherWorker ? (
-        <BoardWorkerChip
-          workerName={otherWorker.workerName}
-          running={otherWorker.running}
-          elapsedSeconds={otherWorker.elapsedSeconds}
-          canControl={canControlOthers}
-          busy={activeTimer.busyOrderId === order.id}
-          onPause={() => void activeTimer.pause(otherWorker.entryId)}
-          onResume={() => void activeTimer.resume(otherWorker.entryId)}
-          onStop={() => void activeTimer.stop(otherWorker.entryId)}
-        />
-      ) : (
-        <CardTimerControl
-          orderId={order.id}
-          timer={orderTimer}
-          workedSeconds={workedSeconds}
-          busy={activeTimer.busyOrderId === order.id}
-          onStart={() => void activeTimer.start(order.id)}
-          onPause={(reason) =>
-            orderTimer && void activeTimer.pause(orderTimer.entry.id, reason)
-          }
-          onResume={() =>
-            orderTimer && void activeTimer.resume(orderTimer.entry.id)
-          }
-          onStop={() => orderTimer && void activeTimer.stop(orderTimer.entry.id)}
-        />
+      {timersOff ? null : (
+        <>
+          {/* Someone else is (or was) working this card — show their chip. */}
+          {otherWorker ? (
+            <BoardWorkerChip
+              workerName={otherWorker.workerName}
+              running={otherWorker.running}
+              elapsedSeconds={otherWorker.elapsedSeconds}
+              canControl={canControlOthers}
+              busy={activeTimer.busyOrderId === order.id}
+              onPause={() => void activeTimer.pause(otherWorker.entryId)}
+              onResume={() => void activeTimer.resume(otherWorker.entryId)}
+              onStop={() => void activeTimer.stop(otherWorker.entryId)}
+            />
+          ) : null}
+          {/* Always give THIS user their own Start/timer control, even when
+              another designer left a paused timer on the card — otherwise a
+              reassigned designer had no way to start working on it. */}
+          <CardTimerControl
+            orderId={order.id}
+            timer={orderTimer}
+            workedSeconds={workedSeconds}
+            busy={activeTimer.busyOrderId === order.id}
+            onStart={() => void activeTimer.start(order.id)}
+            onPause={(reason) =>
+              orderTimer && void activeTimer.pause(orderTimer.entry.id, reason)
+            }
+            onResume={() =>
+              orderTimer && void activeTimer.resume(orderTimer.entry.id)
+            }
+            onStop={() =>
+              orderTimer && void activeTimer.stop(orderTimer.entry.id)
+            }
+          />
+        </>
+
       )}
       <div className="absolute right-2 top-1.5 z-10 flex items-center gap-1.5">
         <CardDesignerWorkedBadge
