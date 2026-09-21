@@ -401,12 +401,20 @@ function todayShipDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function shipErrorMessage(shipData: FedExShipResponseJson): string {
-  const code = shipData.errors?.[0]?.code ?? null;
+function fedexErrorCode(shipData: FedExShipResponseJson): string | null {
+  return shipData.errors?.[0]?.code ?? null;
+}
+
+function shipErrorMessage(
+  shipData: FedExShipResponseJson,
+  account?: string
+): string {
+  const code = fedexErrorCode(shipData);
   const rawMsg =
     shipData.errors?.[0]?.message ?? "FedEx create shipment failed.";
   if (code === "FORBIDDEN.ERROR") {
-    return "FedEx rejected Ship API access (FORBIDDEN). In FedEx Developer Portal, enable the Ship API on this project and pin/link the same account number as Settings → Shipping. Also confirm production keys are used when Sandbox is off.";
+    const acct = account?.trim() ? ` (account ${account.trim()})` : "";
+    return `FedEx rejected Ship API access${acct}. The Rate account can still quote; this account is not allowed to print with these API keys.`;
   }
   return rawMsg;
 }
@@ -505,151 +513,173 @@ export async function requestFedExShipment(
     }
     throw err;
   }
-  const accountNumber = config.accountNumber!.trim();
+  const shipAccount = config.accountNumber!.trim();
+  const rateAccount = config.rateAccountNumber?.trim() || "";
+  const accountsToTry = [...new Set([shipAccount, rateAccount].filter(Boolean))];
   const country =
     (args.deliveryAddress.country ?? "US").trim().toUpperCase() || "US";
   const residential = args.deliveryAddress.residential !== false;
   const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
-  const shipPayload = {
-    labelResponseOptions: "LABEL",
-    accountNumber: { value: accountNumber },
-    requestedShipment: {
-      shipDatestamp: todayShipDate(),
-      pickupType: "DROPOFF_AT_FEDEX_LOCATION",
-      serviceType: args.serviceType,
-      packagingType: usingOwnBox ? "YOUR_PACKAGING" : "FEDEX_BOX",
-      blockInsightVisibility: false,
-      shipper: {
-        contact: {
-          personName: args.shipperContact.personName.slice(0, 70),
-          phoneNumber: shipperPhone,
-          ...(args.shipperContact.companyName
-            ? { companyName: args.shipperContact.companyName.slice(0, 35) }
-            : {}),
-        },
-        address: shipperAddress(config),
-      },
-      recipients: [
-        {
+  const shipUrl = `${fedexBaseUrl(config)}/ship/v1/shipments`;
+
+  const postForAccount = async (
+    accountNumber: string
+  ): Promise<FedExShipmentRequestResult> => {
+    const shipPayload = {
+      labelResponseOptions: "LABEL",
+      accountNumber: { value: accountNumber },
+      requestedShipment: {
+        shipDatestamp: todayShipDate(),
+        pickupType: "DROPOFF_AT_FEDEX_LOCATION",
+        serviceType: args.serviceType,
+        packagingType: usingOwnBox ? "YOUR_PACKAGING" : "FEDEX_BOX",
+        blockInsightVisibility: false,
+        shipper: {
           contact: {
-            personName: args.recipientContact.personName.slice(0, 70),
-            phoneNumber: recipientPhone,
+            personName: args.shipperContact.personName.slice(0, 70),
+            phoneNumber: shipperPhone,
+            ...(args.shipperContact.companyName
+              ? { companyName: args.shipperContact.companyName.slice(0, 35) }
+              : {}),
+          },
+          address: shipperAddress(config),
+        },
+        recipients: [
+          {
+            contact: {
+              personName: args.recipientContact.personName.slice(0, 70),
+              phoneNumber: recipientPhone,
             ...(args.recipientContact.companyName
               ? {
                   companyName: args.recipientContact.companyName.slice(0, 35),
                 }
               : {}),
+            },
+            address: {
+              streetLines: [args.deliveryAddress.street],
+              city: args.deliveryAddress.city,
+              stateOrProvinceCode: args.deliveryAddress.state,
+              postalCode: args.deliveryAddress.zip,
+              countryCode: country,
+              residential,
+            },
           },
-          address: {
-            streetLines: [args.deliveryAddress.street],
-            city: args.deliveryAddress.city,
-            stateOrProvinceCode: args.deliveryAddress.state,
-            postalCode: args.deliveryAddress.zip,
-            countryCode: country,
-            residential,
+        ],
+        shippingChargesPayment: {
+          paymentType: "SENDER",
+          payor: {
+            responsibleParty: {
+              accountNumber: { value: accountNumber },
+            },
           },
         },
-      ],
-      shippingChargesPayment: {
-        paymentType: "SENDER",
-        payor: {
-          responsibleParty: {
-            accountNumber: { value: accountNumber },
-          },
+        labelSpecification: {
+          imageType: labelSpec.imageType,
+          labelStockType: labelSpec.labelStockType,
         },
+        requestedPackageLineItems: args.boxes.map((box, i) => ({
+          sequenceNumber: i + 1,
+          weight: {
+            units: box.weightUnit === "kg" ? "KG" : "LB",
+            value: box.weight,
+          },
+          dimensions: {
+            length: Math.round(box.length),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+            units: box.dimUnit === "cm" ? "CM" : "IN",
+          },
+        })),
       },
-      labelSpecification: {
-        imageType: labelSpec.imageType,
-        labelStockType: labelSpec.labelStockType,
+    };
+
+    const shipRes = await fetchWithTimeout(shipUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-locale": "en_US",
+        "x-customer-transaction-id": `wf-ship-${Date.now()}`,
       },
-      requestedPackageLineItems: args.boxes.map((box, i) => ({
-        sequenceNumber: i + 1,
-        weight: {
-          units: box.weightUnit === "kg" ? "KG" : "LB",
-          value: box.weight,
-        },
-        dimensions: {
-          length: Math.round(box.length),
-          width: Math.round(box.width),
-          height: Math.round(box.height),
-          units: box.dimUnit === "cm" ? "CM" : "IN",
-        },
-      })),
-    },
-  };
+      body: JSON.stringify(shipPayload),
+    });
 
-  const shipUrl = `${fedexBaseUrl(config)}/ship/v1/shipments`;
-  const shipRes = await fetchWithTimeout(shipUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      "X-locale": "en_US",
-    },
-    body: JSON.stringify(shipPayload),
-  });
+    const shipData = (await shipRes.json().catch(() => ({}))) as FedExShipResponseJson;
+    const labels = extractLabelBuffers(shipData, labelSpec.imageType);
+    const txn = shipData.output?.transactionShipments?.[0];
+    const trackingNumber =
+      txn?.masterTrackingNumber?.trim() ||
+      txn?.pieceResponses?.[0]?.trackingNumber?.trim() ||
+      null;
 
-  const shipData = (await shipRes.json().catch(() => ({}))) as FedExShipResponseJson;
-  const labels = extractLabelBuffers(shipData, labelSpec.imageType);
-  const txn = shipData.output?.transactionShipments?.[0];
-  const trackingNumber =
-    txn?.masterTrackingNumber?.trim() ||
-    txn?.pieceResponses?.[0]?.trackingNumber?.trim() ||
-    null;
+    if (!shipRes.ok) {
+      return {
+        ok: false,
+        httpStatus: shipRes.status,
+        json: shipData,
+        trackingNumber,
+        labels,
+        errorMessage: shipErrorMessage(shipData, accountNumber),
+      };
+    }
 
-  if (!shipRes.ok) {
+    if (!txn) {
+      return {
+        ok: false,
+        httpStatus: shipRes.status,
+        json: shipData,
+        trackingNumber: null,
+        labels,
+        errorMessage: "FedEx returned no shipment details.",
+      };
+    }
+
+    if (!trackingNumber) {
+      return {
+        ok: false,
+        httpStatus: shipRes.status,
+        json: shipData,
+        trackingNumber: null,
+        labels,
+        errorMessage: "FedEx returned no tracking number.",
+      };
+    }
+
+    if (labels.length === 0) {
+      return {
+        ok: false,
+        httpStatus: shipRes.status,
+        json: shipData,
+        trackingNumber,
+        labels,
+        errorMessage: `FedEx returned no ${labelSpec.imageType} label.`,
+      };
+    }
+
     return {
-      ok: false,
+      ok: true,
       httpStatus: shipRes.status,
       json: shipData,
       trackingNumber,
       labels,
-      errorMessage: shipErrorMessage(shipData),
+      errorMessage: null,
     };
-  }
-
-  if (!txn) {
-    return {
-      ok: false,
-      httpStatus: shipRes.status,
-      json: shipData,
-      trackingNumber: null,
-      labels,
-      errorMessage: "FedEx returned no shipment details.",
-    };
-  }
-
-  if (!trackingNumber) {
-    return {
-      ok: false,
-      httpStatus: shipRes.status,
-      json: shipData,
-      trackingNumber: null,
-      labels,
-      errorMessage: "FedEx returned no tracking number.",
-    };
-  }
-
-  if (labels.length === 0) {
-    return {
-      ok: false,
-      httpStatus: shipRes.status,
-      json: shipData,
-      trackingNumber,
-      labels,
-      errorMessage: `FedEx returned no ${labelSpec.imageType} label.`,
-    };
-  }
-
-  return {
-    ok: true,
-    httpStatus: shipRes.status,
-    json: shipData,
-    trackingNumber,
-    labels,
-    errorMessage: null,
   };
+
+  let last: FedExShipmentRequestResult | null = null;
+  for (const accountNumber of accountsToTry) {
+    const result = await postForAccount(accountNumber);
+    last = result;
+    if (result.ok) return result;
+    const forbidden = fedexErrorCode(result.json) === "FORBIDDEN.ERROR";
+    if (!forbidden) return result;
+    console.warn(
+      `[fedex] Ship FORBIDDEN for account ${accountNumber}; trying next linked account if any`
+    );
+  }
+
+  return last!;
 }
 
 /**
