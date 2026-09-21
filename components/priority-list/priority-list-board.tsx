@@ -143,7 +143,7 @@ function SortableRow({
         </button>
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-sm font-medium",
+            "min-w-0 flex-1 text-sm font-medium",
             order.daily_priority_done
               ? "text-slate-400 line-through"
               : "text-slate-800"
