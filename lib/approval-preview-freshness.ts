@@ -39,8 +39,9 @@ export function shouldRebuildStoredProofs(
   return approvalPreviewIsStale(index, source);
 }
 
-/** Bump when proof raster encoding changes so old JPEGs are rebuilt. */
-export const PROOF_RASTER_TAG = "png";
+/** Bump when proof raster encoding changes so old images are rebuilt.
+ *  "tl" = transparent per-layer overlays + lower-res cap. */
+export const PROOF_RASTER_TAG = "png-tl";
 
 export function proofRasterRev(modifiedTime: string): string {
   const t = modifiedTime.trim() || "unknown";
