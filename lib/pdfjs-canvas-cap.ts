@@ -1,7 +1,13 @@
 /** Skia cannot allocate print-PDF image bitmaps (e.g. 15ft flags at 150dpi). */
 
-export const PDFJS_MAX_CANVAS_EDGE = 4096;
-export const PDFJS_MAX_CANVAS_PIXELS = 4096 * 4096;
+// A too-low cap forces pdf.js to hand a large embedded image to our manual
+// nearest-neighbor putImageData shrink, which drops rows periodically and shows
+// up as evenly-spaced horizontal lines on the customer proof. Keep the cap high
+// enough that normal artwork (well over 4096px) is scaled by pdf.js/skia in one
+// smooth pass, while still protecting against genuinely enormous canvases
+// (huge wide-format flags) that would blow up memory.
+export const PDFJS_MAX_CANVAS_EDGE = 8192;
+export const PDFJS_MAX_CANVAS_PIXELS = 40_000_000;
 
 export function capCanvasDims(
   width: number,
@@ -48,16 +54,45 @@ function downsampleImageData(
   const dest = createImageData(dw, dh);
   const s = src.data;
   const d = dest.data;
+  const sw = src.width;
+  const sh = src.height;
+  // Box (area-average) downsample: every destination pixel averages ALL the
+  // source pixels in its footprint. Only reached for canvases so large they had
+  // to be capped; averaging (vs nearest-neighbor row-dropping) keeps even those
+  // free of periodic seam lines.
+  const invX = 1 / scaleX;
+  const invY = 1 / scaleY;
   for (let y = 0; y < dh; y++) {
-    const sy = Math.min(src.height - 1, Math.floor(y / scaleY));
+    const sy0 = Math.floor(y * invY);
+    let sy1 = Math.floor((y + 1) * invY);
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    if (sy1 > sh) sy1 = sh;
     for (let x = 0; x < dw; x++) {
-      const sx = Math.min(src.width - 1, Math.floor(x / scaleX));
-      const si = (sy * src.width + sx) * 4;
+      const sx0 = Math.floor(x * invX);
+      let sx1 = Math.floor((x + 1) * invX);
+      if (sx1 <= sx0) sx1 = sx0 + 1;
+      if (sx1 > sw) sx1 = sw;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      let n = 0;
+      for (let sy = sy0; sy < sy1; sy++) {
+        let si = (sy * sw + sx0) * 4;
+        for (let sx = sx0; sx < sx1; sx++) {
+          r += s[si];
+          g += s[si + 1];
+          b += s[si + 2];
+          a += s[si + 3];
+          si += 4;
+          n += 1;
+        }
+      }
       const di = (y * dw + x) * 4;
-      d[di] = s[si];
-      d[di + 1] = s[si + 1];
-      d[di + 2] = s[si + 2];
-      d[di + 3] = s[si + 3];
+      d[di] = (r / n + 0.5) | 0;
+      d[di + 1] = (g / n + 0.5) | 0;
+      d[di + 2] = (b / n + 0.5) | 0;
+      d[di + 3] = (a / n + 0.5) | 0;
     }
   }
   return dest;
