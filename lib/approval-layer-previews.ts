@@ -401,7 +401,12 @@ async function generateApprovalLayerPreviewsForOrderUncached(
   const settings = await ensureGdriveSettings(admin, order.tenant_id);
   const drive = proofsDriveClient(settings);
   const meta = await getDriveFileMeta(drive, fileId);
-  if (!meta) return {};
+  if (!meta) {
+    throw new ApprovalProofSourceMissingError(
+      order.id,
+      String(order.title ?? "")
+    );
+  }
   if (meta.size > SOURCE_MAX_BYTES) {
     const mb = Math.round(meta.size / (1024 * 1024));
     throw new Error(

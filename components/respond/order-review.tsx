@@ -642,6 +642,7 @@ export function OrderReview({
             bySku?: Record<string, RespondFinalPdf>;
             layerPreviews?: Record<string, RespondLayerPreview>;
             sourceMissing?: boolean;
+            preparing?: boolean;
           };
           if (cancelled) return;
           if (res.ok && data.bySku) setDrivePdfs(data.bySku);

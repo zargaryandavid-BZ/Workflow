@@ -59,6 +59,117 @@ function escapeQuery(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
+export type ProofFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  thumbnailLink: string | null;
+  modifiedTime?: string;
+};
+
+type DriveListFile = {
+  id?: string | null;
+  name?: string | null;
+  mimeType?: string | null;
+  thumbnailLink?: string | null;
+  modifiedTime?: string | null;
+  shortcutDetails?: {
+    targetId?: string | null;
+    targetMimeType?: string | null;
+  } | null;
+};
+
+function toProofFile(f: DriveListFile): ProofFile | null {
+  if (!f.id || !f.name) return null;
+  const shortcut = f.mimeType === SHORTCUT_MIME;
+  const targetId = f.shortcutDetails?.targetId;
+  return {
+    id: shortcut && targetId ? targetId : f.id,
+    name: f.name,
+    mimeType:
+      shortcut && f.shortcutDetails?.targetMimeType
+        ? f.shortcutDetails.targetMimeType
+        : (f.mimeType ?? ""),
+    thumbnailLink: f.thumbnailLink ?? null,
+    modifiedTime: f.modifiedTime ?? "",
+  };
+}
+
+/**
+ * Direct child files of a folder. Shared Drive trashing a parent folder also
+ * trashes the PDFs; restoring the folder does not untrash those files, so we
+ * restore them here (same as folderHasFiles).
+ */
+async function listDirectChildFiles(
+  drive: ProofsDrive["drive"],
+  parentId: string
+): Promise<{ files: ProofFile[]; childFolderIds: string[] }> {
+  const childFolderIds: string[] = [];
+  const liveFiles: DriveListFile[] = [];
+  const trashedFiles: DriveListFile[] = [];
+
+  let liveToken: string | undefined;
+  do {
+    const live = await drive.files.list({
+      q: [`'${escapeQuery(parentId)}' in parents`, "trashed=false"].join(" and "),
+      fields:
+        "nextPageToken, files(id,name,mimeType,thumbnailLink,modifiedTime,shortcutDetails(targetId,targetMimeType))",
+      pageSize: 200,
+      pageToken: liveToken,
+      ...folderChildrenListParams(),
+    });
+    for (const f of live.data.files ?? []) {
+      if (!f.id) continue;
+      if (f.mimeType === FOLDER_MIME) {
+        childFolderIds.push(f.id);
+        continue;
+      }
+      liveFiles.push(f);
+    }
+    liveToken = live.data.nextPageToken ?? undefined;
+  } while (liveToken);
+
+  let trashToken: string | undefined;
+  do {
+    const trashed = await drive.files.list({
+      q: [
+        `'${escapeQuery(parentId)}' in parents`,
+        `mimeType!='${FOLDER_MIME}'`,
+        "trashed=true",
+      ].join(" and "),
+      fields:
+        "nextPageToken, files(id,name,mimeType,thumbnailLink,modifiedTime,shortcutDetails(targetId,targetMimeType))",
+      pageSize: 200,
+      pageToken: trashToken,
+      ...folderChildrenListParams(),
+    });
+    for (const f of trashed.data.files ?? []) {
+      if (f.id) trashedFiles.push(f);
+    }
+    trashToken = trashed.data.nextPageToken ?? undefined;
+  } while (trashToken);
+
+  if (trashedFiles.length > 0) {
+    await Promise.all(
+      trashedFiles.map((f) =>
+        f.id
+          ? restoreDriveFileFromTrash(drive, f.id).catch(() => false)
+          : Promise.resolve(false)
+      )
+    );
+  }
+
+  const files: ProofFile[] = [];
+  const seen = new Set<string>();
+  for (const f of [...liveFiles, ...trashedFiles]) {
+    const mapped = toProofFile(f);
+    if (!mapped || seen.has(mapped.id)) continue;
+    seen.add(mapped.id);
+    files.push(mapped);
+  }
+  return { files, childFolderIds };
+}
+
 /** Find or create a named child folder under a parent (idempotent). */
 export async function ensureChildFolder(
   { drive, sharedDriveId }: ProofsDrive,
@@ -125,53 +236,13 @@ export async function ensureArtworkFolderTree(
   return { proofs: { id: proofsFull.id, webViewLink: proofsFull.webViewLink }, versions };
 }
 
-export type ProofFile = {
-  id: string;
-  name: string;
-  mimeType: string;
-  thumbnailLink: string | null;
-  modifiedTime?: string;
-};
-
 /** List every non-folder file directly inside a folder (Proofs or designer root). */
 export async function listProofFiles(
   { drive }: ProofsDrive,
   proofsFolderId: string
 ): Promise<ProofFile[]> {
-  const out: ProofFile[] = [];
-  let pageToken: string | undefined;
-  do {
-    const res = await drive.files.list({
-      q: [
-        `'${escapeQuery(proofsFolderId)}' in parents`,
-        `mimeType!='${FOLDER_MIME}'`,
-        "trashed=false",
-      ].join(" and "),
-      fields:
-        "nextPageToken, files(id,name,mimeType,thumbnailLink,modifiedTime,shortcutDetails(targetId,targetMimeType))",
-      pageSize: 200,
-      pageToken,
-      ...folderChildrenListParams(),
-    });
-    for (const f of res.data.files ?? []) {
-      if (f.id && f.name) {
-        const shortcut = f.mimeType === SHORTCUT_MIME;
-        const targetId = f.shortcutDetails?.targetId;
-        out.push({
-          id: shortcut && targetId ? targetId : f.id,
-          name: f.name,
-          mimeType:
-            shortcut && f.shortcutDetails?.targetMimeType
-              ? f.shortcutDetails.targetMimeType
-              : (f.mimeType ?? ""),
-          thumbnailLink: f.thumbnailLink ?? null,
-          modifiedTime: f.modifiedTime ?? "",
-        });
-      }
-    }
-    pageToken = res.data.nextPageToken ?? undefined;
-  } while (pageToken);
-  return out;
+  const { files } = await listDirectChildFiles(drive, proofsFolderId);
+  return files;
 }
 
 /** List non-folder files in this folder and nested folders (capped depth). */
@@ -184,46 +255,19 @@ export async function listProofFilesRecursive(
   const seen = new Set<string>();
 
   async function walk(parentId: string, depth: number) {
-    const { drive } = client;
-    const folders: string[] = [];
-    let pageToken: string | undefined;
-    do {
-      const res = await drive.files.list({
-        q: [`'${escapeQuery(parentId)}' in parents`, "trashed=false"].join(
-          " and "
-        ),
-        fields:
-          "nextPageToken, files(id,name,mimeType,thumbnailLink,modifiedTime,shortcutDetails(targetId,targetMimeType))",
-        pageSize: 200,
-        pageToken,
-        ...folderChildrenListParams(),
-      });
-      for (const f of res.data.files ?? []) {
-        if (!f.id || !f.name) continue;
-        if (f.mimeType === FOLDER_MIME) {
-          if (depth < maxDepth) folders.push(f.id);
-          continue;
-        }
-        const shortcut = f.mimeType === SHORTCUT_MIME;
-        const targetId = f.shortcutDetails?.targetId;
-        const id = shortcut && targetId ? targetId : f.id;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        out.push({
-          id,
-          name: f.name,
-          mimeType:
-            shortcut && f.shortcutDetails?.targetMimeType
-              ? f.shortcutDetails.targetMimeType
-              : (f.mimeType ?? ""),
-          thumbnailLink: f.thumbnailLink ?? null,
-          modifiedTime: f.modifiedTime ?? "",
-        });
+    const { files, childFolderIds } = await listDirectChildFiles(
+      client.drive,
+      parentId
+    );
+    for (const file of files) {
+      if (seen.has(file.id)) continue;
+      seen.add(file.id);
+      out.push(file);
+    }
+    if (depth < maxDepth) {
+      for (const id of childFolderIds) {
+        await walk(id, depth + 1);
       }
-      pageToken = res.data.nextPageToken ?? undefined;
-    } while (pageToken);
-    for (const id of folders) {
-      await walk(id, depth + 1);
     }
   }
 
@@ -287,10 +331,14 @@ async function resolveDriveDownloadTarget(
   const { drive } = client;
   const meta = await drive.files.get({
     fileId,
-    fields: "id,mimeType,name,size,shortcutDetails(targetId)",
+    fields: "id,mimeType,name,size,trashed,shortcutDetails(targetId)",
     supportsAllDrives: true,
   });
   if (!meta.data.id) return null;
+  if (meta.data.trashed === true) {
+    const restored = await restoreDriveFileFromTrash(drive, fileId);
+    if (!restored) return null;
+  }
   if (
     meta.data.mimeType === SHORTCUT_MIME &&
     meta.data.shortcutDetails?.targetId
