@@ -32,7 +32,7 @@ import {
 } from "@/lib/ready-to-ship-group";
 import { resolveCustomerApprovalActionUrl } from "@/lib/approval-group";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
-import { syncCustomerFromNotification } from "@/lib/customers";
+import { applyOrderContactOverride } from "@/lib/customers";
 import { mergeEmailLists } from "@/lib/email-list";
 import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
@@ -171,6 +171,15 @@ async function deliverNotification(
     ccEmails?: string[] | null;
     /** When true, persist ccEmails onto the customer for future orders. */
     saveCcToAccount?: boolean | null;
+    /**
+     * When true, staff explicitly confirmed toEmail/toPhone should become
+     * this customer's saved primary contact (order-scoped update only — see
+     * `applyOrderContactOverride`). Default false: toEmail/toPhone are used
+     * for THIS send only and never touch the customer record, so typing a
+     * one-off test address/number can never merge or overwrite another
+     * customer's real contact info.
+     */
+    saveContact?: boolean | null;
     subject?: string | null;
     messageBody?: string | null;
     actorUserId?: string | null;
@@ -214,18 +223,17 @@ async function deliverNotification(
     params.order.title
   );
 
-  const syncedCustomerId = await syncCustomerFromNotification(client, {
-    tenantId: params.order.tenant_id,
-    orderId: params.order.id,
-    customerId: params.order.customer_id,
-    customerName,
-    customerEmail,
-    customerPhone,
-    toEmail: params.toEmail,
-    toPhone: params.toPhone,
-  });
-  if (syncedCustomerId && syncedCustomerId !== params.order.customer_id) {
-    params.order = { ...params.order, customer_id: syncedCustomerId };
+  // Only touch the customer's saved contact when staff explicitly confirmed
+  // it (saveContact: true). A one-off toEmail/toPhone override used only to
+  // preview/test a send must never write to — let alone merge with — any
+  // customer record. See applyOrderContactOverride's doc comment.
+  if (params.saveContact && params.order.customer_id) {
+    await applyOrderContactOverride(client, {
+      tenantId: params.order.tenant_id,
+      customerId: params.order.customer_id,
+      email: params.toEmail,
+      phone: params.toPhone,
+    });
   }
 
   // Persist the CC list onto THIS order so re-opening the popup pre-fills it,
@@ -541,27 +549,18 @@ export async function saveNotificationRequest(
     columnId: string;
     createdBy?: string | null;
     toEmail?: string | null;
+    /** See deliverNotification's saveContact doc — default false/omitted. */
+    saveContact?: boolean | null;
   }
 ) {
   const note = params.staffNote.trim();
   if (!note) throw new Error("Note is required");
 
-  if (params.toEmail) {
-    const { customerEmail, customerPhone, customerName } =
-      await resolveCustomerContact(
-        client,
-        params.order,
-        params.toEmail,
-        null
-      );
-    await syncCustomerFromNotification(client, {
+  if (params.toEmail && params.saveContact && params.order.customer_id) {
+    await applyOrderContactOverride(client, {
       tenantId: params.order.tenant_id,
-      orderId: params.order.id,
       customerId: params.order.customer_id,
-      customerName,
-      customerEmail,
-      customerPhone,
-      toEmail: params.toEmail,
+      email: params.toEmail,
     });
   }
 
@@ -670,6 +669,8 @@ export async function dispatchNotification(
     channel: DeliverChannel;
     toEmail?: string | null;
     toPhone?: string | null;
+    /** See deliverNotification's saveContact doc — default false/omitted. */
+    saveContact?: boolean | null;
     subject?: string | null;
     messageBody?: string | null;
     actorUserId?: string | null;
@@ -729,6 +730,8 @@ export async function createNotification(
     ccEmails?: string[] | null;
     /** When true, persist ccEmails onto the customer for future orders. */
     saveCcToAccount?: boolean | null;
+    /** See deliverNotification's saveContact doc — default false/omitted. */
+    saveContact?: boolean | null;
     createdBy?: string | null;
     subject?: string | null;
     messageBody?: string | null;
@@ -863,6 +866,7 @@ export async function createNotification(
       staffNote: params.staffNote,
       toEmail: params.toEmail,
       toPhone: params.toPhone,
+      saveContact: params.saveContact,
       ccEmails: params.ccEmails,
       saveCcToAccount: params.saveCcToAccount,
       subject: params.subject,

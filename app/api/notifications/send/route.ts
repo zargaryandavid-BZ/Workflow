@@ -33,6 +33,7 @@ export async function POST(request: Request) {
     staffNote?: string;
     toEmail?: string;
     toPhone?: string;
+    saveContact?: boolean;
     subject?: string;
     messageBody?: string;
     ccEmails?: string[] | string;
@@ -87,6 +88,7 @@ export async function POST(request: Request) {
         staffNote: body.staffNote ?? null,
         toEmail: body.toEmail ?? null,
         toPhone: body.toPhone ?? null,
+        saveContact: body.saveContact ?? false,
         ccEmails: body.ccEmails !== undefined ? ccEmails : undefined,
         saveCcToAccount: body.saveCcToAccount ?? false,
         createdBy: ctx.userId,

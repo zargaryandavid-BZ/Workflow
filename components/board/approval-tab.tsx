@@ -176,6 +176,35 @@ function NotifyRow({
       setError("Customer email is required.");
       return;
     }
+
+    // If the typed email/phone differs from the customer's known contact,
+    // this might be a one-off test destination (e.g. staff's own number to
+    // preview the link) rather than a real correction. Never save silently —
+    // ask. Declining still sends, using the typed value for THIS message
+    // only; it's never written to the customer record.
+    const knownEmail = (contactEmail ?? customer?.email ?? "").trim();
+    const knownPhone = (contactPhone ?? customer?.phone ?? "").trim();
+    const emailChanged =
+      selected.includes("email") &&
+      Boolean(knownEmail) &&
+      email.trim() !== knownEmail;
+    const phoneChanged =
+      selected.includes("sms") &&
+      Boolean(knownPhone) &&
+      phone.trim() !== knownPhone;
+    let saveContact = false;
+    if (emailChanged || phoneChanged) {
+      const changedWhat = [
+        emailChanged ? `email (${email.trim()})` : null,
+        phoneChanged ? `phone (${phone.trim()})` : null,
+      ]
+        .filter(Boolean)
+        .join(" and ");
+      saveContact = window.confirm(
+        `This ${changedWhat} is different from what's on file for this customer.\n\nSave it as their primary contact info? This only updates this customer in Workflow — it does not touch the CRM.\n\nChoose Cancel if you're just testing/previewing this send.`
+      );
+    }
+
     setSending(true);
     try {
       const reuse = note && canReuseApprovalNote(note);
@@ -195,6 +224,7 @@ function NotifyRow({
               toPhone: selected.includes("sms")
                 ? phone.trim() || undefined
                 : undefined,
+              saveContact,
             }
           : {
               orderId,
@@ -206,6 +236,7 @@ function NotifyRow({
               toPhone: selected.includes("sms")
                 ? phone.trim() || undefined
                 : undefined,
+              saveContact,
             },
         APPROVAL_SEND_TIMEOUT_MS
       );

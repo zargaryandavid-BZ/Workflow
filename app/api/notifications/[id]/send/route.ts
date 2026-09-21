@@ -24,6 +24,7 @@ export async function POST(
     channel?: "email" | "sms" | "both";
     toEmail?: string;
     toPhone?: string;
+    saveContact?: boolean;
   };
   if (
     body.channel !== "email" &&
@@ -87,6 +88,7 @@ export async function POST(
         channel: body.channel,
         toEmail: body.toEmail ?? null,
         toPhone: body.toPhone ?? null,
+        saveContact: body.saveContact ?? false,
         actorUserId: ctx.userId,
       });
       return NextResponse.json({
@@ -109,6 +111,7 @@ export async function POST(
           staffNote: typed.staff_note,
           toEmail: body.toEmail ?? null,
           toPhone: body.toPhone ?? null,
+          saveContact: body.saveContact ?? false,
           createdBy: ctx.userId,
         }
       );
@@ -130,6 +133,7 @@ export async function POST(
       channel: body.channel,
       toEmail: body.toEmail ?? null,
       toPhone: body.toPhone ?? null,
+      saveContact: body.saveContact ?? false,
       actorUserId: ctx.userId,
     });
     return NextResponse.json({ ok: true, resent: false, ...result });
