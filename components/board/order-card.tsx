@@ -11,6 +11,7 @@ import {
   CalendarClock,
   Car,
   ChevronDown,
+  ClipboardList,
   ChevronUp,
   Clock,
   CreditCard,
@@ -49,7 +50,7 @@ import {
   UNASSIGNED_DESIGNER_CARD_CLASS,
   PRIORITY_STYLES,
 } from "@/lib/constants";
-import type { ColumnKind } from "@/lib/types";
+import type { ColumnKind, DailyPriorityBucket, PressType } from "@/lib/types";
 import {
   cardOrderQty,
   cardSkuCount,
@@ -175,6 +176,14 @@ interface OrderCardProps {
   onSetTag?: (tag: OrderTagSummary | null) => void;
   /** Persist priority score 1–5 (or null to clear) from right-click menu. */
   onSetPriorityScore?: (score: PriorityScore | null) => void;
+  /**
+   * Add/move this order onto the shared daily Priority List from the board
+   * (admin / pre-prod owner — same gate as the Priority List page). Setting
+   * press+bucket together lets a card with no press yet be queued directly.
+   */
+  onSetDailyPriority?: (press: PressType, bucket: DailyPriorityBucket) => void;
+  /** Take this order off the daily Priority List (keeps its press set). */
+  onRemoveDailyPriority?: () => void;
   /** Toggle the Reprint mark on this order (right-click menu). */
   onSetReprint?: (on: boolean) => void;
   /** Toggle the Lock on this order (locked cards can't be moved). */
@@ -546,6 +555,8 @@ export function OrderCard({
   tags = [],
   onSetTag,
   onSetPriorityScore,
+  onSetDailyPriority,
+  onRemoveDailyPriority,
   onSetReprint,
   onSetLocked,
   onSetTimeBudget,
@@ -790,6 +801,7 @@ export function OrderCard({
   const canAssignDesigner = Boolean(onAssignDesigner) && designers.length > 0;
   const canSetTag = Boolean(onSetTag) && tags.length > 0;
   const canSetPriorityScore = Boolean(onSetPriorityScore);
+  const canSetDailyPriority = Boolean(onSetDailyPriority);
   const canSetTimeBudget = Boolean(onSetTimeBudget);
   const canSetDueDate = Boolean(onSetDueDate);
   const canResendApproval =
@@ -800,6 +812,7 @@ export function OrderCard({
     canAssignDesigner ||
     canSetTag ||
     canSetPriorityScore ||
+    canSetDailyPriority ||
     Boolean(onSetReprint) ||
     Boolean(onSetLocked) ||
     canResendApproval ||
@@ -807,6 +820,7 @@ export function OrderCard({
   const [designerSubOpen, setDesignerSubOpen] = useState(false);
   const [tagSubOpen, setTagSubOpen] = useState(false);
   const [prioritySubOpen, setPrioritySubOpen] = useState(false);
+  const [dailyPrioritySubOpen, setDailyPrioritySubOpen] = useState(false);
   const [timeBudgetSubOpen, setTimeBudgetSubOpen] = useState(false);
   const currentPriorityScore = priorityScoreFromSpecs(order.specs);
   const currentTimeBudgetSeconds =
@@ -902,11 +916,13 @@ export function OrderCard({
     canAssignDesigner,
     canSetTag,
     canSetPriorityScore,
+    canSetDailyPriority,
     canSetTimeBudget,
     canResendApproval,
     designerSubOpen,
     tagSubOpen,
     prioritySubOpen,
+    dailyPrioritySubOpen,
     timeBudgetSubOpen,
     actionButtons.length,
     availableColumns.length,
@@ -960,6 +976,7 @@ export function OrderCard({
     setDesignerSubOpen(false);
     setTagSubOpen(false);
     setPrioritySubOpen(false);
+    setDailyPrioritySubOpen(false);
     setTimeBudgetSubOpen(false);
     setMenuPos({ x: e.clientX, y: e.clientY });
     setMenuOpen(true);
@@ -1658,7 +1675,8 @@ export function OrderCard({
                       hasMoveMenu ||
                       canAssignDesigner ||
                       canSetTag ||
-                      canSetPriorityScore) &&
+                      canSetPriorityScore ||
+                      canSetDailyPriority) &&
                       "border-b border-slate-100"
                   )}
                 >
@@ -1715,7 +1733,8 @@ export function OrderCard({
                     (hasMoveMenu ||
                       hasActionMenu ||
                       canSetTag ||
-                      canSetPriorityScore) &&
+                      canSetPriorityScore ||
+                      canSetDailyPriority) &&
                       "border-b border-slate-100"
                   )}
                 >
@@ -1725,6 +1744,7 @@ export function OrderCard({
                       setDesignerSubOpen((v) => !v);
                       setTagSubOpen(false);
                       setPrioritySubOpen(false);
+                      setDailyPrioritySubOpen(false);
                       setTimeBudgetSubOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
@@ -1777,7 +1797,7 @@ export function OrderCard({
                 <div
                   className={cn(
                     "shrink-0 py-1",
-                    (hasMoveMenu || canSetPriorityScore) &&
+                    (hasMoveMenu || canSetPriorityScore || canSetDailyPriority) &&
                       "border-b border-slate-100"
                   )}
                 >
@@ -1787,6 +1807,7 @@ export function OrderCard({
                       setTagSubOpen((v) => !v);
                       setDesignerSubOpen(false);
                       setPrioritySubOpen(false);
+                      setDailyPrioritySubOpen(false);
                       setTimeBudgetSubOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
@@ -1867,6 +1888,7 @@ export function OrderCard({
                       setDesignerSubOpen(false);
                       setTagSubOpen(false);
                       setTimeBudgetSubOpen(false);
+                      setDailyPrioritySubOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                   >
@@ -1924,6 +1946,78 @@ export function OrderCard({
                   ) : null}
                 </div>
               ) : null}
+              {canSetDailyPriority ? (
+                <div className="shrink-0 border-b border-slate-100 py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDailyPrioritySubOpen((v) => !v);
+                      setDesignerSubOpen(false);
+                      setTagSubOpen(false);
+                      setPrioritySubOpen(false);
+                      setTimeBudgetSubOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="flex-1 whitespace-nowrap">Daily Priority</span>
+                    {order.daily_priority_bucket ? (
+                      <span className="max-w-[7rem] truncate text-xs text-slate-400">
+                        {order.daily_priority_bucket === "today" ? "Today" : "Tomorrow"}
+                        {order.press ? ` · ${order.press}` : ""}
+                      </span>
+                    ) : null}
+                    {dailyPrioritySubOpen ? (
+                      <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    )}
+                  </button>
+                  {dailyPrioritySubOpen ? (
+                    <div className="max-h-48 overflow-y-auto border-t border-slate-100 bg-slate-50/80 py-1">
+                      {(["today", "tomorrow"] as DailyPriorityBucket[]).map((bucket) =>
+                        (["6K", "15K"] as PressType[]).map((press) => {
+                          const isCurrent =
+                            order.daily_priority_bucket === bucket &&
+                            order.press === press;
+                          return (
+                            <button
+                              key={`${bucket}-${press}`}
+                              type="button"
+                              onClick={() => {
+                                onSetDailyPriority?.(press, bucket);
+                                setMenuOpen(false);
+                                setDailyPrioritySubOpen(false);
+                              }}
+                              className={cn(
+                                "flex w-full px-3 py-1.5 pl-8 text-left text-sm hover:bg-slate-100",
+                                isCurrent
+                                  ? "font-medium text-slate-900"
+                                  : "text-slate-700"
+                              )}
+                            >
+                              {bucket === "today" ? "Today" : "Tomorrow"} · {press}
+                            </button>
+                          );
+                        })
+                      )}
+                      {order.daily_priority_bucket ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onRemoveDailyPriority?.();
+                            setMenuOpen(false);
+                            setDailyPrioritySubOpen(false);
+                          }}
+                          className="flex w-full px-3 py-1.5 pl-8 text-left text-sm text-red-600 hover:bg-slate-100"
+                        >
+                          Remove from Priority List
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {onSetReprint ? (
                 <button
                   type="button"
@@ -1959,6 +2053,7 @@ export function OrderCard({
                       setDesignerSubOpen(false);
                       setTagSubOpen(false);
                       setPrioritySubOpen(false);
+                      setDailyPrioritySubOpen(false);
                     }}
                     className="flex w-full items-center gap-2 bg-sky-50 px-3 py-1.5 text-left text-sm font-medium text-sky-900 hover:bg-sky-100"
                   >
