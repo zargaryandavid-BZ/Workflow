@@ -41,6 +41,9 @@ interface PriorityOrder {
   daily_priority_done: boolean;
   daily_priority_note: string | null;
   customer: { id?: string; name?: string | null; company?: string | null } | null;
+  skus: { name: string; qty: number | null }[];
+  product: string | null;
+  qty: number | null;
 }
 
 interface SearchResult {
@@ -56,10 +59,30 @@ function orderLabel(order: PriorityOrder): string {
   return [custom, customer].filter(Boolean).join(" — ") || order.title;
 }
 
-/** One texting-ready line: "15219 - Customer - note". Skips parts that aren't set. */
+function fmtQty(qty: number | null): string {
+  return qty != null ? `${qty.toLocaleString()} pcs` : "";
+}
+
+/** Brief job context — "Labels — 50,000 pcs" or "Front 20,000 · Back 20,000" for multi-SKU. */
+function jobSummary(order: PriorityOrder): string | null {
+  if (order.skus.length > 0) {
+    return (
+      order.skus
+        .map((s) => [s.name, fmtQty(s.qty)].filter(Boolean).join(" — "))
+        .filter(Boolean)
+        .join(" · ") || null
+    );
+  }
+  const parts = [order.product, fmtQty(order.qty)].filter(Boolean);
+  return parts.length > 0 ? parts.join(" — ") : null;
+}
+
+/** One texting-ready line: "15219 - Customer - 50,000 labels - note". Skips parts that aren't set. */
 function textLineFor(order: PriorityOrder): string {
   const customer = order.customer?.company || order.customer?.name || null;
-  return [order.title, customer, order.daily_priority_note].filter(Boolean).join(" - ");
+  return [order.title, customer, jobSummary(order), order.daily_priority_note]
+    .filter(Boolean)
+    .join(" - ");
 }
 
 function SortableRow({
@@ -103,7 +126,7 @@ function SortableRow({
     <li
       ref={setNodeRef}
       style={style}
-      className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3"
+      className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -156,6 +179,9 @@ function SortableRow({
           ) : null}
         </span>
       </div>
+      {jobSummary(order) ? (
+        <p className="ml-8 text-xs font-medium text-slate-600">{jobSummary(order)}</p>
+      ) : null}
       {canManage ? (
         <input
           value={noteDraft}
@@ -174,7 +200,7 @@ function SortableRow({
         </p>
       ) : null}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 pl-8 sm:pl-0">
+      <div className="flex flex-wrap items-center gap-1.5 pl-8">
         <ProductionStageSelect
           orderId={order.id}
           stage={order.production_stage}
