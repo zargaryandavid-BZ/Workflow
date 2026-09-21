@@ -5,6 +5,8 @@ import { canSetBoardTagAndPriority } from "@/lib/permissions";
 import { logActivity } from "@/lib/automation";
 import { normalizeSkus } from "@/lib/skus";
 import { ORDER_QTY_FIELD_NAME, QUANTITY_FIELD_NAME } from "@/lib/constants";
+import { orderCardThumbnails } from "@/lib/board-order-enrichment";
+import { firstThumbnailUrl } from "@/lib/card-image";
 import type { DailyPriorityBucket, PressType } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -158,6 +160,13 @@ export async function GET(request: Request) {
     .map((row) => (row as unknown as { id: string }).id)
     .filter((id) => (skusByOrderId.get(id)?.length ?? 0) === 0);
   const fallback = await fetchProductQtyFallback(supabase, tenantId, fallbackOrderIds);
+  const thumbsByOrderId = await orderCardThumbnails(
+    supabase,
+    rows.map((row) => {
+      const r = row as unknown as { id: string; specs: Record<string, unknown> | null };
+      return { id: r.id, specs: r.specs };
+    })
+  );
 
   const orders = rows.map((row) => {
     const r = row as unknown as Record<string, unknown>;
@@ -170,6 +179,9 @@ export async function GET(request: Request) {
       // separate cron job — see isSameUtcDay(). The underlying DB value is
       // left alone; only what the UI shows is recomputed here.
       daily_priority_done: rawDone && isSameUtcDay(doneAt, now),
+      // Same cover picture as the board card — cheap (stored assets + a
+      // signed-URL cache), not a live Google Drive lookup.
+      image_url: firstThumbnailUrl(thumbsByOrderId[r.id as string]) ?? null,
       // Brief job context for the shop floor — SKU name+qty when the order
       // has line items, else the single-item Product/QTY custom fields.
       skus: skus.map((s) => ({ name: s.name, qty: s.qty })),
