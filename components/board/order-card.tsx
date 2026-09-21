@@ -1049,6 +1049,17 @@ export function OrderCard({
     kind: columnKind,
     name: columnName,
   });
+  // Proof build status so the team can see at a glance whether the customer
+  // proof is ready. `card_pdf_rev` is written to specs once the light proof
+  // images have been rasterized (see approval-layer-previews).
+  const proofBuilt =
+    typeof (order.specs as { card_pdf_rev?: unknown } | null)?.card_pdf_rev ===
+      "string" &&
+    ((order.specs as { card_pdf_rev?: string }).card_pdf_rev ?? "").trim()
+      .length > 0;
+  const proofBuilding = awaitingCustomerApproval && !proofBuilt;
+  const proofReady =
+    awaitingCustomerApproval && proofBuilt && !notificationBadge;
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: columnKind === "done",
     specs: order.specs,
@@ -1589,6 +1600,16 @@ export function OrderCard({
 
       {/* Footer — full-width row; each chip gets flex-1 so all chips together = 100% card width */}
       <div className="mt-2 flex w-full items-stretch overflow-hidden rounded-full text-[clamp(9px,3.1cqi,11px)]">
+        {proofBuilding ? (
+          <span className="flex flex-1 min-w-0 items-center justify-center gap-1 bg-amber-100 px-1.5 py-0.5 font-medium text-amber-800">
+            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-500" />
+            <span className="truncate">Proof building…</span>
+          </span>
+        ) : proofReady ? (
+          <span className="flex flex-1 min-w-0 items-center justify-center gap-1 bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-700">
+            <span className="truncate">Proof ready</span>
+          </span>
+        ) : null}
         {notificationBadge && orderTags.length === 0 ? (
           <span
             className={cn(
