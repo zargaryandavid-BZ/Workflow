@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     staffNote?: string;
     columnId?: string;
     toEmail?: string;
+    saveContact?: boolean;
   };
 
   if (
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
       staffNote: body.staffNote,
       columnId: body.columnId,
       toEmail: body.toEmail ?? null,
+      saveContact: body.saveContact ?? false,
       createdBy: ctx.userId,
     });
     return NextResponse.json({

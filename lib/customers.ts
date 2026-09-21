@@ -606,57 +606,48 @@ export async function linkCustomerFromOrderFields(
   return customerId;
 }
 
-/** Sync customer contact from notification overrides onto the order's customer. */
-export async function syncCustomerFromNotification(
+/**
+ * Save a staff-confirmed contact override directly onto the order's own
+ * customer row — by id only, never by matching another customer's email or
+ * phone. Unlike `syncCustomerFromNotification` (which can silently merge two
+ * unrelated customers together when a typed value collides with someone
+ * else's saved contact), this never touches or reassigns any other
+ * customer/order. Only called when staff explicitly confirm "save as this
+ * customer's primary contact" — a one-off test send must never reach this.
+ * If the new value already belongs to a different customer, this fails
+ * loudly instead of merging; staff are told to fix it in the CRM instead.
+ */
+export async function applyOrderContactOverride(
   client: Client,
   params: {
     tenantId: string;
-    orderId: string;
-    customerId: string | null;
-    customerName?: string | null;
-    customerEmail?: string | null;
-    customerPhone?: string | null;
-    toEmail?: string | null;
-    toPhone?: string | null;
+    customerId: string;
+    email?: string | null;
+    phone?: string | null;
   }
-): Promise<string | null> {
-  let name = params.customerName?.trim() || undefined;
-  let email = normalizeEmail(params.toEmail ?? params.customerEmail);
-  let phone = normalizePhone(params.toPhone ?? params.customerPhone);
+): Promise<void> {
+  const email = normalizeEmail(params.email);
+  const phone = normalizePhone(params.phone);
+  if (!email && !phone) return;
 
-  if (params.customerId) {
-    const existing = await loadCustomerById(client, params.customerId);
-    if (existing) {
-      name = name || existing.name?.trim() || undefined;
-      email = email ?? normalizeEmail(existing.email);
-      phone = phone ?? normalizePhone(existing.phone);
+  const updates: Record<string, string> = {};
+  if (email) updates.email = email;
+  if (phone) updates.phone = phone;
+
+  const { error } = await client
+    .from("customers")
+    .update(updates)
+    .eq("id", params.customerId)
+    .eq("tenant_id", params.tenantId);
+
+  if (error) {
+    if (isUniqueViolation(error)) {
+      throw new Error(
+        "That email or phone is already saved on a different customer. Update it from the CRM instead — Workflow won't merge two customers together."
+      );
     }
+    throw new Error(error.message);
   }
-
-  if (!email && !phone) return params.customerId;
-
-  const { customerId } = await upsertCustomer(
-    client,
-    params.tenantId,
-    {
-      name,
-      email,
-      phone,
-      existingCustomerId: params.customerId,
-    },
-    params.orderId
-  );
-
-  if (customerId !== params.customerId) {
-    const { error } = await client
-      .from("orders")
-      .update({ customer_id: customerId })
-      .eq("id", params.orderId)
-      .eq("tenant_id", params.tenantId);
-    if (error) throw new Error(error.message);
-  }
-
-  return customerId;
 }
 
 export interface AdminCustomerUpdateInput {

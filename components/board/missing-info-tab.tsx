@@ -225,6 +225,33 @@ function NotifyRow({
       setError("Customer email is required.");
       return;
     }
+
+    // Same guard as the Approval tab: never silently save a typed contact
+    // that differs from what's on file — ask first. Declining still sends,
+    // using the typed value for THIS message only.
+    const knownEmail = (contactEmail ?? customer?.email ?? "").trim();
+    const knownPhone = (contactPhone ?? customer?.phone ?? "").trim();
+    const emailChanged =
+      selected.includes("email") &&
+      Boolean(knownEmail) &&
+      email.trim() !== knownEmail;
+    const phoneChanged =
+      selected.includes("sms") &&
+      Boolean(knownPhone) &&
+      phone.trim() !== knownPhone;
+    let saveContact = false;
+    if (emailChanged || phoneChanged) {
+      const changedWhat = [
+        emailChanged ? `email (${email.trim()})` : null,
+        phoneChanged ? `phone (${phone.trim()})` : null,
+      ]
+        .filter(Boolean)
+        .join(" and ");
+      saveContact = window.confirm(
+        `This ${changedWhat} is different from what's on file for this customer.\n\nSave it as their primary contact info? This only updates this customer in Workflow — it does not touch the CRM.\n\nChoose Cancel if you're just testing/previewing this send.`
+      );
+    }
+
     setSending(true);
     try {
       const reuse = note && canReuseNotification(note);
@@ -244,6 +271,7 @@ function NotifyRow({
               toPhone: selected.includes("sms")
                 ? phone.trim() || undefined
                 : undefined,
+              saveContact,
             }
           : {
               orderId,
@@ -258,6 +286,7 @@ function NotifyRow({
               toPhone: selected.includes("sms")
                 ? phone.trim() || undefined
                 : undefined,
+              saveContact,
             },
         NOTIFICATION_SEND_TIMEOUT_MS
       );
