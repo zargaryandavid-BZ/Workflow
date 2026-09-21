@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateApprovalLayerPreviewsForWaitingOrders } from "@/lib/approval-layer-previews";
+import { deliverQueuedApprovalsWhenReady } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,10 +38,23 @@ export async function GET(req: NextRequest) {
     const results = await generateApprovalLayerPreviewsForWaitingOrders();
     const built = results.filter((r) => !r.error && r.skus > 0).length;
     const failed = results.filter((r) => r.error);
+
+    // Beta: now that proofs are (re)built, send any approval links that were
+    // held back until their proof was ready (no-op unless a tenant is opted
+    // into PROOF_GATE_SEND_TENANTS).
+    let queuedSend = { delivered: 0, checked: 0 };
+    try {
+      queuedSend = await deliverQueuedApprovalsWhenReady();
+    } catch (err) {
+      console.error("[cron/approval-previews] queued send failed:", err);
+    }
+
     return NextResponse.json({
       ok: true,
       orders_checked: results.length,
       orders_built: built,
+      queued_sent: queuedSend.delivered,
+      queued_checked: queuedSend.checked,
       failed: failed.map((r) => ({ orderId: r.orderId, title: r.title, error: r.error })),
       ran_at: new Date().toISOString(),
     });
