@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import {
   DndContext,
   closestCenter,
@@ -44,6 +45,7 @@ interface PriorityOrder {
   skus: { name: string; qty: number | null }[];
   product: string | null;
   qty: number | null;
+  image_url: string | null;
 }
 
 interface SearchResult {
@@ -126,8 +128,21 @@ function SortableRow({
     <li
       ref={setNodeRef}
       style={style}
-      className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+      className="flex gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
     >
+      {order.image_url ? (
+        <Image
+          src={order.image_url}
+          alt=""
+          width={48}
+          height={48}
+          className="h-12 w-12 shrink-0 rounded-md border border-slate-200 object-cover"
+          unoptimized
+        />
+      ) : (
+        <div className="h-12 w-12 shrink-0 rounded-md border border-dashed border-slate-200 bg-slate-50" />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {canManage ? (
@@ -230,6 +245,7 @@ function SortableRow({
             </button>
           </>
         ) : null}
+      </div>
       </div>
     </li>
   );
@@ -607,11 +623,18 @@ export function PriorityListBoard() {
     (press: PressType, bucket: DailyPriorityBucket, orderedIds: string[]) => {
       setOrders((prev) => {
         const rankById = new Map(orderedIds.map((id, i) => [id, i]));
-        return prev.map((o) =>
-          o.press === press && o.daily_priority_bucket === bucket && rankById.has(o.id)
-            ? { ...o, daily_priority_rank: rankById.get(o.id)! }
-            : o
-        );
+        const byId = new Map(prev.map((o) => [o.id, o]));
+        // Re-thread this press+bucket group into array order too — dnd-kit
+        // renders list order from the array itself, so patching only the
+        // daily_priority_rank field (without moving the array elements)
+        // left the row visually snapping back to its old spot.
+        let cursor = 0;
+        return prev.map((o) => {
+          if (o.press !== press || o.daily_priority_bucket !== bucket) return o;
+          const id = orderedIds[cursor++];
+          const item = id ? byId.get(id) : undefined;
+          return item ? { ...item, daily_priority_rank: rankById.get(id!)! } : o;
+        });
       });
       if (reorderTimer.current) clearTimeout(reorderTimer.current);
       reorderTimer.current = setTimeout(() => {
