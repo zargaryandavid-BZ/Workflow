@@ -82,6 +82,14 @@ export function ProofLayerImages({
     }
     return namedLayers
       .filter((layer) => visibleIds.has(layer.id))
+      // Cut/dieline layers render LAST so they sit on top of the print art —
+      // otherwise the artwork (which bleeds to the trim edge) covers the thin
+      // cut line and the dieline looks like it disappeared.
+      .slice()
+      .sort(
+        (a, b) =>
+          Number(isPdfCutLineLayer(a.name)) - Number(isPdfCutLineLayer(b.name))
+      )
       .map((layer) => ({
         id: layer.id,
         name: layer.name,
