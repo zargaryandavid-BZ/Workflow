@@ -596,6 +596,25 @@ async function resolveCurrentFinalSource(
 }
 
 /**
+ * True when a stored proof exists AND still matches the current Final Production
+ * file. The gated send uses this so the customer link is held until the proof is
+ * not just present but FRESH — a new upload to an order that already had a proof
+ * must not send the old proof's link before the new file is rasterized.
+ * A null/unresolvable current source counts as fresh (a transient Drive error
+ * must not hold a working proof forever).
+ */
+export async function isStoredProofFresh(
+  order: Pick<Order, "id" | "title" | "tenant_id" | "specs">
+): Promise<boolean> {
+  const admin = createAdminClient();
+  const stored = await loadRespondPreviewIndex(order.id);
+  if (!stored || !indexHasLayerPictures(stored)) return false;
+  const current = await resolveCurrentFinalSource(admin, order);
+  if (current && approvalPreviewIsStale(stored, current)) return false;
+  return true;
+}
+
+/**
  * Customer /respond proof: JPEG index when send already rasterized it,
  * otherwise SKU → PDF page from Drive so a 10-page file still shows 10 SKUs.
  */

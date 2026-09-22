@@ -739,7 +739,7 @@ export async function deliverQueuedApprovalsWhenReady(
   const { data: rows, error } = await q;
   if (error) throw new Error(error.message);
 
-  const { loadApprovalLayerPreviewsForOrder } = await import(
+  const { isStoredProofFresh } = await import(
     "@/lib/approval-layer-previews"
   );
 
@@ -757,9 +757,8 @@ export async function deliverQueuedApprovalsWhenReady(
       .maybeSingle();
     if (!order) continue;
 
-    // Only send once the light proof actually exists.
-    const built = await loadApprovalLayerPreviewsForOrder(order as Order, {});
-    if (Object.keys(built).length === 0) continue;
+    // Only send once the light proof exists AND matches the current Final file.
+    if (!(await isStoredProofFresh(order as Order))) continue;
 
     const { data: tenant } = await admin
       .from("tenants")
@@ -940,11 +939,13 @@ export async function createNotification(
     isProofGateSendTenant(params.order.tenant_id)
   ) {
     try {
-      const { loadApprovalLayerPreviewsForOrder } = await import(
+      const { isStoredProofFresh } = await import(
         "@/lib/approval-layer-previews"
       );
-      const built = await loadApprovalLayerPreviewsForOrder(params.order, {});
-      gateQueued = Object.keys(built).length === 0;
+      // Hold the link when the proof is missing OR stale for the current Final
+      // file — not just when it is absent. Otherwise a new upload to an order
+      // that already had a proof sends the old proof's link immediately.
+      gateQueued = !(await isStoredProofFresh(params.order));
     } catch (err) {
       console.error("[proof-gate] readiness check failed:", err);
       gateQueued = false;
