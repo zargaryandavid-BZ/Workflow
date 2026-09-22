@@ -1,7 +1,14 @@
 /**
- * Restore a Drive file/folder (and trashed parents) so Workflow can keep
- * using the stored Final production id instead of creating an empty duplicate.
+ * Restore a trashed Drive FOLDER (and its trashed parent folders) so Workflow
+ * can keep using the stored Final production folder id instead of creating an
+ * empty duplicate.
+ *
+ * It never un-trashes a FILE. A file a user moved to trash was deleted
+ * intentionally and must stay deleted — restoring it is what made deletions
+ * "kick back". Only folders are restored.
  */
+
+const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 
 export type DriveTrashClient = {
   files: {
@@ -14,6 +21,7 @@ export type DriveTrashClient = {
         id?: string | null;
         trashed?: boolean | null;
         parents?: (string | null)[] | null;
+        mimeType?: string | null;
       };
     }>;
     update: (params: {
@@ -38,7 +46,7 @@ export async function restoreDriveFileFromTrash(
   try {
     meta = await drive.files.get({
       fileId: id,
-      fields: "id,trashed,parents",
+      fields: "id,trashed,parents,mimeType",
       supportsAllDrives: true,
     });
   } catch {
@@ -46,6 +54,10 @@ export async function restoreDriveFileFromTrash(
   }
   if (!meta.data.id) return false;
   if (meta.data.trashed !== true) return true;
+
+  // Never resurrect a trashed FILE — only folders are restored. A file the user
+  // moved to trash stays deleted, no matter which caller asked to restore it.
+  if (meta.data.mimeType !== DRIVE_FOLDER_MIME) return false;
 
   const parents = (meta.data.parents ?? []).filter(Boolean) as string[];
   for (const parent of parents) {

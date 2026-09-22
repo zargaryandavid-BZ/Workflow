@@ -5,10 +5,12 @@ import {
   type DriveTrashClient,
 } from "./drive-restore-from-trash.ts";
 
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
 function mockDrive(opts: {
   files: Record<
     string,
-    { trashed: boolean; parents?: string[] }
+    { trashed: boolean; parents?: string[]; mimeType?: string }
   >;
 }): { drive: DriveTrashClient; restored: string[] } {
   const restored: string[] = [];
@@ -23,6 +25,8 @@ function mockDrive(opts: {
             id: fileId,
             trashed: row.trashed,
             parents: row.parents ?? [],
+            // Default to a folder — restore only ever targets folders now.
+            mimeType: row.mimeType ?? FOLDER_MIME,
           },
         };
       },
@@ -72,5 +76,16 @@ describe("restoreDriveFileFromTrash", () => {
   it("returns false when Drive get fails", async () => {
     const { drive } = mockDrive({ files: {} });
     assert.equal(await restoreDriveFileFromTrash(drive, "missing"), false);
+  });
+
+  it("never un-trashes a FILE (stays deleted)", async () => {
+    const { drive, restored } = mockDrive({
+      files: {
+        doc: { trashed: true, parents: ["final"], mimeType: "application/pdf" },
+        final: { trashed: false },
+      },
+    });
+    assert.equal(await restoreDriveFileFromTrash(drive, "doc"), false);
+    assert.deepEqual(restored, []);
   });
 });
