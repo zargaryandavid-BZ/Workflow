@@ -561,19 +561,20 @@ export async function folderHasFiles(
   if (!folderMeta?.id) return { hasFiles: false, fileCount: 0, hasPdf: false };
 
   // Folder is trashed — restore it before proceeding.
-  // (The file listings ran in parallel so they're already done; trashed child
-  // files are picked up by the trashedFiles path below.)
-  if (folderMeta.trashed === true) {
+  const folderWasTrashed = folderMeta.trashed === true;
+  if (folderWasTrashed) {
     const restored = await restoreDriveFileFromTrash(drive, id);
     if (!restored) return { hasFiles: false, fileCount: 0, hasPdf: false };
   }
 
   const entries = listing.data.files ?? [];
-  const trashedFiles = trashedListing.data.files ?? [];
 
-  // Restore any trashed direct files (fire-and-wait so the caller gets correct
-  // data and Drive is updated in the same request lifecycle).
-  if (trashedFiles.length > 0) {
+  // Only re-restore trashed child files when the PARENT FOLDER itself was
+  // trashed — those children were orphaned by the folder-trash. A trashed file
+  // under a LIVE folder was moved to trash intentionally by a user, so it must
+  // stay deleted (do not restore it and do not count it as present).
+  const trashedFiles = folderWasTrashed ? (trashedListing.data.files ?? []) : [];
+  if (folderWasTrashed && trashedFiles.length > 0) {
     await Promise.all(
       trashedFiles.map((f) =>
         f.id
@@ -584,8 +585,6 @@ export async function folderHasFiles(
   }
 
   const directFiles = entries.filter((f) => f.mimeType !== FOLDER_MIME);
-  // Include just-restored files so the count and hasPdf are accurate even
-  // before the next Drive sync propagates the untrash.
   const allDirectFiles = [...directFiles, ...trashedFiles];
   if (allDirectFiles.length > 0) {
     return {

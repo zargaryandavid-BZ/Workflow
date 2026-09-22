@@ -96,9 +96,10 @@ function toProofFile(f: DriveListFile): ProofFile | null {
 }
 
 /**
- * Direct child files of a folder. Shared Drive trashing a parent folder also
- * trashes the PDFs; restoring the folder does not untrash those files, so we
- * restore them here (same as folderHasFiles).
+ * Direct child files of a folder — LIVE files only. A file a user moved to
+ * Drive trash stays deleted: we never resurrect it into the proof source.
+ * (Orphans left behind after a whole folder was trashed+restored are handled by
+ * folderHasFiles, which only re-restores when the parent folder itself was trashed.)
  */
 async function listDirectChildFiles(
   drive: ProofsDrive["drive"],
@@ -106,7 +107,6 @@ async function listDirectChildFiles(
 ): Promise<{ files: ProofFile[]; childFolderIds: string[] }> {
   const childFolderIds: string[] = [];
   const liveFiles: DriveListFile[] = [];
-  const trashedFiles: DriveListFile[] = [];
 
   let liveToken: string | undefined;
   do {
@@ -129,39 +129,9 @@ async function listDirectChildFiles(
     liveToken = live.data.nextPageToken ?? undefined;
   } while (liveToken);
 
-  let trashToken: string | undefined;
-  do {
-    const trashed = await drive.files.list({
-      q: [
-        `'${escapeQuery(parentId)}' in parents`,
-        `mimeType!='${FOLDER_MIME}'`,
-        "trashed=true",
-      ].join(" and "),
-      fields:
-        "nextPageToken, files(id,name,mimeType,thumbnailLink,modifiedTime,shortcutDetails(targetId,targetMimeType))",
-      pageSize: 200,
-      pageToken: trashToken,
-      ...folderChildrenListParams(),
-    });
-    for (const f of trashed.data.files ?? []) {
-      if (f.id) trashedFiles.push(f);
-    }
-    trashToken = trashed.data.nextPageToken ?? undefined;
-  } while (trashToken);
-
-  if (trashedFiles.length > 0) {
-    await Promise.all(
-      trashedFiles.map((f) =>
-        f.id
-          ? restoreDriveFileFromTrash(drive, f.id).catch(() => false)
-          : Promise.resolve(false)
-      )
-    );
-  }
-
   const files: ProofFile[] = [];
   const seen = new Set<string>();
-  for (const f of [...liveFiles, ...trashedFiles]) {
+  for (const f of liveFiles) {
     const mapped = toProofFile(f);
     if (!mapped || seen.has(mapped.id)) continue;
     seen.add(mapped.id);
@@ -335,10 +305,9 @@ async function resolveDriveDownloadTarget(
     supportsAllDrives: true,
   });
   if (!meta.data.id) return null;
-  if (meta.data.trashed === true) {
-    const restored = await restoreDriveFileFromTrash(drive, fileId);
-    if (!restored) return null;
-  }
+  // A trashed download target was deleted by a user — do not resurrect it;
+  // treat it as gone so the proof reflects the current (live) files.
+  if (meta.data.trashed === true) return null;
   if (
     meta.data.mimeType === SHORTCUT_MIME &&
     meta.data.shortcutDetails?.targetId
