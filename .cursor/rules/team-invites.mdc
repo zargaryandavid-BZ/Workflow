@@ -12,7 +12,9 @@ globs:
 - Send team invite **emails** through Gmail API (`GMAIL_FROM_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_JSON` or `GMAIL_REFRESH_TOKEN`) via `lib/email.ts` → `sendTeamInviteEmail()`. Instantly is only a fallback if Gmail is not configured.
 - Use `lib/team-invite.ts` → `sendTeamInvite()`:
   - Create users and signup links with `admin.auth.admin.generateLink` only — **never** `inviteUserByEmail` or `resetPasswordForEmail` (those trigger Supabase's mailer).
-  - New users: `generateLink({ type: "invite" })` → Gmail with link.
-  - Pending users (never signed in): `generateLink({ type: "recovery" })` → Gmail with link.
-  - Email failed: return copyable `inviteUrl` fallback in the UI.
+  - Put `hashed_token` on our app (`/signup` or `/set-password?token_hash=…&type=…`). Do **not** email `action_link` (`/auth/v1/verify`) — mail scanners consume that one-time URL.
+  - New users: `generateLink({ type: "invite" })` → Gmail with `/signup?token_hash=`.
+  - Pending users (never signed in): `generateLink({ type: "recovery" })` → Gmail with `/signup?token_hash=`.
+  - Active users password reset: `generateLink({ type: "recovery" })` → Gmail with `/set-password?token_hash=`.
+  - Email failed: return copyable `inviteUrl` / `resetUrl` fallback in the UI.
 - Supabase Auth still handles signup token exchange on `/signup` and password setup.

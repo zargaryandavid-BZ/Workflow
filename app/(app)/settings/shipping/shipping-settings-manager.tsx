@@ -371,7 +371,7 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
             <input
               value={shipperContactName}
               onChange={(e) => setShipperContactName(e.target.value)}
-              placeholder="Shop contact for FedEx labels"
+              placeholder="Bazaar Printing"
               className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
             />
           </label>

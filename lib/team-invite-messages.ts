@@ -53,7 +53,7 @@ export function buildPasswordResetEmailHtml(params: {
   const text = buildPasswordResetEmailBody(params);
   return buildBrandedEmailLayout({
     contextLabel: "Password reset",
-    bodyHtml: plainTextToParagraphs(text),
+    bodyHtml: wrapEmailCta(text, params.resetUrl, "Reset password"),
     emailTitle: passwordResetSubject(params.tenantName, params.templates, {
       invitee_name: params.fullName?.trim() || "there",
       reset_url: params.resetUrl,
@@ -102,13 +102,24 @@ export function buildTeamInviteEmailHtml(params: {
   templates?: MessageTemplateMap | null;
 }) {
   const text = buildTeamInviteEmailBody(params);
-  const marker = "__INVITE_CTA__";
-  let withMarker = text.includes(params.inviteUrl)
-    ? text.split(params.inviteUrl).join(marker)
-    : text;
+  const bodyHtml = wrapEmailCta(text, params.inviteUrl, "Accept invite");
+
+  return buildBrandedEmailLayout({
+    contextLabel: "Team invite",
+    bodyHtml,
+    emailTitle: teamInviteSubject(params.tenantName, params.templates, {
+      invitee_name: params.fullName?.trim() || "there",
+      invite_url: params.inviteUrl,
+    }),
+    showPortalFooter: false,
+  });
+}
+
+function wrapEmailCta(text: string, href: string, label: string): string {
+  const marker = "__EMAIL_CTA__";
+  let withMarker = text.includes(href) ? text.split(href).join(marker) : text;
 
   if (!withMarker.includes(marker)) {
-    // Custom template omitted {{invite_url}} — place CTA before expiry / sign-off.
     const expiryAt = withMarker.search(/\nThis link expires/i);
     if (expiryAt >= 0) {
       withMarker =
@@ -125,24 +136,14 @@ export function buildTeamInviteEmailHtml(params: {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const button = emailCtaButton(params.inviteUrl, "Accept invite");
-  const parts = withMarker.split(marker);
-  const bodyHtml = parts
-    .map((part, index) => {
+  const button = emailCtaButton(href, label);
+  return withMarker
+    .split(marker)
+    .map((part, index, parts) => {
       const paras = plainTextToParagraphs(part);
       return index < parts.length - 1 ? `${paras}${button}` : paras;
     })
     .join("");
-
-  return buildBrandedEmailLayout({
-    contextLabel: "Team invite",
-    bodyHtml,
-    emailTitle: teamInviteSubject(params.tenantName, params.templates, {
-      invitee_name: params.fullName?.trim() || "there",
-      invite_url: params.inviteUrl,
-    }),
-    showPortalFooter: false,
-  });
 }
 
 function emailCtaButton(href: string, label: string): string {

@@ -3,7 +3,7 @@ import "server-only";
 import JSZip from "jszip";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
-import { createFedExShipment } from "@/lib/fedex";
+import { cancelFedExShipment, createFedExShipment } from "@/lib/fedex";
 import { isClientFedExSelection } from "@/lib/client-fedex";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import {
@@ -97,6 +97,7 @@ export async function ensureFedExLabel(
   }
 
   if (
+    !force &&
     request.fedex_shipment_status === "created" &&
     request.fedex_tracking_number &&
     request.fedex_label_storage_path
@@ -132,6 +133,20 @@ export async function ensureFedExLabel(
 
   const settings = await loadShippingSettings(admin, request.tenant_id);
   const config = resolveFedExConfig(settings);
+
+  if (force && request.fedex_tracking_number?.trim()) {
+    const cancelled = await cancelFedExShipment({
+      trackingNumber: request.fedex_tracking_number,
+      settings,
+    });
+    if (!cancelled.ok) {
+      console.warn(
+        "[ensureFedExLabel] cancel previous shipment",
+        request.fedex_tracking_number,
+        cancelled.error
+      );
+    }
+  }
 
   const shipperName = config.shipperContactName?.trim();
   const shipperPhone = config.shipperPhone?.trim();
@@ -220,6 +235,7 @@ export async function ensureFedExLabel(
       shipperContact: {
         personName: shipperName,
         phoneNumber: shipperPhone,
+        companyName: "Bazaar Printing",
       },
       recipientContact: {
         personName: recipientName,

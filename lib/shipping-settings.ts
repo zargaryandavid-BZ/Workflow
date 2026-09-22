@@ -288,6 +288,8 @@ export async function ensureShippingSettings(
       shipper_zip: shipper.zip,
       shipper_country: shipper.country,
       pickup_hours_note: defaultPickupHoursNote(),
+      shipper_contact_name:
+        process.env.FEDEX_SHIPPER_CONTACT_NAME?.trim() || "Bazaar Printing",
     })
     .select("*")
     .single();
@@ -364,7 +366,7 @@ export function resolveFedExConfig(settings: ShippingSettings | null): FedExConf
     shipperContactName:
       settings?.shipper_contact_name?.trim() ||
       process.env.FEDEX_SHIPPER_CONTACT_NAME?.trim() ||
-      null,
+      "Bazaar Printing",
     shipperPhone:
       settings?.shipper_phone?.trim() ||
       process.env.FEDEX_SHIPPER_PHONE?.trim() ||

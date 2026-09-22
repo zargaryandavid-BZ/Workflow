@@ -4,7 +4,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { findAuthUserByEmail } from "@/lib/team-members";
 import { sendTeamInvite } from "@/lib/team-invite";
 import { isInvitePendingUser } from "@/lib/team-invite-metadata";
-import { sendTeamInviteEmail, sendPasswordResetEmail } from "@/lib/email";
+import {
+  buildAppAuthVerifyUrl,
+  hashedTokenFromGenerateLink,
+} from "@/lib/auth-email-link";
+import { sendPasswordResetEmail } from "@/lib/email";
 
 /**
  * POST /api/members/[userId]/resend
@@ -86,9 +90,9 @@ export async function POST(
     });
   }
 
-  // Active — password reset via recovery link.
-  // Exchange the code on /auth/callback (public), then send them to set a password.
-  const redirectTo = `${appUrl}/auth/callback?next=${encodeURIComponent("/set-password")}`;
+  // Active — password reset. Email /set-password?token_hash=… so mail scanners
+  // cannot burn the one-time Supabase /auth/v1/verify URL.
+  const redirectTo = `${appUrl}/set-password`;
   const { data: linkData, error: linkError } =
     await admin.auth.admin.generateLink({
       type: "recovery",
@@ -96,21 +100,20 @@ export async function POST(
       options: { redirectTo },
     });
 
-  if (linkError || !linkData?.properties?.action_link) {
+  const hashedToken = hashedTokenFromGenerateLink(linkData?.properties);
+  if (linkError || !hashedToken) {
     return NextResponse.json(
       { error: linkError?.message ?? "Could not generate reset link." },
       { status: 400 }
     );
   }
 
-  let resetUrl = linkData.properties.action_link;
-  try {
-    const url = new URL(resetUrl);
-    url.searchParams.set("redirect_to", redirectTo);
-    resetUrl = url.toString();
-  } catch {
-    // keep generateLink action_link as-is
-  }
+  const resetUrl = buildAppAuthVerifyUrl({
+    origin: appUrl,
+    path: "/set-password",
+    hashedToken,
+    type: "recovery",
+  });
   const fullName =
     (user.user_metadata?.full_name as string | undefined) ?? null;
 

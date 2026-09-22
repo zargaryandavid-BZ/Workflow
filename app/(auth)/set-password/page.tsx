@@ -29,6 +29,14 @@ export default function SetPasswordPage() {
         return;
       }
 
+      const hasResetToken =
+        Boolean(code) ||
+        Boolean(tokenHash) ||
+        hash.includes("access_token");
+      if (hasResetToken) {
+        await supabase.auth.signOut();
+      }
+
       if (code) {
         const { error: exchangeError } =
           await supabase.auth.exchangeCodeForSession(code);

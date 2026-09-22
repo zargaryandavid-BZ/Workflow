@@ -2,6 +2,10 @@ import "server-only";
 
 import { sendTeamInviteEmail } from "@/lib/email";
 import {
+  appAuthUrlFromRedirect,
+  hashedTokenFromGenerateLink,
+} from "@/lib/auth-email-link";
+import {
   invitePendingMetadata,
   isInvitePendingUser,
 } from "@/lib/team-invite-metadata";
@@ -9,17 +13,6 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 import type { User } from "@supabase/supabase-js";
 
 type Admin = ReturnType<typeof createAdminClient>;
-
-function normalizeInviteLink(link: string | null, redirectTo: string) {
-  if (!link) return null;
-  try {
-    const url = new URL(link);
-    url.searchParams.set("redirect_to", redirectTo);
-    return url.toString();
-  } catch {
-    return link;
-  }
-}
 
 /** Resolve auth user id + signup link via generateLink (does not send Supabase email). */
 async function ensureUserAndSignupLink(
@@ -41,17 +34,21 @@ async function ensureUserAndSignupLink(
       email,
       options: { redirectTo },
     });
-    if (!recoveryAttempt.error && recoveryAttempt.data?.properties?.action_link) {
+    const hashed = hashedTokenFromGenerateLink(
+      recoveryAttempt.data?.properties
+    );
+    if (!recoveryAttempt.error && hashed) {
       await admin.auth.admin.updateUserById(
         recoveryAttempt.data.user?.id ?? userId!,
         { user_metadata: metadata }
       );
       return {
         userId: recoveryAttempt.data.user?.id ?? userId,
-        inviteUrl: normalizeInviteLink(
-          recoveryAttempt.data.properties.action_link,
-          redirectTo
-        ),
+        inviteUrl: appAuthUrlFromRedirect({
+          redirectTo,
+          hashedToken: hashed,
+          type: "recovery",
+        }),
       };
     }
   }
@@ -62,7 +59,10 @@ async function ensureUserAndSignupLink(
     options: { redirectTo, data: metadata },
   });
 
-  if (!inviteAttempt.error && inviteAttempt.data?.properties?.action_link) {
+  const inviteHashed = hashedTokenFromGenerateLink(
+    inviteAttempt.data?.properties
+  );
+  if (!inviteAttempt.error && inviteHashed) {
     const linkedId = inviteAttempt.data.user?.id ?? userId;
     if (linkedId) {
       await admin.auth.admin.updateUserById(linkedId, {
@@ -71,10 +71,11 @@ async function ensureUserAndSignupLink(
     }
     return {
       userId: linkedId,
-      inviteUrl: normalizeInviteLink(
-        inviteAttempt.data.properties.action_link,
-        redirectTo
-      ),
+      inviteUrl: appAuthUrlFromRedirect({
+        redirectTo,
+        hashedToken: inviteHashed,
+        type: "invite",
+      }),
     };
   }
 

@@ -710,6 +710,62 @@ export async function createFedExShipment(args: {
   };
 }
 
+export async function cancelFedExShipment(args: {
+  trackingNumber: string;
+  settings?: ShippingSettings | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const config = resolveFedExConfig(args.settings ?? null);
+  const trackingNumber = args.trackingNumber.trim();
+  if (!trackingNumber) return { ok: false, error: "Missing tracking number" };
+  if (!isFedExConfigured(config)) {
+    return { ok: false, error: "FedEx is not configured." };
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await getFedExAccessToken(config);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "FedEx auth failed",
+    };
+  }
+
+  const accounts = [
+    ...new Set(
+      [config.accountNumber, config.rateAccountNumber]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value))
+    ),
+  ];
+  const cancelUrl = `${fedexBaseUrl(config)}/ship/v1/shipments/cancel`;
+  let lastError = "FedEx cancel failed.";
+
+  for (const accountNumber of accounts) {
+    const res = await fetchWithTimeout(cancelUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-locale": "en_US",
+      },
+      body: JSON.stringify({
+        accountNumber: { value: accountNumber },
+        trackingNumber,
+        deletionControl: "DELETE_ALL_PACKAGES",
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      errors?: Array<{ message?: string }>;
+      output?: { cancelledShipment?: boolean };
+    };
+    if (res.ok) return { ok: true };
+    lastError = json.errors?.[0]?.message ?? lastError;
+  }
+
+  return { ok: false, error: lastError };
+}
+
 /**
  * Probe FedEx: a real account number returns rates (or a non-account error).
  * Unknown / invalid numbers come back as account errors.

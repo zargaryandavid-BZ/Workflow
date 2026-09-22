@@ -1922,7 +1922,7 @@ Automated, operator-free email/SMS fired whenever a card enters a column.
 
 - `lib/team-invite.ts` → `sendTeamInvite()`:
   - `admin.auth.admin.generateLink({ type: "invite", email })` (does not use Supabase built-in email).
-  - Normalizes link to `/signup?...` with `invite_email` / `invite_name` params.
+  - Emails `/signup?token_hash=…&type=invite` (or recovery for pending users). Do not send Supabase `action_link` (`/auth/v1/verify`); scanners consume that token.
   - Sends via Instantly (`sendTeamInviteEmail`) or returns `inviteUrl` for manual copy.
 
 ### 4. New user accepts invite
@@ -2045,6 +2045,8 @@ In **Authentication → URL Configuration**, add:
 | `https://your-domain.com/**` | Production |
 | `http://localhost:3000/signup` | Team invite completion |
 | `https://your-domain.com/signup` | Production invites |
+| `http://localhost:3000/set-password` | Admin-sent password reset |
+| `https://your-domain.com/set-password` | Production password reset |
 
 ### 5. Supabase Realtime
 

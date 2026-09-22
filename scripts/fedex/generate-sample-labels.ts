@@ -54,7 +54,7 @@ const OUTPUT_DIR = resolve(process.cwd(), "fedex-samples");
 
 /** Edit these if you are not using FEDEX_SHIPPER_CONTACT_NAME / FEDEX_SHIPPER_PHONE. */
 const DEFAULT_SHIPPER_CONTACT = {
-  name: "Sample Shipper",
+  name: "Bazaar Printing",
   phone: "2135550100",
 };
 
