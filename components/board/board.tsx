@@ -1378,7 +1378,8 @@ export function Board({
             isPrepressColumn: isPrepressColumn(columnId, columnsRef.current),
           }
         );
-        const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&page=${page}&sort=${encodeURIComponent(sortMode)}${groupedViewRef.current ? "&groupSiblings=1" : ""}`;
+        const colName = columnsRef.current.find((c) => c.id === columnId)?.name ?? "";
+        const url = `/api/board/column-orders?columnId=${encodeURIComponent(columnId)}&columnName=${encodeURIComponent(colName)}&page=${page}&sort=${encodeURIComponent(sortMode)}${groupedViewRef.current ? "&groupSiblings=1" : ""}`;
         let res: Response;
         try {
           res = await fetchWithAuth(url);

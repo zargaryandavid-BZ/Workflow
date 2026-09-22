@@ -35,7 +35,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const supabase = createClient();
+    const supabase = createClient({ skipSessionRecover: true });
 
     async function bootstrap() {
       const params = new URLSearchParams(window.location.search);
@@ -64,7 +64,7 @@ export default function SignupPage() {
       // Clear any existing login so the invite applies to the invited user,
       // not whoever was already signed in on this browser.
       if (hasInviteToken) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: "local" });
       }
 
       if (code) {

@@ -15,14 +15,6 @@ import { FulfillmentBoxSlipButtons } from "@/components/fulfillment/FulfillmentB
 import { FulfillmentOrderThumb } from "@/components/fulfillment/FulfillmentOrderThumb";
 import { fulfillmentDisplayQty } from "@/lib/fulfillment-expected-qty";
 import {
-  fulfillmentDemoPack,
-  isFulfillmentDemoOrderId,
-  isFulfillmentPreviewBoxId,
-  loadFulfillmentDemoPack,
-  padFulfillmentOpenDemoBoxes,
-  saveFulfillmentDemoPack,
-} from "@/lib/fulfillment-demo-pack";
-import {
   formatShortOrderNumber,
   orderMatchesNumberSearch,
 } from "@/lib/order-number-tokens";
@@ -46,15 +38,7 @@ interface OrderInBox {
   thumbnail_url?: string | null;
 }
 
-interface SampleRow {
-  id: string;
-  number: string;
-  qty: number;
-}
-
-type QtyEdit =
-  | { kind: "real"; boxId: string; orderId: string; value: string }
-  | { kind: "sample"; boxId: string; rowId: string; value: string };
+type QtyEdit = { boxId: string; orderId: string; value: string };
 
 function boxCountInput(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 2);
@@ -91,18 +75,9 @@ function rowMatchesSearch(
   );
 }
 
-function samplePackingRows(boxIndex: number, boxId: string): SampleRow[] {
-  const stored = loadFulfillmentDemoPack(boxId);
-  if (stored.length > 0) return stored;
-  return fulfillmentDemoPack(boxIndex, boxId);
-}
-
 export function FulfillmentSendPage() {
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [ordersByBox, setOrdersByBox] = useState<Record<string, OrderInBox[]>>(
-    {}
-  );
-  const [sampleByBox, setSampleByBox] = useState<Record<string, SampleRow[]>>(
     {}
   );
   const [loadingBoxIds, setLoadingBoxIds] = useState<Set<string>>(new Set());
@@ -132,18 +107,10 @@ export function FulfillmentSendPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedSentDay, setSelectedSentDay] = useState<string | null>(null);
   const [orderSearch, setOrderSearch] = useState("");
-  const [hiddenPreviewIds, setHiddenPreviewIds] = useState<string[]>([]);
 
   const packingBoxes = useMemo(
     () => boxes.filter((b) => b.status === "open"),
     [boxes]
-  );
-  const packingViewBoxes = useMemo(
-    () =>
-      padFulfillmentOpenDemoBoxes(packingBoxes).filter(
-        (b) => !hiddenPreviewIds.includes(b.id)
-      ),
-    [hiddenPreviewIds, packingBoxes]
   );
 
   const sentDayKeys = useMemo(() => {
@@ -174,28 +141,16 @@ export function FulfillmentSendPage() {
       .sort(sortBoxes);
   }, [boxes, selectedSentDay]);
 
-  const viewBoxes = viewingHistory ? historyBoxes : packingViewBoxes;
+  const viewBoxes = viewingHistory ? historyBoxes : packingBoxes;
 
   const displayedBoxes = useMemo(() => {
     const q = orderSearch.trim();
     if (!q) return viewBoxes;
     return viewBoxes.filter((box) => {
       const orders = ordersByBox[box.id] ?? [];
-      const samples = sampleByBox[box.id] ?? [];
-      return (
-        orders.some((order) => rowMatchesSearch(order, q)) ||
-        samples.some((row) =>
-          row.number.toLowerCase().includes(q.toLowerCase())
-        )
-      );
+      return orders.some((order) => rowMatchesSearch(order, q));
     });
-  }, [
-    orderSearch,
-    viewBoxes,
-    ordersByBox,
-    sampleByBox,
-    viewingHistory,
-  ]);
+  }, [orderSearch, viewBoxes, ordersByBox]);
 
   const boxesLoadGen = useRef(0);
 
@@ -245,44 +200,17 @@ export function FulfillmentSendPage() {
   }, [qtyEdit]);
 
   useEffect(() => {
-    setSampleByBox((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      let previewIndex = 0;
-      packingViewBoxes.forEach((box) => {
-        if (isFulfillmentPreviewBoxId(box.id)) {
-          if (!next[box.id]?.length) {
-            next[box.id] = samplePackingRows(previewIndex, box.id);
-            changed = true;
-          }
-          previewIndex += 1;
-          return;
-        }
-        const rows = next[box.id];
-        if (!rows?.length) return;
-        const kept = rows.filter((row) => !isFulfillmentDemoOrderId(row.id));
-        if (kept.length !== rows.length) {
-          next[box.id] = kept;
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [packingViewBoxes]);
-
-  useEffect(() => {
-    const real = packingViewBoxes.filter(
-      (b) => !isFulfillmentPreviewBoxId(b.id)
-    );
-    const pool = real.length > 0 ? real : packingViewBoxes;
-    if (pool.length === 0) {
+    if (packingBoxes.length === 0) {
       setSelectedBoxId(null);
       return;
     }
-    if (!selectedBoxId || !pool.some((b) => b.id === selectedBoxId)) {
-      setSelectedBoxId(pool[0].id);
+    if (
+      !selectedBoxId ||
+      !packingBoxes.some((b) => b.id === selectedBoxId)
+    ) {
+      setSelectedBoxId(packingBoxes[0].id);
     }
-  }, [packingViewBoxes, selectedBoxId]);
+  }, [packingBoxes, selectedBoxId]);
 
   useEffect(() => {
     if (!selectedBoxId || viewingHistory) return;
@@ -335,23 +263,6 @@ export function FulfillmentSendPage() {
   async function handleDeleteBox(boxId: string) {
     if (!confirm("Delete this box? This cannot be undone.")) return;
     setError(null);
-    if (isFulfillmentPreviewBoxId(boxId)) {
-      setHiddenPreviewIds((prev) =>
-        prev.includes(boxId) ? prev : [...prev, boxId]
-      );
-      setOrdersByBox((prev) => {
-        const next = { ...prev };
-        delete next[boxId];
-        return next;
-      });
-      setSampleByBox((prev) => {
-        const next = { ...prev };
-        delete next[boxId];
-        return next;
-      });
-      if (selectedBoxId === boxId) setSelectedBoxId(null);
-      return;
-    }
     try {
       const res = await fetch(`/api/fulfillment/boxes/${boxId}`, {
         method: "DELETE",
@@ -364,11 +275,6 @@ export function FulfillmentSendPage() {
       boxesLoadGen.current += 1;
       setBoxes((prev) => prev.filter((b) => b.id !== boxId));
       setOrdersByBox((prev) => {
-        const next = { ...prev };
-        delete next[boxId];
-        return next;
-      });
-      setSampleByBox((prev) => {
         const next = { ...prev };
         delete next[boxId];
         return next;
@@ -422,27 +328,10 @@ export function FulfillmentSendPage() {
     }
   }
 
-  function handleRemoveSample(boxId: string, rowId: string) {
-    setSampleByBox((prev) => ({
-      ...prev,
-      [boxId]: (prev[boxId] ?? []).filter((row) => row.id !== rowId),
-    }));
-  }
-
   async function commitQtyEdit() {
     if (!qtyEdit) return;
     const qty = Math.floor(Number(qtyEdit.value));
     if (!Number.isFinite(qty) || qty < 1) {
-      setQtyEdit(null);
-      return;
-    }
-    if (qtyEdit.kind === "sample") {
-      setSampleByBox((prev) => ({
-        ...prev,
-        [qtyEdit.boxId]: (prev[qtyEdit.boxId] ?? []).map((row) =>
-          row.id === qtyEdit.rowId ? { ...row, qty } : row
-        ),
-      }));
       setQtyEdit(null);
       return;
     }
@@ -478,10 +367,7 @@ export function FulfillmentSendPage() {
     toBoxId: string
   ) {
     if (!toBoxId || toBoxId === fromBoxId) return;
-    if (
-      isFulfillmentPreviewBoxId(toBoxId) ||
-      !packingBoxes.some((b) => b.id === toBoxId && b.status === "open")
-    ) {
+    if (!packingBoxes.some((b) => b.id === toBoxId && b.status === "open")) {
       setRowErrorByBox((prev) => ({
         ...prev,
         [fromBoxId]: "Cannot move into a delivered box",
@@ -516,28 +402,9 @@ export function FulfillmentSendPage() {
     }
   }
 
-  function handleMoveSample(fromBoxId: string, rowId: string, toBoxId: string) {
-    if (!toBoxId || toBoxId === fromBoxId) return;
-    if (
-      isFulfillmentPreviewBoxId(toBoxId) ||
-      !packingBoxes.some((b) => b.id === toBoxId && b.status === "open")
-    ) {
-      return;
-    }
-    const row = (sampleByBox[fromBoxId] ?? []).find((r) => r.id === rowId);
-    if (!row) return;
-    setSampleByBox((prev) => ({
-      ...prev,
-      [fromBoxId]: (prev[fromBoxId] ?? []).filter((r) => r.id !== rowId),
-      [toBoxId]: [...(prev[toBoxId] ?? []), { ...row, id: `${toBoxId}-${row.number}` }],
-    }));
-  }
-
-  async function handleDeliver(boxId: string, samples: SampleRow[]) {
-    if (isFulfillmentPreviewBoxId(boxId)) return;
+  async function handleDeliver(boxId: string) {
     setDeliveringBoxId(boxId);
     setDeliverErrorByBox((prev) => ({ ...prev, [boxId]: "" }));
-    saveFulfillmentDemoPack(boxId, samples);
     try {
       const res = await fetch(`/api/fulfillment/boxes/${boxId}/deliver`, {
         method: "POST",
@@ -681,29 +548,18 @@ export function FulfillmentSendPage() {
             {displayedBoxes.map((box) => {
               const orders = ordersByBox[box.id] ?? [];
               const loading = loadingBoxIds.has(box.id);
-              const samples =
-                sampleByBox[box.id] ??
-                samplePackingRows(
-                  Math.max(0, (Number(box.box_number) || 1) - 1),
-                  box.id
-                );
-              const q = orderSearch.trim().toLowerCase();
+              const q = orderSearch.trim();
               const visibleOrders = q
-                ? orders.filter((order) => rowMatchesSearch(order, orderSearch.trim()))
+                ? orders.filter((order) => rowMatchesSearch(order, q))
                 : orders;
-              const visibleSamples = q
-                ? samples.filter((row) => row.number.toLowerCase().includes(q))
-                : samples;
-              const previewBox = isFulfillmentPreviewBoxId(box.id);
               const selected =
-                !viewingHistory && !previewBox && selectedBoxId === box.id;
-              const ttlQty =
-                orders.reduce(
-                  (sum, order) =>
-                    sum +
-                    fulfillmentDisplayQty(order.quantity_expected, order.specs),
-                  0
-                ) + samples.reduce((sum, row) => sum + row.qty, 0);
+                !viewingHistory && selectedBoxId === box.id;
+              const ttlQty = orders.reduce(
+                (sum, order) =>
+                  sum +
+                  fulfillmentDisplayQty(order.quantity_expected, order.specs),
+                0
+              );
               const isDelivered =
                 viewingHistory ||
                 box.status === "sent" ||
@@ -711,17 +567,14 @@ export function FulfillmentSendPage() {
               const canEdit = !isDelivered;
               const otherBoxes = canEdit
                 ? packingBoxes.filter(
-                    (b) =>
-                      b.id !== box.id &&
-                      b.status === "open" &&
-                      !isFulfillmentPreviewBoxId(b.id)
+                    (b) => b.id !== box.id && b.status === "open"
                   )
                 : [];
               return (
                 <section
                   key={box.id}
                   onClick={() => {
-                    if (!isDelivered && !previewBox) selectBox(box.id);
+                    if (!isDelivered) selectBox(box.id);
                   }}
                   className={`flex h-[32rem] min-w-0 flex-col overflow-hidden ${
                     isDelivered ? "bg-slate-100" : "bg-white"
@@ -763,7 +616,7 @@ export function FulfillmentSendPage() {
                     <span className="text-right">Qty</span>
                   </div>
 
-                  {canEdit && !previewBox ? (
+                  {canEdit ? (
                   <div
                     className="shrink-0 px-3 pt-2"
                     onClick={(e) => e.stopPropagation()}
@@ -820,7 +673,7 @@ export function FulfillmentSendPage() {
                     className="min-h-0 flex-1 overflow-y-auto px-3 py-1"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {loading && orders.length === 0 && samples.length === 0 ? (
+                    {loading && orders.length === 0 ? (
                       <p className="flex items-center gap-1 py-3 text-xs text-slate-400">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         Loading…
@@ -833,8 +686,7 @@ export function FulfillmentSendPage() {
                             order.specs
                           );
                           const editing =
-                            qtyEdit?.kind === "real" &&
-                            qtyEdit.boxId === box.id &&
+                            qtyEdit?.boxId === box.id &&
                             qtyEdit.orderId === order.id;
                           return (
                             <li
@@ -877,7 +729,6 @@ export function FulfillmentSendPage() {
                                     title="Edit qty"
                                     onClick={() =>
                                       setQtyEdit({
-                                        kind: "real",
                                         boxId: box.id,
                                         orderId: order.id,
                                         value: String(qty),
@@ -929,97 +780,6 @@ export function FulfillmentSendPage() {
                             </li>
                           );
                         })}
-                        {visibleSamples.map((row) => {
-                          const editing =
-                            qtyEdit?.kind === "sample" &&
-                            qtyEdit.boxId === box.id &&
-                            qtyEdit.rowId === row.id;
-                          return (
-                            <li
-                              key={row.id}
-                              className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2"
-                            >
-                              <FulfillmentOrderThumb url={null} label={row.number} />
-                              <span className="font-mono text-sm font-medium tabular-nums text-slate-900">
-                                {row.number}
-                              </span>
-                              <div className="flex items-center gap-1">
-                                {editing ? (
-                                  <input
-                                    ref={qtyEditRef}
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={qtyEdit.value}
-                                    onChange={(e) =>
-                                      setQtyEdit({
-                                        ...qtyEdit,
-                                        value: qtyInput(e.target.value),
-                                      })
-                                    }
-                                    onBlur={() => void commitQtyEdit()}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        void commitQtyEdit();
-                                      }
-                                      if (e.key === "Escape") setQtyEdit(null);
-                                    }}
-                                    className="w-14 rounded border border-blue-400 px-1 py-0.5 text-right font-mono text-sm tabular-nums focus:outline-none"
-                                  />
-                                ) : (
-                                  <button
-                                    type="button"
-                                    title="Edit qty"
-                                    onClick={() =>
-                                      setQtyEdit({
-                                        kind: "sample",
-                                        boxId: box.id,
-                                        rowId: row.id,
-                                        value: String(row.qty),
-                                      })
-                                    }
-                                    className="min-w-[2.5rem] rounded px-1 py-0.5 text-right font-mono text-sm tabular-nums text-slate-600 hover:bg-white hover:ring-1 hover:ring-slate-300"
-                                  >
-                                    {row.qty}
-                                  </button>
-                                )}
-                                {canEdit && otherBoxes.length > 0 ? (
-                                  <select
-                                    aria-label="Move sample to box"
-                                    defaultValue=""
-                                    onChange={(e) => {
-                                      const toBoxId = e.target.value;
-                                      e.target.value = "";
-                                      handleMoveSample(box.id, row.id, toBoxId);
-                                    }}
-                                    className="max-w-[5.5rem] rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px] text-slate-600"
-                                  >
-                                    <option value="" disabled>
-                                      Move
-                                    </option>
-                                    {otherBoxes.map((target) => (
-                                      <option key={target.id} value={target.id}>
-                                        {fulfillmentBoxLabel(target)}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : null}
-                                {canEdit ? (
-                                <button
-                                  type="button"
-                                  title="Remove sample row"
-                                  onClick={() =>
-                                    handleRemoveSample(box.id, row.id)
-                                  }
-                                  className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                                ) : null}
-                              </div>
-                            </li>
-                          );
-                        })}
                       </ul>
                     )}
                     {rowErrorByBox[box.id] ? (
@@ -1045,7 +805,7 @@ export function FulfillmentSendPage() {
                         {ttlQty}
                       </span>
                     </div>
-                    {isDelivered && !previewBox ? (
+                    {isDelivered ? (
                       <FulfillmentBoxSlipButtons boxId={box.id} />
                     ) : null}
                     {isDelivered ? (
@@ -1059,10 +819,9 @@ export function FulfillmentSendPage() {
                       <>
                     <button
                       type="button"
-                      onClick={() => void handleDeliver(box.id, samples)}
+                      onClick={() => void handleDeliver(box.id)}
                       disabled={
-                        deliveringBoxId === box.id ||
-                        (orders.length === 0 && samples.length === 0)
+                        deliveringBoxId === box.id || orders.length === 0
                       }
                       className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-40"
                     >
@@ -1071,7 +830,7 @@ export function FulfillmentSendPage() {
                       ) : (
                         <Truck className="h-3.5 w-3.5" />
                       )}
-                      Mark as Delivered ({orders.length + samples.length})
+                      Mark as Delivered ({orders.length})
                     </button>
                     {deliverErrorByBox[box.id] ? (
                       <p className="mt-1 text-xs text-red-600">

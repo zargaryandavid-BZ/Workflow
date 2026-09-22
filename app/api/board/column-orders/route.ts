@@ -134,6 +134,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = req.nextUrl;
     const columnId = searchParams.get("columnId");
+    const columnNameHint = searchParams.get("columnName") ?? null;
     const page = Math.max(0, parseInt(searchParams.get("page") ?? "0", 10));
     const sortParam = searchParams.get("sort");
     const sort: ColumnSortMode = isColumnSortMode(sortParam)
@@ -252,7 +253,7 @@ export async function GET(req: NextRequest) {
       enrichBoardOrders(supabase, orders),
       // Designer queue rank (#N badge): only for Start / In Progress columns.
       // Computed live so the badge works with zero stored data on any tenant.
-      attachQueueRanks(supabase, tenantId, columnId, orders),
+      attachQueueRanks(supabase, tenantId, columnId, orders, columnNameHint),
     ]);
 
     const response: ColumnOrdersResponse = {
@@ -352,9 +353,22 @@ async function attachQueueRanks(
   supabase: any,
   tenantId: string,
   columnId: string,
-  orders: OrderWithRelations[]
+  orders: OrderWithRelations[],
+  /** Column name passed by the client to skip an extra board_columns round-trip. */
+  columnNameHint?: string | null
 ): Promise<void> {
   if (orders.length === 0) return;
+
+  // Fast path: if the client told us the column name and it's not a queue
+  // column, skip the board_columns fetch entirely (saves a DB round-trip on
+  // every non-queue column, which is the majority of columns on the board).
+  if (
+    columnNameHint &&
+    !isPrepressColumnName(columnNameHint) &&
+    !isDesignerQueueColumnName(columnNameHint)
+  ) {
+    return;
+  }
 
   const { data: cols } = await supabase
     .from("board_columns")
@@ -363,7 +377,7 @@ async function attachQueueRanks(
   const columnsById = new Map<string, string>(
     (cols ?? []).map((c: { id: string; name: string }) => [c.id, c.name])
   );
-  const currentName = columnsById.get(columnId);
+  const currentName = columnNameHint ?? columnsById.get(columnId);
   if (isPrepressColumnName(currentName)) {
     const prepressColumnIds = (cols ?? [])
       .filter((c: { name: string }) => isPrepressColumnName(c.name))

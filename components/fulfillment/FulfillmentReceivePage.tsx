@@ -12,16 +12,6 @@ import {
 import { FulfillmentBoxSlipButtons } from "@/components/fulfillment/FulfillmentBoxSlipButtons";
 import { FulfillmentOrderThumb } from "@/components/fulfillment/FulfillmentOrderThumb";
 import {
-  demoReceiveBoxComment,
-  demoReceiveBoxStatus,
-  demoReceiveLineStatus,
-  fulfillmentDemoPack,
-  fulfillmentReceivedPreviewBoxes,
-  isFulfillmentDemoOrderId,
-  loadFulfillmentDemoPack,
-  padFulfillmentReceiveDemoBoxes,
-} from "@/lib/fulfillment-demo-pack";
-import {
   boxesForReceiveDay,
   fulfillmentBoxLabel,
   localDayKey,
@@ -69,47 +59,6 @@ interface OrderInBox {
 
 function sortBoxes(a: Box, b: Box): number {
   return a.box_number.localeCompare(b.box_number, undefined, { numeric: true });
-}
-
-function demoAsOrders(
-  boxId: string,
-  boxIndex: number,
-  received: boolean
-): OrderInBox[] {
-  const stored = loadFulfillmentDemoPack(boxId);
-  const rows = stored.length > 0 ? stored : fulfillmentDemoPack(boxIndex, boxId);
-  return rows.map((row, i) => {
-    const line = received ? demoReceiveLineStatus(i) : null;
-    const quantity_received = line
-      ? line.quantity_received(row.qty)
-      : null;
-    return {
-      id: row.id,
-      title: row.number,
-      specs: { skus: [{ qty: row.qty }] },
-      column_id: null,
-      box_order_id: row.id,
-      quantity_expected: row.qty,
-      quantity_received,
-      receive_status: line?.receive_status ?? null,
-    };
-  });
-}
-
-function mergeBoxOrders(
-  box: Box,
-  boxIndex: number,
-  apiOrders: OrderInBox[]
-): OrderInBox[] {
-  if (!box.id.startsWith("__")) return apiOrders;
-  const demo = demoAsOrders(
-    box.id,
-    boxIndex,
-    box.status === "received"
-  );
-  if (apiOrders.length === 0) return demo;
-  const seen = new Set(apiOrders.map((o) => o.id));
-  return [...apiOrders, ...demo.filter((row) => !seen.has(row.id))];
 }
 
 function calcQty(
@@ -166,20 +115,17 @@ export function FulfillmentReceivePage() {
       list.map(async (box) => {
         let apiOrders: OrderInBox[] = [];
         let apiBox: Partial<Box> = {};
-        if (!box.id.startsWith("__")) {
-          try {
-            const res = await fetch(`/api/fulfillment/boxes/${box.id}`);
-            if (res.ok) {
-              const data = (await res.json()) as Box & { orders: OrderInBox[] };
-              apiOrders = data.orders ?? [];
-              apiBox = data;
-            }
-          } catch {
-            /* non-fatal */
+        try {
+          const res = await fetch(`/api/fulfillment/boxes/${box.id}`);
+          if (res.ok) {
+            const data = (await res.json()) as Box & { orders: OrderInBox[] };
+            apiOrders = data.orders ?? [];
+            apiBox = data;
           }
+        } catch {
+          /* non-fatal */
         }
-        const packIndex = Math.max(0, (Number(box.box_number) || 1) - 1);
-        const orders = mergeBoxOrders(box, packIndex, apiOrders);
+        const orders = apiOrders;
         nextOrders[box.id] = orders;
         for (const o of orders) {
           const expected = calcQty(o.quantity_expected, o.specs);
@@ -193,15 +139,9 @@ export function FulfillmentReceivePage() {
               : null;
         nextStatus[box.id] =
           stored ??
-          (box.status === "received"
-            ? demoReceiveBoxStatus(packIndex)
-            : boxReceiveStatusFromLines(orders.map((o) => o.receive_status)));
+          boxReceiveStatusFromLines(orders.map((o) => o.receive_status));
         nextComment[box.id] =
-          apiBox.receive_comment ??
-          box.receive_comment ??
-          (box.status === "received"
-            ? demoReceiveBoxComment(packIndex, nextStatus[box.id]!) ?? ""
-            : "");
+          apiBox.receive_comment ?? box.receive_comment ?? "";
       })
     );
     setBoxOrders(nextOrders);
@@ -218,19 +158,16 @@ export function FulfillmentReceivePage() {
         const data = (await res.json()) as Box[];
         list = data.filter((b) => b.status === "sent" || b.status === "received");
       }
-      list = padFulfillmentReceiveDemoBoxes(list);
       setBoxes(list);
       if (!daySelectInit.current) {
         daySelectInit.current = true;
       }
       await loadBoxContents(list);
     } catch {
-      const preview = fulfillmentReceivedPreviewBoxes();
-      setBoxes(preview);
+      setBoxes([]);
       if (!daySelectInit.current) {
         daySelectInit.current = true;
       }
-      await loadBoxContents(preview);
     } finally {
       setLoading(false);
     }
@@ -283,39 +220,13 @@ export function FulfillmentReceivePage() {
 
   async function handleApprove(box: Box) {
     const receivedAt = new Date().toISOString();
-    if (box.id.startsWith("__")) {
-      setBoxes((prev) =>
-        prev.map((b) =>
-          b.id === box.id
-            ? {
-                ...b,
-                status: "received",
-                received_at: receivedAt,
-              }
-            : b
-        )
-      );
-      setBoxOrders((prev) => ({
-        ...prev,
-        [box.id]: (prev[box.id] ?? []).map((order) => ({
-          ...order,
-          quantity_received:
-            quantities[order.id] ??
-            calcQty(order.quantity_expected, order.specs),
-        })),
-      }));
-      setSelectedReceivedDay(localDayKey(receivedAt));
-      return;
-    }
     setApproving(box.id);
     setErrors((prev) => ({ ...prev, [box.id]: "" }));
     const orders = boxOrders[box.id] ?? [];
-    const quantitiesPayload = orders
-      .filter((o) => !isFulfillmentDemoOrderId(o.id))
-      .map((o) => ({
-        orderId: o.id,
-        quantity: quantities[o.id] ?? calcQty(o.quantity_expected, o.specs),
-      }));
+    const quantitiesPayload = orders.map((o) => ({
+      orderId: o.id,
+      quantity: quantities[o.id] ?? calcQty(o.quantity_expected, o.specs),
+    }));
 
     try {
       const res = await fetch(`/api/fulfillment/boxes/${box.id}/receive`, {
@@ -346,7 +257,6 @@ export function FulfillmentReceivePage() {
     status: FulfillmentReceiveStatus,
     comment: string
   ) {
-    if (box.id.startsWith("__")) return;
     if (box.status !== "received") return;
     setSavingBoxId(box.id);
     try {
@@ -753,9 +663,7 @@ export function FulfillmentReceivePage() {
                     )}
                     <FulfillmentBoxSlipButtons
                       boxId={box.id}
-                      hasOrders={orders.some(
-                        (o) => !isFulfillmentDemoOrderId(o.id)
-                      )}
+                      hasOrders={orders.length > 0}
                     />
                   </div>
                 </section>

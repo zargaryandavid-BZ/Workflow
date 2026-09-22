@@ -5,12 +5,29 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { SetPasswordForm } from "./set-password-form";
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out. Ask your admin to send a new reset link.`)),
+          ms
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export default function SetPasswordPage() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const supabase = createClient();
+    const supabase = createClient({ skipSessionRecover: true });
 
     async function bootstrap() {
       const params = new URLSearchParams(window.location.search);
@@ -25,7 +42,6 @@ export default function SetPasswordPage() {
           decodeURIComponent(authError.replace(/\+/g, " ")) +
             " Ask your admin to send a new reset link."
         );
-        setReady(true);
         return;
       }
 
@@ -34,30 +50,35 @@ export default function SetPasswordPage() {
         Boolean(tokenHash) ||
         hash.includes("access_token");
       if (hasResetToken) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: "local" });
       }
 
       if (code) {
-        const { error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
+        const { error: exchangeError } = await withTimeout(
+          supabase.auth.exchangeCodeForSession(code),
+          15000,
+          "Sign-in"
+        );
         if (exchangeError) {
           setError(
             `${exchangeError.message} The link may have expired — ask your admin to resend it.`
           );
-          setReady(true);
           return;
         }
         window.history.replaceState(null, "", "/set-password");
       } else if (tokenHash && otpType) {
-        const { error: verifyError } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type: otpType as "recovery" | "invite" | "signup" | "email",
-        });
+        const { error: verifyError } = await withTimeout(
+          supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: otpType as "recovery" | "invite" | "signup" | "email",
+          }),
+          15000,
+          "Reset link"
+        );
         if (verifyError) {
           setError(
             `${verifyError.message} Ask your admin to send a new reset link.`
           );
-          setReady(true);
           return;
         }
         window.history.replaceState(null, "", "/set-password");
@@ -75,11 +96,17 @@ export default function SetPasswordPage() {
           "This reset link is invalid or has expired. Ask your admin to send a new one."
         );
       }
-
-      setReady(true);
     }
 
-    bootstrap();
+    void bootstrap()
+      .catch((err) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Could not open this reset link. Ask your admin to send a new one."
+        );
+      })
+      .finally(() => setReady(true));
   }, []);
 
   if (!ready) {

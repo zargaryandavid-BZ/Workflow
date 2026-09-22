@@ -34,8 +34,10 @@ const listeners = new Map<string, Set<() => void>>();
 /**
  * Cap concurrent Drive checks so opening the board doesn't spawn dozens of
  * /gdrive-status calls at once (that made the board feel stuck).
+ * 5 concurrent is safe — the server has its own Drive quota management, and
+ * the previous limit of 2 made the status indicators trickle in very slowly.
  */
-const MAX_CONCURRENT = 2;
+const MAX_CONCURRENT = 5;
 let activeChecks = 0;
 const waitQueue: Array<() => void> = [];
 
@@ -196,7 +198,7 @@ export function useGdriveFolderStatus(
     }
 
     let cancelled = false;
-    const delayMs = epoch === 0 ? 800 : 50;
+    const delayMs = epoch === 0 ? 150 : 50;
     const timer = window.setTimeout(() => {
       void fetchStatusDeduped(orderId).then((next) => {
         if (!cancelled) setStatus(next);
