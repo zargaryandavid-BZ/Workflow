@@ -91,6 +91,17 @@ export function businessDateString(now: Date = new Date()): string {
   }).format(now);
 }
 
+/** Next calendar day after a YYYY-MM-DD (UTC date arithmetic). */
+export function nextCalendarDate(isoDate: string): string {
+  const due = isoDate.slice(0, 10);
+  const t = Date.UTC(
+    Number(due.slice(0, 4)),
+    Number(due.slice(5, 7)) - 1,
+    Number(due.slice(8, 10))
+  );
+  return new Date(t + 86_400_000).toISOString().slice(0, 10);
+}
+
 /** True when due date is before today's business calendar date (same as Board health Late). */
 export function isOrderOverdue(
   dueDate: string | null | undefined,
@@ -194,6 +205,7 @@ export function orderMatchesBoardFilters(
     }
   }
   if (filters.overdueOnly) {
+    if (isOrderArchived(order)) return false;
     const awaiting = filters.waitingApprovalColumnIds?.has(order.column_id);
     if (
       !isOrderOverdue(order.due_date, businessDateString(), {
@@ -211,6 +223,7 @@ export function orderMatchesBoardFilters(
     }
   }
   if (filters.dueTodayOnly) {
+    if (isOrderArchived(order)) return false;
     const awaiting = filters.waitingApprovalColumnIds?.has(order.column_id);
     if (
       !isOrderDueToday(order.due_date, businessDateString(), {

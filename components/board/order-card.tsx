@@ -88,6 +88,7 @@ import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
 import { BoardWorkerChip } from "./board-worker-chip";
+import { CardFooterFitText } from "./card-footer-fit-text";
 import { CardDesignerWorkedBadge } from "./card-designer-worked-badge";
 import { designerWorkedDisplaySeconds } from "@/lib/card-designer-worked";
 import {
@@ -1602,51 +1603,54 @@ export function OrderCard({
         onDueContextMenu={canSetDueDate ? handleDueContextMenu : undefined}
       />
 
-      {/* Footer — full-width row; each chip gets flex-1 so all chips together = 100% card width */}
-      <div className="mt-2 flex w-full items-stretch overflow-hidden rounded-full text-[clamp(9px,3.1cqi,11px)]">
+      </div>{/* end padded content wrapper */}
+
+      {/* Footer — full card width (not inset by content padding / timer gutter). */}
+      <div className="flex w-full min-w-0 items-stretch overflow-hidden text-[clamp(8px,2.8cqi,11px)]">
         {proofBuilding ? (
-          <span className="flex flex-1 min-w-0 items-center justify-center gap-1 bg-amber-100 px-1.5 py-0.5 font-medium text-amber-800">
+          <span className="flex min-w-0 flex-1 items-center justify-center gap-1 bg-amber-100 px-1 py-1 font-medium text-amber-800">
             <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-500" />
-            <span className="truncate">Proof building…</span>
+            <CardFooterFitText>Proof building…</CardFooterFitText>
           </span>
         ) : proofReady ? (
-          <span className="flex flex-1 min-w-0 items-center justify-center gap-1 bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-700">
-            <span className="truncate">Proof ready</span>
+          <span className="flex min-w-0 flex-1 items-center justify-center gap-1 bg-emerald-100 px-1 py-1 font-medium text-emerald-700">
+            <CardFooterFitText>Proof ready</CardFooterFitText>
           </span>
         ) : null}
         {notificationBadge && orderTags.length === 0 ? (
           <span
             className={cn(
-              "flex flex-1 min-w-0 items-center justify-center px-1.5 py-0.5 font-medium",
+              "flex min-w-0 flex-1 items-center justify-center px-1 py-1 font-medium",
               CARD_BADGE_STYLES[notificationBadge]
             )}
           >
-            <span className="truncate">{CARD_BADGE_LABELS[notificationBadge]}</span>
+            <CardFooterFitText>
+              {CARD_BADGE_LABELS[notificationBadge]}
+            </CardFooterFitText>
           </span>
         ) : null}
         {orderTags.map((tag) => (
           <span
             key={tag}
             className={cn(
-              "flex flex-1 min-w-0 items-center justify-center px-1.5 py-0.5 font-medium",
-              ORDER_TAG_STYLES[tag] ??
-                "bg-slate-100 text-slate-600"
+              "flex min-w-0 flex-1 items-center justify-center px-1 py-1 font-medium",
+              ORDER_TAG_STYLES[tag] ?? "bg-slate-100 text-slate-600"
             )}
           >
-            <span className="truncate">{tag}</span>
+            <CardFooterFitText>{tag}</CardFooterFitText>
           </span>
         ))}
         {!isDesignerUnassigned ? (
           <span
             className={cn(
-              "flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold",
+              "flex min-w-0 flex-1 items-center justify-center gap-0.5 px-1 py-1 font-semibold",
               "bg-[var(--primary)]/10 text-[var(--primary)]",
               canAssignDesigner && "cursor-context-menu"
             )}
             title={
               canAssignDesigner
                 ? "Right-click to assign designer"
-                : "Assigned designer"
+                : designerName
             }
             onContextMenu={handleDesignerContextMenu}
             onPointerDown={(e) => {
@@ -1654,29 +1658,27 @@ export function OrderCard({
             }}
           >
             <User className="h-[1em] w-[1em] shrink-0 text-[var(--primary)]" />
-            <span className="min-w-0 truncate">{designerName}</span>
+            <CardFooterFitText>{designerName ?? ""}</CardFooterFitText>
           </span>
         ) : null}
         {!isOwnerUnassigned && ownerName ? (
           <span
-            className="flex flex-1 min-w-0 items-center justify-center gap-0.5 px-1.5 py-0.5 font-semibold bg-slate-100 text-slate-500"
-            title="Order owner"
+            className="flex min-w-0 flex-1 items-center justify-center gap-0.5 bg-slate-100 px-1 py-1 font-semibold text-slate-500"
+            title={ownerName}
           >
             <User className="h-[1em] w-[1em] shrink-0 text-slate-400" />
-            <span className="min-w-0 truncate">{ownerName}</span>
+            <CardFooterFitText>{ownerName}</CardFooterFitText>
           </span>
         ) : null}
       </div>
-
-      </div>{/* end padded content wrapper */}
 
       {/* Full-width tag footer bar — bar height fixed; font −20% from 13px */}
       {order.tag ? (
         <div
           style={{ backgroundColor: order.tag.color ?? "#e2e8f0" }}
-          className="flex h-[14.3px] w-full items-center justify-center overflow-hidden text-[10.4px] font-medium leading-none tracking-wide text-white"
+          className="flex h-[14.3px] w-full min-w-0 items-center justify-center overflow-hidden px-1 text-[10.4px] font-medium leading-none tracking-wide text-white"
         >
-          {order.tag.name}
+          <CardFooterFitText>{order.tag.name}</CardFooterFitText>
         </div>
       ) : null}
 

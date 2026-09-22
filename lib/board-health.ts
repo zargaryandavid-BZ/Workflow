@@ -14,7 +14,7 @@ import {
 } from "@/lib/card-warning-rules";
 import { effectiveDaysUntilDue } from "@/lib/board-due-date";
 import { isRushOrder } from "@/lib/order-rush";
-import { businessDateString } from "@/lib/board-order-filters";
+import { businessDateString, isOrderArchived } from "@/lib/board-order-filters";
 import {
   DEFAULT_EMERGENCY_BALANCE,
   type EmergencyBalanceConfig,
@@ -300,7 +300,9 @@ export function evaluateBoardHealth(opts: {
   let stuck = 0;
   let attention = 0;
 
-  const openOrders = opts.orders.filter((o) => includedIds.has(o.column_id));
+  const openOrders = opts.orders.filter(
+    (o) => includedIds.has(o.column_id) && !isOrderArchived(o)
+  );
 
   for (const order of openOrders) {
     const col = colById.get(order.column_id);

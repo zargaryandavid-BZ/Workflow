@@ -4,7 +4,6 @@ import { google } from "googleapis";
 import type { GdriveSettings } from "@/lib/types";
 import { isGdriveConfigured } from "@/lib/gdrive-settings";
 import { sanitizeDriveFolderName } from "@/lib/google-drive";
-import { restoreDriveFileFromTrash } from "@/lib/drive-restore-from-trash";
 
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
@@ -97,9 +96,7 @@ function toProofFile(f: DriveListFile): ProofFile | null {
 
 /**
  * Direct child files of a folder — LIVE files only. A file a user moved to
- * Drive trash stays deleted: we never resurrect it into the proof source.
- * (Orphans left behind after a whole folder was trashed+restored are handled by
- * folderHasFiles, which only re-restores when the parent folder itself was trashed.)
+ * Drive trash stays deleted.
  */
 async function listDirectChildFiles(
   drive: ProofsDrive["drive"],
@@ -343,10 +340,9 @@ export async function getDriveFolderMeta(
     supportsAllDrives: true,
   });
   if (!meta.data.id) return null;
-  if (meta.data.trashed === true) {
-    const restored = await restoreDriveFileFromTrash(drive, fileId);
-    if (!restored) return null;
-  }
+  // Do not undelete on lookup — board/ticket refresh was restoring trashed
+  // Final folders (and every file inside them).
+  if (meta.data.trashed === true) return null;
   return {
     id: meta.data.id,
     name: meta.data.name || "folder",

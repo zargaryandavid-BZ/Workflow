@@ -1537,6 +1537,9 @@ export function CardDetailModal({
   }
 
   const ownerName = ownerId ? (owners.find((o) => o.id === ownerId)?.name ?? null) : null;
+  const designerName = designerId
+    ? (designers.find((d) => d.id === designerId)?.name ?? null)
+    : null;
 
   async function saveItemName() {
     if (!data?.order) return;
@@ -1951,26 +1954,51 @@ export function CardDetailModal({
             columnKind={orderColumn?.kind}
             columnName={orderColumn?.name}
           />
-          {!isViewOnly ? (
-            <select
-              value={ownerId}
-              onChange={(e) => {
-                markTicketTouched();
-                setOwnerId(e.target.value);
-              }}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
-              title="Owner"
-            >
-              <option value="">— Owner —</option>
-              {ownersForForm.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
+          <div className="flex min-w-0 flex-col gap-1">
+            {!isViewOnly ? (
+              <select
+                value={ownerId}
+                onChange={(e) => {
+                  markTicketTouched();
+                  setOwnerId(e.target.value);
+                }}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                title="Owner"
+              >
+                <option value="">— Owner —</option>
+                {ownersForForm.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            ) : ownerName ? (
+              <span className="truncate text-sm text-slate-500" title="Owner">
+                {ownerName}
+              </span>
+            ) : null}
+            {canEditDesigner ? (
+              <select
+                value={designerId}
+                onChange={(e) => void assignDesigner(e.target.value)}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                title="Designer"
+              >
+                <option value="">
+                  {designers.length ? "— Designer —" : "No designers"}
                 </option>
-              ))}
-            </select>
-          ) : ownerName ? (
-            <span className="text-sm text-slate-500">{ownerName}</span>
-          ) : null}
+                {designers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            ) : designerName ? (
+              <span className="truncate text-sm text-slate-500" title="Designer">
+                {designerName}
+              </span>
+            ) : null}
+          </div>
         </div>
       }
       footer={

@@ -10,7 +10,6 @@ import {
   sanitizeDriveItemTitle,
   shortDriveOrderCode,
 } from "@/lib/drive-folder-names";
-import { restoreDriveFileFromTrash } from "@/lib/drive-restore-from-trash";
 
 export {
   sanitizeDriveFolderName,
@@ -81,24 +80,7 @@ async function findChildFolder(
     };
   }
 
-  const trashed = await drive.files.list({
-    q: [
-      `name='${escapeDriveQuery(name)}'`,
-      `'${parentId}' in parents`,
-      `mimeType='${FOLDER_MIME}'`,
-      "trashed=true",
-    ].join(" and "),
-    ...listParams,
-  });
-  const dumped = trashed.data.files?.[0];
-  if (!dumped?.id) return null;
-  const restored = await restoreDriveFileFromTrash(drive, dumped.id);
-  if (!restored) return null;
-  return {
-    id: dumped.id,
-    webViewLink:
-      dumped.webViewLink ?? `https://drive.google.com/drive/folders/${dumped.id}`,
-  };
+  return null;
 }
 
 async function createFolder(
@@ -192,29 +174,6 @@ async function findFirstChild(
         matchedName: name,
       };
     }
-  }
-
-  // Fallback: look for a trashed match and restore it.
-  const trashedRes = await drive.files.list({
-    q: [
-      nameOrClause,
-      `'${parentId}' in parents`,
-      `mimeType='${FOLDER_MIME}'`,
-      "trashed=true",
-    ].join(" and "),
-    ...listParams,
-  });
-  const trashedFiles = trashedRes.data.files ?? [];
-  for (const name of names) {
-    const match = trashedFiles.find((f) => f.name === name);
-    if (!match?.id) continue;
-    const restored = await restoreDriveFileFromTrash(drive, match.id);
-    if (!restored) continue;
-    return {
-      id: match.id,
-      webViewLink: match.webViewLink ?? `https://drive.google.com/drive/folders/${match.id}`,
-      matchedName: name,
-    };
   }
 
   return null;
@@ -458,8 +417,7 @@ export function parseDriveIdFromUrl(urlOrId: string): string | null {
 }
 
 /**
- * False when the folder is missing. Trashed folders that still exist are
- * restored (PDF often stays in a trashed Final production folder).
+ * False when the folder is missing or in trash. Never undeletes.
  */
 export async function isLiveDriveFolder(
   settings: GdriveSettings,
@@ -475,8 +433,7 @@ export async function isLiveDriveFolder(
       supportsAllDrives: true,
     });
     if (!res.data.id) return false;
-    if (res.data.trashed !== true) return true;
-    return await restoreDriveFileFromTrash(drive, id);
+    return res.data.trashed !== true;
   } catch {
     return false;
   }
@@ -523,18 +480,9 @@ export async function folderHasFiles(
     includeItemsFromAllDrives: true,
   };
 
-  // Run the folder existence check, the live-files listing, and the
-  // trashed-files listing all in parallel.
-  //
-  // Previous pattern: isLiveDriveFolder() awaited first (one sequential Drive
-  // RTT), then two parallel files.list calls — 3 calls in a chain per folder.
-  // New pattern: all three fire together — saves ~200-500ms per folderHasFiles
-  // call, and gdrive-status calls this 2-4 times per request.
-  //
-  // Shared Drive note: trashing a folder trashes all child files. The
-  // trashed-files query finds orphaned files left behind after a folder
-  // is restored, and we restore+include them so hasPdf is accurate.
-  const [folderMeta, listing, trashedListing] = await Promise.all([
+  // Run folder existence and live listing in parallel. Trashed items stay
+  // in trash — never listed or restored on refresh.
+  const [folderMeta, listing] = await Promise.all([
     drive.files
       .get({ fileId: id, fields: "id, trashed", supportsAllDrives: true })
       .then((r) => r.data)
@@ -545,47 +493,20 @@ export async function folderHasFiles(
       pageSize: 50,
       ...listOpts,
     }),
-    drive.files.list({
-      q: [
-        `'${id}' in parents`,
-        `mimeType!='${FOLDER_MIME}'`,
-        "trashed=true",
-      ].join(" and "),
-      fields: "files(id,mimeType,name,shortcutDetails(targetId,targetMimeType))",
-      pageSize: 50,
-      ...listOpts,
-    }),
   ]);
 
   // Folder doesn't exist or couldn't be fetched.
   if (!folderMeta?.id) return { hasFiles: false, fileCount: 0, hasPdf: false };
 
-  // Folder is trashed — restore it before proceeding.
-  const folderWasTrashed = folderMeta.trashed === true;
-  if (folderWasTrashed) {
-    const restored = await restoreDriveFileFromTrash(drive, id);
-    if (!restored) return { hasFiles: false, fileCount: 0, hasPdf: false };
+  // Trashed folder — leave it in trash. Refreshing the board must not
+  // undelete files a user just removed.
+  if (folderMeta.trashed === true) {
+    return { hasFiles: false, fileCount: 0, hasPdf: false };
   }
 
   const entries = listing.data.files ?? [];
-
-  // Only re-restore trashed child files when the PARENT FOLDER itself was
-  // trashed — those children were orphaned by the folder-trash. A trashed file
-  // under a LIVE folder was moved to trash intentionally by a user, so it must
-  // stay deleted (do not restore it and do not count it as present).
-  const trashedFiles = folderWasTrashed ? (trashedListing.data.files ?? []) : [];
-  if (folderWasTrashed && trashedFiles.length > 0) {
-    await Promise.all(
-      trashedFiles.map((f) =>
-        f.id
-          ? restoreDriveFileFromTrash(drive, f.id).catch(() => false)
-          : Promise.resolve(false)
-      )
-    );
-  }
-
   const directFiles = entries.filter((f) => f.mimeType !== FOLDER_MIME);
-  const allDirectFiles = [...directFiles, ...trashedFiles];
+  const allDirectFiles = [...directFiles];
   if (allDirectFiles.length > 0) {
     return {
       hasFiles: true,

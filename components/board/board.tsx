@@ -112,7 +112,7 @@ import {
   type ColumnSortMode,
 } from "@/lib/board-column-sort";
 import { isPrepressColumn, isStartColumn } from "@/lib/board-columns";
-import { isBoardHealthCutoffColumn } from "@/lib/board-health";
+import { isBoardHealthCutoffColumn, type BoardHealthResult } from "@/lib/board-health";
 import {
   getReadyToShipShippingFilter,
   loadReadyToShipShippingFilterMap,
@@ -383,6 +383,10 @@ export function Board({
   const [webhookSourceFilter, setWebhookSourceFilter] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [dueTodayOnly, setDueTodayOnly] = useState(false);
+  const [pipelineDueCounts, setPipelineDueCounts] = useState<{
+    dueToday: number;
+    late: number;
+  } | null>(null);
   // Archive: finished orders are hidden from the active board (so they stop
   // showing as late/stuck) but stay retrievable. `archivedOnly` shows only the
   // archived set. Uses specs.archived — additive, no schema change.
@@ -425,6 +429,35 @@ export function Board({
       setEmergencyOnly(false);
     }
   }, [emergencyBalance.toolbar.emergency_visible, emergencyOnly]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPipelineDueCounts() {
+      try {
+        const res = await fetchRetryingStale404("/api/board/health", {
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as BoardHealthResult;
+        if (cancelled || typeof data.counts?.dueToday !== "number") return;
+        setPipelineDueCounts({
+          dueToday: data.counts.dueToday,
+          late: data.counts.late,
+        });
+      } catch {
+        /* keep chip counts from loaded cards */
+      }
+    }
+    void loadPipelineDueCounts();
+    function onFocus() {
+      void loadPipelineDueCounts();
+    }
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
 
   const [searchResults, setSearchResults] = useState<OrderWithRelations[] | null>(
     null
@@ -3126,6 +3159,10 @@ export function Board({
         if (matchesQuickFilter(key, input, emergencyBalance)) counts[key] += 1;
       }
     }
+    if (pipelineDueCounts) {
+      counts.due_today = pipelineDueCounts.dueToday;
+      counts.late = pipelineDueCounts.late;
+    }
     return counts;
   }, [
     displayOrders,
@@ -3138,6 +3175,7 @@ export function Board({
     dueQuickFilterColumnIds,
     businessToday,
     columns,
+    pipelineDueCounts,
   ]);
 
   // Orders that survive the Emergency toggle and/or the active quick-filter.

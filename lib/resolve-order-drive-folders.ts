@@ -7,7 +7,6 @@ import {
   listChildFolders,
   type ProofsDrive,
 } from "@/lib/gdrive-proofs";
-import { restoreDriveFileFromTrash } from "@/lib/drive-restore-from-trash";
 import {
   driveOrderKeyFromTitle,
   pickFinalProdFolders,
@@ -54,17 +53,12 @@ async function restoreMatchingFinals(
   needles: string[],
   scope: "inside-job" | "shared"
 ): Promise<{ id: string; name: string }[]> {
-  const children = await listChildFolders(client, parentId, {
-    includeTrashed: true,
-  });
+  const children = await listChildFolders(client, parentId);
   const byId = new Map(children.map((c) => [c.id, c]));
   const picked = pickFinalProdFolders(children, needles, scope);
   const live: { id: string; name: string }[] = [];
   for (const child of picked) {
-    if (byId.get(child.id)?.trashed) {
-      const ok = await restoreDriveFileFromTrash(client.drive, child.id);
-      if (!ok) continue;
-    }
+    if (byId.get(child.id)?.trashed) continue;
     live.push({ id: child.id, name: child.name });
   }
   return live;

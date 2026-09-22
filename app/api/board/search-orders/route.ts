@@ -5,6 +5,7 @@ import { enrichBoardOrders } from "@/lib/board-order-enrichment";
 import {
   businessDateString,
   isOrderNumberQuery,
+  nextCalendarDate,
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
 import { columnIdsForQuickFilter } from "@/lib/emergency-quick-filters";
@@ -207,7 +208,10 @@ export async function GET(req: NextRequest) {
     }
     if (dueTodayOnly) {
       const today = businessDateString();
-      query = query.eq("due_date", today);
+      query = query
+        .not("due_date", "is", null)
+        .gte("due_date", today)
+        .lt("due_date", nextCalendarDate(today));
     }
 
     if (q) {
