@@ -1560,6 +1560,8 @@ export function OrderCard({
                   <CreditCard className="h-3 w-3" />
                 ) : shippingSign.kind === "pickup" ? (
                   <MapPin className="h-3 w-3" />
+                ) : shippingSign.kind === "label_ready" ? (
+                  <Tag className="h-3 w-3" />
                 ) : shippingSign.kind === "uber" ||
                   shippingSign.kind === "curri" ? (
                   <Car className="h-3 w-3" />

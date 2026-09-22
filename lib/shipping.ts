@@ -24,12 +24,27 @@ type ShippingRequestRow = {
   token: string;
   status: string;
   client_choice: string | null;
+  payment_status?: string | null;
 };
+
+function shippingChoiceAlreadyPaidOrDelivering(row: ShippingRequestRow): boolean {
+  if (row.payment_status === "succeeded") return true;
+  if (row.status === "payment_pending") return true;
+  if (
+    row.status === "client_responded" &&
+    row.client_choice != null &&
+    row.client_choice !== "pickup"
+  ) {
+    return true;
+  }
+  return false;
+}
 
 /**
  * Create or reuse a shipping request for a (re)send.
  * Unanswered (`pending`) choose-mode links are kept so the old portal URL still works;
- * answered / payment-pending / pickup-only flows replace the prior row(s).
+ * answered / payment-pending / pickup-only flows replace the prior row(s),
+ * except a paid or confirmed delivery — those must not be overwritten by a later pickup SMS.
  */
 export async function ensureShippingRequestForSend(
   supabase: SupabaseClient,
@@ -46,17 +61,29 @@ export async function ensureShippingRequestForSend(
       reused: boolean;
       superseded: ShippingRequestRow[];
     }
-  | { ok: false; error: string }
+  | { ok: false; error: string; status?: number }
 > {
   const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: existingRows } = await supabase
     .from("shipping_requests")
-    .select("id, token, status, client_choice")
+    .select("id, token, status, client_choice, payment_status")
     .eq("tenant_id", args.tenantId)
     .eq("order_id", args.orderId);
   const superseded = (existingRows ?? []) as ShippingRequestRow[];
+
+  const locked = superseded.find(shippingChoiceAlreadyPaidOrDelivering);
+  if (locked) {
+    const paid = locked.payment_status === "succeeded";
+    return {
+      ok: false,
+      status: 409,
+      error: paid
+        ? "Customer already paid for delivery on this order. Do not send a pickup notice — use the paid shipping details."
+        : "Customer already confirmed delivery on this order. Do not replace it with a pickup notice.",
+    };
+  }
 
   const reusable =
     !args.pickupOnly

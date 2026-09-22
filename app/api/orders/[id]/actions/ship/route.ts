@@ -136,7 +136,10 @@ export async function POST(
     pickupOnly,
   });
   if (!ensured.ok) {
-    return NextResponse.json({ error: ensured.error }, { status: 500 });
+    return NextResponse.json(
+      { error: ensured.error },
+      { status: ensured.status ?? 500 }
+    );
   }
   const { shippingReq, reused, superseded } = ensured;
 

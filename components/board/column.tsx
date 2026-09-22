@@ -28,7 +28,13 @@ import { canAssignDesignerOnBoard, canSetBoardTagAndPriority } from "@/lib/permi
 import { cn } from "@/lib/utils";
 import type { BoardThumbnail } from "@/lib/card-image";
 import type { CardNotificationBadge } from "@/lib/card-badges";
+import { isBoardHealthCutoffColumn } from "@/lib/board-health";
 import type { BoardShippingSign } from "@/lib/board-shipping";
+import {
+  READY_TO_SHIP_SHIPPING_OPTIONS,
+  orderMatchesReadyToShipShippingFilter,
+  type ReadyToShipShippingFilter,
+} from "@/lib/ready-to-ship-shipping-filter";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type {
   BoardColumn,
@@ -67,6 +73,8 @@ interface ColumnProps {
   orders: OrderWithRelations[];
   sortMode: ColumnSortMode;
   onSortModeChange: (mode: ColumnSortMode) => void;
+  shippingFilter?: ReadyToShipShippingFilter;
+  onShippingFilterChange?: (mode: ReadyToShipShippingFilter) => void;
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, BoardThumbnail[]>;
@@ -191,6 +199,8 @@ export function Column({
   orders,
   sortMode,
   onSortModeChange,
+  shippingFilter = "all",
+  onShippingFilterChange,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
@@ -286,23 +296,44 @@ export function Column({
 
   const showDropTarget = isDragActive && isOver && canAcceptDrop;
 
+  const showShippingFilter = isBoardHealthCutoffColumn(column);
+
   const sortedOrders = useMemo(
     () => sortOrdersForColumn(orders, sortMode),
     [orders, sortMode]
   );
 
+  const visibleOrders = useMemo(() => {
+    if (!showShippingFilter || shippingFilter === "all") return sortedOrders;
+    return sortedOrders.filter((order) =>
+      orderMatchesReadyToShipShippingFilter(
+        shippingSignByOrder[order.id],
+        shippingFilter
+      )
+    );
+  }, [
+    showShippingFilter,
+    shippingFilter,
+    sortedOrders,
+    shippingSignByOrder,
+  ]);
+
   const showShippedEnteredDate = isShippedCustomerColumn(column.name);
 
   const columnEntries = useMemo(
-    () => (groupedView ? groupOrdersForColumn(sortedOrders) : null),
-    [groupedView, sortedOrders]
+    () => (groupedView ? groupOrdersForColumn(visibleOrders) : null),
+    [groupedView, visibleOrders]
   );
 
   // Count badge: show total from DB when available, otherwise fall back to
   // loaded cards length.  Before any load the badge shows 0 briefly; total
   // arrives with the first API response.
   const displayCount =
-    total !== undefined && total > orders.length ? total : orders.length;
+    showShippingFilter && shippingFilter !== "all"
+      ? visibleOrders.length
+      : total !== undefined && total > orders.length
+        ? total
+        : orders.length;
 
   // How many cards still to load (shown in the "Load more" button).
   const remaining = (total ?? 0) - orders.length;
@@ -371,6 +402,34 @@ export function Column({
                 </option>
               ))}
             </select>
+            {showShippingFilter && onShippingFilterChange ? (
+              <>
+                <label className="sr-only" htmlFor={`col-ship-${column.id}`}>
+                  Filter shipping {column.name}
+                </label>
+                <select
+                  id={`col-ship-${column.id}`}
+                  value={shippingFilter}
+                  onChange={(e) =>
+                    onShippingFilterChange(
+                      e.target.value as ReadyToShipShippingFilter
+                    )
+                  }
+                  className={cn(
+                    "max-w-[7.5rem] truncate rounded border border-slate-200 bg-white py-0.5 pl-1 pr-0 text-[10px] font-medium text-slate-600",
+                    shippingFilter !== "all" &&
+                      "border-blue-200 bg-blue-50 text-blue-700"
+                  )}
+                  title="Filter by shipping: Pickup, FedEx, Self FedEx, Awaiting"
+                >
+                  {READY_TO_SHIP_SHIPPING_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : null}
             {isFirst ? (
               <button
                 onClick={() => onAdd(column.id)}
@@ -437,7 +496,7 @@ export function Column({
                     ? groupDragId(column.id, entry.key)
                     : entry.order.id
                 )
-              : sortedOrders.map((o) => o.id)
+              : visibleOrders.map((o) => o.id)
           }
           strategy={verticalListSortingStrategy}
         >
@@ -587,7 +646,7 @@ export function Column({
                   />
                 )
               )
-            : sortedOrders.map((order) => (
+            : visibleOrders.map((order) => (
                 <OrderCard
                   key={order.id}
                   order={order}

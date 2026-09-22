@@ -1,57 +1,16 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isInvalidRefreshTokenError } from "@/lib/supabase/invalid-refresh";
-
-const PUBLIC_PATHS = [
-  "/login",
-  "/signup",
-  "/set-password",
-  "/approve",
-  "/respond",
-  "/shipping",
-  "/warehouse-confirm",
-  "/die",
-  "/l",
-  "/auth",
-];
-
-/** Token/webhook API routes — no session required; must not redirect to /login. */
-const PUBLIC_API_PREFIXES = [
-  "/api/webhook/",
-  "/api/public/",
-  "/api/notifications/respond",
-  "/api/notifications/upload",
-  "/api/notifications/asset",
-  "/api/notifications/final-artwork",
-  "/api/approvals/decide",
-  "/api/shipping/",
-  "/api/warehouse-confirm/",
-  "/api/die/",
-  "/api/webhooks/",
-  "/api/auth/",
-  "/api/admin/bazaar-connect/",
-];
-
-function isPublicApi(path: string) {
-  return PUBLIC_API_PREFIXES.some(
-    (prefix) => path === prefix || path.startsWith(prefix)
-  );
-}
+import {
+  isPublicApi,
+  isPublicPage,
+  skipSupabaseSessionUpdate,
+} from "@/lib/supabase/session-paths";
 
 export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  const isPublicPage = PUBLIC_PATHS.some(
-    (p) => path === p || path.startsWith(`${p}/`)
-  );
 
-  // Customer/token pages must not wait on Supabase auth. Logged-in staff with
-  // an expired cookie were hanging on getUser() so /respond never opened
-  // (or the PDF stayed on "Almost there").
-  if (
-    path === "/api/pdf-worker" ||
-    isPublicApi(path) ||
-    isPublicPage
-  ) {
+  if (skipSupabaseSessionUpdate(path)) {
     return NextResponse.next({ request });
   }
 
@@ -78,13 +37,22 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  let user = null;
+  let authError: unknown = null;
+  try {
+    const result = await supabase.auth.getUser();
+    user = result.data.user;
+    authError = result.error;
+  } catch (err) {
+    authError = err;
+  }
 
   if (!user && isInvalidRefreshTokenError(authError)) {
-    await supabase.auth.signOut({ scope: "local" });
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      /* cookies already invalid */
+    }
   }
 
   const isApi = path.startsWith("/api/");
@@ -94,7 +62,7 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
-  if (!user && !isPublicPage) {
+  if (!user && !isPublicPage(path)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

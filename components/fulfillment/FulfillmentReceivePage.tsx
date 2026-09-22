@@ -105,6 +105,7 @@ export function FulfillmentReceivePage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addBoxId, setAddBoxId] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [removeConfirmBoxId, setRemoveConfirmBoxId] = useState<string | null>(null);
   const daySelectInit = useRef(false);
 
   const loadBoxContents = useCallback(async (list: Box[]) => {
@@ -313,7 +314,7 @@ export function FulfillmentReceivePage() {
   }
 
   async function handleRemoveIncomingBox(boxId: string) {
-    if (!confirm("Remove this incoming box?")) return;
+    setRemoveConfirmBoxId(null);
     setErrors((prev) => ({ ...prev, [boxId]: "" }));
     try {
       const res = await fetch(`/api/fulfillment/boxes/${boxId}`, {
@@ -383,7 +384,7 @@ export function FulfillmentReceivePage() {
             type="text"
             value={orderSearch}
             onChange={(e) => setOrderSearch(e.target.value)}
-            placeholder="Search order id"
+            placeholder="Search order #"
             className="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-8 pr-2 text-sm tabular-nums focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </label>
@@ -482,6 +483,41 @@ export function FulfillmentReceivePage() {
         </div>
       ) : null}
 
+      {removeConfirmBoxId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setRemoveConfirmBoxId(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-1 text-base font-semibold text-slate-900">
+              Remove incoming box?
+            </h2>
+            <p className="mb-4 text-sm text-slate-600">
+              This will remove it from the check-in list.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRemoveConfirmBoxId(null)}
+                className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRemoveIncomingBox(removeConfirmBoxId)}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {addError && !showAddModal ? (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {addError}
@@ -543,7 +579,7 @@ export function FulfillmentReceivePage() {
                         type="button"
                         title="Remove incoming box"
                         aria-label="Remove incoming box"
-                        onClick={() => void handleRemoveIncomingBox(box.id)}
+                        onClick={() => setRemoveConfirmBoxId(box.id)}
                         className="absolute right-1.5 rounded p-1 text-slate-600 hover:bg-white/70 hover:text-red-600"
                       >
                         <Trash2 className="h-4 w-4" />

@@ -112,6 +112,15 @@ import {
   type ColumnSortMode,
 } from "@/lib/board-column-sort";
 import { isPrepressColumn, isStartColumn } from "@/lib/board-columns";
+import { isBoardHealthCutoffColumn } from "@/lib/board-health";
+import {
+  getReadyToShipShippingFilter,
+  loadReadyToShipShippingFilterMap,
+  saveReadyToShipShippingFilterMap,
+  type ReadyToShipShippingFilter,
+  type ReadyToShipShippingFilterMap,
+} from "@/lib/ready-to-ship-shipping-filter";
+
 import {
   buildStaffDueSpecs,
   DEFAULT_PROCESSING_DAYS,
@@ -660,6 +669,8 @@ export function Board({
   const [columnSortById, setColumnSortById] = useState<ColumnSortMap>({});
   const columnSortByIdRef = useRef<ColumnSortMap>({});
   columnSortByIdRef.current = columnSortById;
+  const [rtsShippingFilterById, setRtsShippingFilterById] =
+    useState<ReadyToShipShippingFilterMap>({});
   const [persistedUiReady, setPersistedUiReady] = useState(false);
   const isDesignerRole = role === "designer";
 
@@ -668,6 +679,7 @@ export function Board({
   useEffect(() => {
     setHiddenColIds(loadHiddenColumnIds(tenantId));
     setColumnSortById(loadColumnSortMap(tenantId));
+    setRtsShippingFilterById(loadReadyToShipShippingFilterMap(tenantId));
     setPersistedUiReady(true);
   }, [tenantId]);
 
@@ -675,6 +687,11 @@ export function Board({
     if (!persistedUiReady) return;
     saveColumnSortMap(tenantId, columnSortById);
   }, [persistedUiReady, tenantId, columnSortById]);
+
+  useEffect(() => {
+    if (!persistedUiReady) return;
+    saveReadyToShipShippingFilterMap(tenantId, rtsShippingFilterById);
+  }, [persistedUiReady, tenantId, rtsShippingFilterById]);
 
   function setColumnSortMode(columnId: string, mode: ColumnSortMode) {
     // Start and Prepress always sort by Priority: 5 → None.
@@ -702,6 +719,22 @@ export function Board({
       [columnId]: 0,
     };
     void fetchColumnOrdersRef.current(columnId, 0, { reset: true });
+  }
+
+  function setReadyToShipShippingFilter(
+    columnId: string,
+    mode: ReadyToShipShippingFilter
+  ) {
+    setRtsShippingFilterById((prev) => {
+      if (mode === "all") {
+        if (!(columnId in prev)) return prev;
+        const next = { ...prev };
+        delete next[columnId];
+        return next;
+      }
+      if (prev[columnId] === mode) return prev;
+      return { ...prev, [columnId]: mode };
+    });
   }
 
   function setAllColumnsSortMode(mode: ColumnSortMode) {
@@ -3852,6 +3885,19 @@ export function Board({
                   isPrepressColumn: isPrepressColumn(column.id, columns),
                 })}
                 onSortModeChange={(mode) => setColumnSortMode(column.id, mode)}
+                shippingFilter={
+                  isBoardHealthCutoffColumn(column)
+                    ? getReadyToShipShippingFilter(
+                        rtsShippingFilterById,
+                        column.id
+                      )
+                    : undefined
+                }
+                onShippingFilterChange={
+                  isBoardHealthCutoffColumn(column)
+                    ? (mode) => setReadyToShipShippingFilter(column.id, mode)
+                    : undefined
+                }
                 customFields={customFields}
                 fieldValuesByOrder={displayFieldValuesByOrder}
                 thumbnailByOrder={displayThumbnailByOrder}

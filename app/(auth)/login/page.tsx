@@ -38,7 +38,7 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const supabase = createClient();
+    const supabase = createClient({ skipSessionRecover: true });
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,

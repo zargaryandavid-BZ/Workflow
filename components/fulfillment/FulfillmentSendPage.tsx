@@ -107,6 +107,7 @@ export function FulfillmentSendPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedSentDay, setSelectedSentDay] = useState<string | null>(null);
   const [orderSearch, setOrderSearch] = useState("");
+  const [deleteConfirmBoxId, setDeleteConfirmBoxId] = useState<string | null>(null);
 
   const packingBoxes = useMemo(
     () => boxes.filter((b) => b.status === "open"),
@@ -261,7 +262,7 @@ export function FulfillmentSendPage() {
   }
 
   async function handleDeleteBox(boxId: string) {
-    if (!confirm("Delete this box? This cannot be undone.")) return;
+    setDeleteConfirmBoxId(null);
     setError(null);
     try {
       const res = await fetch(`/api/fulfillment/boxes/${boxId}`, {
@@ -431,6 +432,38 @@ export function FulfillmentSendPage() {
 
   return (
     <div className="w-full px-3 py-4 sm:px-4 sm:py-6">
+      {deleteConfirmBoxId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setDeleteConfirmBoxId(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-1 text-base font-semibold text-slate-900">
+              Delete this box?
+            </h2>
+            <p className="mb-4 text-sm text-slate-600">This cannot be undone.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmBoxId(null)}
+                className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteBox(deleteConfirmBoxId)}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-5 flex flex-wrap items-center gap-2">
         {sentDayKeys.length > 0 && (
           <button
@@ -602,7 +635,7 @@ export function FulfillmentSendPage() {
                         aria-label="Delete box"
                         onClick={(e) => {
                           e.stopPropagation();
-                          void handleDeleteBox(box.id);
+                          setDeleteConfirmBoxId(box.id);
                         }}
                         className="absolute right-1.5 rounded p-1 text-slate-500 hover:bg-red-50 hover:text-red-600"
                       >
@@ -824,7 +857,12 @@ export function FulfillmentSendPage() {
                       disabled={
                         deliveringBoxId === box.id || orders.length === 0
                       }
-                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-40"
+                      title={
+                        orders.length === 0
+                          ? "Scan orders into this box first"
+                          : undefined
+                      }
+                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {deliveringBoxId === box.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -833,6 +871,11 @@ export function FulfillmentSendPage() {
                       )}
                       Mark as Delivered ({orders.length})
                     </button>
+                    {orders.length === 0 ? (
+                      <p className="mt-1 text-center text-xs text-slate-400">
+                        Scan orders into this box first
+                      </p>
+                    ) : null}
                     {deliverErrorByBox[box.id] ? (
                       <p className="mt-1 text-xs text-red-600">
                         {deliverErrorByBox[box.id]}

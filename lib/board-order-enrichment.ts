@@ -214,7 +214,7 @@ export async function enrichBoardOrders(
 
       supabase
         .from("shipping_requests")
-        .select("order_id, status, client_choice, fedex_selection, created_at")
+        .select("order_id, status, client_choice, fedex_selection, fedex_tracking_number, fedex_shipment_status, created_at")
         .in("order_id", orderIds)
         .order("created_at", { ascending: false }),
 
@@ -351,6 +351,8 @@ export async function enrichBoardOrders(
       status: ShippingRequestStatus;
       client_choice: ShippingClientChoice | null;
       fedex_selection: FedExRateOption | null;
+      fedex_tracking_number: string | null;
+      fedex_shipment_status: string | null;
     }[]) {
       if (shippingSignByOrder[row.order_id]) continue;
       const sign = boardShippingSignFromRequest(row);
