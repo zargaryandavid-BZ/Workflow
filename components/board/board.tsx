@@ -1637,18 +1637,24 @@ export function Board({
    * and page 0 of every already-loaded column to pick up badge changes,
    * new orders created by webhooks, etc.
    */
-  const scheduleRefresh = useCallback((reason = "unknown") => {
-    if (draggingRef.current) return;
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => {
-      // Refresh server-rendered metadata (columns, custom fields, tags, etc.)
-      router.refresh();
-      // Refresh orders + enrichments for every visible column.
-      for (const colId of loadedColumnsRef.current) {
-        void fetchColumnOrders(colId, 0);
-      }
-    }, 800);
-  }, [router, fetchColumnOrders]);
+  const scheduleRefresh = useCallback(
+    (reason = "unknown", opts?: { full?: boolean }) => {
+      if (draggingRef.current) return;
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      // `full` re-runs the whole server render (column configs, custom fields,
+      // tags, …). That's expensive, so the frequent 20s fallback poll passes
+      // { full: false } and only refetches the loaded columns' orders; genuine
+      // events (realtime, actions, tab re-focus) still do the full refresh.
+      const full = opts?.full ?? true;
+      refreshTimerRef.current = setTimeout(() => {
+        if (full) router.refresh();
+        for (const colId of loadedColumnsRef.current) {
+          void fetchColumnOrders(colId, 0);
+        }
+      }, 800);
+    },
+    [router, fetchColumnOrders]
+  );
 
   // ── Realtime subscription ────────────────────────────────────────────────────
   useEffect(() => {
@@ -1813,12 +1819,25 @@ export function Board({
     };
   }, [tenantId, scheduleRefresh, fetchColumnOrders, scheduleLoadedColumnRefresh]);
 
-  // 20-second polling fallback for missed realtime events (column configs, etc.)
+  // 20-second polling fallback for missed realtime events. Only while the tab
+  // is visible (a backgrounded board shouldn't keep hammering the server), and
+  // as a LIGHT refresh (columns only, no full server re-render). Returning to
+  // the tab triggers one full catch-up refresh.
   useEffect(() => {
     const id = setInterval(() => {
-      if (!draggingRef.current) scheduleRefresh("poll-20s");
+      if (document.visibilityState !== "visible") return;
+      if (!draggingRef.current) scheduleRefresh("poll-20s", { full: false });
     }, 20_000);
-    return () => clearInterval(id);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !draggingRef.current) {
+        scheduleRefresh("tab-visible");
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [scheduleRefresh]);
 
   // Idle auto-move rules: check ~every minute while the board is open.
@@ -1841,6 +1860,7 @@ export function Board({
     }
     void runIdle();
     const id = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       if (!draggingRef.current) void runIdle();
     }, 60_000);
     return () => {
