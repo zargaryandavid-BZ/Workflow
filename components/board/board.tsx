@@ -1592,11 +1592,14 @@ export function Board({
     (order: OrderWithRelations, result: ActionButtonResult) => {
       flashToast(result.message);
       if (result.refreshOrder) {
+        // Targeted refetch of just this order's column (orders + enrichment).
+        // No full router.refresh(): re-running the entire board server render
+        // on every action button was the main post-click delay, and the card's
+        // own data comes back with this column refetch.
         void fetchColumnOrders(order.column_id, 0);
-        router.refresh();
       }
     },
-    [fetchColumnOrders, router]
+    [fetchColumnOrders]
   );
 
   // ── Refresh helpers ──────────────────────────────────────────────────────────
