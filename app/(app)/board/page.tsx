@@ -38,6 +38,7 @@ import {
 } from "@/lib/designer-load";
 import { listTimeChips } from "@/lib/time-chips.server";
 import type { TimeChip } from "@/lib/time-chips";
+import { fetchBoardConfigCached } from "@/lib/board-config-cache.server";
 
 function boardAux<T>(
   promise: Promise<T>,
@@ -93,38 +94,18 @@ export default async function BoardPage({
 
   // Fast parallel fetch — columns + config only, no orders.
   // Orders are loaded lazily per-column by the client Board component.
-  const [columnsRes, fieldsRes, tagsRes, memberRes, rulesRes, webhookRes] =
-    await Promise.all([
-      supabase
-        .from("board_columns")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("custom_fields")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("tags")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("memberships")
-        .select("user_id, role")
-        .eq("tenant_id", tenantId),
-      supabase
-        .from("automation_rules")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("trigger", "on_enter_column"),
-      supabase
-        .from("webhook_configs")
-        .select("source_styles")
-        .eq("tenant_id", tenantId)
-        .maybeSingle(),
-    ]);
+  // Results are served from Next.js unstable_cache (60 s TTL) so repeat
+  // board loads don't hit Supabase for this static-ish tenant config.
+  const boardConfig = await fetchBoardConfigCached(tenantId);
+  const { columns: rawColumns, fields: rawFields, tags: rawTags, members: rawMembers, rules: rawRules, webhook: rawWebhook } = boardConfig;
+
+  // Destructure in the same shape as the old Promise.all for minimal diff below.
+  const columnsRes = { data: rawColumns };
+  const fieldsRes  = { data: rawFields };
+  const tagsRes    = { data: rawTags };
+  const memberRes  = { data: rawMembers };
+  const rulesRes   = { data: rawRules };
+  const webhookRes = { data: rawWebhook };
 
   const webhookSourceStyles: WebhookSourceStyles = ensurePortalSourceStyle(
     normalizeWebhookSourceStyles(

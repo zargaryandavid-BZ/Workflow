@@ -10,12 +10,47 @@ import {
   loadOrderFinalDriveContext,
 } from "@/lib/order-gdrive";
 
+// ---------------------------------------------------------------------------
+// Server-side TTL cache for Drive status results.
+// Module-level — survives across requests on the same warm serverless instance,
+// cutting Drive API calls significantly during active board sessions.
+// The client-side statusCache in use-gdrive-folder-has-files.ts already
+// deduplicates per page session; this layer saves calls on the server.
+// ---------------------------------------------------------------------------
+const DRIVE_STATUS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+type CachedStatus = {
+  data: Record<string, unknown>;
+  expiresAt: number;
+};
+
+const driveStatusCache = new Map<string, CachedStatus>();
+
+function getCachedDriveStatus(key: string): Record<string, unknown> | null {
+  const entry = driveStatusCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    driveStatusCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedDriveStatus(key: string, data: Record<string, unknown>) {
+  driveStatusCache.set(key, { data, expiresAt: Date.now() + DRIVE_STATUS_TTL_MS });
+}
+
+/** Call this when an order's Drive folder changes (save, column move). */
+export function invalidateDriveStatusCache(tenantId: string, orderId: string) {
+  driveStatusCache.delete(`${tenantId}:${orderId}`);
+}
+
 /**
  * GET — whether the order's Final production Drive folder has files / a PDF.
  * Resolves Final by folder name (never treats the designer folder as Final).
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getTenantContext();
@@ -24,6 +59,16 @@ export async function GET(
   }
 
   const { id: orderId } = await params;
+  const bust = new URL(request.url).searchParams.get("refresh") === "1";
+
+  // Serve from server-side TTL cache when available (saves Drive API calls on
+  // repeat loads of the same order card during an active board session).
+  // Explicit refreshes (bust=true) evict the cache and re-fetch from Drive.
+  const cacheKey = `${ctx.tenant.id}:${orderId}`;
+  if (bust) driveStatusCache.delete(cacheKey);
+  const cached = getCachedDriveStatus(cacheKey);
+  if (cached) return NextResponse.json(cached);
+
   const supabase = await createClient();
   const loaded = await loadOrderFinalDriveContext(
     supabase,
@@ -108,13 +153,27 @@ export async function GET(
           ? storedDesignerId
           : null;
 
-    const [designerResult, ...finalResults] = await Promise.all([
+    // Run all folder checks in a single parallel batch — including the
+    // "directOnly" designer-folder fallback that used to fire sequentially
+    // after the batch when hasFinalPdf was false. Including it upfront costs
+    // one extra Drive call on orders that already have a Final PDF, but
+    // eliminates a full sequential Drive RTT on orders that don't.
+    const emptyResult = { hasFiles: false, fileCount: 0, hasPdf: false };
+    const [designerResult, jobRootResult, ...finalResults] = await Promise.all([
       designerCheckId
         ? folderHasFiles(settings, designerCheckId, {
             excludeChildIds: resolved.finalIds,
             skipFinalProdChildren: true,
           })
-        : Promise.resolve({ hasFiles: false, fileCount: 0, hasPdf: false }),
+        : Promise.resolve(emptyResult),
+      // directOnly check on the designer folder (the job-root fallback).
+      designerCheckId
+        ? folderHasFiles(settings, designerCheckId, {
+            excludeChildIds: resolved.finalIds,
+            skipFinalProdChildren: true,
+            directOnly: true,
+          })
+        : Promise.resolve(emptyResult),
       ...resolved.finalIds.map((folderId) =>
         folderHasFiles(settings, folderId)
       ),
@@ -128,19 +187,12 @@ export async function GET(
       hasFinalPdf = hasFinalPdf || result.hasPdf;
       fileCount += result.fileCount;
     }
-    // No Final PDF after restore — a PDF sitting in the job folder
-    // is the production file.
-    if (!hasFinalPdf && designerCheckId) {
-      const jobRoot = await folderHasFiles(settings, designerCheckId, {
-        excludeChildIds: resolved.finalIds,
-        skipFinalProdChildren: true,
-        directOnly: true,
-      });
-      if (jobRoot.hasPdf) {
-        hasFiles = true;
-        hasFinalPdf = true;
-        fileCount += jobRoot.fileCount;
-      }
+    // No Final PDF in Final folders — a PDF sitting directly in the job folder
+    // counts as the production file (jobRootResult already computed in parallel).
+    if (!hasFinalPdf && jobRootResult.hasPdf) {
+      hasFiles = true;
+      hasFinalPdf = true;
+      fileCount += jobRootResult.fileCount;
     }
     const hasPdf = hasFinalPdf || designerResult.hasPdf;
 
@@ -172,7 +224,7 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({
+    const responseData = {
       hasFiles,
       hasDesignerFiles: designerResult.hasFiles,
       fileCount,
@@ -182,7 +234,9 @@ export async function GET(
       folderId: resolved.finalIds[0] ?? null,
       designerUrl: resolved.designerUrl,
       finalUrl: resolved.finalUrl,
-    });
+    };
+    setCachedDriveStatus(cacheKey, responseData);
+    return NextResponse.json(responseData);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[gdrive-status]", message);

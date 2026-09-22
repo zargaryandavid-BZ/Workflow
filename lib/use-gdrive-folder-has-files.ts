@@ -81,8 +81,11 @@ function subscribe(orderId: string, fn: () => void) {
   };
 }
 
-async function fetchStatus(orderId: string): Promise<FolderDriveStatus> {
-  const res = await fetch(`/api/orders/${orderId}/gdrive-status`);
+async function fetchStatus(orderId: string, bust = false): Promise<FolderDriveStatus> {
+  const url = bust
+    ? `/api/orders/${orderId}/gdrive-status?refresh=1`
+    : `/api/orders/${orderId}/gdrive-status`;
+  const res = await fetch(url);
   if (!res.ok) return EMPTY;
   const json = (await res.json()) as {
     hasFiles?: boolean;
@@ -103,12 +106,12 @@ async function fetchStatus(orderId: string): Promise<FolderDriveStatus> {
   };
 }
 
-function fetchStatusDeduped(orderId: string): Promise<FolderDriveStatus> {
+function fetchStatusDeduped(orderId: string, bust = false): Promise<FolderDriveStatus> {
   const existing = inFlight.get(orderId);
-  if (existing) return existing;
+  if (existing && !bust) return existing;
 
   const promise = enqueueCheck(() =>
-    fetchStatus(orderId)
+    fetchStatus(orderId, bust)
       .then((next) => {
         statusCache.set(orderId, next);
         return next;
@@ -149,7 +152,8 @@ export async function refreshGdriveFolderStatus(
     m.clearOrderPdfCheckCache(orderId)
   );
   try {
-    const next = await fetchStatusDeduped(orderId);
+    // bust=true bypasses the server-side TTL cache so we get a truly fresh result.
+    const next = await fetchStatusDeduped(orderId, true);
     notify(orderId);
     return next;
   } catch {

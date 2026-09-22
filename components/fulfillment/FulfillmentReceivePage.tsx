@@ -7,6 +7,7 @@ import {
   Package,
   Plus,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import { FulfillmentBoxSlipButtons } from "@/components/fulfillment/FulfillmentBoxSlipButtons";
@@ -311,6 +312,33 @@ export function FulfillmentReceivePage() {
     setSelectedReceivedDay(null);
   }
 
+  async function handleRemoveIncomingBox(boxId: string) {
+    if (!confirm("Remove this incoming box?")) return;
+    setErrors((prev) => ({ ...prev, [boxId]: "" }));
+    try {
+      const res = await fetch(`/api/fulfillment/boxes/${boxId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 404) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setErrors((prev) => ({
+          ...prev,
+          [boxId]: data.error ?? "Could not remove box",
+        }));
+        return;
+      }
+      setBoxes((prev) => prev.filter((b) => b.id !== boxId));
+      setBoxOrders((prev) => {
+        const next = { ...prev };
+        delete next[boxId];
+        return next;
+      });
+      await loadBoxes();
+    } catch {
+      setErrors((prev) => ({ ...prev, [boxId]: "Could not remove box" }));
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -491,7 +519,7 @@ export function FulfillmentReceivePage() {
                   className="flex h-[38rem] w-80 shrink-0 flex-col bg-white"
                 >
                   <header
-                    className={`flex items-center justify-center gap-2 border-b px-2 py-2 ${
+                    className={`relative flex items-center justify-center gap-2 border-b px-8 py-2 ${
                       isReceived
                         ? "border-green-300 bg-green-200"
                         : "border-blue-300 bg-blue-200"
@@ -510,6 +538,17 @@ export function FulfillmentReceivePage() {
                     >
                       {isReceived ? "received" : "delivered"}
                     </span>
+                    {!isReceived ? (
+                      <button
+                        type="button"
+                        title="Remove incoming box"
+                        aria-label="Remove incoming box"
+                        onClick={() => void handleRemoveIncomingBox(box.id)}
+                        className="absolute right-1.5 rounded p-1 text-slate-600 hover:bg-white/70 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
                   </header>
 
                   <div className="grid grid-cols-[auto_1fr_auto_auto] gap-x-2 px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">

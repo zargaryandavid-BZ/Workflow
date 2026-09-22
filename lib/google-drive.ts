@@ -151,10 +151,72 @@ async function findFirstChild(
   names: string[],
   sharedDriveId: string | null
 ): Promise<{ id: string; webViewLink: string; matchedName: string } | null> {
+  if (names.length === 0) return null;
+
+  // Batch all candidate names into a single Drive query with OR conditions
+  // instead of one files.list call per name (the old sequential loop).
+  // Drive supports: (name = 'A' or name = 'B') and '...' in parents ...
+  const listParams = {
+    fields: "files(id, name, webViewLink)",
+    pageSize: names.length + 2,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+    ...(sharedDriveId
+      ? { corpora: "drive" as const, driveId: sharedDriveId }
+      : { corpora: "allDrives" as const }),
+  };
+
+  const nameOrClause =
+    names.length === 1
+      ? `name='${escapeDriveQuery(names[0])}'`
+      : `(${names.map((n) => `name='${escapeDriveQuery(n)}'`).join(" or ")})`;
+
+  // First: look for live (non-trashed) matches.
+  const liveRes = await drive.files.list({
+    q: [
+      nameOrClause,
+      `'${parentId}' in parents`,
+      `mimeType='${FOLDER_MIME}'`,
+      "trashed=false",
+    ].join(" and "),
+    ...listParams,
+  });
+  const liveFiles = liveRes.data.files ?? [];
+  // Prefer names in priority order (canonical name first, aliases after).
   for (const name of names) {
-    const found = await findChildFolder(drive, parentId, name, sharedDriveId);
-    if (found) return { ...found, matchedName: name };
+    const match = liveFiles.find((f) => f.name === name);
+    if (match?.id) {
+      return {
+        id: match.id,
+        webViewLink: match.webViewLink ?? `https://drive.google.com/drive/folders/${match.id}`,
+        matchedName: name,
+      };
+    }
   }
+
+  // Fallback: look for a trashed match and restore it.
+  const trashedRes = await drive.files.list({
+    q: [
+      nameOrClause,
+      `'${parentId}' in parents`,
+      `mimeType='${FOLDER_MIME}'`,
+      "trashed=true",
+    ].join(" and "),
+    ...listParams,
+  });
+  const trashedFiles = trashedRes.data.files ?? [];
+  for (const name of names) {
+    const match = trashedFiles.find((f) => f.name === name);
+    if (!match?.id) continue;
+    const restored = await restoreDriveFileFromTrash(drive, match.id);
+    if (!restored) continue;
+    return {
+      id: match.id,
+      webViewLink: match.webViewLink ?? `https://drive.google.com/drive/folders/${match.id}`,
+      matchedName: name,
+    };
+  }
+
   return null;
 }
 
@@ -451,9 +513,9 @@ export async function folderHasFiles(
     return { hasFiles: false, fileCount: 0, hasPdf: false };
   }
 
-  if (!(await isLiveDriveFolder(settings, folderId))) {
-    return { hasFiles: false, fileCount: 0, hasPdf: false };
-  }
+  // parseDriveIdFromUrl handles both plain IDs and Drive URLs.
+  const id = parseDriveIdFromUrl(folderId) ?? folderId.trim();
+  if (!id) return { hasFiles: false, fileCount: 0, hasPdf: false };
 
   const drive = driveClient(settings);
   const listOpts = {
@@ -461,22 +523,31 @@ export async function folderHasFiles(
     includeItemsFromAllDrives: true,
   };
 
-  // Run live-files query and trashed-files query in parallel.
-  // On Shared Drives, trashing a folder automatically trashes all child files.
-  // The app's folder-restore only untrashes the folder itself (going up to
-  // ancestors), never its children — so PDFs can remain trashed=true while
-  // the parent folder is live. The trashed query finds those orphaned files
-  // and restores them so they appear correctly on the order card.
-  const [listing, trashedListing] = await Promise.all([
+  // Run the folder existence check, the live-files listing, and the
+  // trashed-files listing all in parallel.
+  //
+  // Previous pattern: isLiveDriveFolder() awaited first (one sequential Drive
+  // RTT), then two parallel files.list calls — 3 calls in a chain per folder.
+  // New pattern: all three fire together — saves ~200-500ms per folderHasFiles
+  // call, and gdrive-status calls this 2-4 times per request.
+  //
+  // Shared Drive note: trashing a folder trashes all child files. The
+  // trashed-files query finds orphaned files left behind after a folder
+  // is restored, and we restore+include them so hasPdf is accurate.
+  const [folderMeta, listing, trashedListing] = await Promise.all([
+    drive.files
+      .get({ fileId: id, fields: "id, trashed", supportsAllDrives: true })
+      .then((r) => r.data)
+      .catch(() => null as { id?: string | null; trashed?: boolean | null } | null),
     drive.files.list({
-      q: [`'${folderId}' in parents`, "trashed=false"].join(" and "),
+      q: [`'${id}' in parents`, "trashed=false"].join(" and "),
       fields: "files(id,mimeType,name,shortcutDetails(targetId,targetMimeType))",
       pageSize: 50,
       ...listOpts,
     }),
     drive.files.list({
       q: [
-        `'${folderId}' in parents`,
+        `'${id}' in parents`,
         `mimeType!='${FOLDER_MIME}'`,
         "trashed=true",
       ].join(" and "),
@@ -485,6 +556,17 @@ export async function folderHasFiles(
       ...listOpts,
     }),
   ]);
+
+  // Folder doesn't exist or couldn't be fetched.
+  if (!folderMeta?.id) return { hasFiles: false, fileCount: 0, hasPdf: false };
+
+  // Folder is trashed — restore it before proceeding.
+  // (The file listings ran in parallel so they're already done; trashed child
+  // files are picked up by the trashedFiles path below.)
+  if (folderMeta.trashed === true) {
+    const restored = await restoreDriveFileFromTrash(drive, id);
+    if (!restored) return { hasFiles: false, fileCount: 0, hasPdf: false };
+  }
 
   const entries = listing.data.files ?? [];
   const trashedFiles = trashedListing.data.files ?? [];

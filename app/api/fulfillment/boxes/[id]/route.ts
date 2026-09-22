@@ -56,20 +56,15 @@ export async function DELETE(
   if (boxError) return NextResponse.json({ error: boxError.message }, { status: 400 });
   if (!box) return NextResponse.json({ error: "Box not found" }, { status: 404 });
 
-  const { count: orderCount, error: countError } = await supabase
-    .from("fulfillment_box_orders")
-    .select("id", { count: "exact", head: true })
-    .eq("box_id", id)
-    .eq("tenant_id", ctx.tenant.id);
-
-  if (countError) {
-    return NextResponse.json({ error: countError.message }, { status: 400 });
-  }
-
-  const empty = (orderCount ?? 0) === 0;
-  if (box.status !== "open" && !(box.status === "sent" && empty)) {
+  if (box.status === "received") {
     return NextResponse.json(
-      { error: empty ? "Received boxes cannot be deleted" : "Box not found or already sent" },
+      { error: "Received boxes cannot be deleted" },
+      { status: 404 }
+    );
+  }
+  if (box.status !== "open" && box.status !== "sent") {
+    return NextResponse.json(
+      { error: "Box not found or already sent" },
       { status: 404 }
     );
   }
