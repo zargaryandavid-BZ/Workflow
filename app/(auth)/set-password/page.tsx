@@ -3,24 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { rejectAfter } from "@/lib/with-timeout";
 import { SetPasswordForm } from "./set-password-form";
-
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`${label} timed out. Ask your admin to send a new reset link.`)),
-          ms
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 export default function SetPasswordPage() {
   const [ready, setReady] = useState(false);
@@ -54,34 +38,48 @@ export default function SetPasswordPage() {
       }
 
       if (code) {
-        const { error: exchangeError } = await withTimeout(
-          supabase.auth.exchangeCodeForSession(code),
+        const timeout = rejectAfter(
           15000,
-          "Sign-in"
+          "Sign-in timed out. Ask your admin to send a new reset link."
         );
-        if (exchangeError) {
-          setError(
-            `${exchangeError.message} The link may have expired — ask your admin to resend it.`
-          );
-          return;
+        try {
+          const { error: exchangeError } = await Promise.race([
+            supabase.auth.exchangeCodeForSession(code),
+            timeout.promise,
+          ]);
+          if (exchangeError) {
+            setError(
+              `${exchangeError.message} The link may have expired — ask your admin to resend it.`
+            );
+            return;
+          }
+          window.history.replaceState(null, "", "/set-password");
+        } finally {
+          timeout.cancel();
         }
-        window.history.replaceState(null, "", "/set-password");
       } else if (tokenHash && otpType) {
-        const { error: verifyError } = await withTimeout(
-          supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: otpType as "recovery" | "invite" | "signup" | "email",
-          }),
+        const timeout = rejectAfter(
           15000,
-          "Reset link"
+          "Reset link timed out. Ask your admin to send a new reset link."
         );
-        if (verifyError) {
-          setError(
-            `${verifyError.message} Ask your admin to send a new reset link.`
-          );
-          return;
+        try {
+          const { error: verifyError } = await Promise.race([
+            supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: otpType as "recovery" | "invite" | "signup" | "email",
+            }),
+            timeout.promise,
+          ]);
+          if (verifyError) {
+            setError(
+              `${verifyError.message} Ask your admin to send a new reset link.`
+            );
+            return;
+          }
+          window.history.replaceState(null, "", "/set-password");
+        } finally {
+          timeout.cancel();
         }
-        window.history.replaceState(null, "", "/set-password");
       } else if (hash.includes("access_token")) {
         await supabase.auth.getSession();
         window.history.replaceState(null, "", "/set-password");

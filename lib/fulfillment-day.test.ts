@@ -48,17 +48,19 @@ describe("receivedDayKeys", () => {
 });
 
 describe("boxesForReceiveDay", () => {
+  const receivedA = new Date(2026, 8, 18, 10).toISOString();
+  const receivedB = new Date(2026, 8, 16, 10).toISOString();
   const boxes = [
     { id: "s", status: "sent", received_at: null },
     {
       id: "a",
       status: "received",
-      received_at: new Date(2026, 8, 18, 10).toISOString(),
+      received_at: receivedA,
     },
     {
       id: "b",
       status: "received",
-      received_at: new Date(2026, 8, 16, 10).toISOString(),
+      received_at: receivedB,
     },
   ];
 
@@ -70,7 +72,7 @@ describe("boxesForReceiveDay", () => {
   });
 
   it("a date shows only boxes received that day", () => {
-    const day = localDayKey(boxes[1].received_at);
+    const day = localDayKey(receivedA);
     assert.deepEqual(
       boxesForReceiveDay(boxes, day).map((b) => b.id),
       ["a"]
