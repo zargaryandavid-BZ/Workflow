@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { TENANT_COOKIE } from "@/lib/constants";
@@ -20,7 +21,11 @@ export interface TenantContext {
  * it defaults to the BazaarPrinting workspace when the user belongs to it, and
  * only then falls back to the first membership.
  */
-export async function getTenantContext(): Promise<TenantContext | null> {
+// Wrapped in React `cache()` so the auth round-trip + memberships/profile
+// queries run ONCE per request even though the layout, the page and any
+// server helpers all call it in the same render. Removes an extra
+// supabase.auth.getUser() network hop + 2 queries from every navigation.
+export const getTenantContext = cache(async function getTenantContext(): Promise<TenantContext | null> {
   const supabase = await createClient();
   const [{ data: authData }, cookieStore] = await Promise.all([
     supabase.auth.getUser(),
@@ -65,7 +70,7 @@ export async function getTenantContext(): Promise<TenantContext | null> {
     role: active.role,
     memberships: typed,
   };
-}
+});
 
 /**
  * Verifies the user is a member of the given tenant and returns their role.
