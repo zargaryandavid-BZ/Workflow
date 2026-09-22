@@ -591,10 +591,11 @@ export function FulfillmentSendPage() {
                       {fulfillmentBoxLabel(box)}
                     </h2>
                     {isDelivered ? (
-                      <span className="absolute right-2 rounded-full bg-slate-500 px-2 py-0.5 text-[11px] font-medium text-white">
+                      <span className="absolute right-8 rounded-full bg-slate-500 px-2 py-0.5 text-[11px] font-medium text-white">
                         delivered
                       </span>
-                    ) : (
+                    ) : null}
+                    {(!isDelivered || visibleOrders.length === 0) ? (
                       <button
                         type="button"
                         title="Delete box"
@@ -607,7 +608,7 @@ export function FulfillmentSendPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
-                    )}
+                    ) : null}
                   </header>
 
                   <div className="grid shrink-0 grid-cols-[auto_1fr_auto] gap-x-2 px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">

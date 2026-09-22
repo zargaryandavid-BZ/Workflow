@@ -45,6 +45,35 @@ export async function DELETE(
 
   const { id } = await params;
   const supabase = await createClient();
+
+  const { data: box, error: boxError } = await supabase
+    .from("fulfillment_boxes")
+    .select("id, status")
+    .eq("id", id)
+    .eq("tenant_id", ctx.tenant.id)
+    .maybeSingle();
+
+  if (boxError) return NextResponse.json({ error: boxError.message }, { status: 400 });
+  if (!box) return NextResponse.json({ error: "Box not found" }, { status: 404 });
+
+  const { count: orderCount, error: countError } = await supabase
+    .from("fulfillment_box_orders")
+    .select("id", { count: "exact", head: true })
+    .eq("box_id", id)
+    .eq("tenant_id", ctx.tenant.id);
+
+  if (countError) {
+    return NextResponse.json({ error: countError.message }, { status: 400 });
+  }
+
+  const empty = (orderCount ?? 0) === 0;
+  if (box.status !== "open" && !(box.status === "sent" && empty)) {
+    return NextResponse.json(
+      { error: empty ? "Received boxes cannot be deleted" : "Box not found or already sent" },
+      { status: 404 }
+    );
+  }
+
   await supabase
     .from("fulfillment_box_orders")
     .delete()
@@ -56,7 +85,6 @@ export async function DELETE(
     .delete()
     .eq("id", id)
     .eq("tenant_id", ctx.tenant.id)
-    .eq("status", "open")
     .select("id");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
@@ -66,7 +94,9 @@ export async function DELETE(
       { status: 404 }
     );
   }
-  await compactOpenFulfillmentBoxes(supabase, ctx.tenant.id);
+  if (box.status === "open") {
+    await compactOpenFulfillmentBoxes(supabase, ctx.tenant.id);
+  }
   return NextResponse.json({ ok: true });
 }
 
