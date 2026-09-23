@@ -148,6 +148,20 @@ export function isPdfCutLineLayer(name: string): boolean {
   );
 }
 
+/**
+ * White-ink / underprint plates (spot "White", underbase). On clear/metallic
+ * labels this carries the whole design as a spot ink, and pdf.js renders that
+ * spot color as an arbitrary alternate (often solid green) — so showing it in
+ * the customer proof turns the label into a green mess. It's a production
+ * underprint the customer doesn't need to see, so it's OFF by default (still
+ * toggleable for staff).
+ */
+export function isPdfWhiteInkLayer(name: string): boolean {
+  const n = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!n || isPdfArtworkLayer(name)) return false;
+  return /\bwhite\b|\bunder\s*(print|base)\b|\bwht\b/.test(n);
+}
+
 /** Acrobat plates named Artwork / ART WORK. */
 export function artworkPdfLayerIds(layers: PdfLayer[]): string[] {
   return layers.filter((layer) => isPdfArtworkLayer(layer.name)).map((l) => l.id);
