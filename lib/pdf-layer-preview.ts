@@ -11,10 +11,16 @@ type Ctx2D = {
   putImageData: (img: unknown, x: number, y: number) => void;
 };
 
-// Screen proofs only — a lower cap keeps memory/encode time down so even very
-// large (~1GB) print PDFs finish rasterizing within the server limit.
-const MAX_EDGE = 2200;
-const TARGET_DPI = 150;
+// Screen proofs only. Resolution is ADAPTIVE by source size: normal files
+// render sharp, but very large (hundreds of MB / ~1GB) print PDFs render lighter
+// so they still finish rasterizing inside the serverless time limit — otherwise
+// the proof never pre-builds and the customer hits a live multi-minute build.
+function proofResolution(sizeBytes: number): { maxEdge: number; dpi: number } {
+  const mb = sizeBytes / (1024 * 1024);
+  if (mb >= 300) return { maxEdge: 1500, dpi: 110 };
+  if (mb >= 100) return { maxEdge: 1900, dpi: 130 };
+  return { maxEdge: 2200, dpi: 150 };
+}
 
 type NodeCanvas = {
   encode?: (format: string, quality?: number) => Promise<Buffer>;
@@ -118,6 +124,8 @@ export async function rasterizePdfLayerPreviews(
     ),
   ].sort((a, b) => a - b);
   const pageList = wanted.length > 0 ? wanted : [1];
+
+  const { maxEdge: MAX_EDGE, dpi: TARGET_DPI } = proofResolution(input.length);
 
   const out: RasterizedLayerPage[] = [];
   try {

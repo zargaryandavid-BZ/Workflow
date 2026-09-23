@@ -48,7 +48,12 @@ export function pickFinalArtworkPdf(
   return [...files].sort((a, b) => {
     const at = a.modifiedTime ? Date.parse(a.modifiedTime) : 0;
     const bt = b.modifiedTime ? Date.parse(b.modifiedTime) : 0;
-    return bt - at;
+    if (bt !== at) return bt - at;
+    // Stable tiebreak by id so the pick is DETERMINISTIC when two files share a
+    // modifiedTime. Otherwise the freshness check can resolve a different file
+    // than the stored proof each open → the proof looks perpetually stale and
+    // rebuilds live every time (customer sees an endless "loading").
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   })[0]!;
 }
 
