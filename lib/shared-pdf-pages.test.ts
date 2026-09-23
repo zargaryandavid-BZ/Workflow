@@ -76,6 +76,24 @@ describe("pickFinalArtworkPdf", () => {
     );
   });
 
+  it("picks the newest even when a re-upload has the SAME name as the old file", () => {
+    assert.equal(
+      pickFinalArtworkPdf([
+        { id: "old", name: "final.pdf", modifiedTime: "2026-09-10T00:00:00Z" },
+        { id: "new", name: "final.pdf", modifiedTime: "2026-09-20T00:00:00Z" },
+      ])?.id,
+      "new"
+    );
+    // Order in the list must not matter — newest wins regardless.
+    assert.equal(
+      pickFinalArtworkPdf([
+        { id: "new", name: "final.pdf", modifiedTime: "2026-09-20T00:00:00Z" },
+        { id: "old", name: "final.pdf", modifiedTime: "2026-09-10T00:00:00Z" },
+      ])?.id,
+      "new"
+    );
+  });
+
   it("falls back to the first file when modifiedTime is missing on all of them", () => {
     assert.equal(
       pickFinalArtworkPdf([

@@ -14,9 +14,12 @@ export function uniqueSharedPdfFile(
 ): { id: string; name: string } | null {
   if (files.length === 0) return null;
   const ids = new Set(files.map((f) => f.id));
+  // Only truly one file (possibly listed twice with the SAME id) is a single
+  // shared PDF. Two DISTINCT files that merely share a name — e.g. a corrected
+  // re-upload sitting next to the old one — are NOT one logical PDF; returning
+  // the first-listed there served customers the OLD version. Fall through
+  // (null) so pickFinalArtworkPdf picks the most recently modified instead.
   if (ids.size === 1) return files[0]!;
-  const names = new Set(files.map((f) => f.name.trim().toLowerCase()));
-  if (names.size === 1) return files[0]!;
   return null;
 }
 
