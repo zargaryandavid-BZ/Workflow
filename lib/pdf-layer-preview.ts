@@ -17,9 +17,13 @@ type Ctx2D = {
 // the proof never pre-builds and the customer hits a live multi-minute build.
 function proofResolution(sizeBytes: number): { maxEdge: number; dpi: number } {
   const mb = sizeBytes / (1024 * 1024);
-  if (mb >= 300) return { maxEdge: 1500, dpi: 110 };
-  if (mb >= 100) return { maxEdge: 1900, dpi: 130 };
-  return { maxEdge: 2200, dpi: 150 };
+  // dpi drives sharpness on SMALL physical items (a 3" label at 110dpi is only
+  // ~330px and looks blocky); maxEdge caps large-format items so builds stay in
+  // the serverless time limit. Small/normal files render at ~300dpi (a small
+  // label comes out ~900px, crisp); only genuinely huge source PDFs drop down.
+  if (mb >= 400) return { maxEdge: 1600, dpi: 150 };
+  if (mb >= 150) return { maxEdge: 2200, dpi: 220 };
+  return { maxEdge: 2600, dpi: 300 };
 }
 
 type NodeCanvas = {
