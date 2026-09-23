@@ -76,12 +76,14 @@ export function ProofLayerImages({
     onReady?.();
   }, [preview.fileId, preview.page, preview.rev]);
 
+  // ALL named layers, every one always rendered (never filtered by visibility).
+  // Visibility is toggled with CSS below so the images stay mounted — that's
+  // what makes toggling instant and reliable instead of reloading each click.
   const pics = useMemo<LayerPic[]>(() => {
     if (namedLayers.length === 0) {
       return [{ id: "composite", name: "Proof", layer: "composite" }];
     }
     return namedLayers
-      .filter((layer) => visibleIds.has(layer.id))
       // Cut/dieline layers render LAST so they sit on top of the print art —
       // otherwise the artwork (which bleeds to the trim edge) covers the thin
       // cut line and the dieline looks like it disappeared.
@@ -95,19 +97,18 @@ export function ProofLayerImages({
         name: layer.name,
         layer: layer.id,
       }));
-  }, [namedLayers, visibleIds]);
+  }, [namedLayers]);
 
   const allOn =
     namedLayers.length > 0 &&
     namedLayers.every((layer) => visibleIds.has(layer.id));
-  const printAllOn =
-    printLayerIds.length > 0 &&
-    printLayerIds.every((id) => visibleIds.has(id));
-  const cutOn = namedLayers.some(
-    (layer) => isPdfCutLineLayer(layer.name) && visibleIds.has(layer.id)
-  );
-  const useComposite =
-    namedLayers.length === 0 || (printAllOn && !cutOn);
+  const anyVisible =
+    namedLayers.length === 0 ||
+    namedLayers.some((layer) => visibleIds.has(layer.id));
+  // Composite (single flattened image) only for pages with NO named layers.
+  // With layers, we always render base + per-layer stack so toggling one layer
+  // never blanks the whole proof via a composite<->stack mode switch.
+  const useComposite = namedLayers.length === 0;
 
   function setAllLayers(on: boolean) {
     setVisibleIds(on ? new Set(namedLayers.map((layer) => layer.id)) : new Set());
@@ -130,12 +131,16 @@ export function ProofLayerImages({
   }
 
   const compositeSrc = layerSrc("composite");
+  const baseSrc = layerSrc("base");
+  const isVisible = (layer: string) => visibleIds.has(layer);
 
   const stack = (
     <ProofLayerStack
       useComposite={useComposite}
       compositeSrc={compositeSrc}
+      baseSrc={baseSrc}
       pics={pics}
+      isVisible={isVisible}
       srcFor={layerSrc}
       className="max-h-[22rem]"
     />
@@ -239,7 +244,7 @@ export function ProofLayerImages({
           labelWidthIn={labelWidthIn}
           labelHeightIn={labelHeightIn}
         />
-      ) : pics.length === 0 ? (
+      ) : !anyVisible ? (
         <p className="px-4 py-8 text-center text-sm text-slate-500">
           Turn on a layer to preview this SKU.
         </p>
@@ -263,7 +268,10 @@ export function ProofLayerImages({
                 <span className="truncate text-sm font-medium text-slate-700">
                   {useComposite
                     ? "Proof"
-                    : pics.map((p) => p.name).join(" + ") || "Proof"}
+                    : pics
+                        .filter((p) => isVisible(p.layer))
+                        .map((p) => p.name)
+                        .join(" + ") || "Proof"}
                 </span>
                 <button
                   type="button"
@@ -277,7 +285,9 @@ export function ProofLayerImages({
                 <ProofLayerStack
                   useComposite={useComposite}
                   compositeSrc={compositeSrc}
+                  baseSrc={baseSrc}
                   pics={pics}
+                  isVisible={isVisible}
                   srcFor={layerSrc}
                   className="max-h-full max-w-full"
                 />
@@ -293,41 +303,58 @@ export function ProofLayerImages({
 function ProofLayerStack({
   useComposite,
   compositeSrc,
+  baseSrc,
   pics,
+  isVisible,
   srcFor,
   className,
 }: {
   useComposite: boolean;
   compositeSrc: string;
+  baseSrc: string;
   pics: LayerPic[];
+  isVisible: (layer: string) => boolean;
   srcFor: (layer: string) => string;
   className?: string;
 }) {
-  if (useComposite || pics.length <= 1) {
-    const src = useComposite ? compositeSrc : srcFor(pics[0]?.layer ?? "composite");
-    const alt = useComposite ? "Proof" : pics[0]?.name ?? "Proof";
+  if (useComposite) {
     return (
       <img
-        src={src}
-        alt={alt}
+        src={compositeSrc}
+        alt="Proof"
         className={cn("mx-auto w-auto object-contain", className)}
         draggable={false}
       />
     );
   }
 
+  // Base (always-on artwork) sizes the container and always shows. Every named
+  // layer is stacked on top and ALWAYS mounted — visibility is flipped with CSS
+  // so toggling a checkbox is instant and never reloads or blanks the others.
   return (
-    <div className={cn("relative mx-auto inline-block w-auto bg-white", className)}>
-      {pics.map((pic, i) => (
+    <div
+      className={cn(
+        "relative mx-auto inline-block w-auto bg-white",
+        className
+      )}
+    >
+      <img
+        src={baseSrc}
+        alt=""
+        aria-hidden
+        className={cn("relative block w-auto object-contain", className)}
+        draggable={false}
+      />
+      {pics.map((pic) => (
         <img
           key={pic.id}
           src={srcFor(pic.layer)}
           alt={pic.name}
           className={cn(
-            "w-auto object-contain",
-            className,
-            i === 0 ? "relative block" : "absolute inset-0 h-full"
+            "absolute inset-0 h-full w-full object-contain",
+            className
           )}
+          style={{ visibility: isVisible(pic.layer) ? "visible" : "hidden" }}
           draggable={false}
         />
       ))}
