@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Layers, Maximize2, X } from "lucide-react";
-import { isPdfCutLineLayer, isUnnamedPdfLayer } from "@/lib/pdf-ocg";
+import {
+  isPdfCutLineLayer,
+  isPdfWhiteInkLayer,
+  isUnnamedPdfLayer,
+} from "@/lib/pdf-ocg";
 import {
   respondLayerPreviewUrl,
   type RespondLayerPreview,
@@ -55,10 +59,16 @@ export function ProofLayerImages({
     () => preview.layers.filter((layer) => !isUnnamedPdfLayer(layer.name)),
     [preview.layers]
   );
+  // Default-visible layers: the visible design + finishes, but NOT the dieline
+  // and NOT the white-ink underprint (which pdf.js paints as a green mess). Both
+  // stay toggleable.
   const printLayerIds = useMemo(
     () =>
       namedLayers
-        .filter((layer) => !isPdfCutLineLayer(layer.name))
+        .filter(
+          (layer) =>
+            !isPdfCutLineLayer(layer.name) && !isPdfWhiteInkLayer(layer.name)
+        )
         .map((layer) => layer.id),
     [namedLayers]
   );
