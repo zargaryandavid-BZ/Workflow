@@ -4,13 +4,23 @@ import {
   sharedPdfPagesForSkus,
   uniqueSharedPdfFile,
 } from "./shared-pdf-pages.ts";
-test("uniqueSharedPdfFile treats duplicate listings as one PDF", () => {
+test("uniqueSharedPdfFile only collapses the SAME file listed twice", () => {
+  // Same id listed twice = one PDF.
+  assert.equal(
+    uniqueSharedPdfFile([
+      { id: "a", name: "job.pdf" },
+      { id: "a", name: "job.pdf" },
+    ])?.id,
+    "a"
+  );
+  // Two DISTINCT files that happen to share a name (old + corrected re-upload)
+  // are NOT one PDF — must fall through to newest-wins, not the first listed.
   assert.equal(
     uniqueSharedPdfFile([
       { id: "a", name: "job.pdf" },
       { id: "b", name: "job.pdf" },
-    ])?.id,
-    "a"
+    ]),
+    null
   );
   assert.equal(
     uniqueSharedPdfFile([
