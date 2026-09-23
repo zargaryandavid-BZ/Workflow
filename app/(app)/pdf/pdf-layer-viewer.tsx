@@ -11,9 +11,12 @@ import type {
 import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optional_content_config";
 import { PDFJS_WORKER_SRC, pdfjsDocumentOptions } from "@/lib/pdfjs-map-polyfill";
 import {
+  defaultVisiblePdfLayerIds,
+  isPdfArtworkLayer,
   layersFromOptionalContent,
   mergePdfLayers,
   parsePdfOcgs,
+  withArtworkLayersAlwaysOn,
   type PdfLayer,
 } from "@/lib/pdf-ocg";
 
@@ -182,9 +185,15 @@ export function PdfLayerViewer() {
         layersFromOptionalContent(oc),
         parsePdfOcgs(data)
       );
+      const initial = withArtworkLayersAlwaysOn(
+        found,
+        defaultVisiblePdfLayerIds(found)
+      );
       setLayers(found);
-      setVisibleIds(new Set(found.map((layer) => layer.id)));
-      for (const layer of found) oc.setVisibility(layer.id, true, false);
+      setVisibleIds(initial);
+      for (const layer of found) {
+        oc.setVisibility(layer.id, initial.has(layer.id), false);
+      }
 
       await drawPages();
     } catch (err) {
@@ -214,14 +223,23 @@ export function PdfLayerViewer() {
   }
 
   function showAllLayers() {
-    void applyVisibility(new Set(layers.map((layer) => layer.id)));
+    void applyVisibility(
+      withArtworkLayersAlwaysOn(
+        layers,
+        layers.map((layer) => layer.id)
+      )
+    );
   }
 
   function toggleLayer(id: string) {
+    const layer = layers.find((l) => l.id === id);
+    if (layer && isPdfArtworkLayer(layer.name) && visibleIds.has(id)) {
+      return;
+    }
     const next = new Set(visibleIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    void applyVisibility(next);
+    void applyVisibility(withArtworkLayersAlwaysOn(layers, next));
   }
 
   return (

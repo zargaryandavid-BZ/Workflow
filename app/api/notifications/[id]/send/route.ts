@@ -6,6 +6,8 @@ import {
   createNotification,
   dispatchNotification,
 } from "@/lib/notifications";
+import { parseEmailList } from "@/lib/email-list";
+import { parseExtraSmsPhones } from "@/lib/customer-contacts";
 import type { JobNotification, Order } from "@/lib/types";
 
 export const maxDuration = 300;
@@ -25,6 +27,9 @@ export async function POST(
     toEmail?: string;
     toPhone?: string;
     saveContact?: boolean;
+    ccEmails?: string[] | string;
+    extraSmsPhones?: string[];
+    saveCcToAccount?: boolean;
   };
   if (
     body.channel !== "email" &&
@@ -36,6 +41,32 @@ export async function POST(
       { status: 400 }
     );
   }
+
+  const ccRaw = Array.isArray(body.ccEmails)
+    ? body.ccEmails.join(",")
+    : (body.ccEmails ?? "");
+  const { valid: ccEmails, invalid: ccInvalid } = parseEmailList(ccRaw);
+  if (ccInvalid.length > 0) {
+    return NextResponse.json(
+      { error: `Not a valid email: ${ccInvalid.join(", ")}` },
+      { status: 400 }
+    );
+  }
+  const { valid: extraSmsPhones, invalid: smsInvalid } = parseExtraSmsPhones(
+    body.extraSmsPhones
+  );
+  if (smsInvalid.length > 0) {
+    return NextResponse.json(
+      { error: `Not a valid phone: ${smsInvalid.join(", ")}` },
+      { status: 400 }
+    );
+  }
+  const extraRecipients = {
+    ccEmails: body.ccEmails !== undefined ? ccEmails : undefined,
+    extraSmsPhones:
+      body.extraSmsPhones !== undefined ? extraSmsPhones : undefined,
+    saveCcToAccount: body.saveCcToAccount ?? false,
+  };
 
   const supabase = await createClient();
   // Single join query — fetches notification + order in one round trip.
@@ -90,6 +121,7 @@ export async function POST(
         toPhone: body.toPhone ?? null,
         saveContact: body.saveContact ?? false,
         actorUserId: ctx.userId,
+        ...extraRecipients,
       });
       return NextResponse.json({
         ok: true,
@@ -113,6 +145,7 @@ export async function POST(
           toPhone: body.toPhone ?? null,
           saveContact: body.saveContact ?? false,
           createdBy: ctx.userId,
+          ...extraRecipients,
         }
       );
 
@@ -135,6 +168,7 @@ export async function POST(
       toPhone: body.toPhone ?? null,
       saveContact: body.saveContact ?? false,
       actorUserId: ctx.userId,
+      ...extraRecipients,
     });
     return NextResponse.json({ ok: true, resent: false, ...result });
   } catch (err) {

@@ -25,7 +25,8 @@ import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
 import {
-  formatReadyToShipGroupLabel,
+  formatReadyToShipNotifyLabel,
+  groupMembersReadyInColumn,
   listOrderGroupMembers,
   orderGroupKey,
   type GroupOrderMember,
@@ -304,9 +305,19 @@ export default async function RespondPage({
         })
       : [];
 
+    const readyMembers = groupMembersReadyInColumn(
+      members,
+      (primaryOrder?.column_id as string | null) ?? null
+    );
+    // Grouped layout whenever this is a multi-part order. Review cards stay
+    // limited to parts currently in Ready to Ship so unready siblings are
+    // not shown as part of this shipment.
     if (members.length > 1) {
-      headerTitle = formatReadyToShipGroupLabel(members);
-      const parts = await buildRespondParts(members, notification);
+      headerTitle = formatReadyToShipNotifyLabel(
+        members,
+        (primaryOrder?.column_id as string | null) ?? null
+      );
+      const parts = await buildRespondParts(readyMembers, notification);
       orderReview = (
         <div className="space-y-4">
           {parts.map((part) => (

@@ -29,14 +29,15 @@ import {
   type MessageTemplateMap,
 } from "@/lib/message-templates";
 import {
-  formatReadyToShipGroupLabel,
+  formatReadyToShipNotifyLabel,
   listOrderGroupMembers,
 } from "@/lib/ready-to-ship-group";
 import { resolveCustomerApprovalActionUrl } from "@/lib/approval-group";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { applyOrderContactOverride } from "@/lib/customers";
+import { extraSmsPhonesExcludingPrimary } from "@/lib/customer-contacts";
 import { mergeEmailLists } from "@/lib/email-list";
-import { isSmsConfigured, normalizeSmsPhone, sendSms } from "@/lib/sms";
+import { isSmsConfigured, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
@@ -171,6 +172,8 @@ async function deliverNotification(
     toPhone?: string | null;
     /** Extra approval recipients (CC) beyond the primary customer email. */
     ccEmails?: string[] | null;
+    /** Extra company members to SMS (same link as the primary phone). */
+    extraSmsPhones?: string[] | null;
     /** When true, persist ccEmails onto the customer for future orders. */
     saveCcToAccount?: boolean | null;
     /**
@@ -214,7 +217,10 @@ async function deliverNotification(
       params.order.tenant_id,
       params.order
     );
-    readyToShipOrderLabel = formatReadyToShipGroupLabel(members);
+    readyToShipOrderLabel = formatReadyToShipNotifyLabel(
+      members,
+      params.order.column_id
+    );
   }
 
   // Each order line item is its own part/card — name it so the customer knows
@@ -381,7 +387,15 @@ async function deliverNotification(
   }
 
   if (wantSms) {
-    if (!customerPhone?.trim()) {
+    const extraPhones = extraSmsPhonesExcludingPrimary(
+      params.extraSmsPhones ?? [],
+      customerPhone
+    );
+    const smsTargets = [
+      ...(customerPhone?.trim() ? [customerPhone] : []),
+      ...extraPhones,
+    ];
+    if (smsTargets.length === 0) {
       errors.push("Customer phone number is required to send.");
     } else {
       const greeting = customerName ? `Hi ${customerName}, ` : "";
@@ -415,22 +429,29 @@ async function deliverNotification(
               : params.messageBody
                 ? injectReplyLink(params.messageBody, actionUrl)
                 : `${greeting}we need more info for "${params.order.title}". Please respond: ${actionUrl}`;
-      const smsResult = await sendSms({ to: customerPhone, body });
-      if (smsResult.sent) {
+      const sentPhones: string[] = [];
+      for (const to of smsTargets) {
+        const smsResult = await sendSms({ to, body });
+        if (smsResult.sent) {
+          const loggedPhone = smsResult.to ?? to;
+          sentPhones.push(loggedPhone);
+          sentSmsBody = body;
+          await insertOrderSmsMessage(client, {
+            tenantId: params.order.tenant_id,
+            orderId: params.order.id,
+            direction: "outbound",
+            phone: loggedPhone,
+            body,
+            twilioSid: smsResult.sid ?? null,
+            actorUserId: null,
+          });
+        } else {
+          errors.push(smsResult.error ?? deliveryErrorMessage("sms"));
+        }
+      }
+      if (sentPhones.length > 0) {
         sentParts.push("sms");
-        sentToPhone = smsResult.to ?? customerPhone;
-        sentSmsBody = body;
-        await insertOrderSmsMessage(client, {
-          tenantId: params.order.tenant_id,
-          orderId: params.order.id,
-          direction: "outbound",
-          phone: sentToPhone,
-          body,
-          twilioSid: smsResult.sid ?? null,
-          actorUserId: null,
-        });
-      } else {
-        errors.push(smsResult.error ?? deliveryErrorMessage("sms"));
+        sentToPhone = sentPhones.join(", ");
       }
     }
   }
@@ -671,6 +692,9 @@ export async function dispatchNotification(
     channel: DeliverChannel;
     toEmail?: string | null;
     toPhone?: string | null;
+    ccEmails?: string[] | null;
+    extraSmsPhones?: string[] | null;
+    saveCcToAccount?: boolean | null;
     /** See deliverNotification's saveContact doc — default false/omitted. */
     saveContact?: boolean | null;
     subject?: string | null;
@@ -799,6 +823,7 @@ export async function createNotification(
     toPhone?: string | null;
     /** Extra approval recipients (CC) beyond the primary customer email. */
     ccEmails?: string[] | null;
+    extraSmsPhones?: string[] | null;
     /** When true, persist ccEmails onto the customer for future orders. */
     saveCcToAccount?: boolean | null;
     /** See deliverNotification's saveContact doc — default false/omitted. */
@@ -975,6 +1000,7 @@ export async function createNotification(
       toPhone: params.toPhone,
       saveContact: params.saveContact,
       ccEmails: params.ccEmails,
+      extraSmsPhones: params.extraSmsPhones,
       saveCcToAccount: params.saveCcToAccount,
       subject: params.subject,
       messageBody:

@@ -16,7 +16,7 @@ import {
   buildShippingPortalSmsBody,
 } from "../lib/notification-messages";
 import {
-  formatReadyToShipGroupLabel,
+  formatReadyToShipNotifyLabel,
   listOrderGroupMembers,
 } from "../lib/ready-to-ship-group";
 
@@ -138,7 +138,7 @@ async function main() {
       specs: (order.specs ?? {}) as Record<string, unknown>,
     });
     if (members.length > 1) {
-      orderLabel = formatReadyToShipGroupLabel(members);
+      orderLabel = formatReadyToShipNotifyLabel(members, order.column_id);
     }
   } catch {
     // keep single-order title

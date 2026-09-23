@@ -28,6 +28,10 @@ import { cn } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 import { refreshGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
 import { NoProductionPdfDialog } from "@/components/board/no-production-pdf-dialog";
+import {
+  CompanyContactsPicker,
+  useCompanyContacts,
+} from "@/components/notify/company-contacts";
 
 type Mode = "notify" | "manual";
 
@@ -100,6 +104,15 @@ export function ApprovalPopup({
   const [ccEmails, setCcEmails] = useState(() => formatEmailList(initialCc));
   const [saveCcToAccount, setSaveCcToAccount] = useState(true);
   const [phone, setPhone] = useState(contact.phone ?? "");
+  const companyContacts = useCompanyContacts({
+    customerId: order.customer_id,
+    primary: {
+      id: "primary",
+      name: customerName === "there" ? (order.customer?.name ?? "Primary") : customerName,
+      email: email.trim() || null,
+      phone: phone.trim() || null,
+    },
+  });
   const [subject, setSubject] = useState(() => approvalSubject(order.title));
   const [emailMessage, setEmailMessage] = useState(() =>
     buildApprovalEmailBody({
@@ -160,14 +173,13 @@ export function ApprovalPopup({
       return;
     }
 
+    const dest = companyContacts.destinations;
+    const extraCc = wantEmail ? parseEmailList(ccEmails).valid : [];
+
     if (!isManual) {
       const channel = channelFromSelection(selected);
       if (!channel) {
         setError("Select Email, SMS, or both.");
-        return;
-      }
-      if (wantEmail && !email.trim()) {
-        setError("Customer email is required.");
         return;
       }
       if (wantEmail && ccEmails.trim()) {
@@ -177,8 +189,12 @@ export function ApprovalPopup({
           return;
         }
       }
+      if (wantEmail && !dest.toEmail) {
+        setError("Select a company contact with an email, or enter one above.");
+        return;
+      }
       if (wantSms) {
-        const smsError = validateSmsRecipient(phone);
+        const smsError = validateSmsRecipient(dest.toPhone ?? "");
         if (smsError) {
           setError(smsError);
           return;
@@ -225,10 +241,13 @@ export function ApprovalPopup({
                   brandName: tenantName,
                 })
               : undefined,
-          toEmail: wantEmail ? email.trim() || undefined : undefined,
-          ccEmails: wantEmail ? parseEmailList(ccEmails).valid : undefined,
+          toEmail: wantEmail ? dest.toEmail || undefined : undefined,
+          ccEmails: wantEmail
+            ? mergeEmailLists(dest.ccEmails, extraCc)
+            : undefined,
+          extraSmsPhones: wantSms ? dest.extraSmsPhones : undefined,
           saveCcToAccount: wantEmail ? saveCcToAccount : undefined,
-          toPhone: wantSms ? phone.trim() || undefined : undefined,
+          toPhone: wantSms ? dest.toPhone || undefined : undefined,
           groupOrderIds:
             groupOrderIds.length > 0
               ? [...new Set([order.id, ...groupOrderIds])]
@@ -374,9 +393,15 @@ export function ApprovalPopup({
             </p>
           ) : (
             <>
+              <CompanyContactsPicker
+                companyName={order.customer?.company ?? order.customer?.name}
+                customerId={order.customer_id}
+                contacts={companyContacts}
+              />
+
               {wantEmail ? (
                 <div>
-                  <Label htmlFor="approval-email">Email</Label>
+                  <Label htmlFor="approval-email">Primary email</Label>
                   <Input
                     id="approval-email"
                     type="email"

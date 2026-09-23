@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   collectLayerIds,
+  defaultVisiblePdfLayerIds,
   isPdfArtworkLayer,
   isPdfCutLineLayer,
   isUnnamedPdfLayer,
   layersFromOptionalContent,
   parsePdfOcgs,
+  withArtworkLayersAlwaysOn,
 } from "./pdf-ocg.ts";
 
 test("collectLayerIds walks nested order objects", () => {
@@ -89,4 +91,17 @@ test("isPdfCutLineLayer matches Cut / Dieline plates", () => {
   assert.equal(isPdfCutLineLayer("Dieline"), true);
   assert.equal(isPdfCutLineLayer("Artwork"), false);
   assert.equal(isPdfCutLineLayer("White"), false);
+});
+
+test("defaultVisiblePdfLayerIds keeps Artwork on by default", () => {
+  const layers = [
+    { id: "1R", name: "Dieline" },
+    { id: "2R", name: "ART WORK" },
+    { id: "3R", name: "White" },
+  ];
+  assert.deepEqual(defaultVisiblePdfLayerIds(layers), ["2R"]);
+  assert.deepEqual(
+    [...withArtworkLayersAlwaysOn(layers, [])].sort(),
+    ["2R"]
+  );
 });

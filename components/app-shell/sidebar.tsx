@@ -26,6 +26,7 @@ import {
   PackageCheck,
   PackagePlus,
   Plug,
+  ScanLine,
   Printer,
   Scissors,
   Settings,
@@ -121,6 +122,7 @@ const nav: NavItem[] = [
     children: [
       { href: "/fulfillment/send", label: "Send", icon: PackagePlus },
       { href: "/fulfillment/received", label: "Received", icon: PackageCheck },
+      { href: "/fulfillment/scan", label: "Scan", icon: ScanLine },
     ],
   },
   {

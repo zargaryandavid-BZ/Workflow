@@ -44,6 +44,7 @@ interface CheckResult {
   siblingsInColumn: number;
   siblingTitles?: string[];
   groupLabel?: string;
+  notifyLabel?: string;
   previousNotificationDate: string | null;
 }
 
@@ -163,6 +164,10 @@ export function ReadyToShipPopup({
   }, [order.id, columnId]);
 
   const orderLabel = checkResult?.groupLabel?.trim() || order.title;
+  const notifyLabel =
+    checkResult?.notifyLabel?.trim() ||
+    checkResult?.groupLabel?.trim() ||
+    order.title;
   const boxesRequired = fulfillment === "choose";
   const pickupLocationPreview = selectedPickup
     ? formatStaffPickupNotify(selectedPickup)
@@ -170,7 +175,10 @@ export function ReadyToShipPopup({
   const pickupHoursPreview = selectedPickup?.hoursNote ?? "";
 
   useEffect(() => {
-    const label = checkResult?.groupLabel?.trim() || order.title;
+    const label =
+      checkResult?.notifyLabel?.trim() ||
+      checkResult?.groupLabel?.trim() ||
+      order.title;
     if (fulfillment === "pickup") {
       setSubject(pickupReadySubject(label));
       setEmailMessage(
@@ -196,6 +204,7 @@ export function ReadyToShipPopup({
     }
   }, [
     checkResult?.groupLabel,
+    checkResult?.notifyLabel,
     customerName,
     teamName,
     fulfillment,
@@ -460,7 +469,7 @@ export function ReadyToShipPopup({
               <div className="space-y-1">
                 <span>
                   {notAllReady
-                    ? `Waiting for all parts — ${checkResult.siblingsInColumn} of ${checkResult.siblingCount} are in Ready to Ship. One SMS will list every part when you send.`
+                    ? `Waiting for all parts — ${checkResult.siblingsInColumn} of ${checkResult.siblingCount} are in Ready to Ship. A partial notification lists only the parts that are in this column.`
                     : `All ${checkResult.siblingCount} parts are ready. One notification link will show all parts for the customer.`}
                 </span>
                 {checkResult.siblingTitles?.length ? (
@@ -792,14 +801,14 @@ export function ReadyToShipPopup({
                     {fulfillment === "pickup"
                       ? buildPickupReadySmsBody({
                           customerName,
-                          orderNumber: orderLabel,
+                          orderNumber: notifyLabel,
                           portalUrl: "[link added on send]",
                           pickupLocation: pickupLocationPreview,
                           pickupHours: pickupHoursPreview,
                         })
                       : buildShippingPortalSmsBody({
                           customerName,
-                          orderNumber: orderLabel,
+                          orderNumber: notifyLabel,
                           portalUrl: "[link added on send]",
                         })}
                   </p>

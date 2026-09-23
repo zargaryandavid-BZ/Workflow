@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { requireFulfillmentApi } from "@/lib/fulfillment-access";
 import { createClient } from "@/lib/supabase/server";
+import {
+  normalizeScanButtons,
+  serializeScanButtons,
+} from "@/lib/fulfillment-scan-config";
 
 export async function GET() {
   const auth = requireFulfillmentApi(await getTenantContext());
@@ -11,7 +15,7 @@ export async function GET() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("fulfillment_settings")
-    .select("send_column_id, receive_column_id, counted_column_id, missing_column_id")
+    .select("send_column_id, receive_column_id, counted_column_id, missing_column_id, scan_column_config")
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
 
@@ -23,6 +27,7 @@ export async function GET() {
       receive_column_id: null,
       counted_column_id: null,
       missing_column_id: null,
+      scan_column_config: {},
     }
   );
 }
@@ -37,7 +42,13 @@ export async function PATCH(request: Request) {
     receive_column_id?: string | null;
     counted_column_id?: string | null;
     missing_column_id?: string | null;
+    scan_column_config?: unknown;
   };
+
+  const scanColumnConfig =
+    body.scan_column_config !== undefined
+      ? serializeScanButtons(normalizeScanButtons(body.scan_column_config))
+      : undefined;
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -49,11 +60,12 @@ export async function PATCH(request: Request) {
         ...(body.receive_column_id !== undefined ? { receive_column_id: body.receive_column_id } : {}),
         ...(body.counted_column_id !== undefined ? { counted_column_id: body.counted_column_id } : {}),
         ...(body.missing_column_id !== undefined ? { missing_column_id: body.missing_column_id } : {}),
+        ...(scanColumnConfig !== undefined ? { scan_column_config: scanColumnConfig } : {}),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "tenant_id" }
     )
-    .select("send_column_id, receive_column_id, counted_column_id, missing_column_id")
+    .select("send_column_id, receive_column_id, counted_column_id, missing_column_id, scan_column_config")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -23,6 +23,10 @@ import {
   latestSentToForNotification,
   type ActivityLogEntry,
 } from "@/lib/activity";
+import {
+  CompanyContactsPicker,
+  useCompanyContacts,
+} from "@/components/notify/company-contacts";
 
 interface MissingInfoTabProps {
   notes: MissingInfoNote[];
@@ -180,6 +184,15 @@ function NotifyRow({
   const [phone, setPhone] = useState(
     contactPhone ?? customer?.phone ?? ""
   );
+  const companyContacts = useCompanyContacts({
+    customerId: customer?.id,
+    primary: {
+      id: "primary",
+      name: customer?.name ?? "Primary",
+      email: email.trim() || null,
+      phone: phone.trim() || null,
+    },
+  });
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -214,15 +227,16 @@ function NotifyRow({
     const channel = channelFromSelection(selected);
     if (!channel) return;
     setError(null);
+    const dest = companyContacts.destinations;
     if (selected.includes("sms")) {
-      const smsError = validateSmsRecipient(phone);
+      const smsError = validateSmsRecipient(dest.toPhone ?? "");
       if (smsError) {
         setError(smsError);
         return;
       }
     }
-    if (selected.includes("email") && !email.trim()) {
-      setError("Customer email is required.");
+    if (selected.includes("email") && !dest.toEmail) {
+      setError("Select a company contact with an email.");
       return;
     }
 
@@ -266,11 +280,15 @@ function NotifyRow({
           ? {
               channel,
               toEmail: selected.includes("email")
-                ? email.trim() || undefined
+                ? dest.toEmail || undefined
                 : undefined,
               toPhone: selected.includes("sms")
-                ? phone.trim() || undefined
+                ? dest.toPhone || undefined
                 : undefined,
+              extraSmsPhones: selected.includes("sms")
+                ? dest.extraSmsPhones
+                : undefined,
+              ccEmails: selected.includes("email") ? dest.ccEmails : undefined,
               saveContact,
             }
           : {
@@ -281,11 +299,15 @@ function NotifyRow({
                 note?.staff_note?.trim() ||
                 "Follow-up: please send the missing information.",
               toEmail: selected.includes("email")
-                ? email.trim() || undefined
+                ? dest.toEmail || undefined
                 : undefined,
               toPhone: selected.includes("sms")
-                ? phone.trim() || undefined
+                ? dest.toPhone || undefined
                 : undefined,
+              extraSmsPhones: selected.includes("sms")
+                ? dest.extraSmsPhones
+                : undefined,
+              ccEmails: selected.includes("email") ? dest.ccEmails : undefined,
               saveContact,
             },
         NOTIFICATION_SEND_TIMEOUT_MS
@@ -381,6 +403,12 @@ function NotifyRow({
         ) : null}
       </div>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      <CompanyContactsPicker
+        companyName={customer?.company ?? customer?.name}
+        customerId={customer?.id}
+        contacts={companyContacts}
+        compact
+      />
     </div>
   );
 }

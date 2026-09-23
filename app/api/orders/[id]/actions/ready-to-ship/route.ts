@@ -21,7 +21,10 @@ import {
 } from "@/lib/shipping";
 import { getMessageTemplates } from "@/lib/message-templates.server";
 import { resolvePickupNotifyFields } from "@/lib/shipping-settings";
-import { formatReadyToShipGroupLabel, listOrderGroupMembers } from "@/lib/ready-to-ship-group";
+import {
+  formatReadyToShipNotifyLabel,
+  listOrderGroupMembers,
+} from "@/lib/ready-to-ship-group";
 import type {
   NotificationChannel,
   ShippingBox,
@@ -174,7 +177,10 @@ export async function POST(
       specs: (exportData.order.specs ?? {}) as Record<string, unknown>,
     });
     if (members.length > 1) {
-      orderLabel = formatReadyToShipGroupLabel(members);
+      orderLabel = formatReadyToShipNotifyLabel(
+        members,
+        exportData.order.column_id
+      );
     }
   } catch {
     // keep single-order label

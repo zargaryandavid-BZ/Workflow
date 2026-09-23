@@ -60,6 +60,8 @@ interface GroupedOrderCardProps {
   webhookSourceStyles?: WebhookSourceStyles;
   designers?: Designer[];
   availableColumns?: ColumnOption[];
+  /** Next board column after this group — Move to list opens centered on it. */
+  nextMoveColumnId?: string | null;
   onAssignDesigner?: (
     orders: OrderWithRelations[],
     designer: { id: string | null; name: string | null }
@@ -97,6 +99,7 @@ export function GroupedOrderCard({
   webhookSourceStyles,
   designers = [],
   availableColumns = [],
+  nextMoveColumnId = null,
   onAssignDesigner,
   onSetDueDates,
   onMoveGroup,
@@ -574,6 +577,7 @@ export function GroupedOrderCard({
                     <div className="border-t border-slate-100">
                       <MoveMenuSections
                         columns={availableColumns}
+                        scrollToColumnId={nextMoveColumnId}
                         onSelect={(col) => {
                           onMoveGroup(orders, col.id);
                           closeMenu();

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
   formatReadyToShipGroupLabel,
+  formatReadyToShipNotifyLabel,
   listOrderGroupMembers,
 } from "@/lib/ready-to-ship-group";
 
@@ -13,7 +14,8 @@ import {
  *  - siblingCount: total number of parts in the group (including this order)
  *  - siblingsInColumn: how many of those parts are currently in columnId
  *  - siblingTitles: titles of all group parts
- *  - groupLabel: customer-facing label (includes all parts when grouped)
+ *  - groupLabel: staff header (all parts in the group)
+ *  - notifyLabel: SMS/email copy (only parts currently in columnId)
  *  - previousNotificationDate: ISO string of the last ready_to_ship notification
  *    sent for any part of this group, or null
  */
@@ -60,6 +62,7 @@ export async function GET(request: Request) {
   const siblingsInColumn = members.filter((m) => m.column_id === columnId).length;
   const siblingTitles = members.map((m) => m.title);
   const groupLabel = formatReadyToShipGroupLabel(members);
+  const notifyLabel = formatReadyToShipNotifyLabel(members, columnId);
 
   const memberIds = members.map((m) => m.id);
   const [{ data: previousNotif }, { data: previousShip }] = await Promise.all([
@@ -98,6 +101,7 @@ export async function GET(request: Request) {
     siblingsInColumn,
     siblingTitles,
     groupLabel,
+    notifyLabel,
     previousNotificationDate: latest,
   });
 }

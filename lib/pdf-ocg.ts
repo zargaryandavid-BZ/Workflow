@@ -148,6 +148,34 @@ export function isPdfCutLineLayer(name: string): boolean {
   );
 }
 
+/** Acrobat plates named Artwork / ART WORK. */
+export function artworkPdfLayerIds(layers: PdfLayer[]): string[] {
+  return layers.filter((layer) => isPdfArtworkLayer(layer.name)).map((l) => l.id);
+}
+
+/**
+ * Default SEE LAYERS state: Artwork on. If the file has no Artwork plate,
+ * fall back to print plates (dieline off) so the page is not blank.
+ */
+export function defaultVisiblePdfLayerIds(layers: PdfLayer[]): string[] {
+  const art = artworkPdfLayerIds(layers);
+  if (art.length > 0) return art;
+  const print = layers
+    .filter((layer) => !isPdfCutLineLayer(layer.name))
+    .map((l) => l.id);
+  return print.length > 0 ? print : layers.map((l) => l.id);
+}
+
+/** Artwork plates stay on even if ALL / a checkbox would turn them off. */
+export function withArtworkLayersAlwaysOn(
+  layers: PdfLayer[],
+  visible: Iterable<string>
+): Set<string> {
+  const next = new Set(visible);
+  for (const id of artworkPdfLayerIds(layers)) next.add(id);
+  return next;
+}
+
 export type OcLike = {
   getOrder?: () => unknown;
   getGroup?: (id: string) => { name?: unknown } | null | undefined;

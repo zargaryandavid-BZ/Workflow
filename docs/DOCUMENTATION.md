@@ -1,6 +1,6 @@
 # Documentation
 
-**Last updated: September 3, 2026**
+**Last updated: September 23, 2026**
 
 Complete project reference for developers and AI agents.
 
@@ -127,6 +127,7 @@ proxy.ts                        Session middleware helper [see Known issues](#kn
 | `board_columns` | Kanban columns (pipeline stages) |
 | `orders` | Print jobs / cards (**not** named `jobs`) |
 | `customers` | Customer directory (auto-linked from orders) |
+| `customer_contacts` | Extra company members for review/approval notify |
 | `custom_fields` | Field definitions per tenant |
 | `custom_field_values` | Per-order custom field values |
 | `assets` | File metadata (bytes in Storage) |
@@ -635,6 +636,27 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 
 ---
 
+### `customer_contacts`
+
+**Purpose:** Additional people at the same company who can receive missing-info and approval requests. The `customers` row stays the primary contact.
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `uuid` PK | Contact ID |
+| `tenant_id` | `uuid` | Tenant |
+| `customer_id` | `uuid` | Parent customer (company) |
+| `name` | `text` | Display name |
+| `email` | `text` | Optional email |
+| `phone` | `text` | Optional mobile |
+| `created_at` | `timestamptz` | Created |
+| `updated_at` | `timestamptz` | Auto-updated |
+
+**FKs:** `tenant_id` → `tenants`; `customer_id` → `customers` (cascade).
+
+**RLS:** Tenant members ALL.
+
+---
+
 ### `custom_fields`
 
 **Purpose:** Tenant-defined field definitions for orders.
@@ -902,6 +924,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `0090_die_allow_own_date.sql` | Manufacturer may offer own due date |
 | `0101_customers_crm_customer_id.sql` | `customers.crm_customer_id` + backfill from order specs |
 | `0102_memberships_outsourced.sql` | `memberships.outsourced` (team Outsource checkbox) |
+| `20260923000000_customer_contacts.sql` | Extra company contacts for review/approval notify |
 | `20260910000000_fix_search_path_and_security_definer_views.sql` | Pin `search_path = ''` on token/tenant RPCs; `security_invoker` on dashboard views |
 
 **Note:** There is no `0010_*.sql` in the repo. `sku_key`, `drop_in_roles`, and extended `member_role` values are in `setup.sql` only.
@@ -1084,7 +1107,7 @@ Create notification, send email/SMS, return customer link.
 | | |
 | --- | --- |
 | **Auth** | Session + tenant |
-| **Body** | `{ orderId, type: "missing_info" \| "customer_approval", channel: "email" \| "sms" \| "manual" \| "none", staffNote?, toEmail?, toPhone?, subject?, messageBody? }` |
+| **Body** | `{ orderId, type: "missing_info" \| "customer_approval", channel: "email" \| "sms" \| "manual" \| "none", staffNote?, toEmail?, toPhone?, ccEmails?, extraSmsPhones?, subject?, messageBody? }` |
 | **Response** | `{ ok: true, channel, token, actionUrl }` |
 | **Errors** | 400 send failure; 404 order |
 
@@ -1107,7 +1130,7 @@ Resend an existing notification.
 | | |
 | --- | --- |
 | **Auth** | Session + tenant |
-| **Body** | `{ channel, toEmail?, toPhone?, ... }` |
+| **Body** | `{ channel, toEmail?, toPhone?, ccEmails?, extraSmsPhones?, ... }` |
 | **Response** | `{ ok: true, actionUrl }` |
 
 ### `PATCH /api/notifications/[id]`
@@ -1406,6 +1429,18 @@ Returns **403** — customers are auto-managed from orders.
 
 Admin can update name, email, phone, company, preferred channel, and default priority. After a contact/name save, Workflow fire-and-forget PATCHes Bazaar CRM (`lib/bazaar-customer-sync.ts`) when `customers.crm_customer_id` and `webhook_configs.bazaar_api_url` + an `osk_…` key exist. Auth matches status callbacks (`x-webhook-secret`). Endpoint assumed: `PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}`. Confirm the contract with Bazaar before relying on it in production.
 
+### `GET /api/customers/[id]/contacts`
+
+List extra company contacts (not the primary `customers` row).
+
+### `POST /api/customers/[id]/contacts`
+
+Add a company contact `{ name?, email?, phone? }` (email or phone required). Used from the approval/review popup and Customers page.
+
+### `PATCH /api/customers/[id]/contacts/[contactId]` / `DELETE …`
+
+Update or remove an extra contact.
+
 ### `DELETE /api/customers/[id]`
 
 Returns **403**.
@@ -1636,7 +1671,7 @@ Operator popup after drop to exception column: staff note, channel (email/SMS/ma
 
 ### `ApprovalPopup` — `components/notify/ApprovalPopup.tsx`
 
-Operator popup after drop to approval column: channel selection, optional note, sends approval request. If Final production has no PDF, a **No PDF file in production** dialog opens and Send is disabled until a print PDF is in that folder.
+Operator popup after drop to approval column: channel selection, optional note, sends approval request. Staff can check multiple **company contacts** (primary customer plus extra members saved on that company) so one send emails/SMS everyone selected. If Final production has no PDF, a **No PDF file in production** dialog opens and Send is disabled until a print PDF is in that folder.
 
 ---
 
@@ -1763,6 +1798,10 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 ### Fulfillment Send / Received
 
 `/fulfillment/send` and `/fulfillment/received` (`components/fulfillment/`). Box titles are **`DDMMYY_n`** (e.g. `180926_1`) from the send day and box number (`fulfillmentBoxLabel` in `lib/fulfillment-day.ts`). Each order row shows the cardboard **main picture** (`orders.specs.card_image`, same as the Kanban card) to the left of the order number. Send lists **open boxes from the API only**, six per row. **New Box** inserts empty open boxes (`POST /api/fulfillment/boxes` with `{ add: n }`). Long order lists scroll inside each box; extra rows of boxes scroll on the page. Move only lists other **open** packing boxes. Received lists **sent and received boxes from the API only**. Each box has **Download slip** and **Print slip** (`POST /api/fulfillment/boxes/[id]/packing-slip`, one PDF of every order in the box, with the cardboard main picture to the left of each order number). On Received, each order has one of **Order received**, **Order counted and approved**, or **Missing/wrong info** (`receive_status` on `fulfillment_box_orders`). Those map to board columns in Settings → Fulfillment (`receive_column_id`, `counted_column_id`, `missing_column_id`). The Received toolbar is **Received** (delivered boxes waiting check-in) then one chip per local **receive date**, then **search order id**, then **Add box**. Click a date to see boxes checked in that day (`received_at`). Add box puts a delivered box onto the incoming list.
+
+### Fulfillment Scan
+
+`/fulfillment/scan` (`components/fulfillment/FulfillmentScanPage.tsx`). Floor station: look up an order, then tap an action button to move it to a board column (`POST /api/fulfillment/scan/action`). Button names, order, and target columns are tenant-editable (**Configure columns** in the fulfillment header) and stored as `fulfillment_settings.scan_column_config.buttons` (`id`, `label`, `column_id`). Legacy `{ received, delivered, shipped, finished, finished_reviewed }` maps are still read.
 
 ---
 

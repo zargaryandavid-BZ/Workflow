@@ -1,5 +1,6 @@
 "use client";
 
+import { useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { groupStageColumns } from "@/lib/stage-groups";
 
@@ -22,6 +23,19 @@ interface MoveMenuSectionsProps<T extends MoveMenuColumn> {
   itemClassName?: string;
   /** Extra classes for each section header (align it with the items). */
   headerClassName?: string;
+  /**
+   * Column to vertically center in the list (typically the next stage after
+   * the card the user right-clicked).
+   */
+  scrollToColumnId?: string | null;
+}
+
+function scrollChildToCenter(container: HTMLElement, child: HTMLElement) {
+  const cRect = container.getBoundingClientRect();
+  const tRect = child.getBoundingClientRect();
+  const delta =
+    tRect.top + tRect.height / 2 - (cRect.top + container.clientHeight / 2);
+  container.scrollTop += delta;
 }
 
 /**
@@ -36,12 +50,42 @@ export function MoveMenuSections<T extends MoveMenuColumn>({
   onSelect,
   itemClassName,
   headerClassName,
+  scrollToColumnId,
 }: MoveMenuSectionsProps<T>) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const sections = groupStageColumns(columns);
+
+  useLayoutEffect(() => {
+    const id = scrollToColumnId;
+    if (!id) return;
+
+    const run = () => {
+      const container = scrollRef.current;
+      if (!container) return;
+      const selector = `[data-move-column-id="${CSS.escape(id)}"]`;
+      const target = container.querySelector(selector);
+      if (!(target instanceof HTMLElement)) return;
+      scrollChildToCenter(container, target);
+    };
+
+    run();
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(run);
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [scrollToColumnId, columns]);
+
   if (sections.length === 0) return null;
 
   return (
-    <div className="max-h-[55vh] overflow-y-auto overscroll-contain">
+    <div
+      ref={scrollRef}
+      className="max-h-[55vh] overflow-y-auto overscroll-contain"
+    >
       {sections.map((section) => (
         <div
           key={section.group.id}
@@ -58,26 +102,33 @@ export function MoveMenuSections<T extends MoveMenuColumn>({
               {section.group.label}
             </p>
           ) : null}
-          {section.columns.map((col) => (
-            <button
-              key={col.id}
-              type="button"
-              onClick={() => onSelect(col)}
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-black/5",
-                itemClassName
-              )}
-            >
-              <span
+          {section.columns.map((col) => {
+            const isNext = col.id === scrollToColumnId;
+            return (
+              <button
+                key={col.id}
+                type="button"
+                data-move-column-id={col.id}
+                onClick={() => onSelect(col)}
                 className={cn(
-                  "h-2.5 w-2.5 shrink-0 rounded-full border",
-                  section.group.dotClassName
+                  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-black/5",
+                  isNext
+                    ? "bg-black/[0.06] font-medium text-slate-900"
+                    : "text-slate-700",
+                  itemClassName
                 )}
-                style={{ backgroundColor: col.color ?? "#e2e8f0" }}
-              />
-              <span className="truncate">{col.name}</span>
-            </button>
-          ))}
+              >
+                <span
+                  className={cn(
+                    "h-2.5 w-2.5 shrink-0 rounded-full border",
+                    section.group.dotClassName
+                  )}
+                  style={{ backgroundColor: col.color ?? "#e2e8f0" }}
+                />
+                <span className="truncate">{col.name}</span>
+              </button>
+            );
+          })}
         </div>
       ))}
     </div>

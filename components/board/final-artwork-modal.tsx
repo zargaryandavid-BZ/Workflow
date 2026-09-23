@@ -51,15 +51,7 @@ function suppressClickThrough() {
   }, 350);
 }
 
-export function FinalArtworkModal({
-  orderId,
-  orderTitle,
-  onClose,
-}: {
-  orderId: string;
-  orderTitle: string;
-  onClose: () => void;
-}) {
+function useFinalArtworkPdf(orderId: string) {
   const [items, setItems] = useState<FinalPdfItem[]>([]);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -86,6 +78,8 @@ export function FinalArtworkModal({
     const timeout = window.setTimeout(() => ac.abort(), 90_000);
     setLoading(true);
     setError(null);
+    setItems([]);
+    setActive(0);
     void (async () => {
       try {
         const res = await fetchWithAuth(
@@ -140,22 +134,6 @@ export function FinalArtworkModal({
       window.clearTimeout(timeout);
     };
   }, [orderId]);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
 
   const item = items[active];
   const view = item ? finalPdfOcgView(item) : null;
@@ -223,6 +201,209 @@ export function FinalArtworkModal({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [orderId, item?.fileId]);
+
+  return {
+    items,
+    active,
+    setActive,
+    loading,
+    error,
+    blobUrl,
+    loadSeconds,
+    item,
+    view,
+  };
+}
+
+export function FinalArtworkInline({
+  orderId,
+  orderTitle,
+  compact = false,
+}: {
+  orderId: string;
+  orderTitle: string;
+  /** Compact mode: vertical SKU buttons on left, no layer note, artwork beside. */
+  compact?: boolean;
+}) {
+  const {
+    items,
+    active,
+    setActive,
+    loading,
+    error,
+    blobUrl,
+    loadSeconds,
+    item,
+    view,
+  } = useFinalArtworkPdf(orderId);
+  const [expanded, setExpanded] = useState(false);
+
+  const artworkHeight = compact ? 300 : 360;
+
+  const skuButtons = items.length > 1 ? (
+    <div className={cn(
+      "flex min-w-0 gap-1.5",
+      compact ? "flex-col" : "flex-wrap items-center"
+    )}>
+      {items.map((row, i) => (
+        <button
+          key={`${row.skuId}-${row.fileId}-${row.page ?? "all"}`}
+          type="button"
+          onClick={() => setActive(i)}
+          className={cn(
+            "truncate rounded-md px-2.5 py-1 text-xs font-semibold text-left",
+            compact ? "max-w-[9rem]" : "max-w-[16rem]",
+            i === active
+              ? "bg-blue-600 text-white"
+              : "bg-slate-100 text-slate-700"
+          )}
+        >
+          {row.skuLabel}
+          {row.page != null ? ` · p.${row.page}` : ""}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  const artworkBox = (
+    <div
+      className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+      style={{ height: artworkHeight }}
+    >
+      {loading ? (
+        <div className="flex h-full items-center justify-center p-4">
+          <PdfLoadingBar seconds={loadSeconds} />
+        </div>
+      ) : error ? (
+        <p className="flex h-full items-center justify-center px-4 text-center text-[13px] text-slate-500">
+          {error === "No PDF file in production"
+            ? "No PDF file in production"
+            : error}
+        </p>
+      ) : item && view && blobUrl ? (
+        <div className="h-full min-h-0 w-full">
+          <PdfOcgFromUrl
+            src={blobUrl}
+            fileName={item.fileName}
+            layout={view.layout}
+            page={view.page}
+            fillHost
+            hideLayerNote={compact}
+          />
+        </div>
+      ) : (
+        <p className="flex h-full items-center justify-center text-[13px] text-slate-400">
+          No final artwork
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      {expanded ? (
+        <FinalArtworkModal
+          orderId={orderId}
+          orderTitle={orderTitle}
+          onClose={() => setExpanded(false)}
+        />
+      ) : null}
+
+      {compact ? (
+        /* Compact: SKU buttons column on left, artwork fills the rest */
+        <div className="flex gap-3" style={{ height: artworkHeight }}>
+          {skuButtons && (
+            <div className="flex shrink-0 flex-col gap-1 overflow-y-auto pt-0.5">
+              {skuButtons}
+            </div>
+          )}
+          <div className="min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+            {loading ? (
+              <div className="flex h-full items-center justify-center p-4">
+                <PdfLoadingBar seconds={loadSeconds} />
+              </div>
+            ) : error ? (
+              <p className="flex h-full items-center justify-center px-4 text-center text-[13px] text-slate-500">
+                {error === "No PDF file in production"
+                  ? "No PDF file in production"
+                  : error}
+              </p>
+            ) : item && view && blobUrl ? (
+              <div className="h-full min-h-0 w-full">
+                <PdfOcgFromUrl
+                  src={blobUrl}
+                  fileName={item.fileName}
+                  layout={view.layout}
+                  page={view.page}
+                  fillHost
+                  hideLayerNote
+                />
+              </div>
+            ) : (
+              <p className="flex h-full items-center justify-center text-[13px] text-slate-400">
+                No final artwork
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Default: horizontal SKU buttons above artwork */
+        <>
+          <div className="flex items-center justify-between gap-2">
+            {skuButtons ?? <span />}
+            {item && blobUrl ? (
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="shrink-0 text-[12px] font-medium text-blue-700 hover:text-blue-800"
+              >
+                Open full size
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-2">{artworkBox}</div>
+        </>
+      )}
+    </>
+  );
+}
+
+export function FinalArtworkModal({
+  orderId,
+  orderTitle,
+  onClose,
+}: {
+  orderId: string;
+  orderTitle: string;
+  onClose: () => void;
+}) {
+  const {
+    items,
+    active,
+    setActive,
+    loading,
+    error,
+    blobUrl,
+    loadSeconds,
+    item,
+    view,
+  } = useFinalArtworkPdf(orderId);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
 
   function close() {
     suppressClickThrough();

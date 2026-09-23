@@ -31,6 +31,7 @@ import {
 import type {
   BoardColumn,
   CustomField,
+  CustomerContact,
   CustomerOrderSummary,
   CustomerWithStats,
   Designer,
@@ -175,6 +176,153 @@ function CustomerFormFields({
         At least one of email or phone is required.
       </p>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+    </div>
+  );
+}
+
+function CustomerContactsEditor({
+  customerId,
+  companyName,
+}: {
+  customerId: string;
+  companyName: string | null;
+}) {
+  const [contacts, setContacts] = useState<CustomerContact[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", phone: "" });
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(`/api/customers/${customerId}/contacts`);
+      const data = (await res.json().catch(() => ({}))) as {
+        contacts?: CustomerContact[];
+        error?: string;
+      };
+      if (cancelled) return;
+      if (!res.ok) {
+        setError(data.error ?? "Could not load contacts.");
+        return;
+      }
+      setContacts(data.contacts ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+
+  async function save() {
+    setError(null);
+    const res = await fetch(`/api/customers/${customerId}/contacts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      contact?: CustomerContact;
+      error?: string;
+    };
+    if (!res.ok || !data.contact) {
+      setError(data.error ?? "Could not add contact.");
+      return;
+    }
+    setContacts((prev) => [...prev, data.contact!]);
+    setForm({ name: "", email: "", phone: "" });
+    setAdding(false);
+  }
+
+  async function remove(id: string) {
+    setError(null);
+    const res = await fetch(`/api/customers/${customerId}/contacts/${id}`, {
+      method: "DELETE",
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      setError(data.error ?? "Could not remove contact.");
+      return;
+    }
+    setContacts((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  return (
+    <div className="mt-4 border-t border-slate-100 pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-slate-700">Company contacts</p>
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-800"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add
+        </button>
+      </div>
+      <p className="mt-0.5 text-xs text-slate-500">
+        Extra people at {companyName || "this company"} who can receive review
+        and approval requests.
+      </p>
+      {contacts.length === 0 && !adding ? (
+        <p className="mt-2 text-sm text-slate-500">None yet.</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {contacts.map((c) => (
+            <li
+              key={c.id}
+              className="flex items-start justify-between gap-2 text-sm text-slate-700"
+            >
+              <span className="min-w-0">
+                <span className="font-medium">{c.name || "Contact"}</span>
+                <span className="block text-xs text-slate-500">
+                  {[c.email, c.phone].filter(Boolean).join(" · ")}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => void remove(c.id)}
+                className="text-xs text-slate-400 hover:text-red-600"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {adding ? (
+        <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2.5">
+          <Input
+            placeholder="Name"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          />
+          <Input
+            type="email"
+            placeholder="Email"
+            value={form.email}
+            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+          />
+          <Input
+            type="tel"
+            placeholder="Phone"
+            value={form.phone}
+            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setAdding(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={() => void save()}>
+              Save
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
     </div>
   );
 }
@@ -735,6 +883,10 @@ export function CustomersManager({
                 {selected.company ? (
                   <p className="mt-1 text-slate-600">{selected.company}</p>
                 ) : null}
+                <CustomerContactsEditor
+                  customerId={selected.id}
+                  companyName={selected.company ?? selected.name}
+                />
                 <p className="mt-3 text-sm text-slate-600">
                   Default channel:{" "}
                   <span className="font-medium text-slate-800">

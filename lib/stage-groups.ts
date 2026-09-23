@@ -195,6 +195,31 @@ export interface GroupedStageSection<T> {
  * - Omits empty sections.
  * - Returns sections in canonical pipeline order.
  */
+/**
+ * First droppable column after `fromColumnId` in board order.
+ * Used so the right-click "Move to" list can open centered on the next stage.
+ */
+export function nextColumnIdAfter(
+  fromColumnId: string,
+  boardColumnIds: string[],
+  moveableIds: Iterable<string>
+): string | null {
+  const allowed = moveableIds instanceof Set ? moveableIds : new Set(moveableIds);
+  const fromIdx = boardColumnIds.indexOf(fromColumnId);
+  if (fromIdx < 0) return null;
+  for (let i = fromIdx + 1; i < boardColumnIds.length; i++) {
+    const id = boardColumnIds[i];
+    if (id && allowed.has(id)) return id;
+  }
+  return null;
+}
+
+/**
+ * Partition an ordered list of columns into the three stage-group sections.
+ * - Preserves the caller's order within each group.
+ * - Omits empty sections.
+ * - Returns sections in canonical pipeline order.
+ */
 export function groupStageColumns<T extends { id: string; name: string }>(
   columns: T[]
 ): GroupedStageSection<T>[] {

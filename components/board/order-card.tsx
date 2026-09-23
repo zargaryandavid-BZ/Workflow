@@ -232,6 +232,8 @@ interface OrderCardProps {
   timeChips?: TimeChip[] | null;
   /** Columns the user is allowed to move this card to (pre-filtered by board). */
   availableColumns?: ColumnOption[];
+  /** Next board column after this card — Move to list opens centered on it. */
+  nextMoveColumnId?: string | null;
   /** Called when the user selects a column from the right-click menu. */
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
   /** Admin-only automations visible for this card's column (shown by name). */
@@ -580,6 +582,7 @@ export function OrderCard({
   showShippedEnteredDate,
   timeChips = null,
   availableColumns = [],
+  nextMoveColumnId = null,
   onMoveToColumn,
   actionButtons = [],
   appUrl = "",
@@ -2121,9 +2124,10 @@ export function OrderCard({
                     <MoveRight className="h-3 w-3" />
                     Move to
                   </p>
-                  <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                  <div className="min-h-0 flex-1 py-1">
                     <MoveMenuSections
                       columns={availableColumns}
+                      scrollToColumnId={nextMoveColumnId}
                       onSelect={(col) => {
                         onMoveToColumn?.(order, col.id);
                         setMenuOpen(false);

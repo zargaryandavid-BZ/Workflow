@@ -77,6 +77,7 @@ import { maskFedExAccountNumber } from "@/lib/client-fedex";
 import type { WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import { MoveMenuSections } from "./move-menu-sections";
+import { nextColumnIdAfter } from "@/lib/stage-groups";
 import { partCardTitle } from "@/lib/group-orders";
 import {
   COLUMN_SORT_OPTIONS,
@@ -859,6 +860,11 @@ export function BoardTable({
                   )
                 : [];
             const moveable = getMoveableColumns(menuState.order.column_id);
+            const nextMoveColumnId = nextColumnIdAfter(
+              menuState.order.column_id,
+              columns.map((c) => c.id),
+              moveable.map((c) => c.id)
+            );
             const values =
               fieldValuesByOrder[menuState.order.id] ?? {};
             const contact = customerContactFromOrder(
@@ -1090,9 +1096,10 @@ export function BoardTable({
                       <MoveRight className="h-3 w-3" />
                       Move to
                     </p>
-                    <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                    <div className="min-h-0 flex-1 py-1">
                       <MoveMenuSections
                         columns={moveable}
+                        scrollToColumnId={nextMoveColumnId}
                         onSelect={(col) => {
                           onMoveToColumn(menuState.order, col.id);
                           setMenuState(null);

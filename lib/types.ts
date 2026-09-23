@@ -223,6 +223,18 @@ export interface Customer {
   updated_at?: string;
 }
 
+/** Extra company member saved on a customer (review/approval notify). */
+export interface CustomerContact {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface CustomerWithStats extends Customer {
   order_count: number;
   last_order_at: string | null;

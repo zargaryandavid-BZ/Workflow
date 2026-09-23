@@ -10,10 +10,13 @@ import type { OptionalContentConfig } from "pdfjs-dist/types/src/display/optiona
 import { PDFJS_WORKER_SRC, pdfjsDocumentOptions } from "@/lib/pdfjs-map-polyfill";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
+  defaultVisiblePdfLayerIds,
+  isPdfArtworkLayer,
   isUnnamedPdfLayer,
   layersFromOptionalContent,
   mergePdfLayers,
   parsePdfOcgs,
+  withArtworkLayersAlwaysOn,
   type PdfLayer,
 } from "@/lib/pdf-ocg";
 import { cn } from "@/lib/utils";
@@ -164,6 +167,7 @@ export function PdfOcgFromUrl({
   fillHost = false,
   showLoadingBar = true,
   onDrawn,
+  hideLayerNote = false,
 }: {
   src: string;
   fileName: string;
@@ -184,6 +188,8 @@ export function PdfOcgFromUrl({
   showLoadingBar?: boolean;
   /** First successful paint (or open failure). */
   onDrawn?: () => void;
+  /** When true, hides the "This proof has N print layers" info box. */
+  hideLayerNote?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -488,9 +494,15 @@ export function PdfOcgFromUrl({
         const oc = await pdf.getOptionalContentConfig({ intent: PDF_INTENT });
         ocRef.current = oc;
         const found = shared.layers;
+        const initial = withArtworkLayersAlwaysOn(
+          found,
+          defaultVisiblePdfLayerIds(found)
+        );
         setLayers(found);
-        setVisibleIds(new Set(found.map((layer) => layer.id)));
-        for (const layer of found) oc.setVisibility(layer.id, true, false);
+        setVisibleIds(initial);
+        for (const layer of found) {
+          oc.setVisibility(layer.id, initial.has(layer.id), false);
+        }
         if (!cancelled) setLoading(false);
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -623,15 +635,22 @@ export function PdfOcgFromUrl({
 
   function setAllLayers(on: boolean) {
     void applyVisibility(
-      on ? new Set(layers.map((layer) => layer.id)) : new Set()
+      withArtworkLayersAlwaysOn(
+        layers,
+        on ? layers.map((layer) => layer.id) : []
+      )
     );
   }
 
   function toggleLayer(id: string) {
+    const layer = layers.find((l) => l.id === id);
+    if (layer && isPdfArtworkLayer(layer.name) && visibleIds.has(id)) {
+      return;
+    }
     const next = new Set(visibleIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    void applyVisibility(next);
+    void applyVisibility(withArtworkLayersAlwaysOn(layers, next));
   }
 
   const allOn = layers.length > 0 && layers.every((layer) => visibleIds.has(layer.id));
@@ -728,12 +747,14 @@ export function PdfOcgFromUrl({
               <>
             {layers.length > 0 ? (
               <div className="flex w-full flex-col gap-2">
+                {!hideLayerNote && (
                 <div className="flex items-start gap-1.5 rounded-md bg-blue-50 px-2.5 py-2 text-xs text-blue-800">
                   <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                   <span>
                     This proof has <strong>{namedLayers.length} print layer{namedLayers.length !== 1 ? "s" : ""}</strong> (e.g. Cut line, Foil, Artwork). Check the layers you want to preview before approving.
                   </span>
                 </div>
+              )}
                 <div
                   className="flex flex-wrap items-center gap-x-3 gap-y-2"
                   role="group"
@@ -754,17 +775,23 @@ export function PdfOcgFromUrl({
                   </label>
                   {namedLayers.map((layer) => {
                     const on = visibleIds.has(layer.id);
+                    const artworkLocked = isPdfArtworkLayer(layer.name);
                     return (
                       <label
                         key={layer.id}
                         className="inline-flex max-w-[12rem] cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700"
-                        title={`${layer.name} — ${on ? "on" : "off"}`}
+                        title={
+                          artworkLocked
+                            ? "Artwork stays on"
+                            : `${layer.name} — ${on ? "on" : "off"}`
+                        }
                       >
                         <input
                           type="checkbox"
-                          checked={on}
+                          checked={on || artworkLocked}
+                          disabled={artworkLocked}
                           onChange={() => toggleLayer(layer.id)}
-                          className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-100"
                         />
                         <span className="truncate">{layer.name}</span>
                       </label>

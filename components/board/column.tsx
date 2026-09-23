@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import type { BoardThumbnail } from "@/lib/card-image";
 import type { CardNotificationBadge } from "@/lib/card-badges";
 import { isBoardHealthCutoffColumn } from "@/lib/board-health";
+import { nextColumnIdAfter } from "@/lib/stage-groups";
 import type { BoardShippingSign } from "@/lib/board-shipping";
 import {
   READY_TO_SHIP_SHIPPING_OPTIONS,
@@ -102,6 +103,8 @@ interface ColumnProps {
   sortLocked?: boolean;
   /** Columns this card can be moved to via right-click (pre-filtered by board). */
   availableColumns?: ColumnOption[];
+  /** Board column ids in pipeline order — used to center Move to on the next stage. */
+  boardColumnIds?: string[];
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
   /** Admin-only automations for this column (filtered by board). */
   actionButtons?: ButtonAutomation[];
@@ -222,6 +225,7 @@ export function Column({
   isFirst,
   sortLocked = false,
   availableColumns,
+  boardColumnIds,
   onMoveToColumn,
   actionButtons = [],
   appUrl = "",
@@ -251,6 +255,16 @@ export function Column({
   onLoadMore,
   role,
 }: ColumnProps) {
+  const nextMoveColumnId = useMemo(
+    () =>
+      nextColumnIdAfter(
+        column.id,
+        boardColumnIds ?? [],
+        (availableColumns ?? []).map((c) => c.id)
+      ),
+    [column.id, boardColumnIds, availableColumns]
+  );
+
   const dropDisabled = isDragActive && !canAcceptDrop;
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -535,6 +549,7 @@ export function Column({
                     webhookSourceStyles={webhookSourceStyles}
                     designers={designers}
                     availableColumns={availableColumns}
+                    nextMoveColumnId={nextMoveColumnId}
                     onAssignDesigner={
                       role && canAssignDesignerOnBoard(role)
                         ? onGroupAssignDesigner
@@ -635,6 +650,7 @@ export function Column({
                     showShippedEnteredDate={showShippedEnteredDate}
                     timeChips={timeChips}
                     availableColumns={availableColumns}
+                    nextMoveColumnId={nextMoveColumnId}
                     onMoveToColumn={onMoveToColumn}
                     actionButtons={actionButtons}
                     appUrl={appUrl}
@@ -735,6 +751,7 @@ export function Column({
                   showShippedEnteredDate={showShippedEnteredDate}
                   timeChips={timeChips}
                   availableColumns={availableColumns}
+                  nextMoveColumnId={nextMoveColumnId}
                   onMoveToColumn={onMoveToColumn}
                   actionButtons={actionButtons}
                   appUrl={appUrl}

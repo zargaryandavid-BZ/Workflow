@@ -101,6 +101,44 @@ export function formatReadyToShipGroupLabel(
   return `${key} (${members.length} parts: ${titles})`;
 }
 
+export function membersInColumn<T extends { column_id?: string | null }>(
+  members: T[],
+  columnId: string | null | undefined
+): T[] {
+  if (!columnId) return members;
+  return members.filter((m) => m.column_id === columnId);
+}
+
+/**
+ * Parts currently in the Ready to Ship column. Falls back to the full group
+ * only when none match (e.g. the notified card already left the column).
+ */
+export function groupMembersReadyInColumn<
+  T extends { column_id?: string | null },
+>(members: T[], readyColumnId: string | null | undefined): T[] {
+  const ready = membersInColumn(members, readyColumnId);
+  return ready.length > 0 ? ready : members;
+}
+
+/** Customer-facing SMS/email label: only parts in the notify column. */
+export function formatReadyToShipNotifyLabel(
+  members: Array<{
+    title: string;
+    column_id?: string | null;
+    specs?: Record<string, unknown> | null;
+  }>,
+  readyColumnId: string | null | undefined
+): string {
+  const ready = membersInColumn(members, readyColumnId);
+  const listed = ready.length > 0 ? ready : members;
+  if (members.length <= 1 || listed.length === members.length) {
+    return formatReadyToShipGroupLabel(listed);
+  }
+  const key = orderGroupKey(members[0]) ?? members[0].title.replace(/-\d+$/, "");
+  const titles = listed.map((m) => m.title).join(", ");
+  return `${key} (${listed.length} of ${members.length} parts: ${titles})`;
+}
+
 /** Order IDs allowed for a ready-to-ship respond token (primary + siblings). */
 export async function orderIdsForReadyToShipToken(
   client: Client,
@@ -138,5 +176,9 @@ export async function orderIdsForReadyToShipToken(
     }
   );
 
-  return members.map((m) => m.id);
+  const ready = groupMembersReadyInColumn(
+    members,
+    (order.column_id as string | null) ?? null
+  );
+  return ready.map((m) => m.id);
 }

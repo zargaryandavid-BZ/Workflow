@@ -25,6 +25,10 @@ import {
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
+import {
+  CompanyContactsPicker,
+  useCompanyContacts,
+} from "@/components/notify/company-contacts";
 
 interface Props {
   order: OrderWithRelations;
@@ -75,6 +79,15 @@ export function MissingInfoPopup({
   );
   const [email, setEmail] = useState(contact.email ?? "");
   const [phone, setPhone] = useState(contact.phone ?? "");
+  const companyContacts = useCompanyContacts({
+    customerId: order.customer_id,
+    primary: {
+      id: "primary",
+      name: customerName === "there" ? (order.customer?.name ?? "Primary") : customerName,
+      email: email.trim() || null,
+      phone: phone.trim() || null,
+    },
+  });
   const [subject, setSubject] = useState(() =>
     missingInfoSubject(order.title, undefined, {
       customer_name: customerName,
@@ -122,12 +135,13 @@ export function MissingInfoPopup({
       setError("Select Email, SMS, or both.");
       return;
     }
-    if (wantEmail && !email.trim()) {
-      setError("Customer email is required.");
+    const dest = companyContacts.destinations;
+    if (wantEmail && !dest.toEmail) {
+      setError("Select a company contact with an email, or enter one above.");
       return;
     }
     if (wantSms) {
-      const smsError = validateSmsRecipient(phone);
+      const smsError = validateSmsRecipient(dest.toPhone ?? "");
       if (smsError) {
         setError(smsError);
         return;
@@ -146,8 +160,10 @@ export function MissingInfoPopup({
           staffNote: internalNote.trim(),
           subject: wantEmail ? subject.trim() : undefined,
           messageBody: undefined,
-          toEmail: wantEmail ? email.trim() || undefined : undefined,
-          toPhone: wantSms ? phone.trim() || undefined : undefined,
+          toEmail: wantEmail ? dest.toEmail || undefined : undefined,
+          toPhone: wantSms ? dest.toPhone || undefined : undefined,
+          extraSmsPhones: wantSms ? dest.extraSmsPhones : undefined,
+          ccEmails: wantEmail ? dest.ccEmails : undefined,
         },
         NOTIFICATION_SEND_TIMEOUT_MS
       );
@@ -245,6 +261,12 @@ export function MissingInfoPopup({
               </button>
             </div>
           </div>
+
+          <CompanyContactsPicker
+            companyName={order.customer?.company ?? order.customer?.name}
+            customerId={order.customer_id}
+            contacts={companyContacts}
+          />
 
           {wantEmail ? (
             <div>

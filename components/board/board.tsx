@@ -3964,6 +3964,7 @@ export function Board({
                   isPrepressColumn(column.id, columns)
                 }
                 availableColumns={getMoveableColumns(column.id)}
+                boardColumnIds={columns.map((c) => c.id)}
                 onMoveToColumn={handleContextMove}
                 actionButtons={
                   canUseBoardActionButtons(role)

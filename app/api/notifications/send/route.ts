@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
 import { parseEmailList } from "@/lib/email-list";
+import { parseExtraSmsPhones } from "@/lib/customer-contacts";
 import type {
   NotificationChannel,
   NotificationType,
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
     subject?: string;
     messageBody?: string;
     ccEmails?: string[] | string;
+    extraSmsPhones?: string[];
     saveCcToAccount?: boolean;
     groupOrderIds?: string[];
   };
@@ -66,6 +68,16 @@ export async function POST(request: Request) {
     );
   }
 
+  const { valid: extraSmsPhones, invalid: smsInvalid } = parseExtraSmsPhones(
+    body.extraSmsPhones
+  );
+  if (smsInvalid.length > 0) {
+    return NextResponse.json(
+      { error: `Not a valid phone: ${smsInvalid.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
   const supabase = await createClient();
 
   const { data: order } = await supabase
@@ -90,6 +102,8 @@ export async function POST(request: Request) {
         toPhone: body.toPhone ?? null,
         saveContact: body.saveContact ?? false,
         ccEmails: body.ccEmails !== undefined ? ccEmails : undefined,
+        extraSmsPhones:
+          body.extraSmsPhones !== undefined ? extraSmsPhones : undefined,
         saveCcToAccount: body.saveCcToAccount ?? false,
         createdBy: ctx.userId,
         subject: body.subject ?? null,
