@@ -13,8 +13,8 @@ type Ctx2D = {
 
 // Screen proofs only — a lower cap keeps memory/encode time down so even very
 // large (~1GB) print PDFs finish rasterizing within the server limit.
-const MAX_EDGE = 1600;
-const TARGET_DPI = 110;
+const MAX_EDGE = 2200;
+const TARGET_DPI = 150;
 
 type NodeCanvas = {
   encode?: (format: string, quality?: number) => Promise<Buffer>;
