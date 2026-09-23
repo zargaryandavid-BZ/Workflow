@@ -29,10 +29,10 @@ export {
  * orders are hidden from the board, Emergency, and Late/Due counts, but remain
  * searchable via the Archived filter. See {@link OrderWithRelations}.
  */
-export function isOrderArchived(order: {
-  specs?: Record<string, unknown> | null;
-}): boolean {
-  return order.specs?.archived === true;
+export function isOrderArchived(order: { specs?: unknown }): boolean {
+  const specs = order.specs;
+  if (!specs || typeof specs !== "object") return false;
+  return (specs as Record<string, unknown>).archived === true;
 }
 
 export interface BoardOrderFilters {
