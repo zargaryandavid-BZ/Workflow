@@ -208,6 +208,8 @@ interface OrderCardProps {
   /** Die request lifecycle from /die-order. */
   dieStatus?: DieBoardStatus;
   groupSize?: number;
+  /** Every part of this order is in Ready to Ship — highlight to send shipping SMS. */
+  readyToNotify?: boolean;
   warningRules?: CardWarningRule[];
   animateWarnings?: boolean;
   warningWorkingDays?: number[];
@@ -570,6 +572,7 @@ export function OrderCard({
   dieAlert,
   dieStatus,
   groupSize,
+  readyToNotify = false,
   emergencySeverity = null,
   emergencyReasons = [],
   warningRules = [],
@@ -1124,8 +1127,13 @@ export function OrderCard({
             ? "border-amber-300 hover:border-amber-400"
             : webhookCardBg
               ? ""
-              : "bg-white",
-        !emergencySeverity && !shippingBorderColor && !activeWarning
+              : readyToNotify
+                ? ""
+                : "bg-white",
+        !emergencySeverity &&
+        !shippingBorderColor &&
+        !activeWarning &&
+        !readyToNotify
           ? "border-slate-200"
           : "",
         canDrag ? "cursor-pointer" : "cursor-default",
@@ -1133,6 +1141,9 @@ export function OrderCard({
           ? `warning-${activeWarning.rule.color}`
           : "",
         highlighted && "card-just-closed",
+        readyToNotify &&
+          !timerRunning &&
+          "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-400 ring-offset-1",
         // Only an actively-running timer colors the card; paused stays neutral.
         timerRunning && "!border-emerald-500 !bg-emerald-100 ring-2 ring-emerald-300"
       )}
@@ -1309,6 +1320,11 @@ export function OrderCard({
                 ) : null}
                 <DesignFlagChip specs={order.specs} />
                 <SourceChannelChip specs={order.specs} />
+                {readyToNotify ? (
+                  <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
+                    Send ready
+                  </span>
+                ) : null}
                 {!(thumbnails && thumbnails.length > 0) &&
                 shortOrderNumber &&
                 shortOrderNumber !== cardTitle ? (

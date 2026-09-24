@@ -30,6 +30,8 @@ interface ActionButtonProps {
   groupSameColumnCount?: number;
   /** Name of the current column (shown in the SMS confirmation dialog). */
   groupColumnName?: string;
+  /** e.g. "Part 1- In Production, Part 2- Boyd Only" */
+  groupPartLocations?: string;
   customerEmail?: string | null;
   customerPhone?: string | null;
   productLabel?: string | null;
@@ -48,6 +50,7 @@ export function ActionButton({
   groupSize,
   groupSameColumnCount,
   groupColumnName,
+  groupPartLocations,
   customerEmail,
   customerPhone,
   productLabel,
@@ -276,6 +279,11 @@ export function ActionButton({
                 ) : null}
                 .
               </p>
+              {groupPartLocations ? (
+                <p className="mt-1 text-amber-800">
+                  {groupPartLocations}
+                </p>
+              ) : null}
               <p className="mt-0.5 text-amber-700">
                 {groupSameColumnCount != null &&
                 groupSize != null &&

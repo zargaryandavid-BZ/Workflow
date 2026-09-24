@@ -15,7 +15,11 @@ import {
 } from "lucide-react";
 import { OrderCard } from "./order-card";
 import { GroupedOrderCard } from "./grouped-order-card";
-import { groupDragId, groupOrdersForColumn } from "@/lib/group-orders";
+import {
+  getGroupKey,
+  groupDragId,
+  groupOrdersForColumn,
+} from "@/lib/group-orders";
 import {
   COLUMN_SORT_OPTIONS,
   sortOrdersForColumn,
@@ -36,6 +40,10 @@ import {
   orderMatchesReadyToShipShippingFilter,
   type ReadyToShipShippingFilter,
 } from "@/lib/ready-to-ship-shipping-filter";
+import {
+  isCompleteGroupInColumn,
+  isReadyToShipNotifyColumn,
+} from "@/lib/ready-to-ship-group";
 import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type {
   BoardColumn,
@@ -341,6 +349,22 @@ export function Column({
     [groupedView, visibleOrders]
   );
 
+  const readyToNotifyColumn = isReadyToShipNotifyColumn(column);
+  const partsInColumnByOrderId = useMemo(() => {
+    const byKey = new Map<string, number>();
+    for (const o of visibleOrders) {
+      const key = getGroupKey(o);
+      if (!key) continue;
+      byKey.set(key, (byKey.get(key) ?? 0) + 1);
+    }
+    const map: Record<string, number> = {};
+    for (const o of visibleOrders) {
+      const key = getGroupKey(o);
+      map[o.id] = key ? (byKey.get(key) ?? 1) : 1;
+    }
+    return map;
+  }, [visibleOrders]);
+
   // Count badge: show total from DB when available, otherwise fall back to
   // loaded cards length.  Before any load the badge shows 0 briefly; total
   // arrives with the first API response.
@@ -560,6 +584,13 @@ export function Column({
                     onSetDueDates={onGroupSetDueDates}
                     onMoveGroup={onMoveGroup}
                     highlightedOrderId={highlightedOrderId}
+                    readyToNotify={
+                      readyToNotifyColumn &&
+                      isCompleteGroupInColumn(
+                        entry.orders.length,
+                        groupSizeByOrder[entry.orders[0]?.id]
+                      )
+                    }
                   />
                 ) : (
                   <OrderCard
@@ -640,6 +671,13 @@ export function Column({
                     dieStatus={dieStatusByOrder[entry.order.id]}
                     approvalDate={approvalDateByOrder[entry.order.id] ?? null}
                     groupSize={groupSizeByOrder[entry.order.id]}
+                    readyToNotify={
+                      readyToNotifyColumn &&
+                      isCompleteGroupInColumn(
+                        partsInColumnByOrderId[entry.order.id],
+                        groupSizeByOrder[entry.order.id]
+                      )
+                    }
                     warningRules={warningRules}
                     animateWarnings={animateWarnings}
                     warningWorkingDays={warningWorkingDays}
@@ -741,6 +779,13 @@ export function Column({
                   dieStatus={dieStatusByOrder[order.id]}
                   approvalDate={approvalDateByOrder[order.id] ?? null}
                   groupSize={groupSizeByOrder[order.id]}
+                  readyToNotify={
+                    readyToNotifyColumn &&
+                    isCompleteGroupInColumn(
+                      partsInColumnByOrderId[order.id],
+                      groupSizeByOrder[order.id]
+                    )
+                  }
                   warningRules={warningRules}
                   animateWarnings={animateWarnings}
                   warningWorkingDays={warningWorkingDays}

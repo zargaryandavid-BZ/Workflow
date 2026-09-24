@@ -32,7 +32,7 @@ export default async function Page() {
   const customFields = (fieldsRes.data ?? []) as CustomField[];
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
       <FulfillmentScanPage
         columns={columns}
         initialButtons={scanButtons}

@@ -10,10 +10,12 @@ import {
   sanitizeScanLookupToken,
   scanDesignerNameFromSpecs,
   scanOwnerNameFromSpecs,
+  scanPartLocationsFromMembers,
 } from "@/lib/fulfillment-scan-order";
-import { firstThumbnailUrl } from "@/lib/card-image";
 import { normalizeSkus } from "@/lib/skus";
+import { assembleSkuMainPictures } from "@/lib/sku-main-pictures";
 import { formatShortOrderNumber } from "@/lib/order-number-tokens";
+import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
 
 /**
  * GET /api/fulfillment/scan?q=ORDER_NUMBER
@@ -88,19 +90,18 @@ export async function GET(request: Request) {
 
   const profileIds = [...new Set([createdBy, designerId].filter(Boolean))];
 
-  const [skuImagesRes, columnRes, fieldsRes, valuesRes, profilesRes, shippingRes, lastSmsRes] =
+  const [skuImagesRes, columnsRes, fieldsRes, valuesRes, profilesRes, shippingRes, lastSmsRes, members] =
     await Promise.all([
       supabase
         .from("order_sku_images")
         .select("id, sku_id, storage_path, position")
         .eq("order_id", order.id)
-        .order("position", { ascending: true }),
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: true }),
       supabase
         .from("board_columns")
         .select("id, name")
-        .eq("id", order.column_id)
-        .eq("tenant_id", ctx.tenant.id)
-        .maybeSingle(),
+        .eq("tenant_id", ctx.tenant.id),
       supabase
         .from("custom_fields")
         .select("id, name")
@@ -132,22 +133,25 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      listOrderGroupMembers(supabase, ctx.tenant.id, {
+        id: order.id as string,
+        title: String(order.title ?? ""),
+        column_id: (order.column_id as string | null) ?? null,
+        specs,
+      }),
     ]);
 
-  // Build per-SKU signed URLs (one image per SKU — the first by position)
   const skuImgRows = (skuImagesRes.data ?? []) as {
     id: string;
     sku_id: string;
     storage_path: string;
     position: number;
   }[];
-  // First image per sku_id (already ordered by position)
-  const firstBySkuId = new Map<string, string>();
-  for (const row of skuImgRows) {
-    if (!firstBySkuId.has(row.sku_id)) firstBySkuId.set(row.sku_id, row.storage_path);
-  }
-  // Generate signed URLs in one batch
-  const pathsToSign = [...firstBySkuId.values()];
+  const pathsToSign = [
+    ...new Set(
+      skuImgRows.map((r) => r.storage_path).filter((p): p is string => Boolean(p))
+    ),
+  ];
   const signedMap = new Map<string, string>();
   if (pathsToSign.length > 0) {
     const { data: signed } = await supabase.storage
@@ -157,25 +161,11 @@ export async function GET(request: Request) {
       if (s.path) signedMap.set(s.path, s.signedUrl);
     }
   }
-  // Map sku_id → name from specs.skus
-  const skuList = normalizeSkus(specs.skus);
-  const skuNameById = new Map(skuList.map((s) => [s.id, s.name.trim() || `SKU`]));
-  // Build final sku_images array preserving SKU order from specs
-  const skuImages: { sku_id: string; sku_name: string; url: string }[] = [];
-  for (const sku of skuList) {
-    const path = firstBySkuId.get(sku.id);
-    if (!path) continue;
-    const url = signedMap.get(path);
-    if (!url) continue;
-    skuImages.push({ sku_id: sku.id, sku_name: skuNameById.get(sku.id) ?? "SKU", url });
-  }
-  // Also include images for sku_ids not found in specs (fallback)
-  for (const [skuId, path] of firstBySkuId) {
-    if (skuImages.some((s) => s.sku_id === skuId)) continue;
-    const url = signedMap.get(path);
-    if (!url) continue;
-    skuImages.push({ sku_id: skuId, sku_name: "SKU", url });
-  }
+  const skuImages = assembleSkuMainPictures({
+    skus: normalizeSkus(specs.skus),
+    imageRows: skuImgRows,
+    urlByPath: signedMap,
+  });
 
   const fieldNameById = new Map(
     ((fieldsRes.data ?? []) as { id: string; name: string }[]).map((f) => [
@@ -206,7 +196,13 @@ export async function GET(request: Request) {
   const profileName = (id: string) =>
     profiles.find((p) => p.id === id)?.full_name?.trim() || null;
 
-  const columnName = (columnRes.data as { name?: string } | null)?.name ?? null;
+  const columnNameById = new Map(
+    ((columnsRes.data ?? []) as { id: string; name: string }[]).map((c) => [
+      c.id,
+      c.name,
+    ])
+  );
+  const columnName = columnNameById.get(order.column_id as string) ?? null;
   const designerName =
     profileName(designerId) || scanDesignerNameFromSpecs(specs);
   const ownerName =
@@ -228,11 +224,14 @@ export async function GET(request: Request) {
     status: string | null;
   } | null;
 
+  const groupParts = scanPartLocationsFromMembers(members, columnNameById);
+
   return NextResponse.json({
     id: order.id,
     title: order.title,
     order_number: scanned.orderNumber || formatShortOrderNumber(String(order.title ?? "")),
-    main_item_count: scanned.mainItemCount,
+    main_item_count: groupParts.length || scanned.mainItemCount,
+    group_parts: groupParts,
     due_date: (order as { due_date?: string | null }).due_date ?? null,
     due_display: card.dueDisplay,
     column_id: order.column_id,

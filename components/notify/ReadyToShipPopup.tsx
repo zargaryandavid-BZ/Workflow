@@ -45,6 +45,7 @@ interface CheckResult {
   siblingTitles?: string[];
   groupLabel?: string;
   notifyLabel?: string;
+  partLocations?: string;
   previousNotificationDate: string | null;
 }
 
@@ -472,7 +473,11 @@ export function ReadyToShipPopup({
                     ? `Waiting for all parts — ${checkResult.siblingsInColumn} of ${checkResult.siblingCount} are in Ready to Ship. A partial notification lists only the parts that are in this column.`
                     : `All ${checkResult.siblingCount} parts are ready. One notification link will show all parts for the customer.`}
                 </span>
-                {checkResult.siblingTitles?.length ? (
+                {checkResult.partLocations ? (
+                  <p className="text-xs font-medium">
+                    {checkResult.partLocations}
+                  </p>
+                ) : checkResult.siblingTitles?.length ? (
                   <p className="text-xs opacity-80">
                     {checkResult.siblingTitles.join(" · ")}
                   </p>

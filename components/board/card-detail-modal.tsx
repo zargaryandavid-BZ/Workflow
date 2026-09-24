@@ -147,6 +147,8 @@ interface CardDetailModalProps {
   groupSameColumnCount?: number;
   /** Name of the column this order is currently in (for the SMS confirmation dialog). */
   groupColumnName?: string;
+  /** e.g. "Part 1- In Production, Part 2- Boyd Only" */
+  groupPartLocations?: string;
   /** Columns that trigger a notification popup when a card enters them. */
   notifyColumns?: NotifyColumnConfig[];
   webhookSourceStyles?: WebhookSourceStyles;
@@ -308,6 +310,7 @@ export function CardDetailModal({
   groupSize,
   groupSameColumnCount,
   groupColumnName,
+  groupPartLocations,
 }: CardDetailModalProps) {
   const [modalCustomFields, setModalCustomFields] =
     useState<CustomField[]>(customFields);
@@ -2354,6 +2357,7 @@ export function CardDetailModal({
               groupSize={groupSize}
               groupSameColumnCount={groupSameColumnCount}
               groupColumnName={groupColumnName}
+              groupPartLocations={groupPartLocations}
               customerEmail={orderContact.email}
               customerPhone={orderContact.phone}
               productLabel={productFromOrder(fieldValues, modalCustomFields)}

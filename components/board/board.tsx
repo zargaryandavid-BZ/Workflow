@@ -80,6 +80,7 @@ import {
   uniqueOrdersById,
   type GroupEntry,
 } from "@/lib/group-orders";
+import { formatGroupPartLocations, isCompleteGroupInColumn, isReadyToShipNotifyColumn } from "@/lib/ready-to-ship-group";
 import {
   businessDateString,
   isOrderNumberQuery,
@@ -506,7 +507,14 @@ export function Board({
     if (groupOrders.length < 2) return undefined;
     const sameCount = groupOrders.filter((o) => o.column_id === order.column_id).length;
     const colName = columns.find((c) => c.id === order.column_id)?.name ?? "this column";
-    return { sameColumnCount: sameCount, columnName: colName };
+    const partLocations = formatGroupPartLocations(
+      groupOrders.map((o) => ({
+        title: o.title,
+        columnName:
+          columns.find((c) => c.id === o.column_id)?.name ?? null,
+      }))
+    );
+    return { sameColumnCount: sameCount, columnName: colName, partLocations };
   }, [detailId, orders, searchResults, columns]);
 
   const doneColumnIds = useMemo(
@@ -4062,6 +4070,17 @@ export function Board({
               customFields={customFields}
               fieldValuesByOrder={displayFieldValuesByOrder}
               webhookSourceStyles={webhookSourceStyles}
+              readyToNotify={
+                isReadyToShipNotifyColumn(
+                  columns.find((c) => c.id === activeGroup.orders[0]?.column_id) ?? {
+                    name: "",
+                  }
+                ) &&
+                isCompleteGroupInColumn(
+                  activeGroup.orders.length,
+                  groupSizeByOrder[activeGroup.orders[0]?.id]
+                )
+              }
             />
           ) : activeOrder ? (
             <OrderCard
@@ -4126,6 +4145,7 @@ export function Board({
         groupSize={detailGroupSize}
         groupSameColumnCount={detailGroupSameColumn?.sameColumnCount}
         groupColumnName={detailGroupSameColumn?.columnName}
+        groupPartLocations={detailGroupSameColumn?.partLocations}
         customFields={customFields}
         owners={owners}
         columns={columns}

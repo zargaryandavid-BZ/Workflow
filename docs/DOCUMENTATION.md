@@ -1,6 +1,6 @@
 # Documentation
 
-**Last updated: September 23, 2026**
+**Last updated: September 24, 2026**
 
 Complete project reference for developers and AI agents.
 
@@ -1523,6 +1523,8 @@ Main production board: drag-and-drop, filters, modals, notification popups, Real
 - Subscribes to `orders` Realtime → `router.refresh()`.
 - Opens `CardDetailModal` when a card is clicked.
 
+In **(Boyd Only) Ready to Ship** (`kind: ready_to_ship`), a grouped card is highlighted green with a **Send ready** chip when every part of that order is in this column (`isCompleteGroupInColumn` + `isReadyToShipNotifyColumn` in `lib/ready-to-ship-group.ts`). Split groups (1 of 2) stay the normal blue group style.
+
 Cards load per column via `GET /api/board/column-orders` (`BOARD_ORDER_LIST_SELECT` — no `crm_snapshot`, lock columns, or `internal_note`). Opening a card uses `GET /api/orders/[id]` (`ORDER_DETAIL_SELECT`, includes Notes). Indexes in `0097_orders_list_perf_indexes.sql` cover tenant + `created_at` / column sorts. Do not CDN-cache that route (auth + Realtime).
 
 ---
@@ -1791,7 +1793,7 @@ respond/[token]/page (server)
 
 ## Workflows
 
-**Last updated: June 23, 2026**
+**Last updated: September 24, 2026**
 
 End-to-end flows as implemented in code. Column **kinds** in the database are `exception` (missing info) and `approval` (customer approval), not the string names `missing_info` / `customer_approval` (those are notification types).
 
@@ -1801,7 +1803,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 ### Fulfillment Scan
 
-`/fulfillment/scan` (`components/fulfillment/FulfillmentScanPage.tsx`). Floor station: look up an order, then tap an action button to move it to a board column (`POST /api/fulfillment/scan/action`). Button names, order, and target columns are tenant-editable (**Configure columns** in the fulfillment header) and stored as `fulfillment_settings.scan_column_config.buttons` (`id`, `label`, `column_id`). Legacy `{ received, delivered, shipped, finished, finished_reviewed }` maps are still read.
+`/fulfillment/scan` (`components/fulfillment/FulfillmentScanPage.tsx`). Floor station: look up an order, then tap an action button to move it to a board column (`POST /api/fulfillment/scan/action`). Button names, order, and target columns are tenant-editable (**Configure columns** in the fulfillment header) and stored as `fulfillment_settings.scan_column_config.buttons` (`id`, `label`, `column_id`). Legacy `{ received, delivered, shipped, finished, finished_reviewed }` maps are still read. Below `lg`, Scan stacks as order card → product specs → shipping → compact artwork → info/actions, and the page scrolls. At `lg+` specs and artwork sit left of shipping/actions; artwork fills leftover height. The **Main order items** count is bold blue and opens a list of each part and its board column (`0467-1` In Production). The open order’s column name is highlighted; **Finished: Review Request** is a red tag with white text (not truncated). Clicking another part loads that order in Scan. **Set Up Shipping** is the only shipping action when no portal exists yet. **Reminder Select Shipping** appears only after a `shipping_requests` row exists and the client has not chosen; **Reminder Pickup** only after they chose pickup.
 
 ---
 

@@ -3,6 +3,10 @@ import { describe, it } from "node:test";
 import {
   formatReadyToShipGroupLabel,
   formatReadyToShipNotifyLabel,
+  formatGroupPartLocations,
+  shortPartColumnName,
+  isReadyToShipNotifyColumn,
+  isCompleteGroupInColumn,
 } from "./ready-to-ship-group.ts";
 
 const RTS = "rts-col";
@@ -64,5 +68,44 @@ describe("formatReadyToShipNotifyLabel", () => {
       "ORD-2026-0712 (2 of 3 parts: 0712-1, 0712-2)"
     );
     assert.doesNotMatch(label, /0712-3/);
+  });
+});
+
+describe("formatGroupPartLocations", () => {
+  it("lists each part with its column", () => {
+    assert.equal(
+      formatGroupPartLocations([
+        { title: "15168-1", columnName: "In Production" },
+        { title: "15168-2", columnName: "(Boyd Only) Ready to Ship" },
+      ]),
+      "Part 1- In Production, Part 2- Boyd Only"
+    );
+  });
+
+  it("shortens Boyd Only column names", () => {
+    assert.equal(shortPartColumnName("(Boyd Only) Ready to Ship"), "Boyd Only");
+    assert.equal(shortPartColumnName("In Production"), "In Production");
+  });
+});
+
+describe("complete group in Ready to Ship", () => {
+  it("matches Boyd Ready to Ship columns", () => {
+    assert.equal(
+      isReadyToShipNotifyColumn({
+        kind: "ready_to_ship",
+        name: "(Boyd Only) Ready to Ship",
+      }),
+      true
+    );
+    assert.equal(
+      isReadyToShipNotifyColumn({ kind: "normal", name: "In Production" }),
+      false
+    );
+  });
+
+  it("requires every part of the group in this column", () => {
+    assert.equal(isCompleteGroupInColumn(2, 2), true);
+    assert.equal(isCompleteGroupInColumn(1, 2), false);
+    assert.equal(isCompleteGroupInColumn(1, 1), false);
   });
 });

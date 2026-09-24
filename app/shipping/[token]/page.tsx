@@ -4,6 +4,11 @@ import {
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
 import { parseCardImageRef, preferCardImage } from "@/lib/card-image";
+import { normalizeSkus } from "@/lib/skus";
+import {
+  assembleSkuMainPictures,
+  type SkuMainPicture,
+} from "@/lib/sku-main-pictures";
 import { buildRespondOrderRows } from "@/lib/respond-order";
 import { defaultDeliveryAddress } from "@/lib/shipping-address";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -71,21 +76,27 @@ function pickupLinesFromRow(row: ShippingRpcRow): string[] {
   return [street, `${city}, ${state} ${zip}`, hours];
 }
 
-/** Same first image as the board card (SKU gallery, then order assets). */
-async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
+/** SKU main pictures (first gallery image per SKU) plus board-card fallback. */
+async function artworkForOrder(orderId: string): Promise<{
+  skuPictures: SkuMainPicture[];
+  mainImageUrl: string | null;
+}> {
   let admin;
   try {
     admin = createAdminClient();
   } catch {
-    return null;
+    return { skuPictures: [], mainImageUrl: null };
   }
 
   const [skuImagesRes, assetsRes, orderRes] = await Promise.all([
     admin
       .from("order_sku_images")
-      .select("id, order_id, storage_path, file_name, mime_type, position, created_at")
+      .select(
+        "id, order_id, sku_id, storage_path, file_name, mime_type, position, created_at"
+      )
       .eq("order_id", orderId)
-      .order("position", { ascending: true }),
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true }),
     admin
       .from("assets")
       .select("id, order_id, storage_path, external_url, file_name, mime_type, created_at")
@@ -94,7 +105,37 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
     admin.from("orders").select("specs").eq("id", orderId).maybeSingle(),
   ]);
 
-  const skuRows: OrderAssetPreviewRow[] = (skuImagesRes.data ?? []).map(
+  const skuRows = (skuImagesRes.data ?? []) as {
+    id: string;
+    sku_id: string;
+    storage_path: string | null;
+  }[];
+  const paths = [
+    ...new Set(
+      skuRows
+        .map((r) => r.storage_path?.trim())
+        .filter((p): p is string => Boolean(p))
+    ),
+  ];
+  const signedMap = new Map<string, string>();
+  if (paths.length > 0) {
+    const { data: signed } = await admin.storage
+      .from("order-assets")
+      .createSignedUrls(paths, 3600);
+    for (const s of (signed ?? []) as { path: string | null; signedUrl: string }[]) {
+      if (s.path && s.signedUrl) signedMap.set(s.path, s.signedUrl);
+    }
+  }
+
+  const skuPictures = assembleSkuMainPictures({
+    skus: normalizeSkus(
+      (orderRes.data?.specs as { skus?: unknown } | null)?.skus
+    ),
+    imageRows: skuRows,
+    urlByPath: signedMap,
+  });
+
+  const skuRowsForThumbs: OrderAssetPreviewRow[] = (skuImagesRes.data ?? []).map(
     (r) => ({
       id: r.id as string,
       source: "sku_image" as const,
@@ -112,14 +153,14 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
     source: "asset" as const,
   }));
   const byOrder = await boardThumbnailsByOrder(
-    [...skuRows, ...assetRows],
-    async (paths) => {
+    [...skuRowsForThumbs, ...assetRows],
+    async (signPaths) => {
       const { data: signed } = await admin.storage
         .from("order-assets")
-        .createSignedUrls(paths, 3600);
+        .createSignedUrls(signPaths, 3600);
       return new Map(
         ((signed ?? []) as { path: string | null; signedUrl: string }[])
-          .filter((s) => s.path)
+          .filter((s) => s.path && s.signedUrl)
           .map((s) => [s.path as string, s.signedUrl])
       );
     }
@@ -128,7 +169,10 @@ async function mainImageUrlForOrder(orderId: string): Promise<string | null> {
     byOrder[orderId] ?? [],
     parseCardImageRef(orderRes.data?.specs)
   );
-  return preferred[0]?.url ?? null;
+  return {
+    skuPictures,
+    mainImageUrl: skuPictures[0]?.url ?? preferred[0]?.url ?? null,
+  };
 }
 
 /** Fallback contact from the order's linked customer row. */
@@ -167,7 +211,7 @@ function PortalShell({
 }) {
   return (
     <div className="min-h-screen bg-[#f8fafc] px-4 py-8">
-      <div className="mx-auto w-full max-w-[640px] overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
+      <div className="mx-auto w-full max-w-[720px] overflow-hidden rounded-xl border border-[#e2e8f0] bg-white shadow-sm">
         <div className="flex items-center justify-between bg-[#1a1f2e] px-4 py-3 text-white">
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15">
@@ -236,8 +280,8 @@ export default async function ShippingPortalPage({
       ? query.session_id
       : null;
 
-  const [mainImageUrl, customerFallbacks] = await Promise.all([
-    mainImageUrlForOrder(row.order_id),
+  const [artwork, customerFallbacks] = await Promise.all([
+    artworkForOrder(row.order_id),
     customerFallbacksForOrder(row.order_id),
   ]);
 
@@ -273,7 +317,8 @@ export default async function ShippingPortalPage({
     offerCurri: Boolean(row.offer_curri),
     paymentReturnSessionId,
     paymentCancelled: query.payment === "cancelled",
-    mainImageUrl,
+    mainImageUrl: artwork.mainImageUrl,
+    skuArtworks: artwork.skuPictures,
   };
 
   return (

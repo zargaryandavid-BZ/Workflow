@@ -70,6 +70,8 @@ interface GroupedOrderCardProps {
   onMoveGroup?: (orders: OrderWithRelations[], targetColumnId: string) => void;
   /** When set and this group contains the order, expand + highlight. */
   highlightedOrderId?: string | null;
+  /** Whole multi-part order is in Ready to Ship — highlight to send shipping SMS. */
+  readyToNotify?: boolean;
 }
 
 function designerNameForGroupItem(
@@ -104,6 +106,7 @@ export function GroupedOrderCard({
   onSetDueDates,
   onMoveGroup,
   highlightedOrderId = null,
+  readyToNotify = false,
 }: GroupedOrderCardProps) {
   const { key, orders } = entry;
   const sortableId =
@@ -282,9 +285,12 @@ export function GroupedOrderCard({
         }}
         onContextMenu={handleContextMenu}
         className={cn(
-          "rounded-md border-2 border-blue-200 bg-blue-50 px-3 py-3.5 shadow-sm transition-shadow hover:shadow-md",
+          "rounded-md border-2 px-3 py-3.5 shadow-sm transition-shadow hover:shadow-md",
+          readyToNotify
+            ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-400 ring-offset-1"
+            : "border-blue-200 bg-blue-50",
           "cursor-pointer",
-          open && "ring-2 ring-blue-400 ring-offset-1",
+          open && !readyToNotify && "ring-2 ring-blue-400 ring-offset-1",
           containsHighlight && "card-just-closed"
         )}
       >
@@ -296,7 +302,12 @@ export function GroupedOrderCard({
               orderTitle={sharedOrderTitle(rep)}
             />
             <div className="flex items-center gap-2">
-              <Layers className="h-4 w-4 shrink-0 text-blue-500" />
+              <Layers
+                className={cn(
+                  "h-4 w-4 shrink-0",
+                  readyToNotify ? "text-emerald-600" : "text-blue-500"
+                )}
+              />
               {displayCustomerName ? (
                 <span className="truncate text-[15px] font-bold text-slate-900">
                   {displayCustomerName}
@@ -305,8 +316,15 @@ export function GroupedOrderCard({
               <span className="shrink-0 text-[15px] font-bold text-slate-400">
                 {shortKey}
               </span>
-              <span className="shrink-0 rounded-full bg-blue-500 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
-                {orders.length} items
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold leading-none text-white",
+                  readyToNotify ? "bg-emerald-600" : "bg-blue-500"
+                )}
+              >
+                {readyToNotify
+                  ? `${orders.length} items · Send ready`
+                  : `${orders.length} items`}
               </span>
             </div>
           </div>

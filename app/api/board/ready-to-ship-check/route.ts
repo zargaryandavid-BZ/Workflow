@@ -4,6 +4,7 @@ import { getTenantContext } from "@/lib/auth";
 import {
   formatReadyToShipGroupLabel,
   formatReadyToShipNotifyLabel,
+  formatGroupPartLocations,
   listOrderGroupMembers,
 } from "@/lib/ready-to-ship-group";
 
@@ -64,6 +65,30 @@ export async function GET(request: Request) {
   const groupLabel = formatReadyToShipGroupLabel(members);
   const notifyLabel = formatReadyToShipNotifyLabel(members, columnId);
 
+  const columnIds = [
+    ...new Set(
+      members.map((m) => m.column_id).filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const { data: colRows } = columnIds.length
+    ? await supabase
+        .from("board_columns")
+        .select("id, name")
+        .eq("tenant_id", tenantId)
+        .in("id", columnIds)
+    : { data: [] as { id: string; name: string }[] };
+  const columnNameById = new Map(
+    ((colRows ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name])
+  );
+  const partLocations = formatGroupPartLocations(
+    members.map((m) => ({
+      title: m.title,
+      columnName: m.column_id
+        ? (columnNameById.get(m.column_id) ?? null)
+        : null,
+    }))
+  );
+
   const memberIds = members.map((m) => m.id);
   const [{ data: previousNotif }, { data: previousShip }] = await Promise.all([
     supabase
@@ -102,6 +127,7 @@ export async function GET(request: Request) {
     siblingTitles,
     groupLabel,
     notifyLabel,
+    partLocations,
     previousNotificationDate: latest,
   });
 }

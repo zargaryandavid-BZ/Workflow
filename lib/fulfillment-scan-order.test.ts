@@ -5,6 +5,7 @@ import {
   parseScanQuery,
   pickScannedOrder,
   sanitizeScanLookupToken,
+  scanPartLocationsFromMembers,
 } from "./fulfillment-scan-order.ts";
 
 describe("pickScannedOrder", () => {
@@ -142,5 +143,37 @@ describe("buildScanCardDisplay", () => {
       ]
     );
     assert.equal(d.specLines.find((l) => l.label === "Category")?.value, "Packaging & Boxes");
+  });
+});
+
+describe("scanPartLocationsFromMembers", () => {
+  it("lists each part with its column name", () => {
+    const cols = new Map([
+      ["a", "In Production"],
+      ["b", "(Boyd Only) Ready to Ship"],
+    ]);
+    assert.deepEqual(
+      scanPartLocationsFromMembers(
+        [
+          { id: "1", title: "0467-1", column_id: "a" },
+          { id: "2", title: "0467-2", column_id: "b" },
+        ],
+        cols
+      ),
+      [
+        {
+          id: "1",
+          title: "0467-1",
+          query: "0467-1",
+          columnName: "In Production",
+        },
+        {
+          id: "2",
+          title: "0467-2",
+          query: "0467-2",
+          columnName: "(Boyd Only) Ready to Ship",
+        },
+      ]
+    );
   });
 });

@@ -139,6 +139,52 @@ export function formatReadyToShipNotifyLabel(
   return `${key} (${listed.length} of ${members.length} parts: ${titles})`;
 }
 
+export function partNumberFromTitle(title: string): number | null {
+  const m = title.trim().match(/-(\d+)\s*$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** "(Boyd Only) Ready to Ship" → "Boyd Only"; other names stay as-is. */
+export function shortPartColumnName(name: string): string {
+  const t = name.trim();
+  if (!t) return "Unknown";
+  if (/boyd only/i.test(t)) return "Boyd Only";
+  return t;
+}
+
+/** e.g. "Part 1- In Production, Part 2- Boyd Only" */
+export function formatGroupPartLocations(
+  members: Array<{ title: string; columnName: string | null | undefined }>
+): string {
+  return members
+    .map((m, i) => {
+      const n = partNumberFromTitle(m.title) ?? i + 1;
+      const col = shortPartColumnName(m.columnName ?? "");
+      return `Part ${n}- ${col}`;
+    })
+    .join(", ");
+}
+
+/** Column where a complete group should be highlighted for shipping-ready SMS. */
+export function isReadyToShipNotifyColumn(col: {
+  kind?: string | null;
+  name: string;
+}): boolean {
+  if (col.kind === "ready_to_ship") return true;
+  return /boyd only/i.test(col.name) && /ready to ship/i.test(col.name);
+}
+
+/** True when every part of a multi-item order is in this column. */
+export function isCompleteGroupInColumn(
+  partsInThisColumn: number,
+  groupSize: number | null | undefined
+): boolean {
+  const n = groupSize ?? 0;
+  return n >= 2 && partsInThisColumn === n;
+}
+
 /** Order IDs allowed for a ready-to-ship respond token (primary + siblings). */
 export async function orderIdsForReadyToShipToken(
   client: Client,

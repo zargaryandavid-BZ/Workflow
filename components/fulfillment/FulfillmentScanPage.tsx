@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronRight,
@@ -44,7 +44,12 @@ import {
   type ScanActionButton,
 } from "@/lib/fulfillment-scan-config";
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
+import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
+
+function isFinishedReviewRequestColumn(name: string | null | undefined) {
+  return finishedCustomerSmsKind(name) === "review";
+}
 
 interface OrderResult {
   id: string;
@@ -57,6 +62,12 @@ interface OrderResult {
   qty?: number | null;
   order_number?: string | null;
   main_item_count?: number | null;
+  group_parts?: {
+    id: string;
+    title: string;
+    query: string;
+    columnName: string;
+  }[];
   specs?: {
     quantity?: unknown;
     stock?: unknown;
@@ -122,6 +133,97 @@ function ScanSpecValue({ label, value }: { label: string; value: string }) {
       ) : null}
       <span className="min-w-0 break-words">{value}</span>
     </span>
+  );
+}
+
+function MainOrderItemsCount({
+  count,
+  parts,
+  currentOrderId,
+}: {
+  count: number | null | undefined;
+  parts: {
+    id: string;
+    title: string;
+    query: string;
+    columnName: string;
+  }[];
+  currentOrderId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const label = count != null ? String(count) : "—";
+  if (parts.length === 0) {
+    return (
+      <span className="text-[13px] md:text-[15px] font-semibold text-slate-900">
+        {label}
+      </span>
+    );
+  }
+
+  function openPart(part: (typeof parts)[number]) {
+    setOpen(false);
+    if (part.id === currentOrderId) return;
+    window.dispatchEvent(
+      new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: part.query } })
+    );
+  }
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[13px] md:text-[15px] font-bold text-blue-600 hover:text-blue-800 hover:underline"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+      >
+        {label}
+      </button>
+      {open ? (
+        <div className="absolute left-0 z-40 mt-1 w-max min-w-[16rem] rounded-xl border border-slate-200 bg-white py-1.5 shadow-lg">
+          {parts.map((p) => {
+            const isCurrent = p.id === currentOrderId;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => openPart(p)}
+                className={cn(
+                  "flex w-full flex-nowrap items-center gap-4 whitespace-nowrap px-3 py-1.5 text-left text-[13px] md:text-[15px]",
+                  isCurrent ? "bg-blue-50" : "hover:bg-slate-50"
+                )}
+              >
+                <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                  {p.title}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-md px-1.5 py-0.5",
+                    isFinishedReviewRequestColumn(p.columnName)
+                      ? "bg-red-600 font-semibold text-white"
+                      : isCurrent
+                        ? "bg-blue-600 font-semibold text-white"
+                        : "text-slate-600"
+                  )}
+                >
+                  {p.columnName}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -231,7 +333,7 @@ function PinnedSpecTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="relative rounded-xl border border-slate-200 bg-white">
       {/* Row 1: Order Number + Main order items (one cell) | Line Item */}
       <div className="grid grid-cols-2 border-b border-slate-100">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-4 py-2.5">
@@ -243,9 +345,11 @@ function PinnedSpecTable({
           </span>
           <span className="inline-flex min-w-0 items-baseline gap-1.5">
             <span className="shrink-0 text-[11px] md:text-[13px] text-slate-400">Main order items:</span>
-            <span className="text-[13px] md:text-[15px] font-semibold text-slate-900">
-              {order.main_item_count != null ? String(order.main_item_count) : "—"}
-            </span>
+            <MainOrderItemsCount
+              count={order.main_item_count}
+              parts={order.group_parts ?? []}
+              currentOrderId={order.id}
+            />
           </span>
         </div>
         <PinnedCell label="Line Item" value={lineItem} border />
@@ -437,9 +541,9 @@ function ShippingReminderSection({
           <p className="mb-3 text-[12px] md:text-[14px] text-slate-500">FedEx — print shipping label</p>
         )}
 
-        {/* SMS buttons — contextual: pickup→only pickup reminder, awaiting→only select shipping */}
+        {/* SMS reminders only after a shipping portal was already sent */}
         <div className="flex flex-col gap-2">
-          {(choice === "pickup" || choice === null) && (
+          {sr && (choice === "pickup" || choice === null) && (
             <button
               type="button"
               disabled={!phone || sending !== null}
@@ -461,7 +565,7 @@ function ShippingReminderSection({
           )}
         </div>
 
-        {lastSentLabel && (
+        {sr && lastSentLabel && (
           <p className="mt-2 text-[11px] md:text-[13px] text-slate-400">Last sent: {lastSentLabel}</p>
         )}
 
@@ -821,81 +925,74 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         />
       )}
 
-      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-        {/* ---------------------------------------------------------------- */}
-        {/* LEFT — scan input + order details                                */}
-        {/* ---------------------------------------------------------------- */}
-        <div className="flex w-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-b border-slate-100 md:w-[55%] md:border-b-0 md:border-r">
-          {/* Lookup error */}
+      <div className="flex flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
+        {/* On small screens `contents` unwraps so identity + shipping sit above artwork. */}
+        <div className="max-lg:contents flex min-h-0 min-w-0 w-full flex-col lg:h-full lg:w-[55%] lg:overflow-hidden lg:border-r lg:border-slate-100">
           {lookupError && (
-            <div className="mx-5 mt-4 shrink-0 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-[13px] md:text-[15px] text-red-700">
+            <div className="order-first mx-4 mt-3 shrink-0 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-[13px] md:text-[15px] text-red-700 lg:mx-5 lg:mt-4">
               {lookupError}
             </div>
           )}
 
-          {/* Order details */}
           {order && (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {/* Product specification */}
-              <div className="shrink-0 border-b border-slate-100 px-4 py-3">
-                <p className="mb-1.5 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
-                  Product specification
-                </p>
-                <PinnedSpecTable order={order} specsArr={specsArr} />
-              </div>
-
-              {/* Artwork fills remaining height; images scale to fit */}
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-3">
-                <p className="mb-2 shrink-0 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
-                  Artwork
-                </p>
-                {order.sku_images?.length ? (
-                  <div
-                    className="grid min-h-0 flex-1 gap-3"
-                    style={{
-                      gridTemplateColumns:
-                        order.sku_images.length === 1 ? "1fr" : "1fr 1fr",
-                      gridTemplateRows: `repeat(${Math.ceil(order.sku_images.length / (order.sku_images.length === 1 ? 1 : 2))}, minmax(0, 1fr))`,
-                    }}
-                  >
-                    {order.sku_images.map((sku) => (
-                      <div
-                        key={sku.sku_id}
-                        className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
-                      >
-                        <p className="shrink-0 truncate border-b border-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-700">
-                          {sku.sku_name}
-                        </p>
-                        <div className="relative min-h-0 flex-1">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={sku.url}
-                            alt={sku.sku_name}
-                            className="absolute inset-0 h-full w-full object-contain p-2"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : order.thumbnail_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={order.thumbnail_url}
-                    alt="Artwork"
-                    className="min-h-0 w-full flex-1 rounded-xl border border-slate-100 object-contain"
-                  />
-                ) : (
-                  <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] md:text-[14px] text-slate-400">
-                    No artwork preview
-                  </div>
-                )}
-              </div>
+            <div className="order-3 shrink-0 border-b border-slate-100 px-4 py-3">
+              <p className="mb-1.5 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+                Product specification
+              </p>
+              <PinnedSpecTable order={order} specsArr={specsArr} />
             </div>
           )}
 
-          {/* Empty state */}
+          {order && (
+            <div className="order-4 flex min-h-[9rem] max-h-[28vh] flex-col overflow-hidden border-b border-slate-100 px-4 py-3 lg:max-h-none lg:min-h-0 lg:flex-1 lg:border-b-0">
+              <p className="mb-2 shrink-0 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+                Artwork
+              </p>
+              {order.sku_images?.length ? (
+                <div
+                  className="grid min-h-0 flex-1 gap-3"
+                  style={{
+                    gridTemplateColumns:
+                      order.sku_images.length === 1 ? "1fr" : "1fr 1fr",
+                    gridTemplateRows: `repeat(${Math.ceil(order.sku_images.length / (order.sku_images.length === 1 ? 1 : 2))}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {order.sku_images.map((sku) => (
+                    <div
+                      key={sku.sku_id}
+                      className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                    >
+                      <p className="shrink-0 truncate border-b border-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-700">
+                        {sku.sku_name}
+                      </p>
+                      <div className="relative min-h-0 flex-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={sku.url}
+                          alt={sku.sku_name}
+                          className="absolute inset-0 h-full w-full object-contain p-2"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : order.thumbnail_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={order.thumbnail_url}
+                  alt="Artwork"
+                  className="min-h-0 w-full flex-1 rounded-xl border border-slate-100 object-contain"
+                />
+              ) : (
+                <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] md:text-[14px] text-slate-400">
+                  No artwork preview
+                </div>
+              )}
+            </div>
+          )}
+
           {!order && !loading && !lookupError && (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 py-16 text-slate-400">
+            <div className="order-2 flex flex-1 flex-col items-center justify-center gap-2 py-16 text-slate-400">
               <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
                 <rect x="8" y="8" width="8" height="8" rx="1" />
@@ -906,58 +1003,70 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           )}
         </div>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* RIGHT — order info, balance, actions                             */}
-        {/* ---------------------------------------------------------------- */}
-        <div className="flex w-full min-w-0 flex-col gap-4 overflow-y-auto px-4 py-4 md:w-[45%] md:px-5 md:py-5">
-
-          {/* Customer + Order identity card — compact 2-column */}
+        <div className="max-lg:contents flex w-full min-w-0 flex-col gap-4 lg:h-full lg:min-h-0 lg:w-[45%] lg:overflow-y-auto lg:px-5 lg:py-5">
           {order && (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <div className="grid grid-cols-2 divide-x divide-slate-100">
-                {/* Left: order # + status + due */}
-                <div className="flex flex-col gap-1 px-3 py-2.5">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] md:text-[13px] font-bold text-blue-700">
-                      #{order.title}
-                    </span>
-                    {order.column_name && (
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] md:text-[13px] font-medium text-slate-600">
-                        {order.column_name}
+            <div className="order-1 shrink-0 px-4 pt-4 lg:px-0 lg:pt-0">
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="grid min-w-0 grid-cols-2 divide-x divide-slate-100">
+                  <div className="flex min-w-0 flex-col gap-1 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] md:text-[13px] font-bold text-blue-700">
+                        #{order.title}
                       </span>
+                      {order.column_name && (
+                        <span
+                          className={cn(
+                            "max-w-full rounded-full border px-2 py-0.5 text-[11px] md:text-[13px] leading-snug",
+                            isFinishedReviewRequestColumn(order.column_name)
+                              ? "whitespace-normal border-red-600 bg-red-600 font-semibold text-white"
+                              : "truncate border-slate-200 bg-slate-50 font-medium text-slate-600"
+                          )}
+                        >
+                          {order.column_name}
+                        </span>
+                      )}
+                    </div>
+                    <span className={cn("text-[11px] md:text-[13px] font-medium", late ? "text-red-600" : "text-slate-400")}>
+                      Due {dueLabel}{late && " · Late"}
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 flex-col justify-center gap-0.5 px-3 py-2.5">
+                    <p className="truncate text-[13px] md:text-[15px] font-semibold text-slate-900">
+                      {order.customer?.name ?? "Unknown customer"}
+                    </p>
+                    {order.customer?.email && (
+                      <p className="truncate text-[11px] md:text-[13px] text-slate-500">{order.customer.email}</p>
+                    )}
+                    {order.customer?.phone && (
+                      <p className="truncate text-[11px] md:text-[13px] text-slate-500">{order.customer.phone}</p>
                     )}
                   </div>
-                  <span className={cn("text-[11px] md:text-[13px] font-medium", late ? "text-red-600" : "text-slate-400")}>
-                    Due {dueLabel}{late && " · Late"}
-                  </span>
-                </div>
-                {/* Right: customer name + contact */}
-                <div className="flex flex-col justify-center gap-0.5 px-3 py-2.5">
-                  <p className="truncate text-[13px] md:text-[15px] font-semibold text-slate-900">
-                    {order.customer?.name ?? "Unknown customer"}
-                  </p>
-                  {order.customer?.email && (
-                    <p className="truncate text-[11px] md:text-[13px] text-slate-500">{order.customer.email}</p>
-                  )}
-                  {order.customer?.phone && (
-                    <p className="text-[11px] md:text-[13px] text-slate-500">{order.customer.phone}</p>
-                  )}
                 </div>
               </div>
             </div>
           )}
 
-          {/* Shipping reminders */}
-          {order && (
-            <ShippingReminderSection
-              order={order}
-              onShippingCreated={() => void lookup(order.title)}
-              tenantName={tenantName}
-              customFields={customFields}
-              smsConfigured={smsConfigured}
-            />
-          )}
+          {order && (() => {
+            const orderColumn = columns.find((c) => c.id === order.column_id);
+            // "Finished…" and "Fulfil…" columns are done-stage regardless of kind
+            const isFinishedStage = /fulfil|^\s*finished\b/i.test(orderColumn?.name ?? "");
+            const isShippingColumn =
+              orderColumn?.kind === "ready_to_ship" ||
+              (!isFinishedStage && orderColumn?.kind === "normal" && !!order.shipping_request);
+            return isShippingColumn ? (
+              <div className="order-2 shrink-0 px-4 lg:px-0">
+                <ShippingReminderSection
+                  order={order}
+                  onShippingCreated={() => void lookup(order.title)}
+                  tenantName={tenantName}
+                  customFields={customFields}
+                  smsConfigured={smsConfigured}
+                />
+              </div>
+            ) : null;
+          })()}
 
+          <div className="order-5 flex flex-col gap-4 px-4 pb-4 lg:px-0 lg:pb-0">
           {/* Order info + Balance — side by side on md+, stacked on mobile */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* Order info card */}
@@ -1069,6 +1178,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                 </p>
               ) : null}
             </div>
+          </div>
           </div>
         </div>
       </div>

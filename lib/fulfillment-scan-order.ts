@@ -341,3 +341,25 @@ export function nestedCustomer(
     phone: typeof c.phone === "string" ? c.phone : null,
   };
 }
+
+export type ScanPartLocation = {
+  id: string;
+  title: string;
+  query: string;
+  columnName: string;
+};
+
+/** One row per grouped part: `0467-1` + board column name. */
+export function scanPartLocationsFromMembers(
+  members: Array<{ id: string; title: string; column_id: string | null }>,
+  columnNameById: Map<string, string>
+): ScanPartLocation[] {
+  return members.map((m) => ({
+    id: m.id,
+    title: m.title.replace(/^ORD-\d{4}-/i, "").trim() || m.title,
+    query: m.title,
+    columnName:
+      (m.column_id ? columnNameById.get(m.column_id)?.trim() : null) ||
+      "Unknown",
+  }));
+}

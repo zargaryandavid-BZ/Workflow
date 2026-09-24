@@ -17,6 +17,8 @@ interface ButtonAutomationBarProps {
   groupSameColumnCount?: number;
   /** Name of the current column (shown in the SMS confirmation dialog). */
   groupColumnName?: string;
+  /** e.g. "Part 1- In Production, Part 2- Boyd Only" */
+  groupPartLocations?: string;
   customerEmail?: string | null;
   customerPhone?: string | null;
   productLabel?: string | null;
@@ -34,6 +36,7 @@ export function ButtonAutomationBar({
   groupSize,
   groupSameColumnCount,
   groupColumnName,
+  groupPartLocations,
   customerEmail,
   customerPhone,
   productLabel,
@@ -56,6 +59,7 @@ export function ButtonAutomationBar({
           groupSize={groupSize}
           groupSameColumnCount={groupSameColumnCount}
           groupColumnName={groupColumnName}
+          groupPartLocations={groupPartLocations}
           customerEmail={customerEmail}
           customerPhone={customerPhone}
           productLabel={productLabel}

@@ -54,8 +54,8 @@ export interface ShippingPortalData {
   offerCurri: boolean;
   paymentReturnSessionId?: string | null;
   paymentCancelled?: boolean;
-  /** Board-card main image (SKU gallery / order asset). */
-  mainImageUrl?: string | null;
+  /** One main gallery picture per SKU (Artwork section). */
+  skuArtworks?: { sku_id: string; sku_name: string; url: string }[];
 }
 
 const US_STATES: { code: string; name: string }[] = [
@@ -804,13 +804,42 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         </p>
       </div>
 
-      {data.mainImageUrl ? (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-          <img
-            src={data.mainImageUrl}
-            alt={`Order ${data.orderTitle}`}
-            className="mx-auto max-h-72 w-full object-contain"
-          />
+      {data.skuArtworks && data.skuArtworks.length > 0 ? (
+        <div>
+          <p className="mb-2 text-sm font-medium text-slate-800">Artwork</p>
+          <div
+            className={cn(
+              "grid gap-3",
+              data.skuArtworks.length === 1 ? "grid-cols-1" : "grid-cols-2"
+            )}
+          >
+            {data.skuArtworks.map((sku) => (
+              <figure
+                key={sku.sku_id}
+                className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+              >
+                <img
+                  src={sku.url}
+                  alt={sku.sku_name}
+                  className="mx-auto max-h-56 w-full object-contain bg-white"
+                />
+                <figcaption className="truncate border-t border-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">
+                  {sku.sku_name}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      ) : data.mainImageUrl ? (
+        <div>
+          <p className="mb-2 text-sm font-medium text-slate-800">Artwork</p>
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+            <img
+              src={data.mainImageUrl}
+              alt={`Order ${data.orderTitle}`}
+              className="mx-auto max-h-72 w-full object-contain"
+            />
+          </div>
         </div>
       ) : null}
 
