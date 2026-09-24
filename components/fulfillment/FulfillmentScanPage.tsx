@@ -43,6 +43,8 @@ import {
   serializeScanButtons,
   type ScanActionButton,
 } from "@/lib/fulfillment-scan-config";
+import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
+import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 interface OrderResult {
   id: string;
@@ -67,6 +69,12 @@ interface OrderResult {
   owner_name: string | null;
   designer_name: string | null;
   billing: { deposit: number | null; balance: number | null } | null;
+  shipping_request?: {
+    token: string | null;
+    client_choice: "pickup" | "delivery" | "uber" | "curri" | null;
+    status: string | null;
+  } | null;
+  last_sms_at?: string | null;
 }
 
 const ACTION_ICON_COLORS = [
@@ -260,6 +268,194 @@ function PinnedSpecTable({
         </>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shipping reminder section
+// ---------------------------------------------------------------------------
+
+const SHIPPING_LABELS: Record<string, { label: string; color: string }> = {
+  pickup:   { label: "Pickup",   color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  delivery: { label: "FedEx",    color: "bg-blue-50 text-blue-700 border-blue-200" },
+  uber:     { label: "Uber",     color: "bg-slate-800 text-white border-slate-800" },
+  curri:    { label: "Curri",    color: "bg-orange-50 text-orange-700 border-orange-200" },
+};
+
+const BASE_URL = "https://workflow-rho-one.vercel.app";
+
+function ShippingReminderSection({
+  order, onShippingCreated, tenantName, customFields, smsConfigured,
+}: {
+  order: OrderResult;
+  onShippingCreated: () => void;
+  tenantName: string;
+  customFields: CustomField[];
+  smsConfigured: boolean;
+}) {
+  const [sending, setSending] = useState<"pickup" | "shipping" | null>(null);
+  const [sent, setSent]       = useState<"pickup" | "shipping" | null>(null);
+  const [smsError, setSmsError] = useState<string | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
+  const [setupOrder, setSetupOrder] = useState<OrderWithRelations | null>(null);
+  const [setupLoading, setSetupLoading] = useState(false);
+
+  async function openSetup() {
+    setSetupLoading(true);
+    try {
+      const res = await fetch(`/api/orders/${order.id}`);
+      const json = await res.json() as { order?: OrderWithRelations };
+      if (json.order) { setSetupOrder(json.order); setShowSetup(true); }
+    } finally {
+      setSetupLoading(false);
+    }
+  }
+
+  const sr = order.shipping_request;
+  const choice = sr?.client_choice ?? null;
+  const token  = sr?.token ?? null;
+  const phone  = order.customer?.phone ?? null;
+
+  const lastSentLabel = order.last_sms_at
+    ? new Date(order.last_sms_at).toLocaleString("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit",
+      })
+    : null;
+  const shippingUrl = token ? `${BASE_URL}/shipping/${token}` : null;
+
+  const choiceMeta = choice ? SHIPPING_LABELS[choice] : null;
+
+  async function sendReminder(type: "pickup" | "shipping") {
+    if (!phone) return;
+    setSending(type);
+    setSmsError(null);
+    setSent(null);
+
+    let body = "";
+    if (type === "pickup") {
+      if (choice === "pickup") {
+        body = `Hi, this is Bazaar Printing. Kindly reminder your order ${order.title} is ready to pickup.`;
+      } else {
+        // Awaiting — send the portal link
+        body = shippingUrl
+          ? `Hi, this is Bazaar Printing. Your order ${order.title} is ready. View order and choose pickup or delivery: ${shippingUrl}`
+          : `Hi, this is Bazaar Printing. Your order ${order.title} is ready. Please contact us to arrange pickup or delivery.`;
+      }
+    } else {
+      body = shippingUrl
+        ? `Hi, this is Bazaar Printing. Your order ${order.title} is ready. View order and choose pickup or delivery: ${shippingUrl}`
+        : `Hi, this is Bazaar Printing. Your order ${order.title} is ready. Please contact us to arrange shipping.`;
+    }
+
+    try {
+      const res = await fetch(`/api/orders/${order.id}/actions/quick-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, body }),
+      });
+      const json = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to send SMS");
+      setSent(type);
+      setTimeout(() => setSent(null), 4000);
+    } catch (err) {
+      setSmsError(err instanceof Error ? err.message : "Failed to send SMS");
+    } finally {
+      setSending(null);
+    }
+  }
+
+  return (
+    <>
+      {showSetup && setupOrder && (
+        <ReadyToShipPopup
+          order={setupOrder}
+          columnId={order.column_id}
+          tenantName={tenantName}
+          customFields={customFields}
+          fieldValues={{}}
+          smsConfigured={smsConfigured}
+          onClose={() => { setShowSetup(false); setSetupOrder(null); }}
+          onSent={() => { setShowSetup(false); setSetupOrder(null); onShippingCreated(); }}
+        />
+      )}
+    <div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        Shipping
+      </p>
+      <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-3">
+        {/* No shipping request yet */}
+        {!sr && (
+          <button
+            type="button"
+            onClick={() => void openSetup()}
+            disabled={setupLoading}
+            className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-[13px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              <PackageCheck className="h-4 w-4" />
+            </span>
+            <span className="flex-1">{setupLoading ? "Loading…" : "Set Up Shipping"}</span>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+          </button>
+        )}
+
+        {/* Delivery method badge */}
+        {sr && <div className="mb-3 flex items-center gap-2">
+          <span className="text-[12px] text-slate-500">Delivery option:</span>
+          {choiceMeta ? (
+            <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-semibold", choiceMeta.color)}>
+              {choiceMeta.label}
+            </span>
+          ) : (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+              Awaiting
+            </span>
+          )}
+          {!phone && (
+            <span className="ml-auto text-[11px] text-slate-400">No phone on file</span>
+          )}
+        </div>}
+
+        {/* Extra info for delivery types */}
+        {choice === "delivery" && (
+          <p className="mb-3 text-[12px] text-slate-500">FedEx — print shipping label</p>
+        )}
+
+        {/* SMS buttons — contextual: pickup→only pickup reminder, awaiting→only select shipping */}
+        <div className="flex flex-col gap-2">
+          {(choice === "pickup" || choice === null) && (
+            <button
+              type="button"
+              disabled={!phone || sending !== null}
+              onClick={() => void sendReminder(choice === "pickup" ? "pickup" : "shipping")}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] font-medium transition-colors",
+                phone
+                  ? "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                  : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400"
+              )}
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 text-base">
+                {choice === "pickup" ? "📦" : "🚚"}
+              </span>
+              <span className="flex-1">
+                {sending !== null ? "Sending…" : sent !== null ? "✓ Sent" : choice === "pickup" ? "Reminder Pickup" : "Reminder Select Shipping"}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {lastSentLabel && (
+          <p className="mt-2 text-[11px] text-slate-400">Last sent: {lastSentLabel}</p>
+        )}
+
+        {smsError && (
+          <p className="mt-2 text-[12px] text-red-600">{smsError}</p>
+        )}
+      </div>
+    </div>
+    </>
   );
 }
 
@@ -478,9 +674,12 @@ function SettingsPanel({
 interface Props {
   columns: BoardColumn[];
   initialButtons: ScanActionButton[];
+  tenantName: string;
+  customFields: CustomField[];
+  smsConfigured: boolean;
 }
 
-export function FulfillmentScanPage({ columns, initialButtons }: Props) {
+export function FulfillmentScanPage({ columns, initialButtons, tenantName, customFields, smsConfigured }: Props) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<OrderResult | null>(null);
@@ -645,7 +844,7 @@ export function FulfillmentScanPage({ columns, initialButtons }: Props) {
                           {sku.sku_name}
                         </p>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={sku.url} alt={sku.sku_name} className="h-40 w-full object-contain p-2" />
+                        <img src={sku.url} alt={sku.sku_name} className="w-full object-contain p-2" />
                       </div>
                     ))}
                   </div>
@@ -713,6 +912,17 @@ export function FulfillmentScanPage({ columns, initialButtons }: Props) {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Shipping reminders */}
+          {order && (
+            <ShippingReminderSection
+              order={order}
+              onShippingCreated={() => void lookup(order.title)}
+              tenantName={tenantName}
+              customFields={customFields}
+              smsConfigured={smsConfigured}
+            />
           )}
 
           {/* Order info + Balance — side by side on md+, stacked on mobile */}

@@ -77,14 +77,17 @@ export function MoveMenuSections<T extends MoveMenuColumn>({
       cancelAnimationFrame(outer);
       cancelAnimationFrame(inner);
     };
-  }, [scrollToColumnId, columns]);
+    // Intentionally not depending on `columns` identity — a new array every
+    // render would re-center and fight the user scrolling to Finished.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToColumnId]);
 
   if (sections.length === 0) return null;
 
   return (
     <div
       ref={scrollRef}
-      className="max-h-[55vh] overflow-y-auto overscroll-contain"
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain max-h-[55vh]"
     >
       {sections.map((section) => (
         <div

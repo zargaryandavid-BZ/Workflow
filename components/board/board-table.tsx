@@ -1096,7 +1096,7 @@ export function BoardTable({
                       <MoveRight className="h-3 w-3" />
                       Move to
                     </p>
-                    <div className="min-h-0 flex-1 py-1">
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-1">
                       <MoveMenuSections
                         columns={moveable}
                         scrollToColumnId={nextMoveColumnId}

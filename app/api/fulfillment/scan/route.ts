@@ -85,7 +85,7 @@ export async function GET(request: Request) {
 
   const profileIds = [...new Set([createdBy, designerId].filter(Boolean))];
 
-  const [skuImagesRes, columnRes, fieldsRes, valuesRes, profilesRes] =
+  const [skuImagesRes, columnRes, fieldsRes, valuesRes, profilesRes, shippingRes, lastSmsRes] =
     await Promise.all([
       supabase
         .from("order_sku_images")
@@ -112,6 +112,23 @@ export async function GET(request: Request) {
             .select("id, full_name")
             .in("id", profileIds)
         : Promise.resolve({ data: [] as { id: string; full_name: string | null }[] }),
+      supabase
+        .from("shipping_requests")
+        .select("id, token, client_choice, status")
+        .eq("order_id", order.id)
+        .eq("tenant_id", ctx.tenant.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("order_sms_messages")
+        .select("created_at")
+        .eq("order_id", order.id)
+        .eq("tenant_id", ctx.tenant.id)
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
   // Build per-SKU signed URLs (one image per SKU — the first by position)
@@ -201,6 +218,13 @@ export async function GET(request: Request) {
     (order as { customer?: unknown }).customer
   );
 
+  const shippingRow = shippingRes.data as {
+    id: string;
+    token: string | null;
+    client_choice: string | null;
+    status: string | null;
+  } | null;
+
   return NextResponse.json({
     id: order.id,
     title: order.title,
@@ -221,5 +245,13 @@ export async function GET(request: Request) {
           balance: billing.balance ?? null,
         }
       : null,
+    shipping_request: shippingRow
+      ? {
+          token: shippingRow.token,
+          client_choice: shippingRow.client_choice as "pickup" | "delivery" | "uber" | "curri" | null,
+          status: shippingRow.status,
+        }
+      : null,
+    last_sms_at: (lastSmsRes.data as { created_at: string } | null)?.created_at ?? null,
   });
 }
