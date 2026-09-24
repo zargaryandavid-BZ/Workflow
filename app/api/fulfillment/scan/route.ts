@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   buildScanCardDisplay,
   nestedCustomer,
+  parseScanQuery,
   pickScannedOrder,
   sanitizeScanLookupToken,
   scanDesignerNameFromSpecs,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/fulfillment-scan-order";
 import { firstThumbnailUrl } from "@/lib/card-image";
 import { normalizeSkus } from "@/lib/skus";
+import { formatShortOrderNumber } from "@/lib/order-number-tokens";
 
 /**
  * GET /api/fulfillment/scan?q=ORDER_NUMBER
@@ -29,7 +31,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "q is required" }, { status: 400 });
   }
 
-  const lookupToken = sanitizeScanLookupToken(q);
+  const scanned = parseScanQuery(q);
+  const lookupToken = scanned.lookupToken || sanitizeScanLookupToken(q);
   if (!lookupToken) {
     return NextResponse.json({ error: "Invalid query" }, { status: 400 });
   }
@@ -228,6 +231,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     id: order.id,
     title: order.title,
+    order_number: scanned.orderNumber || formatShortOrderNumber(String(order.title ?? "")),
+    main_item_count: scanned.mainItemCount,
     due_date: (order as { due_date?: string | null }).due_date ?? null,
     due_display: card.dueDisplay,
     column_id: order.column_id,

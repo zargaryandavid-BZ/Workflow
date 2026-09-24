@@ -6,14 +6,37 @@ import {
   orderMatchesNumberSearch,
 } from "./order-number-tokens.ts";
 
+/**
+ * Job-ticket QR text: `15169-1 (1)` → order `15169-1`, 1 main line item.
+ * The count in parentheses is not part of the order number.
+ */
+export function parseScanQuery(raw: string): {
+  orderNumber: string;
+  lookupToken: string;
+  mainItemCount: number | null;
+} {
+  const trimmed = raw.trim();
+  const withCount = trimmed.match(/^(.*?)\s*\((\d+)\)\s*$/);
+  const orderNumber = (withCount ? withCount[1] : trimmed)
+    .replace(/\s+/g, " ")
+    .trim();
+  const n = withCount ? Number(withCount[2]) : NaN;
+  const mainItemCount = Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+  return {
+    orderNumber,
+    lookupToken: orderNumber.replace(/[%_,()]/g, "").trim().slice(0, 32),
+    mainItemCount,
+  };
+}
+
 export function sanitizeScanLookupToken(value: string): string {
-  return value.replace(/[%_,()]/g, "").trim().slice(0, 32);
+  return parseScanQuery(value).lookupToken;
 }
 
 export function pickScannedOrder<
   T extends { title: string; specs?: Record<string, unknown> | null },
 >(orders: T[], query: string): T | null {
-  const q = query.trim();
+  const q = parseScanQuery(query).orderNumber;
   if (!q || orders.length === 0) return null;
   const ranked = orders
     .filter((order) => orderMatchesNumberSearch(order, q))

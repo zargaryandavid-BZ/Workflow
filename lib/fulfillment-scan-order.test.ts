@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildScanCardDisplay,
+  parseScanQuery,
   pickScannedOrder,
   sanitizeScanLookupToken,
 } from "./fulfillment-scan-order.ts";
@@ -32,9 +33,43 @@ describe("pickScannedOrder", () => {
   });
 });
 
+describe("parseScanQuery", () => {
+  it("reads order number and main item count from ticket QR text", () => {
+    const parsed = parseScanQuery("15169-1 (1)");
+    assert.equal(parsed.orderNumber, "15169-1");
+    assert.equal(parsed.lookupToken, "15169-1");
+    assert.equal(parsed.mainItemCount, 1);
+  });
+
+  it("accepts no space before the count", () => {
+    assert.equal(parseScanQuery("15169-1(3)").mainItemCount, 3);
+    assert.equal(parseScanQuery("15169-1(3)").orderNumber, "15169-1");
+  });
+
+  it("leaves a plain order number unchanged", () => {
+    const parsed = parseScanQuery("15169-1");
+    assert.equal(parsed.orderNumber, "15169-1");
+    assert.equal(parsed.mainItemCount, null);
+  });
+});
+
 describe("sanitizeScanLookupToken", () => {
-  it("strips PostgREST filter metacharacters", () => {
-    assert.equal(sanitizeScanLookupToken("12%3_4(5)"), "12345");
+  it("strips PostgREST filter metacharacters from the order number", () => {
+    assert.equal(sanitizeScanLookupToken("12%3_4"), "1234");
+  });
+
+  it("does not treat a QR item-count suffix as part of the lookup", () => {
+    assert.equal(sanitizeScanLookupToken("15169-1 (1)"), "15169-1");
+  });
+});
+
+describe("pickScannedOrder", () => {
+  it("finds 15169-1 when the QR includes a main-item count", () => {
+    const orders = [
+      { id: "a", title: "15169-1", specs: null },
+      { id: "b", title: "15169-2", specs: null },
+    ];
+    assert.equal(pickScannedOrder(orders, "15169-1 (1)")?.id, "a");
   });
 });
 

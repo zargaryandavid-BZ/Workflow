@@ -55,6 +55,8 @@ interface OrderResult {
   column_name: string | null;
   spec_lines?: { label: string; value: string }[];
   qty?: number | null;
+  order_number?: string | null;
+  main_item_count?: number | null;
   specs?: {
     quantity?: unknown;
     stock?: unknown;
@@ -230,9 +232,22 @@ function PinnedSpecTable({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      {/* Row 1: Order Number | Line Item */}
+      {/* Row 1: Order Number + Main order items (one cell) | Line Item */}
       <div className="grid grid-cols-2 border-b border-slate-100">
-        <PinnedCell label="Order Number" value={order.title} />
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-4 py-2.5">
+          <span className="inline-flex min-w-0 items-baseline gap-1.5">
+            <span className="shrink-0 text-[11px] text-slate-400">Order Number:</span>
+            <span className="text-[13px] font-semibold text-slate-900">
+              {order.order_number?.trim() || order.title}
+            </span>
+          </span>
+          <span className="inline-flex min-w-0 items-baseline gap-1.5">
+            <span className="shrink-0 text-[11px] text-slate-400">Main order items:</span>
+            <span className="text-[13px] font-semibold text-slate-900">
+              {order.main_item_count != null ? String(order.main_item_count) : "—"}
+            </span>
+          </span>
+        </div>
         <PinnedCell label="Line Item" value={lineItem} border />
       </div>
       {/* Row 2: SKU Qty | Total Qty */}
@@ -806,58 +821,76 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         />
       )}
 
-      <div className="flex h-full min-h-0 flex-1 flex-col overflow-auto md:flex-row md:overflow-hidden">
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* ---------------------------------------------------------------- */}
         {/* LEFT — scan input + order details                                */}
         {/* ---------------------------------------------------------------- */}
-        <div className="flex w-full min-w-0 flex-col overflow-y-auto border-b border-slate-100 md:w-[55%] md:border-b-0 md:border-r">
+        <div className="flex w-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-b border-slate-100 md:w-[55%] md:border-b-0 md:border-r">
           {/* Lookup error */}
           {lookupError && (
-            <div className="mx-5 mt-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+            <div className="mx-5 mt-4 shrink-0 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-[13px] text-red-700">
               {lookupError}
             </div>
           )}
 
           {/* Order details */}
           {order && (
-            <>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {/* Product specification */}
-              <div className="border-b border-slate-100 px-4 py-3">
+              <div className="shrink-0 border-b border-slate-100 px-4 py-3">
                 <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                   Product specification
                 </p>
                 <PinnedSpecTable order={order} specsArr={specsArr} />
               </div>
 
-              {/* Artwork — summary + 2×N SKU thumbnails */}
-              <div className="px-4 py-4">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              {/* Artwork fills remaining height; images scale to fit */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-3">
+                <p className="mb-2 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                   Artwork
                 </p>
-
-                {/* Image grid */}
                 {order.sku_images?.length ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div
+                    className="grid min-h-0 flex-1 gap-3"
+                    style={{
+                      gridTemplateColumns:
+                        order.sku_images.length === 1 ? "1fr" : "1fr 1fr",
+                      gridTemplateRows: `repeat(${Math.ceil(order.sku_images.length / (order.sku_images.length === 1 ? 1 : 2))}, minmax(0, 1fr))`,
+                    }}
+                  >
                     {order.sku_images.map((sku) => (
-                      <div key={sku.sku_id} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                        <p className="truncate border-b border-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-700">
+                      <div
+                        key={sku.sku_id}
+                        className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                      >
+                        <p className="shrink-0 truncate border-b border-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-700">
                           {sku.sku_name}
                         </p>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={sku.url} alt={sku.sku_name} className="w-full object-contain p-2" />
+                        <div className="relative min-h-0 flex-1">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={sku.url}
+                            alt={sku.sku_name}
+                            className="absolute inset-0 h-full w-full object-contain p-2"
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
                 ) : order.thumbnail_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={order.thumbnail_url} alt="Artwork" className="w-full rounded-xl border border-slate-100 object-contain" style={{ maxHeight: 260 }} />
+                  <img
+                    src={order.thumbnail_url}
+                    alt="Artwork"
+                    className="min-h-0 w-full flex-1 rounded-xl border border-slate-100 object-contain"
+                  />
                 ) : (
-                  <div className="flex aspect-video w-full items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] text-slate-400">
+                  <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] text-slate-400">
                     No artwork preview
                   </div>
                 )}
               </div>
-            </>
+            </div>
           )}
 
           {/* Empty state */}
