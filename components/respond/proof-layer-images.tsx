@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Layers, Maximize2, X } from "lucide-react";
 import {
+  isPdfArtworkLayer,
   isPdfCutLineLayer,
   isPdfWhiteInkLayer,
   isUnnamedPdfLayer,
@@ -55,10 +56,16 @@ export function ProofLayerImages({
   preSignedLayerUrls?: Record<string, string>;
   onReady?: () => void;
 }) {
-  const namedLayers = useMemo(
-    () => preview.layers.filter((layer) => !isUnnamedPdfLayer(layer.name)),
-    [preview.layers]
-  );
+  // Order plates for display: Artwork/design first, then effects (UV, foil,
+  // white…), dieline last. Applies to both the checkboxes and the tiles.
+  const namedLayers = useMemo(() => {
+    const rank = (name: string) =>
+      isPdfArtworkLayer(name) ? 0 : isPdfCutLineLayer(name) ? 2 : 1;
+    return preview.layers
+      .filter((layer) => !isUnnamedPdfLayer(layer.name))
+      .slice()
+      .sort((a, b) => rank(a.name) - rank(b.name));
+  }, [preview.layers]);
   // Default-visible layers: the visible design + finishes, but NOT the dieline
   // and NOT the white-ink underprint (which pdf.js paints as a green mess). Both
   // stay toggleable.
@@ -267,7 +274,7 @@ export function ProofLayerImages({
           {pics.map((pic) => (
             <div
               key={pic.id}
-              className="flex min-w-[15rem] flex-1 basis-80 flex-col gap-1"
+              className="flex min-w-[14rem] flex-1 basis-72 flex-col gap-1"
             >
               <span className="truncate text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
                 {pic.name}
