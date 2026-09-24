@@ -46,8 +46,7 @@ export const fetchBoardConfigCached = unstable_cache(
         supabase
           .from("automation_rules")
           .select("*")
-          .eq("tenant_id", tenantId)
-          .eq("trigger", "on_enter_column"),
+          .eq("tenant_id", tenantId),
         supabase
           .from("webhook_configs")
           .select("source_styles")

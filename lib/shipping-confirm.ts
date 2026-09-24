@@ -6,6 +6,7 @@ import {
   isClientFedExSelection,
 } from "@/lib/client-fedex";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
+import { onShippingOptSelected } from "@/lib/automation";
 import type {
   FedExRateOption,
   ShippingClientChoice,
@@ -117,6 +118,12 @@ export async function completeShippingResponse(
       }
     }
   }
+
+  // Fire-and-forget: move order to the configured automation column
+  void onShippingOptSelected(admin, {
+    orderId: existing.order_id,
+    tenantId: existing.tenant_id,
+  });
 
   return { ok: true, shippingRequestId: existing.id };
 }

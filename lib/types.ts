@@ -84,7 +84,8 @@ export type AutomationTrigger =
   | "on_enter_column"
   | "on_approval_result"
   | "on_job_created"
-  | "on_column_idle";
+  | "on_column_idle"
+  | "on_shipping_opt_selected";
 
 export type NotificationType = "missing_info" | "customer_approval" | "ready_to_ship";
 

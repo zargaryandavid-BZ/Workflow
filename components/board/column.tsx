@@ -76,6 +76,7 @@ interface ColumnProps {
   onSortModeChange: (mode: ColumnSortMode) => void;
   shippingFilter?: ReadyToShipShippingFilter;
   onShippingFilterChange?: (mode: ReadyToShipShippingFilter) => void;
+  shippingFilterOptions?: { value: ReadyToShipShippingFilter; label: string }[];
   customFields: CustomField[];
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, BoardThumbnail[]>;
@@ -204,6 +205,7 @@ export function Column({
   onSortModeChange,
   shippingFilter = "all",
   onShippingFilterChange,
+  shippingFilterOptions,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
@@ -310,7 +312,7 @@ export function Column({
 
   const showDropTarget = isDragActive && isOver && canAcceptDrop;
 
-  const showShippingFilter = isBoardHealthCutoffColumn(column);
+  const showShippingFilter = isBoardHealthCutoffColumn(column) || onShippingFilterChange !== undefined;
 
   const sortedOrders = useMemo(
     () => sortOrdersForColumn(orders, sortMode),
@@ -436,7 +438,7 @@ export function Column({
                   )}
                   title="Filter by shipping: Pickup, FedEx, Self FedEx, Awaiting"
                 >
-                  {READY_TO_SHIP_SHIPPING_OPTIONS.map((opt) => (
+                  {(shippingFilterOptions ?? READY_TO_SHIP_SHIPPING_OPTIONS).map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>

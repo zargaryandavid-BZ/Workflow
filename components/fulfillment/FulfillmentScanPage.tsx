@@ -116,7 +116,7 @@ function isLate(due: string | null): boolean {
 function ScanSpecValue({ label, value }: { label: string; value: string }) {
   const isCategory = label.trim().toLowerCase() === "category";
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-slate-900">
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] md:text-[15px] font-semibold text-slate-900">
       {isCategory ? (
         <Package className="h-3.5 w-3.5 shrink-0 text-slate-500" />
       ) : null}
@@ -132,7 +132,7 @@ function ScanSpecTable({
   rows: { label: string; value: string }[];
 }) {
   if (rows.length === 0) {
-    return <p className="text-[12px] text-slate-400">No spec data</p>;
+    return <p className="text-[12px] md:text-[14px] text-slate-400">No spec data</p>;
   }
   // Full-width labels (long text fields that shouldn't be squeezed into half a row)
   const FULL_WIDTH_LABELS = new Set(["line item", "designer information", "production notes", "options", "special effects"]);
@@ -162,7 +162,7 @@ function ScanSpecTable({
             key={idx}
             className={cn("flex items-start gap-2 px-4 py-2.5", idx > 0 && "border-t border-slate-100")}
           >
-            <dt className="shrink-0 text-[11px] text-slate-400">{dr.row.label}:</dt>
+            <dt className="shrink-0 text-[11px] md:text-[13px] text-slate-400">{dr.row.label}:</dt>
             <dd className="min-w-0 flex-1">
               <ScanSpecValue label={dr.row.label} value={dr.row.value} />
             </dd>
@@ -181,7 +181,7 @@ function ScanSpecTable({
                     j === 0 && dr.right && "border-r border-slate-100"
                   )}
                 >
-                  <dt className="shrink-0 text-[11px] text-slate-400">{row.label}:</dt>
+                  <dt className="shrink-0 text-[11px] md:text-[13px] text-slate-400">{row.label}:</dt>
                   <dd className="min-w-0 flex-1">
                     <ScanSpecValue label={row.label} value={row.value} />
                   </dd>
@@ -224,8 +224,8 @@ function PinnedSpecTable({
   function PinnedCell({ label, value, border = false }: { label: string; value: string | null; border?: boolean }) {
     return (
       <div className={cn("flex items-baseline gap-2 px-4 py-2.5", border && "border-l border-slate-100")}>
-        <span className="shrink-0 text-[11px] text-slate-400">{label}:</span>
-        <span className="min-w-0 break-words text-[13px] font-semibold text-slate-900">{value ?? "—"}</span>
+        <span className="shrink-0 text-[11px] md:text-[13px] text-slate-400">{label}:</span>
+        <span className="min-w-0 break-words text-[13px] md:text-[15px] font-semibold text-slate-900">{value ?? "—"}</span>
       </div>
     );
   }
@@ -236,14 +236,14 @@ function PinnedSpecTable({
       <div className="grid grid-cols-2 border-b border-slate-100">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-4 py-2.5">
           <span className="inline-flex min-w-0 items-baseline gap-1.5">
-            <span className="shrink-0 text-[11px] text-slate-400">Order Number:</span>
-            <span className="text-[13px] font-semibold text-slate-900">
+            <span className="shrink-0 text-[11px] md:text-[13px] text-slate-400">Order Number:</span>
+            <span className="text-[13px] md:text-[15px] font-semibold text-slate-900">
               {order.order_number?.trim() || order.title}
             </span>
           </span>
           <span className="inline-flex min-w-0 items-baseline gap-1.5">
-            <span className="shrink-0 text-[11px] text-slate-400">Main order items:</span>
-            <span className="text-[13px] font-semibold text-slate-900">
+            <span className="shrink-0 text-[11px] md:text-[13px] text-slate-400">Main order items:</span>
+            <span className="text-[13px] md:text-[15px] font-semibold text-slate-900">
               {order.main_item_count != null ? String(order.main_item_count) : "—"}
             </span>
           </span>
@@ -268,7 +268,7 @@ function PinnedSpecTable({
             onClick={() => setExpanded(v => !v)}
             className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-slate-50"
           >
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            <span className="text-[10px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
               More details
             </span>
             <div className="flex-1 border-t border-slate-100" />
@@ -395,7 +395,7 @@ function ShippingReminderSection({
         />
       )}
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+      <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
         Shipping
       </p>
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -405,7 +405,7 @@ function ShippingReminderSection({
             type="button"
             onClick={() => void openSetup()}
             disabled={setupLoading}
-            className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-[13px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-[13px] md:text-[15px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
               <PackageCheck className="h-4 w-4" />
@@ -417,24 +417,24 @@ function ShippingReminderSection({
 
         {/* Delivery method badge */}
         {sr && <div className="mb-3 flex items-center gap-2">
-          <span className="text-[12px] text-slate-500">Delivery option:</span>
+          <span className="text-[12px] md:text-[14px] text-slate-500">Delivery option:</span>
           {choiceMeta ? (
-            <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-semibold", choiceMeta.color)}>
+            <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] md:text-[13px] font-semibold", choiceMeta.color)}>
               {choiceMeta.label}
             </span>
           ) : (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] md:text-[13px] font-semibold text-amber-700">
               Awaiting
             </span>
           )}
           {!phone && (
-            <span className="ml-auto text-[11px] text-slate-400">No phone on file</span>
+            <span className="ml-auto text-[11px] md:text-[13px] text-slate-400">No phone on file</span>
           )}
         </div>}
 
         {/* Extra info for delivery types */}
         {choice === "delivery" && (
-          <p className="mb-3 text-[12px] text-slate-500">FedEx — print shipping label</p>
+          <p className="mb-3 text-[12px] md:text-[14px] text-slate-500">FedEx — print shipping label</p>
         )}
 
         {/* SMS buttons — contextual: pickup→only pickup reminder, awaiting→only select shipping */}
@@ -445,7 +445,7 @@ function ShippingReminderSection({
               disabled={!phone || sending !== null}
               onClick={() => void sendReminder(choice === "pickup" ? "pickup" : "shipping")}
               className={cn(
-                "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] font-medium transition-colors",
+                "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] md:text-[15px] font-medium transition-colors",
                 phone
                   ? "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
                   : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400"
@@ -462,11 +462,11 @@ function ShippingReminderSection({
         </div>
 
         {lastSentLabel && (
-          <p className="mt-2 text-[11px] text-slate-400">Last sent: {lastSentLabel}</p>
+          <p className="mt-2 text-[11px] md:text-[13px] text-slate-400">Last sent: {lastSentLabel}</p>
         )}
 
         {smsError && (
-          <p className="mt-2 text-[12px] text-red-600">{smsError}</p>
+          <p className="mt-2 text-[12px] md:text-[14px] text-red-600">{smsError}</p>
         )}
       </div>
     </div>
@@ -657,7 +657,7 @@ function SettingsPanel({
         </div>
 
         {error && (
-          <p className="px-6 pt-2 text-[12px] text-red-600">{error}</p>
+          <p className="px-6 pt-2 text-[12px] md:text-[14px] text-red-600">{error}</p>
         )}
 
         <div className="flex justify-end gap-2 px-6 py-5">
@@ -828,7 +828,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         <div className="flex w-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-b border-slate-100 md:w-[55%] md:border-b-0 md:border-r">
           {/* Lookup error */}
           {lookupError && (
-            <div className="mx-5 mt-4 shrink-0 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+            <div className="mx-5 mt-4 shrink-0 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-[13px] md:text-[15px] text-red-700">
               {lookupError}
             </div>
           )}
@@ -838,7 +838,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {/* Product specification */}
               <div className="shrink-0 border-b border-slate-100 px-4 py-3">
-                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <p className="mb-1.5 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                   Product specification
                 </p>
                 <PinnedSpecTable order={order} specsArr={specsArr} />
@@ -846,7 +846,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
               {/* Artwork fills remaining height; images scale to fit */}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-3">
-                <p className="mb-2 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <p className="mb-2 shrink-0 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                   Artwork
                 </p>
                 {order.sku_images?.length ? (
@@ -885,7 +885,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     className="min-h-0 w-full flex-1 rounded-xl border border-slate-100 object-contain"
                   />
                 ) : (
-                  <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] text-slate-400">
+                  <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] md:text-[14px] text-slate-400">
                     No artwork preview
                   </div>
                 )}
@@ -900,8 +900,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                 <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
                 <rect x="8" y="8" width="8" height="8" rx="1" />
               </svg>
-              <p className="text-[13px] font-medium text-slate-500">Scan or enter an order number</p>
-              <p className="text-[12px]">Order details will appear here</p>
+              <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
+              <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
             </div>
           )}
         </div>
@@ -918,29 +918,29 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                 {/* Left: order # + status + due */}
                 <div className="flex flex-col gap-1 px-3 py-2.5">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] md:text-[13px] font-bold text-blue-700">
                       #{order.title}
                     </span>
                     {order.column_name && (
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] md:text-[13px] font-medium text-slate-600">
                         {order.column_name}
                       </span>
                     )}
                   </div>
-                  <span className={cn("text-[11px] font-medium", late ? "text-red-600" : "text-slate-400")}>
+                  <span className={cn("text-[11px] md:text-[13px] font-medium", late ? "text-red-600" : "text-slate-400")}>
                     Due {dueLabel}{late && " · Late"}
                   </span>
                 </div>
                 {/* Right: customer name + contact */}
                 <div className="flex flex-col justify-center gap-0.5 px-3 py-2.5">
-                  <p className="truncate text-[13px] font-semibold text-slate-900">
+                  <p className="truncate text-[13px] md:text-[15px] font-semibold text-slate-900">
                     {order.customer?.name ?? "Unknown customer"}
                   </p>
                   {order.customer?.email && (
-                    <p className="truncate text-[11px] text-slate-500">{order.customer.email}</p>
+                    <p className="truncate text-[11px] md:text-[13px] text-slate-500">{order.customer.email}</p>
                   )}
                   {order.customer?.phone && (
-                    <p className="text-[11px] text-slate-500">{order.customer.phone}</p>
+                    <p className="text-[11px] md:text-[13px] text-slate-500">{order.customer.phone}</p>
                   )}
                 </div>
               </div>
@@ -962,7 +962,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* Order info card */}
             <div className="flex flex-col">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                 Order info
               </p>
               <div className="flex-1 rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -974,7 +974,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
             {/* Balance card */}
             <div className="flex flex-col">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                 Balance
               </p>
               <div className="flex-1 rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -987,11 +987,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                       <BalanceRow label="Balance due" value={order.billing.balance} danger />
                     )}
                     {!order.billing.deposit && !order.billing.balance && (
-                      <p className="text-[12px] text-slate-400">No billing data</p>
+                      <p className="text-[12px] md:text-[14px] text-slate-400">No billing data</p>
                     )}
                   </>
                 ) : (
-                  <p className="text-[12px] text-slate-400">
+                  <p className="text-[12px] md:text-[14px] text-slate-400">
                     {order ? "No billing data" : "Scan an order to see balance"}
                   </p>
                 )}
@@ -1001,7 +1001,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
           {/* Action success */}
           {actionResult && (
-            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-medium text-emerald-700">
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] md:text-[15px] font-medium text-emerald-700">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               {actionResult.label} — moved to <span className="font-semibold">{actionResult.column}</span>
             </div>
@@ -1009,14 +1009,14 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
           {/* Action error */}
           {actionError && (
-            <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+            <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] md:text-[15px] text-red-700">
               {actionError}
             </div>
           )}
 
           {/* Actions */}
           <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
               Actions
             </p>
             <div className="flex flex-col gap-2">
@@ -1031,7 +1031,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     onClick={() => void handleAction(button)}
                     disabled={!order || !configured || actingOn !== null}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] font-medium transition-colors",
+                      "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] md:text-[15px] font-medium transition-colors",
                       order && configured
                         ? "border-slate-200 bg-white hover:bg-slate-50 text-slate-800"
                         : "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed"
@@ -1049,14 +1049,14 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     </span>
                     <span className="flex-1">
                       <span className="block">{button.label}</span>
-                      <span className="block text-[11px] font-normal text-slate-500">
+                      <span className="block text-[11px] md:text-[13px] font-normal text-slate-500">
                         {configured
                           ? `Move to ${columnName ?? "column"}`
                           : "Not configured — set column in Configure columns"}
                       </span>
                     </span>
                     {actingOn === button.id ? (
-                      <span className="text-[11px] text-slate-400">…</span>
+                      <span className="text-[11px] md:text-[13px] text-slate-400">…</span>
                     ) : (
                       <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
                     )}
@@ -1064,7 +1064,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                 );
               })}
               {scanButtons.length === 0 ? (
-                <p className="text-[12px] text-slate-400">
+                <p className="text-[12px] md:text-[14px] text-slate-400">
                   No scan buttons. Add them in Configure columns.
                 </p>
               ) : null}
@@ -1093,7 +1093,7 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-2 py-0.5">
-      <span className="flex items-center gap-1.5 text-[12px] text-slate-500">
+      <span className="flex items-center gap-1.5 text-[12px] md:text-[14px] text-slate-500">
         {icon === "user" && (
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
@@ -1111,7 +1111,7 @@ function InfoRow({
         )}
         {label}
       </span>
-      <span className={cn("text-[13px] font-medium", danger ? "text-red-600" : "text-slate-800")}>
+      <span className={cn("text-[13px] md:text-[15px] font-medium", danger ? "text-red-600" : "text-slate-800")}>
         {value}
       </span>
     </div>
@@ -1135,10 +1135,10 @@ function BalanceRow({
   }).format(value);
   return (
     <div className="flex items-center justify-between py-1">
-      <span className="text-[13px] text-slate-500">{label}</span>
+      <span className="text-[13px] md:text-[15px] text-slate-500">{label}</span>
       <span
         className={cn(
-          "text-[13px] font-semibold",
+          "text-[13px] md:text-[15px] font-semibold",
           positive && "text-emerald-600",
           danger && "text-red-600",
           !positive && !danger && "text-slate-800"

@@ -5,17 +5,44 @@ export type ReadyToShipShippingFilter =
   | "pickup"
   | "fedex"
   | "self_fedex"
-  | "awaiting";
+  | "uber"
+  | "awaiting"
+  | "not_sent";
 
+/** All valid filter values (used for validation). */
 export const READY_TO_SHIP_SHIPPING_OPTIONS: {
   value: ReadyToShipShippingFilter;
   label: string;
 }[] = [
-  { value: "all", label: "All" },
-  { value: "pickup", label: "Pickup" },
-  { value: "fedex", label: "FedEx" },
-  { value: "self_fedex", label: "Self FedEx" },
+  { value: "all",       label: "All" },
+  { value: "pickup",    label: "Pickup" },
+  { value: "fedex",     label: "FedEx" },
+  { value: "self_fedex",label: "Self FedEx" },
+  { value: "uber",      label: "Uber" },
+  { value: "awaiting",  label: "Awaiting" },
+  { value: "not_sent",  label: "Not Sent" },
+];
+
+/** Boyd Only (ready-to-ship) column: pre-send status filters. */
+export const RTS_FILTER_OPTIONS_BOYD: {
+  value: ReadyToShipShippingFilter;
+  label: string;
+}[] = [
+  { value: "all",      label: "All" },
   { value: "awaiting", label: "Awaiting" },
+  { value: "not_sent", label: "Not Sent" },
+];
+
+/** Ship Opt Selected column: post-selection method filters. */
+export const RTS_FILTER_OPTIONS_SHIP_OPT: {
+  value: ReadyToShipShippingFilter;
+  label: string;
+}[] = [
+  { value: "all",       label: "All" },
+  { value: "pickup",    label: "Pickup" },
+  { value: "fedex",     label: "FedEx" },
+  { value: "self_fedex",label: "Self FedEx" },
+  { value: "uber",      label: "Uber" },
 ];
 
 const RTS_FILTERS = new Set<ReadyToShipShippingFilter>(
@@ -36,12 +63,18 @@ export function orderMatchesReadyToShipShippingFilter(
   filter: ReadyToShipShippingFilter
 ): boolean {
   if (filter === "all") return true;
+  if (filter === "not_sent") return !sign;
   if (filter === "pickup") return sign?.kind === "pickup";
   if (filter === "self_fedex") return sign?.kind === "client_fedex";
+  if (filter === "uber") return sign?.kind === "uber";
   if (filter === "fedex") {
     return sign?.kind === "delivery" || sign?.kind === "label_ready";
   }
-  return !sign || sign.kind === "awaiting" || sign.kind === "payment_pending";
+  // awaiting: portal was sent but client hasn't responded yet
+  if (filter === "awaiting") {
+    return !!sign && (sign.kind === "awaiting" || sign.kind === "payment_pending");
+  }
+  return true;
 }
 
 export type ReadyToShipShippingFilterMap = Record<

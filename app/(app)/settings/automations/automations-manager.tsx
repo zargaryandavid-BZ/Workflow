@@ -32,6 +32,10 @@ const TRIGGERS: { value: AutomationTrigger; label: string }[] = [
     value: "on_column_idle",
     label: "When a job sits too long in a column",
   },
+  {
+    value: "on_shipping_opt_selected",
+    label: "When client selects shipping option",
+  },
 ];
 
 function isNotifyRule(rule: AutomationRule) {
@@ -50,6 +54,9 @@ function triggerLabel(rule: AutomationRule) {
   if (rule.trigger === "on_column_idle") {
     const cfg = parseColumnIdleConfig(rule.config);
     return cfg ? `Idle ≥ ${formatIdleDuration(cfg)}` : "Idle auto-move";
+  }
+  if (rule.trigger === "on_shipping_opt_selected") {
+    return "Client selects shipping";
   }
   return "On enter column";
 }
@@ -223,28 +230,26 @@ export function AutomationsManager({
           onSubmit={add}
           className="space-y-4 rounded-lg border border-slate-200 bg-white p-4"
         >
-          <div>
-            <Label htmlFor="a-trigger">Trigger</Label>
-            <Select
-              id="a-trigger"
-              value={trigger}
-              onChange={(e) => setTrigger(e.target.value as AutomationTrigger)}
-            >
-              {TRIGGERS.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[200px] flex-1">
+              <Label htmlFor="a-trigger">Trigger</Label>
+              <Select
+                id="a-trigger"
+                value={trigger}
+                onChange={(e) => setTrigger(e.target.value as AutomationTrigger)}
+              >
+                {TRIGGERS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {trigger === "on_enter_column" || trigger === "on_column_idle" ? (
-              <div>
+            {(trigger === "on_enter_column" || trigger === "on_column_idle") && (
+              <div className="min-w-[160px] flex-1">
                 <Label htmlFor="a-from">
-                  {trigger === "on_column_idle"
-                    ? "Sit in column"
-                    : "From column"}
+                  {trigger === "on_column_idle" ? "Sit in column" : "From column"}
                 </Label>
                 <Select
                   id="a-from"
@@ -253,19 +258,17 @@ export function AutomationsManager({
                   onChange={(e) => setFromColumn(e.target.value)}
                 >
                   <option value="">
-                    {trigger === "on_column_idle"
-                      ? "Select column…"
-                      : "Any column"}
+                    {trigger === "on_column_idle" ? "Select column…" : "Any column"}
                   </option>
                   {columns.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+                    <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </Select>
               </div>
-            ) : trigger === "on_job_created" ? (
-              <div>
+            )}
+
+            {trigger === "on_job_created" && (
+              <div className="min-w-[160px] flex-1">
                 <Label htmlFor="a-product">Product</Label>
                 <Select
                   id="a-product"
@@ -275,14 +278,14 @@ export function AutomationsManager({
                 >
                   <option value="">Select product…</option>
                   {productOptions.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
+                    <option key={p} value={p}>{p}</option>
                   ))}
                 </Select>
               </div>
-            ) : (
-              <div>
+            )}
+
+            {trigger === "on_approval_result" && (
+              <div className="min-w-[160px] flex-1">
                 <Label htmlFor="a-result">Customer response</Label>
                 <Select
                   id="a-result"
@@ -294,7 +297,8 @@ export function AutomationsManager({
                 </Select>
               </div>
             )}
-            <div>
+
+            <div className="min-w-[160px] flex-1">
               <Label htmlFor="a-to">Move to column</Label>
               <Select
                 id="a-to"
@@ -304,9 +308,7 @@ export function AutomationsManager({
               >
                 <option value="">Select column…</option>
                 {columns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </Select>
             </div>

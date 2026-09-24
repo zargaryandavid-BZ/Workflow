@@ -120,6 +120,10 @@ export default async function BoardPage({
   );
 
   const automationRules = (rulesRes.data ?? []) as AutomationRule[];
+  const shippingOptColumnId =
+    automationRules.find(
+      (r) => r.trigger === "on_shipping_opt_selected" && r.enabled && r.to_column
+    )?.to_column ?? null;
   const notifyColumns = boardColumns
     .filter(
       (c) =>
@@ -243,6 +247,7 @@ export default async function BoardPage({
       }
       designers={designers}
       notifyColumns={notifyColumns}
+      shippingOptColumnId={shippingOptColumnId}
       smsConfigured={isSmsConfigured()}
       publicAppUrl={isPublicAppUrl()}
       buttonAutomations={buttonAutomations}

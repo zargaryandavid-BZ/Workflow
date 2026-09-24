@@ -117,6 +117,8 @@ import {
   getReadyToShipShippingFilter,
   loadReadyToShipShippingFilterMap,
   saveReadyToShipShippingFilterMap,
+  RTS_FILTER_OPTIONS_BOYD,
+  RTS_FILTER_OPTIONS_SHIP_OPT,
   type ReadyToShipShippingFilter,
   type ReadyToShipShippingFilterMap,
 } from "@/lib/ready-to-ship-shipping-filter";
@@ -251,6 +253,8 @@ interface BoardProps {
   tenantIntegrationMode?: IntegrationMode;
   designers: Designer[];
   notifyColumns: NotifyColumnConfig[];
+  /** Column ID that receives orders automatically when a client picks a shipping option. */
+  shippingOptColumnId?: string | null;
   smsConfigured: boolean;
   publicAppUrl: boolean;
   buttonAutomations: ButtonAutomation[];
@@ -290,6 +294,7 @@ export function Board({
   tenantIntegrationMode = "local",
   designers,
   notifyColumns,
+  shippingOptColumnId = null,
   smsConfigured,
   publicAppUrl,
   buttonAutomations,
@@ -3924,17 +3929,21 @@ export function Board({
                 })}
                 onSortModeChange={(mode) => setColumnSortMode(column.id, mode)}
                 shippingFilter={
-                  isBoardHealthCutoffColumn(column)
-                    ? getReadyToShipShippingFilter(
-                        rtsShippingFilterById,
-                        column.id
-                      )
+                  isBoardHealthCutoffColumn(column) || column.id === shippingOptColumnId
+                    ? getReadyToShipShippingFilter(rtsShippingFilterById, column.id)
                     : undefined
                 }
                 onShippingFilterChange={
-                  isBoardHealthCutoffColumn(column)
+                  isBoardHealthCutoffColumn(column) || column.id === shippingOptColumnId
                     ? (mode) => setReadyToShipShippingFilter(column.id, mode)
                     : undefined
+                }
+                shippingFilterOptions={
+                  isBoardHealthCutoffColumn(column)
+                    ? RTS_FILTER_OPTIONS_BOYD
+                    : column.id === shippingOptColumnId
+                      ? RTS_FILTER_OPTIONS_SHIP_OPT
+                      : undefined
                 }
                 customFields={customFields}
                 fieldValuesByOrder={displayFieldValuesByOrder}

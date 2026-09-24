@@ -414,3 +414,52 @@ export async function onApprovalResult(
 
   return target;
 }
+
+/**
+ * Fired when a client selects their shipping option on the portal.
+ * Looks up any enabled `on_shipping_opt_selected` automation rule and moves
+ * the order to the configured target column.
+ */
+export async function onShippingOptSelected(
+  client: Client,
+  { orderId, tenantId }: { orderId: string; tenantId: string }
+): Promise<void> {
+  const { data: rules } = await client
+    .from("automation_rules")
+    .select("to_column")
+    .eq("tenant_id", tenantId)
+    .eq("trigger", "on_shipping_opt_selected")
+    .eq("enabled", true)
+    .limit(1);
+
+  const toColumnId = (rules as { to_column: string | null }[] | null)?.[0]?.to_column;
+  if (!toColumnId) return;
+
+  // Fetch current column so we can log fromName → toName
+  const { data: order } = await client
+    .from("orders")
+    .select("column_id")
+    .eq("id", orderId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (!order || order.column_id === toColumnId) return;
+
+  await client
+    .from("orders")
+    .update({ column_id: toColumnId, last_moved_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .eq("tenant_id", tenantId);
+
+  await logActivity(client, {
+    tenantId,
+    orderId,
+    actor: null,
+    action: "column_moved",
+    metadata: {
+      trigger: "on_shipping_opt_selected",
+      from: order.column_id,
+      to: toColumnId,
+    },
+  });
+}
