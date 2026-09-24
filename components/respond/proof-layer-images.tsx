@@ -270,12 +270,9 @@ export function ProofLayerImages({
           labelHeightIn={labelHeightIn}
         />
       ) : sideBySide && namedLayers.length > 0 ? (
-        <div className="flex flex-wrap gap-4 p-4">
+        <div className="grid gap-4 p-4 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
           {pics.map((pic) => (
-            <div
-              key={pic.id}
-              className="flex min-w-[14rem] flex-1 basis-72 flex-col gap-1"
-            >
+            <div key={pic.id} className="flex min-w-0 flex-col gap-1">
               <span className="truncate text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
                 {pic.name}
               </span>
@@ -287,7 +284,7 @@ export function ProofLayerImages({
                   pics={pics}
                   isVisible={(l) => l === pic.layer}
                   srcFor={layerSrc}
-                  className="max-h-80 w-full"
+                  className="max-h-72 max-w-full"
                 />
               </div>
             </div>
