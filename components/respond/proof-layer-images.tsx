@@ -77,6 +77,7 @@ export function ProofLayerImages({
   );
   const [stackOpen, setStackOpen] = useState(false);
   const [onRoll, setOnRoll] = useState(false);
+  const [sideBySide, setSideBySide] = useState(false);
 
   useEffect(() => {
     setVisibleIds(new Set(printLayerIds));
@@ -243,6 +244,13 @@ export function ProofLayerImages({
                 </label>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setSideBySide((v) => !v)}
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              {sideBySide ? "Stacked view" : "Side by side"}
+            </button>
           </div>
         </div>
       ) : null}
@@ -254,6 +262,27 @@ export function ProofLayerImages({
           labelWidthIn={labelWidthIn}
           labelHeightIn={labelHeightIn}
         />
+      ) : sideBySide && namedLayers.length > 0 ? (
+        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
+          {pics.map((pic) => (
+            <div key={pic.id} className="flex flex-col gap-1">
+              <span className="truncate text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
+                {pic.name}
+              </span>
+              <div className="flex items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-white p-2">
+                <ProofLayerStack
+                  useComposite={false}
+                  compositeSrc={compositeSrc}
+                  baseSrc={baseSrc}
+                  pics={pics}
+                  isVisible={(l) => l === pic.layer}
+                  srcFor={layerSrc}
+                  className="max-h-44"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : !anyVisible ? (
         <p className="px-4 py-8 text-center text-sm text-slate-500">
           Turn on a layer to preview this SKU.
