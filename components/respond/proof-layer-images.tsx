@@ -299,7 +299,7 @@ export function ProofLayerImages({
           <button
             type="button"
             onClick={() => setStackOpen(true)}
-            className="mx-auto flex w-full max-w-xl items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-[linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%),linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%)] bg-[length:16px_16px] bg-[position:0_0,8px_8px] bg-white"
+            className="mx-auto flex w-full items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-[linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%),linear-gradient(45deg,#e5e7eb_25%,transparent_25%,transparent_75%,#e5e7eb_75%)] bg-[length:16px_16px] bg-[position:0_0,8px_8px] bg-white"
             title="Open large view"
           >
             {stack}
