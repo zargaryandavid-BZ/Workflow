@@ -77,7 +77,7 @@ export function ProofLayerImages({
   );
   const [stackOpen, setStackOpen] = useState(false);
   const [onRoll, setOnRoll] = useState(false);
-  const [sideBySide, setSideBySide] = useState(false);
+  const [sideBySide, setSideBySide] = useState(true);
 
   useEffect(() => {
     setVisibleIds(new Set(printLayerIds));
@@ -263,9 +263,12 @@ export function ProofLayerImages({
           labelHeightIn={labelHeightIn}
         />
       ) : sideBySide && namedLayers.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
+        <div className="flex flex-wrap gap-4 p-4">
           {pics.map((pic) => (
-            <div key={pic.id} className="flex flex-col gap-1">
+            <div
+              key={pic.id}
+              className="flex min-w-[15rem] flex-1 basis-80 flex-col gap-1"
+            >
               <span className="truncate text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
                 {pic.name}
               </span>
@@ -277,7 +280,7 @@ export function ProofLayerImages({
                   pics={pics}
                   isVisible={(l) => l === pic.layer}
                   srcFor={layerSrc}
-                  className="max-h-44"
+                  className="max-h-80 w-full"
                 />
               </div>
             </div>
