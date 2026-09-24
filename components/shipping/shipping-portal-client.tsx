@@ -54,6 +54,8 @@ export interface ShippingPortalData {
   offerCurri: boolean;
   paymentReturnSessionId?: string | null;
   paymentCancelled?: boolean;
+  /** Fallback when there are no per-SKU pictures. */
+  mainImageUrl?: string | null;
   /** One main gallery picture per SKU (Artwork section). */
   skuArtworks?: { sku_id: string; sku_name: string; url: string }[];
 }
