@@ -8,11 +8,12 @@ import type { BatchRerequestOrder } from "@/app/api/notifications/batch-rereques
 interface Props {
   columnId: string;
   columnName: string;
+  notificationType?: "customer_approval" | "missing_info";
   onClose: () => void;
   onSent: () => void;
 }
 
-export function BatchRerequestPopup({ columnId, columnName, onClose, onSent }: Props) {
+export function BatchRerequestPopup({ columnId, columnName, notificationType = "customer_approval", onClose, onSent }: Props) {
   const [staleDays, setStaleDays] = useState(2);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -26,7 +27,7 @@ export function BatchRerequestPopup({ columnId, columnName, onClose, onSent }: P
     setError(null);
     try {
       const res = await fetch(
-        `/api/notifications/batch-rerequest?columnId=${encodeURIComponent(columnId)}&staleDays=${days}`
+        `/api/notifications/batch-rerequest?columnId=${encodeURIComponent(columnId)}&staleDays=${days}&notificationType=${notificationType}`
       );
       const json = (await res.json()) as { eligible?: BatchRerequestOrder[]; error?: string };
       if (!res.ok || json.error) throw new Error(json.error ?? "Failed to load");
@@ -53,7 +54,7 @@ export function BatchRerequestPopup({ columnId, columnName, onClose, onSent }: P
       const res = await fetch("/api/notifications/batch-rerequest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ columnId, staleDays }),
+        body: JSON.stringify({ columnId, staleDays, notificationType }),
       });
       const json = (await res.json()) as { ok?: boolean; sent?: number; failed?: number; skipped?: number; error?: string };
       if (!res.ok || json.error) throw new Error(json.error ?? "Failed to send");

@@ -614,7 +614,7 @@ export function OrderReview({
   }, [token, orderId]);
 
   useEffect(() => {
-    if (!orderId) {
+    if (!orderId || skipDrivePdf) {
       setPdfPending(false);
       return;
     }

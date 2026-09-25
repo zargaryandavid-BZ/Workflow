@@ -27,10 +27,11 @@ export interface BatchRerequestOrder {
 }
 
 /**
- * GET /api/notifications/batch-rerequest?columnId=X&staleDays=2
+ * GET /api/notifications/batch-rerequest?columnId=X&staleDays=2&notificationType=customer_approval
  *
  * Returns the orders in the given column that are eligible for batch
- * approval re-request, split into "never_sent" and "stale" categories.
+ * re-request, split into "never_sent" and "stale" categories.
+ * notificationType defaults to "customer_approval"; pass "missing_info" for exception columns.
  */
 export async function GET(request: Request) {
   const ctx = await getTenantContext();
@@ -39,6 +40,9 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const columnId = searchParams.get("columnId");
   const staleDays = Math.max(1, Number(searchParams.get("staleDays") ?? "2"));
+  const notificationType = (searchParams.get("notificationType") ?? "customer_approval") as
+    | "customer_approval"
+    | "missing_info";
 
   if (!columnId) {
     return NextResponse.json({ error: "columnId is required" }, { status: 400 });
@@ -61,12 +65,12 @@ export async function GET(request: Request) {
 
   const orderIds = orders.map((o) => o.id);
 
-  // Fetch latest sent/pending approval notifications for these orders
+  // Fetch latest sent notifications for these orders (filtered by type)
   const { data: notifications } = await supabase
     .from("job_notifications")
     .select("id, order_id, status, channel, created_at")
     .eq("tenant_id", ctx.tenant.id)
-    .eq("type", "customer_approval")
+    .eq("type", notificationType)
     .in("order_id", orderIds)
     .in("status", ["sent", "pending"])
     .order("created_at", { ascending: false });
@@ -87,16 +91,18 @@ export async function GET(request: Request) {
     }
   }
 
-  // Orders that have already responded (skip them)
-  const { data: responded } = await supabase
-    .from("job_notifications")
-    .select("order_id")
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("type", "customer_approval")
-    .eq("status", "responded")
-    .in("order_id", orderIds);
-
-  const respondedOrderIds = new Set((responded ?? []).map((r) => r.order_id));
+  // Orders that have already responded — only relevant for customer_approval
+  const respondedOrderIds = new Set<string>();
+  if (notificationType === "customer_approval") {
+    const { data: responded } = await supabase
+      .from("job_notifications")
+      .select("order_id")
+      .eq("tenant_id", ctx.tenant.id)
+      .eq("type", "customer_approval")
+      .eq("status", "responded")
+      .in("order_id", orderIds);
+    for (const r of responded ?? []) respondedOrderIds.add(r.order_id);
+  }
 
   const cutoffMs = staleDays * 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -160,12 +166,14 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     columnId?: string;
     staleDays?: number;
+    notificationType?: "customer_approval" | "missing_info";
   };
 
   if (!body.columnId) {
     return NextResponse.json({ error: "columnId is required" }, { status: 400 });
   }
   const staleDays = Math.max(1, body.staleDays ?? 2);
+  const notificationType = body.notificationType ?? "customer_approval";
 
   // Re-use the GET logic to get the eligible list
   const listUrl = new URL(
@@ -192,7 +200,7 @@ export async function POST(request: Request) {
     .from("job_notifications")
     .select("*, order:orders(*)")
     .eq("tenant_id", ctx.tenant.id)
-    .eq("type", "customer_approval")
+    .eq("type", notificationType)
     .in("order_id", orderIds)
     .in("status", ["sent", "pending"])
     .order("created_at", { ascending: false });
@@ -205,14 +213,18 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data: responded } = await supabase
-    .from("job_notifications")
-    .select("order_id")
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("type", "customer_approval")
-    .eq("status", "responded")
-    .in("order_id", orderIds);
-  const respondedOrderIds = new Set((responded ?? []).map((r) => r.order_id));
+  // Responded check only applies to customer_approval
+  const respondedOrderIds = new Set<string>();
+  if (notificationType === "customer_approval") {
+    const { data: responded } = await supabase
+      .from("job_notifications")
+      .select("order_id")
+      .eq("tenant_id", ctx.tenant.id)
+      .eq("type", "customer_approval")
+      .eq("status", "responded")
+      .in("order_id", orderIds);
+    for (const r of responded ?? []) respondedOrderIds.add(r.order_id);
+  }
 
   const cutoffMs = staleDays * 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -294,7 +306,7 @@ export async function POST(request: Request) {
           .insert({
             tenant_id: ctx.tenant.id,
             order_id: order.id,
-            type: "customer_approval",
+            type: notificationType,
             channel,
             token_expires_at: expiresAt,
             status: "pending",
@@ -311,7 +323,7 @@ export async function POST(request: Request) {
           .update({ status: "expired" })
           .eq("tenant_id", ctx.tenant.id)
           .eq("order_id", order.id)
-          .eq("type", "customer_approval")
+          .eq("type", notificationType)
           .neq("id", newNotif.id)
           .in("status", ["pending", "sent"]);
 

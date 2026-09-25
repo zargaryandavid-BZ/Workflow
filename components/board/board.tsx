@@ -704,6 +704,7 @@ export function Board({
   const [batchRerequestColumn, setBatchRerequestColumn] = useState<{
     columnId: string;
     columnName: string;
+    notificationType: "customer_approval" | "missing_info";
   } | null>(null);
   const [holdReasonPopup, setHoldReasonPopup] = useState<{
     orderId: string;
@@ -3885,6 +3886,15 @@ export function Board({
               columnName: col?.name ?? "Approval",
             });
           }}
+          onBatchRerequest={
+            column.kind === "approval" || column.kind === "exception"
+              ? () => setBatchRerequestColumn({
+                  columnId: column.id,
+                  columnName: column.name,
+                  notificationType: column.kind === "approval" ? "customer_approval" : "missing_info",
+                })
+              : undefined
+          }
           onOpenOrder={(o) => openOrderDetail(o.id)}
           onVisible={onColumnVisible}
           highlightedOrderId={highlightedOrderId}
@@ -4009,8 +4019,12 @@ export function Board({
                   });
                 }}
                 onBatchRerequest={
-                  column.kind === "approval"
-                    ? () => setBatchRerequestColumn({ columnId: column.id, columnName: column.name })
+                  column.kind === "approval" || column.kind === "exception"
+                    ? () => setBatchRerequestColumn({
+                        columnId: column.id,
+                        columnName: column.name,
+                        notificationType: column.kind === "approval" ? "customer_approval" : "missing_info",
+                      })
                     : undefined
                 }
                 designers={designersWithLoad}
@@ -4299,6 +4313,7 @@ export function Board({
         <BatchRerequestPopup
           columnId={batchRerequestColumn.columnId}
           columnName={batchRerequestColumn.columnName}
+          notificationType={batchRerequestColumn.notificationType}
           onClose={() => setBatchRerequestColumn(null)}
           onSent={() => {
             setBatchRerequestColumn(null);
