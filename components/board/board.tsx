@@ -3885,11 +3885,6 @@ export function Board({
               columnName: col?.name ?? "Approval",
             });
           }}
-          onBatchRerequest={
-            column.kind === "approval"
-              ? () => setBatchRerequestColumn({ columnId: column.id, columnName: column.name })
-              : undefined
-          }
           onOpenOrder={(o) => openOrderDetail(o.id)}
           onVisible={onColumnVisible}
           highlightedOrderId={highlightedOrderId}

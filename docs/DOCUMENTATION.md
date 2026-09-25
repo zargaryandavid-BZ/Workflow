@@ -1547,6 +1547,8 @@ Single Kanban column with droppable area and sortable order cards.
 
 **Depends on:** `OrderCard`, `@dnd-kit` droppable/sortable.
 
+On `kind: approval` columns, a header refresh button opens `BatchRerequestPopup` (`GET`/`POST /api/notifications/batch-rerequest`) to resend stale or never-sent approvals. Kanban only — table view does not take `onBatchRerequest`.
+
 ---
 
 ### `OrderCard` — `components/board/order-card.tsx`
