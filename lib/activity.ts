@@ -21,6 +21,19 @@ export interface SentMessageEntry {
   notificationId: string | null;
 }
 
+export interface CustomerResponseEntry {
+  id: string;
+  created_at: string;
+  action: "approved" | "rejected" | "info_submitted" | "customer_replied" | "combo_stock_reply";
+  /** Short human label shown as the "title" in the history row. */
+  title: string;
+  /** Any free-text note the customer left. */
+  note: string | null;
+  /** Phone / email shown as "from" — pulled from notification meta if present. */
+  from: string | null;
+  notificationId: string | null;
+}
+
 const CUSTOMER_ACTIONS = new Set([
   "approved",
   "rejected",
@@ -271,6 +284,67 @@ export function sentMessagesFromActivity(
       notificationId: metaString(meta, "notificationId"),
     };
   });
+}
+
+/**
+ * Returns activity-log entries that represent a customer's response (approval,
+ * rejection, info submission, or a freeform reply) — but NOT entries that also
+ * encode a column move (those are already surfaced in the board move history).
+ */
+export function customerResponsesFromActivity(
+  activity: ActivityLogEntry[]
+): CustomerResponseEntry[] {
+  return activity
+    .filter((log) => {
+      if (!CUSTOMER_ACTIONS.has(log.action)) return false;
+      // Skip entries that are really column-move events (already shown elsewhere).
+      return !isColumnMoveActivity(log);
+    })
+    .map((log) => {
+      const meta = (log.metadata ?? {}) as Record<string, unknown>;
+      const note =
+        metaString(meta, "note") ??
+        metaString(meta, "customerNote") ??
+        metaString(meta, "message") ??
+        metaString(meta, "response") ??
+        null;
+      const from =
+        metaString(meta, "phone") ??
+        metaString(meta, "email") ??
+        metaString(meta, "customerPhone") ??
+        metaString(meta, "customerEmail") ??
+        null;
+
+      let title: string;
+      switch (log.action) {
+        case "approved":
+          title = "Customer approved";
+          break;
+        case "rejected":
+          title = "Customer rejected";
+          break;
+        case "info_submitted":
+          title = "Missing info submitted";
+          break;
+        case "combo_stock_reply":
+          title = "Combo stock reply";
+          break;
+        case "customer_replied":
+        default:
+          title = "Customer replied";
+          break;
+      }
+
+      return {
+        id: log.id,
+        created_at: log.created_at,
+        action: log.action as CustomerResponseEntry["action"],
+        title,
+        note,
+        from,
+        notificationId: metaString(meta, "notificationId"),
+      };
+    });
 }
 
 export function describeActivity(log: ActivityLog): string {

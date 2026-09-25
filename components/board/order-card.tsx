@@ -19,6 +19,7 @@ import {
   Layers,
   Lock,
   MapPin,
+  MessageSquare,
   MoveRight,
   Pencil,
   Play,
@@ -1194,6 +1195,29 @@ export function OrderCard({
           orderId={order.id}
           seconds={designerWorkedSeconds}
         />
+        {(notificationBadge === "responded" ||
+          notificationBadge === "approved" ||
+          notificationBadge === "rejected") ? (
+          <span
+            className={cn(
+              "flex h-4 w-4 shrink-0 items-center justify-center rounded-full",
+              notificationBadge === "approved"
+                ? "bg-emerald-500 text-white"
+                : notificationBadge === "rejected"
+                  ? "bg-red-500 text-white"
+                  : "bg-violet-500 text-white"
+            )}
+            title={
+              notificationBadge === "approved"
+                ? "Customer approved"
+                : notificationBadge === "rejected"
+                  ? "Customer rejected"
+                  : "Customer replied"
+            }
+          >
+            <MessageSquare className="h-2.5 w-2.5" />
+          </span>
+        ) : null}
         {emergencySeverity ? (
           <span
             className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white"

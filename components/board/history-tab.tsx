@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Mail, MessageSquare, Send } from "lucide-react";
 import {
+  customerResponsesFromActivity,
   sentMessagesFromActivity,
   type ActivityLogEntry,
+  type CustomerResponseEntry,
   type SentMessageEntry,
 } from "@/lib/activity";
 import {
@@ -239,7 +241,14 @@ type TimelineActivity = {
   msg: SentMessageEntry;
 };
 
-type TimelineItem = TimelineSms | TimelineActivity;
+type TimelineCustomer = {
+  kind: "customer";
+  id: string;
+  created_at: string;
+  entry: CustomerResponseEntry;
+};
+
+type TimelineItem = TimelineSms | TimelineActivity | TimelineCustomer;
 
 const SAME_SEND_MS = 120_000;
 
@@ -513,6 +522,10 @@ export function HistoryTab(props: HistoryTabProps) {
     void loadSms();
   }, [loadSms]);
 
+  // Customer responses (approved, rejected, customer_replied, info_submitted)
+  // that are NOT column-move events — these were previously invisible.
+  const customerResponses = customerResponsesFromActivity(activity);
+
   // Email/both + legacy SMS that were never stored in order_sms_messages.
   // New SMS (with Twilio SID) live only in the SMS thread so they aren't duplicated.
   const activityMessages = sentMessagesFromActivity(activity).filter((m) => {
@@ -578,6 +591,14 @@ export function HistoryTab(props: HistoryTabProps) {
         msg,
       })
     ),
+    ...customerResponses.map(
+      (entry): TimelineCustomer => ({
+        kind: "customer",
+        id: `cr-${entry.id}`,
+        created_at: entry.created_at,
+        entry,
+      })
+    ),
   ].sort(
     (a, b) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -623,6 +644,22 @@ export function HistoryTab(props: HistoryTabProps) {
                       to={item.message.phone}
                       body={item.message.body}
                       inbound={inbound}
+                    />
+                  );
+                }
+
+                if (item.kind === "customer") {
+                  const { entry } = item;
+                  return (
+                    <CommunicationRow
+                      key={item.id}
+                      createdAt={entry.created_at}
+                      owner="Customer"
+                      channel="sms"
+                      title={entry.title}
+                      to={entry.from}
+                      body={entry.note}
+                      inbound
                     />
                   );
                 }
