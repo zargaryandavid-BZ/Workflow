@@ -124,6 +124,7 @@ interface ColumnProps {
   ) => void;
   onActionError?: (message: string) => void;
   onResendApproval?: (order: OrderWithRelations) => void;
+  onBatchRerequest?: () => void;
   designers?: Designer[];
   onGroupAssignDesigner?: (
     orders: OrderWithRelations[],
@@ -242,6 +243,7 @@ export function Column({
   onActionComplete,
   onActionError,
   onResendApproval,
+  onBatchRerequest,
   designers = [],
   onGroupAssignDesigner,
   tags = [],
@@ -469,6 +471,16 @@ export function Column({
                   ))}
                 </select>
               </>
+            ) : null}
+            {column.kind === "approval" && onBatchRerequest ? (
+              <button
+                onClick={onBatchRerequest}
+                className="flex items-center justify-center rounded border border-blue-500 bg-blue-500 p-1 text-white hover:bg-blue-600 hover:border-blue-600"
+                aria-label="Re-request approvals"
+                title="Re-request approvals"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
             ) : null}
             {isFirst ? (
               <button

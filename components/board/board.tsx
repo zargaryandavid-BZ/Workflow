@@ -45,6 +45,7 @@ import type { ActionButtonResult } from "./action-button";
 import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
+import { BatchRerequestPopup } from "@/components/board/BatchRerequestPopup";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { fetchRetryingStale404, fetchWithAuth, isStaleNext404 } from "@/lib/fetch-with-auth";
@@ -699,6 +700,10 @@ export function Board({
     notifyColumn: NotifyColumnConfig;
     columnName: string;
     groupOrders?: OrderWithRelations[];
+  } | null>(null);
+  const [batchRerequestColumn, setBatchRerequestColumn] = useState<{
+    columnId: string;
+    columnName: string;
   } | null>(null);
   const [holdReasonPopup, setHoldReasonPopup] = useState<{
     orderId: string;
@@ -3880,6 +3885,11 @@ export function Board({
               columnName: col?.name ?? "Approval",
             });
           }}
+          onBatchRerequest={
+            column.kind === "approval"
+              ? () => setBatchRerequestColumn({ columnId: column.id, columnName: column.name })
+              : undefined
+          }
           onOpenOrder={(o) => openOrderDetail(o.id)}
           onVisible={onColumnVisible}
           highlightedOrderId={highlightedOrderId}
@@ -4003,6 +4013,11 @@ export function Board({
                     columnName: col?.name ?? "Approval",
                   });
                 }}
+                onBatchRerequest={
+                  column.kind === "approval"
+                    ? () => setBatchRerequestColumn({ columnId: column.id, columnName: column.name })
+                    : undefined
+                }
                 designers={designersWithLoad}
                 onGroupAssignDesigner={handleGroupAssignDesigner}
                 tags={
@@ -4280,6 +4295,18 @@ export function Board({
           onSaved={(message) => {
             setHoldReasonPopup(null);
             flashToast(message);
+            scheduleRefresh();
+          }}
+        />
+      ) : null}
+
+      {batchRerequestColumn ? (
+        <BatchRerequestPopup
+          columnId={batchRerequestColumn.columnId}
+          columnName={batchRerequestColumn.columnName}
+          onClose={() => setBatchRerequestColumn(null)}
+          onSent={() => {
+            setBatchRerequestColumn(null);
             scheduleRefresh();
           }}
         />
