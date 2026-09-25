@@ -1346,6 +1346,13 @@ export function Board({
   >(new Map());
   const recentDeletedRef = useRef<Map<string, number>>(new Map());
   const recentArchivedRef = useRef<Map<string, number>>(new Map());
+  // Recent optimistic field patches (priority score, designer assignment,
+  // etc. — anything set via patchOrderFields) that a background column
+  // refetch must not clobber with a server read that hasn't caught up yet.
+  // Same 60s protection window as recentMovesRef/recentArchivedRef.
+  const recentFieldPatchRef = useRef<
+    Map<string, { patch: Partial<OrderWithRelations>; at: number }>
+  >(new Map());
 
   function pruneRecentMap(map: Map<string, number>, maxAgeMs = 60_000) {
     const cutoff = Date.now() - maxAgeMs;
@@ -1524,7 +1531,11 @@ export function Board({
                 Date.now() - rm.at < 60_000 &&
                 o.column_id !== rm.toColumnId
               ) {
-                return [{ ...o, column_id: rm.toColumnId }];
+                o = { ...o, column_id: rm.toColumnId };
+              }
+              const recentPatch = recentFieldPatchRef.current.get(o.id);
+              if (recentPatch && Date.now() - recentPatch.at < 60_000) {
+                o = { ...o, ...recentPatch.patch };
               }
               return [o];
             });
@@ -2146,6 +2157,11 @@ export function Board({
     orderId: string,
     patch: Partial<OrderWithRelations>
   ) {
+    const existing = recentFieldPatchRef.current.get(orderId)?.patch;
+    recentFieldPatchRef.current.set(orderId, {
+      patch: existing ? { ...existing, ...patch } : patch,
+      at: Date.now(),
+    });
     setOrders((prev) => {
       const next = prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o));
       boardOrdersRef.current = next;
