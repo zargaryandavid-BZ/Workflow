@@ -7,6 +7,7 @@ import {
   rollDirectionArtworkRotateDeg,
   type RollDirectionValue,
 } from "@/lib/roll-direction";
+import { loadImageViaBlob } from "@/lib/proof-download";
 import { cn } from "@/lib/utils";
 
 const ROLL_SRC = "/roll-direction/roll-mockup.png";
@@ -50,33 +51,6 @@ function paintRotatedComposite(imgs: HTMLImageElement[], deg: number): string {
     ctx.drawImage(img, -nw / 2, -nh / 2);
   }
   return canvas.toDataURL("image/png");
-}
-
-/** Fetch as a blob first so canvas reads (toDataURL) never hit a CORS taint. */
-async function loadImageViaBlob(src: string): Promise<{
-  img: HTMLImageElement;
-  objectUrl: string | null;
-}> {
-  let objectUrl: string | null = null;
-  let loadSrc = src;
-  if (!src.startsWith("data:") && !src.startsWith("blob:")) {
-    try {
-      const res = await fetch(src);
-      if (res.ok) {
-        objectUrl = URL.createObjectURL(await res.blob());
-        loadSrc = objectUrl;
-      }
-    } catch {
-      // fall through with the original src
-    }
-  }
-  const img = new Image();
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error("Failed to load image"));
-    img.src = loadSrc;
-  });
-  return { img, objectUrl };
 }
 
 export function OnRollPreview({
@@ -170,54 +144,59 @@ export function OnRollPreview({
       )}
     >
       {!compact ? (
-        <>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {DIRECTION_TITLE[active]}{" "}
-            <span className="font-bold text-slate-700">
-              {formatRollDirectionPreviewAngle(rotateDeg)}
-            </span>
-          </p>
-
-          <div
-            className="flex w-full max-w-[680px] flex-wrap items-center justify-center gap-1.5"
-            role="group"
-            aria-label="Roll direction"
-          >
-            {ROLL_DIRECTION_OPTIONS.map((opt) => {
-              const isActive = opt.value === active;
-              const isOnOrder = opt.value === direction;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setActive(opt.value)}
-                  aria-pressed={isActive}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
-                    isActive
-                      ? "bg-blue-600 text-white shadow-sm"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-                    isOnOrder && !isActive && "ring-2 ring-blue-500 ring-offset-1"
-                  )}
-                  title={isOnOrder ? `${opt.label} — set on this order` : opt.label}
-                >
-                  {opt.label}
-                  {isOnOrder ? (
-                    <span
-                      className={cn(
-                        "ml-1.5 text-[10px] font-bold uppercase tracking-wide",
-                        isActive ? "text-blue-100" : "text-blue-600"
-                      )}
-                    >
-                      Set
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {DIRECTION_TITLE[active]}{" "}
+          <span className="font-bold text-slate-700">
+            {formatRollDirectionPreviewAngle(rotateDeg)}
+          </span>
+        </p>
       ) : null}
+
+      {/* Click a position to visualize it — preview only, doesn't change the
+          order. compact mode (grid tile) shows the same buttons, just smaller. */}
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-center gap-1.5",
+          compact ? "w-full max-w-[280px]" : "w-full max-w-[680px]"
+        )}
+        role="group"
+        aria-label="Roll direction — click to visualize"
+      >
+        {ROLL_DIRECTION_OPTIONS.map((opt) => {
+          const isActive = opt.value === active;
+          const isOnOrder = opt.value === direction;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setActive(opt.value)}
+              aria-pressed={isActive}
+              className={cn(
+                "rounded-full font-semibold transition-colors",
+                compact ? "px-2 py-1 text-[10px]" : "px-3 py-1.5 text-xs",
+                isActive
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+                isOnOrder && !isActive && "ring-2 ring-blue-500 ring-offset-1"
+              )}
+              title={isOnOrder ? `${opt.label} — set on this order` : opt.label}
+            >
+              {opt.label}
+              {isOnOrder ? (
+                <span
+                  className={cn(
+                    "ml-1 font-bold uppercase tracking-wide",
+                    compact ? "text-[8px]" : "ml-1.5 text-[10px]",
+                    isActive ? "text-blue-100" : "text-blue-600"
+                  )}
+                >
+                  Set
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
 
       <div className="relative mx-auto w-full max-w-[280px]">
         {/* eslint-disable-next-line @next/next/no-img-element */}

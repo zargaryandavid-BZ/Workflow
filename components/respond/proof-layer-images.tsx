@@ -15,6 +15,7 @@ import {
 } from "@/lib/approval-layer-preview-paths";
 import { OnRollPreview } from "@/components/respond/on-roll-preview";
 import type { RollDirectionValue } from "@/lib/roll-direction";
+import { downloadFlattenedProof } from "@/lib/proof-download";
 import { cn } from "@/lib/utils";
 
 type LayerPic = {
@@ -84,6 +85,8 @@ export function ProofLayerImages({
   );
   const [stackOpen, setStackOpen] = useState(false);
   const [sideBySide, setSideBySide] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     setVisibleIds(new Set(printLayerIds));
@@ -151,6 +154,21 @@ export function ProofLayerImages({
   const baseSrc = layerSrc("base");
   const isVisible = (layer: string) => visibleIds.has(layer);
 
+  // Flattens exactly what's currently checked below — the old download just
+  // linked the server's fully-flattened "composite" image, which always
+  // included every layer (e.g. White) even when it was unchecked on screen.
+  async function downloadProof(name: string) {
+    setDownloadError(null);
+    setDownloading(true);
+    try {
+      await downloadFlattenedProof(token, orderId, preview, visibleIds, name);
+    } catch {
+      setDownloadError("Couldn't prepare that download — try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const stack = (
     <ProofLayerStack
       useComposite={useComposite}
@@ -171,14 +189,15 @@ export function ProofLayerImages({
           {preview.page ? ` · page ${preview.page}` : ""}
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <a
-            href={compositeSrc}
-            download={fileName || "proof"}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
-            title="Download this proof image"
+          <button
+            type="button"
+            disabled={downloading}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
+            title="Download this proof image (matches what's checked below)"
+            onClick={() => void downloadProof(fileName || "proof")}
           >
             <Download className="h-4 w-4" />
-          </a>
+          </button>
           <button
             type="button"
             className="rounded p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
@@ -192,57 +211,69 @@ export function ProofLayerImages({
 
       {namedLayers.length > 0 ? (
         <div className="flex flex-col gap-2 border-b border-slate-100 px-3 py-2">
-          <p className="flex items-start gap-1.5 text-xs text-slate-600">
-            <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
-            <span>
-              This SKU is one PDF page. SEE LAYERS stacks print plates on
-              the same proof — they are not separate pictures.
-            </span>
-          </p>
-          <div
-            className="flex flex-wrap items-center gap-x-3 gap-y-2"
-            role="group"
-            aria-label="Print layers"
-          >
-            <span className="animate-see-layers inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide">
-              SEE LAYERS
-              <Layers className="h-3.5 w-3.5" aria-hidden />
-            </span>
-            <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={allOn}
-                onChange={(e) => setAllLayers(e.target.checked)}
-                className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span>ALL</span>
-            </label>
-            {namedLayers.map((layer) => {
-              const on = visibleIds.has(layer.id);
-              return (
-                <label
-                  key={layer.id}
-                  className="inline-flex max-w-[12rem] cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700"
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => toggleLayer(layer.id)}
-                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="truncate">{layer.name}</span>
-                </label>
-              );
-            })}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setSideBySide((v) => !v)}
-              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-blue-300 bg-blue-50 px-3.5 py-2 text-sm font-bold text-blue-700 shadow-sm hover:bg-blue-100"
             >
-              {sideBySide ? "Stacked view" : "Side by side"}
+              <Layers className="h-4 w-4" aria-hidden />
+              {sideBySide ? "Switch to stacked view" : "Switch to side by side"}
             </button>
           </div>
+          {!sideBySide ? (
+            <>
+              <p className="flex items-start gap-1.5 text-xs text-slate-600">
+                <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
+                <span>
+                  This SKU is one PDF page. SEE LAYERS stacks print plates on
+                  the same proof — they are not separate pictures.
+                </span>
+              </p>
+              <div
+                className="flex flex-wrap items-center gap-x-3 gap-y-2"
+                role="group"
+                aria-label="Print layers"
+              >
+                <span className="animate-see-layers inline-flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide">
+                  SEE LAYERS
+                  <Layers className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={allOn}
+                    onChange={(e) => setAllLayers(e.target.checked)}
+                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>ALL</span>
+                </label>
+                {namedLayers.map((layer) => {
+                  const on = visibleIds.has(layer.id);
+                  return (
+                    <label
+                      key={layer.id}
+                      className="inline-flex max-w-[12rem] cursor-pointer items-center gap-1.5 text-sm font-medium text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggleLayer(layer.id)}
+                        className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="truncate">{layer.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
         </div>
+      ) : null}
+      {downloadError ? (
+        <p className="border-b border-slate-100 px-3 py-1.5 text-xs text-red-600">
+          {downloadError}
+        </p>
       ) : null}
 
       {sideBySide && namedLayers.length > 0 ? (
@@ -317,14 +348,15 @@ export function ProofLayerImages({
                         .join(" + ") || "Proof"}
                 </span>
                 <div className="flex shrink-0 items-center gap-1">
-                  <a
-                    href={compositeSrc}
-                    download={fileName || "proof"}
-                    className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                  <button
+                    type="button"
+                    disabled={downloading}
+                    className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
                     title="Download this proof image"
+                    onClick={() => void downloadProof(fileName || "proof")}
                   >
                     <Download className="h-5 w-5" />
-                  </a>
+                  </button>
                   <button
                     type="button"
                     className="rounded p-1 text-slate-500 hover:bg-slate-100"
