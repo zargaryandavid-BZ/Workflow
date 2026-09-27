@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Layers, Maximize2, X } from "lucide-react";
+import { Download, Layers, Maximize2, RotateCw, X } from "lucide-react";
 import {
   isPdfArtworkLayer,
   isPdfCutLineLayer,
@@ -83,7 +83,9 @@ export function ProofLayerImages({
     () => new Set(printLayerIds)
   );
   const [stackOpen, setStackOpen] = useState(false);
-  const [onRoll, setOnRoll] = useState(false);
+  // Default to the roll mockup when this SKU has a roll direction — customers
+  // were missing the toggle entirely, so now it's what they see first.
+  const [onRoll, setOnRoll] = useState(() => Boolean(rollDirection));
   const [sideBySide, setSideBySide] = useState(true);
 
   useEffect(() => {
@@ -166,45 +168,47 @@ export function ProofLayerImages({
 
   return (
     <div className="flex min-h-[16rem] flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
         <span className="min-w-0 truncate text-sm font-medium text-slate-600">
           {fileName}
           {preview.page ? ` · page ${preview.page}` : ""}
         </span>
-        {rollDirection ? (
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Roll preview
-            </span>
+        <div className="ml-auto flex items-center gap-2">
+          {rollDirection ? (
             <button
               type="button"
               role="switch"
               aria-checked={onRoll}
               onClick={() => setOnRoll((v) => !v)}
               className={cn(
-                "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors",
-                onRoll ? "bg-blue-600" : "bg-slate-200"
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wide shadow-sm transition-colors",
+                onRoll
+                  ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+                  : "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
               )}
+              title="See how this looks printed on the actual roll"
             >
-              <span className="sr-only">Show artwork on roll</span>
-              <span
-                className={cn(
-                  "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform",
-                  onRoll ? "translate-x-6" : "translate-x-1"
-                )}
-              />
+              <RotateCw className="h-3.5 w-3.5" aria-hidden />
+              {onRoll ? "Showing on roll" : "See it on the roll"}
             </button>
-          </div>
-        ) : (
+          ) : null}
+          <a
+            href={compositeSrc}
+            download={fileName || "proof"}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+            title="Download this proof image"
+          >
+            <Download className="h-4 w-4" />
+          </a>
           <button
             type="button"
-            className="rounded p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+            className="rounded p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700"
             title="Large view"
             onClick={() => setStackOpen(true)}
           >
             <Maximize2 className="h-4 w-4" />
           </button>
-        )}
+        </div>
       </div>
 
       {namedLayers.length > 0 && !(onRoll && rollDirection) ? (
@@ -319,13 +323,23 @@ export function ProofLayerImages({
                         .map((p) => p.name)
                         .join(" + ") || "Proof"}
                 </span>
-                <button
-                  type="button"
-                  className="rounded p-1 text-slate-500 hover:bg-slate-100"
-                  onClick={() => setStackOpen(false)}
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <a
+                    href={compositeSrc}
+                    download={fileName || "proof"}
+                    className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                    title="Download this proof image"
+                  >
+                    <Download className="h-5 w-5" />
+                  </a>
+                  <button
+                    type="button"
+                    className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                    onClick={() => setStackOpen(false)}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-50 p-6">
                 <ProofLayerStack
