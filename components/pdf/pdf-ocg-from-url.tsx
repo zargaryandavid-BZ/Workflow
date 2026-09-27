@@ -437,8 +437,13 @@ export function PdfOcgFromUrl({
     canvas.height = Math.floor(viewport.height);
     const list = layersRef.current;
     if (oc) {
+      // Match whatever the customer/staff currently has checked (Artwork on,
+      // White/Cut off by default) — this used to force every layer visible
+      // regardless of the checkboxes, so a hidden White layer still showed
+      // as a green mess on the roll mockup.
+      const vis = visibleIdsRef.current;
       for (const layer of list) {
-        oc.setVisibility(layer.id, true, false);
+        oc.setVisibility(layer.id, vis.has(layer.id), false);
       }
     }
     try {
@@ -913,7 +918,7 @@ export function PdfOcgFromUrl({
           />
           {onRoll && rollDirection && !loading && proofBitmap ? (
             <OnRollPreview
-              artworkSrc={proofBitmap}
+              baseSrc={proofBitmap}
               direction={rollDirection}
               labelWidthIn={labelWidthIn}
               labelHeightIn={labelHeightIn}
