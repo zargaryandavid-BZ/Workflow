@@ -24,6 +24,10 @@ import {
 import { isRollDirectionFieldName, rollDirectionFromRespondRows } from "@/lib/roll-direction";
 import type { RespondLayerPreview } from "@/lib/approval-layer-preview-paths";
 import {
+  defaultVisibleLayerIds,
+  downloadFlattenedProof,
+} from "@/lib/proof-download";
+import {
   RESPOND_SKU_ANCHOR_PREFIX,
   scrollAfterSkuChoice,
   useSkuDecision,
@@ -608,6 +612,8 @@ export function OrderReview({
       Boolean(orderId)
   );
   const [noProductionPdf, setNoProductionPdf] = useState(false);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [downloadAllError, setDownloadAllError] = useState<string | null>(null);
 
   useEffect(() => {
     setPdfDrawn(Object.keys(layerPreviewsProp).length > 0);
@@ -688,6 +694,39 @@ export function OrderReview({
   const hasLayerPics = Object.keys(layerBySku).length > 0;
   const proofWaiting = pdfPending && !hasLayerPics;
 
+  async function handleDownloadAll() {
+    setDownloadAllError(null);
+    setDownloadingAll(true);
+    try {
+      const entries = reviewSkus
+        .map((sku, i) => ({ sku, index: i, preview: layerBySku[sku.id] }))
+        .filter((e): e is { sku: SkuItem; index: number; preview: RespondLayerPreview } =>
+          Boolean(e.preview)
+        );
+      for (const { sku, index, preview } of entries) {
+        const name =
+          reviewPdfs[sku.id]?.fileName?.trim() ||
+          `${sku.name.trim() || `SKU ${index + 1}`}.png`;
+        // eslint-disable-next-line no-await-in-loop -- sequential so the
+        // browser doesn't block a burst of simultaneous downloads
+        await downloadFlattenedProof(
+          token,
+          orderId ?? "",
+          preview,
+          new Set(defaultVisibleLayerIds(preview)),
+          name
+        );
+      }
+      if (entries.length === 0) {
+        setDownloadAllError("Proofs aren't ready to download yet.");
+      }
+    } catch {
+      setDownloadAllError("Couldn't download all proofs — try again.");
+    } finally {
+      setDownloadingAll(false);
+    }
+  }
+
   const note = customerNote?.trim() || "";
   const hasSkus = reviewSkus.length > 0;
   const hasAssets = assets.length > 0;
@@ -717,9 +756,25 @@ export function OrderReview({
               </div>
             ) : null}
             <div className={proofWaiting ? "invisible" : undefined}>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            SKUs
-          </p>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              SKUs
+            </p>
+            {hasLayerPics ? (
+              <button
+                type="button"
+                disabled={downloadingAll}
+                onClick={() => void handleDownloadAll()}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-blue-600 bg-blue-600 px-3.5 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" aria-hidden />
+                {downloadingAll ? "Downloading…" : "Download all proofs"}
+              </button>
+            ) : null}
+          </div>
+          {downloadAllError ? (
+            <p className="mb-2 text-xs text-red-600">{downloadAllError}</p>
+          ) : null}
           <ul className="space-y-3">
             {reviewSkus.map((sku, index) => {
               const skuArt = pdfProofOnly
