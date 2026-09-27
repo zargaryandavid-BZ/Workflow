@@ -78,6 +78,7 @@ export function OnRollPreview({
   compact?: boolean;
 }) {
   const [cellSrc, setCellSrc] = useState<string | null>(null);
+  const [cellAspect, setCellAspect] = useState<number | null>(null);
   const [active, setActive] = useState<RollDirectionValue>(direction);
   const rotateDeg = rollDirectionArtworkRotateDeg(active);
 
@@ -107,6 +108,18 @@ export function OnRollPreview({
         for (const l of loaded) {
           if (l.objectUrl) objectUrls.push(l.objectUrl);
         }
+        const base = loaded[0].img;
+        const turnNow = ((rotateDeg % 360) + 360) % 360;
+        const quarterNow = turnNow === 90 || turnNow === 270;
+        // Read the real aspect off the actual rotated image instead of
+        // guessing from the order's Width/Height rows — those can be
+        // missing/wrong for a given SKU, which squeezed the label to fit
+        // the wrong box (object-fill hid the mismatch by force-stretching).
+        setCellAspect(
+          quarterNow
+            ? base.naturalHeight / base.naturalWidth
+            : base.naturalWidth / base.naturalHeight
+        );
         setCellSrc(
           paintRotatedComposite(
             loaded.map((l) => l.img),
@@ -126,14 +139,18 @@ export function OnRollPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- srcsKey covers visibleSrcs' contents
   }, [srcsKey, rotateDeg]);
 
-  // For 90° / -90° rotations, width and height swap.
+  // For 90° / -90° rotations, width and height swap. Used only as a
+  // best-guess placeholder size before the real image loads — cellAspect
+  // (measured off the actual rotated artwork) is what actually renders it,
+  // so a missing/wrong Width or Height on the order can no longer squeeze
+  // the label to fit the wrong box.
   const turn = ((rotateDeg % 360) + 360) % 360;
   const isQuarterTurn = turn === 90 || turn === 270;
   const rawW = labelWidthIn ?? 1;
   const rawH = labelHeightIn ?? 1;
   const rotatedW = isQuarterTurn ? rawH : rawW;
   const rotatedH = isQuarterTurn ? rawW : rawH;
-  const aspect = rotatedW / rotatedH;
+  const aspect = cellAspect ?? rotatedW / rotatedH;
 
   return (
     <div
@@ -234,7 +251,7 @@ export function OnRollPreview({
                   <img
                     src={cellSrc}
                     alt=""
-                    className="absolute inset-0 h-full w-full object-fill"
+                    className="absolute inset-0 h-full w-full object-contain"
                     draggable={false}
                   />
                 </div>
