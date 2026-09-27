@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, Layers, Maximize2, RotateCw, X } from "lucide-react";
+import { Download, Layers, Maximize2, X } from "lucide-react";
 import {
   isPdfArtworkLayer,
   isPdfCutLineLayer,
@@ -83,9 +83,6 @@ export function ProofLayerImages({
     () => new Set(printLayerIds)
   );
   const [stackOpen, setStackOpen] = useState(false);
-  // Default to the roll mockup when this SKU has a roll direction — customers
-  // were missing the toggle entirely, so now it's what they see first.
-  const [onRoll, setOnRoll] = useState(() => Boolean(rollDirection));
   const [sideBySide, setSideBySide] = useState(true);
 
   useEffect(() => {
@@ -174,24 +171,6 @@ export function ProofLayerImages({
           {preview.page ? ` · page ${preview.page}` : ""}
         </span>
         <div className="ml-auto flex items-center gap-2">
-          {rollDirection ? (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={onRoll}
-              onClick={() => setOnRoll((v) => !v)}
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wide shadow-sm transition-colors",
-                onRoll
-                  ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
-                  : "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
-              )}
-              title="See how this looks printed on the actual roll"
-            >
-              <RotateCw className="h-3.5 w-3.5" aria-hidden />
-              {onRoll ? "Showing on roll" : "See it on the roll"}
-            </button>
-          ) : null}
           <a
             href={compositeSrc}
             download={fileName || "proof"}
@@ -211,7 +190,7 @@ export function ProofLayerImages({
         </div>
       </div>
 
-      {namedLayers.length > 0 && !(onRoll && rollDirection) ? (
+      {namedLayers.length > 0 ? (
         <div className="flex flex-col gap-2 border-b border-slate-100 px-3 py-2">
           <p className="flex items-start gap-1.5 text-xs text-slate-600">
             <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
@@ -266,22 +245,7 @@ export function ProofLayerImages({
         </div>
       ) : null}
 
-      {onRoll && rollDirection ? (
-        <OnRollPreview
-          baseSrc={useComposite ? compositeSrc : baseSrc}
-          layers={
-            useComposite
-              ? []
-              : pics.map((pic) => ({
-                  src: layerSrc(pic.layer),
-                  visible: isVisible(pic.layer),
-                }))
-          }
-          direction={rollDirection}
-          labelWidthIn={labelWidthIn}
-          labelHeightIn={labelHeightIn}
-        />
-      ) : sideBySide && namedLayers.length > 0 ? (
+      {sideBySide && namedLayers.length > 0 ? (
         <div className="grid gap-4 p-4 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
           {pics.map((pic) => (
             <div key={pic.id} className="flex min-w-0 flex-col gap-1">
@@ -301,6 +265,27 @@ export function ProofLayerImages({
               </div>
             </div>
           ))}
+          {rollDirection ? (
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="truncate text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
+                On Roll
+              </span>
+              <div className="flex items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-white p-2">
+                <OnRollPreview
+                  compact
+                  baseSrc={baseSrc}
+                  layers={pics.map((pic) => ({
+                    src: layerSrc(pic.layer),
+                    visible: isVisible(pic.layer),
+                  }))}
+                  direction={rollDirection}
+                  labelWidthIn={labelWidthIn}
+                  labelHeightIn={labelHeightIn}
+                  className="max-h-[28rem] max-w-full"
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : !anyVisible ? (
         <p className="px-4 py-8 text-center text-sm text-slate-500">
