@@ -88,6 +88,10 @@ export function OnRollPreview({
   /** Label height in inches. */
   labelHeightIn,
   className,
+  /** Grid-tile mode: just the roll graphic, no title or direction picker — used
+   * to show this as one more image next to the Artwork/White/Cut tiles rather
+   * than a separate full-width section. */
+  compact = false,
 }: {
   /** Always-on base layer (the design), same as the flat proof's base. */
   baseSrc: string;
@@ -97,6 +101,7 @@ export function OnRollPreview({
   labelWidthIn?: number | null;
   labelHeightIn?: number | null;
   className?: string;
+  compact?: boolean;
 }) {
   const [cellSrc, setCellSrc] = useState<string | null>(null);
   const [active, setActive] = useState<RollDirectionValue>(direction);
@@ -157,52 +162,62 @@ export function OnRollPreview({
   const aspect = rotatedW / rotatedH;
 
   return (
-    <div className={cn("flex flex-col items-center gap-3 px-4 py-4", className)}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {DIRECTION_TITLE[active]}{" "}
-        <span className="font-bold text-slate-700">
-          {formatRollDirectionPreviewAngle(rotateDeg)}
-        </span>
-      </p>
+    <div
+      className={cn(
+        "flex flex-col items-center gap-3",
+        compact ? "px-1 py-1" : "px-4 py-4",
+        className
+      )}
+    >
+      {!compact ? (
+        <>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {DIRECTION_TITLE[active]}{" "}
+            <span className="font-bold text-slate-700">
+              {formatRollDirectionPreviewAngle(rotateDeg)}
+            </span>
+          </p>
 
-      <div
-        className="flex w-full max-w-[680px] flex-wrap items-center justify-center gap-1.5"
-        role="group"
-        aria-label="Roll direction"
-      >
-        {ROLL_DIRECTION_OPTIONS.map((opt) => {
-          const isActive = opt.value === active;
-          const isOnOrder = opt.value === direction;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setActive(opt.value)}
-              aria-pressed={isActive}
-              className={cn(
-                "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
-                isActive
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-                isOnOrder && !isActive && "ring-2 ring-blue-500 ring-offset-1"
-              )}
-              title={isOnOrder ? `${opt.label} — set on this order` : opt.label}
-            >
-              {opt.label}
-              {isOnOrder ? (
-                <span
+          <div
+            className="flex w-full max-w-[680px] flex-wrap items-center justify-center gap-1.5"
+            role="group"
+            aria-label="Roll direction"
+          >
+            {ROLL_DIRECTION_OPTIONS.map((opt) => {
+              const isActive = opt.value === active;
+              const isOnOrder = opt.value === direction;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setActive(opt.value)}
+                  aria-pressed={isActive}
                   className={cn(
-                    "ml-1.5 text-[10px] font-bold uppercase tracking-wide",
-                    isActive ? "text-blue-100" : "text-blue-600"
+                    "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                    isActive
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+                    isOnOrder && !isActive && "ring-2 ring-blue-500 ring-offset-1"
                   )}
+                  title={isOnOrder ? `${opt.label} — set on this order` : opt.label}
                 >
-                  Set
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+                  {opt.label}
+                  {isOnOrder ? (
+                    <span
+                      className={cn(
+                        "ml-1.5 text-[10px] font-bold uppercase tracking-wide",
+                        isActive ? "text-blue-100" : "text-blue-600"
+                      )}
+                    >
+                      Set
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
 
       <div className="relative mx-auto w-full max-w-[280px]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
