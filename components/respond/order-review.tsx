@@ -536,7 +536,7 @@ function SkuArtworkBlock({
                     </div>
                     {photoOnRoll ? (
                       <OnRollPreview
-                        artworkSrc={href}
+                        baseSrc={href}
                         direction={rollDirection}
                         labelWidthIn={labelWidthIn}
                         labelHeightIn={labelHeightIn}

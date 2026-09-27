@@ -264,7 +264,15 @@ export function ProofLayerImages({
 
       {onRoll && rollDirection ? (
         <OnRollPreview
-          artworkSrc={compositeSrc}
+          baseSrc={useComposite ? compositeSrc : baseSrc}
+          layers={
+            useComposite
+              ? []
+              : pics.map((pic) => ({
+                  src: layerSrc(pic.layer),
+                  visible: isVisible(pic.layer),
+                }))
+          }
           direction={rollDirection}
           labelWidthIn={labelWidthIn}
           labelHeightIn={labelHeightIn}

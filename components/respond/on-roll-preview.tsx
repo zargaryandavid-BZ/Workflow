@@ -30,9 +30,10 @@ const DIRECTION_TITLE: Record<RollDirectionValue, string> = {
   "4-Left": "Roll Direction 4-Left",
 };
 
-function paintRotated(img: HTMLImageElement, deg: number): string {
-  const nw = img.naturalWidth;
-  const nh = img.naturalHeight;
+/** Draw every image (already in stacking order) onto one rotated canvas. */
+function paintRotatedComposite(imgs: HTMLImageElement[], deg: number): string {
+  const nw = imgs[0].naturalWidth;
+  const nh = imgs[0].naturalHeight;
   const rad = (deg * Math.PI) / 180;
   const turn = ((deg % 360) + 360) % 360;
   const quarter = turn === 90 || turn === 270;
@@ -42,15 +43,45 @@ function paintRotated(img: HTMLImageElement, deg: number): string {
   canvas.width = Math.max(1, width);
   canvas.height = Math.max(1, height);
   const ctx = canvas.getContext("2d");
-  if (!ctx) return img.src;
+  if (!ctx) return imgs[0].src;
   ctx.translate(width / 2, height / 2);
   ctx.rotate(rad);
-  ctx.drawImage(img, -nw / 2, -nh / 2);
+  for (const img of imgs) {
+    ctx.drawImage(img, -nw / 2, -nh / 2);
+  }
   return canvas.toDataURL("image/png");
 }
 
+/** Fetch as a blob first so canvas reads (toDataURL) never hit a CORS taint. */
+async function loadImageViaBlob(src: string): Promise<{
+  img: HTMLImageElement;
+  objectUrl: string | null;
+}> {
+  let objectUrl: string | null = null;
+  let loadSrc = src;
+  if (!src.startsWith("data:") && !src.startsWith("blob:")) {
+    try {
+      const res = await fetch(src);
+      if (res.ok) {
+        objectUrl = URL.createObjectURL(await res.blob());
+        loadSrc = objectUrl;
+      }
+    } catch {
+      // fall through with the original src
+    }
+  }
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Failed to load image"));
+    img.src = loadSrc;
+  });
+  return { img, objectUrl };
+}
+
 export function OnRollPreview({
-  artworkSrc,
+  baseSrc,
+  layers = [],
   direction,
   /** Label width in inches (used to compute aspect ratio for proper sizing). */
   labelWidthIn,
@@ -58,13 +89,15 @@ export function OnRollPreview({
   labelHeightIn,
   className,
 }: {
-  artworkSrc: string;
+  /** Always-on base layer (the design), same as the flat proof's base. */
+  baseSrc: string;
+  /** Additional named layers stacked on top, in the same order/visibility the flat proof uses — e.g. skips White/Cut when those are toggled off. */
+  layers?: { src: string; visible: boolean }[];
   direction: RollDirectionValue;
   labelWidthIn?: number | null;
   labelHeightIn?: number | null;
   className?: string;
 }) {
-  const [src, setSrc] = useState<string | null>(null);
   const [cellSrc, setCellSrc] = useState<string | null>(null);
   const [active, setActive] = useState<RollDirectionValue>(direction);
   const rotateDeg = rollDirectionArtworkRotateDeg(active);
@@ -73,41 +106,46 @@ export function OnRollPreview({
     setActive(direction);
   }, [direction]);
 
+  // Only the currently-visible layers (same rule the flat proof uses — White
+  // ink and the Cut/dieline stay off unless the customer turns them on)
+  // get composited onto the roll. Previously this always used the fully
+  // flattened "composite" image, so a hidden White layer still bled through
+  // as a green mess on the roll mockup even though it was off in the proof.
+  const visibleSrcs = [baseSrc, ...layers.filter((l) => l.visible).map((l) => l.src)];
+  const srcsKey = visibleSrcs.join("|");
+
   useEffect(() => {
-    let objectUrl: string | null = null;
     let cancelled = false;
+    const objectUrls: string[] = [];
 
     const run = async () => {
-      if (artworkSrc.startsWith("data:") || artworkSrc.startsWith("blob:")) {
-        setSrc(artworkSrc);
-        return;
-      }
+      setCellSrc(null);
       try {
-        const res = await fetch(artworkSrc);
-        if (!res.ok || cancelled) return;
-        objectUrl = URL.createObjectURL(await res.blob());
-        if (!cancelled) setSrc(objectUrl);
+        const loaded = await Promise.all(
+          visibleSrcs.map((s) => loadImageViaBlob(s))
+        );
+        if (cancelled) return;
+        for (const l of loaded) {
+          if (l.objectUrl) objectUrls.push(l.objectUrl);
+        }
+        setCellSrc(
+          paintRotatedComposite(
+            loaded.map((l) => l.img),
+            rotateDeg
+          )
+        );
       } catch {
-        if (!cancelled) setSrc(artworkSrc);
+        // Leave cellSrc null — the "Placing label…" state stays visible.
       }
     };
 
     void run();
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      for (const u of objectUrls) URL.revokeObjectURL(u);
     };
-  }, [artworkSrc]);
-
-  useEffect(() => {
-    if (!src) {
-      setCellSrc(null);
-      return;
-    }
-    const img = new Image();
-    img.onload = () => setCellSrc(paintRotated(img, rotateDeg));
-    img.src = src;
-  }, [src, rotateDeg]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- srcsKey covers visibleSrcs' contents
+  }, [srcsKey, rotateDeg]);
 
   // For 90° / -90° rotations, width and height swap.
   const turn = ((rotateDeg % 360) + 360) % 360;
