@@ -291,15 +291,19 @@ export function sentMessagesFromActivity(
  * rejection, info submission, or a freeform reply) — but NOT entries that also
  * encode a column move (those are already surfaced in the board move history).
  */
+/** Same rows Com. History shows as a client reply (not a board move). */
+export function isVisibleCustomerReplyActivity(
+  log: Pick<ActivityLog, "action" | "metadata">
+): boolean {
+  if (!CUSTOMER_ACTIONS.has(log.action)) return false;
+  return !isColumnMoveActivity(log);
+}
+
 export function customerResponsesFromActivity(
   activity: ActivityLogEntry[]
 ): CustomerResponseEntry[] {
   return activity
-    .filter((log) => {
-      if (!CUSTOMER_ACTIONS.has(log.action)) return false;
-      // Skip entries that are really column-move events (already shown elsewhere).
-      return !isColumnMoveActivity(log);
-    })
+    .filter((log) => isVisibleCustomerReplyActivity(log))
     .map((log) => {
       const meta = (log.metadata ?? {}) as Record<string, unknown>;
       const note =

@@ -4,6 +4,7 @@ import {
   isSoftNotificationBadge,
   type CardNotificationBadge,
 } from "@/lib/card-badges";
+import { isVisibleCustomerReplyActivity } from "@/lib/activity";
 import {
   boardThumbnailsByOrder,
   designerNamesByOrder,
@@ -49,6 +50,8 @@ export interface BoardOrderEnrichment {
   dieStatusByOrder: Record<string, DieBoardStatus>;
   /** ISO date when customer last approved (customer_approval + approved). */
   approvalDateByOrder: Record<string, string>;
+  /** True when Com. History has a client reply (inbound SMS or customer response). */
+  hasCustomerReplyByOrder: Record<string, boolean>;
 }
 
 const emptyEnrichment = (): BoardOrderEnrichment => ({
@@ -61,6 +64,7 @@ const emptyEnrichment = (): BoardOrderEnrichment => ({
   dieAlertByOrder: {},
   dieStatusByOrder: {},
   approvalDateByOrder: {},
+  hasCustomerReplyByOrder: {},
 });
 
 /** Cardboard main picture first (`specs.card_image`), then SKU/asset gallery. */
@@ -179,6 +183,8 @@ export async function enrichBoardOrders(
     designerProfiles,
     shippingRes,
     dieState,
+    inboundSmsRes,
+    replyActivityRes,
   ] =
     await Promise.all([
       supabase
@@ -219,6 +225,24 @@ export async function enrichBoardOrders(
         .order("created_at", { ascending: false }),
 
       dieBoardStateByOrder(supabase, orderIds),
+
+      supabase
+        .from("order_sms_messages")
+        .select("order_id")
+        .in("order_id", orderIds)
+        .eq("direction", "inbound"),
+
+      supabase
+        .from("activity_log")
+        .select("order_id, action, metadata")
+        .in("order_id", orderIds)
+        .in("action", [
+          "approved",
+          "rejected",
+          "info_submitted",
+          "customer_replied",
+          "combo_stock_reply",
+        ]),
     ]);
 
   const fieldValuesByOrder: Record<string, Record<string, unknown>> = {};
@@ -362,6 +386,30 @@ export async function enrichBoardOrders(
 
   const { dieAlertByOrder, dieStatusByOrder } = dieState;
 
+  const hasCustomerReplyByOrder: Record<string, boolean> = {};
+  for (const id of orderIds) hasCustomerReplyByOrder[id] = false;
+  if (!inboundSmsRes.error) {
+    for (const row of (inboundSmsRes.data ?? []) as { order_id: string }[]) {
+      hasCustomerReplyByOrder[row.order_id] = true;
+    }
+  }
+  if (!replyActivityRes.error) {
+    for (const row of (replyActivityRes.data ?? []) as {
+      order_id: string;
+      action: string;
+      metadata: Record<string, unknown> | null;
+    }[]) {
+      if (
+        isVisibleCustomerReplyActivity({
+          action: row.action,
+          metadata: row.metadata ?? {},
+        })
+      ) {
+        hasCustomerReplyByOrder[row.order_id] = true;
+      }
+    }
+  }
+
   return {
     fieldValuesByOrder,
     thumbnailByOrder,
@@ -372,5 +420,6 @@ export async function enrichBoardOrders(
     dieAlertByOrder,
     dieStatusByOrder,
     approvalDateByOrder,
+    hasCustomerReplyByOrder,
   };
 }

@@ -7,7 +7,10 @@ import "server-only";
 import { formatShortOrderNumber } from "@/lib/board-order-filters";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
 import { getMessageTemplates } from "@/lib/message-templates.server";
-import { renderMessageTemplate } from "@/lib/message-templates";
+import {
+  DEFAULT_GOOGLE_REVIEW_URL,
+  renderMessageTemplate,
+} from "@/lib/message-templates";
 import {
   FINISHED_CUSTOMER_SMS_SPEC_KEY,
   finishedCustomerSmsKind,
@@ -21,8 +24,7 @@ import type { Order } from "@/lib/types";
 
 export { FINISHED_CUSTOMER_SMS_SPEC_KEY, preserveFinishedCustomerSms } from "@/lib/net-terms-fulfill";
 
-export const DEFAULT_GOOGLE_REVIEW_URL =
-  "https://g.page/r/CX6v8SiBU70cEBM/review";
+export { DEFAULT_GOOGLE_REVIEW_URL } from "@/lib/message-templates";
 
 function alreadySent(specs: Record<string, unknown> | null | undefined): boolean {
   const raw = specs?.[FINISHED_CUSTOMER_SMS_SPEC_KEY];

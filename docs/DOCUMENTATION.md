@@ -1,6 +1,6 @@
 # Documentation
 
-**Last updated: September 24, 2026**
+**Last updated: September 28, 2026**
 
 Complete project reference for developers and AI agents.
 
@@ -624,7 +624,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `email` | `text` | Email (unique per tenant when set) |
 | `phone` | `text` | Phone (unique per tenant when set) |
 | `company` | `text` | Company name |
-| `preferred_channel` | `text` | Default notify channel (`sms` / `email`) |
+| `preferred_channel` | `text` | Default notify channel (`sms` / `email`). Missing Info and Approval Email/SMS chips auto-select this. Changing to exclusive Email or SMS on the card saves it here. |
 | `default_priority_score` | `int` | Default board priority 1–5 |
 | `crm_customer_id` | `text` | Bazaar CRM customer id (migration `0101`); stamped from webhooks |
 | `created_at` | `timestamptz` | Created |
@@ -1355,7 +1355,7 @@ Trigger a button action on a given order.
 
 **`generate_pdf`:** Job ticket page 1 is order/specs/SKUs. The dark header keeps a **QR code** of the printed order number in its own column on the far right (generated at print time, `lib/order-qr.ts`; not stored). Tenant name, JOB TICKET, order number, and date stay left of that column so they do not overlap the QR. SKU pages use the same named-layer pictures as `/respond` (`layerPicsForJobTicket`), except **Cut / Dieline** plates are not drawn as their own cell (those RGB previews are usually blank). The ticket shows the combined proof instead, plus other print plates (White, UV, …). The route allows 180s so Vercel does not kill the download. If there are no layer previews, SKU artwork images are used (same QR on those page headers).
 
-Packing slips (`lib/packing-slip-pdf.ts`) put that QR flush to the **far right** of the header (own column, drawn last so labels cannot cover it). Blind slips with no order label omit it.
+Packing slips (`lib/packing-slip-pdf.ts`) put that QR flush to the **far right** of the header (own column, drawn last so labels cannot cover it). Blind slips with no order label omit it. **Print shipping slip** (`print_packing_slip`) generates the same PDF and sends it to the computer’s default printer (`lib/print-pdf-blob.ts`); a toast confirms “Print request sent to the default printer.” The button is added next to Generate Packing Slip automatically. The Shipping Slip modal also has **Print**. Requires migration `0103_button_automations_print_packing_slip.sql` to persist a dedicated print button in Settings. `POST /api/orders/[id]/actions/generate-packing-slip` accepts optional `button_id` (required for board automations); Scan omits it.
 
 | | |
 | --- | --- |
@@ -1427,7 +1427,7 @@ Returns **403** — customers are auto-managed from orders.
 
 ### `PATCH /api/customers/[id]`
 
-Admin can update name, email, phone, company, preferred channel, and default priority. After a contact/name save, Workflow fire-and-forget PATCHes Bazaar CRM (`lib/bazaar-customer-sync.ts`) when `customers.crm_customer_id` and `webhook_configs.bazaar_api_url` + an `osk_…` key exist. Auth matches status callbacks (`x-webhook-secret`). Endpoint assumed: `PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}`. Confirm the contract with Bazaar before relying on it in production.
+Admin can update name, email, phone, company, preferred channel, and default priority. Any signed-in member can PATCH `{ preferred_channel: "sms" | "email" }` only (used when staff change Email/SMS on Missing Info / Approval). After a contact/name save, Workflow fire-and-forget PATCHes Bazaar CRM (`lib/bazaar-customer-sync.ts`) when `customers.crm_customer_id` and `webhook_configs.bazaar_api_url` + an `osk_…` key exist. Auth matches status callbacks (`x-webhook-secret`). Endpoint assumed: `PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}`. Confirm the contract with Bazaar before relying on it in production.
 
 ### `GET /api/customers/[id]/contacts`
 
@@ -1510,6 +1510,7 @@ Main production board: drag-and-drop, filters, modals, notification popups, Real
 | `designers` | `Designer[]` | For person filter |
 | `notifyRules` | `{ from_column, notify_type }[]` | Enabled notify automations |
 | `notificationBadgeByOrder` | `Record<string, CardNotificationBadge>` | Card badges |
+| `hasCustomerReplyByOrder` | `Record<string, boolean>` | Green chat icon when the client has replied |
 | `ownerNameByOrder` | `Record<string, string>` | Designer name on card |
 | `smsConfigured` | `boolean` | Show SMS option |
 | `publicAppUrl` | `boolean` | Warn if APP_URL is localhost |
@@ -1565,12 +1566,13 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 | `fieldValues` | `Record<string, unknown>` | Custom field values |
 | `thumbnail` | `string` | Preview image URL |
 | `notificationBadge` | `CardNotificationBadge` | e.g. "Rejected" |
+| `hasCustomerReply` | `boolean` | Green chat icon — inbound SMS or customer reply in Com. History |
 | `ownerName` | `string` | Assigned designer |
 | `onOpen` | `(order) => void` | Click to open detail |
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit. The job number turns **green** when Final production has files. A red **NO PDF** badge means Final production has no print PDF. A red **PDF** badge (from `GET /api/orders/[id]/pdf-check`) means the Final PDF is missing Acrobat layers or Fast Web View.
+**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit. The job number turns **green** when Final production has files. A green chat icon appears only when the client has replied (inbound SMS or a customer response in Com. History — not outbound Email/SMS). A red **NO PDF** badge (bottom-right of the thumbnail) means Final production has no print PDF. A red **PDF** badge in the same corner (from `GET /api/orders/[id]/pdf-check`) means the Final PDF is missing Acrobat layers or Fast Web View. Gallery picture count sits bottom-left so it does not cover those tags.
 
 ---
 
@@ -1716,6 +1718,7 @@ Legacy approval page using `get_approval_by_token` RPC. Also shows `OrderReview`
 | `/settings/fields` | `fields-manager.tsx` | Custom field CRUD |
 | `/settings/columns` | `columns-manager.tsx` | Column CRUD, reorder, images, drop roles, visibility |
 | `/settings/button-automation` | `fast-action-buttons-manager.tsx` + `notification-rules-manager.tsx` | Fast action buttons + column notification rules |
+| `/settings/message-templates` | `message-templates-manager.tsx` | Customer SMS/email copy. Finished + review SMS uses `{{review_link}}` (spaces in the name still fill the Google URL). |
 
 All settings live under `app/(app)/settings/` with shared `layout.tsx`. The left sidebar shows **Settings**; `/settings` is the grouped hub (Board setup, Automations, Connections, Records, Ops).
 
@@ -1805,7 +1808,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 ### Fulfillment Scan
 
-`/fulfillment/scan` (`components/fulfillment/FulfillmentScanPage.tsx`). Floor station: look up an order, then tap an action button to move it to a board column (`POST /api/fulfillment/scan/action`). Button names, order, and target columns are tenant-editable (**Configure columns** in the fulfillment header) and stored as `fulfillment_settings.scan_column_config.buttons` (`id`, `label`, `column_id`). Legacy `{ received, delivered, shipped, finished, finished_reviewed }` maps are still read. Below `lg`, Scan stacks as order card → product specs → shipping → compact artwork → info/actions, and the page scrolls. At `lg+` specs and artwork sit left of shipping/actions; artwork fills leftover height. The **Main order items** count is bold blue and opens a list of each part and its board column (`0467-1` In Production). The open order’s column name is highlighted; **Finished: Review Request** is a red tag with white text (not truncated). Clicking another part loads that order in Scan. **Set Up Shipping** is the only shipping action when no portal exists yet. **Reminder Select Shipping** appears only after a `shipping_requests` row exists and the client has not chosen; **Reminder Pickup** only after they chose pickup. Stale Waiting Approval reminders: `scripts/resend-stale-waiting-approval.ts` resends customer approval (same channel) when last Com. History send is 2+ days old and bumps `job_notifications.created_at`.
+`/fulfillment/scan` (`components/fulfillment/FulfillmentScanPage.tsx`). Floor station: look up an order, then tap an action button to move it to a board column (`POST /api/fulfillment/scan/action`). Button names, order, and target columns are tenant-editable (**Configure columns** in the fulfillment header) and stored as `fulfillment_settings.scan_column_config.buttons` (`id`, `label`, `column_id`). Legacy `{ received, delivered, shipped, finished, finished_reviewed }` maps are still read. Below `lg`, Scan stacks as order card → product specs → shipping → compact artwork → info/actions, and the page scrolls. At `lg+` specs and artwork sit left of shipping/actions; artwork fills leftover height. The **Main order items** count is bold blue and opens a list of each part and its board column (`0467-1` In Production). The open order’s column name is highlighted; **Finished: Review Request** is a red tag with white text (not truncated). Clicking another part loads that order in Scan. **Set Up Shipping** is the only shipping action when no portal exists yet. **Reminder Select Shipping** appears only after a `shipping_requests` row exists and the client has not chosen; **Reminder Pickup** only after they chose pickup. **Print shipping slip** and **Download shipping slip** are always shown for a loaded order (`ScanShippingSlipButtons`; same PDF as board packing slip, `POST /api/orders/[id]/actions/generate-packing-slip` without `button_id`). Stale Waiting Approval reminders: `scripts/resend-stale-waiting-approval.ts` resends customer approval (same channel) when last Com. History send is 2+ days old and bumps `job_notifications.created_at`.
 
 ---
 
@@ -1820,7 +1823,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 ### 2. Popup — operator fills note + selects channel
 
 - `MissingInfoPopup` shows customer contact (from custom fields + linked customer).
-- Channels: **Email**, **SMS** (if Twilio configured), **Manual** (link only, no send).
+- Channels: **Email**, **SMS** (if Twilio configured), **Manual** (link only, no send). Email/SMS defaults to Settings → Customers → Default communication channel (`customers.preferred_channel`). Toggling to Email-only or SMS-only saves that as the new customer default.
 - Email shows a read-only preview from `lib/notification-messages.ts` (staff note included).
 - Operator clicks Send.
 
@@ -1873,7 +1876,7 @@ Staff (including designers) can **Send / Resend** from the Missing Info tab (`co
 
 ### 2. Popup — channel + optional note
 
-- Operator selects Email / SMS / Manual.
+- Operator selects Email / SMS / Manual. Email/SMS defaults to the customer’s Settings default channel; exclusive Email or SMS updates that default.
 - `POST /api/notifications/send` with `type: "customer_approval"`.
 - Customer receives link to same `/respond/{token}` page (UI adapts to approval mode).
 - The **Approval** tab always shows Email / SMS send or resend (including after Manual follow-up, with no prior send, or after a customer reply). Manual approve remains a separate action.

@@ -44,6 +44,7 @@ import {
   type ScanActionButton,
 } from "@/lib/fulfillment-scan-config";
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
+import { ScanShippingSlipButtons } from "@/components/fulfillment/ScanShippingSlipButtons";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
@@ -1053,17 +1054,26 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             const isShippingColumn =
               orderColumn?.kind === "ready_to_ship" ||
               (!isFinishedStage && orderColumn?.kind === "normal" && !!order.shipping_request);
-            return isShippingColumn ? (
-              <div className="order-2 shrink-0 px-4 lg:px-0">
-                <ShippingReminderSection
-                  order={order}
-                  onShippingCreated={() => void lookup(order.title)}
-                  tenantName={tenantName}
-                  customFields={customFields}
-                  smsConfigured={smsConfigured}
+            const slipNumber = order.order_number?.trim() || order.title;
+            const groupSize = Math.max(1, order.main_item_count ?? 1);
+            return (
+              <div className="order-2 flex shrink-0 flex-col gap-4 px-4 lg:px-0">
+                {isShippingColumn ? (
+                  <ShippingReminderSection
+                    order={order}
+                    onShippingCreated={() => void lookup(order.title)}
+                    tenantName={tenantName}
+                    customFields={customFields}
+                    smsConfigured={smsConfigured}
+                  />
+                ) : null}
+                <ScanShippingSlipButtons
+                  orderId={order.id}
+                  orderNumber={slipNumber}
+                  groupSize={groupSize}
                 />
               </div>
-            ) : null;
+            );
           })()}
 
           <div className="order-5 flex flex-col gap-4 px-4 pb-4 lg:px-0 lg:pb-0">

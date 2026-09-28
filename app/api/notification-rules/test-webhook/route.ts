@@ -21,6 +21,7 @@ const TEST_VARS = {
   product: "Test Product",
   die: "",
   assigned_to: "Staff Member",
+  review_link: "https://g.page/r/CX6v8SiBU70cEBM/review",
 };
 
 export async function POST(request: Request) {

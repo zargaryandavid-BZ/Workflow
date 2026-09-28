@@ -824,6 +824,30 @@ export async function updateCustomerByAdmin(
   return updated as Customer;
 }
 
+export async function updateCustomerPreferredChannel(
+  client: Client,
+  tenantId: string,
+  customerId: string,
+  preferred: PreferredChannel
+): Promise<Customer> {
+  const preferred_channel = normalizePreferredChannel(preferred);
+  const { data, error } = await client
+    .from("customers")
+    .update({
+      preferred_channel,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .select(CUSTOMER_SELECT)
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? "Failed to update preferred channel");
+  }
+  return data as Customer;
+}
+
 /** Staff create from Customers page — never merges into an existing record. */
 export async function createCustomerManually(
   client: Client,

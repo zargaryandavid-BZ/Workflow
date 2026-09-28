@@ -17,6 +17,7 @@ import {
   defaultSendChannels,
   resolvePreferredNotifyChannel,
 } from "@/lib/preferred-channel";
+import { toggleAndPersistNotifyChannel } from "@/lib/persist-preferred-channel";
 import {
   isTimeoutError,
   APPROVAL_SEND_TIMEOUT_MS,
@@ -150,13 +151,9 @@ export function ApprovalPopup({
 
   function toggleChannel(next: "email" | "sms") {
     setMode("notify");
-    setSelected((prev) => {
-      if (prev.includes(next)) {
-        const nextSel = prev.filter((c) => c !== next);
-        return nextSel.length === 0 ? prev : nextSel;
-      }
-      return [...prev, next];
-    });
+    setSelected((prev) =>
+      toggleAndPersistNotifyChannel(prev, next, order.customer?.id, order.customer)
+    );
     setError(null);
   }
 

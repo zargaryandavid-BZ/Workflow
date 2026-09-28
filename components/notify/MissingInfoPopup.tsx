@@ -17,6 +17,7 @@ import {
   channelFromSelection,
   defaultSendChannels,
 } from "@/lib/preferred-channel";
+import { toggleAndPersistNotifyChannel } from "@/lib/persist-preferred-channel";
 import {
   isTimeoutError,
   NOTIFICATION_SEND_TIMEOUT_MS,
@@ -115,13 +116,9 @@ export function MissingInfoPopup({
   const wantSms = selected.includes("sms");
 
   function toggleChannel(next: "email" | "sms") {
-    setSelected((prev) => {
-      if (prev.includes(next)) {
-        const nextSel = prev.filter((c) => c !== next);
-        return nextSel.length === 0 ? prev : nextSel;
-      }
-      return [...prev, next];
-    });
+    setSelected((prev) =>
+      toggleAndPersistNotifyChannel(prev, next, order.customer?.id, order.customer)
+    );
     setError(null);
   }
 

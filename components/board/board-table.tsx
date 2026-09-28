@@ -910,7 +910,7 @@ export function BoardTable({
                   <div className="shrink-0 border-b border-slate-100 py-1">
                     {actionButtons.map((btn) => (
                       <ActionButton
-                        key={btn.id}
+                        key={`${btn.id}:${btn.action_type}`}
                         appearance="menu"
                         button={btn}
                         orderId={menuState.order.id}

@@ -329,15 +329,26 @@ export function formatOrderProductLabel(productType: string): string {
   return product;
 }
 
-/** Replace {{var}} placeholders. Unknown vars become empty string. */
+export const DEFAULT_GOOGLE_REVIEW_URL =
+  "https://g.page/r/CX6v8SiBU70cEBM/review";
+
+/** Replace {{var}} placeholders. Unknown {{vars}} become empty string. */
 export function renderMessageTemplate(
   template: string,
   vars: MessageTemplateVars
 ): string {
-  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => {
-    const value = vars[key];
-    return value == null ? "" : value;
-  });
+  return template.replace(
+    /\{+\s*([a-zA-Z0-9_]+(?:[ \t]+[a-zA-Z0-9_]+)*)\s*\}+/g,
+    (full, key: string) => {
+      const normalized = String(key).trim().replace(/[ \t]+/g, "_");
+      if (Object.prototype.hasOwnProperty.call(vars, normalized)) {
+        return vars[normalized] ?? "";
+      }
+      // Canonical {{unknown}} stays empty (legacy). Malformed leftovers keep their text.
+      if (full.startsWith("{{") && full.endsWith("}}")) return "";
+      return full;
+    }
+  );
 }
 
 export function mergeMessageTemplates(

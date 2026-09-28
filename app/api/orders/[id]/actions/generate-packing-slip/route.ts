@@ -106,10 +106,6 @@ export async function POST(
     body = {};
   }
 
-  if (!body.button_id) {
-    return NextResponse.json({ error: "button_id required" }, { status: 422 });
-  }
-
   const part = parsePositiveInt(
     body.part ?? url.searchParams.get("part"),
     1
@@ -146,23 +142,27 @@ export async function POST(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  const { error: buttonError } = await assertButtonVisibleForOrder(
-    supabase,
-    body.button_id,
-    ctx.tenant.id,
-    exportData.order.column_id,
-    "generate_packing_slip"
-  );
-  if (buttonError) {
-    return NextResponse.json(
-      {
-        error:
-          buttonError === "Invalid button action"
-            ? "This button is not a Packing Slip action. Recreate it in Settings → Button Automation with action \"Generate Packing Slip\" (requires DB migration 0043)."
-            : buttonError,
-      },
-      { status: 400 }
+  // Board automations pass button_id. Scan / fulfillment may generate without one
+  // (any signed-in tenant member who can load the order).
+  if (body.button_id) {
+    const { error: buttonError } = await assertButtonVisibleForOrder(
+      supabase,
+      body.button_id,
+      ctx.tenant.id,
+      exportData.order.column_id,
+      ["generate_packing_slip", "print_packing_slip"]
     );
+    if (buttonError) {
+      return NextResponse.json(
+        {
+          error:
+            buttonError === "Invalid button action"
+              ? "This button is not a Packing Slip action. Recreate it in Settings → Button Automation with action \"Generate Packing Slip\" (requires DB migration 0043)."
+              : buttonError,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   let pdfBuffer: Buffer;

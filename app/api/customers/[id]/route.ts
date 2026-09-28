@@ -4,6 +4,7 @@ import {
   listCustomerOrderSummaries,
   updateCustomerByAdmin,
   updateCustomerDefaultPriority,
+  updateCustomerPreferredChannel,
 } from "@/lib/customers";
 import { canSetBoardTagAndPriority } from "@/lib/permissions";
 import { parsePriorityScore } from "@/lib/order-priority-score";
@@ -92,7 +93,25 @@ export async function PATCH(
       body.preferred_channel === undefined &&
       body.default_priority_score !== undefined);
 
+  const channelOnly =
+    (body.preferred_channel === "sms" || body.preferred_channel === "email") &&
+    body.name === undefined &&
+    body.email === undefined &&
+    body.phone === undefined &&
+    body.company === undefined &&
+    body.default_priority_score === undefined;
+
   try {
+    if (channelOnly) {
+      const customer = await updateCustomerPreferredChannel(
+        supabase,
+        ctx.tenant.id,
+        id,
+        body.preferred_channel === "email" ? "email" : "sms"
+      );
+      return NextResponse.json({ customer });
+    }
+
     if (priorityOnly) {
       if (!canSetBoardTagAndPriority(ctx.role)) {
         return NextResponse.json(

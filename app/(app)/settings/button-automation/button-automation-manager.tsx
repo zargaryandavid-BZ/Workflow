@@ -386,8 +386,16 @@ function ButtonEditor({
             <option value="send_sms">Send SMS</option>
             <option value="generate_pdf">Generate PDF (Job Ticket)</option>
             <option value="generate_packing_slip">Generate Packing Slip</option>
+            <option value="print_packing_slip">Print Shipping Slip</option>
             <option value="request_approval">Request Approval</option>
           </Select>
+          {actionType === "print_packing_slip" ? (
+            <p className="mt-1.5 text-xs text-slate-500">
+              Generates the shipping / packing slip and sends it to the computer’s
+              default printer. A confirmation toast appears when the print request
+              is sent.
+            </p>
+          ) : null}
           {actionType === "request_approval" ? (
             <p className="mt-1.5 text-xs text-slate-500">
               Opens the same proof-approval popup as dropping a card into Waiting
@@ -506,7 +514,7 @@ function ButtonEditor({
             <div>
               <Label htmlFor="btn-sms-body">Message template</Label>
               <p className="mb-1 text-xs text-slate-500">
-                Variables: {"{{order_number}}"}, {"{{customer_name}}"}, {"{{due_date}}"}, {"{{product}}"}, {"{{assigned_to}}"}
+                Variables: {"{{order_number}}"}, {"{{customer_name}}"}, {"{{due_date}}"}, {"{{product}}"}, {"{{assigned_to}}"}, {"{{review_link}}"}
               </p>
               <textarea
                 id="btn-sms-body"

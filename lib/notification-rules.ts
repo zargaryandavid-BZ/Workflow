@@ -1,4 +1,8 @@
 import type { OrderExportData } from "@/lib/button-automation-order-data";
+import {
+  DEFAULT_GOOGLE_REVIEW_URL,
+  renderMessageTemplate,
+} from "@/lib/message-templates";
 import type { NotificationRuleRecipient, NotificationRuleTrigger } from "@/lib/types";
 
 export const NOTIFICATION_RULE_TRIGGER_LABELS: Record<
@@ -32,6 +36,7 @@ export const NOTIFICATION_RULE_TEMPLATE_VARS = [
   "{{die}}",
   "{{assigned_to}}",
   "{{moved_at}}",
+  "{{review_link}}",
 ] as const;
 
 export const DEFAULT_NOTIFICATION_EMAIL_SUBJECT =
@@ -80,6 +85,7 @@ export interface NotificationRuleTemplateContext {
   die: string;
   assigned_to: string;
   moved_at: string;
+  review_link: string;
 }
 
 export function buildNotificationRuleTemplateContext(
@@ -100,6 +106,7 @@ export function buildNotificationRuleTemplateContext(
     die: data.die,
     assigned_to: data.assignedToName === "—" ? "" : data.assignedToName,
     moved_at: extra?.movedAt ?? new Date().toISOString(),
+    review_link: DEFAULT_GOOGLE_REVIEW_URL,
   };
 }
 
@@ -107,10 +114,7 @@ export function renderNotificationRuleTemplate(
   template: string,
   ctx: NotificationRuleTemplateContext
 ): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-    const value = ctx[key as keyof NotificationRuleTemplateContext];
-    return value ?? "";
-  });
+  return renderMessageTemplate(template, { ...ctx });
 }
 
 export function validateNotificationRuleInput(body: {

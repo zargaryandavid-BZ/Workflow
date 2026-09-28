@@ -1,4 +1,4 @@
-import type { PreferredChannel } from "@/lib/types";
+import type { PreferredChannel } from "./types.ts";
 
 export type ResolvedSendChannel = "email" | "sms" | "manual";
 
@@ -48,21 +48,16 @@ export function defaultSendChannel(
 }
 
 /**
- * Default channel selection for send/resend pickers.
- * When both email and phone are available, select both so staff can send together.
+ * Default Email/SMS chips on Missing Info and Approval.
+ * Uses Settings → Customers → Default communication channel (SMS or Email).
+ * Falls back to the other method if the preferred one has no contact details.
  */
 export function defaultSendChannels(
   contact: { email: string | null; phone: string | null },
   preferred: PreferredChannel | null | undefined,
   smsConfigured = true
 ): Array<"email" | "sms"> {
-  const canEmail = Boolean(contact.email?.trim());
-  const canSms = Boolean(contact.phone?.trim()) && smsConfigured;
-  if (canEmail && canSms) return ["email", "sms"];
-  if (canEmail) return ["email"];
-  if (canSms) return ["sms"];
-  const fallback = defaultSendChannel(contact, preferred, smsConfigured);
-  return [fallback];
+  return [defaultSendChannel(contact, preferred, smsConfigured)];
 }
 
 export function channelFromSelection(
@@ -73,6 +68,26 @@ export function channelFromSelection(
   if (email && sms) return "both";
   if (email) return "email";
   if (sms) return "sms";
+  return null;
+}
+
+export function toggleSendChannelSelection(
+  prev: ReadonlyArray<"email" | "sms">,
+  next: "email" | "sms"
+): Array<"email" | "sms"> {
+  if (prev.includes(next)) {
+    const nextSel = prev.filter((c) => c !== next);
+    return nextSel.length === 0 ? [...prev] : nextSel;
+  }
+  return [...prev, next];
+}
+
+/** Exclusive Email or SMS becomes the saved customer default. Both does not. */
+export function preferredChannelFromSelection(
+  selected: ReadonlyArray<"email" | "sms">
+): PreferredChannel | null {
+  const channel = channelFromSelection(selected);
+  if (channel === "sms" || channel === "email") return channel;
   return null;
 }
 

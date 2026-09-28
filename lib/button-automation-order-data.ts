@@ -504,6 +504,14 @@ export async function assertButtonVisibleForOrder(
     | "send_sms"
     | "generate_pdf"
     | "generate_packing_slip"
+    | "print_packing_slip"
+    | ReadonlyArray<
+        | "send_email"
+        | "send_sms"
+        | "generate_pdf"
+        | "generate_packing_slip"
+        | "print_packing_slip"
+      >
 ) {
   const { data, error } = await supabase
     .from("button_automations")
@@ -520,7 +528,10 @@ export async function assertButtonVisibleForOrder(
   if (!button.enabled) {
     return { error: "Button is disabled", button: null as null };
   }
-  if (button.action_type !== expectedAction) {
+  const allowed = Array.isArray(expectedAction)
+    ? expectedAction
+    : [expectedAction];
+  if (!allowed.includes(button.action_type as (typeof allowed)[number])) {
     return { error: "Invalid button action", button: null as null };
   }
   if (

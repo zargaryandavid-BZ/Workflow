@@ -6,6 +6,16 @@ import type {
   ButtonAutomationSmsConfig,
   ButtonAutomationSmsRecipient,
 } from "@/lib/types";
+import {
+  DEFAULT_GOOGLE_REVIEW_URL,
+  renderMessageTemplate,
+} from "@/lib/message-templates";
+import {
+  filterButtonsForColumn,
+  withPrintShippingSlipButtons,
+} from "./print-shipping-slip-buttons.ts";
+
+export { filterButtonsForColumn, withPrintShippingSlipButtons };
 
 export const BUTTON_ACTION_LABELS: Record<ButtonAutomationActionType, string> = {
   copy_link: "Copy Card Link",
@@ -13,6 +23,7 @@ export const BUTTON_ACTION_LABELS: Record<ButtonAutomationActionType, string> = 
   send_sms: "Send SMS",
   generate_pdf: "Generate PDF",
   generate_packing_slip: "Generate Packing Slip",
+  print_packing_slip: "Print Shipping Slip",
   request_approval: "Request Approval",
 };
 
@@ -98,17 +109,6 @@ export function resolveSmsPhone(
   return data.customerPhone ?? null;
 }
 
-export function filterButtonsForColumn(
-  buttons: ButtonAutomation[],
-  columnId: string
-): ButtonAutomation[] {
-  return buttons.filter(
-    (btn) =>
-      btn.enabled &&
-      (btn.column_ids.length === 0 || btn.column_ids.includes(columnId))
-  );
-}
-
 export function orderCardShareUrl(orderId: string, appUrl: string): string {
   const base = appUrl.replace(/\/$/, "");
   return `${base}/board?order=${orderId}`;
@@ -126,12 +126,14 @@ export function renderButtonAutomationTemplate(
   template: string,
   ctx: ButtonAutomationTemplateContext
 ): string {
-  return template
-    .replaceAll("{{order_number}}", ctx.orderNumber)
-    .replaceAll("{{customer_name}}", ctx.customerName)
-    .replaceAll("{{due_date}}", ctx.dueDate)
-    .replaceAll("{{product}}", ctx.product)
-    .replaceAll("{{assigned_to}}", ctx.assignedTo);
+  return renderMessageTemplate(template, {
+    order_number: ctx.orderNumber,
+    customer_name: ctx.customerName,
+    due_date: ctx.dueDate,
+    product: ctx.product,
+    assigned_to: ctx.assignedTo,
+    review_link: DEFAULT_GOOGLE_REVIEW_URL,
+  });
 }
 
 export function validateButtonAutomationInput(body: {
@@ -148,6 +150,7 @@ export function validateButtonAutomationInput(body: {
       "send_sms",
       "generate_pdf",
       "generate_packing_slip",
+      "print_packing_slip",
       "request_approval",
     ].includes(body.action_type)
   ) {

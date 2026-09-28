@@ -51,7 +51,7 @@ export function ButtonAutomationBar({
     <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-1 py-2">
       {activeButtons.map((button) => (
         <ActionButton
-          key={button.id}
+          key={`${button.id}:${button.action_type}`}
           button={button}
           orderId={orderId}
           orderNumber={orderNumber}

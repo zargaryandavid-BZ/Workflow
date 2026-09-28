@@ -5,7 +5,12 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { orderCardShareUrl } from "@/lib/button-automations";
 import type { ButtonAutomation } from "@/lib/types";
 import { ShippingModal } from "./shipping-modal";
-import { PackingSlipModal } from "./packing-slip-modal";
+import {
+  PackingSlipModal,
+  partFromOrderNumber,
+  requestPackingSlipPdf,
+} from "./packing-slip-modal";
+import { printPdfBlob } from "@/lib/print-pdf-blob";
 
 export interface ActionButtonResult {
   message: string;
@@ -176,6 +181,22 @@ export function ActionButton({
       if (button.action_type === "generate_packing_slip") {
         setLoading(false);
         setPackingOpen(true);
+        return;
+      }
+
+      if (button.action_type === "print_packing_slip") {
+        const totalParts = Math.max(1, groupSize ?? 1);
+        const part = Math.min(partFromOrderNumber(orderNumber), totalParts);
+        const blob = await requestPackingSlipPdf({
+          orderId,
+          buttonId: button.id,
+          part,
+          totalParts,
+        });
+        await printPdfBlob(blob);
+        onComplete({
+          message: "Print request sent to the default printer.",
+        });
         return;
       }
 

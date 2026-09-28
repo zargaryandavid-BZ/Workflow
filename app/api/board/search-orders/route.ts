@@ -32,6 +32,7 @@ export interface SearchOrdersResponse {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, BoardThumbnail[]>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
+  hasCustomerReplyByOrder: Record<string, boolean>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
   shippingSignByOrder: Record<string, BoardShippingSign>;
@@ -59,6 +60,7 @@ const emptyResponse = (): SearchOrdersResponse => ({
   dieAlertByOrder: {},
   dieStatusByOrder: {},
   approvalDateByOrder: {},
+  hasCustomerReplyByOrder: {},
 });
 
 export async function GET(req: NextRequest) {

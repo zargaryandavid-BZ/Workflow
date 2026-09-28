@@ -16,6 +16,7 @@ import {
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
+import { toggleAndPersistNotifyChannel } from "@/lib/persist-preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
 import {
   parseSkuApprovalNote,
@@ -164,13 +165,9 @@ function NotifyRow({
   ]);
 
   function toggleChannel(next: "email" | "sms") {
-    setSelected((prev) => {
-      if (prev.includes(next)) {
-        const nextSel = prev.filter((c) => c !== next);
-        return nextSel.length === 0 ? prev : nextSel;
-      }
-      return [...prev, next];
-    });
+    setSelected((prev) =>
+      toggleAndPersistNotifyChannel(prev, next, customer?.id, customer)
+    );
     setError(null);
   }
 

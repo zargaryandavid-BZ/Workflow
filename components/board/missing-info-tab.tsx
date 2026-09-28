@@ -17,6 +17,7 @@ import {
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
 import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
+import { toggleAndPersistNotifyChannel } from "@/lib/persist-preferred-channel";
 import { validateSmsRecipient } from "@/lib/sms";
 import type { Asset, BoardColumn, Customer, MissingInfoNote } from "@/lib/types";
 import {
@@ -218,7 +219,7 @@ function NotifyRow({
 
   function toggleChannel(next: "email" | "sms") {
     setSelected((prev) =>
-      prev.includes(next) ? prev.filter((c) => c !== next) : [...prev, next]
+      toggleAndPersistNotifyChannel(prev, next, customer?.id, customer)
     );
     setError(null);
   }

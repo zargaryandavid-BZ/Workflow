@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { printPdfBlob } from "@/lib/print-pdf-blob";
 
 interface PackingSlipModalProps {
   open: boolean;
@@ -31,11 +32,54 @@ function triggerBlobDownload(blob: Blob, filename: string) {
 }
 
 /** 1-based part from title suffix (e.g. 266-1 → 1), else 1. */
-function partFromOrderNumber(orderNumber: string): number {
+export function partFromOrderNumber(orderNumber: string): number {
   const match = orderNumber.trim().match(/-(\d+)$/);
   if (!match) return 1;
   const n = Number.parseInt(match[1], 10);
   return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
+export async function requestPackingSlipPdf(opts: {
+  orderId: string;
+  buttonId: string;
+  part: number;
+  totalParts: number;
+  blind?: boolean;
+  poNumber?: string;
+}): Promise<Blob> {
+  const qs = new URLSearchParams({
+    part: String(opts.part),
+    totalParts: String(opts.totalParts),
+  });
+  const res = await fetch(
+    `/api/orders/${opts.orderId}/actions/generate-packing-slip?${qs}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        button_id: opts.buttonId,
+        part: opts.part,
+        totalParts: opts.totalParts,
+        blind: Boolean(opts.blind),
+        poNumber: opts.poNumber,
+      }),
+    }
+  );
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof json.error === "string" ? json.error : "Failed to generate PDF"
+    );
+  }
+  const blob = await res.blob();
+  if (!blob.size) {
+    throw new Error("PDF download was empty");
+  }
+  if (contentType.includes("text/html")) {
+    throw new Error("Server returned an error page instead of a PDF");
+  }
+  return blob;
 }
 
 export function PackingSlipModal({
@@ -54,7 +98,7 @@ export function PackingSlipModal({
 
   const [blindPrinting, setBlindPrinting] = useState(false);
   const [poNumber, setPoNumber] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<"download" | "print" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,67 +106,50 @@ export function PackingSlipModal({
     setBlindPrinting(false);
     setPoNumber("");
     setError(null);
-    setLoading(false);
+    setLoading(null);
   }, [open, orderId, buttonId]);
 
-  async function generate() {
+  async function generate(mode: "download" | "print") {
     const trimmedPo = poNumber.trim();
     setError(null);
-    setLoading(true);
+    setLoading(mode);
     try {
-      const qs = new URLSearchParams({
-        part: String(part),
-        totalParts: String(totalParts),
+      const blob = await requestPackingSlipPdf({
+        orderId,
+        buttonId,
+        part,
+        totalParts,
+        blind: blindPrinting,
+        poNumber: blindPrinting && trimmedPo ? trimmedPo : undefined,
       });
-      const res = await fetch(
-        `/api/orders/${orderId}/actions/generate-packing-slip?${qs}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            button_id: buttonId,
-            part,
-            totalParts,
-            blind: blindPrinting,
-            poNumber: blindPrinting && trimmedPo ? trimmedPo : undefined,
-          }),
-        }
-      );
-      const contentType = res.headers.get("content-type") ?? "";
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(
-          typeof json.error === "string" ? json.error : "Failed to generate PDF"
-        );
-      }
-      const blob = await res.blob();
-      if (!blob.size) {
-        throw new Error("PDF download was empty");
-      }
-      if (contentType.includes("text/html")) {
-        throw new Error("Server returned an error page instead of a PDF");
-      }
       const safeOrder = orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_");
-      triggerBlobDownload(
-        blob,
-        `packing-slip-${safeOrder}-${part}of${totalParts}.pdf`
-      );
-      onComplete("Packing slip downloaded!");
+      if (mode === "print") {
+        await printPdfBlob(blob);
+        onComplete("Print request sent to the default printer.");
+      } else {
+        triggerBlobDownload(
+          blob,
+          `packing-slip-${safeOrder}-${part}of${totalParts}.pdf`
+        );
+        onComplete("Packing slip downloaded!");
+      }
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Action failed";
       setError(message);
       onError?.(message);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
+
+  const busy = loading != null;
 
   return (
     <Modal
       open={open}
       onClose={() => {
-        if (!loading) onClose();
+        if (!busy) onClose();
       }}
       title={title}
       className="max-w-md"
@@ -132,16 +159,31 @@ export function PackingSlipModal({
             type="button"
             variant="secondary"
             onClick={onClose}
-            disabled={loading}
+            disabled={busy}
           >
             Cancel
           </Button>
           <Button
             type="button"
-            onClick={() => void generate()}
-            disabled={loading}
+            variant="secondary"
+            onClick={() => void generate("print")}
+            disabled={busy}
           >
-            {loading ? (
+            {loading === "print" ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                Printing…
+              </>
+            ) : (
+              "Print"
+            )}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void generate("download")}
+            disabled={busy}
+          >
+            {loading === "download" ? (
               <>
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                 Generating…

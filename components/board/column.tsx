@@ -94,6 +94,7 @@ interface ColumnProps {
   ) => void;
   designerNameByOrder: Record<string, string>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
+  hasCustomerReplyByOrder?: Record<string, boolean>;
   ownerNameByOrder: Record<string, string>;
   shippingSignByOrder?: Record<string, BoardShippingSign>;
   dieAlertByOrder?: Record<string, DieAlert>;
@@ -221,6 +222,7 @@ export function Column({
   onCardThumbnailsChange,
   designerNameByOrder,
   notificationBadgeByOrder,
+  hasCustomerReplyByOrder = {},
   ownerNameByOrder,
   shippingSignByOrder = {},
   dieAlertByOrder = {},
@@ -677,6 +679,9 @@ export function Column({
                     notificationBadge={
                       notificationBadgeByOrder[entry.order.id]
                     }
+                    hasCustomerReply={
+                      hasCustomerReplyByOrder[entry.order.id] === true
+                    }
                     ownerName={ownerNameByOrder[entry.order.id]}
                     shippingSign={shippingSignByOrder[entry.order.id]}
                     dieAlert={dieAlertByOrder[entry.order.id]}
@@ -785,6 +790,9 @@ export function Column({
                   }
                   highlighted={highlightedOrderId === order.id}
                   notificationBadge={notificationBadgeByOrder[order.id]}
+                  hasCustomerReply={
+                    hasCustomerReplyByOrder[order.id] === true
+                  }
                   ownerName={ownerNameByOrder[order.id]}
                   shippingSign={shippingSignByOrder[order.id]}
                   dieAlert={dieAlertByOrder[order.id]}

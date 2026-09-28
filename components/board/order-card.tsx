@@ -199,6 +199,8 @@ interface OrderCardProps {
   /** Briefly emphasize this card after the detail modal closes. */
   highlighted?: boolean;
   notificationBadge?: CardNotificationBadge;
+  /** Green chat on the card — only when the client has replied. */
+  hasCustomerReply?: boolean;
   ownerName?: string;
   /** ISO timestamp when the customer last approved artwork. */
   approvalDate?: string | null;
@@ -536,7 +538,7 @@ function PdfSpecWarningOverlay({
 }) {
   if (!show && !showNoProductionPdf) return null;
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-end p-1">
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-end justify-end p-1">
       {showNoProductionPdf ? (
         <NoProductionPdfBadge show />
       ) : (
@@ -567,6 +569,7 @@ export function OrderCard({
   onSetDueDate,
   highlighted = false,
   notificationBadge,
+  hasCustomerReply = false,
   ownerName,
   approvalDate = null,
   shippingSign,
@@ -1195,27 +1198,12 @@ export function OrderCard({
           orderId={order.id}
           seconds={designerWorkedSeconds}
         />
-        {(notificationBadge === "responded" ||
-          notificationBadge === "approved" ||
-          notificationBadge === "rejected") ? (
+        {hasCustomerReply ? (
           <span
-            className={cn(
-              "flex h-4 w-4 shrink-0 items-center justify-center rounded-full",
-              notificationBadge === "approved"
-                ? "bg-emerald-500 text-white"
-                : notificationBadge === "rejected"
-                  ? "bg-red-500 text-white"
-                  : "bg-violet-500 text-white"
-            )}
-            title={
-              notificationBadge === "approved"
-                ? "Customer approved"
-                : notificationBadge === "rejected"
-                  ? "Customer rejected"
-                  : "Customer replied"
-            }
+            className="flex h-4 w-4 shrink-0 items-center justify-center text-emerald-500"
+            title="Customer replied"
           >
-            <MessageSquare className="h-2.5 w-2.5" />
+            <MessageSquare className="h-3.5 w-3.5" />
           </span>
         ) : null}
         {emergencySeverity ? (
@@ -1258,7 +1246,7 @@ export function OrderCard({
               />
             </button>
             {thumbnails.length > 1 ? (
-              <span className="pointer-events-none absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-px text-[9px] font-semibold tabular-nums text-white">
+              <span className="pointer-events-none absolute bottom-0.5 left-0.5 z-10 rounded bg-black/65 px-1 py-px text-[9px] font-semibold tabular-nums text-white">
                 {thumbnails.length}
               </span>
             ) : null}
@@ -1772,7 +1760,7 @@ export function OrderCard({
                 <div className="shrink-0 border-b border-slate-100 py-1">
                   {actionButtons.map((btn) => (
                     <ActionButton
-                      key={btn.id}
+                      key={`${btn.id}:${btn.action_type}`}
                       appearance="menu"
                       button={btn}
                       orderId={order.id}

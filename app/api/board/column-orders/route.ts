@@ -32,6 +32,7 @@ export interface ColumnOrdersResponse {
   fieldValuesByOrder: Record<string, Record<string, unknown>>;
   thumbnailByOrder: Record<string, BoardThumbnail[]>;
   notificationBadgeByOrder: Record<string, CardNotificationBadge>;
+  hasCustomerReplyByOrder: Record<string, boolean>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
   shippingSignByOrder: Record<string, BoardShippingSign>;
@@ -238,6 +239,7 @@ export async function GET(req: NextRequest) {
       dieAlertByOrder: {},
       dieStatusByOrder: {},
       approvalDateByOrder: {},
+      hasCustomerReplyByOrder: {},
       hasMore: false,
       total,
       page,

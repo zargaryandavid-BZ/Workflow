@@ -362,6 +362,9 @@ export function Board({
   const [notificationBadgeByOrder, setNotificationBadgeByOrder] = useState<
     Record<string, CardNotificationBadge>
   >({});
+  const [hasCustomerReplyByOrder, setHasCustomerReplyByOrder] = useState<
+    Record<string, boolean>
+  >({});
   const [ownerNameByOrder, setOwnerNameByOrder] = useState<
     Record<string, string>
   >({});
@@ -994,6 +997,7 @@ export function Board({
             fieldValuesByOrder: data.fieldValuesByOrder,
             thumbnailByOrder: data.thumbnailByOrder,
             notificationBadgeByOrder: data.notificationBadgeByOrder,
+            hasCustomerReplyByOrder: data.hasCustomerReplyByOrder ?? {},
             ownerNameByOrder: data.ownerNameByOrder,
             designerNameByOrder: data.designerNameByOrder,
             shippingSignByOrder: data.shippingSignByOrder ?? {},
@@ -1553,6 +1557,10 @@ export function Board({
         setNotificationBadgeByOrder((prev) => ({
           ...prev,
           ...data.notificationBadgeByOrder,
+        }));
+        setHasCustomerReplyByOrder((prev) => ({
+          ...prev,
+          ...(data.hasCustomerReplyByOrder ?? {}),
         }));
         setOwnerNameByOrder((prev) => ({ ...prev, ...data.ownerNameByOrder }));
         setDesignerNameByOrder((prev) => ({
@@ -3062,6 +3070,9 @@ export function Board({
   const displayNotificationBadgeByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.notificationBadgeByOrder
     : notificationBadgeByOrder;
+  const displayHasCustomerReplyByOrder = filtersActive && searchEnrichments
+    ? searchEnrichments.hasCustomerReplyByOrder
+    : hasCustomerReplyByOrder;
   const displayOwnerNameByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.ownerNameByOrder
     : ownerNameByOrder;
@@ -3974,6 +3985,7 @@ export function Board({
                 }
                 designerNameByOrder={displayDesignerNameByOrder}
                 notificationBadgeByOrder={displayNotificationBadgeByOrder}
+                hasCustomerReplyByOrder={displayHasCustomerReplyByOrder}
                 ownerNameByOrder={displayOwnerNameByOrder}
                 groupSizeByOrder={groupSizeByOrder}
                 shippingSignByOrder={displayShippingSignByOrder}
@@ -4110,6 +4122,9 @@ export function Board({
               thumbnails={displayThumbnailByOrder[activeOrder.id]}
               designerName={displayDesignerNameByOrder[activeOrder.id]}
               notificationBadge={displayNotificationBadgeByOrder[activeOrder.id]}
+              hasCustomerReply={
+                displayHasCustomerReplyByOrder[activeOrder.id] === true
+              }
               ownerName={displayOwnerNameByOrder[activeOrder.id]}
               shippingSign={displayShippingSignByOrder[activeOrder.id]}
               dieAlert={displayDieAlertByOrder[activeOrder.id]}

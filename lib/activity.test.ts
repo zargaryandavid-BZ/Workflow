@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   formatStayDuration,
   isColumnMoveActivity,
+  isVisibleCustomerReplyActivity,
   mergeActivityById,
   resolveActivityActorName,
 } from "./activity.ts";
@@ -79,6 +80,28 @@ test("labels customer, automation, webhook, warehouse, and system activity", () 
     "Alex"
   );
   assert.equal(resolveActivityActorName(activity("customer_merged"), names), "System");
+});
+
+test("card chat icon follows Com. History client replies, not outbound SMS", () => {
+  assert.equal(
+    isVisibleCustomerReplyActivity(activity("customer_replied")),
+    true
+  );
+  assert.equal(
+    isVisibleCustomerReplyActivity(activity("info_submitted")),
+    true
+  );
+  assert.equal(
+    isVisibleCustomerReplyActivity(
+      activity("approved", null, { movedTo: "col-2" })
+    ),
+    false
+  );
+  assert.equal(isVisibleCustomerReplyActivity(activity("texted")), false);
+  assert.equal(
+    isVisibleCustomerReplyActivity(activity("customer_notified")),
+    false
+  );
 });
 
 test("treats staff, automation, approval, and customer-reply column changes as moves", () => {
