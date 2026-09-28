@@ -9,40 +9,27 @@ import {
   applyResolvedDriveFolderUrls,
   loadOrderFinalDriveContext,
 } from "@/lib/order-gdrive";
+import {
+  getSharedDriveCache,
+  setSharedDriveCache,
+  invalidateSharedDriveCache,
+} from "@/lib/drive-status-cache";
 
 // ---------------------------------------------------------------------------
-// Server-side TTL cache for Drive status results.
-// Module-level — survives across requests on the same warm serverless instance,
-// cutting Drive API calls significantly during active board sessions.
-// The client-side statusCache in use-gdrive-folder-has-files.ts already
-// deduplicates per page session; this layer saves calls on the server.
+// TTL cache for Drive status results, shared across all server instances via
+// public.drive_status_cache (see lib/drive-status-cache.ts) — an in-memory-only
+// cache doesn't survive across different Vercel serverless instances, so it
+// used to miss constantly outside the one instance that happened to warm it.
 // ---------------------------------------------------------------------------
 const DRIVE_STATUS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-type CachedStatus = {
-  data: Record<string, unknown>;
-  expiresAt: number;
-};
-
-const driveStatusCache = new Map<string, CachedStatus>();
-
-function getCachedDriveStatus(key: string): Record<string, unknown> | null {
-  const entry = driveStatusCache.get(key);
-  if (!entry) return null;
-  if (entry.expiresAt < Date.now()) {
-    driveStatusCache.delete(key);
-    return null;
-  }
-  return entry.data;
-}
-
-function setCachedDriveStatus(key: string, data: Record<string, unknown>) {
-  driveStatusCache.set(key, { data, expiresAt: Date.now() + DRIVE_STATUS_TTL_MS });
+function cacheKeyFor(tenantId: string, orderId: string): string {
+  return `${tenantId}:${orderId}:gdrive-status`;
 }
 
 /** Call this when an order's Drive folder changes (save, column move). */
 export function invalidateDriveStatusCache(tenantId: string, orderId: string) {
-  driveStatusCache.delete(`${tenantId}:${orderId}`);
+  invalidateSharedDriveCache(cacheKeyFor(tenantId, orderId));
 }
 
 /**
@@ -64,9 +51,9 @@ export async function GET(
   // Serve from server-side TTL cache when available (saves Drive API calls on
   // repeat loads of the same order card during an active board session).
   // Explicit refreshes (bust=true) evict the cache and re-fetch from Drive.
-  const cacheKey = `${ctx.tenant.id}:${orderId}`;
-  if (bust) driveStatusCache.delete(cacheKey);
-  const cached = getCachedDriveStatus(cacheKey);
+  const cacheKey = cacheKeyFor(ctx.tenant.id, orderId);
+  if (bust) invalidateSharedDriveCache(cacheKey);
+  const cached = await getSharedDriveCache<Record<string, unknown>>(cacheKey);
   if (cached) return NextResponse.json(cached);
 
   const supabase = await createClient();
@@ -235,7 +222,11 @@ export async function GET(
       designerUrl: resolved.designerUrl,
       finalUrl: resolved.finalUrl,
     };
-    setCachedDriveStatus(cacheKey, responseData);
+    // Write-behind — don't make this already-slow (fresh Drive fetch) request
+    // also wait on a cache-table write; next reader gets the shared hit.
+    after(() => {
+      void setSharedDriveCache(cacheKey, responseData, DRIVE_STATUS_TTL_MS);
+    });
     return NextResponse.json(responseData);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
