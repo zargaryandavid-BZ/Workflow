@@ -23,22 +23,35 @@ export function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
-export function printPdfBlob(blob: Blob, fallbackFilename: string) {
+export function printPdfBlob(blob: Blob, _fallbackFilename: string) {
+  // Use a hidden iframe — never blocked by popup blockers unlike window.open().
   const url = URL.createObjectURL(blob);
-  const w = window.open(url, "_blank");
-  if (!w) {
-    triggerBlobDownload(blob, fallbackFilename);
-    return;
-  }
-  const printWhenReady = () => {
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText =
+    "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;border:none;";
+  iframe.src = url;
+  document.body.appendChild(iframe);
+
+  let printed = false;
+
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
     try {
-      w.focus();
-      w.print();
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
     } catch {
-      /* browser may block print until the PDF viewer is ready */
+      /* some browsers sandbox iframes — print dialog still usually fires */
     }
   };
-  w.addEventListener("load", printWhenReady);
-  window.setTimeout(printWhenReady, 800);
-  window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+
+  // Fire on load, with a 1.2 s fallback in case onload is skipped for PDFs.
+  iframe.addEventListener("load", () => window.setTimeout(doPrint, 250));
+  window.setTimeout(doPrint, 1200);
+
+  // Cleanup after the user has had time to interact with the print dialog.
+  window.setTimeout(() => {
+    iframe.remove();
+    URL.revokeObjectURL(url);
+  }, 120_000);
 }
