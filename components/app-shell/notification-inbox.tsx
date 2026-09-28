@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
+import {
+  dedupedFetchRetryingStale404,
+  fetchRetryingStale404,
+} from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import type { UserNotification } from "@/lib/user-notifications";
 import type { Role } from "@/lib/types";
@@ -41,7 +44,7 @@ export function NotificationInbox({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetchRetryingStale404("/api/user-notifications", {
+      const res = await dedupedFetchRetryingStale404("/api/user-notifications", {
         cache: "no-store",
       });
       if (!res.ok) return;

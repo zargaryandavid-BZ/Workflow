@@ -48,7 +48,12 @@ import { NotificationPopup } from "@/components/automation/notification-popup";
 import { BatchRerequestPopup } from "@/components/board/BatchRerequestPopup";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { fetchRetryingStale404, fetchWithAuth, isStaleNext404 } from "@/lib/fetch-with-auth";
+import {
+  dedupedFetchRetryingStale404,
+  fetchRetryingStale404,
+  fetchWithAuth,
+  isStaleNext404,
+} from "@/lib/fetch-with-auth";
 import {
   canDragInColumn,
   canDropIn,
@@ -441,7 +446,7 @@ export function Board({
     let cancelled = false;
     async function loadPipelineDueCounts() {
       try {
-        const res = await fetchRetryingStale404("/api/board/health", {
+        const res = await dedupedFetchRetryingStale404("/api/board/health", {
           cache: "no-store",
         });
         if (!res.ok || cancelled) return;

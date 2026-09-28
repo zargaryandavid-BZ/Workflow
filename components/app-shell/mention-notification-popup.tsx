@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
-import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
+import {
+  dedupedFetchRetryingStale404,
+  fetchRetryingStale404,
+} from "@/lib/fetch-with-auth";
 import type { UserNotification } from "@/lib/user-notifications";
 
 function asNotification(row: Record<string, unknown>): UserNotification | null {
@@ -52,7 +55,7 @@ export function MentionNotificationPopup({
   useEffect(() => {
     if (!userId) return;
     const cutoff = Date.now() - RECENT_MS;
-    void fetchRetryingStale404("/api/user-notifications", { cache: "no-store" })
+    void dedupedFetchRetryingStale404("/api/user-notifications", { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) return;
         const json = (await res.json()) as { notifications?: UserNotification[] };

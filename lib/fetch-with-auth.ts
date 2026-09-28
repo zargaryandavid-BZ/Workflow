@@ -56,6 +56,32 @@ export async function fetchRetryingStale404(
   return fetch(input, init);
 }
 
+const inFlightGets = new Map<string, Promise<Response>>();
+
+/**
+ * Single-flight GET: when several components mount at the same time and ask
+ * for the same read-only endpoint (e.g. board health, notification list),
+ * only one network request actually goes out — every caller gets its own
+ * `.clone()` of the response so each can read the body independently.
+ * Only for idempotent GETs; never use this for a mutation.
+ */
+export async function dedupedFetchRetryingStale404(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const key = typeof input === "string" ? input : input.toString();
+  let pending = inFlightGets.get(key);
+  if (!pending) {
+    pending = fetchRetryingStale404(input, init);
+    inFlightGets.set(key, pending);
+    void pending.finally(() => {
+      if (inFlightGets.get(key) === pending) inFlightGets.delete(key);
+    });
+  }
+  const res = await pending;
+  return res.clone();
+}
+
 /**
  * Same as `fetch`, but on 401 refreshes the Supabase session once and retries.
  * If refresh fails, redirects to `/login`.
