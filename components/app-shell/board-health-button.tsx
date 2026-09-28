@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HeartPulse, Sparkles } from "lucide-react";
-import { fetchRetryingStale404 } from "@/lib/fetch-with-auth";
+import {
+  dedupedFetchRetryingStale404,
+  fetchRetryingStale404,
+} from "@/lib/fetch-with-auth";
 import { cn } from "@/lib/utils";
 import {
   BOARD_HEALTH_META,
@@ -59,7 +62,7 @@ export function BoardHealthButton({ enabled = true }: BoardHealthButtonProps) {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetchRetryingStale404("/api/board/health", {
+      const res = await dedupedFetchRetryingStale404("/api/board/health", {
         cache: "no-store",
       });
       if (!res.ok) return;

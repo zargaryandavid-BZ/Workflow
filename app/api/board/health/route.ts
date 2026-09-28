@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth";
+import { after } from "next/server";
+import { getTenantContext, type TenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
   evaluateBoardHealth,
@@ -14,10 +15,17 @@ import {
 } from "@/lib/designer-load";
 import { normalizeEmergencyBalance } from "@/lib/emergency-balance";
 import type { BoardColumn, CardWarningRule } from "@/lib/types";
+import { getSharedDriveCache, setSharedDriveCache } from "@/lib/drive-status-cache";
 
 export const dynamic = "force-dynamic";
 
 const PAGE = 1000;
+
+// Board health scans every open order for the tenant on each call — real work,
+// not a fast lookup. Short TTL, shared across serverless instances: a cache
+// hit serves instantly while a fresh copy is computed in the background
+// (stale-while-revalidate), so the board never blocks on this full scan.
+const BOARD_HEALTH_TTL_MS = 20_000;
 
 type OrderRow = {
   id: string;
@@ -40,6 +48,40 @@ export async function GET() {
   const ctx = await getTenantContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const cacheKey = `${ctx.tenant.id}:board-health`;
+  const cached = await getSharedDriveCache<Record<string, unknown>>(cacheKey);
+  if (cached) {
+    // Serve the cached snapshot instantly; refresh it in the background so
+    // the next load picks up any changes without anyone waiting on this scan.
+    after(() => {
+      void refreshBoardHealth(ctx, cacheKey);
+    });
+    return NextResponse.json(cached);
+  }
+
+  const result = await computeBoardHealth(ctx);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 500 });
+  }
+  await setSharedDriveCache(cacheKey, result.data, BOARD_HEALTH_TTL_MS);
+  return NextResponse.json(result.data);
+}
+
+async function refreshBoardHealth(
+  ctx: TenantContext,
+  cacheKey: string,
+): Promise<void> {
+  try {
+    const result = await computeBoardHealth(ctx);
+    if (result.ok) await setSharedDriveCache(cacheKey, result.data, BOARD_HEALTH_TTL_MS);
+  } catch {
+    // Best-effort — the still-cached snapshot keeps serving until the next hit.
+  }
+}
+
+async function computeBoardHealth(
+  ctx: TenantContext,
+): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: string }> {
   const supabase = await createClient();
   const tenantId = ctx.tenant.id;
 
@@ -73,7 +115,7 @@ export async function GET() {
       .range(from, from + PAGE - 1);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return { ok: false, error: error.message };
     }
     const batch = (data ?? []) as unknown as OrderRow[];
     orders.push(...batch);
@@ -142,5 +184,5 @@ export async function GET() {
           );
         })();
 
-  return NextResponse.json({ ...health, designers });
+  return { ok: true, data: { ...health, designers } };
 }
