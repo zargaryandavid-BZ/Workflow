@@ -18,6 +18,7 @@ import {
   respondUrl,
 } from "@/lib/notification-messages";
 import { cn, formatDateTime } from "@/lib/utils";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 import type { JobNotification, ShippingRequest } from "@/lib/types";
 import type { OrderSmsMessage } from "@/lib/order-sms-types";
 
@@ -641,7 +642,7 @@ export function HistoryTab(props: HistoryTabProps) {
                       }
                       channel="sms"
                       title={inbound ? "Customer replied" : "SMS sent"}
-                      to={item.message.phone}
+                      to={formatPhoneDisplay(item.message.phone)}
                       body={item.message.body}
                       inbound={inbound}
                     />

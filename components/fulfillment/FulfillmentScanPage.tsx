@@ -30,6 +30,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 import type { BoardColumn } from "@/lib/types";
 import {
   SCAN_CONFIGURE_EVENT,
@@ -1039,7 +1040,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                       <p className="truncate text-[11px] md:text-[13px] text-slate-500">{order.customer.email}</p>
                     )}
                     {order.customer?.phone && (
-                      <p className="truncate text-[11px] md:text-[13px] text-slate-500">{order.customer.phone}</p>
+                      <p className="truncate text-[11px] md:text-[13px] text-slate-500">{formatPhoneDisplay(order.customer.phone)}</p>
                     )}
                   </div>
                 </div>

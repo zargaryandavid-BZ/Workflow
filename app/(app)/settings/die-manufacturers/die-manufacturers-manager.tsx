@@ -5,6 +5,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import type { DieManufacturer } from "@/lib/die-manufacturers";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 
 type Draft = {
   full_name: string;
@@ -214,7 +215,7 @@ export function DieManufacturersManager({
                   {row.full_name}
                 </p>
                 <p className="truncate text-xs text-slate-500">
-                  {[row.contact_name, row.email, row.phone]
+                  {[row.contact_name, row.email, formatPhoneDisplay(row.phone)]
                     .filter(Boolean)
                     .join(" · ")}
                 </p>

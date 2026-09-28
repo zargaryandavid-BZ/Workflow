@@ -18,6 +18,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { formatDate } from "@/lib/utils";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { CUSTOMERS_PAGE_SIZE } from "@/lib/customers";
 import {
   canEditManualOrders,
@@ -274,7 +275,7 @@ function CustomerContactsEditor({
               <span className="min-w-0">
                 <span className="font-medium">{c.name || "Contact"}</span>
                 <span className="block text-xs text-slate-500">
-                  {[c.email, c.phone].filter(Boolean).join(" · ")}
+                  {[c.email, formatPhoneDisplay(c.phone)].filter(Boolean).join(" · ")}
                 </span>
               </span>
               <button
@@ -877,7 +878,7 @@ export function CustomersManager({
                 {selected.phone ? (
                   <p className="mt-1 flex items-center gap-2">
                     <Phone className="h-4 w-4 text-slate-400" />
-                    {selected.phone}
+                    {formatPhoneDisplay(selected.phone)}
                   </p>
                 ) : null}
                 {selected.company ? (

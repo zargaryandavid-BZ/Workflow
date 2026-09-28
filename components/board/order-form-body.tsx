@@ -68,6 +68,7 @@ import {
   floorSpecDisplayRows,
 } from "@/lib/product-spec-options";
 import { isRollDirectionField } from "@/lib/roll-direction";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { RollDirectionSelect } from "./roll-direction-select";
 import type {
   Tag,
@@ -1709,7 +1710,7 @@ export function OrderFormBody({
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-slate-800">{s.name}</p>
                           {(s.email ?? s.phone) ? (
-                            <p className="truncate text-xs text-slate-400">{s.email ?? s.phone}</p>
+                            <p className="truncate text-xs text-slate-400">{s.email ?? formatPhoneDisplay(s.phone)}</p>
                           ) : null}
                         </div>
                       </button>
