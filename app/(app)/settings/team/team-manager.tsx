@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { initials, formatDate } from "@/lib/utils";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { ASSIGNABLE_ROLES, ROLE_LABELS } from "@/lib/constants";
 import type { Role, TeamMemberRow } from "@/lib/types";
 
@@ -481,7 +482,7 @@ export function TeamManager({
                           <p className="text-xs text-slate-400">{m.email}</p>
                         ) : null}
                         {editingId !== m.user_id && m.profile?.phone ? (
-                          <p className="text-xs text-slate-400">{m.profile.phone}</p>
+                          <p className="text-xs text-slate-400">{formatPhoneDisplay(m.profile.phone)}</p>
                         ) : null}
                       </div>
                     </div>
@@ -660,7 +661,7 @@ export function TeamManager({
                           {ROLE_LABELS[m.role] ?? m.role} · invited{" "}
                           {formatDate(m.created_at)}
                           {editingId !== m.user_id && m.profile?.phone
-                            ? ` · ${m.profile.phone}`
+                            ? ` · ${formatPhoneDisplay(m.profile.phone)}`
                             : ""}
                         </p>
                       </div>

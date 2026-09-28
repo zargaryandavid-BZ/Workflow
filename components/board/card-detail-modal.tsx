@@ -51,6 +51,7 @@ import {
 } from "@/lib/order-form";
 import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { maskFedExAccountNumber } from "@/lib/client-fedex";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { cn, dateInputValue, daysAgo, formatDate, formatDateTime, localDateInputValue } from "@/lib/utils";
 import { DueDateFields } from "./due-date-fields";
 import { ApplicationFields } from "./application-fields";
@@ -1823,7 +1824,9 @@ export function CardDetailModal({
                           className="group/copy flex min-w-0 items-center gap-1 text-right text-xs font-medium text-slate-700 hover:text-[var(--primary)]"
                         >
                           <span className="truncate">
-                            {copiedCustomerField === "phone" ? "Copied!" : orderContact.phone}
+                            {copiedCustomerField === "phone"
+                              ? "Copied!"
+                              : formatPhoneDisplay(orderContact.phone)}
                           </span>
                           {copiedCustomerField === "phone" ? null : (
                             <Copy className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-100" />

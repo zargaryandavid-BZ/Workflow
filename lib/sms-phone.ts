@@ -62,3 +62,21 @@ export function normalizeSmsPhone(raw: string): string {
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   return `+${digits}`;
 }
+
+/**
+ * Display-only formatting for a US/Canada number: "+13057803590" -> "+1 305-780-3590".
+ * Never used for sending/storage — always read/write the raw value for that.
+ * Anything that isn't a clean 10 or 11-digit NANP number is returned unchanged.
+ */
+export function formatPhoneDisplay(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    const national = digits.slice(1);
+    return `+1 ${national.slice(0, 3)}-${national.slice(3, 6)}-${national.slice(6)}`;
+  }
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return raw;
+}

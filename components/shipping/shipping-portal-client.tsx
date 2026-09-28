@@ -30,6 +30,7 @@ import {
   groupRatesForPriceChart,
 } from "@/lib/fedex-service-display";
 import { defaultResidentialFlag } from "@/lib/shipping-address";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 
 export interface ShippingPortalData {
   token: string;
@@ -1372,7 +1373,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             <div className="mt-3 space-y-1 text-sm text-emerald-800">
               {doneAddress ? (
                 <p>
-                  {[doneAddress.name, doneAddress.phone]
+                  {[doneAddress.name, formatPhoneDisplay(doneAddress.phone)]
                     .filter(Boolean)
                     .join(" · ")}
                   {doneAddress.name || doneAddress.phone ? <br /> : null}
@@ -1397,7 +1398,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               </p>
               {doneAddress ? (
                 <p>
-                  {[doneAddress.name, doneAddress.phone]
+                  {[doneAddress.name, formatPhoneDisplay(doneAddress.phone)]
                     .filter(Boolean)
                     .join(" · ")}
                   {doneAddress.name || doneAddress.phone ? <br /> : null}

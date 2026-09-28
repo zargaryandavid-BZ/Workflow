@@ -11,6 +11,7 @@ import {
   type NotifyContact,
   type NotifyDestinations,
 } from "@/lib/customer-contacts";
+import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { cn } from "@/lib/utils";
 
 export { PRIMARY_CONTACT_ID, buildNotifyDestinations };
@@ -218,7 +219,7 @@ export function CompanyContactsPicker({
       <ul className="divide-y divide-slate-100 rounded-md border border-slate-200">
         {contacts.all.map((c) => {
           const checked = contacts.selectedIds.has(c.id);
-          const detail = [c.email, c.phone].filter(Boolean).join(" · ");
+          const detail = [c.email, formatPhoneDisplay(c.phone)].filter(Boolean).join(" · ");
           return (
             <li
               key={c.id}
