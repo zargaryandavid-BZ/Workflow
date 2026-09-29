@@ -134,7 +134,14 @@ export async function downloadFlattenedProof(
   try {
     const a = document.createElement("a");
     a.href = dataUrl;
-    a.download = fileName || "proof";
+    // The flattened output is always a PNG (canvas.toDataURL("image/png")),
+    // but `fileName` is often the original file's name (e.g. "15317-1.pdf")
+    // used for on-screen display elsewhere. Downloading PNG bytes under a
+    // .pdf name is why the file "comes damaged" — it opens fine, just not as
+    // whatever its extension claims. Force the extension to match the actual
+    // content instead of trusting the passed-in name's extension.
+    const base = (fileName || "proof").replace(/\.[^./\\]+$/, "");
+    a.download = `${base}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
