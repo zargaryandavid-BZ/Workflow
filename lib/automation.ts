@@ -7,6 +7,7 @@ import {
 } from "@/lib/due-date";
 import { sendApprovalEmail } from "@/lib/email";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
+import { notifyRuleApprovalTarget, isApprovalRejection } from "@/lib/notify-rule-approval-target";
 import type { ApprovalStatus, BoardColumn, Order } from "@/lib/types";
 import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
 import { isHoldColumn } from "@/lib/hold-column";
@@ -211,28 +212,22 @@ export async function approvalTargetColumn(
     .select("*")
     .eq("tenant_id", order.tenant_id)
     .eq("trigger", "on_enter_column")
-    .eq("from_column", order.column_id)
     .eq("enabled", true);
 
-  const notifyRule = (notifyRules ?? []).find(
+  const approvalNotifyRules = (notifyRules ?? []).filter(
     (r) =>
       (r.config as { action?: string; notify_type?: string })?.action ===
         "notify" &&
       (r.config as { notify_type?: string })?.notify_type ===
         "customer_approval"
   );
+  const notifyRule =
+    approvalNotifyRules.find((r) => r.from_column === order.column_id) ??
+    approvalNotifyRules[0] ??
+    null;
 
-  if (notifyRule) {
-    if (result === "approved" && notifyRule.to_column) {
-      return notifyRule.to_column as string;
-    }
-    const rejectedTo = (
-      notifyRule.config as { rejected_to_column?: string | null }
-    )?.rejected_to_column;
-    if (result === "rejected" && rejectedTo) {
-      return rejectedTo;
-    }
-  }
+  const fromNotify = notifyRuleApprovalTarget(notifyRule, result);
+  if (fromNotify) return fromNotify;
 
   const { data: rules } = await client
     .from("automation_rules")
@@ -241,9 +236,13 @@ export async function approvalTargetColumn(
     .eq("trigger", "on_approval_result")
     .eq("enabled", true);
 
-  const rule = (rules ?? []).find(
-    (r) => (r.config as { result?: string })?.result === result
-  );
+  const rule = (rules ?? []).find((r) => {
+    const cfgResult = (r.config as { result?: string })?.result;
+    if (isApprovalRejection(result)) {
+      return isApprovalRejection(cfgResult);
+    }
+    return cfgResult === result;
+  });
   return (rule?.to_column as string | null) ?? null;
 }
 
@@ -314,6 +313,8 @@ export async function onApprovalResult(
     tenantId: string;
     orderId: string;
     result: ApprovalStatus;
+    /** Customer rejection note from /respond (optional). */
+    note?: string | null;
   }
 ) {
   const { data: order } = await client
@@ -406,6 +407,7 @@ export async function onApprovalResult(
       movedTo: target,
       fromName,
       toName,
+      ...(params.note?.trim() ? { note: params.note.trim() } : {}),
       ...(updates.due_date
         ? { due_date_materialized: updates.due_date }
         : {}),

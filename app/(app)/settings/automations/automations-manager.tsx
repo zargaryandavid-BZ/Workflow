@@ -749,7 +749,7 @@ function NotifyColumnRow({
           </div>
           <div>
             <Label htmlFor={`rejected-target-${column.id}`}>
-              When the customer requests changes, move the card to
+              When the customer rejects, move the card to
             </Label>
             <Select
               id={`rejected-target-${column.id}`}

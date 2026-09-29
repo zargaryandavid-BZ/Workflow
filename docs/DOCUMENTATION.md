@@ -279,7 +279,7 @@ Column `kind` drives popup behavior in `components/board/board.tsx` (`onDragEnd`
    - **Missing info:** moves order to rule target column (or column named "Customer Replied" if it exists).
 
 \* Default `create_tenant` seed does **not** include a "Customer Replied" column — configure a notify rule target in Automations or add/rename a column. See [Known issues](#known-issues).
-   - **Approval:** `approved` → `onApprovalResult`; `rejected` → activity log only.
+   - **Approval:** `approved` and `changes_requested` both call `onApprovalResult` (move per Automations: approve column / requests-changes column).
    - Marks notification `status = responded`.
 
 ### Board update
@@ -1890,16 +1890,18 @@ Staff (including designers) can **Send / Resend** from the Missing Info tab (`co
 ### 4a. Approved → card moves per Automations settings
 
 - `respondToNotification` calls `onApprovalResult()` with `result: "approved"`.
-- Finds `automation_rules` where `trigger = on_approval_result` and `config.result = "approved"`.
-- Moves order to configured `to_column` (default seed: **Done**).
+- Prefers the Waiting Approval notify rule `to_column`, else `on_approval_result` with `config.result = "approved"`.
+- Moves order to that column (this tenant: **Prepress**).
 - Notification marked `responded`, `customer_response: "approved"`.
 
-### 4b. Not Approved → card stays, badge + tab note
+### 4b. Not Approved → card moves per Automations settings
 
-- `customer_response: "changes_requested"`.
-- Order **stays** in approval column.
-- `activity_log` entry `rejected` with customer note.
-- `ApprovalTab` in order detail shows rejection; card may show **Rejected** badge (`lib/card-badges.ts`).
+- `respondToNotification` calls `onApprovalResult()` with `result: "rejected"` and the customer note.
+- Prefers the notify rule `to_column` on approve (**Prepress**) and `config.rejected_to_column` on reject (**Start (Create Order)**). Request-changes is the same as reject.
+- This tenant: **Start (Create Order)**.
+- Notification marked `responded`, `customer_response: "changes_requested"`.
+- `activity_log` `moved` (when the column changes) plus `rejected` with the note.
+- `ApprovalTab` still shows the rejection; the card may show **Rejected** in the new column (`lib/card-badges.ts`).
 
 ### Manual staff override
 

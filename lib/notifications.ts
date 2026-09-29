@@ -41,6 +41,7 @@ import { isSmsConfigured, sendSms } from "@/lib/sms";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
+import { customerResponseToApprovalResult } from "@/lib/notify-rule-approval-target";
 import {
   maybeStopWorkTimersOnColumnEnter,
   stopTimersAfterCustomerNotify,
@@ -1206,22 +1207,13 @@ export async function respondToNotification(
         status: 400,
       };
     }
-    if (params.response === "approved") {
+    const moveResult = customerResponseToApprovalResult(params.response);
+    if (moveResult) {
       await onApprovalResult(admin, {
         tenantId: notification.tenant_id,
         orderId: notification.order_id,
-        result: "approved",
-      });
-    } else {
-      await logActivity(admin, {
-        tenantId: notification.tenant_id,
-        orderId: notification.order_id,
-        actor: null,
-        action: "rejected",
-        metadata: {
-          via: "customer",
-          note: params.note?.trim() || null,
-        },
+        result: moveResult,
+        note: params.note?.trim() || null,
       });
     }
   } else if (notification.type === "ready_to_ship") {
