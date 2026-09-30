@@ -7,8 +7,19 @@ import {
   fulfillmentDateTimeLabel,
   localDayKey,
   localDayLabel,
+  multiitemBoxName,
+  multiitemBoxNameFromIsoDate,
+  savedMultiitemDayKeys,
+  boxesForSavedMultiitemDay,
   receivedDayKeys,
 } from "./fulfillment-day.ts";
+
+describe("multiitemBoxName", () => {
+  it("is BX + daily number + MMDDYY", () => {
+    assert.equal(multiitemBoxName(1, new Date(2026, 8, 29)), "BX1092926");
+    assert.equal(multiitemBoxNameFromIsoDate(2, "2026-09-29"), "BX2092926");
+  });
+});
 
 describe("localDayKey", () => {
   it("uses the local calendar date", () => {
@@ -75,6 +86,53 @@ describe("boxesForReceiveDay", () => {
     const day = localDayKey(receivedA);
     assert.deepEqual(
       boxesForReceiveDay(boxes, day).map((b) => b.id),
+      ["a"]
+    );
+  });
+});
+
+describe("savedMultiitemDayKeys", () => {
+  it("lists newest saved days first", () => {
+    const boxes = [
+      {
+        status: "saved" as const,
+        saved_at: new Date(2026, 8, 28, 10).toISOString(),
+      },
+      {
+        status: "saved" as const,
+        saved_at: new Date(2026, 8, 29, 10).toISOString(),
+      },
+      { status: "open" as const, saved_at: null },
+    ];
+    assert.deepEqual(savedMultiitemDayKeys(boxes), ["2026-09-29", "2026-09-28"]);
+  });
+});
+
+describe("boxesForSavedMultiitemDay", () => {
+  const boxes = [
+    { id: "open", status: "open", saved_at: null },
+    {
+      id: "a",
+      status: "saved",
+      saved_at: new Date(2026, 8, 29, 15).toISOString(),
+    },
+    {
+      id: "b",
+      status: "saved",
+      saved_at: new Date(2026, 8, 28, 15).toISOString(),
+    },
+  ];
+
+  it("null day is open boxes being packed", () => {
+    assert.deepEqual(
+      boxesForSavedMultiitemDay(boxes, null).map((b) => b.id),
+      ["open"]
+    );
+  });
+
+  it("a date shows only boxes saved that day", () => {
+    assert.deepEqual(
+      boxesForSavedMultiitemDay(boxes, "2026-09-29").map((b) => b.id),
       ["a"]
     );
   });

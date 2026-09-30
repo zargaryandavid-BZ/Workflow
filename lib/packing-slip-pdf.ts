@@ -23,9 +23,9 @@ const PAGE_W = 612;
 const PAGE_H = 792;
 const MARGIN = 36;
 const CONTENT_W = PAGE_W - MARGIN * 2; // 540
-const HEADER_H = 64;
+const HEADER_H = 76;
 const HEADER_QR_INSET = 8;
-const HEADER_QR_SIZE = 48;
+const HEADER_QR_SIZE = 52;
 const SKU_PER_PAGE = 6;
 const COLS = 2;
 const ROW_GAP = 16;
@@ -137,65 +137,80 @@ function drawPageHeader(
   totalPages: number,
   qrPng: Buffer | null
 ) {
+  const QR_GAP = 14;
   const qrSize = qrPng ? HEADER_QR_SIZE : 0;
-  const qrGap = qrPng ? 10 : 0;
-  const qrX = qrPng ? PAGE_W - HEADER_QR_INSET - qrSize : PAGE_W;
-  const textW = Math.max(0, qrX - qrGap - MARGIN);
 
-  doc.rect(0, 0, PAGE_W, HEADER_H).fill("#1a1f2e");
+  // White background
+  doc.rect(0, 0, PAGE_W, HEADER_H).fill("#ffffff");
 
-  if (orderLabel) {
-    doc
-      .fillColor("#ffffff")
-      .fontSize(22)
-      .font("Helvetica-Bold")
-      .text(orderLabel, MARGIN, 20, {
-        width: Math.min(CONTENT_W * 0.42, textW),
-        lineBreak: false,
-      });
-  }
-
+  // Bold navy bottom border
   doc
-    .fillColor("#ffffff")
-    .fontSize(14)
-    .font("Helvetica-Bold")
-    .text("PACKING SLIP", MARGIN, 14, {
-      width: textW,
-      align: "right",
-      lineBreak: false,
-    });
+    .moveTo(0, HEADER_H)
+    .lineTo(PAGE_W, HEADER_H)
+    .strokeColor("#1a1f2e")
+    .lineWidth(2.5)
+    .stroke();
 
-  if (totalPages > 1) {
-    doc
-      .fontSize(8)
-      .font("Helvetica")
-      .text(`Page ${pageNum} of ${totalPages}`, MARGIN, 38, {
-        width: textW,
-        align: "center",
-        lineBreak: false,
-      });
-  }
+  // Build label string: "PACKING SLIP · Sep 29, 2026"
+  const dateStr = new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const labelText = `PACKING SLIP  ·  ${dateStr}`;
 
+  // Measure text widths to compute centered block
+  doc.font("Helvetica").fontSize(9);
+  const labelW = doc.widthOfString(labelText);
+  doc.font("Helvetica-Bold").fontSize(22);
+  const orderNumW = orderLabel ? doc.widthOfString(orderLabel) : 0;
+
+  const textBlockW = Math.max(labelW, orderNumW);
+  const totalBlockW = textBlockW + (qrPng ? QR_GAP + qrSize : 0);
+  const blockStartX = (PAGE_W - totalBlockW) / 2;
+
+  // Vertical positions: label sits above order number, both centered in header
+  const labelY = HEADER_H / 2 - 22;
+  const orderY = labelY + 13;
+
+  // Small label row
   doc
+    .fillColor("#9aa4b5")
     .fontSize(9)
     .font("Helvetica")
-    .text(
-      new Date().toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
-      MARGIN,
-      34,
-      { width: textW, align: "right", lineBreak: false }
-    );
+    .text(labelText, blockStartX, labelY, { lineBreak: false });
 
+  // Page N of M (appended inline when multi-page)
+  if (totalPages > 1) {
+    doc
+      .fillColor("#9aa4b5")
+      .fontSize(9)
+      .font("Helvetica")
+      .text(`  (${pageNum}/${totalPages})`, { continued: false, lineBreak: false });
+  }
+
+  // Order number
+  if (orderLabel) {
+    doc
+      .fillColor("#1a1f2e")
+      .fontSize(22)
+      .font("Helvetica-Bold")
+      .text(orderLabel, blockStartX, orderY, { lineBreak: false });
+  }
+
+  // QR code — right of the text block, vertically centered
   if (qrPng) {
     try {
-      const y = (HEADER_H - qrSize) / 2;
+      const qrX = blockStartX + textBlockW + QR_GAP;
+      const qrY = (HEADER_H - qrSize) / 2;
       doc.save();
-      doc.rect(qrX, y, qrSize, qrSize).fill("#ffffff");
-      doc.image(qrPng, qrX, y, { width: qrSize, height: qrSize });
+      // Light border background
+      doc
+        .rect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 4)
+        .strokeColor("#dde2ea")
+        .lineWidth(0.75)
+        .fillAndStroke("#f9fafb", "#dde2ea");
+      doc.image(qrPng, qrX, qrY, { width: qrSize, height: qrSize });
       doc.restore();
     } catch {
       /* skip a bad PNG rather than fail the slip */

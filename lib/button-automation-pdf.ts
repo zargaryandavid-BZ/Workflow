@@ -41,8 +41,8 @@ type PdfDoc = InstanceType<typeof PDFDocument>;
 const MARGIN = 40;
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
-const HEADER_H = 56;
-const HEADER_QR_SIZE = 40;
+const HEADER_H = 72;
+const HEADER_QR_SIZE = 48;
 const COL_WIDTH = (PAGE_WIDTH - MARGIN * 2) / 2;
 /** Leave room for footer; never let PDFKit auto-paginate absolute text. */
 const CONTENT_BOTTOM = PAGE_HEIGHT - 32;
@@ -154,36 +154,78 @@ function drawHeader(
   orderNumber: string,
   qrPng: Buffer | null = null
 ) {
+  const QR_GAP = 14;
   const qrSize = qrPng ? HEADER_QR_SIZE : 0;
-  const qrGap = qrPng ? 8 : 0;
-  const qrX = PAGE_WIDTH - MARGIN - qrSize;
-  const textRight = qrX - qrGap;
-  const textW = textRight - MARGIN;
 
-  doc.rect(0, 0, PAGE_WIDTH, HEADER_H).fill("#1a1a2e");
-  doc.fillColor("#ffffff").fontSize(11).font("Helvetica-Bold");
-  textAt(doc, tenantName.toUpperCase(), MARGIN, 12, { width: textW });
-  doc.fontSize(9).font("Helvetica");
-  textAt(doc, "JOB TICKET", MARGIN, 12, {
-    width: textW,
-    align: "right",
+  // White background
+  doc.rect(0, 0, PAGE_WIDTH, HEADER_H).fill("#ffffff");
+
+  // Bold navy bottom border
+  doc
+    .moveTo(0, HEADER_H)
+    .lineTo(PAGE_WIDTH, HEADER_H)
+    .strokeColor("#1a1a2e")
+    .lineWidth(2.5)
+    .stroke();
+
+  // Build label: "JOB TICKET · Sep 29, 2026"
+  const dateStr = new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
-  textAt(doc, orderNumber, MARGIN, 32, { width: textW });
-  textAt(
-    doc,
-    new Date().toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }),
-    MARGIN,
-    32,
-    { width: textW, align: "right" }
-  );
-  if (qrPng) {
-    drawHeaderQr(doc, qrPng, qrX, (HEADER_H - qrSize) / 2, qrSize);
+  const labelText = `JOB TICKET  ·  ${dateStr}`;
+
+  // Measure widths to center the whole block
+  doc.font("Helvetica").fontSize(9);
+  const labelW = doc.widthOfString(labelText);
+  doc.font("Helvetica-Bold").fontSize(11);
+  const tenantW = doc.widthOfString(tenantName.toUpperCase());
+  doc.font("Helvetica-Bold").fontSize(18);
+  const orderW = orderNumber ? doc.widthOfString(orderNumber) : 0;
+
+  const textBlockW = Math.max(labelW, tenantW, orderW);
+  const totalBlockW = textBlockW + (qrPng ? QR_GAP + qrSize : 0);
+  const blockStartX = (PAGE_WIDTH - totalBlockW) / 2;
+
+  // Vertical layout: label / tenant / order stacked, centered in header
+  const labelY = HEADER_H / 2 - 26;
+  const tenantY = labelY + 13;
+  const orderY = tenantY + 16;
+
+  // Label row (muted gray)
+  doc.fillColor("#9aa4b5").fontSize(9).font("Helvetica");
+  textAt(doc, labelText, blockStartX, labelY, { width: textBlockW });
+
+  // Tenant name
+  doc.fillColor("#1a1a2e").fontSize(11).font("Helvetica-Bold");
+  textAt(doc, tenantName.toUpperCase(), blockStartX, tenantY, { width: textBlockW });
+
+  // Order number
+  if (orderNumber) {
+    doc.fontSize(18).font("Helvetica-Bold");
+    textAt(doc, orderNumber, blockStartX, orderY, { width: textBlockW });
   }
-  doc.fillColor("#000000");
+
+  // QR — right of text block, vertically centered
+  if (qrPng) {
+    try {
+      const qrX = blockStartX + textBlockW + QR_GAP;
+      const qrY = (HEADER_H - qrSize) / 2;
+      doc.save();
+      doc
+        .rect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 4)
+        .strokeColor("#dde2ea")
+        .lineWidth(0.75)
+        .fillAndStroke("#f9fafb", "#dde2ea");
+      doc.image(qrPng, qrX, qrY, { width: qrSize, height: qrSize });
+      doc.restore();
+    } catch {
+      /* skip a bad PNG rather than fail the ticket */
+    }
+  }
+
+  doc.fillColor("#000000").font("Helvetica");
 }
 
 function drawFooter(doc: PdfDoc, pageNum: number, totalPages: number) {
