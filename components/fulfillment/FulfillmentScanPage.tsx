@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleCheck,
   GripVertical,
+  Loader2,
   MapPinCheck,
   Package,
   PackageCheck,
@@ -45,7 +46,11 @@ import {
   type ScanActionButton,
 } from "@/lib/fulfillment-scan-config";
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
-import { ScanShippingSlipButtons } from "@/components/fulfillment/ScanShippingSlipButtons";
+import {
+  SCAN_SHIPPING_ACTION_BTN,
+  SCAN_SHIPPING_ACTION_BTN_READY,
+  ScanShippingSlipButtons,
+} from "@/components/fulfillment/ScanShippingSlipButtons";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
@@ -166,7 +171,7 @@ function MainOrderItemsCount({
   const label = count != null ? String(count) : "—";
   if (parts.length === 0) {
     return (
-      <span className="text-[13px] md:text-[15px] font-semibold text-slate-900">
+      <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-blue-600 px-2 py-0.5 text-[13px] font-bold text-white md:text-[15px]">
         {label}
       </span>
     );
@@ -185,7 +190,7 @@ function MainOrderItemsCount({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-[13px] md:text-[15px] font-bold text-blue-600 hover:text-blue-800 hover:underline"
+        className="inline-flex min-w-6 items-center justify-center rounded-full bg-blue-600 px-2 py-0.5 text-[13px] font-bold text-white hover:bg-blue-700 md:text-[15px]"
         aria-expanded={open}
         aria-haspopup="dialog"
       >
@@ -213,9 +218,7 @@ function MainOrderItemsCount({
                     "shrink-0 rounded-md px-1.5 py-0.5",
                     isFinishedReviewRequestColumn(p.columnName)
                       ? "bg-red-600 font-semibold text-white"
-                      : isCurrent
-                        ? "bg-blue-600 font-semibold text-white"
-                        : "text-slate-600"
+                      : "bg-blue-600 font-semibold text-white"
                   )}
                 >
                   {p.columnName}
@@ -436,6 +439,8 @@ function ShippingReminderSection({
   const choice = sr?.client_choice ?? null;
   const token  = sr?.token ?? null;
   const phone  = order.customer?.phone ?? null;
+  const slipNumber = order.order_number?.trim() || order.title;
+  const groupSize = Math.max(1, order.main_item_count ?? 1);
 
   const lastSentLabel = order.last_sms_at
     ? new Date(order.last_sms_at).toLocaleString("en-US", {
@@ -505,22 +510,6 @@ function ShippingReminderSection({
         Shipping
       </p>
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-3">
-        {/* No shipping request yet */}
-        {!sr && (
-          <button
-            type="button"
-            onClick={() => void openSetup()}
-            disabled={setupLoading}
-            className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-[13px] md:text-[15px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-          >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-              <PackageCheck className="h-4 w-4" />
-            </span>
-            <span className="flex-1">{setupLoading ? "Loading…" : "Set Up Shipping"}</span>
-            <ChevronRight className="h-4 w-4 text-slate-400" />
-          </button>
-        )}
-
         {/* Delivery method badge */}
         {sr && <div className="mb-3 flex items-center gap-2">
           <span className="text-[12px] md:text-[14px] text-slate-500">Delivery option:</span>
@@ -543,28 +532,62 @@ function ShippingReminderSection({
           <p className="mb-3 text-[12px] md:text-[14px] text-slate-500">FedEx — print shipping label</p>
         )}
 
-        {/* SMS reminders only after a shipping portal was already sent */}
-        <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {/* No shipping request yet */}
+          {!sr && (
+            <button
+              type="button"
+              onClick={() => void openSetup()}
+              disabled={setupLoading}
+              className={cn(SCAN_SHIPPING_ACTION_BTN, SCAN_SHIPPING_ACTION_BTN_READY)}
+            >
+              {setupLoading ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+              ) : (
+                <PackageCheck className="h-4 w-4 shrink-0" />
+              )}
+              {setupLoading ? "Loading…" : "Set Up Shipping"}
+            </button>
+          )}
+
+          {/* SMS reminders only after a shipping portal was already sent */}
           {sr && (choice === "pickup" || choice === null) && (
             <button
               type="button"
               disabled={!phone || sending !== null}
               onClick={() => void sendReminder(choice === "pickup" ? "pickup" : "shipping")}
               className={cn(
-                "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] md:text-[15px] font-medium transition-colors",
+                SCAN_SHIPPING_ACTION_BTN,
                 phone
-                  ? "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                  ? SCAN_SHIPPING_ACTION_BTN_READY
                   : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400"
               )}
             >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 text-base">
-                {choice === "pickup" ? "📦" : "🚚"}
-              </span>
-              <span className="flex-1">
-                {sending !== null ? "Sending…" : sent !== null ? "✓ Sent" : choice === "pickup" ? "Reminder Pickup" : "Reminder Select Shipping"}
-              </span>
+              {sending !== null ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+              ) : sent !== null ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+              ) : choice === "pickup" ? (
+                <Package className="h-4 w-4 shrink-0" />
+              ) : (
+                <Truck className="h-4 w-4 shrink-0" />
+              )}
+              {sending !== null
+                ? "Sending…"
+                : sent !== null
+                  ? "Sent"
+                  : choice === "pickup"
+                    ? "Reminder Pickup"
+                    : "Reminder Select Shipping"}
             </button>
           )}
+
+          <ScanShippingSlipButtons
+            orderId={order.id}
+            orderNumber={slipNumber}
+            groupSize={groupSize}
+            compact
+          />
         </div>
 
         {sr && lastSentLabel && (
@@ -1071,7 +1094,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                             "max-w-full rounded-full border px-2 py-0.5 text-[11px] md:text-[13px] leading-snug",
                             isFinishedReviewRequestColumn(order.column_name)
                               ? "whitespace-normal border-red-600 bg-red-600 font-semibold text-white"
-                              : "truncate border-slate-200 bg-slate-50 font-medium text-slate-600"
+                              : "truncate border-blue-600 bg-blue-600 font-semibold text-white"
                           )}
                         >
                           {order.column_name}
@@ -1105,8 +1128,6 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             const isShippingColumn =
               orderColumn?.kind === "ready_to_ship" ||
               (!isFinishedStage && orderColumn?.kind === "normal" && !!order.shipping_request);
-            const slipNumber = order.order_number?.trim() || order.title;
-            const groupSize = Math.max(1, order.main_item_count ?? 1);
             return (
               <div className="order-2 flex shrink-0 flex-col gap-4 px-4 lg:px-0">
                 {isShippingColumn ? (
@@ -1117,12 +1138,13 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     customFields={customFields}
                     smsConfigured={smsConfigured}
                   />
-                ) : null}
-                <ScanShippingSlipButtons
-                  orderId={order.id}
-                  orderNumber={slipNumber}
-                  groupSize={groupSize}
-                />
+                ) : (
+                  <ScanShippingSlipButtons
+                    orderId={order.id}
+                    orderNumber={order.order_number?.trim() || order.title}
+                    groupSize={Math.max(1, order.main_item_count ?? 1)}
+                  />
+                )}
               </div>
             );
           })()}

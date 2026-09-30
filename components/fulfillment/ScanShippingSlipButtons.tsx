@@ -9,6 +9,13 @@ import {
 } from "@/lib/browser-pdf";
 import { cn } from "@/lib/utils";
 
+/** Same-size scan shipping actions: lucide icon + one-line label. */
+export const SCAN_SHIPPING_ACTION_BTN =
+  "inline-flex h-12 w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 text-[13px] font-medium md:text-[14px]";
+
+export const SCAN_SHIPPING_ACTION_BTN_READY =
+  "border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50";
+
 function partFromOrderNumber(orderNumber: string): number {
   const match = orderNumber.trim().match(/-(\d+)$/);
   if (!match) return 1;
@@ -59,10 +66,12 @@ export function ScanShippingSlipButtons({
   orderId,
   orderNumber,
   groupSize,
+  compact = false,
 }: {
   orderId: string;
   orderNumber: string;
   groupSize: number;
+  compact?: boolean;
 }) {
   const [busy, setBusy] = useState<"download" | "print" | null>(null);
   const [error, setError] = useState("");
@@ -94,25 +103,18 @@ export function ScanShippingSlipButtons({
     }
   }
 
-  return (
-    <div>
-      <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
-        Shipping slip
-      </p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+  const buttons = (
+    <>
         <button
           type="button"
           onClick={() => void run("print")}
           disabled={busy !== null}
-          className={cn(
-            "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-[13px] md:text-[15px] font-medium",
-            "border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          )}
+          className={cn(SCAN_SHIPPING_ACTION_BTN, SCAN_SHIPPING_ACTION_BTN_READY)}
         >
           {busy === "print" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
           ) : (
-            <Printer className="h-4 w-4" />
+            <Printer className="h-4 w-4 shrink-0" />
           )}
           Print shipping slip
         </button>
@@ -120,18 +122,38 @@ export function ScanShippingSlipButtons({
           type="button"
           onClick={() => void run("download")}
           disabled={busy !== null}
-          className={cn(
-            "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-[13px] md:text-[15px] font-medium",
-            "border-slate-200 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          )}
+          className={cn(SCAN_SHIPPING_ACTION_BTN, SCAN_SHIPPING_ACTION_BTN_READY)}
         >
           {busy === "download" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
           ) : (
-            <Download className="h-4 w-4" />
+            <Download className="h-4 w-4 shrink-0" />
           )}
           Download shipping slip
         </button>
+    </>
+  );
+
+  if (compact) {
+    return (
+      <>
+        {buttons}
+        {error ? (
+          <p className="col-span-full text-[12px] text-red-600 md:text-[14px]">
+            {error}
+          </p>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <div>
+      <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+        Shipping slip
+      </p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {buttons}
       </div>
       {error ? (
         <p className="mt-2 text-[12px] md:text-[14px] text-red-600">{error}</p>
