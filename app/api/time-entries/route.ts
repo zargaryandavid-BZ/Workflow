@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity } from "@/lib/automation";
@@ -8,11 +9,15 @@ import {
   isActivityType,
   type ActivityType,
   type TimeEntry,
+  type TimerKind,
+  timerKindFromActivity,
   localDateString,
   localDayEndExclusiveIso,
   localDayStartIso,
 } from "@/lib/time-tracking";
 import { skuCountFromSpecs } from "@/lib/skus";
+import { isPrepressColumnName } from "@/lib/prepress-queue";
+import { canControlPrepressTimer } from "@/lib/permissions";
 
 type OrderJoin = {
   id: string;
@@ -67,6 +72,7 @@ function mapEntry(
     order_title: row.order_title,
     custom_task_name: row.custom_task_name,
     activity_type: row.activity_type as ActivityType,
+    timer_kind: timerKindFromActivity(row.activity_type),
     started_at: row.started_at,
     ended_at: row.ended_at,
     paused_at: row.paused_at,
@@ -104,9 +110,15 @@ export async function GET(request: Request) {
   const startedLt = searchParams.get("started_lt");
   const jobId = searchParams.get("job_id") ?? searchParams.get("order_id");
   const userIdParam = searchParams.get("user_id");
+  const timerKindParam = searchParams.get("timer_kind");
 
   const all = searchParams.get("all") === "true";
   const isAdmin = ctx.role === "admin";
+  // Preprod owners request all=true on Active Timers; RLS only returns their
+  // own rows, so this path uses the service-role client and then keeps Prepress
+  // (any user) plus the owner's own designer timers — same as active-board.
+  const preprodTeamRunning =
+    ctx.role === "preprod_owner" && all && running;
   let filterUserId: string | null = ctx.userId;
   if (userIdParam) {
     if (!isAdmin) {
@@ -116,9 +128,13 @@ export async function GET(request: Request) {
   } else if (isAdmin && (all || Boolean(jobId))) {
     // Admins: team Active Timers / Log, or every entry on a board card.
     filterUserId = null;
+  } else if (preprodTeamRunning) {
+    filterUserId = null;
   }
 
-  const supabase = await createClient();
+  const supabase = preprodTeamRunning
+    ? createAdminClient()
+    : await createClient();
   let query = supabase
     .from("time_entries")
     .select(SELECT)
@@ -127,6 +143,11 @@ export async function GET(request: Request) {
 
   if (filterUserId) {
     query = query.eq("user_id", filterUserId);
+  }
+  if (timerKindParam === "prepress") {
+    query = query.eq("activity_type", "Prepress");
+  } else if (timerKindParam === "designer") {
+    query = query.neq("activity_type", "Prepress");
   }
 
   if (running) {
@@ -165,7 +186,13 @@ export async function GET(request: Request) {
   }
 
   const nowMs = Date.now();
-  const rows = (data ?? []) as unknown as RawEntry[];
+  let rows = (data ?? []) as unknown as RawEntry[];
+  if (preprodTeamRunning) {
+    rows = rows.filter(
+      (row) =>
+        row.activity_type === "Prepress" || row.user_id === ctx.userId
+    );
+  }
   const userIds = [...new Set(rows.map((r) => r.user_id))];
   const userNames = new Map<string, string>();
   if (userIds.length > 0) {
@@ -194,6 +221,7 @@ export async function POST(request: Request) {
     order_id?: string;
     custom_task_name?: string;
     activity_type?: string;
+    timer_kind?: TimerKind;
     notes?: string;
   };
 
@@ -205,6 +233,8 @@ export async function POST(request: Request) {
     typeof body.custom_task_name === "string"
       ? body.custom_task_name.trim()
       : "";
+  const timerKind: TimerKind =
+    body.timer_kind === "prepress" ? "prepress" : "designer";
 
   if (!orderId && !customTaskName) {
     return NextResponse.json(
@@ -212,10 +242,22 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+  if (timerKind === "prepress" && !canControlPrepressTimer(ctx.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (timerKind === "prepress" && !orderId) {
+    return NextResponse.json(
+      { error: "Prepress timers must be attached to a board job" },
+      { status: 400 }
+    );
+  }
 
-  const activityType: ActivityType = isActivityType(body.activity_type)
-    ? body.activity_type
-    : "Design";
+  const activityType: ActivityType =
+    timerKind === "prepress"
+      ? "Prepress"
+      : isActivityType(body.activity_type) && body.activity_type !== "Prepress"
+        ? body.activity_type
+        : "Design";
 
   const notes =
     typeof body.notes === "string" && body.notes.trim()
@@ -250,20 +292,37 @@ export async function POST(request: Request) {
         .eq("tenant_id", ctx.tenant.id)
         .maybeSingle();
       if (
-        columnStopsWorkTimer({
-          kind: (col as { kind?: string } | null)?.kind,
-          name: (col as { name?: string } | null)?.name,
-        })
+        timerKind === "prepress"
+          ? !isPrepressColumnName((col as { name?: string } | null)?.name)
+          : columnStopsWorkTimer({
+              kind: (col as { kind?: string } | null)?.kind,
+              name: (col as { name?: string } | null)?.name,
+            })
       ) {
         return NextResponse.json(
           {
             error:
-              "Timer can't run while this job is on Hold, Missing Info, Customer Replied, or Waiting Approval.",
+              timerKind === "prepress"
+                ? "Prepress timer can only run while the job is in the Prepress column."
+                : "Timer can't run while this job is on Hold, Missing Info, Customer Replied, or Waiting Approval.",
           },
           { status: 409 }
         );
       }
     }
+  }
+
+  // Auto-pause any other running Prepress timer for this user before starting a new one.
+  // This is a server-side backstop — the client already does this optimistically.
+  if (timerKind === "prepress") {
+    const now = new Date().toISOString();
+    await supabase
+      .from("time_entries")
+      .update({ paused_at: now })
+      .eq("user_id", ctx.userId)
+      .eq("activity_type", "Prepress")
+      .is("ended_at", null)
+      .is("paused_at", null);
   }
 
   const { data, error } = await supabase
@@ -282,6 +341,12 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
+    if (error.code === "23505") {
+      return NextResponse.json(
+        { error: "A Prepress timer is already running." },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -292,7 +357,7 @@ export async function POST(request: Request) {
       orderId,
       actor: ctx.userId,
       action: "timer_started",
-      metadata: {},
+      metadata: { timer_kind: timerKind },
     }).catch(() => {});
   }
 

@@ -7,6 +7,7 @@ import {
   normalizeScanButtons,
 } from "@/lib/fulfillment-scan-config";
 import { logActivity, onEnterColumn } from "@/lib/automation";
+import { maybeStopPrepressTimersOnColumnLeave } from "@/lib/stop-order-timers";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import {
   isFulfilledStage,
@@ -109,6 +110,21 @@ export async function POST(request: Request) {
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+
+  const { data: sourceColumn } = await supabase
+    .from("board_columns")
+    .select("name")
+    .eq("id", order.column_id)
+    .eq("tenant_id", ctx.tenant.id)
+    .maybeSingle();
+  await maybeStopPrepressTimersOnColumnLeave({
+    tenantId: ctx.tenant.id,
+    orderId: body.order_id,
+    fromColumn: {
+      name: (sourceColumn as { name?: string } | null)?.name,
+    },
+    toColumn: { name: (column as BoardColumn).name },
+  });
 
   // Fire post-move hooks asynchronously (same pattern as /api/orders/move)
   const movedOrder = { ...order, column_id: targetColumnId } as Order;

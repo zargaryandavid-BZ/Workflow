@@ -1,6 +1,6 @@
 # Documentation
 
-**Last updated: September 29, 2026**
+**Last updated: September 30, 2026**
 
 Complete project reference for developers and AI agents.
 
@@ -376,6 +376,8 @@ Full reference: [API routes](#api-routes).
 | Columns | `GET/POST /api/columns`, `PATCH/DELETE .../[id]`, `POST .../reorder` |
 | Custom fields | `GET/POST /api/fields`, `PATCH/DELETE .../[id]` |
 | Analytics | `GET /api/analytics` |
+| Time reports | `GET /api/time-entries/report?kind=designer\|prepress\|production` — Designer hours; Pre-press hours + Prepress→Production handoff; Production job counts/dwell |
+| Payroll rates | `GET/PATCH /api/settings/payroll-rates` (admin) — `tenants.payroll_rates` JSON map `{ [userId]: ratePerHour }` |
 | Team | `GET /api/team`, `POST .../invite`, `PATCH/DELETE .../[id]` |
 | Tenant | `POST /api/tenant/switch`, `POST /api/onboarding` |
 | Auth | `POST /api/auth/signout` |
@@ -926,6 +928,8 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `0102_memberships_outsourced.sql` | `memberships.outsourced` (team Outsource checkbox) |
 | `20260923000000_customer_contacts.sql` | Extra company contacts for review/approval notify |
 | `20260910000000_fix_search_path_and_security_definer_views.sql` | Pin `search_path = ''` on token/tenant RPCs; `security_invoker` on dashboard views |
+| `20261001000000_prepress_single_running_guard.sql` | One running Prepress timer per user (partial unique index) |
+| `20261001010000_payroll_rates.sql` | `tenants.payroll_rates` JSONB (Designer Payroll hourly rates) |
 
 **Note:** There is no `0010_*.sql` in the repo. `sku_key`, `drop_in_roles`, and extended `member_role` values are in `setup.sql` only.
 
@@ -1379,6 +1383,20 @@ Return aggregated order throughput, column dwell times, and staff performance me
 
 ---
 
+### `GET /api/time-entries/report`
+
+Time page Reports tab. `kind=designer` (default) uses designer clocks only. `kind=prepress` uses Prepress clocks plus average **Prepress → Production** lag from column moves (handoff stats are Pre-press tab only). `kind=production` counts jobs **into production** vs **Production Completed**, and average time spent in production columns. Query: `from`, `to` (`YYYY-MM-DD`), optional `user_id` (admin; ignored for production).
+
+`GET /api/time-entries?running=true&all=true` returns the tenant team for admins. A `preprod_owner` on that same query gets every running Prepress timer plus their own entries (service-role read, same visibility as `GET /api/time-entries/active-board`).
+
+`POST /api/time-entries` auto-pauses any other **running** Prepress timer for that user before insert. A unique index (`time_entries_one_running_prepress_per_user`) blocks two running Prepress rows for the same `user_id`.
+
+### `GET` / `PATCH /api/settings/payroll-rates`
+
+Admin only. Reads and merges `{ [userId]: ratePerHour }` into `tenants.payroll_rates`. Used by Time → Reports payroll tables.
+
+---
+
 ## Team / members
 
 ### `GET /api/members`
@@ -1521,6 +1539,7 @@ Main production board: drag-and-drop, filters, modals, notification popups, Real
 
 - `DndContext` handles drag between columns and reorder within column.
 - On cross-column drop → `POST /api/orders/move`; may open `NotificationPopup`.
+- Application jobs (checkbox / combo) may show a **Yes / No** notice when skipping **In the application** or entering Ready to Ship. **Yes** completes the move; there is no warehouse container hold (many application jobs have no container part).
 - Subscribes to `orders` Realtime → `router.refresh()`.
 - Opens `CardDetailModal` when a card is clicked.
 
@@ -1566,13 +1585,13 @@ Draggable card showing order number, customer, contact, due date, priority, thum
 | `fieldValues` | `Record<string, unknown>` | Custom field values |
 | `thumbnail` | `string` | Preview image URL |
 | `notificationBadge` | `CardNotificationBadge` | e.g. "Rejected" |
-| `hasCustomerReply` | `boolean` | Green chat icon — inbound SMS or customer reply in Com. History |
+| `hasCustomerReply` | `boolean` | Customer-reply highlight (emerald card wash) plus a filled chat button — inbound SMS or customer reply in Com. History. Click opens the card on **Com. History**. |
 | `ownerName` | `string` | Assigned designer |
 | `onOpen` | `(order) => void` | Click to open detail |
 
 **Depends on:** `@dnd-kit/sortable`, `Badge`, `lib/card-badges`, `lib/customer-name`.
 
-**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit. The job number turns **green** when Final production has files. A green chat icon appears only when the client has replied (inbound SMS or a customer response in Com. History — not outbound Email/SMS). A red **NO PDF** badge (bottom-right of the thumbnail) means Final production has no print PDF. A red **PDF** badge in the same corner (from `GET /api/orders/[id]/pdf-check`) means the Final PDF is missing Acrobat layers or Fast Web View. Gallery picture count sits bottom-left so it does not cover those tags.
+**Features:** Bold item title (CRM parent job name is omitted when it matches that title). Owner and designer appear once in the footer chips (right-click designer to reassign), not again as “Owner:” / “Designer:” text. **Artwork** (layers under the thumbnail) opens when the card has a picture, Final files, or a Designer folder URL. The popup loads PDF bytes through `GET /api/orders/[id]/final-artwork` (service account) into pdf.js with OCG layers — it does not iframe `drive.google.com`. If Final production is empty, it uses PDFs in the Designer folder. Shortcuts to PDFs are followed. The popup fills the window and scales the page to fit. The job number turns **green** when Final production has files. A green chat button appears only when the client has replied (inbound SMS or a customer response in Com. History — not outbound Email/SMS). Clicking it opens the order on **Com. History**. Those cards use a stronger emerald background so the reply stands out. A red **NO PDF** badge (bottom-right of the thumbnail) means Final production has no print PDF. A red **PDF** badge in the same corner (from `GET /api/orders/[id]/pdf-check`) means the Final PDF is missing Acrobat layers or Fast Web View. Gallery picture count sits bottom-left so it does not cover those tags.
 
 ---
 
@@ -1591,7 +1610,7 @@ Full order editor: form, SKUs, artwork, activity log, Missing Info tab, Approval
 | `columns` | `BoardColumn[]` | Column picker |
 | `designers` | `Designer[]` | Owner assignment |
 | `role` | `Role` | Permissions |
-| `onChanged` | `() => void` | Parent refresh after save |
+| `initialTab` | `"details" \| … \| "history"` | When `"history"`, the modal opens on **Com. History** |
 
 **Depends on:** `OrderFormBody`, `SkuEditor`, `MissingInfoTab`, `ApprovalTab`, `Modal`, asset upload APIs.
 
@@ -1729,6 +1748,7 @@ All settings live under `app/(app)/settings/` with shared `layout.tsx`. The left
 | Component | Path | Role |
 | --- | --- | --- |
 | `Sidebar` | `app-shell/sidebar.tsx` | Work links + Settings; Die Order for admin / AM / pre-prod |
+| `TimeReports` | `time/TimeReports.tsx` | `/time` Reports: Designer, Pre-press, and Production (avg Prepress→Production) |
 | `Topbar` | `app-shell/topbar.tsx` | Tenant switcher, user menu |
 | `Providers` | `providers.tsx` | React Query provider |
 

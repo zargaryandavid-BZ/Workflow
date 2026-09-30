@@ -9,7 +9,10 @@ import { sendApprovalEmail } from "@/lib/email";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { notifyRuleApprovalTarget, isApprovalRejection } from "@/lib/notify-rule-approval-target";
 import type { ApprovalStatus, BoardColumn, Order } from "@/lib/types";
-import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
+import {
+  maybeStopPrepressTimersOnColumnLeave,
+  maybeStopWorkTimersOnColumnEnter,
+} from "@/lib/stop-order-timers";
 import { isHoldColumn } from "@/lib/hold-column";
 import { notifyHoldWatchers } from "@/lib/user-notifications";
 
@@ -380,6 +383,12 @@ export async function onApprovalResult(
       orderId: params.orderId,
       column: { kind: targetCol?.kind, name: targetCol?.name },
     });
+    await maybeStopPrepressTimersOnColumnLeave({
+      tenantId: params.tenantId,
+      orderId: params.orderId,
+      fromColumn: { name: fromName },
+      toColumn: { name: toName },
+    });
     await logActivity(client, {
       tenantId: params.tenantId,
       orderId: params.orderId,
@@ -447,11 +456,35 @@ export async function onShippingOptSelected(
 
   if (!order || order.column_id === toColumnId) return;
 
+  const { data: moveColumns } = await client
+    .from("board_columns")
+    .select("id, name")
+    .in("id", [order.column_id, toColumnId]);
+  const moveNameById = new Map(
+    ((moveColumns ?? []) as { id: string; name: string | null }[]).map((col) => [
+      col.id,
+      col.name,
+    ])
+  );
+
   await client
     .from("orders")
     .update({ column_id: toColumnId, last_moved_at: new Date().toISOString() })
     .eq("id", orderId)
     .eq("tenant_id", tenantId);
+
+  await maybeStopPrepressTimersOnColumnLeave({
+    tenantId,
+    orderId,
+    fromColumn: { name: moveNameById.get(order.column_id) },
+    toColumn: { name: moveNameById.get(toColumnId) },
+  });
+
+  await maybeStopWorkTimersOnColumnEnter({
+    tenantId,
+    orderId,
+    column: { name: moveNameById.get(toColumnId) ?? null },
+  });
 
   await logActivity(client, {
     tenantId,

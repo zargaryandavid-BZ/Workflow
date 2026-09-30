@@ -84,6 +84,7 @@ import { QueueRankBadge } from "./queue-rank-badge";
 import { DesignFlagChip, SourceChannelChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
+import { canControlPrepressTimer } from "@/lib/permissions";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import { useActiveTimer } from "@/components/time/active-timer-context";
@@ -249,7 +250,10 @@ interface OrderCardProps {
     result: ActionButtonResult
   ) => void;
   onActionError?: (message: string) => void;
-  onOpen: (order: OrderWithRelations) => void;
+  onOpen: (
+    order: OrderWithRelations,
+    opts?: { tab?: "history" }
+  ) => void;
   /** When badge is rejected — open approval resend flow. */
   onResendApproval?: (order: OrderWithRelations) => void;
   /** Used to gate admin-only UI (e.g. billing globe). */
@@ -731,7 +735,9 @@ export function OrderCard({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    ...(webhookCardBg ? { backgroundColor: webhookCardBg } : {}),
+    ...(webhookCardBg && !hasCustomerReply
+      ? { backgroundColor: webhookCardBg }
+      : {}),
     // Emergency severity (if any) always wins the border color; else animated
     // warnings set border-color in keyframes so avoid an inline color fighting them.
     ...(emergencySeverity
@@ -1088,10 +1094,13 @@ export function OrderCard({
   // colors the card green; paused (jumped to another job) leaves it colorless
   // so the board shows at a glance what's actually being worked on right now.
   const activeTimer = useActiveTimer();
-  const orderTimer = activeTimer.forOrder(order.id);
-  const workedSeconds = activeTimer.workedTotalForOrder(order.id);
+  const timerKind = isPrepressCard ? "prepress" : "designer";
+  const showPrepressTimer =
+    isPrepressCard && role != null && canControlPrepressTimer(role);
+  const orderTimer = activeTimer.forOrder(order.id, timerKind);
+  const workedSeconds = activeTimer.workedTotalForOrder(order.id, timerKind);
   // Any user actively working this card (shown to everyone who can see it).
-  const boardTimer = activeTimer.boardActiveForOrder(order.id);
+  const boardTimer = activeTimer.boardActiveForOrder(order.id, timerKind);
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
   // Only admins can pause/stop another person's timer (Sales is view-only).
   const canControlOthers = role === "admin";
@@ -1099,11 +1108,12 @@ export function OrderCard({
     kind: columnKind,
     name: columnName,
   });
+  const canStartDesignerTimer = role !== "preprod_owner";
   const timerRunning =
-    !timersOff &&
+    (!timersOff || showPrepressTimer) &&
     ((orderTimer?.running ?? false) || (otherWorker?.running ?? false));
   const designerWorkedSeconds = designerWorkedDisplaySeconds({
-    boardTotal: activeTimer.boardWorkedTotalForOrder(order.id),
+    boardTotal: activeTimer.boardWorkedTotalForOrder(order.id, timerKind),
     myTotal: workedSeconds,
     liveElapsed: orderTimer?.running
       ? orderTimer.elapsedSeconds
@@ -1148,6 +1158,10 @@ export function OrderCard({
         readyToNotify &&
           !timerRunning &&
           "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-400 ring-offset-1",
+        hasCustomerReply &&
+          !timerRunning &&
+          !readyToNotify &&
+          "!border-emerald-600 !bg-emerald-200 ring-2 ring-emerald-500 ring-offset-1",
         // Only an actively-running timer colors the card; paused stays neutral.
         timerRunning && "!border-emerald-500 !bg-emerald-100 ring-2 ring-emerald-300"
       )}
@@ -1156,7 +1170,7 @@ export function OrderCard({
     >
       {/* padded content wrapper */}
       <div className={cn("px-3 py-3.5", designerWorkedSeconds > 0 && "pr-[5.75rem]")}>
-      {timersOff ? null : (
+      {(timersOff || !canStartDesignerTimer) && !showPrepressTimer ? null : (
         <>
           {/* Someone else is (or was) working this card — show their chip. */}
           {otherWorker ? (
@@ -1178,8 +1192,9 @@ export function OrderCard({
             orderId={order.id}
             timer={orderTimer}
             workedSeconds={workedSeconds}
+            timerKind={timerKind}
             busy={activeTimer.busyOrderId === order.id}
-            onStart={() => void activeTimer.start(order.id)}
+            onStart={() => void activeTimer.start(order.id, timerKind)}
             onPause={(reason) =>
               orderTimer && void activeTimer.pause(orderTimer.entry.id, reason)
             }
@@ -1199,12 +1214,19 @@ export function OrderCard({
           seconds={designerWorkedSeconds}
         />
         {hasCustomerReply ? (
-          <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center text-emerald-500"
-            title="Customer replied"
+          <button
+            type="button"
+            title="Customer replied — open Com. History"
+            aria-label="Open communication history"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white shadow-sm ring-2 ring-white hover:bg-emerald-700"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(order, { tab: "history" });
+            }}
           >
-            <MessageSquare className="h-3.5 w-3.5" />
-          </span>
+            <MessageSquare className="h-4 w-4" strokeWidth={2.5} />
+          </button>
         ) : null}
         {emergencySeverity ? (
           <span
@@ -1565,7 +1587,7 @@ export function OrderCard({
                   </span>
                 </>
               ) : null
-            ) : (
+            ) : canStartDesignerTimer ? (
               <>
                 <span className="text-slate-300"> · </span>
                 <CardTimer
@@ -1573,7 +1595,7 @@ export function OrderCard({
                   timeBudgetSeconds={currentTimeBudgetSeconds}
                 />
               </>
-            )}
+            ) : null}
           </p>
 
           {(shippingSign || order.customer?.fedex_account_number) ? (

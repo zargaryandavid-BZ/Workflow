@@ -5,7 +5,10 @@ import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import type { Order } from "@/lib/types";
-import { maybeStopWorkTimersOnColumnEnter } from "@/lib/stop-order-timers";
+import {
+  maybeStopPrepressTimersOnColumnLeave,
+  maybeStopWorkTimersOnColumnEnter,
+} from "@/lib/stop-order-timers";
 
 export const maxDuration = 300;
 
@@ -87,6 +90,12 @@ export async function POST(
     .eq("id", destColumnId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
+  const { data: sourceCol } = await supabase
+    .from("board_columns")
+    .select("name")
+    .eq("id", order.column_id)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
   await maybeStopWorkTimersOnColumnEnter({
     tenantId,
     orderId,
@@ -94,6 +103,12 @@ export async function POST(
       kind: (destCol as { kind?: string } | null)?.kind,
       name: (destCol as { name?: string } | null)?.name,
     },
+  });
+  await maybeStopPrepressTimersOnColumnLeave({
+    tenantId,
+    orderId,
+    fromColumn: { name: (sourceCol as { name?: string } | null)?.name },
+    toColumn: { name: (destCol as { name?: string } | null)?.name },
   });
 
   after(async () => {

@@ -14,6 +14,10 @@ import {
 } from "@/lib/column-idle-config";
 import { logActivity, onEnterColumn } from "@/lib/automation";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
+import {
+  maybeStopPrepressTimersOnColumnLeave,
+  maybeStopWorkTimersOnColumnEnter,
+} from "@/lib/stop-order-timers";
 import type { AutomationRule, BoardColumn, Order, Tenant } from "@/lib/types";
 
 export type { ColumnIdleConfig, IdleUnit } from "@/lib/column-idle-config";
@@ -91,6 +95,17 @@ async function systemMoveOrder(
   if (error || !updated) return false;
 
   const moved = updated as Order;
+  await maybeStopPrepressTimersOnColumnLeave({
+    tenantId: order.tenant_id,
+    orderId: order.id,
+    fromColumn,
+    toColumn,
+  });
+  await maybeStopWorkTimersOnColumnEnter({
+    tenantId: order.tenant_id,
+    orderId: order.id,
+    column: toColumn,
+  });
   try {
     await logActivity(client, {
       tenantId: order.tenant_id,

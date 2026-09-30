@@ -5,7 +5,12 @@ import { Play } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
-import { ACTIVITY_TYPES, type ActivityType, notifyTimeEntriesChanged } from "@/lib/time-tracking";
+import {
+  ACTIVITY_TYPES,
+  type ActivityType,
+  type TimerKind,
+  notifyTimeEntriesChanged,
+} from "@/lib/time-tracking";
 import { cn } from "@/lib/utils";
 
 type Mode = "job" | "custom";
@@ -22,9 +27,15 @@ interface NewTimerModalProps {
   open: boolean;
   onClose: () => void;
   onStarted: () => void;
+  timerKind?: TimerKind;
 }
 
-export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) {
+export function NewTimerModal({
+  open,
+  onClose,
+  onStarted,
+  timerKind = "designer",
+}: NewTimerModalProps) {
   const [mode, setMode] = useState<Mode>("custom");
   const [activityType, setActivityType] = useState<ActivityType>("Design");
   const [notes, setNotes] = useState("");
@@ -39,8 +50,8 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
   const [error, setError] = useState<string | null>(null);
 
   const reset = useCallback(() => {
-    setMode("custom");
-    setActivityType("Design");
+    setMode(timerKind === "prepress" ? "job" : "custom");
+    setActivityType(timerKind === "prepress" ? "Prepress" : "Design");
     setNotes("");
     setCustomTaskName("");
     setOrderQuery("");
@@ -50,7 +61,7 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
     setAssignedCheckDone(false);
     setError(null);
     setSubmitting(false);
-  }, []);
+  }, [timerKind]);
 
   useEffect(() => {
     if (!open) reset();
@@ -63,7 +74,11 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
     setAssignedCheckDone(false);
     void (async () => {
       try {
-        const res = await fetch("/api/time-entries/assignable-orders");
+        const params = new URLSearchParams();
+        if (timerKind === "prepress") params.set("timer_kind", "prepress");
+        const res = await fetch(
+          `/api/time-entries/assignable-orders?${params.toString()}`
+        );
         const data = (await res.json()) as {
           orders?: AssignableOrder[];
         };
@@ -73,11 +88,11 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
         const assigned = list.length > 0;
         setHasAssignedJobs(assigned);
         setOrders(assigned ? list : []);
-        setMode(assigned ? "job" : "custom");
+        setMode(timerKind === "prepress" || assigned ? "job" : "custom");
       } catch {
         if (!cancelled) {
           setHasAssignedJobs(false);
-          setMode("custom");
+          setMode(timerKind === "prepress" ? "job" : "custom");
         }
       } finally {
         if (!cancelled) setAssignedCheckDone(true);
@@ -86,7 +101,7 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, timerKind]);
 
   useEffect(() => {
     if (!open || mode !== "job" || !hasAssignedJobs || !assignedCheckDone) {
@@ -100,6 +115,7 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
       try {
         const params = new URLSearchParams();
         params.set("q", orderQuery.trim());
+        if (timerKind === "prepress") params.set("timer_kind", "prepress");
         const res = await fetch(
           `/api/time-entries/assignable-orders?${params.toString()}`
         );
@@ -117,7 +133,7 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
       }
     }, 200);
     return () => window.clearTimeout(handle);
-  }, [open, mode, orderQuery, hasAssignedJobs, assignedCheckDone]);
+  }, [open, mode, orderQuery, hasAssignedJobs, assignedCheckDone, timerKind]);
 
   async function handleStart() {
     setError(null);
@@ -137,6 +153,7 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
           ? {
               order_id: selectedOrderId,
               activity_type: activityType,
+              timer_kind: timerKind,
               notes: notes.trim() || undefined,
             }
           : {
@@ -163,14 +180,15 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
   }
 
   const selected = orders.find((o) => o.id === selectedOrderId) ?? null;
-  const showModeTabs = assignedCheckDone && hasAssignedJobs;
+  const showModeTabs =
+    timerKind === "designer" && assignedCheckDone && hasAssignedJobs;
   const showJobPicker = mode === "job" && hasAssignedJobs;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Start Timer"
+      title={timerKind === "prepress" ? "Start Prepress Timer" : "Start Timer"}
       footer={
         <>
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -225,7 +243,11 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
                 setOrderQuery(e.target.value);
                 setSelectedOrderId(null);
               }}
-              placeholder="Search assigned jobs…"
+              placeholder={
+                timerKind === "prepress"
+                  ? "Search Prepress jobs…"
+                  : "Search assigned jobs…"
+              }
               autoComplete="off"
             />
             {selected ? (
@@ -251,7 +273,11 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
                   <p className="px-3 py-2 text-xs text-slate-400">Loading…</p>
                 ) : orders.length === 0 ? (
                   <p className="px-3 py-2 text-xs text-slate-400">
-                    {orderQuery ? "No matching jobs" : "No jobs assigned to you"}
+                    {orderQuery
+                      ? "No matching jobs"
+                      : timerKind === "prepress"
+                        ? "No jobs are currently in Prepress"
+                        : "No jobs assigned to you"}
                   </p>
                 ) : (
                   orders.map((o) => (
@@ -277,6 +303,10 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
               </div>
             )}
           </div>
+        ) : timerKind === "prepress" ? (
+          <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+            No jobs are currently in the Prepress column.
+          </p>
         ) : (
           <div>
             <Label htmlFor="timer-task-name">Task name</Label>
@@ -295,8 +325,11 @@ export function NewTimerModal({ open, onClose, onStarted }: NewTimerModalProps) 
             id="timer-activity"
             value={activityType}
             onChange={(e) => setActivityType(e.target.value as ActivityType)}
+            disabled={timerKind === "prepress"}
           >
-            {ACTIVITY_TYPES.map((t) => (
+            {ACTIVITY_TYPES.filter(
+              (type) => timerKind === "prepress" || type !== "Prepress"
+            ).map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

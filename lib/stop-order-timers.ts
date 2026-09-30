@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { durationSeconds } from "@/lib/time-tracking";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
+import { isPrepressColumnName } from "@/lib/prepress-queue";
+import type { TimerKind } from "@/lib/time-tracking";
 
 type OpenTimerRow = {
   id: string;
@@ -12,20 +14,26 @@ type OpenTimerRow = {
 };
 
 /**
- * Stop every open (running or paused) timer on an order. Uses the service
- * role so a sales drop into Hold still ends the assigned designer's clock.
+ * Stop every open (running or paused) timer of one kind on an order. Uses the
+ * service role so moves performed by another role can still bank the clock.
  */
 export async function stopOpenTimersForOrder(
   tenantId: string,
-  orderId: string
+  orderId: string,
+  timerKind: TimerKind = "designer"
 ): Promise<number> {
   const admin = createAdminClient();
-  const { data, error } = await admin
+  let query = admin
     .from("time_entries")
-    .select("id, user_id, order_id, started_at, paused_at, paused_seconds")
+    .select("id, user_id, order_id, activity_type, started_at, paused_at, paused_seconds")
     .eq("tenant_id", tenantId)
     .eq("order_id", orderId)
     .is("ended_at", null);
+  query =
+    timerKind === "prepress"
+      ? query.eq("activity_type", "Prepress")
+      : query.neq("activity_type", "Prepress");
+  const { data, error } = await query;
 
   if (error) {
     console.error("[stop-order-timers] list failed:", error.message);
@@ -81,6 +89,29 @@ export async function maybeStopWorkTimersOnColumnEnter(opts: {
   } catch (err) {
     console.error(
       "[stop-order-timers]",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/** Leaving Prepress banks every open Prepress clock attached to the card. */
+export async function maybeStopPrepressTimersOnColumnLeave(opts: {
+  tenantId: string;
+  orderId: string;
+  fromColumn: { name?: string | null };
+  toColumn: { name?: string | null };
+}): Promise<void> {
+  if (
+    !isPrepressColumnName(opts.fromColumn.name) ||
+    isPrepressColumnName(opts.toColumn.name)
+  ) {
+    return;
+  }
+  try {
+    await stopOpenTimersForOrder(opts.tenantId, opts.orderId, "prepress");
+  } catch (err) {
+    console.error(
+      "[stop-prepress-timers]",
       err instanceof Error ? err.message : err
     );
   }

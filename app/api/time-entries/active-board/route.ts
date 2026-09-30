@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
-import { durationSeconds } from "@/lib/time-tracking";
+import {
+  durationSeconds,
+  timerKindFromActivity,
+} from "@/lib/time-tracking";
 
 /**
  * Every currently-running timer across the tenant (all users), with the worker's
- * name. Anyone who can open the board gets this so the "who's working this card
- * and for how long" chip shows on every card they can see — the board component
- * only renders it on cards the user is already allowed to see. Control of another
- * person's timer stays gated (see PATCH /api/time-entries/[id]).
+ * name. Pre-production owners receive Prepress entries plus their own entries;
+ * other designers' timers stay hidden from that role. Control of another
+ * person's timer remains gated separately (see PATCH /api/time-entries/[id]).
  */
 export async function GET() {
   const ctx = await getTenantContext();
@@ -24,26 +26,36 @@ export async function GET() {
   // explicitly by tenant_id below — this endpoint exposes only non-sensitive
   // "who is working + for how long" data for the caller's own tenant.
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  const query = supabase
     .from("time_entries")
-    .select("id, user_id, order_id, started_at, ended_at, paused_at, paused_seconds")
+    .select("id, user_id, order_id, activity_type, started_at, ended_at, paused_at, paused_seconds")
     .eq("tenant_id", ctx.tenant.id)
     .is("ended_at", null)
     .not("order_id", "is", null);
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const rows = (data ?? []) as Array<{
+  const rows = ((data ?? []) as Array<{
     id: string;
     user_id: string;
     order_id: string | null;
+    activity_type: string;
     started_at: string;
     ended_at: string | null;
     paused_at: string | null;
     paused_seconds: number | null;
-  }>;
+  }>).filter((row) => {
+    const kind = timerKindFromActivity(row.activity_type);
+    if (ctx.role === "admin") return true;
+    if (ctx.role === "preprod_owner") {
+      return kind === "prepress" || row.user_id === ctx.userId;
+    }
+    return kind === "designer";
+  });
 
   const userIds = Array.from(new Set(rows.map((r) => r.user_id)));
   const nameById = new Map<string, string>();
@@ -64,6 +76,7 @@ export async function GET() {
     user_id: r.user_id,
     worker_name: nameById.get(r.user_id) ?? "",
     order_id: r.order_id,
+    timer_kind: timerKindFromActivity(r.activity_type),
     started_at: r.started_at,
     ended_at: r.ended_at,
     paused_at: r.paused_at,

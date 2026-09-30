@@ -5,9 +5,11 @@
  * Bazaar "combo" orders = a container (bag / jar / tube) + a printed label that
  * gets APPLIED onto the container. These arrive from the CRM as `application: true`
  * (mapped to the Product-box "Application" checkbox / `specs.application`) and/or
- * the Combos product category. Such an order must NOT reach Ready-to-Ship or be
- * released for pickup until the warehouse confirms the physical containers are in
- * stock — otherwise labels get printed with nothing to apply them to.
+ * the Combos product category.
+ *
+ * Warehouse container confirmation is optional (SMS / COMBO STOCK). It does not
+ * block moving a card to Ready-to-Ship or releasing pickup — many application
+ * jobs have no container part. The board may still ask Yes/No before the move.
  *
  * Confirmation state lives additively on `orders.specs` (jsonb) — no schema change:
  * - warehouse_stock_confirmed        : boolean (gate opens when true)
@@ -91,8 +93,8 @@ export function warehouseStockSmsSent(specs: unknown): boolean {
 }
 
 /**
- * A with-application order that has NOT yet had warehouse stock confirmed must
- * not advance into Ready-to-Ship / be released for pickup.
+ * True when warehouse stock has not been confirmed for a with-application order.
+ * Used for optional SMS / COMBO STOCK UI — not as a move/ship API block.
  */
 export function requiresStockConfirmationBeforeShip(
   specs: unknown,
@@ -113,4 +115,4 @@ export function isShipStageKind(kind: string | null | undefined): boolean {
 }
 
 export const STOCK_GATE_MESSAGE =
-  "This combo order needs application. The warehouse must confirm the containers are in stock before it can move to Ready to Ship or be released for pickup.";
+  "This order is marked for application. There is no container-stock hold — you can move it. Continue?";

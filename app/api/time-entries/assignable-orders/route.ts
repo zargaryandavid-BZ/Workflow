@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
+import { canControlPrepressTimer } from "@/lib/permissions";
+import { isPrepressColumnName } from "@/lib/prepress-queue";
 
 type OrderRow = {
   id: string;
   title: string;
   due_date: string | null;
+  column_id: string;
   specs: Record<string, unknown> | null;
   customer: { name: string } | { name: string }[] | null;
 };
@@ -31,11 +34,25 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const prepress = searchParams.get("timer_kind") === "prepress";
+  if (prepress && !canControlPrepressTimer(ctx.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const supabase = await createClient();
+  let prepressColumnIds: string[] = [];
+  if (prepress) {
+    const { data: columns } = await supabase
+      .from("board_columns")
+      .select("id, name")
+      .eq("tenant_id", ctx.tenant.id);
+    prepressColumnIds = ((columns ?? []) as { id: string; name: string }[])
+      .filter((column) => isPrepressColumnName(column.name))
+      .map((column) => column.id);
+  }
   const { data, error } = await supabase
     .from("orders")
-    .select("id, title, due_date, specs, customer:customers(name)")
+    .select("id, title, due_date, column_id, specs, customer:customers(name)")
     .eq("tenant_id", ctx.tenant.id)
     .is("removed_at", null)
     .order("due_date", { ascending: true })
@@ -45,7 +62,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const rows = (data ?? []) as unknown as OrderRow[];
+  const rows = ((data ?? []) as unknown as OrderRow[]).filter(
+    (row) => !prepress || prepressColumnIds.includes(row.column_id)
+  );
 
   const assigned: OrderRow[] = [];
   const others: OrderRow[] = [];
@@ -62,7 +81,7 @@ export async function GET(request: Request) {
     }
   }
 
-  let pool = assigned;
+  let pool = prepress ? rows : assigned;
   if (q) {
     const match = (row: OrderRow) => {
       const title = row.title.toLowerCase();

@@ -7,6 +7,7 @@ import {
   durationSeconds,
   isActivityType,
   isPauseReason,
+  timerKindFromActivity,
   type ActivityType,
   type TimeEntry,
 } from "@/lib/time-tracking";
@@ -63,6 +64,7 @@ function mapEntry(row: RawEntry, nowMs = Date.now()): TimeEntry {
     order_title: row.order_title,
     custom_task_name: row.custom_task_name,
     activity_type: row.activity_type as ActivityType,
+    timer_kind: timerKindFromActivity(row.activity_type),
     started_at: row.started_at,
     ended_at: row.ended_at,
     paused_at: row.paused_at,
@@ -114,7 +116,7 @@ export async function PATCH(
 
   const { data: existing, error: loadError } = await supabase
     .from("time_entries")
-    .select("id, user_id, tenant_id, started_at, ended_at, paused_at, paused_seconds")
+    .select("id, user_id, tenant_id, activity_type, started_at, ended_at, paused_at, paused_seconds")
     .eq("id", id)
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
@@ -230,6 +232,15 @@ export async function PATCH(
     if (!isActivityType(body.activity_type)) {
       return NextResponse.json(
         { error: "Invalid activity_type" },
+        { status: 400 }
+      );
+    }
+    const currentKind = timerKindFromActivity(
+      (existing as { activity_type?: string }).activity_type
+    );
+    if (timerKindFromActivity(body.activity_type) !== currentKind) {
+      return NextResponse.json(
+        { error: "Timer type cannot be changed after it starts" },
         { status: 400 }
       );
     }

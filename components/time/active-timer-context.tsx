@@ -12,6 +12,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import {
   type TimeEntry,
+  type TimerKind,
   durationSeconds,
   isTimerPaused,
   TIME_ENTRIES_CHANGED_EVENT,
@@ -37,6 +38,7 @@ interface BoardEntry {
   paused_seconds: number;
   running: boolean;
   elapsed_seconds: number;
+  timer_kind: TimerKind;
 }
 
 /** Who is actively working a card + for how long — shown on every card. */
@@ -53,19 +55,19 @@ export interface BoardTimerState {
 
 interface ActiveTimerContextValue {
   /** Live timer state for an order, or null when this user has none on it. */
-  forOrder: (orderId: string) => OrderTimerState | null;
+  forOrder: (orderId: string, kind?: TimerKind) => OrderTimerState | null;
   /** Cumulative worked seconds this user has logged on an order (0 when none). */
-  workedTotalForOrder: (orderId: string) => number;
+  workedTotalForOrder: (orderId: string, kind?: TimerKind) => number;
   /** Cumulative worked seconds by EVERYONE on an order — for the on-card total
    *  badge, so anyone can see how long a job took without opening it. */
-  boardWorkedTotalForOrder: (orderId: string) => number;
+  boardWorkedTotalForOrder: (orderId: string, kind?: TimerKind) => number;
   /** Who (any user) is actively working an order, for the on-card chip. */
-  boardActiveForOrder: (orderId: string) => BoardTimerState | null;
+  boardActiveForOrder: (orderId: string, kind?: TimerKind) => BoardTimerState | null;
   /** This user's currently RUNNING (not paused) timer, if any — used to prompt
    *  "you're still timing job X" when they open a different card. */
   myActiveRunning: { entryId: string; orderId: string | null; orderTitle: string | null } | null;
   /** Start (or resume) the timer on an order; auto-pauses any other running one. */
-  start: (orderId: string) => Promise<void>;
+  start: (orderId: string, kind?: TimerKind) => Promise<void>;
   pause: (entryId: string, reason?: string) => Promise<void>;
   resume: (entryId: string) => Promise<void>;
   stop: (entryId: string) => Promise<void>;
@@ -77,7 +79,9 @@ const Ctx = createContext<ActiveTimerContextValue | null>(null);
 export function ActiveTimerProvider({ children }: { children: React.ReactNode }) {
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [totals, setTotals] = useState<Record<string, number>>({});
+  const [prepressTotals, setPrepressTotals] = useState<Record<string, number>>({});
   const [boardTotals, setBoardTotals] = useState<Record<string, number>>({});
+  const [prepressBoardTotals, setPrepressBoardTotals] = useState<Record<string, number>>({});
   const [board, setBoard] = useState<BoardEntry[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
@@ -96,9 +100,14 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
 
   const refetchTotals = useCallback(async () => {
     try {
-      const res = await fetch("/api/time-entries/totals");
-      const data = (await res.json()) as { totals?: Record<string, number> };
-      if (res.ok) setTotals(data.totals ?? {});
+      const [designerRes, prepressRes] = await Promise.all([
+        fetch("/api/time-entries/totals?timer_kind=designer"),
+        fetch("/api/time-entries/totals?timer_kind=prepress"),
+      ]);
+      const designer = (await designerRes.json()) as { totals?: Record<string, number> };
+      const prepress = (await prepressRes.json()) as { totals?: Record<string, number> };
+      if (designerRes.ok) setTotals(designer.totals ?? {});
+      if (prepressRes.ok) setPrepressTotals(prepress.totals ?? {});
     } catch {
       /* keep previous on transient error */
     }
@@ -116,9 +125,14 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
 
   const refetchBoardTotals = useCallback(async () => {
     try {
-      const res = await fetch("/api/time-entries/board-totals");
-      const data = (await res.json()) as { totals?: Record<string, number> };
-      if (res.ok) setBoardTotals(data.totals ?? {});
+      const [designerRes, prepressRes] = await Promise.all([
+        fetch("/api/time-entries/board-totals?timer_kind=designer"),
+        fetch("/api/time-entries/board-totals?timer_kind=prepress"),
+      ]);
+      const designer = (await designerRes.json()) as { totals?: Record<string, number> };
+      const prepress = (await prepressRes.json()) as { totals?: Record<string, number> };
+      if (designerRes.ok) setBoardTotals(designer.totals ?? {});
+      if (prepressRes.ok) setPrepressBoardTotals(prepress.totals ?? {});
     } catch {
       /* keep previous on transient error */
     }
@@ -205,14 +219,16 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   const byOrder = useMemo(() => {
     const map = new Map<string, TimeEntry>();
     for (const e of entries) {
-      if (e.order_id && !e.ended_at) map.set(e.order_id, e);
+        if (e.order_id && !e.ended_at) {
+          map.set(`${e.timer_kind}:${e.order_id}`, e);
+        }
     }
     return map;
   }, [entries]);
 
   const forOrder = useCallback(
-    (orderId: string): OrderTimerState | null => {
-      const entry = byOrder.get(orderId);
+    (orderId: string, kind: TimerKind = "designer"): OrderTimerState | null => {
+      const entry = byOrder.get(`${kind}:${orderId}`);
       if (!entry) return null;
       const paused = isTimerPaused(entry);
       return {
@@ -229,14 +245,25 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   );
 
   const workedTotalForOrder = useCallback(
-    (orderId: string): number => Math.max(0, Math.floor(totals[orderId] ?? 0)),
-    [totals]
+    (orderId: string, kind: TimerKind = "designer"): number =>
+      Math.max(
+        0,
+        Math.floor(
+          (kind === "prepress" ? prepressTotals : totals)[orderId] ?? 0
+        )
+      ),
+    [prepressTotals, totals]
   );
 
   const boardWorkedTotalForOrder = useCallback(
-    (orderId: string): number =>
-      Math.max(0, Math.floor(boardTotals[orderId] ?? 0)),
-    [boardTotals]
+    (orderId: string, kind: TimerKind = "designer"): number =>
+      Math.max(
+        0,
+        Math.floor(
+          (kind === "prepress" ? prepressBoardTotals : boardTotals)[orderId] ?? 0
+        )
+      ),
+    [boardTotals, prepressBoardTotals]
   );
 
   const myEntryIds = useMemo(
@@ -245,7 +272,10 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   );
 
   const myActiveRunning = useMemo(() => {
-    const e = entries.find((x) => !x.ended_at && !x.paused_at);
+    const e = entries.find(
+      (x) =>
+        x.timer_kind === "designer" && !x.ended_at && !x.paused_at
+    );
     if (!e) return null;
     return {
       entryId: e.id,
@@ -258,16 +288,17 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
     const map = new Map<string, BoardEntry>();
     for (const b of board) {
       if (!b.order_id) continue;
-      const cur = map.get(b.order_id);
+      const key = `${b.timer_kind}:${b.order_id}`;
+      const cur = map.get(key);
       // Prefer a running timer over a paused one when a card has more than one.
-      if (!cur || (b.running && !cur.running)) map.set(b.order_id, b);
+      if (!cur || (b.running && !cur.running)) map.set(key, b);
     }
     return map;
   }, [board]);
 
   const boardActiveForOrder = useCallback(
-    (orderId: string): BoardTimerState | null => {
-      const b = boardByOrder.get(orderId);
+    (orderId: string, kind: TimerKind = "designer"): BoardTimerState | null => {
+      const b = boardByOrder.get(`${kind}:${orderId}`);
       if (!b) return null;
       const elapsed = b.running
         ? durationSeconds(b.started_at, null, nowMs, {
@@ -304,17 +335,22 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   );
 
   const start = useCallback(
-    async (orderId: string) => {
+    async (orderId: string, kind: TimerKind = "designer") => {
       setBusyOrderId(orderId);
       try {
         // One active card at a time: pause any other running timer first.
         for (const e of entriesRef.current) {
-          if (e.order_id !== orderId && !e.ended_at && !e.paused_at) {
+          if (
+            e.timer_kind === kind &&
+            e.order_id !== orderId &&
+            !e.ended_at &&
+            !e.paused_at
+          ) {
             await patch(e.id, { action: "pause" });
           }
         }
         const existing = entriesRef.current.find(
-          (e) => e.order_id === orderId && !e.ended_at
+          (e) => e.timer_kind === kind && e.order_id === orderId && !e.ended_at
         );
         if (existing) {
           if (isTimerPaused(existing)) await patch(existing.id, { action: "resume" });
@@ -324,7 +360,8 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               order_id: orderId,
-              activity_type: "Design",
+              activity_type: kind === "prepress" ? "Prepress" : "Design",
+              timer_kind: kind,
               started_at: new Date().toISOString(),
             }),
           });
@@ -354,8 +391,16 @@ export function ActiveTimerProvider({ children }: { children: React.ReactNode })
   const resume = useCallback(
     async (entryId: string) => {
       // Keep one active card: pause others, then resume this one.
+      const targetKind =
+        entriesRef.current.find((entry) => entry.id === entryId)?.timer_kind ??
+        "designer";
       for (const e of entriesRef.current) {
-        if (e.id !== entryId && !e.ended_at && !e.paused_at) {
+        if (
+          e.timer_kind === targetKind &&
+          e.id !== entryId &&
+          !e.ended_at &&
+          !e.paused_at
+        ) {
           await patch(e.id, { action: "pause" });
         }
       }

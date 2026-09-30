@@ -14,6 +14,11 @@ function dropOutRoles(column: DropColumn): Role[] | null {
   return effectiveDropRoles(parseDropRoles(column.drop_out_roles));
 }
 
+/** Prepress work timer controls are limited to pre-production and admins. */
+export function canControlPrepressTimer(role: Role): boolean {
+  return role === "admin" || role === "preprod_owner";
+}
+
 /** Whether `role` may move an order INTO `column`. */
 export function canDropIn(role: Role, column: DropColumn): boolean {
   if (role === "admin" || role === "account_manager") return true;

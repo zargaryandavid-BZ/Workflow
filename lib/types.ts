@@ -127,6 +127,8 @@ export interface Tenant {
   integration_mode?: IntegrationMode;
   /** CRM v2 catalog feed URL used by Connected mode. */
   crm_catalog_url?: string | null;
+  /** Designer / pre-press hourly rates keyed by user id. */
+  payroll_rates?: Record<string, number>;
 }
 
 export interface Profile {
@@ -262,9 +264,8 @@ export interface OrderSpecs {
   /** Working days required for application when `application` is true. */
   application_days?: number | null;
   /**
-   * "With Application" (combo) warehouse stock gate. A combo order cannot enter
-   * Ready-to-Ship / be released for pickup until the warehouse confirms the
-   * physical containers are in stock. See lib/warehouse-stock.ts.
+   * Optional warehouse container confirmation (SMS / COMBO STOCK). Does not
+   * block Ready-to-Ship or pickup. See lib/warehouse-stock.ts.
    */
   warehouse_stock_confirmed?: boolean;
   warehouse_stock_confirmed_at?: string | null;

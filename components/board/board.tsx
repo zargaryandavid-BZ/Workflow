@@ -98,6 +98,7 @@ import {
   comboStockConfirmed,
   isComboOrder,
 } from "@/lib/combo-stock";
+import { isShipStageKind } from "@/lib/warehouse-stock";
 import {
   MANUAL_WEBHOOK_SOURCE_FILTER,
   OTHER_WEBHOOK_SOURCE_FILTER,
@@ -389,6 +390,9 @@ export function Board({
   const [activeGroup, setActiveGroup] = useState<GroupEntry | null>(null);
   const [createColumn, setCreateColumn] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailInitialTab, setDetailInitialTab] = useState<
+    "details" | "history"
+  >("details");
   const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(
     null
   );
@@ -410,8 +414,10 @@ export function Board({
   const [emergencyOnly, setEmergencyOnly] = useState(false);
   const [emergencyQuickFilter, setEmergencyQuickFilter] =
     useState<EmergencyQuickFilter | null>(null);
-  // Soft warning when a combo/application job is dragged past the Application stage.
+  // Soft warning when a combo/application job is dragged past Application
+  // or into Ready to Ship. Yes still completes the move — there is no hold.
   const [comboAppWarning, setComboAppWarning] = useState<{
+    kind: "skip_application" | "ship_application";
     orderTitle: string;
     toColumnName: string;
     proceed: () => void;
@@ -890,8 +896,9 @@ export function Board({
     }
   }, [initialOrderId, orders, searchResults]);
 
-  function openOrderDetail(orderId: string) {
+  function openOrderDetail(orderId: string, tab?: "history") {
     setHighlightedOrderId(null);
+    setDetailInitialTab(tab ?? "details");
     setDetailId(orderId);
   }
 
@@ -1221,6 +1228,7 @@ export function Board({
   function closeOrderDetail() {
     const closedId = detailId;
     setDetailId(null);
+    setDetailInitialTab("details");
     if (initialOrderId) {
       router.replace("/board", { scroll: false });
     }
@@ -2022,6 +2030,30 @@ export function Board({
     return orderNeedsApplication(order);
   }
 
+  /** True when moving an application job into Ready to Ship / Done. */
+  function moveNeedsApplicationShipNotice(
+    order: OrderWithRelations,
+    toColumnId: string
+  ): boolean {
+    if (order.column_id === toColumnId) return false;
+    const toCol = columnsById.get(toColumnId);
+    if (!toCol || !isShipStageKind(toCol.kind)) return false;
+    return orderNeedsApplication(order);
+  }
+
+  function applicationMovePromptKind(
+    orders: OrderWithRelations[],
+    toColumnId: string
+  ): "skip_application" | "ship_application" | null {
+    if (orders.some((o) => moveSkipsApplication(o, toColumnId))) {
+      return "skip_application";
+    }
+    if (orders.some((o) => moveNeedsApplicationShipNotice(o, toColumnId))) {
+      return "ship_application";
+    }
+    return null;
+  }
+
   /**
    * A combo order can't leave "In Progress" until the warehouse confirms stock
    * (reply 1 = in stock or 2 = ordered). Admins / account managers can override.
@@ -2074,8 +2106,10 @@ export function Board({
       flashPermissionError(stockBlock);
       return;
     }
-    if (moveSkipsApplication(order, toColumnId)) {
+    const promptKind = applicationMovePromptKind([order], toColumnId);
+    if (promptKind) {
       setComboAppWarning({
+        kind: promptKind,
         orderTitle: order.title,
         toColumnName: columnsById.get(toColumnId)?.name ?? "that stage",
         proceed: () => {
@@ -2592,7 +2626,8 @@ export function Board({
 
   async function handleGroupMove(
     groupOrders: OrderWithRelations[],
-    toColumnId: string
+    toColumnId: string,
+    opts?: { skipPrompt?: boolean }
   ) {
     if (groupOrders.length === 0) return;
     const fromColumnId = groupOrders[0].column_id;
@@ -2611,6 +2646,22 @@ export function Board({
         );
       }
       return;
+    }
+
+    if (!opts?.skipPrompt) {
+      const promptKind = applicationMovePromptKind(groupOrders, toColumnId);
+      if (promptKind) {
+        setComboAppWarning({
+          kind: promptKind,
+          orderTitle: groupOrders[0]?.title ?? "This group",
+          toColumnName: toCol.name,
+          proceed: () => {
+            setComboAppWarning(null);
+            void handleGroupMove(groupOrders, toColumnId, { skipPrompt: true });
+          },
+        });
+        return;
+      }
     }
 
     const destOrders = orders
@@ -2824,13 +2875,28 @@ export function Board({
         groupDrag.columnId,
         groupDrag.key
       );
+      if (!crossing || groupOrders.length === 0) {
+        abortDrag();
+        return;
+      }
+      const promptKind = applicationMovePromptKind(groupOrders, overColumn);
+      if (promptKind) {
+        abortDrag();
+        setComboAppWarning({
+          kind: promptKind,
+          orderTitle: groupOrders[0]?.title ?? "This group",
+          toColumnName: columnsById.get(overColumn)?.name ?? "that stage",
+          proceed: () => {
+            setComboAppWarning(null);
+            void handleGroupMove(groupOrders, overColumn, { skipPrompt: true });
+          },
+        });
+        return;
+      }
       draggingRef.current = false;
       dragSourceColumnRef.current = null;
       dragSnapshotRef.current = null;
       setActiveGroup(null);
-      if (!crossing || groupOrders.length === 0) {
-        return;
-      }
       await handleGroupMove(groupOrders, overColumn);
       return;
     }
@@ -2893,23 +2959,26 @@ export function Board({
       boardOrdersRef.current.find((o) => o.id === active.id) ??
       orders.find((o) => o.id === active.id);
 
-    // Combo/application guard: warn before letting a combo skip the Application
-    // stage. Snap the card back, then re-run the move only if Rafael confirms.
-    if (
-      crossing &&
-      activeOrderForPatch &&
-      moveSkipsApplication(activeOrderForPatch, overColumn)
-    ) {
-      abortDrag();
-      setComboAppWarning({
-        orderTitle: activeOrderForPatch.title,
-        toColumnName: columnsById.get(overColumn)?.name ?? "that stage",
-        proceed: () => {
-          setComboAppWarning(null);
-          void runContextMove(activeOrderForPatch, overColumn);
-        },
-      });
-      return;
+    // Application jobs: Yes/No notice only — never a hard hold.
+    // Snap back, then complete the move if they click Yes.
+    if (crossing && activeOrderForPatch) {
+      const promptKind = applicationMovePromptKind(
+        [activeOrderForPatch],
+        overColumn
+      );
+      if (promptKind) {
+        abortDrag();
+        setComboAppWarning({
+          kind: promptKind,
+          orderTitle: activeOrderForPatch.title,
+          toColumnName: columnsById.get(overColumn)?.name ?? "that stage",
+          proceed: () => {
+            setComboAppWarning(null);
+            void runContextMove(activeOrderForPatch, overColumn);
+          },
+        });
+        return;
+      }
     }
 
     patchOrderPlacement(String(active.id), {
@@ -3868,7 +3937,7 @@ export function Board({
             thumbnailByOrder={displayThumbnailByOrder}
             ownerNameByOrder={displayOwnerNameByOrder}
             designerNameByOrder={displayDesignerNameByOrder}
-            onOpenOrder={(o) => openOrderDetail(o.id)}
+            onOpenOrder={(o, opts) => openOrderDetail(o.id, opts?.tab)}
           />
         </div>
       ) : boardView === "table" ? (
@@ -3918,7 +3987,7 @@ export function Board({
               columnName: col?.name ?? "Approval",
             });
           }}
-          onOpenOrder={(o) => openOrderDetail(o.id)}
+          onOpenOrder={(o, opts) => openOrderDetail(o.id, opts?.tab)}
           onVisible={onColumnVisible}
           highlightedOrderId={highlightedOrderId}
           tags={canSetBoardTagAndPriority(role) ? tags : undefined}
@@ -4087,7 +4156,7 @@ export function Board({
                 onSetDueDate={handleSetDueDate}
                 highlightedOrderId={highlightedOrderId}
                 onMoveGroup={handleGroupMove}
-                onOpenOrder={(o) => openOrderDetail(o.id)}
+                onOpenOrder={(o, opts) => openOrderDetail(o.id, opts?.tab)}
                 onAdd={(colId) => setCreateColumn(colId)}
                 role={role}
                 loadStatus={
@@ -4192,6 +4261,7 @@ export function Board({
       <CardDetailModal
         orderId={detailId}
         open={detailId !== null}
+        initialTab={detailInitialTab}
         onClose={closeOrderDetail}
         groupSize={detailGroupSize}
         groupSameColumnCount={detailGroupSameColumn?.sameColumnCount}
@@ -4393,19 +4463,37 @@ export function Board({
               </div>
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-slate-800">
-                  Skipping the Application stage?
+                  {comboAppWarning.kind === "ship_application"
+                    ? "Move this application job?"
+                    : "Skipping the Application stage?"}
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  <span className="font-medium">
-                    {comboAppWarning.orderTitle}
-                  </span>{" "}
-                  is a combo / application job and hasn&rsquo;t gone through{" "}
-                  <span className="font-medium">In the application</span> yet.
-                  You&rsquo;re moving it to{" "}
-                  <span className="font-medium">
-                    {comboAppWarning.toColumnName}
-                  </span>
-                  .
+                  {comboAppWarning.kind === "ship_application" ? (
+                    <>
+                      <span className="font-medium">
+                        {comboAppWarning.orderTitle}
+                      </span>{" "}
+                      is marked for application. There is no container part
+                      and no stock hold. Move it to{" "}
+                      <span className="font-medium">
+                        {comboAppWarning.toColumnName}
+                      </span>
+                      ?
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-medium">
+                        {comboAppWarning.orderTitle}
+                      </span>{" "}
+                      is a combo / application job and hasn&rsquo;t gone through{" "}
+                      <span className="font-medium">In the application</span>{" "}
+                      yet. You&rsquo;re moving it to{" "}
+                      <span className="font-medium">
+                        {comboAppWarning.toColumnName}
+                      </span>
+                      .
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -4415,14 +4503,14 @@ export function Board({
                 onClick={() => setComboAppWarning(null)}
                 className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                No
               </button>
               <button
                 type="button"
                 onClick={comboAppWarning.proceed}
                 className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
               >
-                Move anyway
+                Yes
               </button>
             </div>
           </div>

@@ -8,19 +8,27 @@ import { durationSeconds } from "@/lib/time-tracking";
  * time entries (finished + running). The board uses this so a card keeps showing
  * how long was worked after the timer is stopped — instead of dropping the time.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const ctx = await getTenantContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const timerKind = new URL(request.url).searchParams.get("timer_kind");
+  let query = supabase
     .from("time_entries")
-    .select("order_id, started_at, ended_at, paused_at, paused_seconds")
+    .select("order_id, activity_type, started_at, ended_at, paused_at, paused_seconds")
     .eq("tenant_id", ctx.tenant.id)
     .eq("user_id", ctx.userId)
     .not("order_id", "is", null);
+
+  query =
+    timerKind === "prepress"
+      ? query.eq("activity_type", "Prepress")
+      : query.neq("activity_type", "Prepress");
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

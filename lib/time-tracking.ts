@@ -14,6 +14,14 @@ export const ACTIVITY_TYPES = [
 ] as const;
 
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+export type TimerKind = "designer" | "prepress";
+export type TimeReportKind = "designer" | "prepress" | "production";
+
+export function timerKindFromActivity(
+  activityType: string | null | undefined
+): TimerKind {
+  return activityType === "Prepress" ? "prepress" : "designer";
+}
 
 export function isActivityType(value: unknown): value is ActivityType {
   return (
@@ -53,6 +61,8 @@ export interface TimeEntry {
   order_title: string | null;
   custom_task_name: string | null;
   activity_type: ActivityType;
+  /** Separate work clock; Prepress entries never share designer timer state. */
+  timer_kind: TimerKind;
   started_at: string;
   ended_at: string | null;
   /** When set, the timer is paused (clock frozen). */
@@ -94,7 +104,7 @@ export interface TimeReportResponse {
     seconds: number;
     /** SKU row count on the job (same as the board card). Custom tasks count as 1. */
     sku_count?: number;
-    /** Designers who logged time on this job (deduped, sorted). */
+    /** People who logged timer time on this job (deduped, sorted). */
     designers?: string[];
   }[];
   per_activity: { activity_type: string; seconds: number }[];
@@ -104,6 +114,27 @@ export interface TimeReportResponse {
    * Total hours (sum of daily_totals) still adds every job.
    */
   pc_seconds?: number;
+  kind?: TimeReportKind;
+  /** Board-move lag from leaving Prepress until entering a Production column. */
+  prepress_to_production?: {
+    count: number;
+    avg_seconds: number;
+    median_seconds: number;
+    min_seconds: number;
+    max_seconds: number;
+    daily: { date: string; count: number; seconds: number }[];
+  };
+  /** Jobs dropped into production vs completed, and dwell while in production. */
+  production_flow?: {
+    entered_count: number;
+    completed_count: number;
+    avg_duration_seconds: number;
+    median_duration_seconds: number;
+    min_seconds: number;
+    max_seconds: number;
+    daily_entered: { date: string; count: number; seconds: number }[];
+    daily_completed: { date: string; count: number; seconds: number }[];
+  };
 }
 
 /** HH:MM:SS elapsed display */

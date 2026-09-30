@@ -10,12 +10,6 @@ import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import {
-  isShipStageKind,
-  requiresStockConfirmationBeforeShip,
-  STOCK_GATE_MESSAGE,
-} from "@/lib/warehouse-stock";
-import { requestWarehouseStockConfirmation } from "@/lib/warehouse-stock.server";
-import {
   chipsToStampOnEnter,
   withTimeChipStamp,
 } from "@/lib/time-chips";
@@ -23,6 +17,7 @@ import type { TimeChip } from "@/lib/time-chips";
 import type { BoardColumn, CustomField, Customer, Order, OrderWithRelations } from "@/lib/types";
 import {
   maybeStopWorkTimersOnColumnEnter,
+  maybeStopPrepressTimersOnColumnLeave,
   stopOpenTimersForOrder,
 } from "@/lib/stop-order-timers";
 
@@ -176,38 +171,6 @@ export async function POST(request: Request) {
         { status: 422 }
       );
     }
-
-    // "With Application" gate: a combo order that needs application must have
-    // warehouse stock confirmed before it can enter Ready-to-Ship / Done.
-    // The card stays put and the warehouse is texted (once) to confirm stock.
-    if (
-      isShipStageKind(typedColumn.kind) &&
-      requiresStockConfirmationBeforeShip(
-        typedOrder.specs,
-        (customFieldsRes.data ?? []) as CustomField[],
-        fieldValues
-      )
-    ) {
-      const stockReq = await requestWarehouseStockConfirmation(supabase, {
-        orderId: typedOrder.id,
-        tenantId,
-        title: typedOrder.title,
-        specs: typedOrder.specs,
-        orderNumber: null,
-        tenantName: ctx.tenant.name,
-        actorUserId: ctx.userId,
-      });
-      return NextResponse.json(
-        {
-          error: STOCK_GATE_MESSAGE,
-          needs_stock_confirmation: true,
-          warehouse_notified: stockReq.smsSent,
-          warehouse_already_notified: stockReq.alreadySent,
-          warehouse_notify_error: stockReq.error ?? null,
-        },
-        { status: 422 }
-      );
-    }
   }
 
   const newPosition = body.position ?? typedOrder.position;
@@ -260,6 +223,12 @@ export async function POST(request: Request) {
       tenantId,
       orderId: typedOrder.id,
       column: typedColumn,
+    });
+    await maybeStopPrepressTimersOnColumnLeave({
+      tenantId,
+      orderId: typedOrder.id,
+      fromColumn: typedFromColumn,
+      toColumn: typedColumn,
     });
   }
 

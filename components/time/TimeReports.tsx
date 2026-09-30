@@ -1,25 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { downloadCsv } from "@/lib/download-csv";
 import {
   addDays,
   formatHours,
   localDateString,
   startOfWeekMonday,
+  type TimeReportKind,
   type TimeReportResponse,
 } from "@/lib/time-tracking";
 
-interface DesignerOption {
+interface TeamMemberOption {
   id: string;
   name: string;
+  role: "designer" | "preprod_owner";
 }
-
 interface TimeReportsProps {
   isAdmin: boolean;
-  designers: DesignerOption[];
+  canStartPrepress?: boolean;
+  teamMembers: TeamMemberOption[];
 }
-
 // ─── helpers ───────────────────────────────────────────────────────────────
 
 function dayLabel(date: string): string {
@@ -29,11 +33,13 @@ function dayLabel(date: string): string {
     day: "numeric",
   });
 }
-
 function barHoursLabel(seconds: number): string {
   return (Math.max(0, seconds) / 3600).toFixed(1);
 }
-
+function barValueLabel(value: number, unit: "hrs" | "jobs"): string {
+  if (value <= 0) return "";
+  return unit === "jobs" ? String(value) : barHoursLabel(value);
+}
 function fmtUsd(n: number): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
@@ -70,7 +76,6 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
     </div>
   );
 }
-
 // ─── Compact bar chart ──────────────────────────────────────────────────────
 
 function DayBars({
@@ -78,11 +83,13 @@ function DayBars({
   totalLabel,
   points,
   color = "#378ADD",
+  unit = "hrs",
 }: {
   title: string;
   totalLabel?: string;
   points: { date: string; seconds: number }[];
   color?: string;
+  unit?: "hrs" | "jobs";
 }) {
   const max = Math.max(1, ...points.map((p) => p.seconds));
   return (
@@ -96,7 +103,7 @@ function DayBars({
           <div key={d.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
             <div className="flex h-28 w-full flex-col items-center justify-end gap-0.5">
               <span className="h-3 text-[9px] font-semibold tabular-nums text-slate-500">
-                {d.seconds > 0 ? barHoursLabel(d.seconds) : ""}
+                {barValueLabel(d.seconds, unit)}
               </span>
               <div className="flex w-full flex-1 items-end justify-center">
                 <div
@@ -105,7 +112,11 @@ function DayBars({
                     backgroundColor: color,
                     height: `${Math.max(d.seconds > 0 ? 4 : 0, (d.seconds / max) * 100)}%`,
                   }}
-                  title={`${dayLabel(d.date)}: ${formatHours(d.seconds)}`}
+                  title={
+                    unit === "jobs"
+                      ? `${dayLabel(d.date)}: ${d.seconds} ${d.seconds === 1 ? "job" : "jobs"}`
+                      : `${dayLabel(d.date)}: ${formatHours(d.seconds)}`
+                  }
                 />
               </div>
             </div>
@@ -116,39 +127,75 @@ function DayBars({
     </div>
   );
 }
-
 // ─── Payroll table ──────────────────────────────────────────────────────────
 
-const RATE_STORAGE_KEY = "wf_designer_rates_v1";
-
-function loadRates(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(RATE_STORAGE_KEY) ?? "{}") as Record<string, string>;
-  } catch {
-    return {};
+function ratesToPayload(rates: Record<string, string>): Record<string, number> {
+  const payload: Record<string, number> = {};
+  for (const [userId, value] of Object.entries(rates)) {
+    const n = Number.parseFloat(value);
+    if (Number.isFinite(n) && n >= 0) payload[userId] = n;
+    else if (value.trim() === "") payload[userId] = 0;
   }
-}
-
-function saveRates(r: Record<string, string>) {
-  try {
-    localStorage.setItem(RATE_STORAGE_KEY, JSON.stringify(r));
-  } catch {}
+  return payload;
 }
 
 function PayrollTable({
+  title,
+  peopleLabel,
+  rateHint,
   perUser,
   totalSeconds,
 }: {
+  title: string;
+  peopleLabel: string;
+  rateHint: string;
   perUser: NonNullable<TimeReportResponse["per_user"]>;
   totalSeconds: number;
 }) {
   const [rates, setRates] = useState<Record<string, string>>({});
-  useEffect(() => { setRates(loadRates()); }, []);
+  const ratesRef = useRef<Record<string, string>>({});
+  const saveTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch("/api/settings/payroll-rates");
+      if (!res.ok) return;
+      const data = (await res.json()) as { rates?: Record<string, number> };
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const [id, n] of Object.entries(data.rates ?? {})) {
+        next[id] = String(n);
+      }
+      ratesRef.current = next;
+      setRates(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function persist(next: Record<string, string>, immediate = false) {
+    const send = () => {
+      void fetch("/api/settings/payroll-rates", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rates: ratesToPayload(next) }),
+      });
+    };
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    if (immediate) {
+      send();
+      return;
+    }
+    saveTimer.current = window.setTimeout(send, 400);
+  }
 
   function updateRate(userId: string, value: string) {
-    const next = { ...rates, [userId]: value };
+    const next = { ...ratesRef.current, [userId]: value };
+    ratesRef.current = next;
     setRates(next);
-    saveRates(next);
+    persist(next);
   }
 
   const totalPay = perUser.reduce((sum, u) => {
@@ -159,19 +206,48 @@ function PayrollTable({
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">Designer Payroll</h3>
-        {totalPay > 0 && (
-          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-            Total labor: {fmtUsd(totalPay)}
-          </span>
-        )}
+        <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              downloadCsv(
+                "payroll.csv",
+                ["Designer", "Hours", "Share %", "Hourly Rate", "Est. Pay"],
+                perUser.map((u) => {
+                  const hrs = u.seconds / 3600;
+                  const pct = percentOf(u.seconds, totalSeconds);
+                  const rate = parseFloat(rates[u.user_id] ?? "0") || 0;
+                  const pay = hrs * rate;
+                  return [
+                    u.display_name,
+                    hrs.toFixed(1),
+                    String(pct),
+                    rate.toFixed(2),
+                    pay.toFixed(2),
+                  ];
+                })
+              );
+            }}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+          {totalPay > 0 && (
+            <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+              Total labor: {fmtUsd(totalPay)}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-              <th className="pb-2 text-left">Designer</th>
+              <th className="pb-2 text-left">{peopleLabel}</th>
               <th className="pb-2 text-right">Hours</th>
               <th className="pb-2 text-right">Share</th>
               <th className="pb-2 text-right">Hourly rate</th>
@@ -208,6 +284,7 @@ function PayrollTable({
                         step={0.5}
                         value={rates[u.user_id] ?? ""}
                         onChange={(e) => updateRate(u.user_id, e.target.value)}
+                        onBlur={() => persist(ratesRef.current, true)}
                         placeholder="0"
                         className="w-16 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-right text-sm tabular-nums text-slate-800 focus:border-blue-400 focus:outline-none"
                       />
@@ -224,7 +301,7 @@ function PayrollTable({
         </table>
       </div>
       <p className="mt-2 text-[10px] text-slate-400">
-        Rates are saved in your browser. Enter each designer&apos;s hourly rate to calculate estimated pay.
+        Rates are stored for the workspace. Enter each {rateHint} hourly rate to calculate estimated pay.
       </p>
     </div>
   );
@@ -235,9 +312,11 @@ function PayrollTable({
 function JobTable({
   jobs,
   totalSeconds,
+  peopleLabel,
 }: {
   jobs: TimeReportResponse["per_job"];
   totalSeconds: number;
+  peopleLabel: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? jobs : jobs.slice(0, 10);
@@ -258,7 +337,7 @@ function JobTable({
               <thead>
                 <tr className="border-b border-slate-100 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                   <th className="pb-2 text-left">Job / Task</th>
-                  <th className="pb-2 text-left">Designer</th>
+                  <th className="pb-2 text-left">{peopleLabel}</th>
                   <th className="pb-2 text-right">Hours</th>
                   <th className="pb-2 text-right">vs avg</th>
                   <th className="pb-2 text-right">%</th>
@@ -426,10 +505,23 @@ function ProductInsights({ jobs }: { jobs: TimeReportResponse["per_job"] }) {
 
 // ─── Main component ─────────────────────────────────────────────────────────
 
-export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
+const REPORT_KINDS: { id: TimeReportKind; label: string }[] = [
+  { id: "designer", label: "Designer" },
+  { id: "prepress", label: "Pre-press" },
+  { id: "production", label: "Production" },
+];
+
+export function TimeReports({
+  isAdmin,
+  canStartPrepress = false,
+  teamMembers,
+}: TimeReportsProps) {
   const weekStart = startOfWeekMonday();
   const [from, setFrom] = useState(() => localDateString(weekStart));
   const [to, setTo] = useState(() => localDateString(addDays(weekStart, 6)));
+  const [kind, setKind] = useState<TimeReportKind>(() =>
+    canStartPrepress && !isAdmin ? "prepress" : "designer"
+  );
   const [userFilter, setUserFilter] = useState<string>("");
   const [report, setReport] = useState<TimeReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -439,8 +531,10 @@ export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ from, to });
-      if (isAdmin) params.set("user_id", userFilter || "all");
+      const params = new URLSearchParams({ from, to, kind });
+      if (isAdmin && kind !== "production") {
+        params.set("user_id", userFilter || "all");
+      }
       const res = await fetch(`/api/time-entries/report?${params.toString()}`);
       const data = (await res.json()) as TimeReportResponse & { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to load report");
@@ -451,24 +545,58 @@ export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
     } finally {
       setLoading(false);
     }
-  }, [from, to, userFilter, isAdmin]);
+  }, [from, to, userFilter, isAdmin, kind]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
+  const teamForKind = teamMembers.filter((member) =>
+    kind === "prepress"
+      ? member.role === "preprod_owner"
+      : member.role === "designer"
+  );
+
+  const peopleLabel =
+    kind === "prepress"
+      ? "Pre-press"
+      : kind === "production"
+        ? "—"
+        : "Designer";
   const totalSeconds = report?.daily_totals.reduce((s, d) => s + d.seconds, 0) ?? 0;
   const pcSeconds = report?.pc_seconds ?? 0;
   const totalJobs = report?.per_job.length ?? 0;
   const dayCount = report?.daily_totals.filter((d) => d.seconds > 0).length ?? 0;
-  const avgJobsPerDay = dayCount > 0
-    ? (report?.per_job.length ?? 0) / dayCount
-    : 0;
+  const avgJobsPerDay =
+    dayCount > 0 ? (report?.per_job.length ?? 0) / dayCount : 0;
   const avgJobDuration = totalJobs > 0 ? totalSeconds / totalJobs : 0;
   const totalHrs = totalSeconds / 3600;
   const pcHrs = pcSeconds / 3600;
+  const handoff = report?.prepress_to_production;
+  const showTimerCharts = kind !== "production";
 
   return (
     <div className="space-y-5">
-      {/* ── Filters ── */}
+      <div className="flex flex-wrap gap-1 border-b border-slate-200">
+        {REPORT_KINDS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => {
+              setKind(item.id);
+              setUserFilter("");
+            }}
+            className={
+              kind === item.id
+                ? "border-b-2 border-blue-600 px-3 py-2 text-sm font-semibold text-blue-600"
+                : "border-b-2 border-transparent px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700"
+            }
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <Label htmlFor="report-from">From</Label>
@@ -490,22 +618,28 @@ export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
             className="w-auto"
           />
         </div>
-        {isAdmin && (
+        {isAdmin && kind !== "production" ? (
           <div>
-            <Label htmlFor="report-user">Viewing</Label>
+            <Label htmlFor="report-user">Team</Label>
             <Select
               id="report-user"
               value={userFilter}
               onChange={(e) => setUserFilter(e.target.value)}
               className="min-w-[10rem]"
             >
-              <option value="">All designers</option>
-              {designers.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
+              <option value="">
+                {kind === "prepress"
+                  ? "All pre-press"
+                  : "All designers"}
+              </option>
+              {teamForKind.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
               ))}
             </Select>
           </div>
-        )}
+        ) : null}
         <button
           type="button"
           onClick={() => void load()}
@@ -521,56 +655,198 @@ export function TimeReports({ isAdmin, designers }: TimeReportsProps) {
         <p className="text-sm text-slate-400">{loading ? "Loading…" : "No data"}</p>
       ) : (
         <>
-          {/* ── Summary stats ── */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Total jobs" value={String(totalJobs)} />
-            <Stat label="PC time" value={pcHrs.toFixed(1)} sub="hrs" />
-            <Stat label="Total hours" value={totalHrs.toFixed(1)} sub="hrs" />
-            <Stat label="Avg job duration" value={formatHours(avgJobDuration)} />
-            <Stat label="Jobs / active day" value={avgJobsPerDay.toFixed(1)} />
-          </div>
-          <p className="-mt-2 text-[10px] text-slate-400">
-            PC time is clock time at the desk — two jobs running at once count as one. Total hours sums every job.
-          </p>
+          {kind === "prepress" && handoff ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <Stat
+                label="Prepress → Production jobs"
+                value={String(handoff.count)}
+              />
+              <Stat
+                label="Avg handoff"
+                value={formatHours(handoff.avg_seconds)}
+              />
+              <Stat
+                label="Median handoff"
+                value={formatHours(handoff.median_seconds)}
+              />
+              <Stat label="Fastest" value={formatHours(handoff.min_seconds)} />
+              <Stat label="Slowest" value={formatHours(handoff.max_seconds)} />
+            </div>
+          ) : null}
+          {kind === "prepress" && handoff ? (
+            <p className="-mt-2 text-[10px] text-slate-400">
+              Average time from leaving a Prepress column until the card first
+              enters Production (In Production, Hrach, Apparel, and other press
+              stages).
+            </p>
+          ) : null}
 
-          {/* ── Charts side by side ── */}
+          {kind === "production" && report.production_flow ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <Stat
+                  label="Jobs into production"
+                  value={String(report.production_flow.entered_count)}
+                />
+                <Stat
+                  label="Production completed"
+                  value={String(report.production_flow.completed_count)}
+                />
+                <Stat
+                  label="Avg duration in production"
+                  value={formatHours(
+                    report.production_flow.avg_duration_seconds
+                  )}
+                />
+                <Stat
+                  label="Median duration"
+                  value={formatHours(
+                    report.production_flow.median_duration_seconds
+                  )}
+                />
+                <Stat
+                  label="Slowest job"
+                  value={formatHours(report.production_flow.max_seconds)}
+                />
+              </div>
+              <p className="-mt-2 text-[10px] text-slate-400">
+                Into production = cards that entered In Production / Hrach /
+                Apparel. Completed = moved to Production Completed (or out of
+                production). Average duration is time spent in those production
+                columns until completed.
+              </p>
+            </>
+          ) : null}
+
+          {showTimerCharts ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <Stat label="Total jobs" value={String(totalJobs)} />
+                <Stat label="PC time" value={pcHrs.toFixed(1)} sub="hrs" />
+                <Stat label="Total hours" value={totalHrs.toFixed(1)} sub="hrs" />
+                <Stat
+                  label="Avg job duration"
+                  value={formatHours(avgJobDuration)}
+                />
+                <Stat
+                  label="Jobs / active day"
+                  value={avgJobsPerDay.toFixed(1)}
+                />
+              </div>
+              <p className="-mt-2 text-[10px] text-slate-400">
+                {kind === "prepress"
+                  ? "Hours come from the Prepress timer only — designer clocks are excluded."
+                  : "PC time is clock time at the desk — two jobs running at once count as one. Total hours sums every job. Designer clocks only."}
+              </p>
+            </>
+          ) : null}
+
           <div className="grid gap-4 lg:grid-cols-3">
-            <DayBars
-              title="Hours per day"
-              totalLabel={`Total ${totalHrs.toFixed(1)} hrs`}
-              points={report.daily_totals}
-            />
-            <DayBars
-              title="PC time per day"
-              color="#0d9488"
-              totalLabel={`Total ${pcHrs.toFixed(1)} hrs`}
-              points={report.daily_totals.map((d) => ({
-                date: d.date,
-                seconds: d.pc_seconds ?? 0,
-              }))}
-            />
-            <DayBars
-              title="Avg hours per SKU"
-              color="#7c3aed"
-              points={report.daily_totals.map((d) => ({
-                date: d.date,
-                seconds: (d.sku_count ?? 0) > 0 ? d.seconds / d.sku_count! : 0,
-              }))}
-            />
+            {showTimerCharts ? (
+              <>
+                <DayBars
+                  title="Hours per day"
+                  totalLabel={`Total ${totalHrs.toFixed(1)} hrs`}
+                  points={report.daily_totals}
+                />
+                <DayBars
+                  title="PC time per day"
+                  color="#0d9488"
+                  totalLabel={`Total ${pcHrs.toFixed(1)} hrs`}
+                  points={report.daily_totals.map((d) => ({
+                    date: d.date,
+                    seconds: d.pc_seconds ?? 0,
+                  }))}
+                />
+                <DayBars
+                  title="Avg hours per SKU"
+                  color="#7c3aed"
+                  points={report.daily_totals.map((d) => ({
+                    date: d.date,
+                    seconds:
+                      (d.sku_count ?? 0) > 0 ? d.seconds / d.sku_count! : 0,
+                  }))}
+                />
+              </>
+            ) : (
+              <>
+                <DayBars
+                  title="Hours in production (completed)"
+                  totalLabel={`Avg ${formatHours(report.production_flow?.avg_duration_seconds ?? 0)}`}
+                  points={
+                    report.production_flow?.daily_completed.map((d) => ({
+                      date: d.date,
+                      seconds: d.seconds,
+                    })) ?? report.daily_totals
+                  }
+                />
+                <DayBars
+                  title="Jobs into production"
+                  color="#0d9488"
+                  unit="jobs"
+                  totalLabel={`${report.production_flow?.entered_count ?? 0} jobs`}
+                  points={
+                    report.production_flow?.daily_entered.map((d) => ({
+                      date: d.date,
+                      seconds: d.count,
+                    })) ?? []
+                  }
+                />
+                <DayBars
+                  title="Jobs completed"
+                  color="#7c3aed"
+                  unit="jobs"
+                  totalLabel={`${report.production_flow?.completed_count ?? 0} jobs`}
+                  points={
+                    report.production_flow?.daily_completed.map((d) => ({
+                      date: d.date,
+                      seconds: d.count,
+                    })) ?? []
+                  }
+                />
+              </>
+            )}
           </div>
 
-          {/* ── Payroll (admin + all-designer view) ── */}
-          {isAdmin && report.per_user && report.per_user.length > 0 && (
-            <PayrollTable perUser={report.per_user} totalSeconds={totalSeconds} />
-          )}
+          {isAdmin &&
+          report.per_user &&
+          report.per_user.length > 0 &&
+          kind !== "production" ? (
+            <PayrollTable
+              title={
+                kind === "prepress" ? "Pre-press payroll" : "Designer Payroll"
+              }
+              peopleLabel={peopleLabel}
+              rateHint={
+                kind === "prepress" ? "pre-press" : "designer's"
+              }
+              perUser={report.per_user}
+              totalSeconds={totalSeconds}
+            />
+          ) : null}
 
-          {/* ── Job type efficiency ── */}
+          {kind === "prepress" && handoff ? (
+            <DayBars
+              title="Prepress → Production (hours)"
+              color="#d97706"
+              totalLabel={`Avg ${formatHours(handoff.avg_seconds)}`}
+              points={handoff.daily.map((d) => ({
+                date: d.date,
+                seconds: d.seconds,
+              }))}
+            />
+          ) : null}
+
           <ProductInsights jobs={report.per_job} />
 
-          {/* ── Per-job breakdown ── */}
-          <JobTable jobs={report.per_job} totalSeconds={totalSeconds} />
+          <JobTable
+            jobs={report.per_job}
+            totalSeconds={totalSeconds}
+            peopleLabel={kind === "production" ? "Duration" : peopleLabel}
+          />
         </>
       )}
     </div>
   );
 }
+

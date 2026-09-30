@@ -193,10 +193,10 @@ export function NotificationInbox({
       {open ? (
         <>
           <div
-            className="fixed inset-0 z-10"
+            className="fixed inset-0 z-[60]"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 z-50 mt-1 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+          <div className="absolute right-0 top-full z-[70] mt-1 w-80 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
             <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 {isAdmin ? "All notifications" : "Notifications"}

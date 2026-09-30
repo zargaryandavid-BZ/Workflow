@@ -7,6 +7,8 @@ import { CardDesignerWorkedBadge } from "@/components/board/card-designer-worked
 import { designerWorkedDisplaySeconds } from "@/lib/card-designer-worked";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
 import type { Role } from "@/lib/types";
+import { isPrepressColumnName } from "@/lib/prepress-queue";
+import { canControlPrepressTimer } from "@/lib/permissions";
 
 /**
  * Self-contained work-timer control for a single order — Start / green live
@@ -27,20 +29,27 @@ export function OrderTimerButton({
 }) {
   const activeTimer = useActiveTimer();
   if (!orderId) return null;
-  const timer = activeTimer.forOrder(orderId);
-  const boardTimer = activeTimer.boardActiveForOrder(orderId);
+  const isPrepress = isPrepressColumnName(columnName);
+  const showPrepressTimer =
+    isPrepress && role != null && canControlPrepressTimer(role);
+  const timerKind = isPrepress ? "prepress" : "designer";
+  const timer = activeTimer.forOrder(orderId, timerKind);
+  const boardTimer = activeTimer.boardActiveForOrder(orderId, timerKind);
   const otherWorker = boardTimer && !boardTimer.isMine ? boardTimer : null;
   const canControlOthers = role === "admin";
   const designerWorkedSeconds = designerWorkedDisplaySeconds({
-    boardTotal: activeTimer.boardWorkedTotalForOrder(orderId),
-    myTotal: activeTimer.workedTotalForOrder(orderId),
+    boardTotal: activeTimer.boardWorkedTotalForOrder(orderId, timerKind),
+    myTotal: activeTimer.workedTotalForOrder(orderId, timerKind),
     liveElapsed: timer?.running
       ? timer.elapsedSeconds
       : otherWorker?.running
         ? otherWorker.elapsedSeconds
         : 0,
   });
-  if (columnStopsWorkTimer({ kind: columnKind, name: columnName })) {
+  if (
+    columnStopsWorkTimer({ kind: columnKind, name: columnName }) &&
+    !showPrepressTimer
+  ) {
     return (
       <CardDesignerWorkedBadge
         orderId={orderId}
@@ -68,9 +77,10 @@ export function OrderTimerButton({
     <CardTimerControl
       orderId={orderId}
       timer={timer}
-      workedSeconds={activeTimer.workedTotalForOrder(orderId)}
+      workedSeconds={activeTimer.workedTotalForOrder(orderId, timerKind)}
+      timerKind={timerKind}
       busy={activeTimer.busyOrderId === orderId}
-      onStart={() => void activeTimer.start(orderId)}
+      onStart={() => void activeTimer.start(orderId, timerKind)}
       onPause={(reason) => timer && void activeTimer.pause(timer.entry.id, reason)}
       onResume={() => timer && void activeTimer.resume(timer.entry.id)}
       onStop={() => timer && void activeTimer.stop(timer.entry.id)}

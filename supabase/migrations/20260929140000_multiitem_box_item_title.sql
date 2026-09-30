@@ -1,2 +1,1 @@
-alter table public.multiitem_box_orders
-  add column if not exists item_title text;
+-- Merged into 20260929000000_multiitem_boxes.sql

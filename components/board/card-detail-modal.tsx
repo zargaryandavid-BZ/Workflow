@@ -153,6 +153,8 @@ interface CardDetailModalProps {
   /** Columns that trigger a notification popup when a card enters them. */
   notifyColumns?: NotifyColumnConfig[];
   webhookSourceStyles?: WebhookSourceStyles;
+  /** Open this tab as soon as the modal loads (e.g. chat icon → Com. History). */
+  initialTab?: "details" | "missing-info" | "approval" | "shipping" | "history";
   /** Called when a Fast Action Button moves to a column that has an active automation. */
   onNotifyColumn?: (
     order: OrderWithRelations,
@@ -308,6 +310,7 @@ export function CardDetailModal({
   tags = [],
   notifyColumns = [],
   onNotifyColumn,
+  initialTab = "details",
   groupSize,
   groupSameColumnCount,
   groupColumnName,
@@ -659,6 +662,7 @@ export function CardDetailModal({
     if (open && orderId) {
       setSaveError(null);
       setActivityFilter("all");
+      setTab(initialTab);
       setModalCustomFields(customFieldsRef.current);
       load();
     }
@@ -677,7 +681,7 @@ export function CardDetailModal({
       ticketBaselineRef.current = null;
       userTouchedRef.current = false;
     }
-  }, [open, orderId, load]);
+  }, [open, orderId, load, initialTab]);
 
   // Wait cursor while the save request is in flight.
   useEffect(() => {

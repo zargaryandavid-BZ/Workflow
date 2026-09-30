@@ -6,6 +6,7 @@ import { Play, Pause, Square, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/time-tracking";
 import type { OrderTimerState } from "@/components/time/active-timer-context";
+import type { TimerKind } from "@/lib/time-tracking";
 
 /** Why a designer paused — kept here so break time can't read as work time. */
 const PAUSE_REASONS = [
@@ -26,6 +27,7 @@ interface CardTimerControlProps {
   onPause: (reason?: string) => void;
   onResume: () => void;
   onStop: () => void;
+  timerKind?: TimerKind;
 }
 
 /**
@@ -42,6 +44,7 @@ export function CardTimerControl({
   onPause,
   onResume,
   onStop,
+  timerKind = "designer",
 }: CardTimerControlProps) {
   const [reasonOpen, setReasonOpen] = useState(false);
   const stop = (e: React.SyntheticEvent) => {
@@ -63,7 +66,13 @@ export function CardTimerControl({
           title={hasWorked ? "Resume working on this card" : "Start working on this card"}
         >
           <Play className="h-3 w-3 fill-current" />
-          {hasWorked ? "Resume" : "Start"}
+          {timerKind === "prepress"
+            ? hasWorked
+              ? "Resume Prepress"
+              : "Start Prepress"
+            : hasWorked
+              ? "Resume"
+              : "Start"}
         </button>
         {hasWorked ? (
           <Link

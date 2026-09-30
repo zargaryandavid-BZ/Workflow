@@ -164,7 +164,10 @@ interface ColumnProps {
   /** Order id to briefly highlight after closing the job ticket. */
   highlightedOrderId?: string | null;
   onMoveGroup?: (orders: OrderWithRelations[], targetColumnId: string) => void;
-  onOpenOrder: (order: OrderWithRelations) => void;
+  onOpenOrder: (
+    order: OrderWithRelations,
+    opts?: { tab?: "history" }
+  ) => void;
   onAdd: (columnId: string) => void;
   /** Lazy-load state for this column. */
   loadStatus: ColumnLoadStatus;

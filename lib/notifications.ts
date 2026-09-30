@@ -43,6 +43,7 @@ import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
 import { customerResponseToApprovalResult } from "@/lib/notify-rule-approval-target";
 import {
+  maybeStopPrepressTimersOnColumnLeave,
   maybeStopWorkTimersOnColumnEnter,
   stopTimersAfterCustomerNotify,
 } from "@/lib/stop-order-timers";
@@ -1258,6 +1259,24 @@ export async function respondToNotification(
             name: (column as { name?: string } | null)?.name,
           },
         });
+        const fromColumnId = (order as { column_id?: string }).column_id;
+        if (fromColumnId) {
+          const { data: fromColumn } = await admin
+            .from("board_columns")
+            .select("name")
+            .eq("id", fromColumnId)
+            .maybeSingle();
+          await maybeStopPrepressTimersOnColumnLeave({
+            tenantId: notification.tenant_id,
+            orderId: notification.order_id,
+            fromColumn: {
+              name: (fromColumn as { name?: string } | null)?.name,
+            },
+            toColumn: {
+              name: (column as { name?: string } | null)?.name,
+            },
+          });
+        }
         await logActivity(admin, {
           tenantId: notification.tenant_id,
           orderId: notification.order_id,

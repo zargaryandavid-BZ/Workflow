@@ -10,6 +10,7 @@ import { TimeLog } from "@/components/time/TimeLog";
 import { TimeReports } from "@/components/time/TimeReports";
 import {
   type TimeEntry,
+  type TimerKind,
   TIME_ENTRIES_CHANGED_EVENT,
   notifyTimeEntriesChanged,
   durationSeconds,
@@ -17,6 +18,7 @@ import {
   isTimerPaused,
 } from "@/lib/time-tracking";
 import { cn } from "@/lib/utils";
+import type { Role } from "@/lib/types";
 
 type Tab = "active" | "log" | "reports";
 
@@ -30,7 +32,7 @@ function ActiveTimersTab({
   notesDrafts,
   stoppingId,
   pausingId,
-  isAdmin,
+  groupByPerson,
   onNotesChange,
   onNotesBlur,
   onStop,
@@ -45,7 +47,7 @@ function ActiveTimersTab({
   notesDrafts: Record<string, string>;
   stoppingId: string | null;
   pausingId: string | null;
-  isAdmin: boolean;
+  groupByPerson: boolean;
   onNotesChange: (id: string, v: string) => void;
   onNotesBlur: (id: string) => void;
   onStop: (id: string) => void;
@@ -84,7 +86,7 @@ function ActiveTimersTab({
 
   // Group by designer for admin view
   const groups: { name: string; entries: TimeEntry[] }[] = [];
-  if (isAdmin) {
+  if (groupByPerson) {
     const byDesigner = new Map<string, { name: string; entries: TimeEntry[] }>();
     for (const e of running) {
       const key = e.user_id ?? "unknown";
@@ -131,7 +133,7 @@ function ActiveTimersTab({
         );
         return (
           <div key={group.name || "self"}>
-            {isAdmin && (
+            {groupByPerson && (
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {group.name}
@@ -173,17 +175,25 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "reports", label: "Reports" },
 ];
 
-interface DesignerOption {
+interface TeamMemberOption {
   id: string;
   name: string;
+  role: "designer" | "preprod_owner";
 }
 
 interface TimePageClientProps {
   isAdmin: boolean;
-  designers: DesignerOption[];
+  role: Role;
+  canStartPrepress: boolean;
+  teamMembers: TeamMemberOption[];
 }
 
-export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
+export function TimePageClient({
+  isAdmin,
+  role,
+  canStartPrepress,
+  teamMembers,
+}: TimePageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
@@ -201,6 +211,8 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
   const [loading, setLoading] = useState(true);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalTimerKind, setModalTimerKind] =
+    useState<TimerKind>("designer");
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [pausingId, setPausingId] = useState<string | null>(null);
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
@@ -208,10 +220,11 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
 
   const refetchRunning = useCallback(async () => {
     try {
-      const qs = isAdmin
-        ? "/api/time-entries?running=true&all=true"
-        : "/api/time-entries?running=true";
-      const res = await fetch(qs);
+      const qs =
+        isAdmin || role === "preprod_owner"
+          ? "/api/time-entries?running=true&all=true"
+          : "/api/time-entries?running=true";
+      const res = await fetch(qs, { cache: "no-store" });
       const data = (await res.json()) as {
         entries?: TimeEntry[];
         error?: string;
@@ -224,7 +237,7 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
     } finally {
       setLoading(false);
     }
-  }, [isAdmin]);
+  }, [isAdmin, role]);
 
   useEffect(() => {
     void refetchRunning();
@@ -237,6 +250,25 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
     window.addEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
     return () =>
       window.removeEventListener(TIME_ENTRIES_CHANGED_EVENT, onChanged);
+  }, [refetchRunning]);
+
+  // Timer changes often happen on the board or in another browser tab. Custom
+  // window events do not cross tabs, so keep the team view synchronized and
+  // refresh immediately when the user returns to this page.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refetchRunning();
+    }, 5000);
+    function onVisible() {
+      if (document.visibilityState === "visible") {
+        void refetchRunning();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refetchRunning]);
 
   useEffect(() => {
@@ -334,10 +366,31 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
               and it shows up here.
             </p>
           </div>
-          <Button type="button" onClick={() => setModalOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Start Timer
-          </Button>
+          <div className="flex items-center gap-2">
+            {canStartPrepress ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setModalTimerKind("prepress");
+                  setModalOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                Start Prepress Timer
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              onClick={() => {
+                setModalTimerKind("designer");
+                setModalOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Start Timer
+            </Button>
+          </div>
         </div>
 
         <div className="mb-6 flex gap-1 border-b border-slate-200">
@@ -373,13 +426,16 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
             notesDrafts={notesDrafts}
             stoppingId={stoppingId}
             pausingId={pausingId}
-            isAdmin={isAdmin}
+            groupByPerson={isAdmin || role === "preprod_owner"}
             onNotesChange={(id, v) => setNotesDrafts((prev) => ({ ...prev, [id]: v }))}
             onNotesBlur={(id) => void saveNotes(id)}
             onStop={(id) => void stopTimer(id)}
             onPause={(id) => void pauseTimer(id)}
             onResume={(id) => void resumeTimer(id)}
-            onStart={() => setModalOpen(true)}
+            onStart={() => {
+              setModalTimerKind("designer");
+              setModalOpen(true);
+            }}
           />
         ) : null}
 
@@ -388,18 +444,23 @@ export function TimePageClient({ isAdmin, designers }: TimePageClientProps) {
             highlightedEntryId={entryParam}
             orderId={orderParam}
             isAdmin={isAdmin}
-            designers={designers}
+            teamMembers={teamMembers}
             onChanged={() => void refetchRunning()}
           />
         ) : null}
 
         {tab === "reports" ? (
-          <TimeReports isAdmin={isAdmin} designers={designers} />
+          <TimeReports
+            isAdmin={isAdmin}
+            canStartPrepress={canStartPrepress}
+            teamMembers={teamMembers}
+          />
         ) : null}
       </div>
 
       <NewTimerModal
         open={modalOpen}
+        timerKind={modalTimerKind}
         onClose={() => setModalOpen(false)}
         onStarted={() => void refetchRunning()}
       />
