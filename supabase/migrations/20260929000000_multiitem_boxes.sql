@@ -9,10 +9,6 @@ create table if not exists public.multiitem_boxes (
   po_number text,
   size_label text,
   weight_lbs numeric(6,2),
-  customer_id uuid references public.customers(id) on delete set null,
-  customer_name text,
-  customer_email text,
-  customer_phone text,
   status text not null default 'open' check (status in ('open', 'saved')),
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
@@ -20,21 +16,12 @@ create table if not exists public.multiitem_boxes (
   unique (tenant_id, box_date, box_number)
 );
 
--- Keep this migration safe to re-run in local databases where the tables were
--- created before box-level customer information was added.
-alter table public.multiitem_boxes
-  add column if not exists customer_id uuid references public.customers(id) on delete set null,
-  add column if not exists customer_name text,
-  add column if not exists customer_email text,
-  add column if not exists customer_phone text;
-
 create table if not exists public.multiitem_box_orders (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   box_id uuid not null references public.multiitem_boxes(id) on delete cascade,
   order_id uuid not null references public.orders(id) on delete cascade,
   order_title text not null,
-  item_title text,
   customer_name text,
   quantity int not null default 1 check (quantity >= 1),
   added_at timestamptz not null default now(),

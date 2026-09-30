@@ -157,7 +157,9 @@ function drawPageHeader(
     day: "numeric",
     year: "numeric",
   });
-  const labelText = `PACKING SLIP  ·  ${dateStr}`;
+  const labelText = `PACKING SLIP  ·  ${dateStr}${
+    totalPages > 1 ? `  (${pageNum}/${totalPages})` : ""
+  }`;
 
   // Measure text widths to compute centered block
   doc.font("Helvetica").fontSize(9);
@@ -179,15 +181,6 @@ function drawPageHeader(
     .fontSize(9)
     .font("Helvetica")
     .text(labelText, blockStartX, labelY, { lineBreak: false });
-
-  // Page N of M (appended inline when multi-page)
-  if (totalPages > 1) {
-    doc
-      .fillColor("#9aa4b5")
-      .fontSize(9)
-      .font("Helvetica")
-      .text(`  (${pageNum}/${totalPages})`, { continued: false, lineBreak: false });
-  }
 
   // Order number
   if (orderLabel) {
