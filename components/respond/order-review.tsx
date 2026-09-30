@@ -694,12 +694,32 @@ export function OrderReview({
   const hasLayerPics = Object.keys(layerBySku).length > 0;
   const proofWaiting = pdfPending && !hasLayerPics;
 
+  // Some orders get their SKU ids re-keyed after the proof previews were built
+  // (e.g. a CRM re-sync), so `layerBySku` / `reviewPdfs` stay keyed by the OLD
+  // sku id while `reviewSkus` now carries the new one. A strict id lookup then
+  // misses and the proof is stuck on "Proof pictures are being prepared" even
+  // though the pictures exist. Fall back to position when the id doesn't match
+  // and the preview/pdf counts line up 1:1 with the SKUs (same page order).
+  const layerPreviewValues = Object.values(layerBySku);
+  const reviewPdfValues = Object.values(reviewPdfs);
+  const layerFallbackAligned = layerPreviewValues.length === reviewSkus.length;
+  const reviewPdfFallbackAligned = reviewPdfValues.length === reviewSkus.length;
+  const layerPreviewForSku = (
+    sku: SkuItem,
+    index: number
+  ): RespondLayerPreview | null =>
+    layerBySku[sku.id] ??
+    (layerFallbackAligned ? layerPreviewValues[index] ?? null : null);
+  const reviewPdfForSku = (sku: SkuItem, index: number): RespondFinalPdf | null =>
+    reviewPdfs[sku.id] ??
+    (reviewPdfFallbackAligned ? reviewPdfValues[index] ?? null : null);
+
   async function handleDownloadAll() {
     setDownloadAllError(null);
     setDownloadingAll(true);
     try {
       const entries = reviewSkus
-        .map((sku, i) => ({ sku, index: i, preview: layerBySku[sku.id] }))
+        .map((sku, i) => ({ sku, index: i, preview: layerPreviewForSku(sku, i) }))
         .filter((e): e is { sku: SkuItem; index: number; preview: RespondLayerPreview } =>
           Boolean(e.preview)
         );
@@ -786,7 +806,7 @@ export function OrderReview({
                 approvalImageSlotCount(
                   skuArt.length,
                   pdfPages,
-                  finalPdfs[sku.id]?.page
+                  reviewPdfForSku(sku, index)?.page
                 ) >= 2;
               const number = index + 1;
               const decision = skuUi.byId[sku.id];
@@ -834,12 +854,12 @@ export function OrderReview({
                     skuArt={skuArt}
                     multiImage={multiImage}
                     skuId={sku.id}
-                    finalPdf={reviewPdfs[sku.id] ?? null}
+                    finalPdf={reviewPdfForSku(sku, index)}
                     pdfPending={false}
                     rollDirection={rollDirection}
                     labelWidthIn={labelWidthIn}
                     labelHeightIn={labelHeightIn}
-                    layerPreview={layerBySku[sku.id] ?? null}
+                    layerPreview={layerPreviewForSku(sku, index)}
                     pdfProofOnly={pdfProofOnly}
                     sourceMissing={noProductionPdf}
                     preSignedLayerUrls={preSignedLayerUrls}
