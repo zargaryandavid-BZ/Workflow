@@ -3937,7 +3937,7 @@ export function Board({
             thumbnailByOrder={displayThumbnailByOrder}
             ownerNameByOrder={displayOwnerNameByOrder}
             designerNameByOrder={displayDesignerNameByOrder}
-            onOpenOrder={(o, opts) => openOrderDetail(o.id, opts?.tab)}
+            onOpenOrder={(o) => openOrderDetail(o.id)}
           />
         </div>
       ) : boardView === "table" ? (
@@ -3987,7 +3987,7 @@ export function Board({
               columnName: col?.name ?? "Approval",
             });
           }}
-          onOpenOrder={(o, opts) => openOrderDetail(o.id, opts?.tab)}
+          onOpenOrder={(o) => openOrderDetail(o.id)}
           onVisible={onColumnVisible}
           highlightedOrderId={highlightedOrderId}
           tags={canSetBoardTagAndPriority(role) ? tags : undefined}
