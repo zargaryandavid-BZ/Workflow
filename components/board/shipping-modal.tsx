@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Mail, Package, Phone } from "lucide-react";
+import { Copy, Loader2, Mail, Package, Phone } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import {
   PickupLocationPicker,
@@ -111,6 +111,16 @@ export function ShippingModal({
     setBoxes((prev) =>
       prev.map((box, i) => (i === index ? { ...box, [field]: value } : box))
     );
+  }
+
+  function duplicateBox(index: number) {
+    if (boxes.length >= 20) return;
+    setBoxes((prev) => [
+      ...prev.slice(0, index + 1),
+      { ...prev[index] },
+      ...prev.slice(index + 1),
+    ]);
+    setBoxCount(boxes.length + 1);
   }
 
   async function handleSend() {
@@ -312,9 +322,25 @@ export function ShippingModal({
                   key={index}
                   className="rounded-lg border border-slate-200 bg-slate-50 p-3"
                 >
-                  <p className="mb-2 text-sm font-medium text-slate-800">
-                    Box {index + 1}
-                  </p>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-slate-800">
+                      Box {index + 1}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => duplicateBox(index)}
+                      disabled={boxes.length >= 20}
+                      title={
+                        boxes.length >= 20
+                          ? "Maximum 20 boxes"
+                          : `Duplicate Box ${index + 1}`
+                      }
+                      aria-label={`Duplicate Box ${index + 1}`}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {(
                       [

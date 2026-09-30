@@ -810,6 +810,10 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [actingOn, setActingOn] = useState<string | null>(null);
   const [scanButtons, setScanButtons] = useState<ScanActionButton[]>(initialButtons);
   const [showSettings, setShowSettings] = useState(false);
+  const [readyToShipPopup, setReadyToShipPopup] = useState<{
+    order: OrderWithRelations;
+    columnId: string;
+  } | null>(null);
 
   useEffect(() => {
     const open = () => setShowSettings(true);
@@ -858,6 +862,20 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     setActionResult(null);
     setActionError(null);
     try {
+      const targetColumn = columns.find((column) => column.id === button.columnId);
+      let popupOrder: OrderWithRelations | null = null;
+      if (targetColumn?.kind === "ready_to_ship") {
+        const orderRes = await fetch(`/api/orders/${order.id}`);
+        const orderJson = await orderRes.json().catch(() => ({})) as {
+          error?: string;
+          order?: OrderWithRelations;
+        };
+        if (!orderRes.ok || !orderJson.order) {
+          throw new Error(orderJson.error ?? "Could not load shipping details");
+        }
+        popupOrder = orderJson.order;
+      }
+
       const res = await fetch("/api/fulfillment/scan/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -871,6 +889,13 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           label: button.label,
           column: json.column_name ?? "",
         });
+        if (popupOrder && button.columnId) {
+          setReadyToShipPopup({
+            order: { ...popupOrder, column_id: button.columnId },
+            columnId: button.columnId,
+          });
+          return;
+        }
         // Clear order after short delay so the user can see the confirmation
         setTimeout(() => {
           setOrder(null);
@@ -879,8 +904,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
         }, 2500);
       }
-    } catch {
-      setActionError("Network error");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Network error");
     } finally {
       setActingOn(null);
     }
@@ -918,6 +943,31 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
   return (
     <>
+      {readyToShipPopup ? (
+        <ReadyToShipPopup
+          order={readyToShipPopup.order}
+          columnId={readyToShipPopup.columnId}
+          tenantName={tenantName}
+          customFields={customFields}
+          fieldValues={{}}
+          smsConfigured={smsConfigured}
+          onClose={() => {
+            setReadyToShipPopup(null);
+            setOrder(null);
+            setQuery("");
+            setActionResult(null);
+            window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
+          }}
+          onSent={() => {
+            setReadyToShipPopup(null);
+            setOrder(null);
+            setQuery("");
+            setActionResult(null);
+            window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
+          }}
+        />
+      ) : null}
+
       {showSettings && (
         <SettingsPanel
           columns={columns}
