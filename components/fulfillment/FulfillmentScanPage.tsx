@@ -1221,6 +1221,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     key={button.id}
                     type="button"
                     onClick={() => void handleAction(button)}
+                    onMouseDown={(e) => e.preventDefault()}
                     disabled={!order || !configured || actingOn !== null}
                     className={cn(
                       "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] md:text-[15px] font-medium transition-colors",

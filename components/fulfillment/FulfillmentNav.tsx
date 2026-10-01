@@ -36,7 +36,11 @@ export function FulfillmentNav() {
     function onLoading(e: Event) {
       const detail = (e as CustomEvent<{ loading: boolean }>).detail;
       setNavLoading(detail.loading);
-      if (!detail.loading) setNavQuery("");
+      if (!detail.loading) {
+        setNavQuery("");
+        // Return focus to the input after lookup completes so the next scan lands here.
+        navInputRef.current?.focus();
+      }
     }
     window.addEventListener(SCAN_FOCUS_EVENT, onFocus);
     window.addEventListener(SCAN_LOADING_EVENT, onLoading);
@@ -51,7 +55,8 @@ export function FulfillmentNav() {
     const q = navQuery.trim();
     if (!q) return;
     setKeypadOpen(false);
-    navInputRef.current?.blur();
+    // Keep focus on the input so the QR scanner can scan the next order immediately.
+    navInputRef.current?.focus();
     window.dispatchEvent(new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: q } }));
   }
 
