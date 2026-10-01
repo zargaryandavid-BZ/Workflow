@@ -8,6 +8,14 @@ export default async function FulfillmentLayout({
   children: React.ReactNode;
 }) {
   const ctx = await getTenantContext();
+  if (!ctx) {
+    return (
+      <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        {children}
+      </main>
+    );
+  }
+
   assertFulfillmentPageAccess(ctx);
 
   return (

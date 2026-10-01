@@ -11,6 +11,7 @@ export const PUBLIC_PATHS = [
   "/l",
   "/auth",
   "/kiosk",
+  "/fulfillment/scan",
 ];
 
 /** Still refresh/clear cookies here so a dead refresh token doesn't overlay login. */

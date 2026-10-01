@@ -1,13 +1,23 @@
+import { notFound } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { assertFulfillmentPageAccess } from "@/lib/fulfillment-access";
 import { createClient } from "@/lib/supabase/server";
 import { FulfillmentScanPage } from "@/components/fulfillment/FulfillmentScanPage";
+import { KioskScanView } from "@/components/fulfillment/KioskScanView";
 import { normalizeScanButtons } from "@/lib/fulfillment-scan-config";
+import { resolveFloorScanKiosk } from "@/lib/kiosk-token";
 import { isSmsConfigured } from "@/lib/sms";
 import type { BoardColumn, CustomField } from "@/lib/types";
 
 export default async function Page() {
-  const ctx = assertFulfillmentPageAccess(await getTenantContext());
+  const ctx = await getTenantContext();
+  if (!ctx) {
+    const kiosk = await resolveFloorScanKiosk();
+    if (!kiosk) notFound();
+    return <KioskScanView kiosk={kiosk} />;
+  }
+
+  assertFulfillmentPageAccess(ctx);
   const supabase = await createClient();
 
   const [columnsRes, settingsRes, fieldsRes] = await Promise.all([
