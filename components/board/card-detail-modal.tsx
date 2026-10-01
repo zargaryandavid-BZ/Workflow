@@ -288,6 +288,8 @@ type TicketEditBaseline = {
   customerContact: string;
   fieldValues: Record<string, unknown>;
   skus: ReturnType<typeof prepareSkusForSave>;
+  specSelections: unknown;
+  productOptions: string[];
 };
 
 export function CardDetailModal({
@@ -406,6 +408,7 @@ export function CardDetailModal({
   const ticketBaselineRef = useRef<TicketEditBaseline | null>(null);
   /** True only after the user edits the form — not after load/auto-fill. */
   const userTouchedRef = useRef(false);
+  const [ticketTouched, setTicketTouched] = useState(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [copiedCustomerField, setCopiedCustomerField] = useState<string | null>(null);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
@@ -469,8 +472,32 @@ export function CardDetailModal({
   const customFieldsRef = useRef(customFields);
   customFieldsRef.current = customFields;
 
-  const applyDetail = useCallback((json: DetailResponse) => {
+  const applyDetail = useCallback((
+    json: DetailResponse,
+    options?: { preserveEdits?: boolean }
+  ) => {
+    // Silent refresh (lock, SMS, shipping, proofs) must not wipe the form or
+    // hide Save/Cancel while the user still has unsaved edits.
+    if (options?.preserveEdits && userTouchedRef.current) {
+      setData((prev) => {
+        if (!prev) return json;
+        return {
+          ...prev,
+          activity: json.activity,
+          approvals: json.approvals,
+          missingInfo: json.missingInfo,
+          approvalNotes: json.approvalNotes,
+          notifications: json.notifications,
+          notes: json.notes,
+          timelinePending: json.timelinePending,
+          tabHints: json.tabHints,
+          customFields: json.customFields ?? prev.customFields,
+        };
+      });
+      return;
+    }
     userTouchedRef.current = false;
+    setTicketTouched(false);
     const fields = json.customFields ?? customFieldsRef.current;
     setModalCustomFields(fields);
     const validFieldIds = new Set(fields.map((f) => f.id));
@@ -583,6 +610,10 @@ export function CardDetailModal({
       customerContact: contact,
       fieldValues: { ...map },
       skus: prepareSkusForSave(normalizedSkus, { pendingArtworkIds: [] }),
+      specSelections: json.order.specs?.spec_selections ?? {},
+      productOptions: Array.isArray(json.order.specs?.product_options)
+        ? (json.order.specs.product_options as unknown[]).map(String)
+        : [],
     };
   }, []);
 
@@ -621,7 +652,7 @@ export function CardDetailModal({
         orderId,
         options?.silent
       );
-      applyDetail(merged);
+      applyDetail(merged, { preserveEdits: Boolean(options?.silent) });
       if (!options?.silent) setLoading(false);
 
       if (!options?.silent && core.timelinePending !== false) {
@@ -680,6 +711,7 @@ export function CardDetailModal({
       baselineSkusRef.current = [];
       ticketBaselineRef.current = null;
       userTouchedRef.current = false;
+      setTicketTouched(false);
     }
   }, [open, orderId, load, initialTab]);
 
@@ -1041,8 +1073,13 @@ export function CardDetailModal({
         return next;
       })(),
       skus: savedSkus,
+      specSelections: nextSpecs.spec_selections ?? {},
+      productOptions: Array.isArray(nextSpecs.product_options)
+        ? (nextSpecs.product_options as unknown[]).map(String)
+        : [],
     };
     userTouchedRef.current = false;
+    setTicketTouched(false);
     onChanged(boardPatch);
 
     try {
@@ -1097,7 +1134,6 @@ export function CardDetailModal({
   }
 
   function isDirty(): boolean {
-    if (!userTouchedRef.current) return false;
     const b = ticketBaselineRef.current;
     if (!data || !b) return false;
     if (title !== b.title) return true;
@@ -1127,17 +1163,33 @@ export function CardDetailModal({
     const currentSkus = prepareSkusForSave(skus, { pendingArtworkIds: [] });
     if (JSON.stringify(currentSkus) !== JSON.stringify(b.skus)) return true;
 
-    const formFields = resolved;
-    for (const field of [
-      ...formFields.printFields,
-      ...(formFields.orderQtyField ? [formFields.orderQtyField] : []),
-      ...(formFields.artworkField ? [formFields.artworkField] : []),
-    ]) {
+    if (
+      JSON.stringify(data.order.specs?.spec_selections ?? {}) !==
+      JSON.stringify(b.specSelections ?? {})
+    ) {
+      return true;
+    }
+    const currentProductOptions = Array.isArray(data.order.specs?.product_options)
+      ? (data.order.specs.product_options as unknown[]).map(String)
+      : [];
+    if (
+      JSON.stringify(currentProductOptions) !==
+      JSON.stringify(b.productOptions ?? [])
+    ) {
+      return true;
+    }
+
+    const fieldIds = new Set([
+      ...Object.keys(fieldValues),
+      ...Object.keys(b.fieldValues),
+    ]);
+    for (const fieldId of fieldIds) {
+      const field = modalCustomFields.find((f) => f.id === fieldId);
       if (
         !fieldValuesEqual(
-          fieldValues[field.id],
-          b.fieldValues[field.id],
-          field.field_type
+          fieldValues[fieldId],
+          b.fieldValues[fieldId],
+          field?.field_type
         )
       ) {
         return true;
@@ -1232,6 +1284,7 @@ export function CardDetailModal({
 
   function markTicketTouched() {
     userTouchedRef.current = true;
+    setTicketTouched(true);
   }
 
   function setFieldValue(fieldId: string, value: unknown) {
@@ -1426,7 +1479,7 @@ export function CardDetailModal({
 
   function hasUnsavedTicketEdits(): boolean {
     if (!data) return false;
-    if (!isViewOnly) return isDirty();
+    if (!isViewOnly) return ticketTouched || isDirty();
     return canEditDueDate && isDueDateDirty();
   }
 
@@ -2135,7 +2188,7 @@ export function CardDetailModal({
             ) : null}
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            {!isViewOnly && (isDirty() || saving) ? (
+            {!isViewOnly && (ticketTouched || isDirty() || saving) ? (
               <>
                 <Button
                   variant="outline"
@@ -2781,7 +2834,7 @@ export function CardDetailModal({
           </div>
 
           <div className="min-w-0 space-y-4">
-            {(!isViewOnly && (isDirty() || saving)) ||
+            {(!isViewOnly && (ticketTouched || isDirty() || saving)) ||
             (isViewOnly && canEditDueDate && (isDueDateDirty() || saving)) ? (
               <div className="flex flex-col gap-2">
                 <Button
