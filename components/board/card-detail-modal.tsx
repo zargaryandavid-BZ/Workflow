@@ -1189,7 +1189,7 @@ export function CardDetailModal({
         !fieldValuesEqual(
           fieldValues[fieldId],
           b.fieldValues[fieldId],
-          field?.field_type
+          field?.field_type ?? ""
         )
       ) {
         return true;
