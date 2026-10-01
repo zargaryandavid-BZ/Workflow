@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Package, PackageCheck, PackagePlus, ScanLine, Settings } from "lucide-react";
+import { Camera, Package, PackageCheck, PackagePlus, ScanLine, Settings, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 
@@ -22,7 +22,11 @@ export function FulfillmentNav() {
   const [navQuery, setNavQuery] = useState("");
   const [navLoading, setNavLoading] = useState(false);
   const [keypadOpen, setKeypadOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const navInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null);
 
   // Auto-focus input on mount when on scan page
   useEffect(() => {
@@ -50,6 +54,55 @@ export function FulfillmentNav() {
     };
   }, [isScan]);
 
+  // Close camera when leaving scan page
+  useEffect(() => {
+    if (!isScan) setCameraOpen(false);
+  }, [isScan]);
+
+  // Start / stop QrScanner when cameraOpen toggles
+  useEffect(() => {
+    if (!cameraOpen || !isScan) return;
+
+    let destroyed = false;
+
+    void (async () => {
+      const { default: QrScanner } = await import("qr-scanner");
+      if (destroyed || !videoRef.current) return;
+
+      const scanner = new QrScanner(
+        videoRef.current,
+        (result: { data: string }) => {
+          const code = result.data.trim();
+          if (!code) return;
+          scanner.stop();
+          scanner.destroy();
+          scannerRef.current = null;
+          setCameraOpen(false);
+          navInputRef.current?.focus();
+          window.dispatchEvent(new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } }));
+        },
+        {
+          returnDetailedScanResult: true,
+          highlightScanRegion: true,
+          highlightCodeOutline: true,
+          preferredCamera: "environment",
+        }
+      );
+
+      scannerRef.current = scanner;
+      await scanner.start();
+    })();
+
+    return () => {
+      destroyed = true;
+      if (scannerRef.current) {
+        scannerRef.current.stop();
+        scannerRef.current.destroy();
+        scannerRef.current = null;
+      }
+    };
+  }, [cameraOpen, isScan]);
+
   function handleNavSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     const q = navQuery.trim();
@@ -62,61 +115,65 @@ export function FulfillmentNav() {
 
   return (
     <>
-    <header className="flex flex-nowrap items-center gap-1 border-b border-slate-200 bg-white px-4 py-2">
+    <header className="flex flex-nowrap items-center gap-1 border-b border-slate-200 bg-white px-2 py-2 md:px-4">
       <Link
         href="/fulfillment/send"
+        title="Send"
         className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
           isSend
             ? "bg-slate-900 text-white"
             : "text-slate-600 hover:bg-slate-100"
         )}
       >
-        <PackagePlus className="h-4 w-4" />
-        Send
+        <PackagePlus className="h-4 w-4 shrink-0" />
+        <span className="hidden md:inline">Send</span>
       </Link>
       <Link
         href="/fulfillment/received"
+        title="Received"
         className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
           isReceived
             ? "bg-slate-900 text-white"
             : "text-slate-600 hover:bg-slate-100"
         )}
       >
-        <PackageCheck className="h-4 w-4" />
-        Received
+        <PackageCheck className="h-4 w-4 shrink-0" />
+        <span className="hidden md:inline">Received</span>
       </Link>
       <Link
         href="/fulfillment/scan"
+        title="Scan"
         className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
           isScan
             ? "bg-slate-900 text-white"
             : "text-slate-600 hover:bg-slate-100"
         )}
       >
-        <ScanLine className="h-4 w-4" />
-        Scan
+        <ScanLine className="h-4 w-4 shrink-0" />
+        <span className="hidden md:inline">Scan</span>
       </Link>
       <Link
         href="/fulfillment/multiitem-box"
+        title="Multi-item Box Slip"
         className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
           isBoxSlip
             ? "bg-slate-900 text-white"
             : "text-slate-600 hover:bg-slate-100"
         )}
       >
-        <Package className="h-4 w-4" />
-        Multi-item Box Slip
+        <Package className="h-4 w-4 shrink-0" />
+        <span className="hidden md:inline">Multi-item Box Slip</span>
       </Link>
 
       {/* Inline scan input — visible only on scan page */}
       {isScan && (
         <form
           onSubmit={handleNavSubmit}
-          className="ml-3 flex flex-1 items-center gap-2"
+          className="ml-1 flex flex-1 items-center gap-2 md:ml-3"
         >
           <input
             ref={navInputRef}
@@ -137,6 +194,17 @@ export function FulfillmentNav() {
             className="h-8 rounded-lg bg-slate-900 px-4 text-[13px] font-medium text-white disabled:opacity-40 md:h-10"
           >
             {navLoading ? "…" : "Scan"}
+          </button>
+          {/* Camera button — mobile only, uses phone camera to scan QR */}
+          <button
+            type="button"
+            onClick={() => setCameraOpen(true)}
+            onMouseDown={(e) => e.preventDefault()}
+            title="Scan with camera"
+            aria-label="Scan with phone camera"
+            className="md:hidden inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white"
+          >
+            <Camera className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -159,6 +227,54 @@ export function FulfillmentNav() {
           onClose={() => setKeypadOpen(false)}
         />
       ) : null}
+
+      {/* Full-screen camera overlay — mobile QR scanning */}
+      {isScan && cameraOpen && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-black"
+          style={{ touchAction: "none" }}
+        >
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm font-medium text-white">Point camera at QR code</span>
+            <button
+              type="button"
+              aria-label="Close camera"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setCameraOpen(false)}
+              className="rounded-full p-2 text-white hover:bg-white/10 active:bg-white/20"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Live video */}
+          <div className="relative flex-1 overflow-hidden">
+            <video
+              ref={videoRef}
+              className="h-full w-full object-cover"
+              muted
+              playsInline
+            />
+            {/* Aim guide */}
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div
+                className="rounded-xl border-2 border-white/80"
+                style={{
+                  width: 220,
+                  height: 220,
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Hint */}
+          <div className="px-4 py-3 text-center text-xs text-white/60">
+            Keep the code inside the frame — it scans automatically
+          </div>
+        </div>
+      )}
     </>
   );
 }

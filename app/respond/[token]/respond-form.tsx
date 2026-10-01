@@ -680,6 +680,11 @@ export function RespondForm({
             {error}
           </p>
         ) : null}
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
+          <span className="font-semibold">Attention:</span> Once confirmed,
+          this job will be transferred to production. You will no longer be
+          able to make any additional changes.
+        </p>
         {perSkuApproval ? (
           <Button
             id={RESPOND_REVIEW_SUBMIT_ID}

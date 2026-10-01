@@ -10,6 +10,7 @@ import type { Role } from "@/lib/types";
 import { BoardHealthButton } from "@/components/app-shell/board-health-button";
 import { NotificationInbox } from "@/components/app-shell/notification-inbox";
 import { MentionNotificationPopup } from "@/components/app-shell/mention-notification-popup";
+import { TopbarTimerBadges } from "@/components/app-shell/topbar-timer-badges";
 
 interface TopbarProps {
   tenants: { id: string; name: string }[];
@@ -151,6 +152,8 @@ export function Topbar({
         </div>
         <BoardHealthButton enabled={boardHealthVisible} />
       </div>
+
+      <TopbarTimerBadges />
 
       <div className="flex shrink-0 items-center gap-2">
         <NotificationInbox
