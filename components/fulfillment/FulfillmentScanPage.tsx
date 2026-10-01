@@ -32,6 +32,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
+import { Modal } from "@/components/ui/modal";
 import type { BoardColumn } from "@/lib/types";
 import {
   SCAN_CAMERA_EVENT,
@@ -54,6 +55,10 @@ import {
 } from "@/components/fulfillment/ScanShippingSlipButtons";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
+
+function isPhoneScan(): boolean {
+  return /Mobi|Android|iPhone/i.test(navigator.userAgent);
+}
 
 function isFinishedReviewRequestColumn(name: string | null | undefined) {
   return finishedCustomerSmsKind(name) === "review";
@@ -842,6 +847,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [actionResult, setActionResult] = useState<{ label: string; column: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actingOn, setActingOn] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<ScanActionButton | null>(null);
   const [scanButtons, setScanButtons] = useState<ScanActionButton[]>(initialButtons);
   const [showSettings, setShowSettings] = useState(false);
   const [readyToShipPopup, setReadyToShipPopup] = useState<{
@@ -948,6 +954,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
   async function handleAction(button: ScanActionButton) {
     if (!order || !button.columnId) return;
+    if (isPhoneScan() && pendingAction?.id !== button.id) {
+      setPendingAction(button);
+      return;
+    }
+    setPendingAction(null);
     setActingOn(button.id);
     setActionResult(null);
     setActionError(null);
@@ -1056,6 +1067,43 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
           }}
         />
+      ) : null}
+
+      {pendingAction && order ? (
+        <Modal
+          open
+          onClose={() => setPendingAction(null)}
+          title="Confirm move"
+          footer={
+            <div className="flex w-full gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingAction(null)}
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[15px] font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleAction(pendingAction)}
+                className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-[15px] font-semibold text-white"
+              >
+                Confirm
+              </button>
+            </div>
+          }
+        >
+          <p className="text-[15px] leading-relaxed text-slate-700">
+            Move <span className="font-semibold">#{order.title}</span> to{" "}
+            <span className="font-semibold">
+              {columns.find((c) => c.id === pendingAction.columnId)?.name ?? "this column"}
+            </span>
+            ?
+          </p>
+          <p className="mt-2 text-[13px] text-slate-500">
+            {pendingAction.label}
+          </p>
+        </Modal>
       ) : null}
 
       {/* Artwork lightbox */}
