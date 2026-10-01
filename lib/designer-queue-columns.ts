@@ -13,3 +13,15 @@ export function isDesignerQueueColumnName(
   const key = stageKey(name);
   return key === "start create order" || key === "start" || key === "in progress";
 }
+
+/**
+ * The /queue page shows only cards in the START column (not In Progress).
+ * Once a card moves to In Progress or beyond it leaves the visible queue.
+ */
+export function isDesignerStartColumnName(
+  name: string | null | undefined
+): boolean {
+  if (!name) return false;
+  const key = stageKey(name);
+  return key === "start create order" || key === "start";
+}

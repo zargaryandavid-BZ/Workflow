@@ -222,3 +222,52 @@ export function groupRatesForPriceChart(
 
   return groups;
 }
+
+export const FEDEX_GROUND_SERVICE = "FEDEX_GROUND";
+export const FEDEX_HOME_DELIVERY_SERVICE = "GROUND_HOME_DELIVERY";
+
+export function isFedExGroundFamily(serviceType: string): boolean {
+  const s = serviceType.trim().toUpperCase();
+  return s === FEDEX_GROUND_SERVICE || s.includes("HOME_DELIVERY");
+}
+
+/** Homes cannot ship FedEx Ground; businesses cannot use Home Delivery. */
+export function fedexServiceForAddress(
+  serviceType: string,
+  residential: boolean | null | undefined
+): string {
+  if (!isFedExGroundFamily(serviceType)) return serviceType;
+  if (residential === false) return FEDEX_GROUND_SERVICE;
+  return FEDEX_HOME_DELIVERY_SERVICE;
+}
+
+export function isFedExHomeDeliveryRequiredError(message: string): boolean {
+  return /qualifies for fedex home delivery/i.test(message);
+}
+
+/** So the customer cannot pick Ground for a home (FedEx will reject the label). */
+export function normalizeFedExRatesForAddress(
+  rates: FedExRateOption[],
+  residential: boolean | null | undefined
+): FedExRateOption[] {
+  if (residential === false) {
+    return rates.filter((r) => !r.serviceType.toUpperCase().includes("HOME_DELIVERY"));
+  }
+  const hasHome = rates.some((r) =>
+    r.serviceType.toUpperCase().includes("HOME_DELIVERY")
+  );
+  return rates.flatMap((r) => {
+    if (r.serviceType !== FEDEX_GROUND_SERVICE) return [r];
+    if (hasHome) return [];
+    return [
+      {
+        ...r,
+        serviceType: FEDEX_HOME_DELIVERY_SERVICE,
+        serviceName: friendlyFedExServiceName(
+          FEDEX_HOME_DELIVERY_SERVICE,
+          r.serviceName
+        ),
+      },
+    ];
+  });
+}

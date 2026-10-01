@@ -4,7 +4,10 @@ import type { FedExRateOption } from "./types.ts";
 import {
   friendlyFedExServiceName,
   fedexCommitmentLabel,
+  fedexServiceForAddress,
   groupRatesForPriceChart,
+  isFedExHomeDeliveryRequiredError,
+  normalizeFedExRatesForAddress,
 } from "./fedex-service-display.ts";
 
 function rate(
@@ -85,5 +88,49 @@ describe("groupRatesForPriceChart", () => {
       ["PRIORITY_OVERNIGHT", "STANDARD_OVERNIGHT", "FIRST_OVERNIGHT"]
     );
     assert.match(groups[1].heading, /Monday, September 21, 2026/);
+  });
+});
+
+describe("fedexServiceForAddress", () => {
+  it("uses Home Delivery for homes, Ground for businesses", () => {
+    assert.equal(
+      fedexServiceForAddress("FEDEX_GROUND", true),
+      "GROUND_HOME_DELIVERY"
+    );
+    assert.equal(
+      fedexServiceForAddress("GROUND_HOME_DELIVERY", false),
+      "FEDEX_GROUND"
+    );
+    assert.equal(
+      fedexServiceForAddress("PRIORITY_OVERNIGHT", true),
+      "PRIORITY_OVERNIGHT"
+    );
+  });
+});
+
+describe("normalizeFedExRatesForAddress", () => {
+  it("hides Ground when Home Delivery is already quoted for a home", () => {
+    const rates = normalizeFedExRatesForAddress(
+      [
+        rate({ serviceType: "FEDEX_GROUND" }),
+        rate({ serviceType: "GROUND_HOME_DELIVERY" }),
+      ],
+      true
+    );
+    assert.deepEqual(
+      rates.map((r) => r.serviceType),
+      ["GROUND_HOME_DELIVERY"]
+    );
+  });
+});
+
+describe("isFedExHomeDeliveryRequiredError", () => {
+  it("matches FedEx's Ground-to-home rejection", () => {
+    assert.equal(
+      isFedExHomeDeliveryRequiredError(
+        "Based on the information entered this shipment qualifies for FedEx Home Delivery. Please resubmit your request as FedEx Home Delivery to continue with the shipment."
+      ),
+      true
+    );
   });
 });

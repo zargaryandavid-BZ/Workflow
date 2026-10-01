@@ -105,6 +105,7 @@ export function DesignerQueue() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDragging = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -139,6 +140,16 @@ export function DesignerQueue() {
     if (selected) void loadOrders(selected);
   }, [selected, loadOrders]);
 
+  // Poll every 10 s to pick up orders that left the Start column.
+  // Guard skips the refresh while a drag is in flight to avoid list jumps.
+  useEffect(() => {
+    if (!selected) return;
+    const id = setInterval(() => {
+      if (!isDragging.current) void loadOrders(selected);
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [selected, loadOrders]);
+
   async function persistOrder(newOrders: QueueOrder[]) {
     setSaving(true);
     setMsg(null);
@@ -157,7 +168,12 @@ export function DesignerQueue() {
     }
   }
 
+  function handleDragStart() {
+    isDragging.current = true;
+  }
+
   function handleDragEnd(event: DragEndEvent) {
+    isDragging.current = false;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -172,6 +188,10 @@ export function DesignerQueue() {
 
       return next;
     });
+  }
+
+  function handleDragCancel() {
+    isDragging.current = false;
   }
 
   if (loading) return <div className="p-6 text-sm text-slate-500">Loading…</div>;
@@ -212,7 +232,7 @@ export function DesignerQueue() {
           No open jobs assigned{canAssign ? " to this designer" : ""}.
         </p>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
           <SortableContext items={orders.map((o) => o.id)} strategy={verticalListSortingStrategy}>
             <ol className="space-y-2">
               {orders.map((o, i) => (

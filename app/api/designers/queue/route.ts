@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { loadTeamMembers } from "@/lib/team-members";
+import { isDesignerStartColumnName } from "@/lib/designer-queue-columns";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,11 +52,27 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createClient();
+
+  // Resolve Start-column IDs — the queue shows only cards waiting in the
+  // Start column. Cards that have moved to In Progress or beyond are removed.
+  const { data: cols } = await supabase
+    .from("board_columns")
+    .select("id, name")
+    .eq("tenant_id", ctx.tenant.id);
+  const startColumnIds = (cols ?? [])
+    .filter((c: { name: string | null }) => isDesignerStartColumnName(c.name))
+    .map((c: { id: string }) => c.id);
+
+  if (startColumnIds.length === 0) {
+    return NextResponse.json({ orders: [] });
+  }
+
   const { data, error } = await supabase
     .from("orders")
     .select("id, title, priority, due_date, specs, column_id, customer:customers(name)")
     .eq("tenant_id", ctx.tenant.id)
     .eq("specs->>designer_id", designerId)
+    .in("column_id", startColumnIds)
     .is("removed_at", null)
     .limit(1000);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

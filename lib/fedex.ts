@@ -5,7 +5,13 @@ import {
   pickRatedDetail,
   type RatedShipmentDetail,
 } from "@/lib/fedex-rate-pick";
-import { friendlyFedExServiceName } from "@/lib/fedex-service-display";
+import {
+  FEDEX_HOME_DELIVERY_SERVICE,
+  fedexServiceForAddress,
+  friendlyFedExServiceName,
+  isFedExHomeDeliveryRequiredError,
+  normalizeFedExRatesForAddress,
+} from "@/lib/fedex-service-display";
 import type {
   FedExConfig,
   FedExRateOption,
@@ -83,6 +89,10 @@ export function friendlyFedExCustomerError(raw: string): string {
 
   if (lower.includes("timeout") || lower.includes("timed out")) {
     return "FedEx took too long to respond. Please try again in a moment.";
+  }
+
+  if (isFedExHomeDeliveryRequiredError(msg)) {
+    return "This address is a home. FedEx Ground can’t be used — choose FedEx Home Delivery.";
   }
 
   // Generic fallback — never show raw FedEx jargon to customers.
@@ -290,7 +300,7 @@ export async function fetchFedExRates(args: {
     throw new Error(msg);
   }
 
-  return (ratesData.output?.rateReplyDetails ?? []).map((r) => {
+  const quoted = (ratesData.output?.rateReplyDetails ?? []).map((r) => {
     const detail = pickRatedDetail(r.ratedShipmentDetails);
     const totalCharge = parseNetCharge(detail?.totalNetCharge);
     const deliveryDate =
@@ -313,6 +323,8 @@ export async function fetchFedExRates(args: {
       transitDays,
     };
   });
+
+  return normalizeFedExRatesForAddress(quoted, residential);
 }
 
 export function pickupLocationLines(settings?: ShippingSettings | null): string[] {
@@ -345,6 +357,7 @@ export class FedExApiError extends Error {
 export interface FedExCreatedShipment {
   trackingNumber: string;
   labelPdfs: Buffer[];
+  serviceType: string;
 }
 
 /** FedEx Ship API label image types we support. */
@@ -389,6 +402,7 @@ export interface FedExShipmentRequestResult {
   trackingNumber: string | null;
   labels: Buffer[];
   errorMessage: string | null;
+  serviceType?: string;
 }
 
 function digitsOnlyPhone(phone: string): string {
@@ -522,9 +536,11 @@ export async function requestFedExShipment(
   const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
   const shipUrl = `${fedexBaseUrl(config)}/ship/v1/shipments`;
+  const initialService = fedexServiceForAddress(args.serviceType, residential);
 
   const postForAccount = async (
-    accountNumber: string
+    accountNumber: string,
+    serviceType: string
   ): Promise<FedExShipmentRequestResult> => {
     const shipPayload = {
       labelResponseOptions: "LABEL",
@@ -532,7 +548,7 @@ export async function requestFedExShipment(
       requestedShipment: {
         shipDatestamp: todayShipDate(),
         pickupType: "DROPOFF_AT_FEDEX_LOCATION",
-        serviceType: args.serviceType,
+        serviceType,
         packagingType: usingOwnBox ? "YOUR_PACKAGING" : "FEDEX_BOX",
         blockInsightVisibility: false,
         shipper: {
@@ -667,19 +683,34 @@ export async function requestFedExShipment(
     };
   };
 
-  let last: FedExShipmentRequestResult | null = null;
-  for (const accountNumber of accountsToTry) {
-    const result = await postForAccount(accountNumber);
-    last = result;
-    if (result.ok) return result;
-    const forbidden = fedexErrorCode(result.json) === "FORBIDDEN.ERROR";
-    if (!forbidden) return result;
-    console.warn(
-      `[fedex] Ship FORBIDDEN for account ${accountNumber}; trying next linked account if any`
-    );
-  }
+  const runAccounts = async (serviceType: string) => {
+    let last: FedExShipmentRequestResult | null = null;
+    for (const accountNumber of accountsToTry) {
+      const result = await postForAccount(accountNumber, serviceType);
+      last = result;
+      if (result.ok) return result;
+      const forbidden = fedexErrorCode(result.json) === "FORBIDDEN.ERROR";
+      if (!forbidden) return result;
+      console.warn(
+        `[fedex] Ship FORBIDDEN for account ${accountNumber}; trying next linked account if any`
+      );
+    }
+    return last!;
+  };
 
-  return last!;
+  let usedService = initialService;
+  let last = await runAccounts(usedService);
+  if (
+    !last.ok &&
+    isFedExHomeDeliveryRequiredError(
+      `${last.errorMessage ?? ""} ${JSON.stringify(last.json)}`
+    ) &&
+    usedService !== FEDEX_HOME_DELIVERY_SERVICE
+  ) {
+    usedService = FEDEX_HOME_DELIVERY_SERVICE;
+    last = await runAccounts(usedService);
+  }
+  return { ...last, serviceType: usedService };
 }
 
 /**
@@ -707,6 +738,12 @@ export async function createFedExShipment(args: {
   return {
     trackingNumber: result.trackingNumber!,
     labelPdfs: result.labels,
+    serviceType:
+      result.serviceType ??
+      fedexServiceForAddress(
+        args.serviceType,
+        args.deliveryAddress.residential
+      ),
   };
 }
 

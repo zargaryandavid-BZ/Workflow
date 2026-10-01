@@ -4,6 +4,10 @@ import JSZip from "jszip";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
 import { cancelFedExShipment, createFedExShipment } from "@/lib/fedex";
+import {
+  fedexServiceForAddress,
+  friendlyFedExServiceName,
+} from "@/lib/fedex-service-display";
 import { isClientFedExSelection } from "@/lib/client-fedex";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import {
@@ -183,7 +187,10 @@ export async function ensureFedExLabel(
     );
   }
 
-  const serviceType = request.fedex_selection?.serviceType?.trim();
+  const serviceType = fedexServiceForAddress(
+    request.fedex_selection?.serviceType?.trim() ?? "",
+    address.residential
+  );
   if (!serviceType) {
     return markFailed(
       admin,
@@ -229,6 +236,7 @@ export async function ensureFedExLabel(
         state: address.state.trim().toUpperCase(),
         zip: address.zip.trim(),
         country: (address.country ?? "US").trim().toUpperCase() || "US",
+        residential: address.residential === true,
       },
       serviceType,
       settings,
@@ -286,6 +294,16 @@ export async function ensureFedExLabel(
         fedex_shipment_status: "created",
         fedex_label_error: null,
         fedex_shipped_at: new Date().toISOString(),
+        fedex_selection: request.fedex_selection
+          ? {
+              ...request.fedex_selection,
+              serviceType: created.serviceType,
+              serviceName: friendlyFedExServiceName(
+                created.serviceType,
+                request.fedex_selection.serviceName
+              ),
+            }
+          : request.fedex_selection,
       })
       .eq("id", shippingRequestId);
 

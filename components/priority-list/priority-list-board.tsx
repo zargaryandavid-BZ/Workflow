@@ -17,7 +17,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CheckSquare, Copy, Loader2, Plus, Square, X } from "lucide-react";
+import { CheckSquare, Copy, Loader2, Plus, Printer, Square, X } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { partCardTitle } from "@/lib/group-orders";
 import { ProductionStageSelect } from "@/components/board/production-stage-select";
@@ -78,6 +78,24 @@ function jobSummary(order: PriorityOrder): string | null {
   const parts = [order.product, fmtQty(order.qty)].filter(Boolean);
   return parts.length > 0 ? parts.join(" — ") : null;
 }
+
+const thStyle: React.CSSProperties = {
+  padding: "4px 6px",
+  fontWeight: 700,
+  fontSize: 10,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.04em",
+  textAlign: "left" as const,
+  borderBottom: "2px solid #000",
+  whiteSpace: "nowrap" as const,
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "4px 6px",
+  verticalAlign: "top",
+  fontSize: 11,
+  borderBottom: "1px solid #ddd",
+};
 
 /** One texting-ready line: "15219 - Customer - 50,000 labels - note". Skips parts that aren't set. */
 function textLineFor(order: PriorityOrder): string {
@@ -660,14 +678,37 @@ export function PriorityListBoard() {
 
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-6">
-      <h1 className="mb-1 text-xl font-semibold text-slate-800">Priority List</h1>
-      <p className="mb-4 text-sm text-slate-500">
+      {/* @media print style — landscape, hide screen UI, show print layout */}
+      <style>{`
+        @media print {
+          @page { size: letter landscape; margin: 0.5in; }
+          .pl-screen { display: none !important; }
+          .pl-print  { display: block !important; }
+        }
+      `}</style>
+
+      {/* Heading row */}
+      <div className="pl-screen mb-1 flex items-center gap-3">
+        <h1 className="text-xl font-semibold text-slate-800">Priority List</h1>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="ml-auto flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          title="Print priority list"
+        >
+          <Printer className="h-4 w-4" />
+          Print
+        </button>
+      </div>
+      <p className="pl-screen mb-4 text-sm text-slate-500">
         {canManage
           ? "Set and reorder what each press works today and tomorrow — drag to reorder."
           : "What each press is working today and tomorrow — check off jobs as you finish them."}
       </p>
-      {error ? <p className="mb-3 text-sm text-rose-600">{error}</p> : null}
-      <div className="flex flex-col gap-4 md:flex-row">
+      {error ? <p className="pl-screen mb-3 text-sm text-rose-600">{error}</p> : null}
+
+      {/* Screen layout */}
+      <div className="pl-screen flex flex-col gap-4 md:flex-row">
         {PRESS_OPTIONS.map((press) => (
           <PressColumn
             key={press}
@@ -685,6 +726,100 @@ export function PriorityListBoard() {
             busyIds={busyIds}
           />
         ))}
+      </div>
+
+      {/* Print layout — hidden on screen, one page per press */}
+      <div className="pl-print" style={{ display: "none" }}>
+        {(PRESS_OPTIONS as PressType[]).map((press, pressIdx) => {
+          const pressOrders = orders
+            .filter((o) => o.press === press)
+            .sort((a, b) => {
+              const ba = a.daily_priority_bucket === "today" ? 0 : 1;
+              const bb = b.daily_priority_bucket === "today" ? 0 : 1;
+              if (ba !== bb) return ba - bb;
+              return (a.daily_priority_rank ?? 999) - (b.daily_priority_rank ?? 999);
+            });
+
+          return (
+            <div
+              key={press}
+              style={{ pageBreakAfter: pressIdx < PRESS_OPTIONS.length - 1 ? "always" : "avoid" }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 8 }}>
+                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
+                  Priority List — {PRESS_LABELS[press]} Press
+                </h2>
+                <span style={{ fontSize: 11, color: "#666" }}>
+                  {new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                </span>
+              </div>
+
+              {pressOrders.length === 0 ? (
+                <p style={{ fontSize: 11, color: "#999" }}>No orders assigned.</p>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>#</th>
+                      <th style={thStyle}>Artwork</th>
+                      <th style={thStyle}>Order #</th>
+                      <th style={thStyle}>Order Title</th>
+                      <th style={thStyle}>Customer</th>
+                      <th style={thStyle}>Product</th>
+                      <th style={thStyle}>SKU Qty</th>
+                      <th style={thStyle}>TTL Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pressOrders.map((o, i) => {
+                      const customer = o.customer?.company || o.customer?.name || "—";
+                      const cardTitle = partCardTitle(o) || o.title;
+                      const skuRows = o.skus.length > 0
+                        ? o.skus
+                        : [{ name: o.product ?? "—", qty: o.qty }];
+                      const product = skuRows.map((s) => s.name).filter(Boolean).join(", ") || "—";
+                      const skuQty = o.skus.length > 1
+                        ? o.skus.map((s) => `${s.name}: ${s.qty ?? "?"}`).join("\n")
+                        : (skuRows[0]?.qty != null ? String(skuRows[0].qty) : "—");
+                      const ttlQty = o.skus.length > 0
+                        ? o.skus.reduce((sum, s) => sum + (s.qty ?? 0), 0)
+                        : (o.qty ?? "—");
+                      const bucket = o.daily_priority_bucket === "today" ? "Today" : "Tomorrow";
+                      const done = o.daily_priority_done;
+
+                      return (
+                        <tr key={o.id} style={{ background: done ? "#f5f5f5" : "white" }}>
+                          <td style={tdStyle}>
+                            <div style={{ fontSize: 9, color: "#999", lineHeight: 1 }}>{bucket}</div>
+                            <div style={{ fontWeight: 600 }}>{i + 1}</div>
+                          </td>
+                          <td style={{ ...tdStyle, width: 44 }}>
+                            {o.image_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={o.image_url}
+                                alt=""
+                                style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 4, display: "block" }}
+                              />
+                            ) : (
+                              <div style={{ width: 40, height: 40, background: "#eee", borderRadius: 4 }} />
+                            )}
+                          </td>
+                          <td style={{ ...tdStyle, whiteSpace: "nowrap", fontWeight: 600 }}>{o.title}</td>
+                          <td style={tdStyle}>{done ? <s>{cardTitle}</s> : cardTitle}</td>
+                          <td style={tdStyle}>{customer}</td>
+                          <td style={tdStyle}>{product}</td>
+                          <td style={{ ...tdStyle, whiteSpace: "pre-wrap" }}>{skuQty}</td>
+                          <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: "nowrap" }}>{String(ttlQty)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
