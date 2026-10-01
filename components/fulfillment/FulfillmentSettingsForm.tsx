@@ -17,6 +17,7 @@ interface Settings {
 interface Props {
   columns: Column[];
   initialSettings: Settings;
+  kioskToken?: string | null;
 }
 
 function ColumnSelect({
@@ -52,7 +53,11 @@ function ColumnSelect({
   );
 }
 
-export function FulfillmentSettingsForm({ columns, initialSettings }: Props) {
+export function FulfillmentSettingsForm({
+  columns,
+  initialSettings,
+  kioskToken,
+}: Props) {
   const [sendColumnId, setSendColumnId] = useState(
     initialSettings.send_column_id ?? ""
   );
@@ -68,6 +73,9 @@ export function FulfillmentSettingsForm({ columns, initialSettings }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [kioskCopied, setKioskCopied] = useState(false);
+
+  const kioskPath = kioskToken ? `/kiosk/${kioskToken}` : null;
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -101,6 +109,32 @@ export function FulfillmentSettingsForm({ columns, initialSettings }: Props) {
 
   return (
     <form onSubmit={handleSave} className="space-y-6">
+      {kioskPath ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-700">Kiosk scan link</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Share this link with workers. No login required. Bookmark it on phones.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="flex-1 truncate rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700">
+              {kioskPath}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                const url = `${window.location.origin}${kioskPath}`;
+                void navigator.clipboard.writeText(url).then(() => {
+                  setKioskCopied(true);
+                  setTimeout(() => setKioskCopied(false), 2000);
+                });
+              }}
+              className="shrink-0 rounded bg-slate-200 px-3 py-1 text-xs font-medium hover:bg-slate-300"
+            >
+              {kioskCopied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      ) : null}
       <ColumnSelect
         label="When delivered, move orders to:"
         value={sendColumnId}

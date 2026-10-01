@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
 import type { BoardColumn } from "@/lib/types";
 import {
+  SCAN_CAMERA_EVENT,
   SCAN_CONFIGURE_EVENT,
   SCAN_FOCUS_EVENT,
   SCAN_LOADING_EVENT,
@@ -506,7 +507,7 @@ function ShippingReminderSection({
         />
       )}
     <div>
-      <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+      <p className="mb-3 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
         Shipping
       </p>
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -532,14 +533,14 @@ function ShippingReminderSection({
           <p className="mb-3 text-[12px] md:text-[14px] text-slate-500">FedEx — print shipping label</p>
         )}
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {/* No shipping request yet */}
+        <div className="flex flex-col gap-2">
+          {/* No shipping request yet — primary CTA */}
           {!sr && (
             <button
               type="button"
               onClick={() => void openSetup()}
               disabled={setupLoading}
-              className={cn(SCAN_SHIPPING_ACTION_BTN, SCAN_SHIPPING_ACTION_BTN_READY)}
+              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
             >
               {setupLoading ? (
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
@@ -550,17 +551,19 @@ function ShippingReminderSection({
             </button>
           )}
 
-          {/* SMS reminders only after a shipping portal was already sent */}
+          {/* SMS reminder — primary CTA after shipping portal sent */}
           {sr && (choice === "pickup" || choice === null) && (
             <button
               type="button"
               disabled={!phone || sending !== null}
               onClick={() => void sendReminder(choice === "pickup" ? "pickup" : "shipping")}
               className={cn(
-                SCAN_SHIPPING_ACTION_BTN,
-                phone
-                  ? SCAN_SHIPPING_ACTION_BTN_READY
-                  : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400"
+                "inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 text-[14px] font-semibold transition-colors",
+                sent !== null
+                  ? "bg-emerald-600 text-white"
+                  : phone
+                    ? "bg-slate-900 text-white hover:bg-slate-700"
+                    : "cursor-not-allowed bg-slate-100 text-slate-400"
               )}
             >
               {sending !== null ? (
@@ -575,13 +578,14 @@ function ShippingReminderSection({
               {sending !== null
                 ? "Sending…"
                 : sent !== null
-                  ? "Sent"
+                  ? "Reminder Sent ✓"
                   : choice === "pickup"
-                    ? "Reminder Pickup"
-                    : "Reminder Select Shipping"}
+                    ? "Send Pickup Reminder"
+                    : "Send Shipping Reminder"}
             </button>
           )}
 
+          {/* Print + Download — secondary, side by side */}
           <ScanShippingSlipButtons
             orderId={order.id}
             orderNumber={slipNumber}
@@ -821,12 +825,19 @@ interface Props {
   tenantName: string;
   customFields: CustomField[];
   smsConfigured: boolean;
+  /** Public kiosk: `/api/kiosk/<token>`. Defaults to staff `/api/fulfillment/scan`. */
+  scanApiBase?: string;
 }
 
-export function FulfillmentScanPage({ columns, initialButtons, tenantName, customFields, smsConfigured }: Props) {
+export function FulfillmentScanPage({ columns, initialButtons, tenantName, customFields, smsConfigured, scanApiBase }: Props) {
+  const scanBase = scanApiBase ?? "/api/fulfillment/scan";
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<OrderResult | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scannerRef = useRef<any>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<{ label: string; column: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -837,12 +848,68 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     order: OrderWithRelations;
     columnId: string;
   } | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const open = () => setShowSettings(true);
     window.addEventListener(SCAN_CONFIGURE_EVENT, open);
     return () => window.removeEventListener(SCAN_CONFIGURE_EVENT, open);
   }, []);
+
+  // Listen for camera-open event (dispatched by nav or other callers)
+  useEffect(() => {
+    function onCamera(e: Event) {
+      const open = (e as CustomEvent<{ open: boolean }>).detail?.open;
+      setCameraOpen(Boolean(open));
+    }
+    window.addEventListener(SCAN_CAMERA_EVENT, onCamera);
+    return () => window.removeEventListener(SCAN_CAMERA_EVENT, onCamera);
+  }, []);
+
+  // Auto-open camera on mobile when the page first loads
+  useEffect(() => {
+    if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+      setCameraOpen(true);
+    }
+  }, []);
+
+  // QrScanner lifecycle — starts when cameraOpen, cleans up on close
+  useEffect(() => {
+    if (!cameraOpen) return;
+    let destroyed = false;
+    void (async () => {
+      const { default: QrScanner } = await import("qr-scanner");
+      if (destroyed || !videoRef.current) return;
+      const scanner = new QrScanner(
+        videoRef.current,
+        (result: { data: string }) => {
+          const code = result.data.trim();
+          if (!code) return;
+          scanner.stop();
+          scanner.destroy();
+          scannerRef.current = null;
+          setCameraOpen(false);
+          window.dispatchEvent(new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } }));
+        },
+        {
+          returnDetailedScanResult: true,
+          highlightScanRegion: true,
+          highlightCodeOutline: true,
+          preferredCamera: "environment",
+        }
+      );
+      scannerRef.current = scanner;
+      await scanner.start();
+    })();
+    return () => {
+      destroyed = true;
+      if (scannerRef.current) {
+        scannerRef.current.stop();
+        scannerRef.current.destroy();
+        scannerRef.current = null;
+      }
+    };
+  }, [cameraOpen]);
 
   const lookup = useCallback(async (q: string) => {
     const trimmed = q.trim();
@@ -854,7 +921,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     setActionResult(null);
     setActionError(null);
     try {
-      const res = await fetch(`/api/fulfillment/scan?q=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`${scanBase}?q=${encodeURIComponent(trimmed)}`);
       const json = await res.json();
       if (!res.ok) {
         setLookupError(json.error ?? "Order not found");
@@ -867,7 +934,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       setLoading(false);
       window.dispatchEvent(new CustomEvent(SCAN_LOADING_EVENT, { detail: { loading: false } }));
     }
-  }, []);
+  }, [scanBase]);
 
   // Listen for scan query events dispatched from the nav input
   useEffect(() => {
@@ -887,7 +954,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     try {
       const targetColumn = columns.find((column) => column.id === button.columnId);
       let popupOrder: OrderWithRelations | null = null;
-      if (targetColumn?.kind === "ready_to_ship") {
+      if (targetColumn?.kind === "ready_to_ship" && !scanApiBase) {
         const orderRes = await fetch(`/api/orders/${order.id}`);
         const orderJson = await orderRes.json().catch(() => ({})) as {
           error?: string;
@@ -899,7 +966,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         popupOrder = orderJson.order;
       }
 
-      const res = await fetch("/api/fulfillment/scan/action", {
+      const res = await fetch(`${scanBase}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order_id: order.id, button_id: button.id }),
@@ -991,6 +1058,30 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         />
       ) : null}
 
+      {/* Artwork lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt="Artwork"
+            className="max-h-[90dvh] max-w-full rounded-xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
       {showSettings && (
         <SettingsPanel
           columns={columns}
@@ -1019,7 +1110,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           )}
 
           {order && (
-            <div className="order-4 flex min-h-[9rem] max-h-[28vh] flex-col overflow-hidden border-b border-slate-100 px-4 py-3 lg:max-h-none lg:min-h-0 lg:flex-1 lg:border-b-0">
+            <div className="order-4 hidden lg:flex min-h-[9rem] max-h-[28vh] flex-col overflow-hidden border-b border-slate-100 px-4 py-3 lg:max-h-none lg:min-h-0 lg:flex-1 lg:border-b-0">
               <p className="mb-2 shrink-0 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                 Artwork
               </p>
@@ -1067,45 +1158,105 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           )}
 
           {!order && !loading && !lookupError && (
-            <div className="order-2 flex flex-1 flex-col items-center justify-center gap-2 py-16 text-slate-400">
-              <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
-                <rect x="8" y="8" width="8" height="8" rx="1" />
-              </svg>
-              <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
-              <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
+            <div className={cn("order-2 flex flex-col text-slate-400", cameraOpen ? "px-4 pt-2 lg:flex-1 lg:px-5" : "flex-1 items-center justify-center")}>
+              {cameraOpen ? (
+                /* Inline camera — fixed height on mobile, fills container on desktop */
+                <div className="relative flex h-[65dvh] w-full overflow-hidden rounded-xl bg-black lg:h-full lg:flex-1">
+                  <video
+                    ref={videoRef}
+                    className="h-full w-full object-cover"
+                    muted
+                    playsInline
+                  />
+                  {/* Aim guide */}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div
+                      className="rounded-xl border-2 border-white/80"
+                      style={{ width: 200, height: 200, boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }}
+                    />
+                  </div>
+                  <p className="absolute bottom-4 left-0 right-0 text-center text-xs font-medium text-white/70">
+                    Point at a QR code or barcode
+                  </p>
+                  {/* Close button */}
+                  <button
+                    type="button"
+                    aria-label="Close camera"
+                    onClick={() => setCameraOpen(false)}
+                    className="absolute right-3 top-3 rounded-full bg-black/40 p-1.5 text-white hover:bg-black/60"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-3 py-16">
+                  <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+                    <rect x="8" y="8" width="8" height="8" rx="1" />
+                  </svg>
+                  <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
+                  <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
+                  {/* Camera button — shown on mobile only */}
+                  <button
+                    type="button"
+                    onClick={() => setCameraOpen(true)}
+                    className="md:hidden mt-2 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm active:bg-slate-700"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                      <circle cx="12" cy="13" r="4"/>
+                    </svg>
+                    Tap to scan
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <div className="max-lg:contents flex w-full min-w-0 flex-col gap-4 lg:h-full lg:min-h-0 lg:w-[45%] lg:overflow-y-auto lg:px-5 lg:py-5">
+          {/* Two cards: identity, then owner/designer + billing */}
           {order && (
-            <div className="order-1 shrink-0 px-4 pt-4 lg:px-0 lg:pt-0">
-              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="grid min-w-0 grid-cols-2 divide-x divide-slate-100">
-                  <div className="flex min-w-0 flex-col gap-1 px-3 py-2.5">
+            <div className="order-1 flex shrink-0 flex-col gap-3 px-4 pt-4 lg:px-0 lg:pt-0">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                {/* Row 1: order # / customer / artwork + X close */}
+                <div className="grid min-w-0 divide-x divide-slate-100" style={{ gridTemplateColumns: (order.thumbnail_url || order.sku_images?.length) ? "1fr 1fr auto" : "1fr 1fr" }}>
+                  {/* Order # + stage + due + close */}
+                  <div className="relative flex min-w-0 flex-col gap-1 px-3 py-3 pr-9">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] md:text-[13px] font-bold text-blue-700">
                         #{order.title}
                       </span>
                       {order.column_name && (
-                        <span
-                          className={cn(
-                            "max-w-full rounded-full border px-2 py-0.5 text-[11px] md:text-[13px] leading-snug",
-                            isFinishedReviewRequestColumn(order.column_name)
-                              ? "whitespace-normal border-red-600 bg-red-600 font-semibold text-white"
-                              : "truncate border-blue-600 bg-blue-600 font-semibold text-white"
-                          )}
-                        >
+                        <span className={cn("max-w-full rounded-full border px-2 py-0.5 text-[11px] md:text-[13px] leading-snug",
+                          isFinishedReviewRequestColumn(order.column_name)
+                            ? "whitespace-normal border-red-600 bg-red-600 font-semibold text-white"
+                            : "truncate border-blue-600 bg-blue-600 font-semibold text-white")}>
                           {order.column_name}
                         </span>
                       )}
                     </div>
-                    <span className={cn("text-[11px] md:text-[13px] font-medium", late ? "text-red-600" : "text-slate-400")}>
+                    <span className={cn("whitespace-nowrap text-[11px] md:text-[13px] font-medium", late ? "text-red-600" : "text-slate-400")}>
                       Due {dueLabel}{late && " · Late"}
                     </span>
+                    <button
+                      type="button"
+                      aria-label="Close order"
+                      onClick={() => {
+                        setOrder(null);
+                        setQuery("");
+                        setActionResult(null);
+                        setLookupError(null);
+                        setCameraOpen(true);
+                        window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
+                      }}
+                      className="absolute right-1.5 top-1.5 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
                   </div>
-                  <div className="flex min-w-0 flex-col justify-center gap-0.5 px-3 py-2.5">
+                  {/* Customer */}
+                  <div className="flex min-w-0 flex-col justify-center gap-0.5 px-3 py-3">
                     <p className="truncate text-[13px] md:text-[15px] font-semibold text-slate-900">
                       {order.customer?.name ?? "Unknown customer"}
                     </p>
@@ -1116,7 +1267,57 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                       <p className="truncate text-[11px] md:text-[13px] text-slate-500">{formatPhoneDisplay(order.customer.phone)}</p>
                     )}
                   </div>
+                  {/* Artwork thumbnail */}
+                  {(order.thumbnail_url || order.sku_images?.length) ? (
+                    <button type="button" aria-label="View artwork"
+                      onClick={() => setLightboxUrl(order.sku_images?.[0]?.url ?? order.thumbnail_url ?? null)}
+                      className="relative w-16 shrink-0 overflow-hidden bg-slate-100 md:w-20" style={{ minHeight: "4rem" }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={order.sku_images?.[0]?.url ?? order.thumbnail_url ?? ""} alt="Artwork"
+                        className="absolute inset-0 h-full w-full object-contain p-1" />
+                    </button>
+                  ) : null}
                 </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                {/* Owner + Designer */}
+                <div className="grid grid-cols-2 divide-x divide-slate-100">
+                  <div className="flex min-w-0 items-center gap-1.5 px-4 py-3">
+                    <svg viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 shrink-0 text-slate-400"><path d="M10 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3.465 14.493a1.5 1.5 0 0 0 .41 1.412A6.952 6.952 0 0 0 10 18c2.157 0 4.078-.965 5.373-2.486a1.5 1.5 0 0 0 .12-1.688A8.5 8.5 0 0 0 10 10.5a8.5 8.5 0 0 0-6.535 3.993Z" /></svg>
+                    <p className="min-w-0 truncate text-[14px] text-slate-900">
+                      <span className="font-medium text-slate-500">Owner:</span>{" "}
+                      <span className="font-semibold">{order.owner_name ?? "—"}</span>
+                    </p>
+                  </div>
+                  <div className="flex min-w-0 items-center gap-1.5 px-4 py-3">
+                    <svg viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 shrink-0 text-slate-400"><path fillRule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .205 1.251l-1.18 2.044a1 1 0 0 1-1.186.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.113a7.048 7.048 0 0 1 0-2.228L1.821 8.513a1 1 0 0 1-.205-1.251l1.18-2.044a1 1 0 0 1 1.186-.447l1.598.54A6.993 6.993 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" /></svg>
+                    <p className="min-w-0 truncate text-[14px] text-slate-900">
+                      <span className="font-medium text-slate-500">Designer:</span>{" "}
+                      <span className="font-semibold">{order.designer_name ?? "—"}</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Deposit + Balance — only when billing exists */}
+                {order.billing && (order.billing.deposit != null || order.billing.balance != null) && (
+                  <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100 bg-slate-50">
+                    {order.billing.deposit != null ? (
+                      <p className="min-w-0 truncate px-4 py-3 text-[14px]">
+                        <span className="font-medium text-slate-500">Deposit:</span>{" "}
+                        <span className="font-semibold text-emerald-600">−${Math.abs(order.billing.deposit).toFixed(2)}</span>
+                      </p>
+                    ) : <div />}
+                    {order.billing.balance != null ? (
+                      <p className="min-w-0 truncate px-4 py-3 text-[14px]">
+                        <span className="font-medium text-slate-500">Balance due:</span>{" "}
+                        <span className={cn("font-semibold", order.billing.balance > 0 ? "text-red-600" : "text-slate-900")}>
+                          ${order.billing.balance.toFixed(2)}
+                        </span>
+                      </p>
+                    ) : <div />}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1129,7 +1330,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               orderColumn?.kind === "ready_to_ship" ||
               (!isFinishedStage && orderColumn?.kind === "normal" && !!order.shipping_request);
             return (
-              <div className="order-2 flex shrink-0 flex-col gap-4 px-4 lg:px-0">
+              <div className="order-3 flex shrink-0 flex-col gap-4 px-4 pt-1 lg:px-0 lg:pt-0">
                 {isShippingColumn ? (
                   <ShippingReminderSection
                     order={order}
@@ -1149,47 +1350,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             );
           })()}
 
-          <div className="order-5 flex flex-col gap-4 px-4 pb-4 lg:px-0 lg:pb-0">
-          {/* Order info + Balance — side by side on md+, stacked on mobile */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {/* Order info card */}
-            <div className="flex flex-col">
-              <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
-                Order info
-              </p>
-              <div className="flex-1 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <InfoRow label="Owner" value={order?.owner_name ?? "—"} icon="user" />
-                <div className="my-1.5 border-t border-slate-100" />
-                <InfoRow label="Designer" value={order?.designer_name ?? "—"} icon="palette" />
-              </div>
-            </div>
-
-            {/* Balance card */}
-            <div className="flex flex-col">
-              <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
-                Balance
-              </p>
-              <div className="flex-1 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                {order?.billing ? (
-                  <>
-                    {order.billing.deposit != null && (
-                      <BalanceRow label="Deposit paid" value={order.billing.deposit} positive />
-                    )}
-                    {order.billing.balance != null && (
-                      <BalanceRow label="Balance due" value={order.billing.balance} danger />
-                    )}
-                    {!order.billing.deposit && !order.billing.balance && (
-                      <p className="text-[12px] md:text-[14px] text-slate-400">No billing data</p>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-[12px] md:text-[14px] text-slate-400">
-                    {order ? "No billing data" : "Scan an order to see balance"}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+          <div className="order-5 flex flex-col gap-4 px-4 pb-4 pt-1 lg:px-0 lg:pb-0 lg:pt-0">
 
           {/* Action success */}
           {actionResult && (
@@ -1208,7 +1369,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
           {/* Actions */}
           <div>
-            <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+            <p className="mb-3 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
               Actions
             </p>
             <div className="flex flex-col gap-2">

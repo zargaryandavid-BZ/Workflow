@@ -16,7 +16,7 @@ export default async function FulfillmentSettingsPage() {
       .order("position", { ascending: true }),
     supabase
       .from("fulfillment_settings")
-      .select("send_column_id, receive_column_id, counted_column_id, missing_column_id")
+      .select("send_column_id, receive_column_id, counted_column_id, missing_column_id, kiosk_token")
       .eq("tenant_id", ctx.tenant.id)
       .maybeSingle(),
   ]);
@@ -31,14 +31,17 @@ export default async function FulfillmentSettingsPage() {
       <div className="mt-6">
         <FulfillmentSettingsForm
           columns={columns ?? []}
-          initialSettings={
-            settings ?? {
-              send_column_id: null,
-              receive_column_id: null,
-              counted_column_id: null,
-              missing_column_id: null,
-            }
+          kioskToken={
+            settings && "kiosk_token" in settings
+              ? ((settings as { kiosk_token?: string | null }).kiosk_token ?? null)
+              : null
           }
+          initialSettings={{
+            send_column_id: settings?.send_column_id ?? null,
+            receive_column_id: settings?.receive_column_id ?? null,
+            counted_column_id: settings?.counted_column_id ?? null,
+            missing_column_id: settings?.missing_column_id ?? null,
+          }}
         />
       </div>
     </div>

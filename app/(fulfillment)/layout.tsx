@@ -8,5 +8,5 @@ export default async function FulfillmentStandaloneLayout({
 }) {
   const ctx = await getTenantContext();
   if (!ctx) redirect("/onboarding");
-  return <div className="h-screen overflow-hidden bg-slate-50">{children}</div>;
+  return <div className="h-dvh overflow-hidden bg-slate-50">{children}</div>;
 }

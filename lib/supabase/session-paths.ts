@@ -10,6 +10,7 @@ export const PUBLIC_PATHS = [
   "/die",
   "/l",
   "/auth",
+  "/kiosk",
 ];
 
 /** Still refresh/clear cookies here so a dead refresh token doesn't overlay login. */
@@ -29,6 +30,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/webhooks/",
   "/api/auth/",
   "/api/admin/bazaar-connect/",
+  "/api/kiosk/",
 ];
 
 export function isPublicPage(path: string): boolean {

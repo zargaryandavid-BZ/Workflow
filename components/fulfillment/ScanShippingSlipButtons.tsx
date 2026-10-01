@@ -136,14 +136,39 @@ export function ScanShippingSlipButtons({
 
   if (compact) {
     return (
-      <>
-        {buttons}
+      <div className="flex flex-col gap-1.5">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => void run("print")}
+            disabled={busy !== null}
+            className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {busy === "print" ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            ) : (
+              <Printer className="h-3.5 w-3.5 shrink-0" />
+            )}
+            Print slip
+          </button>
+          <button
+            type="button"
+            onClick={() => void run("download")}
+            disabled={busy !== null}
+            className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {busy === "download" ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5 shrink-0" />
+            )}
+            Download
+          </button>
+        </div>
         {error ? (
-          <p className="col-span-full text-[12px] text-red-600 md:text-[14px]">
-            {error}
-          </p>
+          <p className="text-[12px] text-red-600 md:text-[14px]">{error}</p>
         ) : null}
-      </>
+      </div>
     );
   }
 
