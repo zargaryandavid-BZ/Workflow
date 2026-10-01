@@ -250,6 +250,23 @@ export default async function RespondPage({
     notification.status === "expired" ||
     (expiredByDate && notification.status !== "responded");
   const alreadyDone = notification.status === "responded";
+
+  // Resend / new round marks the previous token expired. Send the customer
+  // to the live proof instead of a dead "Link expired" page.
+  if (expired && !alreadyDone) {
+    const { data: live } = await supabase
+      .from("job_notifications")
+      .select("token")
+      .eq("order_id", notification.order_id)
+      .eq("type", notification.type)
+      .in("status", ["pending", "sent"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (live?.token && live.token !== token) {
+      redirect(`/respond/${live.token}`);
+    }
+  }
   const orderFields = notification.order_fields ?? {};
   const productLabel = productFromFields(orderFields);
   const metaChips = orderMetaChips(orderFields, notification.order_specs ?? {});
