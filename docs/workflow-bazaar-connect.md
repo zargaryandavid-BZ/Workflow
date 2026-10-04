@@ -602,7 +602,24 @@ Bazaar Order Sync now sends these on `/api/webhook/orders` when a broker **reord
 | `is_reorder: true` | `specs.is_reorder` | this card is a reprint of an earlier order |
 | `reorder_of_order_number` | `specs.reorder_of` | the original order number |
 | `no_proof_needed: true` | `specs.no_proof_needed` | files already approved — skip proofing |
+| `reorder_mode` (`"exact"` / `"changed"`) | `specs.reorder_mode` | which reorder case Bazaar sent |
 | `card_color` (e.g. `#7c3aed`) | `specs.card_color` | suggested board color for the card |
-| `tags` (e.g. `["Reorder","No proof needed"]`) | `specs.reorder_tags` | board labels |
+| `tags` (e.g. `["Reorder — no approval needed"]`) | `specs.reorder_tags` | board label |
 
-**Still open (Workflow UI / flow — not in this change):** render a colored badge/tint on the board card from `specs.is_reorder` / `specs.card_color`, and have the approval flow auto-skip the Waiting-Approval column when `specs.no_proof_needed` is true. The data is on the card now; the visible color + skip-approval behavior is a follow-up in the board UI.
+Bazaar sends two reorder cases:
+
+- **EXACT** — `is_reorder:true, no_proof_needed:true, reorder_mode:"exact", tags:["Reorder — no approval needed"]`
+- **CHANGED** — `is_reorder:true, no_proof_needed:false, reorder_mode:"changed", tags:["Reorder / files approved"]`
+
+Both include `reorder_of_order_number`.
+
+### Board behavior implemented (2026-10-04)
+
+All of the following is **additive** — it only sets a NEW card's initial column and appends/annotates; it never moves existing cards and never overwrites `tag_id`, `column_id`, `title`, or any existing card field.
+
+1. **EXACT → starts in Prepress.** Files are already approved and nothing changed, so the new card skips approval/start and is created directly in the tenant's **Prepress** column. The column is found the same way the Prepress queue finds it — by name via `isPrepressColumnName` ("Prepress" / "Pre-press" / …), since there is no `prepress` column *kind*. If no Prepress column can be safely identified we do **not** guess: the card keeps normal placement and we stamp `specs.reorder_prepress_routing_failed = true` so staff can route it manually.
+2. **CHANGED → normal placement.** The card lands wherever it normally would (no auto-advance) so staff review the changed details.
+3. **Reorder label on the card.** A violet "Reorder …" badge is rendered on the board tile from `specs.reorder_tags` / `specs.is_reorder` (EXACT → "Reorder — no approval needed", CHANGED → "Reorder / files approved"). The card keeps its single category `tag_id` untouched — the label is shown as a separate board badge, not by rewriting the tag.
+4. **Born-from on the card.** The original order number is shown both on the badge (`· #<n>`) and appended to the card description ("… · Reorder of #<n>") so staff can refer back. The clean customer note in `specs.customer_facing_note` is left unchanged.
+
+Code: `lib/webhook-order.ts` (`createSingleWebhookJob` — `resolvePrepressColumn`, EXACT-reorder column override, description annotation) and `components/board/order-card.tsx` (reorder badge). Flags remain stamped in the same `isReorder` block as before.

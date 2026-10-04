@@ -5,6 +5,7 @@ import {
   pickColumnByName,
   pickMissingInfoColumn,
 } from "@/lib/missing-info-column";
+import { isPrepressColumnName } from "@/lib/prepress-queue";
 import {
   normalizeSourceChannel,
   shouldApplyMissingInfoFallback,
@@ -462,6 +463,14 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   reorder_of_order_number?: string | number;
   no_proof_needed?: boolean;
   card_color?: string;
+  /**
+   * Reorder kind from Bazaar: "exact" (files already approved, nothing changed —
+   * routed straight to Prepress) or "changed" (files approved but something
+   * changed — kept in normal placement for staff review). Stamped additively onto
+   * specs. The EXACT routing is driven by `is_reorder && no_proof_needed`; this
+   * field is the explicit label and is stored for clarity.
+   */
+  reorder_mode?: string;
   /** Extra board labels from Bazaar (e.g. ["Reorder","No proof needed"]). */
   tags?: string[];
   /** Portal-intake Admin order ref (`BZ-…`). Not the CRM `ORD-…` card title. */
@@ -3442,6 +3451,8 @@ interface CreateSingleJobParams {
   noProofNeeded?: boolean;
   cardColor?: string | null;
   reorderTags?: string[];
+  /** "exact" | "changed" — explicit reorder kind from Bazaar (additive on specs). */
+  reorderMode?: string | null;
   /** CRM `customers.id` stamped on specs for matching. */
   crmCustomerId?: string | null;
   /** CRM order id stamped on the card + specs for re-sync. */
@@ -3523,6 +3534,28 @@ async function resolveMissingInfoColumn(
 }
 
 /**
+ * Resolve the tenant's Prepress column for EXACT reorders (files already approved,
+ * nothing changed → the new card skips approval and starts in Prepress). Matches
+ * the same way the Prepress queue does — by column NAME via `isPrepressColumnName`
+ * ("Prepress" / "Pre-press" / …), since there is no dedicated `prepress` column
+ * kind. Returns the first matching column by board position, or null when none can
+ * be safely identified (caller must NOT guess — it flags the card instead).
+ */
+async function resolvePrepressColumn(
+  client: SupabaseClient,
+  tenantId: string
+): Promise<{ id: string; name: string | null } | null> {
+  const { data } = await client
+    .from("board_columns")
+    .select("id, name")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+  const cols = (data ?? []) as { id: string; name: string | null }[];
+  const hit = cols.find((c) => isPrepressColumnName(c.name));
+  return hit ? { id: hit.id, name: hit.name } : null;
+}
+
+/**
  * Resolve a board column by its NAME (case-insensitive, trimmed) for this tenant.
  * Lets the CRM name the target column via `initial_column`. Returns null when no
  * column matches, so the caller can fall back to the default (start) column.
@@ -3576,6 +3609,7 @@ async function createSingleWebhookJob(
     noProofNeeded = false,
     cardColor = null,
     reorderTags = [],
+    reorderMode = null,
     crmCustomerId = null,
     crmOrderId = null,
     requestOwnerSpecs,
@@ -3727,6 +3761,35 @@ async function createSingleWebhookJob(
     }
   }
 
+  // EXACT reorder (is_reorder && no_proof_needed): files were already approved and
+  // nothing changed, so the NEW card skips the approval/start columns and starts in
+  // Prepress. This ONLY sets a new card's initial column — it never moves existing
+  // cards and never overwrites any existing card data. CHANGED reorders (no_proof
+  // false) keep normal placement so staff review them. If no Prepress column can be
+  // safely identified we do NOT guess — we leave the normal placement and flag the
+  // card below (specs.reorder_prepress_routing_failed) so staff route it manually.
+  const isExactReorder = isReorder && noProofNeeded;
+  let reorderPrepressMissing = false;
+  if (isExactReorder) {
+    const prepressCol = await resolvePrepressColumn(client, tenantId);
+    if (prepressCol) {
+      effectiveColumnId = prepressCol.id;
+      effectiveColumnName = prepressCol.name ?? effectiveColumnName;
+      const { data: lastInPrepress } = await client
+        .from("orders")
+        .select("position")
+        .eq("column_id", prepressCol.id)
+        .eq("tenant_id", tenantId)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      effectivePosition =
+        ((lastInPrepress as { position: number } | null)?.position ?? 0) + 1000;
+    } else {
+      reorderPrepressMissing = true;
+    }
+  }
+
   const itemDescription =
     typeof item.description === "string" ? item.description.trim() : null;
   const orderDescriptionText =
@@ -3832,6 +3895,9 @@ async function createSingleWebhookJob(
   if (isReorder) {
     specs.is_reorder = true;
     if (noProofNeeded) specs.no_proof_needed = true;
+    if (typeof reorderMode === "string" && reorderMode.trim()) {
+      specs.reorder_mode = reorderMode.trim();
+    }
     const reorderRef =
       reorderOfOrderNumber != null && String(reorderOfOrderNumber).trim()
         ? String(reorderOfOrderNumber).trim()
@@ -3843,6 +3909,9 @@ async function createSingleWebhookJob(
     if (Array.isArray(reorderTags) && reorderTags.length > 0) {
       specs.reorder_tags = reorderTags.filter((t) => typeof t === "string" && t.trim());
     }
+    // EXACT reorder wanted Prepress but this tenant has no identifiable Prepress
+    // column — flag it so staff route it manually. We never guess the column.
+    if (reorderPrepressMissing) specs.reorder_prepress_routing_failed = true;
   }
   // Stable CRM line id → lets a later CRM edit re-sync to THIS exact card by id.
   {
@@ -3876,13 +3945,45 @@ async function createSingleWebhookJob(
     if (portalCompanyName) specs.company_name = portalCompanyName;
   }
 
+  // Reorder annotation on the card description (ADDITIVE): show the reorder label
+  // and the original order number ("born-from") so staff can see it's a reprint and
+  // refer back. We only append to the card's own description text that this create
+  // flow builds — we never overwrite the clean customer note stored in
+  // specs.customer_facing_note, the title, tag_id, or any existing card field.
+  const reorderAnnotation = (() => {
+    if (!isReorder) return "";
+    const parts: string[] = [];
+    const tagFromBazaar =
+      Array.isArray(reorderTags)
+        ? reorderTags.find((t) => typeof t === "string" && t.trim())
+        : undefined;
+    const reorderLabel =
+      typeof tagFromBazaar === "string" && tagFromBazaar.trim()
+        ? tagFromBazaar.trim()
+        : noProofNeeded
+          ? "Reorder — no approval needed"
+          : "Reorder / files approved";
+    parts.push(reorderLabel);
+    const ref =
+      reorderOfOrderNumber != null && String(reorderOfOrderNumber).trim()
+        ? String(reorderOfOrderNumber).trim()
+        : "";
+    if (ref) parts.push(`Reorder of #${ref}`);
+    return parts.join(" · ");
+  })();
+  const cardDescription = reorderAnnotation
+    ? customerFacingNoteText
+      ? `${customerFacingNoteText}\n\n${reorderAnnotation}`
+      : reorderAnnotation
+    : customerFacingNoteText;
+
   const { data: order, error: orderError } = await client
     .from("orders")
     .insert({
       tenant_id: tenantId,
       column_id: effectiveColumnId,
       title: cardTitle,
-      description: customerFacingNoteText,
+      description: cardDescription,
       internal_note: notesText,
       customer_id: customerId,
       tag_id: tagId,
@@ -4575,6 +4676,7 @@ export async function createOrderFromWebhook(
       noProofNeeded: body.no_proof_needed === true,
       cardColor: typeof body.card_color === "string" ? body.card_color : null,
       reorderTags: Array.isArray(body.tags) ? body.tags : [],
+      reorderMode: typeof body.reorder_mode === "string" ? body.reorder_mode : null,
       item,
       priority,
       dueDate,

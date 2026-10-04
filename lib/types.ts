@@ -302,6 +302,20 @@ export interface OrderSpecs {
   is_key_account?: boolean;
   /** CRM rush / attention job — triangle icon on the board card. */
   rush?: boolean;
+  /** Bazaar reorder (reprint) markers — stamped additively by the order webhook. */
+  is_reorder?: boolean;
+  /** Original order number this card is a reprint of ("born-from"). */
+  reorder_of?: string;
+  /** Exact reorders skip proofing (files already approved). */
+  no_proof_needed?: boolean;
+  /** "exact" | "changed" reorder kind from Bazaar. */
+  reorder_mode?: string;
+  /** Board label(s) from Bazaar, e.g. ["Reorder — no approval needed"]. */
+  reorder_tags?: string[];
+  /** Suggested board color for a reorder card (e.g. "#7c3aed"). */
+  card_color?: string;
+  /** Exact reorder wanted Prepress but no Prepress column was found — route manually. */
+  reorder_prepress_routing_failed?: boolean;
   [key: string]: unknown;
 }
 
