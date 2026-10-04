@@ -590,3 +590,19 @@ No GET status. No `/api/v1/` prefix. Make sure middleware does **not** require l
 - Settings: optional per-tenant `bazaar_connect_secret` + “Connected via Bazaar Admin” (no Connect button — Q4)
 
 Do not touch: `lib/bazaar-portal-sync.ts` notify path, `app/api/webhook/orders/route.ts`.
+
+---
+
+## Reorder (reprint) flags — Bazaar → Workflow (2026-10-04)
+
+Bazaar Order Sync now sends these on `/api/webhook/orders` when a broker **reorders** an existing job. Workflow reads them in `lib/webhook-order.ts` and stamps them **additively** onto the card's `specs` (no existing field is overwritten):
+
+| Payload field | Stamped as | Meaning |
+|---|---|---|
+| `is_reorder: true` | `specs.is_reorder` | this card is a reprint of an earlier order |
+| `reorder_of_order_number` | `specs.reorder_of` | the original order number |
+| `no_proof_needed: true` | `specs.no_proof_needed` | files already approved — skip proofing |
+| `card_color` (e.g. `#7c3aed`) | `specs.card_color` | suggested board color for the card |
+| `tags` (e.g. `["Reorder","No proof needed"]`) | `specs.reorder_tags` | board labels |
+
+**Still open (Workflow UI / flow — not in this change):** render a colored badge/tint on the board card from `specs.is_reorder` / `specs.card_color`, and have the approval flow auto-skip the Waiting-Approval column when `specs.no_proof_needed` is true. The data is on the card now; the visible color + skip-approval behavior is a follow-up in the board UI.

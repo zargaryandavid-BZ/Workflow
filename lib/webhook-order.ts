@@ -452,6 +452,18 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   bazaar_connection_test?: boolean | string | number;
   /** Bazaar partner/broker id (Order Sync) — used for status callbacks. */
   bazaar_broker_id?: string;
+  /**
+   * Reorder (reprint) flags — sent by Bazaar's Order Sync when a broker reorders
+   * an existing job. Stamped additively onto the card's `specs` so the board UI
+   * can color/tag the card and the approval flow can skip proofing. We only ADD
+   * these keys; no existing card field is overwritten.
+   */
+  is_reorder?: boolean;
+  reorder_of_order_number?: string | number;
+  no_proof_needed?: boolean;
+  card_color?: string;
+  /** Extra board labels from Bazaar (e.g. ["Reorder","No proof needed"]). */
+  tags?: string[];
   /** Portal-intake Admin order ref (`BZ-…`). Not the CRM `ORD-…` card title. */
   bazaar_order_number?: string;
   /** Optional nested specs — CRM may send `specs.bazaar_order_number`. */
@@ -3421,6 +3433,15 @@ interface CreateSingleJobParams {
   isKeyAccount?: boolean;
   /** CRM rush / attention job — triangle icon + Rush Order tag. */
   isRush?: boolean;
+  /**
+   * Reorder (reprint) from Bazaar — stamped additively onto specs so the board
+   * can color/tag the card and skip proofing. Never overwrites existing data.
+   */
+  isReorder?: boolean;
+  reorderOfOrderNumber?: string | null;
+  noProofNeeded?: boolean;
+  cardColor?: string | null;
+  reorderTags?: string[];
   /** CRM `customers.id` stamped on specs for matching. */
   crmCustomerId?: string | null;
   /** CRM order id stamped on the card + specs for re-sync. */
@@ -3550,6 +3571,11 @@ async function createSingleWebhookJob(
     ownerId,
     isKeyAccount,
     isRush,
+    isReorder = false,
+    reorderOfOrderNumber = null,
+    noProofNeeded = false,
+    cardColor = null,
+    reorderTags = [],
     crmCustomerId = null,
     crmOrderId = null,
     requestOwnerSpecs,
@@ -3799,6 +3825,25 @@ async function createSingleWebhookJob(
   }
   // Always stamp for idempotent due-date updates on later CRM webhooks.
   specs.webhook_order_number = webhookOrderNumber;
+  // Reorder (reprint) markers from Bazaar — additive only. The board UI reads
+  // specs.is_reorder to tint/badge the card (specs.card_color), and the approval
+  // flow reads specs.no_proof_needed to skip proofing. We never touch tag_id,
+  // column_id or any existing card field here.
+  if (isReorder) {
+    specs.is_reorder = true;
+    if (noProofNeeded) specs.no_proof_needed = true;
+    const reorderRef =
+      reorderOfOrderNumber != null && String(reorderOfOrderNumber).trim()
+        ? String(reorderOfOrderNumber).trim()
+        : "";
+    if (reorderRef) specs.reorder_of = reorderRef;
+    if (typeof cardColor === "string" && cardColor.trim()) {
+      specs.card_color = cardColor.trim();
+    }
+    if (Array.isArray(reorderTags) && reorderTags.length > 0) {
+      specs.reorder_tags = reorderTags.filter((t) => typeof t === "string" && t.trim());
+    }
+  }
   // Stable CRM line id → lets a later CRM edit re-sync to THIS exact card by id.
   {
     const crmLineId =
@@ -4522,6 +4567,14 @@ export async function createOrderFromWebhook(
       crmCustomerId: crmCustomerId ?? "",
       crmOrderId: crmOrderId ?? "",
       isRush,
+      isReorder: body.is_reorder === true,
+      reorderOfOrderNumber:
+        body.reorder_of_order_number != null
+          ? String(body.reorder_of_order_number)
+          : null,
+      noProofNeeded: body.no_proof_needed === true,
+      cardColor: typeof body.card_color === "string" ? body.card_color : null,
+      reorderTags: Array.isArray(body.tags) ? body.tags : [],
       item,
       priority,
       dueDate,
