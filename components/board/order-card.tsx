@@ -720,6 +720,21 @@ export function OrderCard({
   const isReprint = order.specs?.reprint === true;
   const isLocked = order.specs?.locked === true;
   const isKeyAccount = order.specs?.is_key_account === true;
+  // Bazaar reorder (reprint) — label + born-from, from additive webhook specs.
+  const isReorder = order.specs?.is_reorder === true;
+  const reorderOf =
+    typeof order.specs?.reorder_of === "string" ? order.specs.reorder_of.trim() : "";
+  const reorderLabel = (() => {
+    if (!isReorder) return "";
+    const tags = order.specs?.reorder_tags;
+    if (Array.isArray(tags)) {
+      const first = tags.find((t) => typeof t === "string" && t.trim());
+      if (typeof first === "string" && first.trim()) return first.trim();
+    }
+    return order.specs?.no_proof_needed === true
+      ? "Reorder — no approval needed"
+      : "Reorder / files approved";
+  })();
   const comboStock = getComboStock(order);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
@@ -1405,6 +1420,20 @@ export function OrderCard({
                     title="Reprint"
                   >
                     Reprint
+                  </span>
+                ) : null}
+                {isReorder ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded bg-violet-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-violet-700"
+                    title={
+                      reorderOf
+                        ? `${reorderLabel} · Reorder of #${reorderOf}`
+                        : reorderLabel
+                    }
+                  >
+                    <RefreshCw className="h-2.5 w-2.5" />
+                    {reorderLabel}
+                    {reorderOf ? ` · #${reorderOf}` : ""}
                   </span>
                 ) : null}
                 {isLocked ? (
