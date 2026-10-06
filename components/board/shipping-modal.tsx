@@ -7,6 +7,7 @@ import {
   PickupLocationPicker,
   useStaffPickupLocations,
 } from "@/components/shipping/pickup-location-picker";
+import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import type { ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
 
 interface BoxDraft {
@@ -316,7 +317,7 @@ export function ShippingModal({
               />
             </label>
 
-            <div className="space-y-3">
+            <div className="space-y-3" data-enter-focus-sequence>
               {boxes.map((box, index) => (
                 <div
                   key={index}
@@ -359,10 +360,12 @@ export function ShippingModal({
                           min={0.01}
                           step="any"
                           required
+                          data-enter-focus-next
                           value={box[field]}
                           onChange={(e) =>
                             updateBox(index, field, e.target.value)
                           }
+                          onKeyDown={focusNextInputOnEnter}
                           className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
                         />
                       </label>
@@ -374,10 +377,12 @@ export function ShippingModal({
                         min={0.01}
                         step="any"
                         required
+                        data-enter-focus-next
                         value={box.weight}
                         onChange={(e) =>
                           updateBox(index, "weight", e.target.value)
                         }
+                        onKeyDown={focusNextInputOnEnter}
                         className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800"
                       />
                     </label>

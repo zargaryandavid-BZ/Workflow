@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   collectLayerIds,
   defaultVisiblePdfLayerIds,
+  isDefaultOnPdfLayer,
   isPdfArtworkLayer,
   isPdfCutLineLayer,
   isUnnamedPdfLayer,
@@ -93,11 +94,20 @@ test("isPdfCutLineLayer matches Cut / Dieline plates", () => {
   assert.equal(isPdfCutLineLayer("White"), false);
 });
 
-test("defaultVisiblePdfLayerIds keeps Artwork on by default", () => {
+test("isDefaultOnPdfLayer leaves cut and white off", () => {
+  assert.equal(isDefaultOnPdfLayer("ART WORK"), true);
+  assert.equal(isDefaultOnPdfLayer("Foil"), true);
+  assert.equal(isDefaultOnPdfLayer("Spot uv"), true);
+  assert.equal(isDefaultOnPdfLayer("Dieline"), false);
+  assert.equal(isDefaultOnPdfLayer("White"), false);
+});
+
+test("defaultVisiblePdfLayerIds keeps Artwork on and Spot UV off", () => {
   const layers = [
     { id: "1R", name: "Dieline" },
     { id: "2R", name: "ART WORK" },
     { id: "3R", name: "White" },
+    { id: "4R", name: "Spot uv" },
   ];
   assert.deepEqual(defaultVisiblePdfLayerIds(layers), ["2R"]);
   assert.deepEqual(

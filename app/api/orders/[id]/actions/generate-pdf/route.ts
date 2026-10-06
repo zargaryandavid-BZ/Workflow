@@ -10,7 +10,6 @@ import {
 import { generateJobTicketPdf } from "@/lib/button-automation-pdf";
 import {
   layerPicsForJobTicket,
-  layerPreviewObjectPath,
   type RespondLayerPreview,
 } from "@/lib/approval-layer-preview-paths";
 
@@ -20,8 +19,8 @@ export const maxDuration = 180;
 const BUCKET = "order-assets";
 
 /**
- * Signed URLs for the same named-layer pictures the customer sees on /respond.
- * Cut/dieline plates are omitted (blank in RGB); composite is used instead.
+ * Signed URL for the stacked print picture (Artwork + finishes) used on the
+ * job ticket. Isolated white / cut plates are omitted.
  */
 async function loadLayerPreviewImages(
   orderId: string,
@@ -34,24 +33,26 @@ async function loadLayerPreviewImages(
     const { loadRespondCustomerProofForOrderId } = await import(
       "@/lib/approval-layer-previews"
     );
+    const { ensurePrintProofJpeg } = await import("@/lib/flatten-print-proof");
     const proof = await loadRespondCustomerProofForOrderId(orderId, skus as never);
     const previews = proof.layerPreviews as Record<string, RespondLayerPreview>;
     if (Object.keys(previews).length === 0) return out;
 
+    const admin = createAdminClient();
     const pathToSlot: Array<{ path: string; skuId: string; name: string }> = [];
     for (const [skuId, p] of Object.entries(previews)) {
+      const path = await ensurePrintProofJpeg(admin, p);
       const pics = layerPicsForJobTicket(p);
-      for (const pic of pics) {
+      if (path) {
         pathToSlot.push({
-          path: layerPreviewObjectPath(p.fileId, p.rev, p.page, pic.layer),
+          path,
           skuId,
-          name: pic.name,
+          name: pics[0]?.name ?? "Artwork",
         });
       }
     }
     if (pathToSlot.length === 0) return out;
 
-    const admin = createAdminClient();
     const { data: signed } = await admin.storage
       .from(BUCKET)
       .createSignedUrls(

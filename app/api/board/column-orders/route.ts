@@ -15,6 +15,10 @@ import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { rankDesignerQueue } from "@/lib/designer-queue-rank";
 import { isPrepressColumnName, rankPrepressQueue } from "@/lib/prepress-queue";
 import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
+import { onShippingOptSelected } from "@/lib/automation";
+import { isConfirmedShippingChoiceSign } from "@/lib/board-shipping";
+import { isBoardHealthCutoffColumn } from "@/lib/board-health";
+import { resolveShippingOptColumnId } from "@/lib/shipping-opt-column";
 import {
   BOARD_ORDER_LIST_SELECT,
   BOARD_ORDER_LIST_SELECT_FALLBACK,
@@ -191,9 +195,16 @@ export async function GET(req: NextRequest) {
     let [
       { data: rawOrders, error: ordersError },
       { count },
+      { data: columnRow },
     ] = await Promise.all([
       runColumnQuery(BOARD_ORDER_LIST_SELECT),
       runCountQuery(),
+      supabase
+        .from("board_columns")
+        .select("id, name, kind")
+        .eq("id", columnId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle(),
     ]);
 
     if (ordersError && isMissingRelationColumnError(ordersError)) {
@@ -258,11 +269,42 @@ export async function GET(req: NextRequest) {
       attachQueueRanks(supabase, tenantId, columnId, orders, columnNameHint),
     ]);
 
+    let visibleOrders = orders;
+    let visibleTotal = total;
+    if (
+      columnRow &&
+      isBoardHealthCutoffColumn({
+        id: columnRow.id as string,
+        name: (columnRow.name as string | null) ?? "",
+        kind: (columnRow.kind as string | null) ?? undefined,
+      })
+    ) {
+      const chosen = orders.filter((o) =>
+        isConfirmedShippingChoiceSign(enrichment.shippingSignByOrder[o.id])
+      );
+      if (chosen.length > 0) {
+        const destId = await resolveShippingOptColumnId(supabase, tenantId);
+        if (destId && destId !== columnId) {
+          await Promise.all(
+            chosen.map((o) =>
+              onShippingOptSelected(supabase, {
+                orderId: o.id,
+                tenantId,
+              })
+            )
+          );
+          const movedIds = new Set(chosen.map((o) => o.id));
+          visibleOrders = orders.filter((o) => !movedIds.has(o.id));
+          visibleTotal = Math.max(0, total - movedIds.size);
+        }
+      }
+    }
+
     const response: ColumnOrdersResponse = {
-      orders,
+      orders: visibleOrders,
       ...enrichment,
       hasMore,
-      total,
+      total: visibleTotal,
       page,
       sort,
     };

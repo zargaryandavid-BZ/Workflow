@@ -27,12 +27,7 @@ function parsePositiveInt(value: unknown, fallback: number): number {
 }
 
 /**
- * Load the composite layer-preview signed URL for each SKU so the packing slip
- * shows a clean artwork-only JPEG instead of the raw production PDF (which
- * includes dielines, cut marks, registration marks, etc.).
- *
- * Returns a map of skuId → signed URL. Missing entries mean no preview exists
- * and the slip should fall back to the existing uploaded image.
+ * Stacked print JPEG (Artwork + foil / Spot UV) for the packing slip.
  */
 async function loadCompositePreviewUrls(
   orderId: string,
@@ -45,28 +40,27 @@ async function loadCompositePreviewUrls(
     const { loadRespondCustomerProofForOrderId } = await import(
       "@/lib/approval-layer-previews"
     );
+    const { ensurePrintProofJpeg } = await import("@/lib/flatten-print-proof");
     const proof = await loadRespondCustomerProofForOrderId(orderId, skus as never);
     const previews = proof.layerPreviews as Record<
       string,
-      { fileId: string; rev: string; page: number }
+      {
+        fileId: string;
+        rev: string;
+        page: number;
+        layers: { id: string; name: string }[];
+      }
     >;
     if (Object.keys(previews).length === 0) return out;
 
-    const { layerPreviewObjectPath } = await import(
-      "@/lib/approval-layer-preview-paths"
-    );
-
-    // Build path → skuId map so we can look up results by path.
+    const admin = createAdminClient();
     const pathToSku = new Map<string, string>();
     for (const [skuId, p] of Object.entries(previews)) {
-      pathToSku.set(
-        layerPreviewObjectPath(p.fileId, p.rev, p.page, "composite"),
-        skuId
-      );
+      const path = await ensurePrintProofJpeg(admin, p);
+      if (path) pathToSku.set(path, skuId);
     }
+    if (pathToSku.size === 0) return out;
 
-    const admin = createAdminClient();
-    // One storage round-trip for all composite paths.
     const { data: signed } = await admin.storage
       .from(BUCKET)
       .createSignedUrls([...pathToSku.keys()], 180);
@@ -171,7 +165,7 @@ export async function POST(
       typeof body.poNumber === "string" ? body.poNumber.trim() : "";
 
     // --- Artwork images ---
-    // Prefer the composite layer-preview JPEG (artwork-only, no dielines/cut marks).
+    // Prefer the stacked print JPEG (Artwork + foil / Spot UV; no dieline/white).
     // Falls back to the original uploaded image when no proof exists yet.
     const compositeUrls = await loadCompositePreviewUrls(
       orderId,

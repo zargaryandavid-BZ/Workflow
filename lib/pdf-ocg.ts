@@ -168,16 +168,27 @@ export function artworkPdfLayerIds(layers: PdfLayer[]): string[] {
 }
 
 /**
- * Default SEE LAYERS state: Artwork on. If the file has no Artwork plate,
- * fall back to print plates (dieline off) so the page is not blank.
+ * Plates that are on in the default proof: Artwork + foil / Spot UV / etc.
+ * Cut/dieline and white underprint stay off (RGB white ink paints as a green
+ * block; dielines are often invisible).
+ */
+export function isDefaultOnPdfLayer(name: string): boolean {
+  return !isPdfCutLineLayer(name) && !isPdfWhiteInkLayer(name);
+}
+
+/**
+ * Default SEE LAYERS, board card, job ticket, packing slip: Artwork plate on.
+ * Finishes like Spot UV stay off unless the viewer checks them — stacking them
+ * in RGB turns the card magenta/dark. White ink and dieline stay off.
  */
 export function defaultVisiblePdfLayerIds(layers: PdfLayer[]): string[] {
   const art = artworkPdfLayerIds(layers);
   if (art.length > 0) return art;
   const print = layers
-    .filter((layer) => !isPdfCutLineLayer(layer.name))
+    .filter((layer) => isDefaultOnPdfLayer(layer.name))
     .map((l) => l.id);
-  return print.length > 0 ? print : layers.map((l) => l.id);
+  if (print.length > 0) return print;
+  return layers.map((l) => l.id);
 }
 
 /** Artwork plates stay on even if ALL / a checkbox would turn them off. */

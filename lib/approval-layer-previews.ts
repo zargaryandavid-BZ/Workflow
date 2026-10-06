@@ -6,7 +6,6 @@ import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import { ensureGdriveSettings } from "@/lib/gdrive-settings";
 import {
   downloadDriveFileBytes,
-  fetchPreviewBytes,
   getDriveFileMeta,
   proofsDriveClient,
 } from "@/lib/gdrive-proofs";
@@ -39,6 +38,8 @@ import {
   PRODUCTION_CARD_FILES,
   productionCardImageMeta,
 } from "@/lib/production-card-image";
+import { ensurePrintProofJpeg } from "@/lib/flatten-print-proof";
+import sharp from "sharp";
 
 const CARD_PDF_REV_SPEC = "card_pdf_rev";
 
@@ -301,7 +302,9 @@ async function upsertProductionCardImage(
       specs: {
         ...specs,
         card_image: { source: "sku_image", id: imageId },
-        [CARD_PDF_REV_SPEC]: fingerprint,
+        [CARD_PDF_REV_SPEC]: fingerprint.endsWith(":print-art")
+          ? fingerprint
+          : `${fingerprint}:print-art`,
       },
     })
     .eq("id", order.id)
@@ -311,19 +314,19 @@ async function upsertProductionCardImage(
 async function applyStoredCompositeToCard(
   admin: ReturnType<typeof createAdminClient>,
   order: Pick<Order, "id" | "tenant_id" | "specs">,
-  fileId: string,
-  rev: string,
-  page: number,
+  preview: Pick<RespondLayerPreview, "fileId" | "rev" | "page" | "layers">,
   fingerprint: string
-): Promise<void> {
-  const path = `${layerPreviewPageDir(fileId, rev, page)}/composite.jpg`;
+): Promise<boolean> {
+  const path = await ensurePrintProofJpeg(admin, preview);
+  if (!path) return false;
   const { data, error } = await admin.storage
     .from(ORDER_ASSETS_BUCKET)
     .download(path);
-  if (error || !data) return;
+  if (error || !data) return false;
   const bytes = Buffer.from(await data.arrayBuffer());
-  if (bytes.length === 0) return;
+  if (bytes.length === 0) return false;
   await upsertProductionCardImage(admin, order, bytes, fingerprint);
+  return true;
 }
 
 const generatingByOrderId = new Map<
@@ -444,9 +447,12 @@ async function generateApprovalLayerPreviewsForOrderUncached(
     await applyStoredCompositeToCard(
       admin,
       order,
-      fileId,
-      rev,
-      existing.pages[0] ?? 1,
+      {
+        fileId,
+        rev,
+        page: existing.pages[0] ?? 1,
+        layers: existing.layers,
+      },
       fingerprint
     );
     return previews;
@@ -488,6 +494,17 @@ async function generateApprovalLayerPreviewsForOrderUncached(
       page.compositeJpg,
       "image/png"
     );
+    try {
+      const printJpeg = await sharp(page.compositeJpg)
+        .jpeg({ quality: 86 })
+        .toBuffer();
+      await uploadBytes(admin, `${dir}/artwork.jpg`, printJpeg, "image/jpeg");
+    } catch (err) {
+      console.warn(
+        "[approval-layer-previews] artwork.jpg encode failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
     if (page.basePng.length > 0) {
       await uploadBytes(admin, `${dir}/base.png`, page.basePng, "image/png");
     }
@@ -520,11 +537,16 @@ async function generateApprovalLayerPreviewsForOrderUncached(
     previewIndexFromPack(packBySku, manifest, rev)
   );
   const firstPage = raster.pages.find((p) => p.page === 1) ?? raster.pages[0];
-  if (firstPage?.compositeJpg?.length) {
-    await upsertProductionCardImage(
+  if (firstPage) {
+    await applyStoredCompositeToCard(
       admin,
       order,
-      firstPage.compositeJpg,
+      {
+        fileId,
+        rev,
+        page: firstPage.page,
+        layers: raster.layers,
+      },
       fingerprint
     ).catch((err) =>
       console.warn(
@@ -825,19 +847,35 @@ export async function refreshProofsIfDrivePdfChanged(
     typeof specs[CARD_PDF_REV_SPEC] === "string"
       ? specs[CARD_PDF_REV_SPEC].trim()
       : "";
-  if (cardRev === fingerprint) return;
+  if (cardRev === `${fingerprint}:print-art`) return;
 
   try {
-    const client = proofsDriveClient(settings);
-    const preview = await fetchPreviewBytes(client, {
-      id: latest.id,
-      name: latest.name,
-      mimeType: "application/pdf",
-      thumbnailLink: null,
-    });
-    if (!preview?.buffer?.length) return;
     const admin = createAdminClient();
-    await upsertProductionCardImage(admin, order, preview.buffer, fingerprint);
+    const stored = index ?? (await loadRespondPreviewIndex(order.id));
+    const preview = stored
+      ? ({
+          fileId: stored.fileId,
+          rev: stored.rev,
+          page: stored.pages?.[0] ?? 1,
+          layers: stored.layers ?? [],
+        } satisfies Pick<
+          RespondLayerPreview,
+          "fileId" | "rev" | "page" | "layers"
+        >)
+      : {
+          fileId: latest.id,
+          rev,
+          page: 1,
+          layers: [] as RespondLayerPreview["layers"],
+        };
+    const ok = await applyStoredCompositeToCard(
+      admin,
+      order,
+      preview,
+      fingerprint
+    );
+    if (ok) return;
+    await generateApprovalLayerPreviewsForOrder(order);
   } catch (err) {
     console.warn(
       "[approval-layer-previews] card thumbnail refresh failed:",

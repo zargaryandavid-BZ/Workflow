@@ -23,6 +23,7 @@ import {
   NOTIFICATION_SEND_TIMEOUT_MS,
   postJsonWithTimeout,
 } from "@/lib/fetch-with-timeout";
+import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import {
@@ -628,11 +629,12 @@ export function ReadyToShipPopup({
                   </select>
                 </label>
               </div>
-              {boxes.map((box, index) => (
-                <div
-                  key={index}
-                  className="rounded-md border border-slate-200 bg-white p-3"
-                >
+              <div className="space-y-3" data-enter-focus-sequence>
+                {boxes.map((box, index) => (
+                  <div
+                    key={index}
+                    className="rounded-md border border-slate-200 bg-white p-3"
+                  >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className="text-sm font-medium text-slate-800">
                       Box {index + 1}
@@ -670,17 +672,20 @@ export function ReadyToShipPopup({
                           type="number"
                           min={0}
                           step="any"
+                          data-enter-focus-next
                           value={box[field]}
                           onChange={(e) =>
                             updateBox(index, field, e.target.value)
                           }
+                          onKeyDown={focusNextInputOnEnter}
                           className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
                         />
                       </label>
                     ))}
                   </div>
-                </div>
-              ))}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">

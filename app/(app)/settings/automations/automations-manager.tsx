@@ -198,12 +198,18 @@ export function AutomationsManager({
                     ? "ready_to_ship"
                     : "missing_info";
               const rule = notifyRules.find((r) => r.from_column === col.id);
+              const shippingOptRule = otherRules.find(
+                (r) => r.trigger === "on_shipping_opt_selected"
+              );
               return (
                 <NotifyColumnRow
                   key={col.id}
                   column={col}
                   type={type}
                   rule={rule}
+                  shippingOptRule={
+                    type === "ready_to_ship" ? shippingOptRule : undefined
+                  }
                   columns={columns}
                   onChanged={() => router.refresh()}
                 />
@@ -221,8 +227,8 @@ export function AutomationsManager({
           <p className="text-sm text-slate-500">
             Rules run automatically as jobs flow through the pipeline. Route new
             jobs by product on create, move cards when they enter a column, after
-            a customer approval response, or when a card sits too long in a
-            column.
+            a customer approval response, when a client selects shipping, or when a
+            card sits too long in a column.
           </p>
         </div>
 
@@ -353,6 +359,13 @@ export function AutomationsManager({
               Applies when a job is created manually or via webhook. Matching
               products are routed to the target column automatically (overrides
               the default first column).
+            </p>
+          ) : null}
+
+          {trigger === "on_shipping_opt_selected" ? (
+            <p className="text-xs text-slate-500">
+              When the customer confirms pickup, FedEx, self FedEx, or Uber on
+              the shipping portal, the card leaves Ready to Ship and moves here.
             </p>
           ) : null}
           {error ? (
@@ -584,12 +597,14 @@ function NotifyColumnRow({
   column,
   type,
   rule,
+  shippingOptRule,
   columns,
   onChanged,
 }: {
   column: BoardColumn;
   type: NotificationType;
   rule: AutomationRule | undefined;
+  shippingOptRule?: AutomationRule;
   columns: BoardColumn[];
   onChanged: () => void;
 }) {
@@ -645,6 +660,38 @@ function NotifyColumnRow({
     onChanged();
   }
 
+  async function setShippingOptTarget(toColumn: string) {
+    setBusy(true);
+    if (!toColumn) {
+      if (shippingOptRule) {
+        await fetch(`/api/automations/${shippingOptRule.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ toColumn: null, enabled: false }),
+        });
+      }
+    } else if (shippingOptRule) {
+      await fetch(`/api/automations/${shippingOptRule.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toColumn, enabled: true }),
+      });
+    } else {
+      await fetch("/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trigger: "on_shipping_opt_selected",
+          fromColumn: null,
+          toColumn,
+          config: {},
+        }),
+      });
+    }
+    setBusy(false);
+    onChanged();
+  }
+
   const rejectedTarget =
     (rule?.config as { rejected_to_column?: string | null } | undefined)
       ?.rejected_to_column ?? "";
@@ -694,13 +741,36 @@ function NotifyColumnRow({
       </div>
 
       {enabled && type === "ready_to_ship" ? (
-        <div className="mt-3 border-t border-slate-100 pt-3">
+        <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
           <p className="text-xs text-slate-500">
             When a job is dropped here, a confirmation popup will appear so you
             can notify the customer via email or SMS that their order is ready.
             For multi-part orders, sending waits until all parts are in this
             column — one link shows every part.
           </p>
+          <div>
+            <Label htmlFor={`ship-opt-${column.id}`}>
+              When the customer picks pickup, FedEx, self FedEx, or Uber, move
+              the card to
+            </Label>
+            <Select
+              id={`ship-opt-${column.id}`}
+              value={shippingOptRule?.to_column ?? ""}
+              disabled={busy}
+              onChange={(e) => void setShippingOptTarget(e.target.value)}
+            >
+              <option value="">
+                {columns.some((c) => /ship\s*opt/i.test(c.name ?? ""))
+                  ? "Ship Opt column (by name)"
+                  : "Select column…"}
+              </option>
+              {columns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
       ) : null}
 

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { isUnnamedPdfLayer, isPdfCutLineLayer, layersFromOptionalContent, mergePdfLayers, parsePdfOcgs, type OcLike, type PdfLayer } from "@/lib/pdf-ocg";
+import { isUnnamedPdfLayer, defaultVisiblePdfLayerIds, layersFromOptionalContent, mergePdfLayers, parsePdfOcgs, type OcLike, type PdfLayer } from "@/lib/pdf-ocg";
 import { installPdfJsMapPolyfills } from "@/lib/pdfjs-map-polyfill";
 import { initPdfjsNode, pdfjsNodeGetDocumentOptions } from "@/lib/pdfjs-node-assets";
 import { wrapPdfJsCanvasFactory } from "@/lib/pdfjs-canvas-cap";
@@ -71,10 +71,12 @@ async function pngFromCanvas(canvas: NodeCanvas): Promise<Buffer> {
 
 function applyVisibility(oc: OcConfig | null, layers: PdfLayer[], on: Set<string> | "print" | "none") {
   if (!oc) return;
+  const printOn =
+    on === "print" ? new Set(defaultVisiblePdfLayerIds(layers)) : null;
   for (const layer of layers) {
     const vis =
       on === "print"
-        ? !isPdfCutLineLayer(layer.name)
+        ? printOn!.has(layer.id)
         : on === "none"
           ? false
           : on.has(layer.id);
@@ -83,8 +85,8 @@ function applyVisibility(oc: OcConfig | null, layers: PdfLayer[], on: Set<string
 }
 
 /**
- * Rasterize selected PDF pages: one print composite PNG (Cut/dieline off,
- * same as the staff Artwork PDF view), plus a PNG per Acrobat layer.
+ * Rasterize selected PDF pages: one Artwork-plate composite (same as the
+ * staff Artwork view — Spot UV / dieline / white off), plus a PNG per layer.
  */
 export async function rasterizePdfLayerPreviews(
   input: Buffer,

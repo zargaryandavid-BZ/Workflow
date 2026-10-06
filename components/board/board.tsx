@@ -714,6 +714,7 @@ export function Board({
     notifyColumn: NotifyColumnConfig;
     columnName: string;
     groupOrders?: OrderWithRelations[];
+    fromColumnId?: string;
   } | null>(null);
   const [batchRerequestColumn, setBatchRerequestColumn] = useState<{
     columnId: string;
@@ -2188,6 +2189,7 @@ export function Board({
         order: { ...order, column_id: toColumnId },
         notifyColumn,
         columnName: toCol.name,
+        fromColumnId,
       });
     }
     if (isHoldColumn(toCol)) {
@@ -2720,6 +2722,7 @@ export function Board({
         notifyColumn,
         columnName: toCol.name,
         groupOrders: groupOrders.map((o) => ({ ...o, column_id: toColumnId })),
+        fromColumnId,
       });
     }
     offerFinishedCompletionSms(groupOrders, toCol.name);
@@ -3028,6 +3031,7 @@ export function Board({
             order: { ...movedOrder, column_id: overColumn },
             notifyColumn,
             columnName: columnsById.get(overColumn)?.name ?? "",
+            fromColumnId: activeColumn,
           });
         }
         const overCol = columnsById.get(overColumn);
@@ -4387,8 +4391,13 @@ export function Board({
         tags={tags}
         webhookSourceStyles={webhookSourceStyles}
         notifyColumns={notifyColumns}
-        onNotifyColumn={(order, notifyColumn, columnName) => {
-          setNotifyPopup({ order, notifyColumn, columnName });
+        onNotifyColumn={(order, notifyColumn, columnName, fromColumnId) => {
+          setNotifyPopup({
+            order,
+            notifyColumn,
+            columnName,
+            fromColumnId,
+          });
         }}
       />
 
@@ -4432,8 +4441,57 @@ export function Board({
           publicAppUrl={publicAppUrl}
           groupOrderIds={notifyPopup.groupOrders?.map((o) => o.id)}
           onClose={() => {
+            const canceled = notifyPopup;
             setNotifyPopup(null);
-            scheduleRefresh();
+            if (
+              canceled.notifyColumn.notify_type === "ready_to_ship" &&
+              canceled.fromColumnId &&
+              canceled.fromColumnId !== canceled.notifyColumn.column_id
+            ) {
+              const movedOrders = canceled.groupOrders?.length
+                ? canceled.groupOrders
+                : [canceled.order];
+              void (async () => {
+                let position =
+                  Math.max(
+                    0,
+                    ...boardOrdersRef.current
+                      .filter(
+                        (order) =>
+                          order.column_id === canceled.fromColumnId
+                      )
+                      .map((order) => order.position)
+                  ) + 1000;
+                for (const order of movedOrders) {
+                  const result = await requestOrderMove(
+                    {
+                      orderId: order.id,
+                      toColumnId: canceled.fromColumnId!,
+                      position,
+                    },
+                    {
+                      fromColumnId: canceled.notifyColumn.column_id,
+                      columns,
+                    }
+                  );
+                  if (!result.ok) {
+                    flashPermissionError(
+                      result.error ?? "Could not cancel the move."
+                    );
+                    scheduleRefresh();
+                    return;
+                  }
+                  position += 1000;
+                }
+                refreshMoveColumns(
+                  canceled.notifyColumn.column_id,
+                  canceled.fromColumnId!
+                );
+                flashToast("Move canceled");
+              })();
+            } else {
+              scheduleRefresh();
+            }
           }}
           onSaved={(message) => {
             setNotifyPopup(null);

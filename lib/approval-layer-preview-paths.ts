@@ -1,7 +1,5 @@
 /** Storage + public URL helpers for customer proof layer images (not the print PDF). */
 
-import { isPdfArtworkLayer, isPdfCutLineLayer } from "./pdf-ocg.ts";
-
 export const LAYER_PREVIEW_BUCKET_PREFIX = "approval-layer-previews";
 
 export function sanitizeLayerPreviewRev(modifiedTime: string): string {
@@ -38,6 +36,7 @@ export function layerPreviewObjectPath(
 ): string {
   const dir = layerPreviewPageDir(fileId, rev, page);
   if (layer === "composite") return `${dir}/composite.jpg`;
+  if (layer === "artwork" || layer === "print") return `${dir}/artwork.jpg`;
   if (layer === "base") return `${dir}/base.png`;
   return `${dir}/${sanitizeLayerPreviewKey(layer)}.png`;
 }
@@ -47,7 +46,7 @@ export function respondPreviewIndexPath(orderId: string): string {
   return `${LAYER_PREVIEW_BUCKET_PREFIX}/orders/${sanitizeLayerPreviewKey(orderId)}/latest.json`;
 }
 
-export type LayerPreviewKind = "composite" | "base" | string;
+export type LayerPreviewKind = "composite" | "artwork" | "print" | "base" | string;
 
 export type LayerPreviewManifest = {
   fileId: string;
@@ -65,37 +64,14 @@ export type RespondLayerPreview = {
   layers: { id: string; name: string }[];
 };
 
-/** Same pictures as /respond SEE LAYERS — named OCGs, or composite if none. */
+/**
+ * One stacked print picture (Artwork + foil / Spot UV / …) for the job ticket.
+ * Isolated white / cut plates are omitted — they are blank or solid green in RGB.
+ */
 export function layerPicsForJobTicket(
-  preview: Pick<RespondLayerPreview, "layers">
+  _preview?: Pick<RespondLayerPreview, "layers">
 ): { layer: string; name: string }[] {
-  const named = preview.layers.filter(
-    (l) => !/^layer\s+\d+$/i.test(l.name.trim())
-  );
-  if (named.length === 0) {
-    return [{ layer: "composite", name: "Proof" }];
-  }
-
-  const plates = named.filter((l) => !isPdfCutLineLayer(l.name));
-  if (plates.length === 0) {
-    return [{ layer: "composite", name: "Proof" }];
-  }
-  // Isolated Cut/Dieline PNGs are usually blank. One combined proof instead.
-  if (plates.length < named.length) {
-    const extras = plates.filter((l) => !isPdfArtworkLayer(l.name));
-    return [
-      { layer: "composite", name: "Artwork" },
-      ...extras.map((l) => ({
-        layer: l.id,
-        name: l.name.trim() || "Layer",
-      })),
-    ];
-  }
-
-  return named.map((l) => ({
-    layer: l.id,
-    name: l.name.trim() || "Layer",
-  }));
+  return [{ layer: "artwork", name: "Artwork" }];
 }
 
 export function respondLayerPreviewUrl(
@@ -111,7 +87,13 @@ export function respondLayerPreviewUrl(
     type: "layer_preview",
     rev: preview.rev,
     page: String(preview.page),
-    layer: layer === "composite" || layer === "base" ? layer : sanitizeLayerPreviewKey(layer),
+    layer:
+      layer === "composite" ||
+      layer === "artwork" ||
+      layer === "print" ||
+      layer === "base"
+        ? layer
+        : sanitizeLayerPreviewKey(layer),
   });
   return `/api/notifications/asset?${q.toString()}`;
 }

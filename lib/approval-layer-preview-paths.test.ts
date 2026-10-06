@@ -38,7 +38,7 @@ test("respondLayerPreviewUrl is token-gated through the asset route", () => {
   assert.match(href, /layer=composite/);
 });
 
-test("layerPicsForJobTicket uses named layers, not composite", () => {
+test("layerPicsForJobTicket uses one stacked print picture", () => {
   const pics = layerPicsForJobTicket({
     layers: [
       { id: "w", name: "White" },
@@ -46,25 +46,22 @@ test("layerPicsForJobTicket uses named layers, not composite", () => {
       { id: "x", name: "Layer 3" },
     ],
   });
-  assert.deepEqual(
-    pics.map((p) => p.name),
-    ["White", "ART WORK"]
-  );
+  assert.deepEqual(pics, [{ layer: "artwork", name: "Artwork" }]);
 });
 
-test("layerPicsForJobTicket replaces blank Cut plate with composite", () => {
+test("layerPicsForJobTicket is the stacked print even when a Cut plate exists", () => {
   const pics = layerPicsForJobTicket({
     layers: [
       { id: "c", name: "Cut" },
       { id: "a", name: "Artwork" },
     ],
   });
-  assert.deepEqual(pics, [{ layer: "composite", name: "Artwork" }]);
+  assert.deepEqual(pics, [{ layer: "artwork", name: "Artwork" }]);
 });
 
-test("layerPicsForJobTicket falls back to composite when only unnamed layers", () => {
+test("layerPicsForJobTicket falls back to stacked print when only unnamed layers", () => {
   const pics = layerPicsForJobTicket({
     layers: [{ id: "1", name: "Layer 1" }],
   });
-  assert.deepEqual(pics, [{ layer: "composite", name: "Proof" }]);
+  assert.deepEqual(pics, [{ layer: "artwork", name: "Artwork" }]);
 });

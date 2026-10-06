@@ -42,6 +42,12 @@ export async function completeShippingResponse(
   }
 
   if (existing.status === "client_responded") {
+    // Choice is already saved; still move the card in case a prior confirm
+    // returned before the column update finished.
+    await onShippingOptSelected(admin, {
+      orderId: existing.order_id,
+      tenantId: existing.tenant_id,
+    });
     return {
       ok: false,
       status: 409,
@@ -119,8 +125,7 @@ export async function completeShippingResponse(
     }
   }
 
-  // Fire-and-forget: move order to the configured automation column
-  void onShippingOptSelected(admin, {
+  await onShippingOptSelected(admin, {
     orderId: existing.order_id,
     tenantId: existing.tenant_id,
   });

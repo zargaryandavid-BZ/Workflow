@@ -39,6 +39,7 @@ import {
 import { listTimeChips } from "@/lib/time-chips.server";
 import type { TimeChip } from "@/lib/time-chips";
 import { fetchBoardConfigCached } from "@/lib/board-config-cache.server";
+import { matchShippingOptColumnId } from "@/lib/shipping-opt-column";
 
 function boardAux<T>(
   promise: Promise<T>,
@@ -123,7 +124,7 @@ export default async function BoardPage({
   const shippingOptColumnId =
     automationRules.find(
       (r) => r.trigger === "on_shipping_opt_selected" && r.enabled && r.to_column
-    )?.to_column ?? null;
+    )?.to_column ?? matchShippingOptColumnId(allBoardColumns);
   const notifyColumns = boardColumns
     .filter(
       (c) =>

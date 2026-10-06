@@ -205,6 +205,21 @@ export function boardShippingSignFromRequest(row: {
   return null;
 }
 
+/** Client already chose pickup, FedEx, self FedEx, Uber, or Curri. */
+export function isConfirmedShippingChoiceSign(
+  sign: BoardShippingSign | null | undefined
+): boolean {
+  if (!sign) return false;
+  return (
+    sign.kind === "pickup" ||
+    sign.kind === "delivery" ||
+    sign.kind === "label_ready" ||
+    sign.kind === "client_fedex" ||
+    sign.kind === "uber" ||
+    sign.kind === "curri"
+  );
+}
+
 export function isOvernightShippingSign(sign: BoardShippingSign | null | undefined) {
   if (!sign || sign.kind !== "delivery") return false;
   return /overnight/i.test(sign.label) || /overnight/i.test(sign.title);

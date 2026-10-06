@@ -54,6 +54,7 @@ import {
   ScanShippingSlipButtons,
 } from "@/components/fulfillment/ScanShippingSlipButtons";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
+import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 function isPhoneScan(): boolean {
@@ -853,6 +854,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [readyToShipPopup, setReadyToShipPopup] = useState<{
     order: OrderWithRelations;
     columnId: string;
+    fromColumnId: string;
   } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
@@ -994,6 +996,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           setReadyToShipPopup({
             order: { ...popupOrder, column_id: button.columnId },
             columnId: button.columnId,
+            fromColumnId: order.column_id,
           });
           return;
         }
@@ -1042,6 +1045,29 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       )
     : [];
 
+  async function cancelReadyToShipMove() {
+    const popup = readyToShipPopup;
+    if (!popup) return;
+    setReadyToShipPopup(null);
+
+    const result = await requestOrderMove(
+      {
+        orderId: popup.order.id,
+        toColumnId: popup.fromColumnId,
+      },
+      {
+        fromColumnId: popup.columnId,
+        columns,
+      }
+    );
+    if (!result.ok) {
+      setActionError(result.error ?? "Could not cancel the move.");
+    } else {
+      setActionResult(null);
+    }
+    await lookup(popup.order.title);
+  }
+
   return (
     <>
       {readyToShipPopup ? (
@@ -1052,13 +1078,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           customFields={customFields}
           fieldValues={{}}
           smsConfigured={smsConfigured}
-          onClose={() => {
-            setReadyToShipPopup(null);
-            setOrder(null);
-            setQuery("");
-            setActionResult(null);
-            window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
-          }}
+          onClose={() => void cancelReadyToShipMove()}
           onSent={() => {
             setReadyToShipPopup(null);
             setOrder(null);

@@ -15,6 +15,7 @@ import {
 } from "@/lib/stop-order-timers";
 import { isHoldColumn } from "@/lib/hold-column";
 import { notifyHoldWatchers } from "@/lib/user-notifications";
+import { resolveShippingOptColumnId } from "@/lib/shipping-opt-column";
 
 type Client = SupabaseClient;
 
@@ -435,16 +436,13 @@ export async function onShippingOptSelected(
   client: Client,
   { orderId, tenantId }: { orderId: string; tenantId: string }
 ): Promise<void> {
-  const { data: rules } = await client
-    .from("automation_rules")
-    .select("to_column")
-    .eq("tenant_id", tenantId)
-    .eq("trigger", "on_shipping_opt_selected")
-    .eq("enabled", true)
-    .limit(1);
-
-  const toColumnId = (rules as { to_column: string | null }[] | null)?.[0]?.to_column;
-  if (!toColumnId) return;
+  const toColumnId = await resolveShippingOptColumnId(client, tenantId);
+  if (!toColumnId) {
+    console.warn(
+      "[onShippingOptSelected] No Ship Opt destination. Add a “When client selects shipping option” rule, or a column named Ship Opt."
+    );
+    return;
+  }
 
   // Fetch current column so we can log fromName → toName
   const { data: order } = await client
@@ -467,11 +465,15 @@ export async function onShippingOptSelected(
     ])
   );
 
-  await client
+  const { error: moveError } = await client
     .from("orders")
     .update({ column_id: toColumnId, last_moved_at: new Date().toISOString() })
     .eq("id", orderId)
     .eq("tenant_id", tenantId);
+  if (moveError) {
+    console.error("[onShippingOptSelected] move failed", moveError);
+    return;
+  }
 
   await maybeStopPrepressTimersOnColumnLeave({
     tenantId,

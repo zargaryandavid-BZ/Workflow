@@ -159,7 +159,8 @@ interface CardDetailModalProps {
   onNotifyColumn?: (
     order: OrderWithRelations,
     notifyColumn: NotifyColumnConfig,
-    columnName: string
+    columnName: string,
+    fromColumnId?: string
   ) => void;
 }
 
@@ -3025,7 +3026,8 @@ export function CardDetailModal({
                       onNotifyColumn(
                         { ...data.order, column_id: destinationColumnId },
                         notifyCol,
-                        destColumn?.name ?? destinationName
+                        destColumn?.name ?? destinationName,
+                        data.order.column_id
                       );
                     }
                   }

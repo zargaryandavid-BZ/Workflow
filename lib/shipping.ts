@@ -18,6 +18,7 @@ import { sendSms } from "@/lib/sms";
 import type { MessageTemplateMap } from "@/lib/message-templates";
 import { ensureShortCustomerUrl, appOrigin } from "@/lib/short-link";
 import type { ShippingBox, ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
+import { onShippingOptSelected } from "@/lib/automation";
 
 type ShippingRequestRow = {
   id: string;
@@ -152,6 +153,13 @@ export async function ensureShippingRequestForSend(
       ? "Shipping requests require migration 0044_shipping_requests.sql."
       : insertError?.message ?? "Failed to create shipping request";
     return { ok: false, error: msg };
+  }
+
+  if (args.pickupOnly) {
+    await onShippingOptSelected(supabase, {
+      orderId: args.orderId,
+      tenantId: args.tenantId,
+    });
   }
 
   return {
