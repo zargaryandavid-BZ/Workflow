@@ -19,6 +19,9 @@ export const MESSAGE_TEMPLATE_KEYS = [
   "pickup_ready_email_subject",
   "pickup_ready_email_body",
   "pickup_ready_sms",
+  "fedex_tracking_email_subject",
+  "fedex_tracking_email_body",
+  "fedex_tracking_sms",
   "finished_review_sms",
   "finished_no_review_sms",
   "team_invite_email_subject",
@@ -159,6 +162,33 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
     ],
   },
   {
+    id: "fedex_tracking",
+    title: "FedEx tracking",
+    description:
+      "Sent automatically after the customer pays for FedEx and the shipping label is created.",
+    keys: [
+      {
+        key: "fedex_tracking_email_subject",
+        label: "Email subject",
+        kind: "subject",
+      },
+      {
+        key: "fedex_tracking_email_body",
+        label: "Email body",
+        kind: "email",
+      },
+      { key: "fedex_tracking_sms", label: "SMS", kind: "sms" },
+    ],
+    variables: [
+      "{{customer_name}}",
+      "{{order_number}}",
+      "{{tracking_number}}",
+      "{{tracking_url}}",
+      "{{team_name}}",
+      "{{brand}}",
+    ],
+  },
+  {
     id: "finished_order",
     title: "Order finished",
     description:
@@ -284,6 +314,21 @@ Thank you,
 {{team_name}}`,
   pickup_ready_sms:
     "Hi, this is Bazaar Printing. Your order {{order_number}} is ready for pickup at {{pickup_location}}. {{pickup_hours}} View order: {{portal_url}}",
+
+  fedex_tracking_email_subject:
+    "Your order {{order_number}} has shipped — FedEx {{tracking_number}}",
+  fedex_tracking_email_body: `Hi {{customer_name}},
+
+Your order {{order_number}} has shipped with FedEx.
+
+Tracking number: {{tracking_number}}
+Track your shipment:
+{{tracking_url}}
+
+Thank you,
+{{team_name}}`,
+  fedex_tracking_sms:
+    "Hi {{customer_name}}, this is Bazaar Printing. Your order {{order_number}} has shipped. Tracking number: {{tracking_number}} {{tracking_url}}",
 
   finished_review_sms:
     "Hi {{customer_name}}, this is Bazaar Printing. Your order {{order_number}} is finished. We'd love a quick review: {{review_link}}",

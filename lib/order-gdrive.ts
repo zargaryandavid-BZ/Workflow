@@ -17,6 +17,7 @@ import {
   type ResolvedOrderDriveFolders,
 } from "@/lib/resolve-order-drive-folders";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
+import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
 
 type Client = SupabaseClient;
 
@@ -201,6 +202,32 @@ export type OrderFinalDriveContext =
     };
 
 /**
+ * Drive folder ids for this card plus same-PO siblings (15389-1 / 15389-2).
+ * Line 2 often has no Artwork link of its own; the PDF lives on the group.
+ */
+export async function collectGroupDriveSeedIds(
+  client: Client,
+  tenantId: string,
+  order: {
+    id: string;
+    title: string;
+    specs?: Record<string, unknown> | null;
+  }
+): Promise<string[]> {
+  const members = await listOrderGroupMembers(client, tenantId, order);
+  const ids: string[] = [];
+  for (const member of members) {
+    ids.push(
+      ...seedDriveIdsFromOrder({
+        specs: member.specs ?? {},
+        artworkUrl: null,
+      })
+    );
+  }
+  return [...new Set(ids.filter(Boolean))];
+}
+
+/**
  * Shared Drive folder resolution for gdrive-status and pdf-check.
  * Does not persist resolved URLs — callers decide whether to write back.
  */
@@ -264,10 +291,16 @@ export async function loadOrderFinalDriveContext(
     order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
       ? (order.specs as Record<string, unknown>)
       : {};
-  const seedIds = seedDriveIdsFromOrder({
+  const ownSeedIds = seedDriveIdsFromOrder({
     specs,
     artworkUrl: artworkUrl || null,
   });
+  const groupSeedIds = await collectGroupDriveSeedIds(client, tenantId, {
+    id: order.id as string,
+    title: String(order.title ?? ""),
+    specs,
+  });
+  const seedIds = [...new Set([...ownSeedIds, ...groupSeedIds])];
   const orderRow = {
     id: order.id as string,
     title: String(order.title ?? ""),

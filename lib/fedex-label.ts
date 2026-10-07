@@ -315,6 +315,23 @@ export async function ensureFedExLabel(
       );
     }
 
+    try {
+      const { notifyFedexTrackingCreated } = await import(
+        "@/lib/fedex-tracking-notify"
+      );
+      await notifyFedexTrackingCreated(admin, {
+        tenantId: request.tenant_id,
+        orderId: request.order_id,
+        trackingNumber: created.trackingNumber,
+      });
+    } catch (err) {
+      console.error(
+        "[ensureFedExLabel] tracking notify failed",
+        shippingRequestId,
+        err instanceof Error ? err.message : err
+      );
+    }
+
     return {
       ok: true,
       trackingNumber: created.trackingNumber,

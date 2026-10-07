@@ -1048,6 +1048,84 @@ export function buildPickupReadySmsBody(params: {
   });
 }
 
+export function fedexTrackingEmailSubject(
+  orderNumber: string,
+  templates?: MessageTemplateMap | null,
+  vars?: {
+    customer_name?: string;
+    tracking_number?: string;
+    tracking_url?: string;
+    team_name?: string;
+  } | null
+) {
+  const map = templatesOrDefault(templates);
+  return renderMessageTemplate(map.fedex_tracking_email_subject, {
+    order_number: orderNumber,
+    customer_name: vars?.customer_name ?? "",
+    tracking_number: vars?.tracking_number ?? "",
+    tracking_url: vars?.tracking_url ?? "",
+    team_name: vars?.team_name ?? "",
+  });
+}
+
+export function buildFedexTrackingEmailBody(params: {
+  customerName: string;
+  orderNumber: string;
+  trackingNumber: string;
+  trackingUrl: string;
+  teamName?: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const map = templatesOrDefault(params.templates);
+  return renderMessageTemplate(map.fedex_tracking_email_body, {
+    customer_name: params.customerName,
+    order_number: params.orderNumber,
+    tracking_number: params.trackingNumber,
+    tracking_url: params.trackingUrl,
+    team_name: params.teamName ?? "BazaarPrinting Team",
+    brand: "Bazaar Printing",
+  });
+}
+
+export function buildFedexTrackingEmailHtml(params: {
+  customerName: string;
+  orderNumber: string;
+  trackingNumber: string;
+  trackingUrl: string;
+  teamName?: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const text = buildFedexTrackingEmailBody(params);
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${params.orderNumber}`,
+    bodyHtml: plainTextToEmailParagraphs(text),
+    emailTitle: fedexTrackingEmailSubject(params.orderNumber, params.templates, {
+      customer_name: params.customerName,
+      tracking_number: params.trackingNumber,
+      tracking_url: params.trackingUrl,
+      team_name: params.teamName ?? "BazaarPrinting Team",
+    }),
+  });
+}
+
+export function buildFedexTrackingSmsBody(params: {
+  customerName?: string | null;
+  orderNumber: string;
+  trackingNumber: string;
+  trackingUrl: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const map = templatesOrDefault(params.templates);
+  return renderMessageTemplate(map.fedex_tracking_sms, {
+    customer_name: params.customerName?.trim() || "there",
+    order_number: params.orderNumber,
+    tracking_number: params.trackingNumber,
+    tracking_url: params.trackingUrl,
+    brand: "Bazaar Printing",
+    team_name: "BazaarPrinting Team",
+  });
+}
+
 export function formatFileSize(bytes: number | null | undefined) {
   if (bytes == null || bytes <= 0) return "";
   const units = ["B", "KB", "MB", "GB"];

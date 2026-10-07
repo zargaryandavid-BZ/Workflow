@@ -2387,25 +2387,15 @@ export function CardDetailModal({
                 </div>
               </div>
             ) : null}
-            {pdfCheck.checked && !pdfCheck.valid ? (
+            {pdfCheck.checked && !pdfCheck.hasLayers ? (
               <div className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                  <p className="font-medium">PDF does not meet print spec</p>
-                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
-                    {!pdfCheck.hasLayers ? (
-                      <li>
-                        Missing Acrobat layers (re-export with &quot;Create
-                        Acrobat Layers from Top-Level Layers&quot;)
-                      </li>
-                    ) : null}
-                    {!pdfCheck.isLinearized ? (
-                      <li>
-                        Not optimized for Fast Web View (re-export with
-                        &quot;Optimize for Fast Web View&quot;)
-                      </li>
-                    ) : null}
-                  </ul>
+                  <p className="font-medium">PDF is missing Acrobat layers</p>
+                  <p className="mt-1 text-xs">
+                    Re-export with &quot;Create Acrobat Layers from Top-Level
+                    Layers&quot; so Artwork / Dieline / White can be toggled.
+                  </p>
                 </div>
               </div>
             ) : null}

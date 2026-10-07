@@ -21,6 +21,7 @@ import {
   isClientFedExSelection,
   maskFedExAccountNumber,
 } from "@/lib/client-fedex";
+import { fedexTrackingUrl } from "@/lib/fedex-tracking";
 
 interface ShippingTabProps {
   shippingRequest: ShippingRequest;
@@ -344,9 +345,7 @@ export function ShippingTab({
   const labelPending = shippingRequest.fedex_shipment_status === "pending";
   const labelFailed = shippingRequest.fedex_shipment_status === "failed";
   const trackingUrl = shippingRequest.fedex_tracking_number
-    ? `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(
-        shippingRequest.fedex_tracking_number
-      )}`
+    ? fedexTrackingUrl(shippingRequest.fedex_tracking_number)
     : null;
 
   return (

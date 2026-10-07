@@ -6,6 +6,8 @@ import {
   loadPickupLocations,
   toPublicShippingSettings,
 } from "@/lib/shipping-settings";
+import { ensureMessageTemplates } from "@/lib/message-templates.server";
+import { DEFAULT_MESSAGE_TEMPLATES } from "@/lib/message-templates";
 import { ShippingSettingsManager } from "./shipping-settings-manager";
 
 function formatLoadError(message: string): string {
@@ -27,11 +29,17 @@ export default async function ShippingSettingsPage() {
   const supabase = await createClient();
   let loadError: string | null = null;
   let settings = null;
+  let messageTemplates = { ...DEFAULT_MESSAGE_TEMPLATES };
 
   try {
     const row = await ensureShippingSettings(supabase, ctx.tenant.id);
     const pickupLocations = await loadPickupLocations(supabase, ctx.tenant.id);
     settings = toPublicShippingSettings(row, pickupLocations);
+    try {
+      messageTemplates = await ensureMessageTemplates(supabase, ctx.tenant.id);
+    } catch {
+      messageTemplates = { ...DEFAULT_MESSAGE_TEMPLATES };
+    }
   } catch (err) {
     loadError = formatLoadError(
       err instanceof Error ? err.message : "Could not load shipping settings"
@@ -51,9 +59,14 @@ export default async function ShippingSettingsPage() {
     <div>
       <h1 className="mb-1 text-lg font-semibold text-slate-800">Shipping</h1>
       <p className="mb-6 text-sm text-slate-500">
-        FedEx rates, pickup address, and Stripe payments for the client portal.
+        FedEx rates, pickup address, Stripe payments, and tracking SMS/email.
       </p>
-      <ShippingSettingsManager initialSettings={settings} loadError={loadError} />
+      <ShippingSettingsManager
+        initialSettings={settings}
+        loadError={loadError}
+        messageTemplates={messageTemplates}
+        messageTemplateDefaults={DEFAULT_MESSAGE_TEMPLATES}
+      />
     </div>
   );
 }

@@ -3,6 +3,84 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { canEditOrderDetails } from "@/lib/permissions";
 import { preserveCardImage, type CardImageSource } from "@/lib/card-image";
+import { loadOrderFinalDriveContext, collectGroupDriveSeedIds } from "@/lib/order-gdrive";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+/** Build or return the cardboard picture from the Final production PDF. */
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: orderId } = await params;
+  const ctx = await getTenantContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const supabase = await createClient();
+  const loaded = await loadOrderFinalDriveContext(
+    supabase,
+    ctx.tenant.id,
+    orderId
+  );
+  if (loaded.kind === "not_found") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const {
+    loadProductionCardPreviewUrl,
+    ensureBoardCardThumbnailFromFinalPdf,
+  } = await import("@/lib/approval-layer-previews");
+
+  const existing = await loadProductionCardPreviewUrl(orderId);
+  if (existing) {
+    return NextResponse.json({ ...existing, source: "sku_image" as const });
+  }
+
+  if (loaded.kind !== "ok") {
+    return NextResponse.json({ error: "No production PDF" }, { status: 404 });
+  }
+
+  const groupFolderIds = await collectGroupDriveSeedIds(
+    supabase,
+    ctx.tenant.id,
+    {
+      id: loaded.order.id,
+      title: loaded.order.title,
+      specs: loaded.order.specs,
+    }
+  );
+  const folderIds = [
+    ...new Set(
+      [
+        ...(loaded.resolved?.finalIds ?? []),
+        ...loaded.seedIds,
+        ...groupFolderIds,
+      ].filter(Boolean)
+    ),
+  ];
+  if (folderIds.length === 0) {
+    return NextResponse.json({ error: "No production PDF" }, { status: 404 });
+  }
+
+  const preview = await ensureBoardCardThumbnailFromFinalPdf(
+    {
+      id: loaded.order.id,
+      title: loaded.order.title,
+      tenant_id: ctx.tenant.id,
+      specs: loaded.order.specs,
+    },
+    loaded.settings,
+    folderIds
+  );
+  if (!preview) {
+    return NextResponse.json(
+      { error: "Could not build card picture from the Final PDF" },
+      { status: 404 }
+    );
+  }
+  return NextResponse.json({ ...preview, source: "sku_image" as const });
+}
 
 export async function POST(
   request: Request,

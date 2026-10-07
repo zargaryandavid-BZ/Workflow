@@ -28,6 +28,7 @@ import {
   resolveOrderDriveFolders,
   seedDriveIdsFromOrder,
 } from "@/lib/resolve-order-drive-folders";
+import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
 
 export type { RespondFinalPdf };
 
@@ -206,10 +207,18 @@ async function fetchRespondArtworkPackUncached(
 
   const specs = order.specs ?? {};
   const artId = await artworkFolderId(supabase, tenantId, order.id);
-  const seeds = seedDriveIdsFromOrder({
+  const ownSeeds = seedDriveIdsFromOrder({
     specs,
     artworkUrl: artId ? `https://drive.google.com/drive/folders/${artId}` : null,
   });
+  const members = await listOrderGroupMembers(supabase, tenantId, order);
+  const siblingSeeds = members.flatMap((member) =>
+    seedDriveIdsFromOrder({
+      specs: member.specs ?? {},
+      artworkUrl: null,
+    })
+  );
+  const seeds = [...new Set([...ownSeeds, ...siblingSeeds].filter(Boolean))];
   if (seeds.length === 0) return EMPTY_PACK(skus);
 
   let files: ProofFile[] = [];

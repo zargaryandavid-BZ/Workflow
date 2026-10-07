@@ -6,10 +6,14 @@ import { Button } from "@/components/ui/button";
 import type { ShippingPickupLocationDraft, ShippingSettingsPublic } from "@/lib/types";
 import { emptyPickupLocationDraft } from "@/lib/pickup-locations";
 import { ClientFedexAccountsPanel } from "./client-fedex-accounts-panel";
+import { FedexTrackingTemplatesPanel } from "./fedex-tracking-templates-panel";
+import type { MessageTemplateMap } from "@/lib/message-templates";
 
 interface Props {
   initialSettings: ShippingSettingsPublic;
   loadError: string | null;
+  messageTemplates: MessageTemplateMap;
+  messageTemplateDefaults: MessageTemplateMap;
 }
 
 function SecretInput({
@@ -45,7 +49,12 @@ function SecretInput({
   );
 }
 
-export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
+export function ShippingSettingsManager({
+  initialSettings,
+  loadError,
+  messageTemplates,
+  messageTemplateDefaults,
+}: Props) {
   const router = useRouter();
   const [settings, setSettings] = useState(initialSettings);
   const [error, setError] = useState<string | null>(null);
@@ -627,6 +636,11 @@ export function ShippingSettingsManager({ initialSettings, loadError }: Props) {
       </section>
 
       <ClientFedexAccountsPanel />
+
+      <FedexTrackingTemplatesPanel
+        initialTemplates={messageTemplates}
+        defaults={messageTemplateDefaults}
+      />
 
       <div className="flex justify-end">
         <Button type="button" onClick={() => void save()} disabled={saving}>

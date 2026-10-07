@@ -16,6 +16,7 @@ import {
   Clock,
   CreditCard,
   Flag,
+  Info,
   Layers,
   Lock,
   MapPin,
@@ -38,6 +39,7 @@ import {
 } from "@/components/board/final-artwork-modal";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import {
+  CARD_IMAGE_CHANGED_EVENT,
   preferCardImage,
   type BoardThumbnail,
 } from "@/lib/card-image";
@@ -92,6 +94,7 @@ import { CardTimerControl } from "./card-timer-control";
 import { BoardWorkerChip } from "./board-worker-chip";
 import { CardFooterFitText } from "./card-footer-fit-text";
 import { CardDesignerWorkedBadge } from "./card-designer-worked-badge";
+import { GroupPartLocationsDialog } from "./group-part-locations-dialog";
 import { designerWorkedDisplaySeconds } from "@/lib/card-designer-worked";
 import {
   getActiveWarning,
@@ -516,17 +519,16 @@ function PdfSpecWarningBadge({
   if (!show) return null;
   const reasons = [
     !pdfCheck.hasLayers ? "Missing Acrobat layers" : "",
-    !pdfCheck.isLinearized ? "Not optimized for Fast Web View" : "",
   ]
     .filter(Boolean)
     .join("\n");
   return (
     <span
       className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md ring-1 ring-white"
-      title={reasons}
+      title={reasons || "Missing Acrobat layers"}
     >
       <AlertTriangle className="h-3 w-3" />
-      PDF
+      LAYERS
     </span>
   );
 }
@@ -614,6 +616,7 @@ export function OrderCard({
     id: order.id,
     disabled: !canDrag || order.specs?.locked === true,
   });
+  const [pdfCardThumb, setPdfCardThumb] = useState<BoardThumbnail | null>(null);
 
   const orderQty = cardOrderQty(customFields, fieldValues, order.specs);
   const skuCount = cardSkuCount(order.specs);
@@ -661,13 +664,60 @@ export function OrderCard({
   const folderHasFiles = driveStatus.hasFiles;
   const hasFinalPdf = driveStatus.hasFinalPdf;
   const pdfCheck = useOrderPdfCheck(order.id, hasFinalPdf);
-  const showPdfWarning = hasFinalPdf && pdfCheck.checked && !pdfCheck.valid;
+  const showPdfWarning =
+    hasFinalPdf && pdfCheck.checked && !pdfCheck.hasLayers;
   const showNoProductionPdf =
     driveStatus.loaded &&
     !hasFinalPdf &&
     Boolean(driveStatus.finalUrl || driveStatus.designerUrl);
-  /** Artwork button: Final files, or a PDF in Final or Designer. */
-  const showArtworkButton = folderHasFiles || driveStatus.hasPdf;
+
+  useEffect(() => {
+    setPdfCardThumb(null);
+  }, [order.id]);
+
+  useEffect(() => {
+    if ((thumbnails?.length ?? 0) > 0) return;
+    let cancelled = false;
+    void fetchWithAuth(`/api/orders/${order.id}/card-image`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json() as Promise<{
+          id?: string;
+          url?: string;
+          source?: string;
+        }>;
+      })
+      .then((json) => {
+        if (cancelled || !json?.id || !json.url) return;
+        const thumb: BoardThumbnail = {
+          url: json.url,
+          id: json.id,
+          source: json.source === "asset" ? "asset" : "sku_image",
+        };
+        setPdfCardThumb(thumb);
+        window.dispatchEvent(
+          new CustomEvent(CARD_IMAGE_CHANGED_EVENT, {
+            detail: {
+              orderId: order.id,
+              id: thumb.id,
+              source: thumb.source,
+              url: thumb.url,
+            },
+          })
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [order.id, thumbnails]);
+
+  const displayThumbs =
+    thumbnails && thumbnails.length > 0
+      ? thumbnails
+      : pdfCardThumb
+        ? [pdfCardThumb]
+        : [];
 
   const designerName =
     designerNameProp?.trim() ||
@@ -781,6 +831,7 @@ export function OrderCard({
   const menuRef = useRef<HTMLDivElement>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [artworkOpen, setArtworkOpen] = useState(false);
+  const [groupLocationsOpen, setGroupLocationsOpen] = useState(false);
   const [cardImageBusy, setCardImageBusy] = useState(false);
 
   // Right-click on designer chip (admin / account manager)
@@ -797,7 +848,8 @@ export function OrderCard({
   const dueExactChangedAtRef = useRef(0);
 
   async function showPicOnCard(index: number) {
-    const list = thumbnails ?? [];
+    const list =
+      displayThumbs.length > 0 ? displayThumbs : (thumbnails ?? []);
     const picked = list[index];
     if (!picked?.id || !onCardThumbnailsChange) return;
     const previous = list;
@@ -1258,33 +1310,47 @@ export function OrderCard({
           />
         ) : null}
       </div>
-      {/* Top row: thumbnail + header info */}
+      {/* Top row: thumbnail + header info — always keep the artwork box */}
       <div className="flex items-start gap-3">
-        {thumbnails && thumbnails.length > 0 ? (
-          <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="relative h-28 w-28 shrink-0 overflow-hidden">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightboxOpen(true);
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="h-28 w-28 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
-              aria-label={`View pictures for ${order.title}`}
-            >
-              <Image
-                src={thumbnails[0].url}
-                alt=""
-                width={112}
-                height={112}
-                className="h-28 w-28 object-cover"
-                unoptimized
-              />
-            </button>
-            {thumbnails.length > 1 ? (
+            {displayThumbs.length > 0 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxOpen(true);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="h-28 w-28 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                aria-label={`View pictures for ${order.title}`}
+              >
+                <Image
+                  src={displayThumbs[0].url}
+                  alt=""
+                  width={112}
+                  height={112}
+                  className="h-28 w-28 object-cover"
+                  unoptimized
+                />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setArtworkOpen(true);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="flex h-28 w-28 items-center justify-center bg-slate-50 text-slate-300 hover:bg-slate-100 hover:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                aria-label={`View artwork pages and layers for ${order.title}`}
+              >
+                <Layers className="h-8 w-8" aria-hidden />
+              </button>
+            )}
+            {displayThumbs.length > 1 ? (
               <span className="pointer-events-none absolute bottom-0.5 left-0.5 z-10 rounded bg-black/65 px-1 py-px text-[9px] font-semibold tabular-nums text-white">
-                {thumbnails.length}
+                {displayThumbs.length}
               </span>
             ) : null}
             <span className="pointer-events-none absolute left-0.5 top-0.5 max-w-[calc(100%-4px)] truncate rounded bg-black/70 px-1 py-px text-[10px] font-bold leading-tight tabular-nums text-white">
@@ -1297,34 +1363,8 @@ export function OrderCard({
               showNoProductionPdf={showNoProductionPdf}
             />
           </div>
-          {showArtworkButton ? (
-            <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
-          ) : null}
-          </div>
-        ) : showArtworkButton ? (
-          <div className="flex w-28 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <div className="relative h-28 w-28 shrink-0 overflow-hidden">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setArtworkOpen(true);
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="flex h-28 w-28 items-center justify-center bg-slate-50 text-slate-300 hover:bg-slate-100 hover:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
-              aria-label={`View artwork pages and layers for ${order.title}`}
-            >
-              <Layers className="h-8 w-8" aria-hidden />
-            </button>
-            <PdfSpecWarningOverlay
-              show={showPdfWarning}
-              pdfCheck={pdfCheck}
-              showNoProductionPdf={showNoProductionPdf}
-            />
-            </div>
-            <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
-          </div>
-        ) : null}
+          <SeeArtworkButton onClick={() => setArtworkOpen(true)} />
+        </div>
 
         <div
           className="min-w-0 flex-1"
@@ -1374,7 +1414,7 @@ export function OrderCard({
                     Send ready
                   </span>
                 ) : null}
-                {!(thumbnails && thumbnails.length > 0) &&
+                {!(displayThumbs.length > 0) &&
                 shortOrderNumber &&
                 shortOrderNumber !== cardTitle ? (
                   <span className="truncate leading-snug">
@@ -1393,6 +1433,21 @@ export function OrderCard({
                       </span>
                     ) : null}
                   </span>
+                ) : null}
+                {groupSize != null && groupSize >= 2 ? (
+                  <button
+                    type="button"
+                    title="Show all order items and their columns"
+                    aria-label="Show all order items and their columns"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setGroupLocationsOpen(true);
+                    }}
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-800"
+                  >
+                    <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
                 ) : null}
                 {hasApplication ? (
                   <ApplicationIcon
@@ -1762,6 +1817,15 @@ export function OrderCard({
         >
           <CardFooterFitText>{order.tag.name}</CardFooterFitText>
         </div>
+      ) : null}
+
+      {groupLocationsOpen && groupSize != null && groupSize >= 2 ? (
+        <GroupPartLocationsDialog
+          orderId={order.id}
+          columnId={order.column_id}
+          groupSize={groupSize}
+          onClose={() => setGroupLocationsOpen(false)}
+        />
       ) : null}
 
       {/* Right-click: actions / assign designer / move (portaled — card has overflow + dnd transform) */}
@@ -2346,11 +2410,11 @@ export function OrderCard({
         />
       ) : null}
 
-      {lightboxOpen && thumbnails && thumbnails.length > 0 ? (
+      {lightboxOpen && displayThumbs.length > 0 ? (
         <ImageLightbox
-          images={thumbnails.map((thumb, i) => ({
+          images={displayThumbs.map((thumb, i) => ({
             src: thumb.url,
-            label: `${order.title} · ${i + 1}/${thumbnails.length}`,
+            label: `${order.title} · ${i + 1}/${displayThumbs.length}`,
           }))}
           initialIndex={0}
           onClose={() => setLightboxOpen(false)}

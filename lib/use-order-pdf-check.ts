@@ -77,7 +77,7 @@ async function fetchCheck(orderId: string): Promise<PdfCheckResult | null> {
     checked,
     hasLayers,
     isLinearized,
-    valid: checked ? hasLayers && isLinearized : true,
+  valid: checked ? hasLayers : true,
     fileName: json.fileName ?? null,
   };
 }

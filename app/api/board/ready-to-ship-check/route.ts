@@ -88,6 +88,13 @@ export async function GET(request: Request) {
         : null,
     }))
   );
+  const groupParts = members.map((member) => ({
+    id: member.id,
+    title: member.title,
+    columnName: member.column_id
+      ? (columnNameById.get(member.column_id) ?? "Unknown column")
+      : "No column",
+  }));
 
   const memberIds = members.map((m) => m.id);
   const [{ data: previousNotif }, { data: previousShip }] = await Promise.all([
@@ -128,6 +135,7 @@ export async function GET(request: Request) {
     groupLabel,
     notifyLabel,
     partLocations,
+    groupParts,
     previousNotificationDate: latest,
   });
 }

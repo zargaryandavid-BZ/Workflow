@@ -32,5 +32,6 @@ export function inspectPdf(buffer: ArrayBuffer | Uint8Array): PdfPrintSpecInspec
 }
 
 export function pdfPrintSpecValid(inspect: PdfPrintSpecInspect): boolean {
-  return inspect.hasLayers && inspect.isLinearized;
+  // Fast Web View (linearized) is optional. The board alarm is missing layers.
+  return inspect.hasLayers;
 }

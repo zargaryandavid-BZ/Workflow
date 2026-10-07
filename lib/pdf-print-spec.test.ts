@@ -21,7 +21,7 @@ endobj
   assert.equal(pdfPrintSpecValid(result), true);
 });
 
-test("inspectPdf rejects missing Fast Web View", () => {
+test("inspectPdf accepts layers without Fast Web View", () => {
   const pdf = `%PDF-1.4
 1 0 obj
 << /Type /Catalog /OCProperties << /OCGs [2 0 R] >> >>
@@ -30,7 +30,7 @@ endobj
   const result = inspectPdf(latin1(pdf));
   assert.equal(result.isLinearized, false);
   assert.equal(result.hasLayers, true);
-  assert.equal(pdfPrintSpecValid(result), false);
+  assert.equal(pdfPrintSpecValid(result), true);
 });
 
 test("inspectPdf rejects missing OCG layers", () => {
