@@ -14,6 +14,24 @@ import {
 } from "@/lib/fulfillment-day";
 import type { MultiitemBoxOrderRow, MultiitemBoxRow } from "@/lib/multiitem-box-lookup";
 
+/** Small inline QR code for a single order item (encodes the order title). */
+function ItemQrCode({ value, size = 48 }: { value: string; size?: number }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void QRCode.toDataURL(value, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: size * 2, // 2× for retina
+      color: { dark: "#111827", light: "#ffffff" },
+    }).then((next) => { if (!cancelled) setUrl(next); });
+    return () => { cancelled = true; };
+  }, [value, size]);
+  if (!url) return <span className="inline-block" style={{ width: size, height: size }} />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={url} alt={`QR ${value}`} width={size} height={size} className="shrink-0 rounded" />;
+}
+
 const SIZE_PRESETS = [
   "6×6×6 in",
   "8×6×4 in",
@@ -253,13 +271,14 @@ function HistoryBoxCard({
         {box.items.map((item) => (
           <div
             key={item.id}
-            className="grid grid-cols-[5.5rem_minmax(0,1fr)_auto] gap-2 border-t border-slate-100 py-1.5 text-xs"
+            className="grid grid-cols-[auto_5.5rem_minmax(0,1fr)_auto] items-center gap-2 border-t border-slate-100 py-1.5 text-xs"
           >
+            <ItemQrCode value={item.orderTitle} size={32} />
             <span className="truncate font-mono font-medium">
               {formatShortOrderNumber(item.orderTitle)}
             </span>
-            <span className="truncate text-slate-500">
-              {item.orderTitle || "—"}
+            <span className="min-w-0 truncate font-medium text-slate-800">
+              {item.itemTitle || item.orderTitle || "—"}
             </span>
             <span className="tabular-nums">{item.quantity}</span>
           </div>
@@ -1195,17 +1214,18 @@ export function MultiitemBoxSlipModal({
                           key={item.id}
                           className="border-b border-slate-100 py-1.5"
                         >
-                          <div className="grid grid-cols-[7.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
+                          <div className="grid grid-cols-[auto_7.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
+                            <ItemQrCode value={item.orderTitle} size={64} />
                             <p className="truncate font-mono text-sm font-medium tabular-nums text-slate-900">
                               {formatShortOrderNumber(item.orderTitle)}
                             </p>
-                            <p className="min-w-0 truncate text-sm text-slate-500">
-                              {item.orderTitle || "—"}
+                            <p className="min-w-0 truncate text-sm font-medium text-slate-800">
+                              {item.itemTitle || item.orderTitle || "—"}
                             </p>
                             <input
                               type="number"
                               min={1}
-                              max={999}
+                              max={9999999}
                               value={item.quantity}
                               onChange={(e) =>
                                 patchBoxLocal(active.id, {
@@ -1225,7 +1245,7 @@ export function MultiitemBoxSlipModal({
                                   Number(e.currentTarget.value)
                                 )
                               }
-                              className="w-14 rounded border border-slate-300 px-1 py-0.5 text-right font-mono text-sm tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-50"
+                              className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-right font-mono text-base tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-50"
                               disabled={readOnly}
                             />
                             {readOnly ? (

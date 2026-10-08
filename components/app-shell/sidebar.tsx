@@ -123,6 +123,7 @@ const nav: NavItem[] = [
       { href: "/fulfillment/send", label: "Send", icon: PackagePlus },
       { href: "/fulfillment/received", label: "Received", icon: PackageCheck },
       { href: "/fulfillment/scan", label: "Scan", icon: ScanLine },
+      { href: "/fulfillment/production", label: "Production", icon: Printer },
     ],
   },
   {

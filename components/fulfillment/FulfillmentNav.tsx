@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Package, PackageCheck, PackagePlus, ScanLine, Settings } from "lucide-react";
+import { Package, PackageCheck, PackagePlus, Printer, ScanLine, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 
@@ -19,6 +19,7 @@ export function FulfillmentNav() {
   const isSend = pathname === "/fulfillment/send" || pathname === "/fulfillment";
   const isReceived = pathname === "/fulfillment/received";
   const isScan = pathname === "/fulfillment/scan" || pathname.startsWith("/fulfillment/scan/");
+  const isProduction = pathname === "/fulfillment/production";
   const isBoxSlip = pathname === "/fulfillment/multiitem-box";
 
   const [navQuery, setNavQuery] = useState("");
@@ -103,6 +104,19 @@ export function FulfillmentNav() {
       >
         <ScanLine className="h-4 w-4 shrink-0" />
         <span className="hidden md:inline">Scan</span>
+      </Link>
+      <Link
+        href="/fulfillment/production"
+        title="Production"
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
+          isProduction
+            ? "bg-slate-900 text-white"
+            : "text-slate-600 hover:bg-slate-100"
+        )}
+      >
+        <Printer className="h-4 w-4 shrink-0" />
+        <span className="hidden md:inline">Production</span>
       </Link>
       <Link
         href="/fulfillment/multiitem-box"
