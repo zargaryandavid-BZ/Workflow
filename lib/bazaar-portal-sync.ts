@@ -8,6 +8,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Order, OrderSpecs } from "@/lib/types";
 import { parseBazaarPortalInboundKeys } from "@/lib/bazaar-portal-keys";
 import { canonicalizeWebhookSourceKey } from "@/lib/webhook-source-styles";
+import { buildBazaarPortalStatusPayload } from "@/lib/bazaar-portal-status-payload";
+
+export type { BazaarPortalStatusPayload } from "@/lib/bazaar-portal-status-payload";
+export { buildBazaarPortalStatusPayload } from "@/lib/bazaar-portal-status-payload";
 
 type Client = SupabaseClient;
 
@@ -148,6 +152,8 @@ export async function notifyBazaarPortalStatus(args: {
   tenantId: string;
   order: BazaarPortalStatusOrder | Pick<Order, "id" | "title" | "webhook_source" | "specs">;
   columnName: string;
+  /** ISO timestamp of the move; defaults to now when omitted. */
+  movedAt?: string;
 }): Promise<void> {
   try {
     const order: BazaarPortalStatusOrder = {
@@ -200,11 +206,13 @@ export async function notifyBazaarPortalStatus(args: {
         "Content-Type": "application/json",
         "x-webhook-secret": osk,
       },
-      body: JSON.stringify({
-        event: "job_status_update",
-        order_number: orderNumber,
-        column_name: args.columnName,
-      }),
+      body: JSON.stringify(
+        buildBazaarPortalStatusPayload({
+          orderNumber,
+          columnName: args.columnName,
+          movedAt: args.movedAt,
+        })
+      ),
     });
 
     if (!res.ok) {
