@@ -79,6 +79,8 @@ On **create** and **portal/CRM re-fire** (`refreshPortalOrdersFromWebhook`):
 
 Workflow does not call Admin HTTP. `schema_version === 2` connected-mode routing is unchanged. Status callbacks Workflow → Admin (`bazaar-portal-sync`) are unchanged.
 
+**Approval link on the status callback (additive).** The same `POST {bazaar_api_url}/api/v1/production/status` (portal-sourced cards only, same `osk_…` key, same `BZ-*` `order_number`) may now carry an optional `approval_url` — the customer proof-approval page (`/l/{code}` short link → `/respond/{token}` or `/respond/g/{portal}?item={orderId}`). It is sent (a) when an approval link is created/sent for the card (drop-popup send, resend, or the proof-gate releasing a held send) with the card's current `column_name`, and (b) on a column move into a Waiting Approval column when a live approval link already exists. Not sent for skipped (`none`) or still-held sends; payloads without a link are unchanged.
+
 ## Customer contact sync (Workflow → Bazaar)
 
 `upsertCustomer` matches on email/phone only. If staff change a phone in Workflow and the CRM still has the old number, the next order webhook can create a **duplicate** customer.
