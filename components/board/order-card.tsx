@@ -16,6 +16,7 @@ import {
   Clock,
   CreditCard,
   Flag,
+  Handshake,
   Info,
   Layers,
   Lock,
@@ -136,6 +137,7 @@ import { partCardTitle, sourceLabelOrderTitle } from "@/lib/group-orders";
 import { WebhookSourceLabel } from "./webhook-source-label";
 import { OrderBillingGlobe } from "./order-billing-globe";
 import { billingFromSpecs, hasBillingInfo } from "@/lib/order-billing";
+import { getBrokerOrderInfo, brokerBadgeTitle } from "@/lib/order-broker";
 import { ActionButton, type ActionButtonResult } from "./action-button";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import { ApplicationIcon } from "./application-icon";
@@ -786,6 +788,9 @@ export function OrderCard({
       : "Reorder / files approved";
   })();
   const comboStock = getComboStock(order);
+  // Broker / partner (white-label portal) order — surfaced as an additive badge
+  // so production instantly tells a broker order apart from a retail website one.
+  const brokerInfo = getBrokerOrderInfo(order);
   const isDesignerUnassigned = !designerName;
   const activeWarning = getActiveWarning(order, warningRules, warningWorkingDays);
   const shippingBorderColor =
@@ -1409,6 +1414,21 @@ export function OrderCard({
                 ) : null}
                 <DesignFlagChip specs={order.specs} />
                 <SourceChannelChip specs={order.specs} />
+                {brokerInfo.isBroker ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-teal-300 bg-teal-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-teal-700"
+                    title={brokerBadgeTitle(brokerInfo)}
+                  >
+                    <Handshake className="h-2.5 w-2.5" aria-hidden />
+                    Broker
+                    {brokerInfo.company ? (
+                      <span className="max-w-[9rem] truncate font-semibold normal-case tracking-normal">
+                        {" · "}
+                        {brokerInfo.company}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
                 {readyToNotify ? (
                   <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
                     Send ready
