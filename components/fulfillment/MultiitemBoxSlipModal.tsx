@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Package, Printer, Trash2 } from "lucide-react";
 import QRCode from "qrcode";
+import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import { cn } from "@/lib/utils";
 import { formatShortOrderNumber } from "@/lib/order-number-tokens";
 import {
@@ -14,9 +15,12 @@ import {
 import type { MultiitemBoxOrderRow, MultiitemBoxRow } from "@/lib/multiitem-box-lookup";
 
 const SIZE_PRESETS = [
+  "6×6×6 in",
   "8×6×4 in",
   "10×8×6 in",
+  "10×10×10 in",
   "12×10×8 in",
+  "12×12×12 in",
   "16×12×10 in",
   "20×16×12 in",
   "24×18×12 in",
@@ -318,6 +322,9 @@ export function MultiitemBoxSlipModal({
   const [loadError, setLoadError] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const scanRef = useRef<HTMLInputElement>(null);
+  const customLengthRef = useRef<HTMLInputElement>(null);
+  const weightRef = useRef<HTMLInputElement>(null);
+  const pendingCustomFocus = useRef(false);
   const hintTimer = useRef<number | null>(null);
   const router = useRouter();
 
@@ -329,6 +336,8 @@ export function MultiitemBoxSlipModal({
   const active = viewBoxes.find((b) => b.id === activeId) ?? viewBoxes[0] ?? null;
   const viewingHistory = Boolean(selectedSavedDay);
   const readOnly = viewingHistory || active?.status === "saved";
+  const sizeValue = active ? sizeSelectValue(active) : "";
+  const isCustom = Boolean(active?.sizeCustom) || sizeValue === CUSTOM_SIZE;
 
   useEffect(() => {
     let cancelled = false;
@@ -365,6 +374,15 @@ export function MultiitemBoxSlipModal({
   useEffect(() => {
     if (open && active?.id && !readOnly) focusScan();
   }, [active?.id, focusScan, open, readOnly]);
+
+  useEffect(() => {
+    if (!pendingCustomFocus.current || !isCustom || readOnly) return;
+    pendingCustomFocus.current = false;
+    window.setTimeout(() => {
+      customLengthRef.current?.focus();
+      customLengthRef.current?.select();
+    }, 0);
+  }, [isCustom, readOnly, active?.id]);
 
   function showHint(kind: "error" | "amber", text: string, ms: number) {
     setHint({ kind, text });
@@ -754,9 +772,6 @@ export function MultiitemBoxSlipModal({
 
   if (!open) return null;
 
-  const sizeValue = active ? sizeSelectValue(active) : "";
-  const isCustom = Boolean(active?.sizeCustom) || sizeValue === CUSTOM_SIZE;
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-white">
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
@@ -924,6 +939,7 @@ export function MultiitemBoxSlipModal({
                       onChange={(e) => {
                         const v = e.target.value;
                         if (v === CUSTOM_SIZE) {
+                          pendingCustomFocus.current = true;
                           patchBoxLocal(active.id, {
                             sizeCustom: true,
                             sizeLabel: "",
@@ -960,6 +976,7 @@ export function MultiitemBoxSlipModal({
                   <label className="block">
                   <span className={fieldLabel}>Weight (lbs)</span>
                     <input
+                      ref={weightRef}
                       inputMode="decimal"
                       value={active.weightLbs}
                       onChange={(e) =>
@@ -975,7 +992,10 @@ export function MultiitemBoxSlipModal({
                     />
                   </label>
                   {isCustom ? (
-                    <div className="col-span-2 grid grid-cols-3 gap-3">
+                    <div
+                      className="col-span-2 grid grid-cols-3 gap-3"
+                      data-enter-focus-sequence
+                    >
                       {(
                         [
                           ["sizeL", "Length (in)", active.sizeL],
@@ -986,8 +1006,10 @@ export function MultiitemBoxSlipModal({
                         <label key={key} className="block">
                           <span className={fieldLabel}>{label}</span>
                           <input
+                            ref={key === "sizeL" ? customLengthRef : undefined}
                             inputMode="decimal"
                             placeholder="0"
+                            data-enter-focus-next
                             value={value}
                             onChange={(e) =>
                               patchCustomDim(active.id, key, e.target.value)
@@ -999,6 +1021,21 @@ export function MultiitemBoxSlipModal({
                                 sizeH: key === "sizeH" ? e.target.value : active.sizeH,
                               })
                             }
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              if (key === "sizeH") {
+                                e.preventDefault();
+                                persistCustomSize(active.id, {
+                                  sizeL: active.sizeL,
+                                  sizeW: active.sizeW,
+                                  sizeH: e.currentTarget.value,
+                                });
+                                weightRef.current?.focus();
+                                weightRef.current?.select();
+                                return;
+                              }
+                              focusNextInputOnEnter(e);
+                            }}
                           className={cn(fieldControl, readOnly && "bg-slate-50")}
                     disabled={readOnly}
                           />
