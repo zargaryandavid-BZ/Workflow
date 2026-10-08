@@ -28,7 +28,6 @@ import {
   resolveOrderDriveFolders,
   seedDriveIdsFromOrder,
 } from "@/lib/resolve-order-drive-folders";
-import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
 
 export type { RespondFinalPdf };
 
@@ -211,14 +210,14 @@ async function fetchRespondArtworkPackUncached(
     specs,
     artworkUrl: artId ? `https://drive.google.com/drive/folders/${artId}` : null,
   });
-  const members = await listOrderGroupMembers(supabase, tenantId, order);
-  const siblingSeeds = members.flatMap((member) =>
-    seedDriveIdsFromOrder({
-      specs: member.specs ?? {},
-      artworkUrl: null,
-    })
-  );
-  const seeds = [...new Set([...ownSeeds, ...siblingSeeds].filter(Boolean))];
+  // Each line item's proof must resolve ONLY from its own Drive folder. We do
+  // NOT reach into sibling parts of the same order (grouped by
+  // webhook_order_number): merging sibling folders collected every part's PDF
+  // and then picked a single file, so every part's proof collapsed onto one
+  // (e.g. 15417-1 showed 15417-2's dieline). When this part's own folder holds
+  // no PDF the pack stays empty and the caller surfaces "No PDF in production"
+  // rather than silently borrowing a sibling's artwork.
+  const seeds = [...new Set(ownSeeds.filter(Boolean))];
   if (seeds.length === 0) return EMPTY_PACK(skus);
 
   let files: ProofFile[] = [];

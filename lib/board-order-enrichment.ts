@@ -5,6 +5,7 @@ import {
   type CardNotificationBadge,
 } from "@/lib/card-badges";
 import { isVisibleCustomerReplyActivity } from "@/lib/activity";
+import { getCachedProfilesByIds } from "@/lib/profiles-name-cache";
 import {
   boardThumbnailsByOrder,
   designerNamesByOrder,
@@ -203,17 +204,17 @@ export async function enrichBoardOrders(
         .in("status", ["pending", "sent", "responded"])
         .order("created_at", { ascending: false }),
 
+      // Cached (60s) team-member name lookups — `profiles` is a ~20-row static
+      // table that was being queried on every board refresh (the #1 query in the
+      // whole DB). Same `{ data }` shape as before; see lib/profiles-name-cache.
       creatorIds.length > 0
-        ? supabase.from("profiles").select("id, full_name").in("id", creatorIds)
+        ? getCachedProfilesByIds(supabase, creatorIds)
         : Promise.resolve({
             data: [] as { id: string; full_name: string | null }[],
           }),
 
       uniqueDesignerIds.length > 0
-        ? supabase
-            .from("profiles")
-            .select("id, full_name")
-            .in("id", uniqueDesignerIds)
+        ? getCachedProfilesByIds(supabase, uniqueDesignerIds)
         : Promise.resolve({
             data: [] as { id: string; full_name: string | null }[],
           }),
