@@ -149,6 +149,33 @@ function scheduleLayerPreviews(order: Order) {
   }
 }
 
+/**
+ * Tell the Bazaar portal about the customer approval link(s) just created.
+ * Additive + opt-in: a no-op unless the card is Bazaar-portal sourced AND the
+ * tenant has portal sync enabled (see lib/bazaar-portal-sync.ts). Runs AFTER
+ * the response is sent (so it never slows the send) and never throws.
+ */
+function scheduleBazaarApprovalLinkNotify(tenantId: string, orderIds: string[]) {
+  const run = async () => {
+    try {
+      const { notifyBazaarPortalApprovalLinks } = await import(
+        "@/lib/bazaar-portal-sync"
+      );
+      await notifyBazaarPortalApprovalLinks({ tenantId, orderIds });
+    } catch (err) {
+      console.error(
+        "[bazaar-portal-sync] approval link notify failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  };
+  try {
+    after(run);
+  } catch {
+    run().catch(() => {});
+  }
+}
+
 function productFromOrder(order: Order): string {
   const specs = order.specs ?? {};
   const product =
@@ -732,6 +759,9 @@ export async function dispatchNotification(
       orderIds: [params.order.id],
     });
   }
+  if (params.notification.type === "customer_approval") {
+    scheduleBazaarApprovalLinkNotify(params.order.tenant_id, [params.order.id]);
+  }
   return {
     actionUrl,
     warning: delivery.error ?? null,
@@ -801,7 +831,25 @@ export async function deliverQueuedApprovalsWhenReady(
         staffNote: (row.staff_note as string | null) ?? null,
         actorUserId: (row.created_by as string | null) ?? null,
       });
-      if (delivery.sent) delivered += 1;
+      if (delivery.sent) {
+        delivered += 1;
+        // The held link just went out: now the Bazaar portal can have it too.
+        // Awaited (not after()) — this runs in a cron, which may exit first.
+        try {
+          const { notifyBazaarPortalApprovalLinks } = await import(
+            "@/lib/bazaar-portal-sync"
+          );
+          await notifyBazaarPortalApprovalLinks({
+            tenantId: tId,
+            orderIds: [(order as Order).id],
+          });
+        } catch (notifyErr) {
+          console.error(
+            "[bazaar-portal-sync] queued approval link notify failed:",
+            notifyErr instanceof Error ? notifyErr.message : notifyErr
+          );
+        }
+      }
     } catch (err) {
       console.error(
         "[proof-gate] queued approval delivery failed:",
@@ -1071,6 +1119,16 @@ export async function createNotification(
       tenantId: params.order.tenant_id,
       orderIds: timerOrderIds,
     });
+  }
+
+  // Bazaar portal: hand it the approval link (skipped while the proof gate is
+  // still holding the send, and when staff chose not to notify at all).
+  if (
+    params.type === "customer_approval" &&
+    params.channel !== "none" &&
+    !gateQueued
+  ) {
+    scheduleBazaarApprovalLinkNotify(params.order.tenant_id, timerOrderIds);
   }
 
   return { notification, actionUrl, warning };

@@ -353,6 +353,7 @@ export async function POST(request: Request) {
           tenantId,
           order: movedOrder,
           columnName: typedColumn.name,
+          columnKind: typedColumn.kind,
           movedAt: movedOrder.last_moved_at ?? undefined,
         });
       } catch (err: unknown) {
