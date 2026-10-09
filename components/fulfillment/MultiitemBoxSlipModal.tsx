@@ -684,6 +684,8 @@ export function MultiitemBoxSlipModal({
       order?: MultiitemBoxOrderRow;
       already?: boolean;
       error?: string;
+      ticket_qty?: number;
+      packed_elsewhere?: number;
     };
     if (res.status === 404) {
       setShake(true);
@@ -722,6 +724,15 @@ export function MultiitemBoxSlipModal({
     replaceNextScan.current = true;
     setScan(args.query ?? "");
     setPending(null);
+    const ticketQty = json.ticket_qty ?? 0;
+    const packedElsewhere = json.packed_elsewhere ?? 0;
+    if (ticketQty > 0 && packedElsewhere > 0) {
+      showHint(
+        "amber",
+        `Added remaining ${item.quantity} of ${ticketQty}`,
+        1800
+      );
+    }
     focusScan();
   }
 
@@ -802,17 +813,31 @@ export function MultiitemBoxSlipModal({
 
   async function saveQty(orderId: string, quantity: number) {
     if (!active || active.status === "saved") return;
-    const qty = Math.min(999, Math.max(1, Math.floor(quantity) || 1));
+    const previous =
+      active.items.find((it) => it.orderId === orderId)?.quantity ?? 1;
+    const qty = Math.max(1, Math.floor(quantity) || 1);
     patchBoxLocal(active.id, {
       items: active.items.map((it) =>
         it.orderId === orderId ? { ...it, quantity: qty } : it
       ),
     });
-    await fetch(`/api/multiitem-boxes/${active.id}/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ quantity: qty }),
-    });
+    const res = await fetch(
+      `/api/multiitem-boxes/${active.id}/orders/${orderId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity: qty }),
+      }
+    );
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      showHint("error", json.error ?? "Could not save qty", 2200);
+      patchBoxLocal(active.id, {
+        items: active.items.map((it) =>
+          it.orderId === orderId ? { ...it, quantity: previous } : it
+        ),
+      });
+    }
   }
 
   async function printSlip(boxId: string | undefined = active?.id) {
@@ -1301,7 +1326,7 @@ export function MultiitemBoxSlipModal({
                             <input
                               type="number"
                               min={1}
-                              max={9999999}
+                              max={99999999}
                               value={item.quantity}
                               onChange={(e) =>
                                 patchBoxLocal(active.id, {

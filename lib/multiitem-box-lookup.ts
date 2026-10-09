@@ -58,11 +58,73 @@ export function boxLineQuantityFromScan(
   fieldValuesByName: Record<string, unknown> = {}
 ): number {
   const sku = skuQtySumFromSpecs(specs);
-  if (sku > 0) return Math.min(999, Math.floor(sku));
+  if (sku > 0) return Math.floor(sku);
   const named = mergeScanNamedValues(specs, fieldValuesByName);
   const qty = scanQtyFromSpecs(specs, named);
-  if (qty != null && qty > 0) return Math.min(999, Math.floor(qty));
+  if (qty != null && qty > 0) return Math.floor(qty);
   return 1;
+}
+
+/** Job-ticket qty minus what is already in other boxes. */
+export function remainingTicketQuantity(
+  ticketQty: number,
+  packedQty: number
+): number {
+  const ticket = Math.max(0, Math.floor(Number(ticketQty) || 0));
+  const packed = Math.max(0, Math.floor(Number(packedQty) || 0));
+  return Math.max(0, ticket - packed);
+}
+
+export function clampBoxLineToTicket(args: {
+  requested?: number | null;
+  ticketQty: number;
+  packedElsewhere: number;
+}): { quantity: number; ticketQty: number; remaining: number } | { error: string } {
+  const ticketQty = Math.max(0, Math.floor(Number(args.ticketQty) || 0));
+  const packedElsewhere = Math.max(
+    0,
+    Math.floor(Number(args.packedElsewhere) || 0)
+  );
+  const remaining = remainingTicketQuantity(ticketQty, packedElsewhere);
+  if (remaining <= 0) {
+    return {
+      error: `Already boxed ${packedElsewhere} of ${ticketQty} (job ticket)`,
+    };
+  }
+  const requested =
+    args.requested == null || args.requested === undefined
+      ? remaining
+      : Math.floor(Number(args.requested) || 0);
+  if (requested < 1) {
+    return { error: "quantity must be at least 1" };
+  }
+  if (requested > remaining) {
+    return {
+      error: `Only ${remaining} left of ${ticketQty} on the job ticket`,
+    };
+  }
+  return { quantity: requested, ticketQty, remaining };
+}
+
+export async function packedBoxQuantityForOrder(
+  supabase: SupabaseClient,
+  tenantId: string,
+  orderId: string,
+  excludeBoxId?: string | null
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("multiitem_box_orders")
+    .select("quantity, box_id")
+    .eq("tenant_id", tenantId)
+    .eq("order_id", orderId);
+  if (error) throw new Error(error.message);
+  let total = 0;
+  for (const row of data ?? []) {
+    if (excludeBoxId && row.box_id === excludeBoxId) continue;
+    const n = Math.floor(Number(row.quantity) || 0);
+    if (n > 0) total += n;
+  }
+  return total;
 }
 
 const ITEM_TITLE_KEYS = [

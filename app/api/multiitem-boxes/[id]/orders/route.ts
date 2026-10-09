@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { requireFulfillmentApi } from "@/lib/fulfillment-access";
 import {
+  clampBoxLineToTicket,
   findTenantOrderByScan,
+  packedBoxQuantityForOrder,
   resolveBoxLineDetails,
 } from "@/lib/multiitem-box-lookup";
 import { createClient } from "@/lib/supabase/server";
@@ -121,12 +123,32 @@ export async function POST(
     );
   }
 
-  const { quantity, itemTitle } = await resolveBoxLineDetails(
+  const { quantity: ticketQty, itemTitle } = await resolveBoxLineDetails(
     supabase,
     ctx.tenant.id,
     orderId,
     specs
   );
+  let packedElsewhere = 0;
+  try {
+    packedElsewhere = await packedBoxQuantityForOrder(
+      supabase,
+      ctx.tenant.id,
+      orderId,
+      boxId
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Lookup failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+  const clamped = clampBoxLineToTicket({
+    ticketQty,
+    packedElsewhere,
+  });
+  if ("error" in clamped) {
+    return NextResponse.json({ error: clamped.error }, { status: 409 });
+  }
+  const quantity = clamped.quantity;
 
   const { data: existing } = await supabase
     .from("multiitem_box_orders")
@@ -187,6 +209,8 @@ export async function POST(
         customer_phone: customerPhone || null,
         thumbnail_url: thumbs.get(orderId) ?? null,
       },
+      ticket_qty: clamped.ticketQty,
+      packed_elsewhere: packedElsewhere,
     },
     { status: 201 }
   );
