@@ -1,37 +1,42 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth";
-import { requireFulfillmentApi } from "@/lib/fulfillment-access";
-import { createClient } from "@/lib/supabase/server";
+import { resolveKioskTenant } from "@/lib/kiosk-token";
 import { generateJobTicketPdfBuffer } from "@/lib/job-ticket-generate";
 import { orderIsInActiveProduction } from "@/lib/fulfillment-production";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
 
+/**
+ * POST /api/kiosk/[token]/production/[id]/job-ticket
+ * Public floor print of a production job ticket.
+ */
 export async function POST(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ token: string; id: string }> }
 ) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
-  const { id: orderId } = await params;
+  const { token, id: orderId } = await params;
+  const kiosk = await resolveKioskTenant(token);
+  if (!kiosk) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  const supabase = await createClient();
-  const gate = await orderIsInActiveProduction(
-    supabase,
-    ctx.tenant.id,
-    orderId
-  );
+  const { supabase, tenantId } = kiosk;
+  const gate = await orderIsInActiveProduction(supabase, tenantId, orderId);
   if ("error" in gate) {
     return NextResponse.json({ error: gate.error }, { status: gate.status });
   }
 
+  const { data: tenant } = await supabase
+    .from("tenants")
+    .select("name")
+    .eq("id", tenantId)
+    .maybeSingle();
+
   const result = await generateJobTicketPdfBuffer(
     supabase,
     orderId,
-    ctx.tenant.id,
-    ctx.tenant.name
+    tenantId,
+    (tenant as { name?: string } | null)?.name ?? ""
   );
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: result.status });

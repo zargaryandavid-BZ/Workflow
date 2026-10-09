@@ -1828,7 +1828,7 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 ### Fulfillment Production
 
-`/fulfillment/production` (`components/fulfillment/FulfillmentProductionPage.tsx`). Floor list of jobs **currently in production columns** only (In Production, Hrach, Arsen, Apparel, Outsource — not Production Completed and not design/shipping). Each row is **artwork | order number | item line title | Print job ticket**. Search filters by order # and item title. Print calls `POST /api/fulfillment/production/[id]/job-ticket` (same job-ticket PDF as the board Generate PDF button, no board button required) and opens the browser print dialog. `GET /api/fulfillment/production` returns the list with cardboard/SKU artwork.
+`/fulfillment/production` (`components/fulfillment/FulfillmentProductionPage.tsx`). Floor list of jobs in the board **In Production** column only (same count as the Kanban header — not Hrach, Apparel, Outsource, or Production Completed). Chrome is **search + qty ttl** and a **two-column** artwork | order # | item title | print list (one column on small screens). Print uses `POST /api/fulfillment/production/[id]/job-ticket` (or public `/api/public/floor/production/[id]/job-ticket`). **No login.** No fulfillment nav on this page.
 
 ### Fulfillment Scan
 

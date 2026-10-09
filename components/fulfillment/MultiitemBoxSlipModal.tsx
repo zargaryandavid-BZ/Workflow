@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Package, Printer, Trash2 } from "lucide-react";
+import { Package, Printer, Trash2, X } from "lucide-react";
 import QRCode from "qrcode";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import { cn } from "@/lib/utils";
@@ -341,6 +341,7 @@ export function MultiitemBoxSlipModal({
   const [loadError, setLoadError] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const scanRef = useRef<HTMLInputElement>(null);
+  const replaceNextScan = useRef(false);
   const customLengthRef = useRef<HTMLInputElement>(null);
   const weightRef = useRef<HTMLInputElement>(null);
   const pendingCustomFocus = useRef(false);
@@ -387,8 +388,21 @@ export function MultiitemBoxSlipModal({
   }
 
   const focusScan = useCallback(() => {
-    window.setTimeout(() => scanRef.current?.focus(), 50);
+    window.setTimeout(() => {
+      scanRef.current?.focus();
+      if (replaceNextScan.current) scanRef.current?.select();
+    }, 50);
   }, []);
+
+  function applyScanField(next: string) {
+    if (replaceNextScan.current) {
+      replaceNextScan.current = false;
+      const prev = scan;
+      setScan(next.startsWith(prev) ? next.slice(prev.length) : next);
+      return;
+    }
+    setScan(next);
+  }
 
   useEffect(() => {
     if (open && active?.id && !readOnly) focusScan();
@@ -650,7 +664,8 @@ export function MultiitemBoxSlipModal({
       customerPhone: active.customerPhone || item.customerPhone || null,
     });
     setZeroError(false);
-    setScan("");
+    replaceNextScan.current = true;
+    setScan(args.query);
     setPending(null);
     focusScan();
   }
@@ -658,6 +673,7 @@ export function MultiitemBoxSlipModal({
   async function handleScanSubmit() {
     const q = scan.trim();
     if (!q || !active || active.status === "saved") return;
+    replaceNextScan.current = true;
     if (active.items.some((it) => it.orderTitle === q || it.orderId === q)) {
       showHint("amber", "Already in this box", 1400);
       return;
@@ -688,7 +704,7 @@ export function MultiitemBoxSlipModal({
     }
     if (active.items.some((it) => it.orderId === json.id)) {
       showHint("amber", "Already in this box", 1400);
-      setScan("");
+      replaceNextScan.current = true;
       focusScan();
       return;
     }
@@ -1117,7 +1133,7 @@ export function MultiitemBoxSlipModal({
                       ref={scanRef}
                       autoFocus
                       value={scan}
-                      onChange={(e) => setScan(e.target.value)}
+                      onChange={(e) => applyScanField(e.target.value)}
                       inputMode="none"
                       autoComplete="off"
                       placeholder="Scan or type order #"
@@ -1126,6 +1142,20 @@ export function MultiitemBoxSlipModal({
                         shake && "animate-scan-shake border-red-500"
                       )}
                     />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        replaceNextScan.current = false;
+                        setScan("");
+                        scanRef.current?.focus();
+                      }}
+                      disabled={!scan}
+                      title="Clear"
+                      aria-label="Clear scan text"
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-30"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
                     <button type="submit" className={cn(btnPrimary, "shrink-0 py-2.5 px-5 text-base")}>
                       Add
                     </button>

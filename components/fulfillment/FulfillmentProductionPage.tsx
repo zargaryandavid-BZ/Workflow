@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Printer, Search } from "lucide-react";
+import { Loader2, Printer, Search, X } from "lucide-react";
 import { printPdfBlob } from "@/lib/print-pdf-blob";
 import {
   formatShortOrderNumber,
@@ -17,22 +17,27 @@ interface ProductionOrder {
   thumbnail_url: string | null;
 }
 
-export function FulfillmentProductionPage() {
+export function FulfillmentProductionPage({
+  apiBase = "/api/fulfillment/production",
+}: {
+  apiBase?: string;
+}) {
   const [orders, setOrders] = useState<ProductionOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{
+    url: string;
+    orderNumber: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/fulfillment/production", {
-        cache: "no-store",
-      });
+      const res = await fetch(apiBase, { cache: "no-store" });
       const data = (await res.json()) as {
         orders?: ProductionOrder[];
         error?: string;
@@ -44,7 +49,7 @@ export function FulfillmentProductionPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     void load();
@@ -71,13 +76,10 @@ export function FulfillmentProductionPage() {
       return next;
     });
     try {
-      const res = await fetch(
-        `/api/fulfillment/production/${order.id}/job-ticket`,
-        {
-          method: "POST",
-          signal: AbortSignal.timeout(170_000),
-        }
-      );
+      const res = await fetch(`${apiBase}/${order.id}/job-ticket`, {
+        method: "POST",
+        signal: AbortSignal.timeout(170_000),
+      });
       const contentType = res.headers.get("content-type") ?? "";
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as {
@@ -86,10 +88,15 @@ export function FulfillmentProductionPage() {
         throw new Error(json.error ?? "Failed to generate job ticket");
       }
       const blob = await res.blob();
-      if (!blob.size || contentType.includes("text/html")) {
+      if (
+        !blob.size ||
+        contentType.includes("text/html") ||
+        contentType.includes("application/json")
+      ) {
         throw new Error("Server returned an error instead of a PDF");
       }
-      await printPdfBlob(blob);
+      const pdf = new Blob([blob], { type: "application/pdf" });
+      await printPdfBlob(pdf);
     } catch (err) {
       const timedOut =
         err instanceof Error &&
@@ -108,47 +115,59 @@ export function FulfillmentProductionPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-50">
-      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-3 py-2 md:px-4">
-        <label className="relative flex min-w-0 flex-1 items-center">
-          <Search className="pointer-events-none absolute left-2.5 h-4 w-4 text-slate-400" />
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4">
+        <label className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search order # or item"
+            placeholder="Search"
             className="h-9 w-full rounded-md border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
           />
         </label>
-        <span className="shrink-0 text-sm tabular-nums text-slate-500">
-          {visible.length}
+        <span className="shrink-0 text-sm tabular-nums text-slate-600">
+          qty{" "}
+          <span className="font-semibold text-slate-900">{visible.length}</span>
+          {query.trim() && visible.length !== orders.length ? (
+            <span className="text-slate-400"> / {orders.length} ttl</span>
+          ) : (
+            <span className="text-slate-400"> ttl</span>
+          )}
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 sm:px-3">
         {loading ? (
-          <p className="px-4 py-8 text-sm text-slate-400">Loading…</p>
+          <p className="px-2 py-8 text-sm text-slate-400">Loading…</p>
         ) : error ? (
-          <p className="px-4 py-8 text-sm text-red-600" role="alert">
+          <p className="px-2 py-8 text-sm text-red-600" role="alert">
             {error}
           </p>
         ) : visible.length === 0 ? (
-          <p className="px-4 py-8 text-sm text-slate-400">
+          <p className="px-2 py-8 text-sm text-slate-400">
             No jobs in production
           </p>
         ) : (
-          <ul className="divide-y divide-slate-200 bg-white">
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {visible.map((order) => (
-              <li key={order.id} className="px-3 py-2 md:px-4">
-                <div className="flex items-center gap-3">
+              <li
+                key={order.id}
+                className="min-w-0 rounded-md border border-slate-200 bg-white px-2 py-2 sm:px-3"
+              >
+                <div className="flex min-w-0 items-center gap-3">
                   <button
                     type="button"
                     disabled={!order.thumbnail_url}
                     onClick={() =>
                       order.thumbnail_url &&
-                      setLightboxUrl(order.thumbnail_url)
+                      setLightbox({
+                        url: order.thumbnail_url,
+                        orderNumber: order.order_number,
+                      })
                     }
-                    className="h-16 w-16 shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-100 disabled:cursor-default"
+                    className="h-24 w-24 shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-100 sm:h-28 sm:w-28 disabled:cursor-default"
                     title="Artwork"
                   >
                     {order.thumbnail_url ? (
@@ -161,17 +180,16 @@ export function FulfillmentProductionPage() {
                     ) : null}
                   </button>
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className="font-semibold tabular-nums text-slate-900">
+                    <div className="min-w-0">
+                      <p className="font-semibold tabular-nums text-slate-900">
                         {order.order_number}
-                      </span>
-                      <span className="text-slate-300">|</span>
-                      <span className="min-w-0 truncate text-sm text-slate-700">
+                      </p>
+                      <p className="truncate text-sm text-slate-700">
                         {order.item_title || "—"}
-                      </span>
+                      </p>
                     </div>
                     {rowError[order.id] ? (
-                      <p className="mt-0.5 text-xs text-red-600">
+                      <p className="mt-0.5 truncate text-xs text-red-600">
                         {rowError[order.id]}
                       </p>
                     ) : null}
@@ -180,14 +198,15 @@ export function FulfillmentProductionPage() {
                     type="button"
                     disabled={printingId === order.id}
                     onClick={() => void printTicket(order)}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    title="Print job ticket"
+                    aria-label="Print job ticket"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
                     {printingId === order.id ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Printer className="h-4 w-4" />
                     )}
-                    Print job ticket
                   </button>
                 </div>
               </li>
@@ -196,19 +215,42 @@ export function FulfillmentProductionPage() {
         )}
       </div>
 
-      {lightboxUrl ? (
-        <button
-          type="button"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
-          onClick={() => setLightboxUrl(null)}
+      {lightbox ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6"
+          onClick={() => setLightbox(null)}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lightboxUrl}
-            alt="Artwork"
-            className="max-h-full max-w-full rounded object-contain"
-          />
-        </button>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Artwork ${lightbox.orderNumber}`}
+            className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
+              <p className="truncate text-base font-semibold tabular-nums text-slate-900">
+                {lightbox.orderNumber}
+              </p>
+              <button
+                type="button"
+                onClick={() => setLightbox(null)}
+                title="Close"
+                aria-label="Close"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-50 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={lightbox.url}
+                alt={`Artwork ${lightbox.orderNumber}`}
+                className="max-h-[min(80vh,40rem)] max-w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

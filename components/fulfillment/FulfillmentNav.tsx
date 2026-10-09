@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Package, PackageCheck, PackagePlus, Printer, ScanLine, Settings } from "lucide-react";
+import { Package, PackageCheck, PackagePlus, Printer, ScanLine, Settings, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 
@@ -26,6 +26,8 @@ export function FulfillmentNav() {
   const [navLoading, setNavLoading] = useState(false);
   const [keypadOpen, setKeypadOpen] = useState(false);
   const navInputRef = useRef<HTMLInputElement>(null);
+  /** After a scan is committed, the next keystrokes replace the field (wedge scanners). */
+  const replaceNextInput = useRef(false);
 
   // Auto-focus input on mount when on scan page
   useEffect(() => {
@@ -40,9 +42,10 @@ export function FulfillmentNav() {
       const detail = (e as CustomEvent<{ loading: boolean }>).detail;
       setNavLoading(detail.loading);
       if (!detail.loading) {
-        setNavQuery("");
-        // Return focus to the input after lookup completes so the next scan lands here.
+        // Keep the scanned order # visible. Next scan replaces it (not append).
+        replaceNextInput.current = true;
         navInputRef.current?.focus();
+        navInputRef.current?.select();
       }
     }
     window.addEventListener(SCAN_FOCUS_EVENT, onFocus);
@@ -53,15 +56,34 @@ export function FulfillmentNav() {
     };
   }, [isScan]);
 
+  function applyScanInput(next: string) {
+    if (replaceNextInput.current) {
+      replaceNextInput.current = false;
+      const prev = navQuery;
+      setNavQuery(next.startsWith(prev) ? next.slice(prev.length) : next);
+      return;
+    }
+    setNavQuery(next);
+  }
+
+  function clearNavQuery() {
+    replaceNextInput.current = false;
+    setNavQuery("");
+    navInputRef.current?.focus();
+  }
+
   function handleNavSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     const q = navQuery.trim();
     if (!q) return;
     setKeypadOpen(false);
-    // Keep focus on the input so the QR scanner can scan the next order immediately.
+    replaceNextInput.current = true;
     navInputRef.current?.focus();
+    navInputRef.current?.select();
     window.dispatchEvent(new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: q } }));
   }
+
+  if (isProduction) return null;
 
   return (
     <>
@@ -146,11 +168,21 @@ export function FulfillmentNav() {
             autoCorrect="off"
             spellCheck={false}
             value={navQuery}
-            onChange={(e) => setNavQuery(e.target.value)}
+            onChange={(e) => applyScanInput(e.target.value)}
             onClick={() => setKeypadOpen(true)}
             placeholder="e.g. 15118-1"
             className="h-8 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[16px] text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-300 md:h-10 md:text-[17px]"
           />
+          <button
+            type="button"
+            onClick={clearNavQuery}
+            disabled={!navQuery}
+            title="Clear"
+            aria-label="Clear scan text"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 md:h-10 md:w-10"
+          >
+            <X className="h-4 w-4" />
+          </button>
           <button
             type="submit"
             disabled={navLoading || !navQuery.trim()}
@@ -173,8 +205,18 @@ export function FulfillmentNav() {
       {isScan && keypadOpen ? (
         <ScanNumberKeypad
           value={navQuery}
-          onInsert={(ch) => setNavQuery((q) => q + ch)}
-          onBackspace={() => setNavQuery((q) => q.slice(0, -1))}
+          onInsert={(ch) => {
+            if (replaceNextInput.current) {
+              replaceNextInput.current = false;
+              setNavQuery(ch);
+              return;
+            }
+            setNavQuery((q) => q + ch);
+          }}
+          onBackspace={() => {
+            replaceNextInput.current = false;
+            setNavQuery((q) => q.slice(0, -1));
+          }}
           onSubmit={() => handleNavSubmit()}
           onClose={() => setKeypadOpen(false)}
         />

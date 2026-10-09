@@ -67,3 +67,29 @@ export async function resolveFloorScanKiosk() {
     : rows[0];
   return resolveKioskTenant(String(row?.kiosk_token ?? ""));
 }
+
+/**
+ * Tenant for public floor pages (Production list). Prefers the kiosk token,
+ * otherwise the Bazaar workspace (or the only tenant).
+ */
+export async function resolveFloorTenant() {
+  const kiosk = await resolveFloorScanKiosk();
+  if (kiosk) {
+    return {
+      supabase: kiosk.supabase,
+      tenantId: kiosk.tenantId,
+      token: kiosk.token,
+    };
+  }
+
+  const supabase = createAdminClient();
+  const { data: tenants } = await supabase
+    .from("tenants")
+    .select("id, name")
+    .order("name");
+  const rows = (tenants ?? []) as { id: string; name: string }[];
+  if (rows.length === 0) return null;
+  const bazaar = rows.find((t) => t.name.toLowerCase().includes("bazaar"));
+  const picked = bazaar ?? rows[0];
+  return { supabase, tenantId: picked.id, token: "" };
+}
