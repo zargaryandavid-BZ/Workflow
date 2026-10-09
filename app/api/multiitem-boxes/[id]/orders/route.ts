@@ -6,6 +6,7 @@ import {
   resolveBoxLineDetails,
 } from "@/lib/multiitem-box-lookup";
 import { createClient } from "@/lib/supabase/server";
+import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
 
 const BOX_ORDER_SELECT =
   "id, box_id, order_id, order_title, item_title, customer_name, quantity, added_at";
@@ -135,7 +136,14 @@ export async function POST(
     .maybeSingle();
 
   if (existing) {
-    return NextResponse.json({ order: existing, already: true });
+    const thumbs = await boxOrderThumbnailUrls(supabase, [orderId]);
+    return NextResponse.json({
+      order: {
+        ...existing,
+        thumbnail_url: thumbs.get(orderId) ?? null,
+      },
+      already: true,
+    });
   }
 
   const { data: inserted, error: insertError } = await supabase
@@ -169,12 +177,15 @@ export async function POST(
       .eq("tenant_id", ctx.tenant.id);
   }
 
+  const thumbs = await boxOrderThumbnailUrls(supabase, [orderId]);
+
   return NextResponse.json(
     {
       order: {
         ...inserted,
         customer_email: customerEmail || null,
         customer_phone: customerPhone || null,
+        thumbnail_url: thumbs.get(orderId) ?? null,
       },
     },
     { status: 201 }

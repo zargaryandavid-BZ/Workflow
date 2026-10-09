@@ -90,7 +90,7 @@ describe("proofRasterRev", () => {
   it("tags Drive modified time so JPEG proofs rebuild as PNG", () => {
     assert.equal(
       proofRasterRev("2026-09-19T10:00:00.000Z"),
-      "2026-09-19T10:00:00.000Z-png-tl"
+      "2026-09-19T10:00:00.000Z-png-all2"
     );
   });
 });

@@ -85,8 +85,8 @@ function applyVisibility(oc: OcConfig | null, layers: PdfLayer[], on: Set<string
 }
 
 /**
- * Rasterize selected PDF pages: one Artwork-plate composite (same as the
- * staff Artwork view — Spot UV / dieline / white off), plus a PNG per layer.
+ * Rasterize selected PDF pages: one complete all-layer card composite, plus a
+ * toggleable PNG for each individual layer.
  */
 export async function rasterizePdfLayerPreviews(
   input: Buffer,
@@ -174,8 +174,8 @@ export async function rasterizePdfLayerPreviews(
         }
       };
 
-      // Render with a transparent background and return the raw RGBA pixels, so
-      // the always-on base artwork can be subtracted out of each layer image.
+      // Return raw RGBA pixels so the always-on base artwork can be subtracted
+      // from each layer image. Paper white preserves CMYK/overprint rendering.
       const renderRgba = async (mode: "print" | "none" | Set<string>) => {
         applyVisibility(oc, allLayers, mode);
         const target = canvasFactory.create(width, height);
@@ -185,7 +185,10 @@ export async function rasterizePdfLayerPreviews(
             canvasContext:
               target.context as unknown as CanvasRenderingContext2D,
             viewport,
-            background: "rgba(0,0,0,0)",
+            // Some CMYK/overprint artwork changes color or disappears when
+            // pdf.js renders onto transparency. Render against paper white,
+            // then ocgOverlayRgba makes unchanged pixels transparent.
+            background: "rgb(255,255,255)",
             optionalContentConfigPromise: ocPromise,
           }).promise;
           const ctx = target.context as unknown as Ctx2D;
@@ -210,7 +213,12 @@ export async function rasterizePdfLayerPreviews(
         }
       };
 
-      const compositeJpg = await renderOnce("print", true);
+      // Card artwork is the complete production view: every named PDF layer
+      // enabled together (Artwork, white, foil, UV, dieline, etc.).
+      const compositeJpg = await renderOnce(
+        new Set(allLayers.map((layer) => layer.id)),
+        true
+      );
       const layerPngs: Record<string, Buffer> = {};
       let basePng: Buffer = Buffer.from([]);
 

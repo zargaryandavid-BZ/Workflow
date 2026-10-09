@@ -59,8 +59,6 @@ const fieldControl =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
 const btnPrimary =
   "inline-flex items-center justify-center gap-1.5 rounded-md bg-[#1a1f2e] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#2d3550] disabled:opacity-50";
-const btnGhost =
-  "rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100";
 
 interface BoxItem {
   id: string;
@@ -71,6 +69,7 @@ interface BoxItem {
   customerEmail: string;
   customerPhone: string;
   quantity: number;
+  thumbnailUrl: string | null;
 }
 
 interface BoxState {
@@ -109,6 +108,7 @@ function rowsToItems(rows: MultiitemBoxOrderRow[] | null | undefined): BoxItem[]
     customerEmail: row.customer_email ?? "",
     customerPhone: row.customer_phone ?? "",
     quantity: row.quantity,
+    thumbnailUrl: row.thumbnail_url ?? null,
   }));
 }
 
@@ -130,6 +130,51 @@ function formatCustomSize(l: string, w: string, h: string): string {
   const c = h.trim();
   if (!a || !b || !c) return "";
   return `${a}×${b}×${c} in`;
+}
+
+function BoxArtworkThumb({
+  orderId,
+  url,
+  size,
+  orderNumber,
+}: {
+  orderId: string;
+  url: string | null;
+  size: number;
+  orderNumber: string;
+}) {
+  const [src, setSrc] = useState(url);
+  useEffect(() => {
+    setSrc(url);
+    if (url) return;
+    let cancelled = false;
+    void fetch(`/api/orders/${orderId}/card-image`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { url?: string } | null) => {
+        const next = json?.url?.trim();
+        if (!cancelled && next) setSrc(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, url]);
+  return (
+    <span
+      className="shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-100"
+      style={{ width: size, height: size }}
+      title={src ? `Artwork ${orderNumber}` : undefined}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`Artwork ${orderNumber}`}
+          className="h-full w-full object-cover"
+        />
+      ) : null}
+    </span>
+  );
 }
 
 function compactSizeLabel(sizeLabel: string): string {
@@ -263,20 +308,28 @@ function HistoryBoxCard({
       </div>
 
       <div className="min-h-0 px-3 py-1">
-        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)_auto] gap-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <div className="grid grid-cols-[2rem_5.5rem_2.5rem_minmax(0,1fr)_auto] gap-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <span />
           <span>Order</span>
+          <span>Art</span>
           <span>Title</span>
           <span>Qty</span>
         </div>
         {box.items.map((item) => (
           <div
             key={item.id}
-            className="grid grid-cols-[auto_5.5rem_minmax(0,1fr)_auto] items-center gap-2 border-t border-slate-100 py-1.5 text-xs"
+            className="grid grid-cols-[2rem_5.5rem_2.5rem_minmax(0,1fr)_auto] items-center gap-2 border-t border-slate-100 py-1.5 text-xs"
           >
             <ItemQrCode value={item.orderTitle} size={32} />
             <span className="truncate font-mono font-medium">
               {formatShortOrderNumber(item.orderTitle)}
             </span>
+            <BoxArtworkThumb
+              orderId={item.orderId}
+              url={item.thumbnailUrl}
+              size={40}
+              orderNumber={formatShortOrderNumber(item.orderTitle)}
+            />
             <span className="min-w-0 truncate font-medium text-slate-800">
               {item.itemTitle || item.orderTitle || "—"}
             </span>
@@ -395,6 +448,7 @@ export function MultiitemBoxSlipModal({
   }, []);
 
   function applyScanField(next: string) {
+    setPending(null);
     if (replaceNextScan.current) {
       replaceNextScan.current = false;
       const prev = scan;
@@ -656,6 +710,7 @@ export function MultiitemBoxSlipModal({
       customerEmail: json.order.customer_email ?? "",
       customerPhone: json.order.customer_phone ?? "",
       quantity: json.order.quantity,
+      thumbnailUrl: json.order.thumbnail_url ?? null,
     };
     patchBoxLocal(active.id, {
       items: [...active.items, item],
@@ -665,7 +720,7 @@ export function MultiitemBoxSlipModal({
     });
     setZeroError(false);
     replaceNextScan.current = true;
-    setScan(args.query);
+    setScan(args.query ?? "");
     setPending(null);
     focusScan();
   }
@@ -673,6 +728,13 @@ export function MultiitemBoxSlipModal({
   async function handleScanSubmit() {
     const q = scan.trim();
     if (!q || !active || active.status === "saved") return;
+    if (pending && pending.query === q) {
+      await addOrderToActive({
+        orderId: pending.orderId,
+        query: pending.query,
+      });
+      return;
+    }
     replaceNextScan.current = true;
     if (active.items.some((it) => it.orderTitle === q || it.orderId === q)) {
       showHint("amber", "Already in this box", 1400);
@@ -1087,31 +1149,6 @@ export function MultiitemBoxSlipModal({
                       #{pending.orderTitle} → {pending.customerName}
                     </p>
                     <p className="text-slate-700">Box has: {active.customer}</p>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void addOrderToActive({
-                            orderId: pending.orderId,
-                            query: pending.query,
-                          })
-                        }
-                        className={btnPrimary}
-                      >
-                        Add anyway
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPending(null);
-                          setScan("");
-                          focusScan();
-                        }}
-                        className={btnGhost}
-                      >
-                        Reject
-                      </button>
-                    </div>
                   </div>
                 ) : null}
 
@@ -1146,10 +1183,11 @@ export function MultiitemBoxSlipModal({
                       type="button"
                       onClick={() => {
                         replaceNextScan.current = false;
+                        setPending(null);
                         setScan("");
                         scanRef.current?.focus();
                       }}
-                      disabled={!scan}
+                      disabled={!scan && !pending}
                       title="Clear"
                       aria-label="Clear scan text"
                       className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-30"
@@ -1232,8 +1270,10 @@ export function MultiitemBoxSlipModal({
                   </div>
                 ) : (
                   <div className="min-h-0 flex-1 overflow-y-auto px-3 py-1">
-                    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)_auto_auto] gap-x-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <div className="grid grid-cols-[4rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] gap-x-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <span />
                       <span>Order</span>
+                      <span>Artwork</span>
                       <span>Item</span>
                       <span className="text-right">Qty</span>
                       <span className="w-7" />
@@ -1244,11 +1284,17 @@ export function MultiitemBoxSlipModal({
                           key={item.id}
                           className="border-b border-slate-100 py-1.5"
                         >
-                          <div className="grid grid-cols-[auto_7.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
+                          <div className="grid grid-cols-[4rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
                             <ItemQrCode value={item.orderTitle} size={64} />
                             <p className="truncate font-mono text-sm font-medium tabular-nums text-slate-900">
                               {formatShortOrderNumber(item.orderTitle)}
                             </p>
+                            <BoxArtworkThumb
+                              orderId={item.orderId}
+                              url={item.thumbnailUrl}
+                              size={64}
+                              orderNumber={formatShortOrderNumber(item.orderTitle)}
+                            />
                             <p className="min-w-0 truncate text-sm font-medium text-slate-800">
                               {item.itemTitle || item.orderTitle || "—"}
                             </p>

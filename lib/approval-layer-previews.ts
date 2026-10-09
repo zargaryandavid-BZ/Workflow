@@ -18,6 +18,7 @@ import { rasterizePdfLayerPreviews } from "@/lib/pdf-layer-preview";
 import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import {
   layerPreviewManifestPath,
+  layerPreviewObjectPath,
   layerPreviewPageDir,
   respondPreviewIndexPath,
   sanitizeLayerPreviewKey,
@@ -40,7 +41,6 @@ import {
   PRODUCTION_CARD_FILES,
   productionCardImageMeta,
 } from "@/lib/production-card-image";
-import { ensurePrintProofJpeg } from "@/lib/flatten-print-proof";
 import sharp from "sharp";
 
 const CARD_PDF_REV_SPEC = "card_pdf_rev";
@@ -335,8 +335,12 @@ async function applyStoredCompositeToCard(
   preview: Pick<RespondLayerPreview, "fileId" | "rev" | "page" | "layers">,
   fingerprint: string
 ): Promise<boolean> {
-  const path = await ensurePrintProofJpeg(admin, preview);
-  if (!path) return false;
+  const path = layerPreviewObjectPath(
+    preview.fileId,
+    preview.rev,
+    preview.page,
+    "composite"
+  );
   const { data, error } = await admin.storage
     .from(ORDER_ASSETS_BUCKET)
     .download(path);

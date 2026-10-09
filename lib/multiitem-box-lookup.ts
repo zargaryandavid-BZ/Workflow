@@ -37,6 +37,7 @@ export type MultiitemBoxOrderRow = {
   customer_phone?: string | null;
   quantity: number;
   added_at: string;
+  thumbnail_url?: string | null;
 };
 
 type OrderLookupRow = {

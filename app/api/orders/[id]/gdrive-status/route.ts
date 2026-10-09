@@ -153,29 +153,16 @@ export async function GET(
           ? storedDesignerId
           : null;
 
-    // Run all folder checks in a single parallel batch — including the
-    // "directOnly" designer-folder fallback that used to fire sequentially
-    // after the batch when hasFinalPdf was false. Including it upfront costs
-    // one extra Drive call on orders that already have a Final PDF, but
-    // eliminates a full sequential Drive RTT on orders that don't.
     const emptyResult = { hasFiles: false, fileCount: 0, hasPdf: false };
-    const [designerResult, jobRootResult, ...finalResults] = await Promise.all([
+    const [designerResult, ...finalResults] = await Promise.all([
       designerCheckId
         ? folderHasFiles(settings, designerCheckId, {
             excludeChildIds: resolved.finalIds,
             skipFinalProdChildren: true,
-          })
-        : Promise.resolve(emptyResult),
-      // directOnly check on the designer folder (the job-root fallback).
-      designerCheckId
-        ? folderHasFiles(settings, designerCheckId, {
-            excludeChildIds: resolved.finalIds,
-            skipFinalProdChildren: true,
-            directOnly: true,
           })
         : Promise.resolve(emptyResult),
       ...resolved.finalIds.map((folderId) =>
-        folderHasFiles(settings, folderId)
+        folderHasFiles(settings, folderId, { directOnly: true })
       ),
     ]);
 
@@ -186,13 +173,6 @@ export async function GET(
       hasFiles = hasFiles || result.hasFiles;
       hasFinalPdf = hasFinalPdf || result.hasPdf;
       fileCount += result.fileCount;
-    }
-    // No Final PDF in Final folders — a PDF sitting directly in the job folder
-    // counts as the production file (jobRootResult already computed in parallel).
-    if (!hasFinalPdf && jobRootResult.hasPdf) {
-      hasFiles = true;
-      hasFinalPdf = true;
-      fileCount += jobRootResult.fileCount;
     }
     const hasPdf = hasFinalPdf || designerResult.hasPdf;
 

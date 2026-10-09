@@ -7,6 +7,7 @@ import {
 } from "@/lib/fulfillment-day";
 import type { MultiitemBoxRow } from "@/lib/multiitem-box-lookup";
 import { createClient } from "@/lib/supabase/server";
+import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
 
 export async function GET(request: Request) {
   const auth = requireFulfillmentApi(await getTenantContext());
@@ -78,6 +79,8 @@ export async function GET(request: Request) {
     }
   }
 
+  const thumbByOrder = await boxOrderThumbnailUrls(supabase, orderIds);
+
   const boxes = rawBoxes.map((box) => ({
     ...box,
     multiitem_box_orders: [...(box.multiitem_box_orders ?? [])]
@@ -86,6 +89,7 @@ export async function GET(request: Request) {
         ...row,
         customer_email: contactByOrderId.get(row.order_id)?.email ?? null,
         customer_phone: contactByOrderId.get(row.order_id)?.phone ?? null,
+        thumbnail_url: thumbByOrder.get(row.order_id) ?? null,
       })),
   }));
 

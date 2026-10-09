@@ -40,8 +40,8 @@ export function shouldRebuildStoredProofs(
 }
 
 /** Bump when proof raster encoding changes so old images are rebuilt.
- *  "tl" = transparent per-layer overlays + lower-res cap. */
-export const PROOF_RASTER_TAG = "png-tl";
+ *  "all2" = all-layer card composite + white-backed layer separation. */
+export const PROOF_RASTER_TAG = "png-all2";
 
 export function proofRasterRev(modifiedTime: string): string {
   const t = modifiedTime.trim() || "unknown";

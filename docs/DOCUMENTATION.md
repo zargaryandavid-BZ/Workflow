@@ -1019,7 +1019,7 @@ Whether Drive folders for this order have files.
 | --- | --- |
 | **Auth** | Session + tenant |
 | **Response** | `{ hasFiles, hasDesignerFiles, hasPdf, hasFinalPdf, designerUrl, finalUrl }` |
-| **Notes** | `hasFiles` / `hasFinalPdf` = **Final production** only. If the stored Final folder is in Drive Trash (PDF still inside), Workflow restores it instead of treating the card as missing a PDF or creating an empty duplicate. If there is no Final folder, a PDF sitting in the job folder counts as production. `hasPdf` is true if Final **or** the Designer folder has a PDF (Artwork button). `hasDesignerFiles` = files in the Designer folder only (Final production subfolder is ignored). Opening Artwork or Request customer approval when Final has no PDF pops **No PDF file in production**. |
+| **Notes** | `hasFiles` / `hasFinalPdf` = files **directly in the Final production folder** only. An empty Final folder stays empty even if the designer/job folder still has a PDF. `hasPdf` is true if Final **or** the Designer folder has a PDF (Artwork button). `hasDesignerFiles` = files in the Designer folder only. Opening Artwork or Request customer approval when Final has no PDF pops **No PDF file in production**. |
 
 ### `GET /api/orders/[id]/pdf-check`
 
