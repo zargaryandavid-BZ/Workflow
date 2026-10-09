@@ -34,7 +34,7 @@ import {
 } from "@/lib/ready-to-ship-group";
 import { resolveCustomerApprovalActionUrl } from "@/lib/approval-group";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
-import { applyOrderContactOverride } from "@/lib/customers";
+import { applyOrderContactOverride, resolveCustomerFieldIds } from "@/lib/customers";
 import { extraSmsPhonesExcludingPrimary } from "@/lib/customer-contacts";
 import { mergeEmailLists } from "@/lib/email-list";
 import { isSmsConfigured, sendSms } from "@/lib/sms";
@@ -84,6 +84,30 @@ export async function expireOtherApprovalRequests(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * The customer name the board card shows for this order: the "Customer Name"
+ * custom field value (e.g. the broker / end-client "cecile broker"). Mirrors
+ * customerNameFromOrder() (lib/notification-messages) so the greeting we send
+ * matches the card. The linked customers row can be a deduped/placeholder
+ * contact (e.g. an internal "Super Admin"), so it must never win over this.
+ */
+async function resolveCardCustomerName(
+  client: Client,
+  order: Order
+): Promise<string | null> {
+  const { nameId } = await resolveCustomerFieldIds(client, order.tenant_id);
+  if (!nameId) return null;
+  const { data } = await client
+    .from("custom_field_values")
+    .select("value")
+    .eq("order_id", order.id)
+    .eq("custom_field_id", nameId)
+    .maybeSingle();
+  const raw = (data as { value: unknown } | null)?.value;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  return name || null;
+}
+
 async function resolveCustomerContact(
   client: Client,
   order: Order,
@@ -106,6 +130,12 @@ async function resolveCustomerContact(
     customerPhone = customerPhone ?? typed?.phone ?? null;
     customerName = typed?.name ?? null;
   }
+  // Greet with the same name shown on the board card. The order's "Customer
+  // Name" field is the real end-client/broker ("cecile broker"); the linked
+  // customers row can be an internal/placeholder contact ("Super Admin"), so
+  // the card name takes precedence and the customers row is only a fallback.
+  const cardCustomerName = await resolveCardCustomerName(client, order);
+  if (cardCustomerName) customerName = cardCustomerName;
   return { customerEmail, customerPhone, customerName };
 }
 
