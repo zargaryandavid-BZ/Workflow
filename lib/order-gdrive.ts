@@ -234,7 +234,8 @@ export async function collectGroupDriveSeedIds(
 export async function loadOrderFinalDriveContext(
   client: Client,
   tenantId: string,
-  orderId: string
+  orderId: string,
+  opts?: { includeGroupSeeds?: boolean }
 ): Promise<OrderFinalDriveContext> {
   const { data: order, error: orderError } = await client
     .from("orders")
@@ -295,11 +296,19 @@ export async function loadOrderFinalDriveContext(
     specs,
     artworkUrl: artworkUrl || null,
   });
-  const groupSeedIds = await collectGroupDriveSeedIds(client, tenantId, {
-    id: order.id as string,
-    title: String(order.title ?? ""),
-    specs,
-  });
+  // The board card picture must come from THIS line item's own Drive folder.
+  // Pooling the whole order group's folders makes every line item's card show
+  // the newest file dropped in ANY sibling's folder (pouch art bleeding onto
+  // the box/label cards). Callers that build the card thumbnail pass
+  // includeGroupSeeds:false so each card reads only its own folder.
+  const includeGroupSeeds = opts?.includeGroupSeeds !== false;
+  const groupSeedIds = includeGroupSeeds
+    ? await collectGroupDriveSeedIds(client, tenantId, {
+        id: order.id as string,
+        title: String(order.title ?? ""),
+        specs,
+      })
+    : [];
   const seedIds = [...new Set([...ownSeedIds, ...groupSeedIds])];
   const orderRow = {
     id: order.id as string,
