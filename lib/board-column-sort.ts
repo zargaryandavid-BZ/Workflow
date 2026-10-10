@@ -139,21 +139,51 @@ export function sortOrdersForColumn<
     created_at: string;
     due_date: string | null;
     last_moved_at?: string | null;
-    specs?: { priority_score?: unknown } | null;
+    specs?:
+      | {
+          priority_score?: unknown;
+          designer_id?: unknown;
+          designer_queue_pos?: unknown;
+          prepress_queue_pos?: unknown;
+        }
+      | null;
     queue_rank?: number | null;
   },
 >(orders: T[], mode: ColumnSortMode): T[] {
   const list = [...orders];
 
-  // Start / In Progress (designer) and Prepress carry a queue number —
-  // always show cards in that ascending order (1, 2, 3 …).
-  if (orders.some((o) => typeof o.queue_rank === "number")) {
-    return list.sort((a, b) => {
-      const ra = typeof a.queue_rank === "number" ? a.queue_rank : Number.POSITIVE_INFINITY;
-      const rb = typeof b.queue_rank === "number" ? b.queue_rank : Number.POSITIVE_INFINITY;
-      if (ra !== rb) return ra - rb;
-      return a.position - b.position;
-    });
+  // Start / In Progress (designer) and Prepress carry a queue number.
+  // The DESIGNER queue number is per-designer — every designer has their own
+  // #1, #2, #3 … — so a column that mixes several designers must NOT be sorted
+  // by that number, or all the #1s clump together and the cards shuffle on
+  // every background refresh (the "jumping / disappearing" bug). Only sort by
+  // the queue number when every ranked card belongs to the same queue group:
+  //   • a single designer (e.g. the board filtered to one designer), or
+  //   • the Prepress queue, which is one shared global queue.
+  // A mixed-designer column keeps its normal sort and the #N is just a label.
+  const ranked = orders.filter((o) => typeof o.queue_rank === "number");
+  if (ranked.length > 0) {
+    const queueGroups = new Set(
+      ranked.map((o) => {
+        const specs = o.specs as
+          | { designer_id?: unknown; prepress_queue_pos?: unknown }
+          | null;
+        // Prepress is one shared global queue; designer-queue cards group by
+        // the designer who owns that card's personal 1..N list.
+        return specs?.prepress_queue_pos != null
+          ? "prepress:global"
+          : `designer:${String(specs?.designer_id ?? "")}`;
+      })
+    );
+    if (queueGroups.size <= 1) {
+      return list.sort((a, b) => {
+        const ra = typeof a.queue_rank === "number" ? a.queue_rank : Number.POSITIVE_INFINITY;
+        const rb = typeof b.queue_rank === "number" ? b.queue_rank : Number.POSITIVE_INFINITY;
+        if (ra !== rb) return ra - rb;
+        if (a.position !== b.position) return a.position - b.position;
+        return a.id.localeCompare(b.id);
+      });
+    }
   }
 
   if (mode === "manual") {
