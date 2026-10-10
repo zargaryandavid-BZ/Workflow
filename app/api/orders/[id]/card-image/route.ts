@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { canEditOrderDetails } from "@/lib/permissions";
 import { preserveCardImage, type CardImageSource } from "@/lib/card-image";
-import { loadOrderFinalDriveContext, collectGroupDriveSeedIds } from "@/lib/order-gdrive";
+import { loadOrderFinalDriveContext } from "@/lib/order-gdrive";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,10 +18,13 @@ export async function GET(
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = await createClient();
+  // Own line item's folder only — never the whole order group's folders, or a
+  // sibling line item's newest file bleeds onto this card.
   const loaded = await loadOrderFinalDriveContext(
     supabase,
     ctx.tenant.id,
-    orderId
+    orderId,
+    { includeGroupSeeds: false }
   );
   if (loaded.kind === "not_found") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -41,22 +44,9 @@ export async function GET(
     return NextResponse.json({ error: "No production PDF" }, { status: 404 });
   }
 
-  const groupFolderIds = await collectGroupDriveSeedIds(
-    supabase,
-    ctx.tenant.id,
-    {
-      id: loaded.order.id,
-      title: loaded.order.title,
-      specs: loaded.order.specs,
-    }
-  );
   const folderIds = [
     ...new Set(
-      [
-        ...(loaded.resolved?.finalIds ?? []),
-        ...loaded.seedIds,
-        ...groupFolderIds,
-      ].filter(Boolean)
+      [...(loaded.resolved?.finalIds ?? []), ...loaded.seedIds].filter(Boolean)
     ),
   ];
   if (folderIds.length === 0) {
