@@ -2359,28 +2359,30 @@ export function Board({
   }, []);
 
   // Designer queue re-ranked on a card → update every affected card's stored
-  // position so the #N badges renumber without a refetch.
+  // position so the #N badges renumber without a refetch. Must patch BOTH
+  // `orders` and `searchResults`: the designer / owner filtered view (how
+  // managers assign the queue) renders from searchResults, so updating only
+  // `orders` left the #N badge stale until a full page reload.
   useEffect(() => {
     function onQueueChanged(event: Event) {
       const detail = (event as CustomEvent<QueueChangedDetail>).detail;
       const posById = detail?.posById;
       if (!posById || Object.keys(posById).length === 0) return;
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id in posById
-            ? {
-                ...o,
-                queue_rank: posById[o.id] + 1,
-                specs: {
-                  ...(o.specs ?? {}),
-                  ...(detail.kind === "prepress"
-                    ? { prepress_queue_pos: posById[o.id] }
-                    : { designer_queue_pos: posById[o.id] }),
-                },
-              }
-            : o
-        )
-      );
+      const applyRanks = (o: OrderWithRelations): OrderWithRelations =>
+        o.id in posById
+          ? {
+              ...o,
+              queue_rank: posById[o.id] + 1,
+              specs: {
+                ...(o.specs ?? {}),
+                ...(detail.kind === "prepress"
+                  ? { prepress_queue_pos: posById[o.id] }
+                  : { designer_queue_pos: posById[o.id] }),
+              },
+            }
+          : o;
+      setOrders((prev) => prev.map(applyRanks));
+      setSearchResults((prev) => (prev ? prev.map(applyRanks) : prev));
     }
     window.addEventListener(QUEUE_CHANGED_EVENT, onQueueChanged);
     return () => window.removeEventListener(QUEUE_CHANGED_EVENT, onQueueChanged);
