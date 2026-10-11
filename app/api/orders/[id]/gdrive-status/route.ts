@@ -70,10 +70,14 @@ export async function GET(
   if (cached) return NextResponse.json(cached);
 
   const supabase = await createClient();
+  // Resolve this line item's OWN Drive folder only. Pooling the order group's
+  // folders made the card-picture refresh pull a sibling line item's newest
+  // file onto this card (pouch art showing on the box/label cards).
   const loaded = await loadOrderFinalDriveContext(
     supabase,
     ctx.tenant.id,
-    orderId
+    orderId,
+    { includeGroupSeeds: false }
   );
 
   if (loaded.kind === "not_found") {
