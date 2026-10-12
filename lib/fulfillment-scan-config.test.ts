@@ -5,6 +5,8 @@ import {
   findScanButton,
   moveScanButton,
   normalizeScanButtons,
+  parseScanStation,
+  scanButtonsForStation,
   serializeScanButtons,
 } from "./fulfillment-scan-config.ts";
 
@@ -43,6 +45,21 @@ describe("normalizeScanButtons", () => {
       ["b2", "b1"]
     );
     assert.equal(buttons[0].label, "Ship");
+    assert.equal(buttons[0].receiver, true);
+    assert.equal(buttons[0].sender, false);
+  });
+
+  it("reads receiver/sender flags and defaults missing ones to receiver", () => {
+    const buttons = normalizeScanButtons({
+      buttons: [
+        { id: "a", label: "Recv", column_id: "c1", receiver: true, sender: true },
+        { id: "b", label: "Ship", column_id: "c2", sender: true },
+      ],
+    });
+    assert.equal(buttons[0].receiver, true);
+    assert.equal(buttons[0].sender, true);
+    assert.equal(buttons[1].receiver, false);
+    assert.equal(buttons[1].sender, true);
   });
 
   it("allows an empty buttons list after the user removes all", () => {
@@ -63,8 +80,41 @@ describe("serializeScanButtons", () => {
       { id: "x", label: "  Received  ", columnId: "col-1" },
     ]);
     assert.deepEqual(stored, {
-      buttons: [{ id: "x", label: "Received", column_id: "col-1" }],
+      buttons: [
+        {
+          id: "x",
+          label: "Received",
+          column_id: "col-1",
+          receiver: true,
+          sender: false,
+        },
+      ],
     });
+  });
+});
+
+describe("scanButtonsForStation", () => {
+  it("defaults the station to receiver", () => {
+    assert.equal(parseScanStation(null), "receiver");
+    assert.equal(parseScanStation("sender"), "sender");
+  });
+
+  it("filters buttons for the selected station", () => {
+    const buttons = normalizeScanButtons({
+      buttons: [
+        { id: "r", label: "Recv", column_id: "c1", receiver: true, sender: false },
+        { id: "s", label: "Ship", column_id: "c2", receiver: false, sender: true },
+        { id: "b", label: "Both", column_id: "c3", receiver: true, sender: true },
+      ],
+    });
+    assert.deepEqual(
+      scanButtonsForStation(buttons, "receiver").map((b) => b.id),
+      ["r", "b"]
+    );
+    assert.deepEqual(
+      scanButtonsForStation(buttons, "sender").map((b) => b.id),
+      ["s", "b"]
+    );
   });
 });
 

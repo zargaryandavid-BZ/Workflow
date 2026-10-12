@@ -3,14 +3,28 @@
 export const MAX_SCAN_BUTTONS = 20;
 export const MAX_SCAN_BUTTON_LABEL = 80;
 
+export type ScanStation = "receiver" | "sender";
+
+export const SCAN_STATION_STORAGE_KEY = "workflow:scan-station";
+
 export type ScanActionButton = {
   id: string;
   label: string;
   columnId: string | null;
+  /** Visible when the Scan page is in Receiver mode. Default true. */
+  receiver: boolean;
+  /** Visible when the Scan page is in Sender mode. Default false. */
+  sender: boolean;
 };
 
 export type ScanColumnConfigStored = {
-  buttons: { id: string; label: string; column_id: string | null }[];
+  buttons: {
+    id: string;
+    label: string;
+    column_id: string | null;
+    receiver: boolean;
+    sender: boolean;
+  }[];
 };
 
 const LEGACY_BUTTONS: { id: string; label: string }[] = [
@@ -26,6 +40,8 @@ export function defaultScanButtons(): ScanActionButton[] {
     id: b.id,
     label: b.label,
     columnId: null,
+    receiver: true,
+    sender: false,
   }));
 }
 
@@ -34,7 +50,37 @@ export function newScanButton(label = "New action"): ScanActionButton {
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `btn_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  return { id, label, columnId: null };
+  return { id, label, columnId: null, receiver: true, sender: false };
+}
+
+export function parseScanStation(raw: unknown): ScanStation {
+  return raw === "sender" ? "sender" : "receiver";
+}
+
+function sanitizeStationFlags(rec: Record<string, unknown>): {
+  receiver: boolean;
+  sender: boolean;
+} {
+  const has =
+    "receiver" in rec || "sender" in rec || "stations" in rec;
+  if (!has) return { receiver: true, sender: false };
+  let receiver = rec.receiver === true;
+  let sender = rec.sender === true;
+  if (Array.isArray(rec.stations)) {
+    receiver = rec.stations.includes("receiver");
+    sender = rec.stations.includes("sender");
+  }
+  if (!receiver && !sender) return { receiver: true, sender: false };
+  return { receiver, sender };
+}
+
+export function scanButtonsForStation(
+  buttons: ScanActionButton[],
+  station: ScanStation
+): ScanActionButton[] {
+  return buttons.filter((b) =>
+    station === "sender" ? b.sender : b.receiver
+  );
 }
 
 function asRecord(raw: unknown): Record<string, unknown> | null {
@@ -69,6 +115,7 @@ function parseButton(raw: unknown, index: number): ScanActionButton | null {
     id,
     label: sanitizeLabel(rec.label ?? rec.name),
     columnId: sanitizeColumnId(rec.column_id ?? rec.columnId),
+    ...sanitizeStationFlags(rec),
   };
 }
 
@@ -97,6 +144,8 @@ function parseLegacyMap(raw: Record<string, unknown>): ScanActionButton[] {
       id: b.id,
       label: b.label,
       columnId: sanitizeColumnId(raw[b.id]),
+      receiver: true,
+      sender: false,
     };
   });
   for (const [key, value] of Object.entries(raw)) {
@@ -106,6 +155,8 @@ function parseLegacyMap(raw: Record<string, unknown>): ScanActionButton[] {
       id: sanitizeId(key) ?? key,
       label: sanitizeLabel(key, key),
       columnId: sanitizeColumnId(value),
+      receiver: true,
+      sender: false,
     });
   }
   return [...buttons, ...extras].slice(0, MAX_SCAN_BUTTONS);
@@ -137,11 +188,19 @@ export function serializeScanButtons(
   buttons: ScanActionButton[]
 ): ScanColumnConfigStored {
   return {
-    buttons: buttons.slice(0, MAX_SCAN_BUTTONS).map((b, i) => ({
-      id: sanitizeId(b.id) ?? `btn_${i + 1}`,
-      label: sanitizeLabel(b.label),
-      column_id: sanitizeColumnId(b.columnId),
-    })),
+    buttons: buttons.slice(0, MAX_SCAN_BUTTONS).map((b, i) => {
+      const flags = sanitizeStationFlags({
+        receiver: b.receiver,
+        sender: b.sender,
+      });
+      return {
+        id: sanitizeId(b.id) ?? `btn_${i + 1}`,
+        label: sanitizeLabel(b.label),
+        column_id: sanitizeColumnId(b.columnId),
+        receiver: flags.receiver,
+        sender: flags.sender,
+      };
+    }),
   };
 }
 

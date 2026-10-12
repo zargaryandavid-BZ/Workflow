@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronRight,
@@ -43,9 +43,13 @@ import {
 } from "@/components/fulfillment/FulfillmentNav";
 import {
   MAX_SCAN_BUTTONS,
+  SCAN_STATION_STORAGE_KEY,
   newScanButton,
+  parseScanStation,
+  scanButtonsForStation,
   serializeScanButtons,
   type ScanActionButton,
+  type ScanStation,
 } from "@/lib/fulfillment-scan-config";
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
 import {
@@ -677,7 +681,7 @@ function SortableActionRow({
         zIndex: isDragging ? 10 : undefined,
       }}
       className={cn(
-        "flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2",
+        "flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2",
         isDragging && "bg-white shadow-md"
       )}
     >
@@ -708,6 +712,44 @@ function SortableActionRow({
           </option>
         ))}
       </select>
+      <div className="flex shrink-0 rounded-md border border-slate-200 bg-white p-0.5">
+        <button
+          type="button"
+          aria-pressed={button.receiver}
+          title="Show for Receiver"
+          onClick={() => {
+            const receiver = !button.receiver;
+            const sender = receiver || button.sender ? button.sender : true;
+            onChange({ receiver, sender });
+          }}
+          className={cn(
+            "h-7 rounded px-2 text-[11px] font-medium",
+            button.receiver
+              ? "bg-slate-900 text-white"
+              : "text-slate-500 hover:text-slate-800"
+          )}
+        >
+          Receiver
+        </button>
+        <button
+          type="button"
+          aria-pressed={button.sender}
+          title="Show for Sender"
+          onClick={() => {
+            const sender = !button.sender;
+            const receiver = sender || button.receiver ? button.receiver : true;
+            onChange({ receiver, sender });
+          }}
+          className={cn(
+            "h-7 rounded px-2 text-[11px] font-medium",
+            button.sender
+              ? "bg-slate-900 text-white"
+              : "text-slate-500 hover:text-slate-800"
+          )}
+        >
+          Sender
+        </button>
+      </div>
       <button
         type="button"
         aria-label="Remove button"
@@ -772,7 +814,7 @@ function SettingsPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-xl flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between px-6 pt-6">
           <h2 className="text-base font-semibold text-slate-900">Scan actions</h2>
           <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-slate-100">
@@ -780,7 +822,7 @@ function SettingsPanel({
           </button>
         </div>
         <p className="px-6 pt-1 text-[13px] text-slate-500">
-          Rename, drag to reorder, or remove buttons. Each one moves the scanned order to the column you pick.
+          Rename, drag to reorder, or remove buttons. Each one moves the scanned order to the column you pick. Use Receiver / Sender on the right to choose which Scan station sees the button (default Receiver).
         </p>
 
         <div className="mt-4 flex min-h-0 flex-col gap-2 overflow-y-auto px-6">
@@ -881,6 +923,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [actingOn, setActingOn] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<ScanActionButton | null>(null);
   const [scanButtons, setScanButtons] = useState<ScanActionButton[]>(initialButtons);
+  const [scanStation, setScanStation] = useState<ScanStation>("receiver");
   const [showSettings, setShowSettings] = useState(false);
   const [readyToShipPopup, setReadyToShipPopup] = useState<{
     order: OrderWithRelations;
@@ -894,6 +937,30 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     window.addEventListener(SCAN_CONFIGURE_EVENT, open);
     return () => window.removeEventListener(SCAN_CONFIGURE_EVENT, open);
   }, []);
+
+  useEffect(() => {
+    try {
+      setScanStation(
+        parseScanStation(localStorage.getItem(SCAN_STATION_STORAGE_KEY))
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const visibleScanButtons = useMemo(
+    () => scanButtonsForStation(scanButtons, scanStation),
+    [scanButtons, scanStation]
+  );
+
+  function selectScanStation(next: ScanStation) {
+    setScanStation(next);
+    try {
+      localStorage.setItem(SCAN_STATION_STORAGE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Listen for camera-open event (dispatched by nav or other callers)
   useEffect(() => {
@@ -1454,11 +1521,41 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
           {/* Actions */}
           <div>
-            <p className="mb-3 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
-              Actions
-            </p>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
+                Actions
+              </p>
+              <div className="flex shrink-0 rounded-md border border-slate-200 bg-white p-0.5">
+                <button
+                  type="button"
+                  aria-pressed={scanStation === "receiver"}
+                  onClick={() => selectScanStation("receiver")}
+                  className={cn(
+                    "h-7 rounded px-2.5 text-[11px] font-medium",
+                    scanStation === "receiver"
+                      ? "bg-slate-900 text-white"
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  Receiver
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={scanStation === "sender"}
+                  onClick={() => selectScanStation("sender")}
+                  className={cn(
+                    "h-7 rounded px-2.5 text-[11px] font-medium",
+                    scanStation === "sender"
+                      ? "bg-slate-900 text-white"
+                      : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  Sender
+                </button>
+              </div>
+            </div>
             <div className="flex flex-col gap-2">
-              {scanButtons.map((button, index) => {
+              {visibleScanButtons.map((button, index) => {
                 const configured = !!button.columnId;
                 const columnName =
                   columns.find((c) => c.id === button.columnId)?.name ?? null;
@@ -1502,9 +1599,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   </button>
                 );
               })}
-              {scanButtons.length === 0 ? (
+              {visibleScanButtons.length === 0 ? (
                 <p className="text-[12px] md:text-[14px] text-slate-400">
-                  No scan buttons. Add them in Configure columns.
+                  {scanButtons.length === 0
+                    ? "No scan buttons. Add them in Configure columns."
+                    : `No ${scanStation} buttons. Mark Receiver or Sender in Configure columns.`}
                 </p>
               ) : null}
             </div>

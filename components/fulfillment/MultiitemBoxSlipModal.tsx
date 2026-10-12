@@ -366,6 +366,11 @@ function HistoryBoxCard({
               <span className="block truncate font-medium text-slate-800">
                 {item.itemTitle || item.orderTitle || "—"}
               </span>
+              {item.customerName ? (
+                <span className="block truncate text-[10px] text-slate-500">
+                  {item.customerName}
+                </span>
+              ) : null}
               {item.skuLines.length > 0 ? (
                 <span className="block truncate text-[10px] text-slate-500">
                   {item.skuLines
@@ -1626,9 +1631,16 @@ export function MultiitemBoxSlipModal({
                               size={64}
                               orderNumber={formatShortOrderNumber(item.orderTitle)}
                             />
-                            <p className="min-w-0 truncate text-sm font-medium text-slate-800">
-                              {item.itemTitle || item.orderTitle || "—"}
-                            </p>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-800">
+                                {item.itemTitle || item.orderTitle || "—"}
+                              </p>
+                              {item.customerName ? (
+                                <p className="truncate text-xs text-slate-500">
+                                  {item.customerName}
+                                </p>
+                              ) : null}
+                            </div>
                             <input
                               type="number"
                               min={1}
