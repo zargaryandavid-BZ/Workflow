@@ -247,6 +247,11 @@ interface OrderCardProps {
   nextMoveColumnId?: string | null;
   /** Called when the user selects a column from the right-click menu. */
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
+  /** Move EVERY line item of this order to the chosen column (whole-order move). */
+  onMoveGroupToColumn?: (
+    order: OrderWithRelations,
+    targetColumnId: string
+  ) => void;
   /** Admin-only automations visible for this card's column (shown by name). */
   actionButtons?: ButtonAutomation[];
   appUrl?: string;
@@ -599,6 +604,7 @@ export function OrderCard({
   availableColumns = [],
   nextMoveColumnId = null,
   onMoveToColumn,
+  onMoveGroupToColumn,
   actionButtons = [],
   appUrl = "",
   onActionComplete,
@@ -833,6 +839,8 @@ export function OrderCard({
   // Right-click context menu (move / actions)
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  // When on, "Move to" moves EVERY line item of this order (multi-part orders).
+  const [moveWholeOrder, setMoveWholeOrder] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [artworkOpen, setArtworkOpen] = useState(false);
@@ -2287,12 +2295,28 @@ export function OrderCard({
                     <MoveRight className="h-3 w-3" />
                     Move to
                   </p>
+                  {groupSize != null && groupSize >= 2 && onMoveGroupToColumn ? (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-2 px-3 pb-1.5 text-xs font-medium text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={moveWholeOrder}
+                        onChange={(e) => setMoveWholeOrder(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-300"
+                      />
+                      Move all {groupSize} parts of this order
+                    </label>
+                  ) : null}
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-1">
                     <MoveMenuSections
                       columns={availableColumns}
                       scrollToColumnId={nextMoveColumnId}
                       onSelect={(col) => {
-                        onMoveToColumn?.(order, col.id);
+                        if (moveWholeOrder && onMoveGroupToColumn) {
+                          onMoveGroupToColumn(order, col.id);
+                        } else {
+                          onMoveToColumn?.(order, col.id);
+                        }
+                        setMoveWholeOrder(false);
                         setMenuOpen(false);
                       }}
                     />
