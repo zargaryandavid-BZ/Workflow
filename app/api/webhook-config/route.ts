@@ -240,6 +240,23 @@ export async function PATCH(request: Request) {
         oskKey: osk,
       });
     }
+
+    // Mirror the one-click Bazaar-connect handshake: connecting a partner by
+    // pasting its osk_ key + Bazaar API URL here should also turn status /
+    // approval push ON, so the board never has to flip a second manual toggle
+    // after a partner is linked (the handshake path in lib/bazaar-connect.ts
+    // already sets bazaar_portal_sync_enabled: true on complete). Only when the
+    // caller did not set the flag explicitly in this same request — an explicit
+    // value, including `false` as a kill-switch, always wins — and only when a
+    // new osk_ key is actually being added with an API URL present. Idempotent.
+    if (body.bazaar_portal_sync_enabled === undefined && apiUrl.trim()) {
+      const addsConnectedPartner = Object.entries(next.keys).some(
+        ([id, osk]) => osk.startsWith("osk_") && prev.keys[id] !== osk
+      );
+      if (addsConnectedPartner) {
+        updates.bazaar_portal_sync_enabled = true;
+      }
+    }
   }
 
   let { data, error } = await supabase
