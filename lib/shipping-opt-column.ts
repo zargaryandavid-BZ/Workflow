@@ -25,7 +25,7 @@ export function matchShippingOptColumnId(
  * exist on the board, callers fall back to the single Ship Opt column — so a
  * board that hasn't added the two columns keeps working exactly as before.
  */
-const PICKUP_NAME = /\bpick\s*-?\s*up\b/i;
+const PICKUP_NAME = /\bpick\s*-?\s*ups?\b/i;
 const SHIPPING_NAME = /shipping/i;
 
 export function isPickupSelectedColumnName(
