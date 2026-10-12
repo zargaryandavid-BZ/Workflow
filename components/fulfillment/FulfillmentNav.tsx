@@ -26,6 +26,37 @@ export function FulfillmentNav() {
   const [navLoading, setNavLoading] = useState(false);
   const [keypadOpen, setKeypadOpen] = useState(false);
   const navInputRef = useRef<HTMLInputElement>(null);
+  const [openBoxCount, setOpenBoxCount] = useState(0);
+
+  // Count open (non-saved) boxes from localStorage for the badge
+  useEffect(() => {
+    function countOpenBoxes() {
+      try {
+        let count = 0;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key?.startsWith("multiitem-day-")) continue;
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw) as { status?: string }[];
+          if (Array.isArray(parsed)) {
+            count += parsed.filter((b) => b.status === "open").length;
+          }
+        }
+        setOpenBoxCount(count);
+      } catch { /* ignore */ }
+    }
+    countOpenBoxes();
+    window.addEventListener("focus", countOpenBoxes);
+    window.addEventListener("storage", countOpenBoxes);
+    // Also refresh when navigating to/from multiitem-box
+    const interval = setInterval(countOpenBoxes, 3000);
+    return () => {
+      window.removeEventListener("focus", countOpenBoxes);
+      window.removeEventListener("storage", countOpenBoxes);
+      clearInterval(interval);
+    };
+  }, []);
   /** After a scan is committed, the next keystrokes replace the field (wedge scanners). */
   const replaceNextInput = useRef(false);
 
@@ -150,7 +181,14 @@ export function FulfillmentNav() {
             : "text-slate-600 hover:bg-slate-100"
         )}
       >
-        <Package className="h-4 w-4 shrink-0" />
+        <span className="relative">
+          <Package className="h-4 w-4 shrink-0" />
+          {openBoxCount > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-[8px] font-bold text-white leading-none">
+              {openBoxCount > 9 ? "9+" : openBoxCount}
+            </span>
+          )}
+        </span>
         <span className="hidden md:inline">Multi-item Box Slip</span>
       </Link>
 

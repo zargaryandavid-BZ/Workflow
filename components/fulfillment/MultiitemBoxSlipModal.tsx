@@ -298,6 +298,11 @@ function HistoryBoxCard({
           <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium">
             {box.items.length}
           </span>
+          {box.items.length > 0 && (
+            <span className="text-[10px] text-slate-500">
+              · <span className="font-semibold text-slate-800">{box.items.reduce((s, it) => s + it.quantity, 0).toLocaleString()}</span> units
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -446,6 +451,10 @@ export function MultiitemBoxSlipModal({
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cameraScannerRef = useRef<any>(null);
   const scanRef = useRef<HTMLInputElement>(null);
   const replaceNextScan = useRef(false);
   const customLengthRef = useRef<HTMLInputElement>(null);
@@ -502,6 +511,35 @@ export function MultiitemBoxSlipModal({
       if (replaceNextScan.current) scanRef.current?.select();
     }, 50);
   }, []);
+
+  // QrScanner lifecycle for inline camera
+  useEffect(() => {
+    if (!cameraOpen) return;
+    let destroyed = false;
+    void (async () => {
+      const { default: QrScanner } = await import("qr-scanner");
+      if (destroyed || !cameraVideoRef.current) return;
+      const scanner = new QrScanner(
+        cameraVideoRef.current,
+        (result: { data: string }) => {
+          const code = result.data.trim();
+          if (!code) return;
+          scanner.stop(); scanner.destroy(); cameraScannerRef.current = null;
+          setCameraOpen(false);
+          applyScanField(code);
+          void handleScanSubmit();
+        },
+        { returnDetailedScanResult: true, highlightScanRegion: true, highlightCodeOutline: true, preferredCamera: "environment" }
+      );
+      cameraScannerRef.current = scanner;
+      await scanner.start();
+    })();
+    return () => {
+      destroyed = true;
+      if (cameraScannerRef.current) { cameraScannerRef.current.stop(); cameraScannerRef.current.destroy(); cameraScannerRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraOpen]);
 
   function applyScanField(next: string) {
     setPending(null);
@@ -1449,6 +1487,24 @@ export function MultiitemBoxSlipModal({
                         shake && "animate-scan-shake border-red-500"
                       )}
                     />
+                    {/* Camera button */}
+                    <button
+                      type="button"
+                      onClick={() => setCameraOpen((v) => !v)}
+                      title={cameraOpen ? "Close camera" : "Open camera"}
+                      aria-label={cameraOpen ? "Close camera" : "Scan with camera"}
+                      className={cn(
+                        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border text-slate-500",
+                        cameraOpen
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-300 bg-white hover:bg-slate-50 hover:text-slate-800"
+                      )}
+                    >
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                        <circle cx="12" cy="13" r="4"/>
+                      </svg>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -1468,6 +1524,19 @@ export function MultiitemBoxSlipModal({
                       Add
                     </button>
                   </form>
+                  {/* Inline camera */}
+                  {cameraOpen && (
+                    <div className="relative mt-3 flex h-56 w-full overflow-hidden rounded-xl bg-black">
+                      <video ref={cameraVideoRef} className="h-full w-full object-cover" muted playsInline />
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <div className="rounded-xl border-2 border-white/80" style={{ width: 160, height: 160, boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }} />
+                      </div>
+                      <p className="absolute bottom-3 left-0 right-0 text-center text-xs font-medium text-white/70">Point at order QR code</p>
+                      <button type="button" onClick={() => setCameraOpen(false)} className="absolute right-2 top-2 rounded-full bg-black/40 p-1.5 text-white hover:bg-black/60">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                   {scanPreviewLoading ? (
                     <p className="mt-2 text-sm text-slate-500">
                       Reading Final Production artwork…
@@ -1586,13 +1655,18 @@ export function MultiitemBoxSlipModal({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
+                <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Items in box
                   </p>
                   <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
                     {active.items.length}
                   </span>
+                  {active.items.length > 0 && (
+                    <span className="text-[11px] text-slate-500">
+                      · <span className="font-semibold text-slate-800">{active.items.reduce((s, it) => s + it.quantity, 0).toLocaleString()}</span> units
+                    </span>
+                  )}
                   {zeroError ? (
                     <span className="text-sm text-red-600">
                       Add at least one order

@@ -98,6 +98,11 @@ export async function generateMultiitemBoxSlipPdf(
   );
   const qrPng = await orderNumberQrPng(boxName);
 
+  // Pre-generate per-item QR codes in parallel
+  const itemQrPngs = await Promise.all(
+    tableItems.map((item) => orderNumberQrPng(item.orderTitle).catch(() => null))
+  );
+
   const doc = new PDFDocument({
     size: [PAGE_W, PAGE_H],
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
@@ -112,7 +117,9 @@ export async function generateMultiitemBoxSlipPdf(
     doc.on("error", reject);
   });
 
-  const rowsPerPage = 14;
+  const ROW_H = 28;          // taller rows to fit QR
+  const QR_ITEM_SIZE = 22;   // per-item QR size in points
+  const rowsPerPage = 11;    // fewer rows per page to accommodate taller rows
   const pages = Math.max(1, Math.ceil(tableItems.length / rowsPerPage) || 1);
 
   for (let pageNum = 0; pageNum < pages; pageNum++) {
@@ -121,10 +128,12 @@ export async function generateMultiitemBoxSlipPdf(
 
     let y = HEADER_H + 14;
 
-    // Column positions tuned for A5 width
-    const colOrder = MARGIN + 4;
-    const colOrderW = 72;
-    const colItem = colOrder + colOrderW + 8;
+    // Column positions — QR | Order # | Item | Qty
+    const colQrX = MARGIN + 2;
+    const colQrW = QR_ITEM_SIZE + 4;
+    const colOrder = colQrX + colQrW + 4;
+    const colOrderW = 64;
+    const colItem = colOrder + colOrderW + 6;
     const colQtyW = 44;
     const colQty = MARGIN + CONTENT_W - colQtyW;
     const colItemW = colQty - colItem - 6;
@@ -134,6 +143,7 @@ export async function generateMultiitemBoxSlipPdf(
       .fillColor("#1a1f2e")
       .font("Helvetica-Bold")
       .fontSize(8)
+      .text("QR", colQrX, y + 5, { width: colQrW, lineBreak: false })
       .text("Order #", colOrder, y + 5, { width: colOrderW, lineBreak: false })
       .text("Item", colItem, y + 5, { width: colItemW, lineBreak: false })
       .text("Qty", colQty, y + 5, { width: colQtyW, align: "right", lineBreak: false });
@@ -143,15 +153,23 @@ export async function generateMultiitemBoxSlipPdf(
       pageNum * rowsPerPage,
       (pageNum + 1) * rowsPerPage
     );
+    const sliceOffset = pageNum * rowsPerPage;
     slice.forEach((item, i) => {
+      const globalIdx = sliceOffset + i;
       if (i % 2 === 1) {
-        doc.rect(MARGIN, y - 2, CONTENT_W, 20).fill("#f8f9fb");
+        doc.rect(MARGIN, y - 2, CONTENT_W, ROW_H).fill("#f8f9fb");
+      }
+      // Per-item QR code
+      const itemQr = itemQrPngs[globalIdx];
+      if (itemQr) {
+        const qrY = y + (ROW_H - QR_ITEM_SIZE) / 2 - 2;
+        doc.image(itemQr, colQrX, qrY, { width: QR_ITEM_SIZE, height: QR_ITEM_SIZE });
       }
       doc
         .fillColor("#111827")
         .font("Helvetica-Bold")
         .fontSize(9)
-        .text(pdfWinAnsiText(item.orderTitle) || "—", colOrder, y + 2, {
+        .text(pdfWinAnsiText(item.orderTitle) || "—", colOrder, y + (ROW_H - 9) / 2 - 2, {
           width: colOrderW,
           lineBreak: false,
           ellipsis: true,
@@ -160,7 +178,7 @@ export async function generateMultiitemBoxSlipPdf(
         .font("Helvetica")
         .fillColor("#4b5563")
         .fontSize(9)
-        .text(pdfWinAnsiText(item.itemTitle) || "—", colItem, y + 2, {
+        .text(pdfWinAnsiText(item.itemTitle) || "—", colItem, y + (ROW_H - 9) / 2 - 2, {
           width: colItemW,
           lineBreak: false,
           ellipsis: true,
@@ -169,12 +187,12 @@ export async function generateMultiitemBoxSlipPdf(
         .fillColor("#111827")
         .font("Helvetica-Bold")
         .fontSize(9)
-        .text(String(item.quantity), colQty, y + 2, {
+        .text(String(item.quantity), colQty, y + (ROW_H - 9) / 2 - 2, {
           width: colQtyW,
           align: "right",
           lineBreak: false,
         });
-      y += 20;
+      y += ROW_H;
     });
 
     doc
