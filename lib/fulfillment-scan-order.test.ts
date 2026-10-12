@@ -5,6 +5,7 @@ import {
   parseScanQuery,
   pickScannedOrder,
   sanitizeScanLookupToken,
+  scanQtyPerSkuFromSpecs,
   scanPartLocationsFromMembers,
 } from "./fulfillment-scan-order.ts";
 
@@ -174,6 +175,28 @@ describe("scanPartLocationsFromMembers", () => {
           columnName: "(Boyd Only) Ready to Ship",
         },
       ]
+    );
+  });
+});
+
+describe("scanQtyPerSkuFromSpecs", () => {
+  it("reads an explicit each quantity when its SKU count matches the PDF", () => {
+    assert.equal(
+      scanQtyPerSkuFromSpecs(
+        { order_qty_details: "3200 of each of the 15 SKU" },
+        15
+      ),
+      3200
+    );
+  });
+
+  it("does not infer a quantity when the written and PDF SKU counts differ", () => {
+    assert.equal(
+      scanQtyPerSkuFromSpecs(
+        { order_qty_details: "3200 of each of the 15 SKU" },
+        14
+      ),
+      null
     );
   });
 });

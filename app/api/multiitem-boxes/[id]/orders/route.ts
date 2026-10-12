@@ -4,14 +4,14 @@ import { requireFulfillmentApi } from "@/lib/fulfillment-access";
 import {
   clampBoxLineToTicket,
   findTenantOrderByScan,
+  normalizeMultiitemBoxSkuLines,
   packedBoxQuantityForOrder,
   resolveBoxLineDetails,
 } from "@/lib/multiitem-box-lookup";
 import { createClient } from "@/lib/supabase/server";
 import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
 
-const BOX_ORDER_SELECT =
-  "id, box_id, order_id, order_title, item_title, customer_name, quantity, added_at";
+const BOX_ORDER_SELECT = "*";
 
 export async function POST(
   request: Request,
@@ -25,7 +25,15 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as {
     order_id?: string;
     query?: string;
+    sku_lines?: unknown;
   };
+  const skuLines = normalizeMultiitemBoxSkuLines(body.sku_lines);
+  if (Object.prototype.hasOwnProperty.call(body, "sku_lines") && skuLines.length === 0) {
+    return NextResponse.json(
+      { error: "Select at least one SKU" },
+      { status: 400 }
+    );
+  }
 
   const supabase = await createClient();
   const { data: box, error: boxError } = await supabase
@@ -142,6 +150,10 @@ export async function POST(
     return NextResponse.json({ error: message }, { status: 500 });
   }
   const clamped = clampBoxLineToTicket({
+    requested:
+      skuLines.length > 0
+        ? skuLines.reduce((sum, line) => sum + line.quantity, 0)
+        : undefined,
     ticketQty,
     packedElsewhere,
   });
@@ -168,19 +180,46 @@ export async function POST(
     });
   }
 
-  const { data: inserted, error: insertError } = await supabase
+  const insertPayload = {
+    tenant_id: ctx.tenant.id,
+    box_id: boxId,
+    order_id: orderId,
+    order_title: orderTitle,
+    item_title: itemTitle || null,
+    customer_name: customerName || null,
+    quantity,
+    sku_lines: skuLines,
+  };
+  let { data: inserted, error: insertError } = await supabase
     .from("multiitem_box_orders")
-    .insert({
-      tenant_id: ctx.tenant.id,
-      box_id: boxId,
-      order_id: orderId,
-      order_title: orderTitle,
-      item_title: itemTitle || null,
-      customer_name: customerName || null,
-      quantity,
-    })
+    .insert(insertPayload)
     .select(BOX_ORDER_SELECT)
     .single();
+
+  // Keep older databases usable until the accompanying sku_lines migration is
+  // applied; the UI still shows this scan's lines for the current session.
+  if (
+    insertError?.message.includes("sku_lines") &&
+    insertError.message.includes("column")
+  ) {
+    const legacy = await supabase
+      .from("multiitem_box_orders")
+      .insert({
+        tenant_id: ctx.tenant.id,
+        box_id: boxId,
+        order_id: orderId,
+        order_title: orderTitle,
+        item_title: itemTitle || null,
+        customer_name: customerName || null,
+        quantity,
+      })
+      .select(BOX_ORDER_SELECT)
+      .single();
+    inserted = legacy.data
+      ? { ...legacy.data, sku_lines: skuLines }
+      : legacy.data;
+    insertError = legacy.error;
+  }
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });

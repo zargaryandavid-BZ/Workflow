@@ -74,6 +74,8 @@ interface OrderResult {
   column_name: string | null;
   spec_lines?: { label: string; value: string }[];
   qty?: number | null;
+  final_artwork_sku_count?: number | null;
+  qty_per_sku?: number | null;
   order_number?: string | null;
   main_item_count?: number | null;
   group_parts?: {
@@ -330,7 +332,10 @@ function PinnedSpecTable({
 
   const lineItem = getVal("line item");
   const ttlQty   = getVal("qty") ?? (order.qty != null ? String(order.qty) : "—");
-  const skuQty   = order.sku_images?.length ? String(order.sku_images.length) : "—";
+  const skuCount =
+    order.final_artwork_sku_count && order.final_artwork_sku_count > 0
+      ? order.final_artwork_sku_count
+      : order.sku_images?.length;
   const category = getVal("category");
   const product  = getVal("product");
   const rest     = specsArr.filter(r => !PINNED.includes(r.label.toLowerCase()));
@@ -340,6 +345,32 @@ function PinnedSpecTable({
       <div className={cn("flex items-baseline gap-2 px-4 py-2.5", border && "border-l border-slate-100")}>
         <span className="shrink-0 text-[11px] md:text-[13px] text-slate-400">{label}:</span>
         <span className="min-w-0 break-words text-[13px] md:text-[15px] font-semibold text-slate-900">{value ?? "—"}</span>
+      </div>
+    );
+  }
+
+  function SkuQtyCell() {
+    return (
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+        <span className="shrink-0 text-[11px] text-slate-400 md:text-[13px]">
+          SKU Qty:
+        </span>
+        {skuCount ? (
+          <>
+            <span className="inline-flex items-center justify-center rounded-full bg-blue-600 px-2.5 py-0.5 text-[13px] font-bold text-white md:text-[15px]">
+              {skuCount.toLocaleString()} SKU
+            </span>
+            {order.qty_per_sku && order.qty_per_sku > 0 ? (
+              <span className="inline-flex items-center justify-center rounded-full bg-blue-600 px-2.5 py-0.5 text-[13px] font-bold text-white md:text-[15px]">
+                {order.qty_per_sku.toLocaleString()} QTY each
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <span className="text-[13px] font-semibold text-slate-900 md:text-[15px]">
+            —
+          </span>
+        )}
       </div>
     );
   }
@@ -368,7 +399,7 @@ function PinnedSpecTable({
       </div>
       {/* Row 2: SKU Qty | Total Qty */}
       <div className="grid grid-cols-2 border-b border-slate-100">
-        <PinnedCell label="SKU Qty" value={skuQty} />
+        <SkuQtyCell />
         <PinnedCell label="Total Qty" value={ttlQty} border />
       </div>
       {/* Row 3: Category | Product */}
@@ -867,8 +898,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   // Listen for camera-open event (dispatched by nav or other callers)
   useEffect(() => {
     function onCamera(e: Event) {
-      const open = (e as CustomEvent<{ open: boolean }>).detail?.open;
-      setCameraOpen(Boolean(open));
+      const open = (e as CustomEvent<{ open?: boolean }>).detail?.open;
+      setCameraOpen(open !== false);
     }
     window.addEventListener(SCAN_CAMERA_EVENT, onCamera);
     return () => window.removeEventListener(SCAN_CAMERA_EVENT, onCamera);
@@ -886,28 +917,32 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     if (!cameraOpen) return;
     let destroyed = false;
     void (async () => {
-      const { default: QrScanner } = await import("qr-scanner");
       if (destroyed || !videoRef.current) return;
-      const scanner = new QrScanner(
-        videoRef.current,
-        (result: { data: string }) => {
-          const code = result.data.trim();
-          if (!code) return;
-          scanner.stop();
-          scanner.destroy();
+      const { startFrontQrScanner } = await import("@/lib/scan-qr-camera");
+      if (destroyed || !videoRef.current) return;
+      let scanner: { stop: () => void; destroy: () => void } | null = null;
+      try {
+        scanner = await startFrontQrScanner(videoRef.current, (code) => {
+          scanner?.stop();
+          scanner?.destroy();
+          scanner = null;
           scannerRef.current = null;
           setCameraOpen(false);
-          window.dispatchEvent(new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } }));
-        },
-        {
-          returnDetailedScanResult: true,
-          highlightScanRegion: true,
-          highlightCodeOutline: true,
-          preferredCamera: "environment",
-        }
-      );
+          window.dispatchEvent(
+            new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } })
+          );
+        });
+      } catch (err) {
+        console.error("[scan-camera]", err);
+        if (!destroyed) setCameraOpen(false);
+        return;
+      }
+      if (destroyed) {
+        scanner.stop();
+        scanner.destroy();
+        return;
+      }
       scannerRef.current = scanner;
-      await scanner.start();
     })();
     return () => {
       destroyed = true;
@@ -1070,6 +1105,31 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
   return (
     <>
+      {cameraOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90">
+          <video
+            ref={videoRef}
+            className="h-full w-full object-cover"
+            playsInline
+            muted
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="h-56 w-56 rounded-xl border-4 border-white/80 shadow-lg" />
+          </div>
+          <p className="absolute bottom-10 left-0 right-0 text-center text-sm font-medium text-white/70">
+            Point the front camera at a QR code
+          </p>
+          <button
+            type="button"
+            onClick={() => setCameraOpen(false)}
+            aria-label="Close camera"
+            className="absolute right-4 top-4 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      ) : null}
+
       {readyToShipPopup ? (
         <ReadyToShipPopup
           order={readyToShipPopup.order}
@@ -1226,58 +1286,15 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           )}
 
           {!order && !loading && !lookupError && (
-            <div className={cn("order-2 flex flex-col text-slate-400", cameraOpen ? "px-4 pt-2 lg:flex-1 lg:px-5" : "flex-1 items-center justify-center")}>
-              {cameraOpen ? (
-                /* Inline camera — fixed height on mobile, fills container on desktop */
-                <div className="relative flex h-[65dvh] w-full overflow-hidden rounded-xl bg-black lg:h-full lg:flex-1">
-                  <video
-                    ref={videoRef}
-                    className="h-full w-full object-cover"
-                    muted
-                    playsInline
-                  />
-                  {/* Aim guide */}
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div
-                      className="rounded-xl border-2 border-white/80"
-                      style={{ width: 200, height: 200, boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)" }}
-                    />
-                  </div>
-                  <p className="absolute bottom-4 left-0 right-0 text-center text-xs font-medium text-white/70">
-                    Point at a QR code or barcode
-                  </p>
-                  {/* Close button */}
-                  <button
-                    type="button"
-                    aria-label="Close camera"
-                    onClick={() => setCameraOpen(false)}
-                    className="absolute right-3 top-3 rounded-full bg-black/40 p-1.5 text-white hover:bg-black/60"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center gap-3 py-16">
-                  <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
-                    <rect x="8" y="8" width="8" height="8" rx="1" />
-                  </svg>
-                  <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
-                  <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
-                  {/* Camera button — shown on mobile only */}
-                  <button
-                    type="button"
-                    onClick={() => setCameraOpen(true)}
-                    className="md:hidden mt-2 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm active:bg-slate-700"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                      <circle cx="12" cy="13" r="4"/>
-                    </svg>
-                    Tap to scan
-                  </button>
-                </div>
-              )}
+            <div className="order-2 flex flex-1 flex-col items-center justify-center text-slate-400">
+              <div className="flex flex-col items-center justify-center gap-3 py-16">
+                <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+                  <rect x="8" y="8" width="8" height="8" rx="1" />
+                </svg>
+                <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
+                <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
+              </div>
             </div>
           )}
         </div>

@@ -6,6 +6,32 @@ import {
   orderMatchesNumberSearch,
 } from "./order-number-tokens.ts";
 
+/** Read explicit per-SKU quantities such as "3200 of each of the 15 SKU". */
+export function scanQtyPerSkuFromSpecs(
+  specs: Record<string, unknown> | null | undefined,
+  skuCount: number | null | undefined
+): number | null {
+  if (!skuCount || skuCount < 1) return null;
+  const detail =
+    typeof specs?.order_qty_details === "string"
+      ? specs.order_qty_details.trim()
+      : "";
+  if (!detail || !/\b(each|of each)\b/i.test(detail)) return null;
+
+  const eachMatch =
+    detail.match(/([\d,]+)\s+(?:of\s+)?each\b/i) ??
+    detail.match(/\beach\s*[:=-]?\s*([\d,]+)/i);
+  if (!eachMatch) return null;
+  const qty = Number.parseInt(eachMatch[1].replace(/,/g, ""), 10);
+  if (!Number.isFinite(qty) || qty < 1) return null;
+
+  const countMatch = detail.match(/(?:the\s+)?(\d+)\s+sku\b/i);
+  if (countMatch && Number.parseInt(countMatch[1], 10) !== skuCount) {
+    return null;
+  }
+  return qty;
+}
+
 /**
  * Job-ticket QR text: `15169-1 (1)` → order `15169-1`, 1 main line item.
  * The count in parentheses is not part of the order number.

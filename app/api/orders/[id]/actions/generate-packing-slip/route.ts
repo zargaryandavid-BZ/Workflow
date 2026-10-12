@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 import {
   assertButtonVisibleForOrder,
   loadOrderExportData,
 } from "@/lib/button-automation-order-data";
-import { generatePackingSlipPdf } from "@/lib/packing-slip-pdf";
-import type { OrderExportSkuRow } from "@/lib/button-automation-order-data";
+import { generatePackingSlipPdfFromExport } from "@/lib/packing-slip-generate";
 
 export const runtime = "nodejs";
 // Long enough for layer-preview fetches + PDF generation.
 export const maxDuration = 120;
-
-const BUCKET = "order-assets";
 
 function parsePositiveInt(value: unknown, fallback: number): number {
   const n =
@@ -24,58 +20,6 @@ function parsePositiveInt(value: unknown, fallback: number): number {
         : NaN;
   if (!Number.isFinite(n) || n < 1) return fallback;
   return Math.floor(n);
-}
-
-/**
- * Stacked print JPEG (Artwork + foil / Spot UV) for the packing slip.
- */
-async function loadCompositePreviewUrls(
-  orderId: string,
-  skus: { id: string }[]
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  if (skus.length === 0) return out;
-
-  try {
-    const { loadRespondCustomerProofForOrderId } = await import(
-      "@/lib/approval-layer-previews"
-    );
-    const { ensurePrintProofJpeg } = await import("@/lib/flatten-print-proof");
-    const proof = await loadRespondCustomerProofForOrderId(orderId, skus as never);
-    const previews = proof.layerPreviews as Record<
-      string,
-      {
-        fileId: string;
-        rev: string;
-        page: number;
-        layers: { id: string; name: string }[];
-      }
-    >;
-    if (Object.keys(previews).length === 0) return out;
-
-    const admin = createAdminClient();
-    const pathToSku = new Map<string, string>();
-    for (const [skuId, p] of Object.entries(previews)) {
-      const path = await ensurePrintProofJpeg(admin, p);
-      if (path) pathToSku.set(path, skuId);
-    }
-    if (pathToSku.size === 0) return out;
-
-    const { data: signed } = await admin.storage
-      .from(BUCKET)
-      .createSignedUrls([...pathToSku.keys()], 180);
-
-    for (const row of signed ?? []) {
-      if (row.path && row.signedUrl && !row.error) {
-        const skuId = pathToSku.get(row.path);
-        if (skuId) out.set(skuId, row.signedUrl);
-      }
-    }
-  } catch (err) {
-    console.error("[generate-packing-slip] composite preview load", err);
-  }
-
-  return out;
 }
 
 export async function POST(
@@ -164,32 +108,12 @@ export async function POST(
     const poNumber =
       typeof body.poNumber === "string" ? body.poNumber.trim() : "";
 
-    // --- Artwork images ---
-    // Prefer the stacked print JPEG (Artwork + foil / Spot UV; no dieline/white).
-    // Falls back to the original uploaded image when no proof exists yet.
-    const compositeUrls = await loadCompositePreviewUrls(
-      orderId,
-      exportData.skus
-    );
-
-    const skuRows: OrderExportSkuRow[] = exportData.skuRows.map((row) => {
-      const compositeUrl = compositeUrls.get(row.id);
-      if (compositeUrl) {
-        return { ...row, imageLinks: [compositeUrl] };
-      }
-      return row;
+    const { buffer } = await generatePackingSlipPdfFromExport(exportData, {
+      part,
+      totalParts,
+      blind: Boolean(body.blind),
+      poNumber: poNumber || undefined,
     });
-
-    const { buffer } = await generatePackingSlipPdf(
-      { ...exportData, skuRows },
-      {
-        part,
-        totalParts,
-        blind: Boolean(body.blind),
-        poNumber: poNumber || undefined,
-        // No pdfArt — we use JPEG composites, not embedded PDF pages.
-      }
-    );
     pdfBuffer = buffer;
   } catch (err) {
     const message =

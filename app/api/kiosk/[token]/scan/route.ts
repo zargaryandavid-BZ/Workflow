@@ -8,12 +8,14 @@ import {
   scanDesignerNameFromSpecs,
   scanOwnerNameFromSpecs,
   scanPartLocationsFromMembers,
+  scanQtyPerSkuFromSpecs,
 } from "@/lib/fulfillment-scan-order";
 import { resolveKioskTenant } from "@/lib/kiosk-token";
 import { normalizeSkus } from "@/lib/skus";
 import { assembleSkuMainPictures } from "@/lib/sku-main-pictures";
 import { formatShortOrderNumber } from "@/lib/order-number-tokens";
 import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
+import { loadFinalArtworkSkuCount } from "@/lib/final-artwork-sku-count";
 
 /**
  * GET /api/kiosk/[token]/scan?q=ORDER_NUMBER
@@ -91,7 +93,7 @@ export async function GET(
 
   const profileIds = [...new Set([createdBy, designerId].filter(Boolean))];
 
-  const [skuImagesRes, columnsRes, fieldsRes, valuesRes, profilesRes, shippingRes, lastSmsRes, members] =
+  const [skuImagesRes, columnsRes, fieldsRes, valuesRes, profilesRes, shippingRes, lastSmsRes, members, finalArtworkSkuCount] =
     await Promise.all([
       supabase
         .from("order_sku_images")
@@ -140,6 +142,7 @@ export async function GET(
         column_id: (order.column_id as string | null) ?? null,
         specs,
       }),
+      loadFinalArtworkSkuCount(order.id as string),
     ]);
 
   const skuImgRows = (skuImagesRes.data ?? []) as {
@@ -226,6 +229,7 @@ export async function GET(
   } | null;
 
   const groupParts = scanPartLocationsFromMembers(members, columnNameById);
+  const qtyPerSku = scanQtyPerSkuFromSpecs(specs, finalArtworkSkuCount);
 
   return NextResponse.json({
     id: order.id,
@@ -239,6 +243,8 @@ export async function GET(
     column_name: columnName,
     spec_lines: card.specLines,
     qty: card.qty,
+    final_artwork_sku_count: finalArtworkSkuCount,
+    qty_per_sku: qtyPerSku,
     customer,
     thumbnail_url: skuImages[0]?.url ?? null,
     sku_images: skuImages,

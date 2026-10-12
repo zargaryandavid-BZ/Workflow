@@ -77,6 +77,23 @@ export function orderMatchesReadyToShipShippingFilter(
   return true;
 }
 
+/**
+ * Choices safe for the Ready-to-Ship recovery pass to auto-move. Pickup is
+ * excluded because staff-created "ready for pickup" notices use the same sign;
+ * client-confirmed pickup is moved directly by the portal confirmation route.
+ */
+export function shouldAutoMoveReadyToShipSign(
+  sign: { kind: string } | null | undefined
+): boolean {
+  return !!sign && (
+    sign.kind === "delivery" ||
+    sign.kind === "label_ready" ||
+    sign.kind === "client_fedex" ||
+    sign.kind === "uber" ||
+    sign.kind === "curri"
+  );
+}
+
 export type ReadyToShipShippingFilterMap = Record<
   string,
   ReadyToShipShippingFilter

@@ -26,30 +26,32 @@ export function KioskScanNav({ tenantName }: Props) {
     if (!cameraOpen) return;
     let destroyed = false;
     void (async () => {
-      const { default: QrScanner } = await import("qr-scanner");
       if (destroyed || !videoRef.current) return;
-      const scanner = new QrScanner(
-        videoRef.current,
-        (result: { data: string }) => {
-          const code = result.data.trim();
-          if (!code) return;
-          scanner.stop();
-          scanner.destroy();
+      const { startFrontQrScanner } = await import("@/lib/scan-qr-camera");
+      if (destroyed || !videoRef.current) return;
+      let scanner: { stop: () => void; destroy: () => void } | null = null;
+      try {
+        scanner = await startFrontQrScanner(videoRef.current, (code) => {
+          scanner?.stop();
+          scanner?.destroy();
+          scanner = null;
           scannerRef.current = null;
           setCameraOpen(false);
           window.dispatchEvent(
             new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } })
           );
-        },
-        {
-          returnDetailedScanResult: true,
-          highlightScanRegion: true,
-          highlightCodeOutline: true,
-          preferredCamera: "environment",
-        }
-      );
+        });
+      } catch (err) {
+        console.error("[scan-camera]", err);
+        if (!destroyed) setCameraOpen(false);
+        return;
+      }
+      if (destroyed) {
+        scanner.stop();
+        scanner.destroy();
+        return;
+      }
       scannerRef.current = scanner;
-      await scanner.start();
     })();
     return () => {
       destroyed = true;
@@ -89,7 +91,7 @@ export function KioskScanNav({ tenantName }: Props) {
             <div className="h-56 w-56 rounded-xl border-4 border-white/80 shadow-lg" />
           </div>
           <p className="absolute bottom-10 left-0 right-0 text-center text-sm font-medium text-white/70">
-            Point at a QR code or barcode
+            Point the front camera at a QR code
           </p>
           <button
             type="button"

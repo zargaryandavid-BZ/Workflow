@@ -18,7 +18,6 @@ import { sendSms } from "@/lib/sms";
 import type { MessageTemplateMap } from "@/lib/message-templates";
 import { ensureShortCustomerUrl, appOrigin } from "@/lib/short-link";
 import type { ShippingBox, ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
-import { onShippingOptSelected } from "@/lib/automation";
 
 type ShippingRequestRow = {
   id: string;

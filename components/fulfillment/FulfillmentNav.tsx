@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Package, PackageCheck, PackagePlus, Printer, ScanLine, Settings, X } from "lucide-react";
+import { Camera, Package, PackageCheck, PackagePlus, Printer, ScanLine, Settings, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 
@@ -189,6 +189,21 @@ export function FulfillmentNav() {
             className="h-8 rounded-lg bg-slate-900 px-4 text-[13px] font-medium text-white disabled:opacity-40 md:h-10"
           >
             {navLoading ? "…" : "Scan"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setKeypadOpen(false);
+              window.dispatchEvent(
+                new CustomEvent(SCAN_CAMERA_EVENT, { detail: { open: true } })
+              );
+            }}
+            title="Scan with camera"
+            aria-label="Scan with camera"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-100 md:h-10"
+          >
+            <Camera className="h-4 w-4" />
+            <span className="hidden sm:inline">Camera</span>
           </button>
           <button
             type="button"

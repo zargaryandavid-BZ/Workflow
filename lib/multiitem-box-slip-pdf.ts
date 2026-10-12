@@ -18,6 +18,11 @@ export type MultiitemBoxSlipItem = {
   orderTitle: string;
   itemTitle: string;
   quantity: number;
+  skuLines?: {
+    page: number;
+    label: string;
+    quantity: number;
+  }[];
 };
 
 export type MultiitemBoxSlipInput = {
@@ -82,6 +87,15 @@ export async function generateMultiitemBoxSlipPdf(
   const sw = sizeWeightLine(input.sizeLabel, input.weightLbs);
   const dateStr = fmtDate(input.printedAt);
   const totalQty = input.items.reduce((s, r) => s + r.quantity, 0);
+  const tableItems = input.items.flatMap((item) =>
+    item.skuLines?.length
+      ? item.skuLines.map((line) => ({
+          orderTitle: `${item.orderTitle} · ${line.label}`,
+          itemTitle: item.itemTitle,
+          quantity: line.quantity,
+        }))
+      : [item]
+  );
   const qrPng = await orderNumberQrPng(boxName);
 
   const doc = new PDFDocument({
@@ -99,7 +113,7 @@ export async function generateMultiitemBoxSlipPdf(
   });
 
   const rowsPerPage = 14;
-  const pages = Math.max(1, Math.ceil(input.items.length / rowsPerPage) || 1);
+  const pages = Math.max(1, Math.ceil(tableItems.length / rowsPerPage) || 1);
 
   for (let pageNum = 0; pageNum < pages; pageNum++) {
     doc.addPage();
@@ -125,7 +139,7 @@ export async function generateMultiitemBoxSlipPdf(
       .text("Qty", colQty, y + 5, { width: colQtyW, align: "right", lineBreak: false });
     y += 20;
 
-    const slice = input.items.slice(
+    const slice = tableItems.slice(
       pageNum * rowsPerPage,
       (pageNum + 1) * rowsPerPage
     );

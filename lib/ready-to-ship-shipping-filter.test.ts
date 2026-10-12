@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   orderMatchesReadyToShipShippingFilter,
+  shouldAutoMoveReadyToShipSign,
 } from "./ready-to-ship-shipping-filter.ts";
 
 function sign(kind: string): { kind: string } {
@@ -45,8 +46,8 @@ test("RTS shipping filter: Self FedEx", () => {
   );
 });
 
-test("RTS shipping filter: Awaiting includes no sign and pending checkout", () => {
-  assert.equal(orderMatchesReadyToShipShippingFilter(null, "awaiting"), true);
+test("RTS shipping filter: Awaiting excludes not-sent and includes pending checkout", () => {
+  assert.equal(orderMatchesReadyToShipShippingFilter(null, "awaiting"), false);
   assert.equal(
     orderMatchesReadyToShipShippingFilter(sign("awaiting"), "awaiting"),
     true
@@ -59,4 +60,9 @@ test("RTS shipping filter: Awaiting includes no sign and pending checkout", () =
     orderMatchesReadyToShipShippingFilter(sign("pickup"), "awaiting"),
     false
   );
+});
+
+test("RTS recovery does not auto-move staff-selected pickup", () => {
+  assert.equal(shouldAutoMoveReadyToShipSign(sign("pickup")), false);
+  assert.equal(shouldAutoMoveReadyToShipSign(sign("delivery")), true);
 });

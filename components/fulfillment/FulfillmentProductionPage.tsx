@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Printer, Search, X } from "lucide-react";
+import { FileText, Loader2, Printer, Search, X } from "lucide-react";
 import { printPdfBlob } from "@/lib/print-pdf-blob";
 import {
   formatShortOrderNumber,
@@ -26,7 +26,10 @@ export function FulfillmentProductionPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [printingId, setPrintingId] = useState<string | null>(null);
+  const [printing, setPrinting] = useState<{
+    id: string;
+    kind: "ticket" | "slip";
+  } | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [lightbox, setLightbox] = useState<{
     url: string;
@@ -68,15 +71,20 @@ export function FulfillmentProductionPage({
     });
   }, [orders, query]);
 
-  async function printTicket(order: ProductionOrder) {
-    setPrintingId(order.id);
+  async function printPdf(
+    order: ProductionOrder,
+    kind: "ticket" | "slip"
+  ) {
+    setPrinting({ id: order.id, kind });
     setRowError((prev) => {
       const next = { ...prev };
       delete next[order.id];
       return next;
     });
+    const path = kind === "ticket" ? "job-ticket" : "packing-slip";
+    const label = kind === "ticket" ? "job ticket" : "packing slip";
     try {
-      const res = await fetch(`${apiBase}/${order.id}/job-ticket`, {
+      const res = await fetch(`${apiBase}/${order.id}/${path}`, {
         method: "POST",
         signal: AbortSignal.timeout(170_000),
       });
@@ -85,7 +93,7 @@ export function FulfillmentProductionPage({
         const json = (await res.json().catch(() => ({}))) as {
           error?: string;
         };
-        throw new Error(json.error ?? "Failed to generate job ticket");
+        throw new Error(json.error ?? `Failed to generate ${label}`);
       }
       const blob = await res.blob();
       if (
@@ -104,13 +112,13 @@ export function FulfillmentProductionPage({
       setRowError((prev) => ({
         ...prev,
         [order.id]: timedOut
-          ? "Job ticket took too long. Try again."
+          ? `${kind === "ticket" ? "Job ticket" : "Packing slip"} took too long. Try again.`
           : err instanceof Error
             ? err.message
             : "Print failed",
       }));
     } finally {
-      setPrintingId(null);
+      setPrinting(null);
     }
   }
 
@@ -194,20 +202,37 @@ export function FulfillmentProductionPage({
                       </p>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    disabled={printingId === order.id}
-                    onClick={() => void printTicket(order)}
-                    title="Print job ticket"
-                    aria-label="Print job ticket"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {printingId === order.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Printer className="h-4 w-4" />
-                    )}
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={printing?.id === order.id}
+                      onClick={() => void printPdf(order, "ticket")}
+                      title="Print job ticket"
+                      aria-label="Print job ticket"
+                      className="inline-flex size-[2.925rem] items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {printing?.id === order.id &&
+                      printing.kind === "ticket" ? (
+                        <Loader2 className="size-[1.3rem] animate-spin" />
+                      ) : (
+                        <Printer className="size-[1.3rem]" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={printing?.id === order.id}
+                      onClick={() => void printPdf(order, "slip")}
+                      title="Print packing slip"
+                      aria-label="Print packing slip"
+                      className="inline-flex size-[2.925rem] items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {printing?.id === order.id && printing.kind === "slip" ? (
+                        <Loader2 className="size-[1.3rem] animate-spin" />
+                      ) : (
+                        <FileText className="size-[1.3rem]" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}

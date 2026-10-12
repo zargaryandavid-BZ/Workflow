@@ -4,6 +4,7 @@ import { requireFulfillmentApi } from "@/lib/fulfillment-access";
 import { createClient } from "@/lib/supabase/server";
 import {
   clampBoxLineToTicket,
+  normalizeMultiitemBoxSkuLines,
   packedBoxQuantityForOrder,
   resolveBoxLineQuantity,
 } from "@/lib/multiitem-box-lookup";
@@ -19,8 +20,19 @@ export async function PATCH(
 
   const body = (await request.json().catch(() => ({}))) as {
     quantity?: number;
+    sku_lines?: unknown;
   };
-  const requested = Math.floor(Number(body.quantity));
+  const hasSkuLines = Object.prototype.hasOwnProperty.call(body, "sku_lines");
+  const skuLines = normalizeMultiitemBoxSkuLines(body.sku_lines);
+  if (hasSkuLines && skuLines.length === 0) {
+    return NextResponse.json(
+      { error: "Keep at least one SKU or remove the order" },
+      { status: 400 }
+    );
+  }
+  const requested = hasSkuLines
+    ? skuLines.reduce((sum, line) => sum + line.quantity, 0)
+    : Math.floor(Number(body.quantity));
   if (!Number.isFinite(requested) || requested < 1) {
     return NextResponse.json({ error: "quantity must be at least 1" }, { status: 400 });
   }
@@ -60,14 +72,34 @@ export async function PATCH(
   }
   const quantity = clamped.quantity;
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("multiitem_box_orders")
-    .update({ quantity })
+    .update({
+      quantity,
+      ...(hasSkuLines ? { sku_lines: skuLines } : {}),
+    })
     .eq("box_id", boxId)
     .eq("order_id", orderId)
     .eq("tenant_id", ctx.tenant.id)
-    .select("id, box_id, order_id, order_title, item_title, customer_name, quantity, added_at")
+    .select("*")
     .maybeSingle();
+
+  if (
+    hasSkuLines &&
+    error?.message.includes("sku_lines") &&
+    error.message.includes("column")
+  ) {
+    const legacy = await supabase
+      .from("multiitem_box_orders")
+      .update({ quantity })
+      .eq("box_id", boxId)
+      .eq("order_id", orderId)
+      .eq("tenant_id", ctx.tenant.id)
+      .select("*")
+      .maybeSingle();
+    data = legacy.data ? { ...legacy.data, sku_lines: skuLines } : legacy.data;
+    error = legacy.error;
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

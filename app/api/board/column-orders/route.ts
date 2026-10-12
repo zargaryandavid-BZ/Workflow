@@ -16,7 +16,7 @@ import { rankDesignerQueue } from "@/lib/designer-queue-rank";
 import { isPrepressColumnName, rankPrepressQueue } from "@/lib/prepress-queue";
 import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
 import { onShippingOptSelected } from "@/lib/automation";
-import { isConfirmedShippingChoiceSign } from "@/lib/board-shipping";
+import { shouldAutoMoveReadyToShipSign } from "@/lib/ready-to-ship-shipping-filter";
 import { isBoardHealthCutoffColumn } from "@/lib/board-health";
 import { resolveShippingOptColumnId } from "@/lib/shipping-opt-column";
 import {
@@ -280,7 +280,7 @@ export async function GET(req: NextRequest) {
       })
     ) {
       const chosen = orders.filter((o) =>
-        isConfirmedShippingChoiceSign(enrichment.shippingSignByOrder[o.id])
+        shouldAutoMoveReadyToShipSign(enrichment.shippingSignByOrder[o.id])
       );
       if (chosen.length > 0) {
         const destId = await resolveShippingOptColumnId(supabase, tenantId);

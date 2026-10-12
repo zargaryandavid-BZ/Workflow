@@ -6,8 +6,11 @@ import {
   utcBoxDate,
 } from "@/lib/fulfillment-day";
 import type { MultiitemBoxRow } from "@/lib/multiitem-box-lookup";
+import { normalizeMultiitemBoxSkuLines } from "@/lib/multiitem-box-lookup";
 import { createClient } from "@/lib/supabase/server";
 import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
+import { loadFinalArtworkSkuCount } from "@/lib/final-artwork-sku-count";
+import { scanQtyPerSkuFromSpecs } from "@/lib/fulfillment-scan-order";
 
 export async function GET(request: Request) {
   const auth = requireFulfillmentApi(await getTenantContext());
@@ -25,7 +28,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("multiitem_boxes")
     .select(
-      "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at, multiitem_box_orders(id, box_id, order_id, order_title, item_title, customer_name, quantity, added_at)"
+      "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at, multiitem_box_orders(*)"
     )
     .eq("tenant_id", ctx.tenant.id)
     .eq("status", status)
@@ -54,16 +57,18 @@ export async function GET(request: Request) {
     string,
     { email: string | null; phone: string | null }
   >();
+  const specsByOrderId = new Map<string, Record<string, unknown>>();
 
   if (orderIds.length > 0) {
     const { data: orders } = await supabase
       .from("orders")
-      .select("id, customer:customers(email, phone)")
+      .select("id, specs, customer:customers(email, phone)")
       .eq("tenant_id", ctx.tenant.id)
       .in("id", orderIds);
 
     for (const order of (orders ?? []) as {
       id: string;
+      specs: Record<string, unknown> | null;
       customer:
         | { email: string | null; phone: string | null }
         | { email: string | null; phone: string | null }[]
@@ -76,10 +81,20 @@ export async function GET(request: Request) {
         email: customer?.email ?? null,
         phone: customer?.phone ?? null,
       });
+      specsByOrderId.set(order.id, order.specs ?? {});
     }
   }
 
-  const thumbByOrder = await boxOrderThumbnailUrls(supabase, orderIds);
+  const [thumbByOrder, skuCountPairs] = await Promise.all([
+    boxOrderThumbnailUrls(supabase, orderIds),
+    Promise.all(
+      orderIds.map(async (orderId) => [
+        orderId,
+        await loadFinalArtworkSkuCount(orderId),
+      ] as const)
+    ),
+  ]);
+  const skuCountByOrderId = new Map(skuCountPairs);
 
   const boxes = rawBoxes.map((box) => ({
     ...box,
@@ -87,6 +102,27 @@ export async function GET(request: Request) {
       .sort((a, b) => a.added_at.localeCompare(b.added_at))
       .map((row) => ({
         ...row,
+        sku_lines: (() => {
+          const stored = normalizeMultiitemBoxSkuLines(row.sku_lines);
+          if (stored.length > 0) return stored;
+          const count = skuCountByOrderId.get(row.order_id) ?? 0;
+          if (count < 1) return [];
+          const explicit = scanQtyPerSkuFromSpecs(
+            specsByOrderId.get(row.order_id),
+            count
+          );
+          const divided =
+            row.quantity > 0 && row.quantity % count === 0
+              ? row.quantity / count
+              : 0;
+          const quantity = explicit ?? divided;
+          if (quantity < 1) return [];
+          return Array.from({ length: count }, (_, index) => ({
+            page: index + 1,
+            label: `SKU ${index + 1}`,
+            quantity,
+          }));
+        })(),
         customer_email: contactByOrderId.get(row.order_id)?.email ?? null,
         customer_phone: contactByOrderId.get(row.order_id)?.phone ?? null,
         thumbnail_url: thumbByOrder.get(row.order_id) ?? null,
@@ -110,17 +146,20 @@ export async function POST(request: Request) {
   const supabase = await createClient();
   const boxDate = utcBoxDate();
 
-  const { count, error: countError } = await supabase
+  const { data: latestBox, error: numberError } = await supabase
     .from("multiitem_boxes")
-    .select("id", { count: "exact", head: true })
+    .select("box_number")
     .eq("tenant_id", ctx.tenant.id)
-    .eq("box_date", boxDate);
+    .eq("box_date", boxDate)
+    .order("box_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  if (countError) {
-    return NextResponse.json({ error: countError.message }, { status: 500 });
+  if (numberError) {
+    return NextResponse.json({ error: numberError.message }, { status: 500 });
   }
 
-  const boxNumber = (count ?? 0) + 1;
+  const boxNumber = Math.max(0, Number(latestBox?.box_number) || 0) + 1;
   const boxName = multiitemBoxNameFromIsoDate(boxNumber, boxDate);
   const weightRaw = body.weight_lbs;
   const weight =

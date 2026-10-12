@@ -36,9 +36,46 @@ export type MultiitemBoxOrderRow = {
   customer_email?: string | null;
   customer_phone?: string | null;
   quantity: number;
+  sku_lines?: MultiitemBoxSkuLine[] | null;
   added_at: string;
   thumbnail_url?: string | null;
 };
+
+export type MultiitemBoxSkuLine = {
+  page: number;
+  label: string;
+  quantity: number;
+};
+
+export function normalizeMultiitemBoxSkuLines(
+  value: unknown
+): MultiitemBoxSkuLine[] {
+  if (!Array.isArray(value)) return [];
+  const out: MultiitemBoxSkuLine[] = [];
+  const seen = new Set<number>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const page = Math.floor(Number(row.page));
+    const quantity = Math.floor(Number(row.quantity));
+    if (
+      !Number.isFinite(page) ||
+      page < 1 ||
+      seen.has(page) ||
+      !Number.isFinite(quantity) ||
+      quantity < 1
+    ) {
+      continue;
+    }
+    seen.add(page);
+    const label =
+      typeof row.label === "string" && row.label.trim()
+        ? row.label.trim().slice(0, 120)
+        : `SKU ${page}`;
+    out.push({ page, label, quantity });
+  }
+  return out.sort((a, b) => a.page - b.page);
+}
 
 type OrderLookupRow = {
   id: string;

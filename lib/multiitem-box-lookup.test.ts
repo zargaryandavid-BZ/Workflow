@@ -4,6 +4,7 @@ import {
   boxLineItemTitleFromScan,
   boxLineQuantityFromScan,
   clampBoxLineToTicket,
+  normalizeMultiitemBoxSkuLines,
   remainingTicketQuantity,
 } from "./multiitem-box-lookup.ts";
 
@@ -81,6 +82,23 @@ describe("boxLineItemTitleFromScan", () => {
         skus: [{ id: "a", name: "Rounded labels ozzos", qty: 1 }],
       }),
       "Rounded labels ozzos"
+    );
+  });
+});
+
+describe("normalizeMultiitemBoxSkuLines", () => {
+  it("keeps valid selected PDF pages in page order", () => {
+    assert.deepEqual(
+      normalizeMultiitemBoxSkuLines([
+        { page: 2, label: "SKU 2", quantity: 3200 },
+        { page: 1, label: "SKU 1", quantity: 3200 },
+        { page: 2, label: "duplicate", quantity: 1 },
+        { page: 3, label: "invalid", quantity: 0 },
+      ]),
+      [
+        { page: 1, label: "SKU 1", quantity: 3200 },
+        { page: 2, label: "SKU 2", quantity: 3200 },
+      ]
     );
   });
 });

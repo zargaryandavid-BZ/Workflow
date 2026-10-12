@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Package, Printer, Trash2, X } from "lucide-react";
+import { CopyPlus, Package, Printer, Trash2, X } from "lucide-react";
 import QRCode from "qrcode";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,11 @@ import {
   localDayLabel,
   savedMultiitemDayKeys,
 } from "@/lib/fulfillment-day";
-import type { MultiitemBoxOrderRow, MultiitemBoxRow } from "@/lib/multiitem-box-lookup";
+import type {
+  MultiitemBoxOrderRow,
+  MultiitemBoxRow,
+  MultiitemBoxSkuLine,
+} from "@/lib/multiitem-box-lookup";
 
 /** Small inline QR code for a single order item (encodes the order title). */
 function ItemQrCode({ value, size = 48 }: { value: string; size?: number }) {
@@ -69,6 +73,7 @@ interface BoxItem {
   customerEmail: string;
   customerPhone: string;
   quantity: number;
+  skuLines: MultiitemBoxSkuLine[];
   thumbnailUrl: string | null;
 }
 
@@ -96,6 +101,32 @@ interface PendingScan {
   orderId: string;
   orderTitle: string;
   customerName: string;
+  skuLines: MultiitemBoxSkuLine[];
+}
+
+interface ScanSkuPreview {
+  query: string;
+  lines: (MultiitemBoxSkuLine & { checked: boolean })[];
+}
+
+function skuLinesForScan(
+  countRaw: number | null | undefined,
+  totalRaw: number | null | undefined,
+  eachRaw: number | null | undefined
+): (MultiitemBoxSkuLine & { checked: boolean })[] {
+  const count = Math.max(0, Math.floor(Number(countRaw) || 0));
+  const total = Math.max(0, Math.floor(Number(totalRaw) || 0));
+  const explicitEach = Math.max(0, Math.floor(Number(eachRaw) || 0));
+  const dividedEach =
+    count > 0 && total > 0 && total % count === 0 ? total / count : 0;
+  const quantity = explicitEach || dividedEach;
+  if (count < 1 || quantity < 1) return [];
+  return Array.from({ length: count }, (_, index) => ({
+    page: index + 1,
+    label: `SKU ${index + 1}`,
+    quantity,
+    checked: true,
+  }));
 }
 
 function rowsToItems(rows: MultiitemBoxOrderRow[] | null | undefined): BoxItem[] {
@@ -108,6 +139,7 @@ function rowsToItems(rows: MultiitemBoxOrderRow[] | null | undefined): BoxItem[]
     customerEmail: row.customer_email ?? "",
     customerPhone: row.customer_phone ?? "",
     quantity: row.quantity,
+    skuLines: Array.isArray(row.sku_lines) ? row.sku_lines : [],
     thumbnailUrl: row.thumbnail_url ?? null,
   }));
 }
@@ -330,8 +362,20 @@ function HistoryBoxCard({
               size={40}
               orderNumber={formatShortOrderNumber(item.orderTitle)}
             />
-            <span className="min-w-0 truncate font-medium text-slate-800">
-              {item.itemTitle || item.orderTitle || "—"}
+            <span className="min-w-0">
+              <span className="block truncate font-medium text-slate-800">
+                {item.itemTitle || item.orderTitle || "—"}
+              </span>
+              {item.skuLines.length > 0 ? (
+                <span className="block truncate text-[10px] text-slate-500">
+                  {item.skuLines
+                    .map(
+                      (line) =>
+                        `${line.label} QTY ${line.quantity.toLocaleString()}`
+                    )
+                    .join(" · ")}
+                </span>
+              ) : null}
             </span>
             <span className="tabular-nums">{item.quantity}</span>
           </div>
@@ -388,6 +432,10 @@ export function MultiitemBoxSlipModal({
   );
   const [shake, setShake] = useState(false);
   const [pending, setPending] = useState<PendingScan | null>(null);
+  const [scanSkuPreview, setScanSkuPreview] = useState<ScanSkuPreview | null>(
+    null
+  );
+  const [scanPreviewLoading, setScanPreviewLoading] = useState(false);
   const [zeroError, setZeroError] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -399,6 +447,9 @@ export function MultiitemBoxSlipModal({
   const weightRef = useRef<HTMLInputElement>(null);
   const pendingCustomFocus = useRef(false);
   const hintTimer = useRef<number | null>(null);
+  const skuEditPrevious = useRef(
+    new Map<string, MultiitemBoxSkuLine[]>()
+  );
   const router = useRouter();
 
   const savedDayKeys = useMemo(() => savedMultiitemDayKeys(boxes), [boxes]);
@@ -449,6 +500,7 @@ export function MultiitemBoxSlipModal({
 
   function applyScanField(next: string) {
     setPending(null);
+    setScanSkuPreview(null);
     if (replaceNextScan.current) {
       replaceNextScan.current = false;
       const prev = scan;
@@ -457,6 +509,59 @@ export function MultiitemBoxSlipModal({
     }
     setScan(next);
   }
+
+  useEffect(() => {
+    const query = scan.trim();
+    if (!query || readOnly) {
+      setScanPreviewLoading(false);
+      setScanSkuPreview(null);
+      return;
+    }
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => {
+      setScanPreviewLoading(true);
+      void fetch(`/api/fulfillment/scan?q=${encodeURIComponent(query)}`, {
+        signal: ac.signal,
+      })
+        .then(async (res) => {
+          if (!res.ok) return null;
+          return (await res.json()) as {
+            id?: string;
+            title?: string;
+            qty?: number | null;
+            final_artwork_sku_count?: number | null;
+            qty_per_sku?: number | null;
+          };
+        })
+        .then((json) => {
+          if (!json?.id) return;
+          const totalQty =
+            json.qty != null && Number.isFinite(Number(json.qty))
+              ? Math.floor(Number(json.qty))
+              : null;
+          setScanSkuPreview({
+            query,
+            lines: skuLinesForScan(
+              json.final_artwork_sku_count,
+              totalQty,
+              json.qty_per_sku
+            ),
+          });
+        })
+        .catch((err: unknown) => {
+          if (!(err instanceof Error) || err.name !== "AbortError") {
+            setScanSkuPreview(null);
+          }
+        })
+        .finally(() => {
+          if (!ac.signal.aborted) setScanPreviewLoading(false);
+        });
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      ac.abort();
+    };
+  }, [readOnly, scan]);
 
   useEffect(() => {
     if (open && active?.id && !readOnly) focusScan();
@@ -545,11 +650,21 @@ export function MultiitemBoxSlipModal({
     };
   }, [open]);
 
-  async function createBox(): Promise<BoxState | null> {
+  async function createBox(
+    fields: {
+      poNumber?: string;
+      sizeLabel?: string;
+      weightLbs?: string;
+    } = {}
+  ): Promise<BoxState | null> {
     const res = await fetch("/api/multiitem-boxes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        po_number: fields.poNumber?.trim() || undefined,
+        size_label: fields.sizeLabel?.trim() || undefined,
+        weight_lbs: fields.weightLbs?.trim() || undefined,
+      }),
     });
     const json = (await res.json()) as { box?: MultiitemBoxRow; error?: string };
     if (!res.ok || !json.box) throw new Error(json.error ?? "Failed to create box");
@@ -569,6 +684,34 @@ export function MultiitemBoxSlipModal({
       focusScan();
     } catch (err) {
       showHint("error", err instanceof Error ? err.message : "Failed", 1800);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function duplicateActiveBox() {
+    if (!active || active.status !== "open") return;
+    setBusy(true);
+    try {
+      const created = await createBox({
+        poNumber: active.poNumber,
+        sizeLabel: active.sizeLabel,
+        weightLbs: active.weightLbs,
+      });
+      if (!created) return;
+      setBoxes((prev) => [...prev, created]);
+      setSelectedSavedDay(null);
+      setActiveId(created.id);
+      setPending(null);
+      setScanSkuPreview(null);
+      setScan("");
+      focusScan();
+    } catch (err) {
+      showHint(
+        "error",
+        err instanceof Error ? err.message : "Failed to duplicate box",
+        1800
+      );
     } finally {
       setBusy(false);
     }
@@ -670,6 +813,7 @@ export function MultiitemBoxSlipModal({
   async function addOrderToActive(args: {
     orderId: string;
     query?: string;
+    skuLines?: MultiitemBoxSkuLine[];
   }) {
     if (!active || active.status === "saved") return;
     const res = await fetch(`/api/multiitem-boxes/${active.id}/orders`, {
@@ -678,6 +822,7 @@ export function MultiitemBoxSlipModal({
       body: JSON.stringify({
         order_id: args.orderId,
         query: args.query,
+        ...(args.skuLines ? { sku_lines: args.skuLines } : {}),
       }),
     });
     const json = (await res.json()) as {
@@ -712,6 +857,9 @@ export function MultiitemBoxSlipModal({
       customerEmail: json.order.customer_email ?? "",
       customerPhone: json.order.customer_phone ?? "",
       quantity: json.order.quantity,
+      skuLines: Array.isArray(json.order.sku_lines)
+        ? json.order.sku_lines
+        : [],
       thumbnailUrl: json.order.thumbnail_url ?? null,
     };
     patchBoxLocal(active.id, {
@@ -721,8 +869,9 @@ export function MultiitemBoxSlipModal({
       customerPhone: active.customerPhone || item.customerPhone || null,
     });
     setZeroError(false);
-    replaceNextScan.current = true;
-    setScan(args.query ?? "");
+    replaceNextScan.current = false;
+    setScan("");
+    setScanSkuPreview(null);
     setPending(null);
     const ticketQty = json.ticket_qty ?? 0;
     const packedElsewhere = json.packed_elsewhere ?? 0;
@@ -739,10 +888,24 @@ export function MultiitemBoxSlipModal({
   async function handleScanSubmit() {
     const q = scan.trim();
     if (!q || !active || active.status === "saved") return;
+    const matchingPreview =
+      scanSkuPreview?.query === q ? scanSkuPreview : null;
+    const selectedSkuLines = matchingPreview?.lines
+      .filter((line) => line.checked)
+      .map(({ checked: _checked, ...line }) => line);
+    if (
+      matchingPreview &&
+      matchingPreview.lines.length > 0 &&
+      selectedSkuLines?.length === 0
+    ) {
+      showHint("error", "Select at least one SKU", 1800);
+      return;
+    }
     if (pending && pending.query === q) {
       await addOrderToActive({
         orderId: pending.orderId,
         query: pending.query,
+        skuLines: selectedSkuLines ?? pending.skuLines,
       });
       return;
     }
@@ -769,6 +932,9 @@ export function MultiitemBoxSlipModal({
         email?: string | null;
         phone?: string | null;
       } | null;
+      qty?: number | null;
+      final_artwork_sku_count?: number | null;
+      qty_per_sku?: number | null;
       error?: string;
     };
     if (!lookup.ok || !json.id) {
@@ -781,6 +947,13 @@ export function MultiitemBoxSlipModal({
       focusScan();
       return;
     }
+    const lookupSkuLines =
+      selectedSkuLines ??
+      skuLinesForScan(
+        json.final_artwork_sku_count,
+        json.qty,
+        json.qty_per_sku
+      ).map(({ checked: _checked, ...line }) => line);
     const customerName = json.customer?.name?.trim() || "";
     if (
       active.customer &&
@@ -792,10 +965,15 @@ export function MultiitemBoxSlipModal({
         orderId: json.id,
         orderTitle: json.title ?? q,
         customerName,
+        skuLines: lookupSkuLines,
       });
       return;
     }
-    await addOrderToActive({ orderId: json.id, query: q });
+    await addOrderToActive({
+      orderId: json.id,
+      query: q,
+      skuLines: lookupSkuLines.length > 0 ? lookupSkuLines : undefined,
+    });
   }
 
   async function removeItem(orderId: string) {
@@ -840,6 +1018,58 @@ export function MultiitemBoxSlipModal({
     }
   }
 
+  function patchSkuLinesLocal(
+    orderId: string,
+    skuLines: MultiitemBoxSkuLine[]
+  ) {
+    if (!active) return;
+    patchBoxLocal(active.id, {
+      items: active.items.map((item) =>
+        item.orderId === orderId
+          ? {
+              ...item,
+              skuLines,
+              quantity: skuLines.reduce(
+                (sum, line) => sum + line.quantity,
+                0
+              ),
+            }
+          : item
+      ),
+    });
+  }
+
+  async function saveSkuLines(
+    orderId: string,
+    skuLines: MultiitemBoxSkuLine[],
+    previous: MultiitemBoxSkuLine[]
+  ) {
+    if (!active || active.status === "saved" || skuLines.length === 0) return;
+    patchSkuLinesLocal(orderId, skuLines);
+    const res = await fetch(
+      `/api/multiitem-boxes/${active.id}/orders/${orderId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku_lines: skuLines }),
+      }
+    );
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      showHint("error", json.error ?? "Could not save SKU quantities", 2200);
+      patchSkuLinesLocal(orderId, previous);
+    }
+  }
+
+  async function removeSkuLine(item: BoxItem, page: number) {
+    const next = item.skuLines.filter((line) => line.page !== page);
+    if (next.length === 0) {
+      await removeItem(item.orderId);
+      return;
+    }
+    await saveSkuLines(item.orderId, next, item.skuLines);
+  }
+
   async function printSlip(boxId: string | undefined = active?.id) {
     if (!boxId) return;
     const res = await fetch(`/api/multiitem-boxes/${boxId}/slip-pdf`, {
@@ -865,7 +1095,6 @@ export function MultiitemBoxSlipModal({
     setBusy(true);
     try {
       await saveBoxFields(active.id, {
-        box_name: active.name,
         po_number: active.poNumber,
         size_label: active.sizeCustom
           ? formatCustomSize(active.sizeL, active.sizeW, active.sizeH) || null
@@ -967,6 +1196,18 @@ export function MultiitemBoxSlipModal({
                 + Add box
               </button>
               {active?.status === "open" ? (
+                <button
+                  type="button"
+                  onClick={() => void duplicateActiveBox()}
+                  disabled={busy}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  title={`Duplicate ${active.name} with the next box number`}
+                >
+                  <CopyPlus className="h-4 w-4" />
+                  Duplicate box
+                </button>
+              ) : null}
+              {active?.status === "open" ? (
                 confirmRemove ? (
                   <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-900">
                     <span className="font-medium">Remove {active.name}?</span>
@@ -1027,16 +1268,15 @@ export function MultiitemBoxSlipModal({
                 <label className="block">
                   <span className={fieldLabel}>Box name</span>
                   <input
-                      value={active.name}
-                      onChange={(e) =>
-                        patchBoxLocal(active.id, { name: e.target.value })
-                      }
-                      onBlur={() =>
-                        void saveBoxFields(active.id, { box_name: active.name })
-                      }
-                    className={cn(fieldControl, readOnly && "bg-slate-50")}
-                    disabled={readOnly}
-                    />
+                    value={active.name}
+                    readOnly
+                    aria-readonly="true"
+                    title="Box names are assigned automatically"
+                    className={cn(
+                      fieldControl,
+                      "cursor-not-allowed bg-slate-50 text-slate-700"
+                    )}
+                  />
                   </label>
                   <label className="block">
                   <span className={fieldLabel}>PO number</span>
@@ -1223,6 +1463,72 @@ export function MultiitemBoxSlipModal({
                       Add
                     </button>
                   </form>
+                  {scanPreviewLoading ? (
+                    <p className="mt-2 text-sm text-slate-500">
+                      Reading Final Production artwork…
+                    </p>
+                  ) : scanSkuPreview && scanSkuPreview.lines.length > 0 ? (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm font-semibold text-slate-800">
+                        <span>
+                          Total QTY{" "}
+                          <span className="tabular-nums">
+                            {scanSkuPreview.lines
+                              .filter((line) => line.checked)
+                              .reduce(
+                                (sum, line) => sum + line.quantity,
+                                0
+                              )
+                              .toLocaleString()}
+                          </span>
+                        </span>
+                        <span>
+                          SKU QTY{" "}
+                          <span className="tabular-nums">
+                            {
+                              scanSkuPreview.lines.filter(
+                                (line) => line.checked
+                              ).length
+                            }
+                          </span>
+                        </span>
+                      </div>
+                      <div className="mt-2 grid max-h-44 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
+                        {scanSkuPreview.lines.map((line) => (
+                          <label
+                            key={line.page}
+                            className="flex cursor-pointer items-center justify-between gap-3 rounded border border-slate-200 bg-white px-2.5 py-2 text-sm"
+                          >
+                            <span className="font-medium text-slate-800">
+                              {line.label} – QTY{" "}
+                              <span className="tabular-nums">
+                                {line.quantity.toLocaleString()}
+                              </span>
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={line.checked}
+                              onChange={() =>
+                                setScanSkuPreview((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        lines: current.lines.map((row) =>
+                                          row.page === line.page
+                                            ? { ...row, checked: !row.checked }
+                                            : row
+                                        ),
+                                      }
+                                    : current
+                                )
+                              }
+                              className="h-4 w-4 rounded border-slate-300 text-slate-900"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   {hint ? (
                     <p
                       className={cn(
@@ -1347,7 +1653,12 @@ export function MultiitemBoxSlipModal({
                                 )
                               }
                               className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-right font-mono text-base tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-50"
-                              disabled={readOnly}
+                              disabled={readOnly || item.skuLines.length > 0}
+                              title={
+                                item.skuLines.length > 0
+                                  ? "Total is calculated from the selected SKUs"
+                                  : undefined
+                              }
                             />
                             {readOnly ? (
                               <span className="w-7" />
@@ -1363,6 +1674,88 @@ export function MultiitemBoxSlipModal({
                             </button>
                             )}
                           </div>
+                          {item.skuLines.length > 0 ? (
+                            <div className="ml-[13rem] mt-1 grid grid-cols-1 gap-1 pb-1 sm:grid-cols-2 xl:grid-cols-3">
+                              {item.skuLines.map((line) => (
+                                <div
+                                  key={line.page}
+                                  className="flex items-center justify-between gap-3 rounded bg-slate-50 px-2 py-1 text-xs text-slate-700"
+                                >
+                                  <span className="font-medium">{line.label}</span>
+                                  <label className="ml-auto flex items-center gap-1">
+                                    <span className="text-[10px] font-semibold uppercase text-slate-500">
+                                      Qty
+                                    </span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={line.quantity}
+                                      disabled={readOnly}
+                                      onFocus={() =>
+                                        skuEditPrevious.current.set(
+                                          `${item.orderId}:${line.page}`,
+                                          item.skuLines.map((row) => ({ ...row }))
+                                        )
+                                      }
+                                      onChange={(e) => {
+                                        const quantity = Math.max(
+                                          1,
+                                          Math.floor(Number(e.target.value)) || 1
+                                        );
+                                        patchSkuLinesLocal(
+                                          item.orderId,
+                                          item.skuLines.map((row) =>
+                                            row.page === line.page
+                                              ? { ...row, quantity }
+                                              : row
+                                          )
+                                        );
+                                      }}
+                                      onBlur={(e) => {
+                                        const quantity = Math.max(
+                                          1,
+                                          Math.floor(Number(e.currentTarget.value)) || 1
+                                        );
+                                        const next = item.skuLines.map((row) =>
+                                          row.page === line.page
+                                            ? { ...row, quantity }
+                                            : row
+                                        );
+                                        const key = `${item.orderId}:${line.page}`;
+                                        const previous =
+                                          skuEditPrevious.current.get(key) ??
+                                          item.skuLines;
+                                        skuEditPrevious.current.delete(key);
+                                        void saveSkuLines(
+                                          item.orderId,
+                                          next,
+                                          previous
+                                        );
+                                      }}
+                                      className="w-20 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
+                                    />
+                                  </label>
+                                  {readOnly ? (
+                                    <span className="font-semibold text-emerald-700">
+                                      ✓
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void removeSkuLine(item, line.page)
+                                      }
+                                      className="rounded p-1 text-red-500 hover:bg-red-50 hover:text-red-700"
+                                      title={`Remove ${line.label}`}
+                                      aria-label={`Remove ${line.label}`}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

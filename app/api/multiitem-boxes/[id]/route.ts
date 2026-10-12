@@ -16,7 +16,6 @@ export async function PATCH(
     po_number?: string | null;
     size_label?: string | null;
     weight_lbs?: number | string | null;
-    box_name?: string | null;
     status?: "open" | "saved";
     customer_order_id?: string;
   };
@@ -37,10 +36,6 @@ export async function PATCH(
       const n = Number(body.weight_lbs);
       patch.weight_lbs = Number.isFinite(n) ? n : null;
     }
-  }
-  if (body.box_name !== undefined) {
-    const name = body.box_name?.trim() ?? "";
-    if (name) patch.box_name = name;
   }
   if (body.status === "saved") {
     patch.status = "saved";
