@@ -47,6 +47,7 @@ export async function completeShippingResponse(
     await onShippingOptSelected(admin, {
       orderId: existing.order_id,
       tenantId: existing.tenant_id,
+      choice: args.choice,
     });
     return {
       ok: false,

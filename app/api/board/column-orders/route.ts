@@ -290,6 +290,7 @@ export async function GET(req: NextRequest) {
               onShippingOptSelected(supabase, {
                 orderId: o.id,
                 tenantId,
+                choice: enrichment.shippingSignByOrder[o.id]?.choice,
               })
             )
           );

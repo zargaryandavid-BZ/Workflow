@@ -8,14 +8,19 @@ import {
 import { sendApprovalEmail } from "@/lib/email";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { notifyRuleApprovalTarget, isApprovalRejection } from "@/lib/notify-rule-approval-target";
-import type { ApprovalStatus, BoardColumn, Order } from "@/lib/types";
+import type {
+  ApprovalStatus,
+  BoardColumn,
+  Order,
+  ShippingClientChoice,
+} from "@/lib/types";
 import {
   maybeStopPrepressTimersOnColumnLeave,
   maybeStopWorkTimersOnColumnEnter,
 } from "@/lib/stop-order-timers";
 import { isHoldColumn } from "@/lib/hold-column";
 import { notifyHoldWatchers } from "@/lib/user-notifications";
-import { resolveShippingOptColumnId } from "@/lib/shipping-opt-column";
+import { resolveShippingChoiceColumnId } from "@/lib/shipping-opt-column";
 
 type Client = SupabaseClient;
 
@@ -458,12 +463,26 @@ export async function onApprovalResult(
  */
 export async function onShippingOptSelected(
   client: Client,
-  { orderId, tenantId }: { orderId: string; tenantId: string }
+  {
+    orderId,
+    tenantId,
+    choice,
+  }: {
+    orderId: string;
+    tenantId: string;
+    /** Customer's choice — pickup routes to a Pickup column, delivery/FedEx/
+     *  Uber/Curri to a Shipping column, else the shared Ship Opt column. */
+    choice?: ShippingClientChoice | null;
+  }
 ): Promise<void> {
-  const toColumnId = await resolveShippingOptColumnId(client, tenantId);
+  const toColumnId = await resolveShippingChoiceColumnId(
+    client,
+    tenantId,
+    choice
+  );
   if (!toColumnId) {
     console.warn(
-      "[onShippingOptSelected] No Ship Opt destination. Add a “When client selects shipping option” rule, or a column named Ship Opt."
+      "[onShippingOptSelected] No Ship Opt destination. Add a “When client selects shipping option” rule, or a column named Ship Opt / Pickup / Shipping."
     );
     return;
   }

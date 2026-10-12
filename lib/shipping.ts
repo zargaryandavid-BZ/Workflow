@@ -159,6 +159,7 @@ export async function ensureShippingRequestForSend(
     await onShippingOptSelected(supabase, {
       orderId: args.orderId,
       tenantId: args.tenantId,
+      choice: "pickup",
     });
   }
 
