@@ -4,13 +4,16 @@
  * Gated by webhook_configs.bazaar_portal_sync_enabled (default false).
  */
 
+import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Order, OrderSpecs } from "@/lib/types";
 import { parseBazaarPortalInboundKeys } from "@/lib/bazaar-portal-keys";
 import { canonicalizeWebhookSourceKey } from "@/lib/webhook-source-styles";
 import {
   buildBazaarPortalStatusPayload,
+  sanitizeApprovalStatus,
   sanitizeApprovalUrl,
+  type BazaarPortalApprovalStatus,
 } from "@/lib/bazaar-portal-status-payload";
 import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 
@@ -170,6 +173,12 @@ export async function notifyBazaarPortalStatus(args: {
   approvalUrl?: string | null;
   /** Board column kind (e.g. "approval"); helps detect the approval column. */
   columnKind?: string | null;
+  /**
+   * Outcome of the customer's proof round, sent as `approval_status` in the
+   * same POST: "approved" / "rejected" after a decision, "pending" when a new
+   * round opens. Optional + additive; omitted for ordinary column moves.
+   */
+  approvalStatus?: BazaarPortalApprovalStatus | null;
 }): Promise<void> {
   try {
     const order: BazaarPortalStatusOrder = {
@@ -217,18 +226,25 @@ export async function notifyBazaarPortalStatus(args: {
 
     // Additive: attach the customer approval link when we have one. Never
     // blocks or fails the status POST — a lookup problem just omits the link.
+    const approvalStatus = sanitizeApprovalStatus(args.approvalStatus);
+    const isDecision =
+      approvalStatus === "approved" || approvalStatus === "rejected";
     let approvalUrl = sanitizeApprovalUrl(args.approvalUrl);
     if (
       !approvalUrl &&
-      isWaitingApprovalColumn({ kind: args.columnKind, name: args.columnName })
+      (isDecision ||
+        isWaitingApprovalColumn({ kind: args.columnKind, name: args.columnName }))
     ) {
       try {
         const { findActiveApprovalUrl } = await import(
           "@/lib/bazaar-portal-approval-link"
         );
+        // After a decision the round is already answered: still attach its link
+        // so the portal keeps a working "view proof" page next to the outcome.
         approvalUrl = await findActiveApprovalUrl({
           tenantId: args.tenantId,
           orderId: order.id,
+          includeResponded: isDecision,
         });
       } catch {
         approvalUrl = null;
@@ -248,6 +264,7 @@ export async function notifyBazaarPortalStatus(args: {
           columnName: args.columnName,
           movedAt: args.movedAt,
           approvalUrl,
+          approvalStatus,
         })
       ),
       // Never let a slow Bazaar API hold the caller open.
@@ -360,6 +377,9 @@ export async function notifyBazaarPortalApprovalLinks(args: {
               ? row.last_moved_at
               : undefined,
           approvalUrl,
+          // A fresh approval link = a NEW proof round: tell the portal so a
+          // previous Approved / Rejected indicator is cleared for it.
+          approvalStatus: "pending",
         });
       } catch (err) {
         console.error(
@@ -373,6 +393,98 @@ export async function notifyBazaarPortalApprovalLinks(args: {
       "[bazaar-portal-sync] approval link notify failed:",
       err instanceof Error ? err.message : err
     );
+  }
+}
+
+/**
+ * The customer (or staff, via manual approve) just DECIDED the proof for this
+ * card: report the outcome to the Bazaar portal so it can show Approved /
+ * Rejected instead of a perpetual "approve proof" prompt.
+ *
+ * `onApprovalResult` has already applied the configured move (approved ->
+ * the notify rule's target, e.g. Prepress; rejected -> `rejected_to_column`,
+ * e.g. Start) before this runs, so the card's CURRENT column is read fresh
+ * from the DB and sent as `column_name` — the portal's status follows the
+ * card out of Waiting Approval in the same POST as the decision. The approval
+ * link is attached too (round already answered, see findActiveApprovalUrl).
+ *
+ * Same Bazaar-sourced guard, per-partner osk_ key, BZ-* order_number and opt-in
+ * flag as every other status callback. Uses the service-role client so it works
+ * from both the anonymous customer route and the staff manual-approve route.
+ * Fire-and-forget: never throws.
+ */
+export async function notifyBazaarPortalApprovalDecision(args: {
+  tenantId: string;
+  orderId: string;
+  decision: "approved" | "rejected";
+}): Promise<void> {
+  try {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const client = createAdminClient();
+
+    const { data: row } = await client
+      .from("orders")
+      .select(
+        "id, title, tenant_id, webhook_source, specs, column_id, last_moved_at"
+      )
+      .eq("id", args.orderId)
+      .eq("tenant_id", args.tenantId)
+      .maybeSingle();
+    if (!row) return;
+
+    const order: BazaarPortalStatusOrder = {
+      id: row.id as string,
+      title: row.title as string,
+      webhook_source: (row.webhook_source as string | null) ?? null,
+      specs: (row.specs as Record<string, unknown> | null) ?? {},
+    };
+    if (!isBazaarPortalCard(order)) return;
+
+    const columnId = typeof row.column_id === "string" ? row.column_id : "";
+    if (!columnId) return;
+    const { data: col } = await client
+      .from("board_columns")
+      .select("name, kind")
+      .eq("id", columnId)
+      .eq("tenant_id", args.tenantId)
+      .maybeSingle();
+    const columnName = typeof col?.name === "string" ? col.name.trim() : "";
+    if (!columnName) return;
+
+    await notifyBazaarPortalStatus({
+      client,
+      tenantId: args.tenantId,
+      order,
+      columnName,
+      columnKind: typeof col?.kind === "string" ? col.kind : null,
+      movedAt:
+        typeof row.last_moved_at === "string" ? row.last_moved_at : undefined,
+      approvalStatus: args.decision,
+    });
+  } catch (err) {
+    console.error(
+      "[bazaar-portal-sync] approval decision notify failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
+ * Schedule `notifyBazaarPortalApprovalDecision` to run AFTER the response is
+ * sent (Next `after()`), so approving / rejecting never waits on the Bazaar
+ * API. Falls back to running immediately (not awaited) outside a request
+ * context. Never throws.
+ */
+export function scheduleBazaarPortalApprovalDecision(args: {
+  tenantId: string;
+  orderId: string;
+  decision: "approved" | "rejected";
+}): void {
+  const run = () => notifyBazaarPortalApprovalDecision(args);
+  try {
+    after(run);
+  } catch {
+    run().catch(() => {});
   }
 }
 

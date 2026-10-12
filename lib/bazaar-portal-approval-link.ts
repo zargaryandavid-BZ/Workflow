@@ -23,6 +23,12 @@ import {
 export async function findActiveApprovalUrl(args: {
   tenantId: string;
   orderId: string;
+  /**
+   * Also resolve a round the customer has already answered. Used when reporting
+   * the DECISION back to the portal so the broker keeps a working "view proof"
+   * link after approve / reject (/respond renders the recorded decision).
+   */
+  includeResponded?: boolean;
 }): Promise<string | null> {
   try {
     const admin = createAdminClient();
@@ -33,12 +39,19 @@ export async function findActiveApprovalUrl(args: {
       .eq("tenant_id", args.tenantId)
       .eq("order_id", args.orderId)
       .eq("type", "customer_approval")
-      .in("status", ["pending", "sent"])
+      .in(
+        "status",
+        args.includeResponded
+          ? ["pending", "sent", "responded"]
+          : ["pending", "sent"]
+      )
       .order("created_at", { ascending: false })
       .limit(10);
 
     const token = pickActiveApprovalToken(
-      (rows ?? []) as ApprovalNotificationRow[]
+      (rows ?? []) as ApprovalNotificationRow[],
+      Date.now(),
+      { includeResponded: args.includeResponded }
     );
     if (!token) return null;
 
