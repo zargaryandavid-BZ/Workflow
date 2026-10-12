@@ -824,9 +824,25 @@ export function ensureShippingPortalLink(message: string, portalUrl: string) {
 }
 
 /** Plain-text "ready to ship/pickup" email body. */
+/**
+ * " — <title>" suffix for the {{order_title}} template variable, so the
+ * customer sees what the order actually is (e.g. "Roll Labels") next to the
+ * order number. Returns "" when there is no distinct title (so we never print
+ * "0390-1 — 0390-1" or a dangling dash).
+ */
+export function orderTitleSuffix(
+  orderTitle: string | null | undefined,
+  orderNumber: string
+): string {
+  const t = (orderTitle ?? "").trim();
+  if (!t || t === orderNumber.trim()) return "";
+  return ` — ${t}`;
+}
+
 export function buildReadyToShipEmailBody(params: {
   customerName: string;
   orderNumber: string;
+  orderTitle?: string | null;
   orderLink: string;
   staffNote?: string | null;
   teamName?: string;
@@ -836,6 +852,7 @@ export function buildReadyToShipEmailBody(params: {
   return renderMessageTemplate(map.ready_to_ship_email_body, {
     customer_name: params.customerName,
     order_number: params.orderNumber,
+    order_title: orderTitleSuffix(params.orderTitle, params.orderNumber),
     order_link: params.orderLink,
     staff_note_block: staffNoteBlock(params.staffNote),
     team_name: params.teamName ?? "BazaarPrinting Team",
@@ -847,6 +864,7 @@ export function buildReadyToShipEmailBody(params: {
 export function buildReadyToShipEmailHtml(params: {
   customerName: string;
   orderNumber: string;
+  orderTitle?: string | null;
   orderLink: string;
   staffNote?: string | null;
   teamName?: string;
@@ -870,6 +888,7 @@ export function buildReadyToShipEmailHtml(params: {
 export function buildReadyToShipSmsBody(params: {
   customerName?: string | null;
   orderNumber: string;
+  orderTitle?: string | null;
   orderLink: string;
   staffNote?: string | null;
   brandName?: string;
@@ -879,6 +898,7 @@ export function buildReadyToShipSmsBody(params: {
   return renderMessageTemplate(map.ready_to_ship_sms, {
     customer_name: params.customerName?.trim() || "there",
     order_number: params.orderNumber,
+    order_title: orderTitleSuffix(params.orderTitle, params.orderNumber),
     order_link: params.orderLink,
     staff_note_block: staffNoteBlock(params.staffNote),
     brand: params.brandName ?? "BazaarPrinting",
