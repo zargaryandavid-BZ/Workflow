@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Copy, Mail, MessageSquare, Package, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -153,17 +153,46 @@ export function ReadyToShipPopup({
   const [weightUnit, setWeightUnit] = useState<ShippingWeightUnit>("lbs");
 
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
+  const [movingAll, setMovingAll] = useState(false);
+
+  const refreshCheck = useCallback(async () => {
+    try {
+      const r = await fetch(
+        `/api/board/ready-to-ship-check?orderId=${encodeURIComponent(order.id)}&columnId=${encodeURIComponent(columnId)}`
+      );
+      const data = (await r.json()) as CheckResult;
+      setCheckResult(data);
+    } catch {
+      /* non-critical */
+    }
+  }, [order.id, columnId]);
 
   useEffect(() => {
-    fetch(
-      `/api/board/ready-to-ship-check?orderId=${encodeURIComponent(order.id)}&columnId=${encodeURIComponent(columnId)}`
-    )
-      .then((r) => r.json())
-      .then((data: CheckResult) => setCheckResult(data))
-      .catch(() => {
-        /* non-critical */
+    void refreshCheck();
+  }, [refreshCheck]);
+
+  // Pull every line item of this order into the Ready-to-Ship column in one
+  // click, so staff don't drag each part in (and re-answer this window) one by
+  // one. Quiet move — the single notification below still covers the whole
+  // order.
+  const bringAllParts = useCallback(async () => {
+    setMovingAll(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/board/ready-to-ship/move-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id, toColumnId: columnId }),
       });
-  }, [order.id, columnId]);
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to move parts");
+      await refreshCheck();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to move parts");
+    } finally {
+      setMovingAll(false);
+    }
+  }, [order.id, columnId, refreshCheck]);
 
   const orderLabel = checkResult?.groupLabel?.trim() || order.title;
   const notifyLabel =
@@ -494,16 +523,28 @@ export function ReadyToShipPopup({
                   </p>
                 ) : null}
                 {notAllReady ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAllowPartial(true);
-                      setError(null);
-                    }}
-                    className="mt-1 text-xs font-medium underline underline-offset-2"
-                  >
-                    Notify partial anyway
-                  </button>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <button
+                      type="button"
+                      onClick={() => void bringAllParts()}
+                      disabled={movingAll}
+                      className="text-xs font-semibold text-emerald-700 underline underline-offset-2 disabled:opacity-60"
+                    >
+                      {movingAll
+                        ? "Bringing all parts…"
+                        : `Bring all ${checkResult.siblingCount} parts here`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAllowPartial(true);
+                        setError(null);
+                      }}
+                      className="text-xs font-medium underline underline-offset-2"
+                    >
+                      Notify partial anyway
+                    </button>
+                  </div>
                 ) : null}
               </div>
             </div>
