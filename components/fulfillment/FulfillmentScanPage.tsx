@@ -58,7 +58,6 @@ import {
   ScanShippingSlipButtons,
 } from "@/components/fulfillment/ScanShippingSlipButtons";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
-import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 function isPhoneScan(): boolean {
@@ -648,6 +647,68 @@ function ShippingReminderSection({
   );
 }
 
+type ActionFeedback =
+  | { phase: "loading"; label: string }
+  | { phase: "ok"; label: string; column: string }
+  | { phase: "error"; message: string };
+
+function ActionFeedbackPopup({
+  feedback,
+  onClose,
+}: {
+  feedback: ActionFeedback;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (feedback.phase === "loading") return;
+    const ms = feedback.phase === "ok" ? 1800 : 2800;
+    const t = window.setTimeout(onClose, ms);
+    return () => window.clearTimeout(t);
+  }, [feedback, onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+      onClick={feedback.phase === "loading" ? undefined : onClose}
+    >
+      <div
+        className="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl bg-white px-6 py-8 text-center shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {feedback.phase === "loading" ? (
+          <>
+            <Loader2 className="h-12 w-12 animate-spin text-slate-800" />
+            <p className="text-base font-semibold text-slate-900">Working…</p>
+            <p className="text-sm text-slate-500">{feedback.label}</p>
+          </>
+        ) : null}
+        {feedback.phase === "ok" ? (
+          <>
+            <CircleCheck className="h-12 w-12 text-emerald-600" />
+            <p className="text-base font-semibold text-slate-900">Implemented</p>
+            <p className="text-sm text-slate-600">
+              {feedback.label}
+              {feedback.column ? (
+                <>
+                  {" "}
+                  — moved to{" "}
+                  <span className="font-semibold">{feedback.column}</span>
+                </>
+              ) : null}
+            </p>
+          </>
+        ) : null}
+        {feedback.phase === "error" ? (
+          <>
+            <p className="text-base font-semibold text-red-700">Couldn’t complete</p>
+            <p className="text-sm text-slate-600">{feedback.message}</p>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Settings panel
 // ---------------------------------------------------------------------------
@@ -920,6 +981,9 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<{ label: string; column: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(
+    null
+  );
   const [actingOn, setActingOn] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<ScanActionButton | null>(null);
   const [scanButtons, setScanButtons] = useState<ScanActionButton[]>(initialButtons);
@@ -928,7 +992,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [readyToShipPopup, setReadyToShipPopup] = useState<{
     order: OrderWithRelations;
     columnId: string;
-    fromColumnId: string;
+    buttonId: string;
+    label: string;
   } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
@@ -1030,6 +1095,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     setOrder(null);
     setActionResult(null);
     setActionError(null);
+    setActionFeedback(null);
     try {
       const res = await fetch(`${scanBase}?q=${encodeURIComponent(trimmed)}`);
       const json = await res.json();
@@ -1066,9 +1132,9 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     setActingOn(button.id);
     setActionResult(null);
     setActionError(null);
+    setActionFeedback({ phase: "loading", label: button.label });
     try {
       const targetColumn = columns.find((column) => column.id === button.columnId);
-      let popupOrder: OrderWithRelations | null = null;
       if (targetColumn?.kind === "ready_to_ship" && !scanApiBase) {
         const orderRes = await fetch(`/api/orders/${order.id}`);
         const orderJson = await orderRes.json().catch(() => ({})) as {
@@ -1078,7 +1144,14 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         if (!orderRes.ok || !orderJson.order) {
           throw new Error(orderJson.error ?? "Could not load shipping details");
         }
-        popupOrder = orderJson.order;
+        setActionFeedback(null);
+        setReadyToShipPopup({
+          order: orderJson.order,
+          columnId: button.columnId,
+          buttonId: button.id,
+          label: button.label,
+        });
+        return;
       }
 
       const res = await fetch(`${scanBase}/action`, {
@@ -1088,34 +1161,43 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       });
       const json = await res.json();
       if (!res.ok) {
-        setActionError(json.error ?? "Failed");
+        const message = json.error ?? "Failed";
+        setActionError(message);
+        setActionFeedback({ phase: "error", message });
       } else {
+        const column = json.column_name ?? "";
         setActionResult({
           label: button.label,
-          column: json.column_name ?? "",
+          column,
         });
-        if (popupOrder && button.columnId) {
-          setReadyToShipPopup({
-            order: { ...popupOrder, column_id: button.columnId },
-            columnId: button.columnId,
-            fromColumnId: order.column_id,
-          });
-          return;
-        }
-        // Clear order after short delay so the user can see the confirmation
-        setTimeout(() => {
-          setOrder(null);
-          setQuery("");
-          setActionResult(null);
-          window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
-        }, 2500);
+        setActionFeedback({
+          phase: "ok",
+          label: button.label,
+          column,
+        });
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Network error");
+      const message =
+        err instanceof Error ? err.message : "Network error";
+      setActionError(message);
+      setActionFeedback({ phase: "error", message });
     } finally {
       setActingOn(null);
     }
   }
+
+  const actionFeedbackRef = useRef<ActionFeedback | null>(null);
+  actionFeedbackRef.current = actionFeedback;
+  const closeActionFeedback = useCallback(() => {
+    const current = actionFeedbackRef.current;
+    setActionFeedback(null);
+    if (current?.phase === "ok") {
+      setOrder(null);
+      setQuery("");
+      setActionResult(null);
+      window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
+    }
+  }, []);
 
   async function saveConfig(buttons: ScanActionButton[]) {
     const res = await fetch("/api/fulfillment/settings", {
@@ -1147,31 +1229,64 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       )
     : [];
 
-  async function cancelReadyToShipMove() {
+  async function completeReadyToShipAction() {
     const popup = readyToShipPopup;
-    if (!popup) return;
+    const current = order;
     setReadyToShipPopup(null);
-
-    const result = await requestOrderMove(
-      {
-        orderId: popup.order.id,
-        toColumnId: popup.fromColumnId,
-      },
-      {
-        fromColumnId: popup.columnId,
-        columns,
-      }
-    );
-    if (!result.ok) {
-      setActionError(result.error ?? "Could not cancel the move.");
-    } else {
+    if (!popup || !current) {
+      setOrder(null);
+      setQuery("");
       setActionResult(null);
+      window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
+      return;
     }
-    await lookup(popup.order.title);
+    setActingOn(popup.buttonId);
+    setActionFeedback({ phase: "loading", label: popup.label });
+    try {
+      const res = await fetch(`${scanBase}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: current.id,
+          button_id: popup.buttonId,
+        }),
+      });
+      const json = await res.json().catch(() => ({})) as {
+        error?: string;
+        column_name?: string;
+      };
+      if (!res.ok) {
+        const message = json.error ?? "Failed";
+        setActionError(message);
+        setActionFeedback({ phase: "error", message });
+        return;
+      }
+      const column = json.column_name ?? "";
+      setActionResult({ label: popup.label, column });
+      setActionFeedback({
+        phase: "ok",
+        label: popup.label,
+        column,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Network error";
+      setActionError(message);
+      setActionFeedback({ phase: "error", message });
+    } finally {
+      setActingOn(null);
+    }
   }
 
   return (
     <>
+      {actionFeedback ? (
+        <ActionFeedbackPopup
+          feedback={actionFeedback}
+          onClose={closeActionFeedback}
+        />
+      ) : null}
+
       {cameraOpen ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90">
           <video
@@ -1205,14 +1320,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           customFields={customFields}
           fieldValues={{}}
           smsConfigured={smsConfigured}
-          onClose={() => void cancelReadyToShipMove()}
-          onSent={() => {
-            setReadyToShipPopup(null);
-            setOrder(null);
-            setQuery("");
-            setActionResult(null);
-            window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
-          }}
+          onClose={() => setReadyToShipPopup(null)}
+          onSent={() => void completeReadyToShipAction()}
         />
       ) : null}
 
@@ -1504,21 +1613,6 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
           <div className="order-5 flex flex-col gap-4 px-4 pb-4 pt-1 lg:px-0 lg:pb-0 lg:pt-0">
 
-          {/* Action success */}
-          {actionResult && (
-            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] md:text-[15px] font-medium text-emerald-700">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              {actionResult.label} — moved to <span className="font-semibold">{actionResult.column}</span>
-            </div>
-          )}
-
-          {/* Action error */}
-          {actionError && (
-            <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] md:text-[15px] text-red-700">
-              {actionError}
-            </div>
-          )}
-
           {/* Actions */}
           <div>
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -1565,7 +1659,12 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     type="button"
                     onClick={() => void handleAction(button)}
                     onMouseDown={(e) => e.preventDefault()}
-                    disabled={!order || !configured || actingOn !== null}
+                    disabled={
+                      !order ||
+                      !configured ||
+                      actingOn !== null ||
+                      actionFeedback?.phase === "loading"
+                    }
                     className={cn(
                       "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] md:text-[15px] font-medium transition-colors",
                       order && configured
