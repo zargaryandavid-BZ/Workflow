@@ -116,6 +116,10 @@ interface ColumnProps {
   /** Board column ids in pipeline order — used to center Move to on the next stage. */
   boardColumnIds?: string[];
   onMoveToColumn?: (order: OrderWithRelations, targetColumnId: string) => void;
+  onMoveGroupToColumn?: (
+    order: OrderWithRelations,
+    targetColumnId: string
+  ) => void;
   /** Admin-only automations for this column (filtered by board). */
   actionButtons?: ButtonAutomation[];
   appUrl?: string;
@@ -243,6 +247,7 @@ export function Column({
   availableColumns,
   boardColumnIds,
   onMoveToColumn,
+  onMoveGroupToColumn,
   actionButtons = [],
   appUrl = "",
   onActionComplete,
@@ -712,6 +717,7 @@ export function Column({
                     availableColumns={availableColumns}
                     nextMoveColumnId={nextMoveColumnId}
                     onMoveToColumn={onMoveToColumn}
+                    onMoveGroupToColumn={onMoveGroupToColumn}
                     actionButtons={actionButtons}
                     appUrl={appUrl}
                     onActionComplete={onActionComplete}
@@ -823,6 +829,7 @@ export function Column({
                   availableColumns={availableColumns}
                   nextMoveColumnId={nextMoveColumnId}
                   onMoveToColumn={onMoveToColumn}
+                  onMoveGroupToColumn={onMoveGroupToColumn}
                   actionButtons={actionButtons}
                   appUrl={appUrl}
                   onActionComplete={onActionComplete}

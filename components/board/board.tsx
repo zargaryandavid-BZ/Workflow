@@ -2094,6 +2094,39 @@ export function Board({
     });
   }
 
+  // Move EVERY line item of an order into one column in a single click (used by
+  // the "Move all N parts" toggle in the right-click menu). Quiet move; a
+  // Finished column still sends one "finished / review" text for the order.
+  async function handleContextMoveGroup(
+    order: OrderWithRelations,
+    toColumnId: string
+  ) {
+    if (order.specs?.locked === true) {
+      flashPermissionError("This card is locked — unlock it to move.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/board/ready-to-ship/move-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id, toColumnId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        moved?: number;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Failed to move parts");
+      const colName = columnsById.get(toColumnId)?.name ?? "that stage";
+      flashToast(
+        `Moved ${data.moved ?? 0} part${data.moved === 1 ? "" : "s"} to ${colName}`
+      );
+    } catch (err) {
+      flashPermissionError(
+        err instanceof Error ? err.message : "Failed to move parts"
+      );
+    }
+  }
+
   async function handleContextMove(
     order: OrderWithRelations,
     toColumnId: string
@@ -4097,6 +4130,7 @@ export function Board({
                 availableColumns={getMoveableColumns(column.id)}
                 boardColumnIds={columns.map((c) => c.id)}
                 onMoveToColumn={handleContextMove}
+                onMoveGroupToColumn={handleContextMoveGroup}
                 actionButtons={
                   canUseBoardActionButtons(role)
                     ? filterButtonsForColumn(buttonAutomations, column.id)

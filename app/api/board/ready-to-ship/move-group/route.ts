@@ -3,6 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
 import { stopOpenTimersForOrder } from "@/lib/stop-order-timers";
+import {
+  finishedCustomerSmsKind,
+  isFinishedNoReviewStage,
+  FINISHED_CUSTOMER_SMS_SPEC_KEY,
+} from "@/lib/net-terms-fulfill";
+import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
+import type { Order } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,13 +60,22 @@ export async function POST(request: Request) {
   // Confirm the target column belongs to this tenant.
   const { data: toColumn } = await supabase
     .from("board_columns")
-    .select("id")
+    .select("id, name")
     .eq("id", toColumnId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
   if (!toColumn) {
     return NextResponse.json({ error: "Column not found" }, { status: 404 });
   }
+  const toColumnName = (toColumn.name as string | null) ?? "";
+  // Moving the whole order into a Finished column should send the customer ONE
+  // "finished / please review" text for the order — not one per line item.
+  // (No-review Finished columns stay opt-in and never auto-text, matching the
+  // normal per-card behavior.) We stamp the siblings so a later per-card move
+  // can't re-send, and fire a single notification for the order below.
+  const finishedKind = finishedCustomerSmsKind(toColumnName);
+  const stampFinishedSiblings =
+    Boolean(finishedKind) && !isFinishedNoReviewStage(toColumnName);
 
   const members = await listOrderGroupMembers(supabase, tenantId, {
     id: order.id as string,
@@ -89,12 +105,24 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
   const movedIds: string[] = [];
   for (const m of toMove) {
+    // Suppress the per-part finished text on siblings (the order gets one text
+    // below). Never stamp the primary — it still needs to send that one text.
+    const stampSpecs =
+      stampFinishedSiblings && m.id !== order.id
+        ? {
+            specs: {
+              ...(m.specs ?? {}),
+              [FINISHED_CUSTOMER_SMS_SPEC_KEY]: { sent_at: now },
+            },
+          }
+        : {};
     const { error: upErr } = await supabase
       .from("orders")
       .update({
         column_id: toColumnId,
         position: nextPos,
         last_moved_at: now,
+        ...stampSpecs,
       })
       .eq("id", m.id)
       .eq("tenant_id", tenantId);
@@ -109,6 +137,19 @@ export async function POST(request: Request) {
     }
     movedIds.push(m.id);
     nextPos += 1;
+  }
+
+  // One finished / review text for the whole order (gating handled inside:
+  // review columns send, no-review stays opt-in, already-sent is deduped).
+  if (finishedKind) {
+    try {
+      await notifyCustomerOrderFinished(
+        { ...(order as Record<string, unknown>), tenant_id: tenantId } as Order,
+        toColumnName
+      );
+    } catch (err) {
+      console.error("[move-group] finished notify failed", err);
+    }
   }
 
   return NextResponse.json({ moved: movedIds.length, movedIds, toColumnId });
