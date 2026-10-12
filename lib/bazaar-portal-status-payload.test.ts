@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   buildBazaarPortalStatusPayload,
   pickActiveApprovalToken,
+  sanitizeApprovalStatus,
   sanitizeApprovalUrl,
 } from "./bazaar-portal-status-payload.ts";
 
@@ -207,6 +208,141 @@ describe("pickActiveApprovalToken", () => {
         now
       ),
       "no-expiry"
+    );
+  });
+});
+
+describe("buildBazaarPortalStatusPayload approval_status (additive)", () => {
+  it("carries the decision alongside the move + link", () => {
+    const payload = buildBazaarPortalStatusPayload({
+      orderNumber: "BZ-123",
+      columnName: "Prepress",
+      movedAt: "2026-10-08T12:00:00.000Z",
+      approvalUrl: "https://workflow-rho-one.vercel.app/l/AbC2345",
+      approvalStatus: "approved",
+    });
+    assert.equal(payload.approval_status, "approved");
+    assert.equal(payload.column_name, "Prepress");
+    assert.equal(
+      payload.approval_url,
+      "https://workflow-rho-one.vercel.app/l/AbC2345"
+    );
+    assert.deepEqual(Object.keys(payload).sort(), [
+      "approval_status",
+      "approval_url",
+      "column_name",
+      "event",
+      "moved_at",
+      "order_number",
+    ]);
+  });
+
+  it("maps changes_requested (Not approved) to rejected", () => {
+    const payload = buildBazaarPortalStatusPayload({
+      orderNumber: "BZ-1",
+      columnName: "Start (Create Order)",
+      approvalStatus: "changes_requested",
+    });
+    assert.equal(payload.approval_status, "rejected");
+  });
+
+  it("can mark a new round as pending", () => {
+    const payload = buildBazaarPortalStatusPayload({
+      orderNumber: "BZ-1",
+      columnName: "Waiting Approval",
+      approvalStatus: "pending",
+    });
+    assert.equal(payload.approval_status, "pending");
+  });
+
+  it("omits the approval_status key when absent or unrecognised (payload unchanged)", () => {
+    for (const approvalStatus of [undefined, null, "", "  ", "maybe", 1]) {
+      const payload = buildBazaarPortalStatusPayload({
+        orderNumber: "BZ-1",
+        columnName: "Start",
+        movedAt: "2026-10-08T00:00:00.000Z",
+        approvalStatus: approvalStatus as string | null | undefined,
+      });
+      assert.ok(
+        !("approval_status" in payload),
+        `should omit for ${String(approvalStatus)}`
+      );
+    }
+  });
+});
+
+describe("sanitizeApprovalStatus", () => {
+  it("normalizes case/whitespace and the Workflow's own vocabulary", () => {
+    assert.equal(sanitizeApprovalStatus(" Approved "), "approved");
+    assert.equal(sanitizeApprovalStatus("REJECTED"), "rejected");
+    assert.equal(sanitizeApprovalStatus("changes_requested"), "rejected");
+    assert.equal(sanitizeApprovalStatus("pending"), "pending");
+    assert.equal(sanitizeApprovalStatus("info_submitted"), null);
+    assert.equal(sanitizeApprovalStatus(undefined), null);
+  });
+});
+
+describe("pickActiveApprovalToken includeResponded (decision callbacks)", () => {
+  const now = Date.parse("2026-10-08T12:00:00.000Z");
+  const future = "2026-11-01T00:00:00.000Z";
+  const past = "2026-10-01T00:00:00.000Z";
+
+  it("still ignores responded rounds by default", () => {
+    const rows = [
+      {
+        token: "answered",
+        status: "responded",
+        channel: "email",
+        token_expires_at: future,
+        created_at: "2026-10-08T04:00:00.000Z",
+      },
+    ];
+    assert.equal(pickActiveApprovalToken(rows, now), null);
+  });
+
+  it("returns the answered round when asked, even past its calendar expiry", () => {
+    const rows = [
+      {
+        token: "answered",
+        status: "responded",
+        channel: "email",
+        token_expires_at: past,
+        created_at: "2026-10-08T04:00:00.000Z",
+      },
+    ];
+    assert.equal(
+      pickActiveApprovalToken(rows, now, { includeResponded: true }),
+      "answered"
+    );
+  });
+
+  it("newest round wins and skips queued sends", () => {
+    const rows = [
+      {
+        token: "older-answered",
+        status: "responded",
+        channel: "email",
+        token_expires_at: future,
+        created_at: "2026-10-07T00:00:00.000Z",
+      },
+      {
+        token: "newer-answered",
+        status: "responded",
+        channel: "sms",
+        token_expires_at: future,
+        created_at: "2026-10-08T00:00:00.000Z",
+      },
+      {
+        token: "queued-newest",
+        status: "pending",
+        channel: "email",
+        token_expires_at: future,
+        created_at: "2026-10-09T00:00:00.000Z",
+      },
+    ];
+    assert.equal(
+      pickActiveApprovalToken(rows, now, { includeResponded: true }),
+      "newer-answered"
     );
   });
 });

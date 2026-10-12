@@ -424,6 +424,30 @@ export async function onApprovalResult(
     },
   });
 
+  // Tell the Bazaar broker portal the outcome (and where the card now is) so it
+  // shows Approved / Rejected instead of a perpetual "approve proof" prompt.
+  // Every proof decision (customer /respond, staff manual-approve, legacy
+  // approvals/decide) funnels through here. Additive + opt-in: a no-op unless
+  // the card is Bazaar-portal sourced and portal sync is enabled. Runs after
+  // the response is sent and can never fail or slow the approval itself.
+  if (params.result === "approved" || params.result === "rejected") {
+    try {
+      const { scheduleBazaarPortalApprovalDecision } = await import(
+        "@/lib/bazaar-portal-sync"
+      );
+      scheduleBazaarPortalApprovalDecision({
+        tenantId: params.tenantId,
+        orderId: params.orderId,
+        decision: params.result,
+      });
+    } catch (err) {
+      console.error(
+        "[bazaar-portal-sync] approval decision schedule failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   return target;
 }
 
