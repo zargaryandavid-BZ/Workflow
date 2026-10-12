@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { onShippingOptSelected } from "@/lib/automation";
 import {
   buildPickupReadyEmailBody,
   buildPickupReadyEmailHtml,

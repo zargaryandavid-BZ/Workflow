@@ -90,38 +90,6 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/**
- * `orders.internal_note` / `specs.production_notes` are stored as JSON history
- * `[{ author, date, text }, …]` (or legacy plain text).
- * Returns clear note text only for PDF display.
- */
-function formatInternalNoteText(raw: string | null | undefined): string {
-  const trimmed = raw?.trim() ?? "";
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (Array.isArray(parsed)) {
-      return parsed
-        .map((entry) => {
-          if (entry && typeof entry === "object" && "text" in entry) {
-            const text = (entry as { text?: unknown }).text;
-            return typeof text === "string" ? text.trim() : "";
-          }
-          return typeof entry === "string" ? entry.trim() : "";
-        })
-        .filter(Boolean)
-        .join("\n\n");
-    }
-    if (parsed && typeof parsed === "object" && "text" in parsed) {
-      const text = (parsed as { text?: unknown }).text;
-      return typeof text === "string" ? text.trim() : trimmed;
-    }
-  } catch {
-    /* legacy plain text */
-  }
-  return trimmed;
-}
-
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
@@ -445,7 +413,7 @@ type AttentionPageContext = {
   onNewPage?: () => void;
 };
 
-/** ATTENTION blocks (production notes + internal notes), drawn below the specs. */
+/** Production-floor ATTENTION notes, drawn below the specs. */
 function drawAttentionBlocks(
   doc: PdfDoc,
   data: OrderExportData,
@@ -467,10 +435,6 @@ function drawAttentionBlocks(
         : null
     )
   );
-  const internalNotesText = pdfWinAnsiText(
-    formatInternalNoteText(data.order.internal_note)
-  );
-
   let nextY = startY;
 
   const startNewPage = () => {
@@ -562,8 +526,6 @@ function drawAttentionBlocks(
     "#ea580c",
     "#9a3412"
   );
-  drawBox("internal notes", internalNotesText, "#fef2f2", "#dc2626", "#991b1b");
-
   return nextY;
 }
 
