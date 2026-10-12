@@ -275,13 +275,13 @@ Approve here: {{approval_link}}
 
   ready_to_ship_email_subject: "Your order is ready — #{{order_number}}",
   ready_to_ship_email_body: `Hi {{customer_name}},
-Great news! Your order #{{order_number}} is ready.{{staff_note_block}}
+Great news! Your order #{{order_number}}{{order_title}} is ready.{{staff_note_block}}
 View your order and choose pickup or delivery here:
 {{order_link}}
 Thank you,
 {{team_name}}`,
   ready_to_ship_sms:
-    "Hi, this is Bazaar Printing. Your order {{order_number}} is ready. View order and choose pickup or delivery: {{order_link}}",
+    "Hi, this is Bazaar Printing. Your order {{order_number}}{{order_title}} is ready. View order and choose pickup or delivery: {{order_link}}",
 
   shipping_portal_email_subject:
     "Your order {{order_number}} is ready — choose delivery or pickup",

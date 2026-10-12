@@ -48,6 +48,9 @@ interface NotificationEmailArgs {
   to: string;
   type: "missing_info" | "customer_approval" | "ready_to_ship";
   orderTitle: string;
+  /** Descriptive product/item title (e.g. "Roll Labels"), shown next to the
+   *  order number in ready-to-ship messages. */
+  orderItemTitle?: string | null;
   tenantName: string;
   actionUrl: string;
   staffNote?: string | null;
@@ -298,6 +301,7 @@ export async function sendNotificationEmail(
     html = buildReadyToShipEmailHtml({
       customerName: args.customerName?.trim() || "there",
       orderNumber: args.orderTitle,
+      orderTitle: args.orderItemTitle,
       orderLink: args.actionUrl,
       staffNote: args.staffNote,
       teamName: `${args.tenantName} Team`,
@@ -335,6 +339,7 @@ export async function sendNotificationEmail(
       buildReadyToShipEmailBody({
         customerName: args.customerName?.trim() || "there",
         orderNumber: args.orderTitle,
+        orderTitle: args.orderItemTitle,
         orderLink: args.actionUrl,
         staffNote: args.staffNote,
         teamName: `${args.tenantName} Team`,

@@ -377,6 +377,7 @@ async function deliverNotification(
           htmlBody = buildReadyToShipEmailHtml({
             customerName: customerName ?? "there",
             orderNumber: readyToShipOrderLabel,
+            orderTitle: itemTitle,
             orderLink: actionUrl,
             staffNote,
             teamName: `${params.tenantName} Team`,
@@ -424,6 +425,7 @@ async function deliverNotification(
         to: emailRecipients.join(","),
         type: params.notification.type,
         orderTitle: params.order.title,
+        orderItemTitle: itemTitle,
         tenantName: params.tenantName,
         actionUrl,
         staffNote,
@@ -481,6 +483,7 @@ async function deliverNotification(
               ? buildReadyToShipSmsBody({
                   customerName,
                   orderNumber: readyToShipOrderLabel,
+                  orderTitle: itemTitle,
                   orderLink: actionUrl,
                   brandName: params.tenantName,
                   templates,
