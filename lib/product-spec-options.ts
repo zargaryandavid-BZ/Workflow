@@ -424,17 +424,17 @@ export function webhookSpecRowsForJobTicket(
 }
 
 /** Append cardboard `spec_display` rows that are not already in `rows` (job ticket). */
-export function appendUniqueSpecDisplayRows<T extends { label: string; value: string }>(
-  rows: T[],
+export function appendUniqueSpecDisplayRows(
+  rows: { label: string; value: string }[],
   specDisplay: unknown
-): T[] {
+): { label: string; value: string }[] {
   const used = new Set(rows.map((row) => specLabelKey(row.label)));
-  const extra: T[] = [];
+  const extra: { label: string; value: string }[] = [];
   for (const row of parseSpecDisplay(specDisplay)) {
     const key = specLabelKey(row.label);
     if (!key || used.has(key)) continue;
     used.add(key);
-    extra.push({ ...row, label: row.label, value: row.value } as T);
+    extra.push({ label: row.label, value: row.value });
   }
   return extra.length > 0 ? [...rows, ...extra] : rows;
 }

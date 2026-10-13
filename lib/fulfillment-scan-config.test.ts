@@ -77,7 +77,13 @@ describe("normalizeScanButtons", () => {
 describe("serializeScanButtons", () => {
   it("writes snake_case column_id", () => {
     const stored = serializeScanButtons([
-      { id: "x", label: "  Received  ", columnId: "col-1" },
+      {
+        id: "x",
+        label: "  Received  ",
+        columnId: "col-1",
+        receiver: true,
+        sender: false,
+      },
     ]);
     assert.deepEqual(stored, {
       buttons: [
