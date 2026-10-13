@@ -12,10 +12,9 @@ import {
 } from "@/lib/fulfillment-scan-order";
 import { resolveKioskTenant } from "@/lib/kiosk-token";
 import { normalizeSkus } from "@/lib/skus";
-import { assembleSkuMainPictures } from "@/lib/sku-main-pictures";
 import { formatShortOrderNumber } from "@/lib/order-number-tokens";
 import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
-import { loadFinalArtworkSkuCount } from "@/lib/final-artwork-sku-count";
+import { loadScanFinalArtworkPictures } from "@/lib/fulfillment-scan-final-artwork";
 
 /**
  * GET /api/kiosk/[token]/scan?q=ORDER_NUMBER
@@ -93,14 +92,8 @@ export async function GET(
 
   const profileIds = [...new Set([createdBy, designerId].filter(Boolean))];
 
-  const [skuImagesRes, columnsRes, fieldsRes, valuesRes, profilesRes, shippingRes, lastSmsRes, members, finalArtworkSkuCount] =
+  const [columnsRes, fieldsRes, valuesRes, profilesRes, shippingRes, lastSmsRes, members] =
     await Promise.all([
-      supabase
-        .from("order_sku_images")
-        .select("id, sku_id, storage_path, position")
-        .eq("order_id", order.id)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
       supabase
         .from("board_columns")
         .select("id, name")
@@ -142,34 +135,19 @@ export async function GET(
         column_id: (order.column_id as string | null) ?? null,
         specs,
       }),
-      loadFinalArtworkSkuCount(order.id as string),
     ]);
 
-  const skuImgRows = (skuImagesRes.data ?? []) as {
-    id: string;
-    sku_id: string;
-    storage_path: string;
-    position: number;
-  }[];
-  const pathsToSign = [
-    ...new Set(
-      skuImgRows.map((r) => r.storage_path).filter((p): p is string => Boolean(p))
-    ),
-  ];
-  const signedMap = new Map<string, string>();
-  if (pathsToSign.length > 0) {
-    const { data: signed } = await supabase.storage
-      .from("order-assets")
-      .createSignedUrls(pathsToSign, 3600);
-    for (const s of (signed ?? []) as { path: string | null; signedUrl: string }[]) {
-      if (s.path) signedMap.set(s.path, s.signedUrl);
-    }
-  }
-  const skuImages = assembleSkuMainPictures({
-    skus: normalizeSkus(specs.skus),
-    imageRows: skuImgRows,
-    urlByPath: signedMap,
-  });
+  const finalArtwork = await loadScanFinalArtworkPictures(
+    {
+      id: order.id as string,
+      title: String(order.title ?? ""),
+      tenant_id: tenantId,
+      specs: specs as never,
+    },
+    normalizeSkus(specs.skus)
+  );
+  const skuImages = finalArtwork.pictures;
+  const finalArtworkSkuCount = finalArtwork.pageCount || null;
 
   const fieldNameById = new Map(
     ((fieldsRes.data ?? []) as { id: string; name: string }[]).map((f) => [

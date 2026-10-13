@@ -1,22 +1,9 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  ARTWORK_FIELD_NAME,
-  CUSTOMER_CONTACT_FIELD_NAME,
-  CUSTOMER_NAME_FIELD_NAME,
-  DESIGNER_FIELD_NAME,
-} from "@/lib/constants";
-import {
-  findOrderFormField,
-  formatFieldDisplayValue,
-  orderFormFieldLabel,
-  ORDER_FORM_PRINT_FIELD_NAMES,
-} from "@/lib/order-form";
-import {
-  appendUniqueSpecDisplayRows,
-  webhookSpecRowsForJobTicket,
-} from "@/lib/product-spec-options";
+import { ARTWORK_FIELD_NAME } from "@/lib/constants";
+import { findOrderFormField } from "@/lib/order-form";
+import { buildJobTicketSpecRows } from "@/lib/job-ticket-spec-rows";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
   attachSignedUrlsToSkuImages,
@@ -130,119 +117,6 @@ function valuesByFieldId(values: CustomFieldValue[]): Record<string, unknown> {
     map[row.custom_field_id] = row.value;
   }
   return map;
-}
-
-function buildSpecRows(
-  customFields: CustomField[],
-  fieldValues: Record<string, unknown>,
-  specs?: Record<string, unknown> | null
-): OrderExportSpecRow[] {
-  const checkboxToYesNo = (raw: unknown): "Yes" | "No" => {
-    if (typeof raw === "boolean") return raw ? "Yes" : "No";
-    if (typeof raw === "number") return raw === 1 ? "Yes" : "No";
-    if (typeof raw === "string") {
-      const value = raw.trim().toLowerCase();
-      if (["true", "yes", "1", "on", "checked"].includes(value)) return "Yes";
-      if (
-        [
-          "false",
-          "no",
-          "0",
-          "off",
-          "unchecked",
-          "",
-          "\"",
-          "null",
-          "undefined",
-        ].includes(value)
-      ) {
-        return "No";
-      }
-      // Unknown checkbox-like strings should not print as raw text.
-      return "No";
-    }
-    return "No";
-  };
-
-  const skip = new Set(
-    [
-      CUSTOMER_NAME_FIELD_NAME,
-      CUSTOMER_CONTACT_FIELD_NAME,
-      ARTWORK_FIELD_NAME,
-      DESIGNER_FIELD_NAME,
-      "designer",
-      "Unit Price",
-      "Unit Price ($)",
-    ].map((n) => n.toLowerCase())
-  );
-
-  const textForName = (name: string): string => {
-    const field = findOrderFormField(customFields, name);
-    const raw = field ? fieldValues[field.id] : undefined;
-    return raw === null || raw === undefined ? "" : String(raw).trim();
-  };
-  const widthText = textForName("Width");
-  const heightText = textForName("Height");
-  // Combine Width/Height (or fall back to a typed Finished Size) into one row.
-  const sizeValue =
-    widthText && heightText
-      ? `${widthText}x${heightText}`
-      : widthText || heightText || textForName("Finished Size");
-  const sizeHandledNames = new Set(["width", "height", "finished size"]);
-
-  const rows: OrderExportSpecRow[] = [];
-  let sizeRowEmitted = false;
-  for (const name of ORDER_FORM_PRINT_FIELD_NAMES) {
-    if (sizeHandledNames.has(name.toLowerCase())) {
-      if (!sizeRowEmitted && sizeValue) {
-        rows.push({ label: "Size (W, H)", value: sizeValue });
-        sizeRowEmitted = true;
-      }
-      continue;
-    }
-    const field = findOrderFormField(customFields, name);
-    if (!field) continue;
-    const raw = fieldValues[field.id];
-    if (field.field_type !== "checkbox" && (raw === null || raw === undefined || raw === "")) continue;
-    const label =
-      field.name.toLowerCase() === "die cut" && field.field_type === "text"
-        ? "Die"
-        : orderFormFieldLabel(field.name);
-    rows.push({
-      label,
-      value:
-        field.field_type === "checkbox"
-          ? checkboxToYesNo(raw)
-          : formatFieldDisplayValue(raw),
-    });
-  }
-
-  for (const field of customFields) {
-    if (skip.has(field.name.toLowerCase())) continue;
-    if (ORDER_FORM_PRINT_FIELD_NAMES.some(
-      (n) => n.toLowerCase() === field.name.toLowerCase()
-    )) {
-      continue;
-    }
-    const raw = fieldValues[field.id];
-    if (field.field_type !== "checkbox" && (raw === null || raw === undefined || raw === "")) continue;
-    rows.push({
-      label: orderFormFieldLabel(field.name),
-      value:
-        field.field_type === "checkbox"
-          ? checkboxToYesNo(raw)
-          : formatFieldDisplayValue(raw),
-    });
-  }
-
-  return appendUniqueSpecDisplayRows(
-    rows,
-    webhookSpecRowsForJobTicket(specs).map((row) => ({
-      key: row.label,
-      label: row.label,
-      value: row.value,
-    }))
-  );
 }
 
 function buildSkuRows(
@@ -459,11 +333,12 @@ export async function loadOrderExportData(
     customFields,
     skus,
     skuRows,
-    specRows: buildSpecRows(
+    specRows: buildJobTicketSpecRows({
       customFields,
       fieldValues,
-      order.specs as Record<string, unknown> | null
-    ),
+      specs: order.specs as Record<string, unknown> | null,
+      skus,
+    }),
     totalQty,
     customerName: customerName === "there" ? "—" : customerName,
     customerEmail: contact.email ?? order.customer?.email ?? null,

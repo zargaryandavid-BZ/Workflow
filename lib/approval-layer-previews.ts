@@ -514,7 +514,7 @@ async function generateApprovalLayerPreviewsForOrderUncached(
       specs,
     },
     skusForRespond(specs),
-    { skipCache: true }
+    { includeDesignerFallback: false, skipCache: true }
   );
   const pdfs = Object.values(pack.bySku);
   if (pdfs.length === 0) {
@@ -727,7 +727,7 @@ async function resolveCurrentFinalSource(
       order.tenant_id,
       { id: order.id, title: String(order.title ?? ""), specs },
       skusForRespond(specs),
-      { skipCache: true }
+      { includeDesignerFallback: false, skipCache: true }
     );
     const pdfs = Object.values(pack.bySku);
     if (pdfs.length === 0) return null;

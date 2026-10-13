@@ -1420,17 +1420,23 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               </p>
               {order.sku_images?.length ? (
                 <div
-                  className="grid min-h-0 flex-1 gap-3"
+                  className="grid min-h-0 flex-1 gap-3 overflow-y-auto pr-1"
                   style={{
                     gridTemplateColumns:
                       order.sku_images.length === 1 ? "1fr" : "1fr 1fr",
-                    gridTemplateRows: `repeat(${Math.ceil(order.sku_images.length / (order.sku_images.length === 1 ? 1 : 2))}, minmax(0, 1fr))`,
+                    gridAutoRows:
+                      order.sku_images.length <= 4
+                        ? "minmax(0, 1fr)"
+                        : "minmax(10rem, 1fr)",
                   }}
                 >
                   {order.sku_images.map((sku) => (
-                    <div
+                    <button
+                      type="button"
                       key={sku.sku_id}
-                      className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                      onClick={() => setLightboxUrl(sku.url)}
+                      className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-left transition hover:border-blue-300 hover:bg-blue-50/30"
+                      aria-label={`View ${sku.sku_name} artwork`}
                     >
                       <p className="shrink-0 truncate border-b border-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-700">
                         {sku.sku_name}
@@ -1443,7 +1449,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                           className="absolute inset-0 h-full w-full object-contain p-2"
                         />
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               ) : order.thumbnail_url ? (

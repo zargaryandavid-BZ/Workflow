@@ -366,12 +366,13 @@ function splitTextToHeight(
   doc: PdfDoc,
   text: string,
   width: number,
-  maxHeight: number
+  maxHeight: number,
+  fontSize = 10
 ): { fitted: string; rest: string } {
   if (!text) return { fitted: "", rest: "" };
   if (maxHeight < 8) return { fitted: "", rest: text };
 
-  doc.fontSize(10).font("Helvetica");
+  doc.fontSize(fontSize).font("Helvetica");
   if (doc.heightOfString(text, { width }) <= maxHeight) {
     return { fitted: text, rest: "" };
   }
@@ -420,11 +421,12 @@ function drawAttentionBlocks(
   startY: number,
   pageCtx?: AttentionPageContext
 ): number {
+  const bodyFontSize = 14;
   const x = MARGIN;
   const w = PAGE_WIDTH - MARGIN * 2;
   const innerW = w - 24;
-  const titleH = 28; // ATTENTION + subtitle
-  const minBoxH = 44;
+  const titleH = 34; // ATTENTION + subtitle
+  const minBoxH = 58;
   const bodyPadBottom = 8;
   const bodyTopOffset = 10 + titleH;
 
@@ -470,7 +472,8 @@ function drawAttentionBlocks(
         doc,
         remaining,
         innerW,
-        maxBodyH
+        maxBodyH,
+        bodyFontSize
       );
 
       // If nothing fits in the available body height, force a new page.
@@ -480,7 +483,7 @@ function drawAttentionBlocks(
       }
 
       const bodyH = fitted
-        ? doc.fontSize(10).font("Helvetica").heightOfString(fitted, {
+        ? doc.fontSize(bodyFontSize).font("Helvetica").heightOfString(fitted, {
             width: innerW,
           })
         : 12;
@@ -494,13 +497,13 @@ function drawAttentionBlocks(
       doc.rect(x, ay, 4, boxH).fill(accent);
       doc.rect(x, ay, w, boxH).strokeColor(accent).lineWidth(1.25).stroke();
 
-      doc.fillColor(titleColor).fontSize(10).font("Helvetica-Bold");
+      doc.fillColor(titleColor).fontSize(12).font("Helvetica-Bold");
       textAt(doc, "ATTENTION", x + 12, ay + 10, { width: innerW });
-      doc.fillColor(titleColor).fontSize(9).font("Helvetica");
-      textAt(doc, label, x + 12, ay + 22, { width: innerW });
+      doc.fillColor(titleColor).fontSize(11).font("Helvetica");
+      textAt(doc, label, x + 12, ay + 26, { width: innerW });
 
       const bodyTop = ay + bodyTopOffset;
-      doc.fontSize(10).font("Helvetica").fillColor("#111827");
+      doc.fontSize(bodyFontSize).font("Helvetica").fillColor("#111827");
       // lineBreak must stay on for wrapping; height clips without ellipsis so
       // overflow is carried to the next page instead of truncated.
       doc.text(pdfWinAnsiText(fitted), x + 12, bodyTop, {
