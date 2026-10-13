@@ -1560,13 +1560,16 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   </div>
                 </div>
 
-                {/* Deposit + Balance — only when billing exists */}
-                {order.billing && (order.billing.deposit != null || order.billing.balance != null) && (
+                {/* Billing is visible at the Receiver station only. */}
+                {scanStation === "receiver" &&
+                  order.billing &&
+                  (order.billing.deposit != null ||
+                    order.billing.balance != null) && (
                   <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100 bg-slate-50">
                     {order.billing.deposit != null ? (
                       <p className="min-w-0 truncate px-4 py-3 text-[14px]">
                         <span className="font-medium text-slate-500">Deposit:</span>{" "}
-                        <span className="font-semibold text-emerald-600">−${Math.abs(order.billing.deposit).toFixed(2)}</span>
+                        <span className="font-semibold text-emerald-600">${Math.abs(order.billing.deposit).toFixed(2)}</span>
                       </p>
                     ) : <div />}
                     {order.billing.balance != null ? (

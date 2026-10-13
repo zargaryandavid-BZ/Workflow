@@ -554,17 +554,28 @@ function drawSpecs(
   const VALUE_SIZE = 10;
   const LABEL_SIZE = 9;
 
-  const specRows: SpecCell[] = data.specRows.map((row) => {
-    const value = pdfWinAnsiText(yesNo(row.value));
-    const imagePath = isRollDirectionFieldName(row.label)
-      ? rollDirectionImagePath(row.value)
-      : null;
-    return {
-      label: pdfWinAnsiText(row.label),
-      value,
-      imagePath,
-    };
-  });
+  const jobTicketHiddenSpecLabels = new Set([
+    "production notes",
+    "designer queue pos",
+    "request owner name",
+    "request owner email",
+    "request owner phone",
+  ]);
+  const specRows: SpecCell[] = data.specRows
+    .filter(
+      (row) => !jobTicketHiddenSpecLabels.has(row.label.trim().toLowerCase())
+    )
+    .map((row) => {
+      const value = pdfWinAnsiText(yesNo(row.value));
+      const imagePath = isRollDirectionFieldName(row.label)
+        ? rollDirectionImagePath(row.value)
+        : null;
+      return {
+        label: pdfWinAnsiText(row.label),
+        value,
+        imagePath,
+      };
+    });
 
   if (data.designTask) {
     specRows.push({

@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Loader2, Printer } from "lucide-react";
+import { Loader2, Printer } from "lucide-react";
 import {
   filenameFromDisposition,
   printPdfBlob,
-  triggerBlobDownload,
 } from "@/lib/browser-pdf";
 import { cn } from "@/lib/utils";
 
@@ -73,20 +72,19 @@ export function ScanShippingSlipButtons({
   groupSize: number;
   compact?: boolean;
 }) {
-  const [busy, setBusy] = useState<"download" | "print" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function run(kind: "download" | "print") {
+  async function print() {
     setError("");
-    setBusy(kind);
+    setBusy(true);
     try {
       const { blob, filename } = await fetchOrderPackingSlip({
         orderId,
         orderNumber,
         groupSize,
       });
-      if (kind === "download") triggerBlobDownload(blob, filename);
-      else printPdfBlob(blob, filename);
+      printPdfBlob(blob, filename);
     } catch (err) {
       const timedOut =
         err instanceof Error &&
@@ -99,70 +97,26 @@ export function ScanShippingSlipButtons({
             : "Failed"
       );
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
-
-  const buttons = (
-    <>
-        <button
-          type="button"
-          onClick={() => void run("print")}
-          disabled={busy !== null}
-          className={cn(SCAN_SHIPPING_ACTION_BTN, SCAN_SHIPPING_ACTION_BTN_READY)}
-        >
-          {busy === "print" ? (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-          ) : (
-            <Printer className="h-4 w-4 shrink-0" />
-          )}
-          Print shipping slip
-        </button>
-        <button
-          type="button"
-          onClick={() => void run("download")}
-          disabled={busy !== null}
-          className={cn(SCAN_SHIPPING_ACTION_BTN, SCAN_SHIPPING_ACTION_BTN_READY)}
-        >
-          {busy === "download" ? (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-          ) : (
-            <Download className="h-4 w-4 shrink-0" />
-          )}
-          Download shipping slip
-        </button>
-    </>
-  );
 
   if (compact) {
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="grid grid-cols-2 gap-2">
+        <div>
           <button
             type="button"
-            onClick={() => void run("print")}
-            disabled={busy !== null}
+            onClick={() => void print()}
+            disabled={busy}
             className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
-            {busy === "print" ? (
+            {busy ? (
               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
             ) : (
               <Printer className="h-3.5 w-3.5 shrink-0" />
             )}
             Print slip
-          </button>
-          <button
-            type="button"
-            onClick={() => void run("download")}
-            disabled={busy !== null}
-            className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {busy === "download" ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-            ) : (
-              <Download className="h-3.5 w-3.5 shrink-0" />
-            )}
-            Download
           </button>
         </div>
         {error ? (
@@ -177,9 +131,19 @@ export function ScanShippingSlipButtons({
       <p className="mb-2 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
         Shipping slip
       </p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {buttons}
-      </div>
+      <button
+        type="button"
+        onClick={() => void print()}
+        disabled={busy}
+        className={cn(SCAN_SHIPPING_ACTION_BTN, SCAN_SHIPPING_ACTION_BTN_READY)}
+      >
+        {busy ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+        ) : (
+          <Printer className="h-4 w-4 shrink-0" />
+        )}
+        Print shipping slip
+      </button>
       {error ? (
         <p className="mt-2 text-[12px] md:text-[14px] text-red-600">{error}</p>
       ) : null}
