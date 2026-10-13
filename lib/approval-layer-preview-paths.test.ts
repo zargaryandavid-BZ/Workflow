@@ -38,7 +38,7 @@ test("respondLayerPreviewUrl is token-gated through the asset route", () => {
   assert.match(href, /layer=composite/);
 });
 
-test("layerPicsForJobTicket uses one stacked print picture", () => {
+test("layerPicsForJobTicket lists every visual plate", () => {
   const pics = layerPicsForJobTicket({
     layers: [
       { id: "w", name: "White" },
@@ -46,22 +46,27 @@ test("layerPicsForJobTicket uses one stacked print picture", () => {
       { id: "x", name: "Layer 3" },
     ],
   });
-  assert.deepEqual(pics, [{ layer: "artwork", name: "Artwork" }]);
+  assert.deepEqual(pics, [
+    { layer: "w", name: "White" },
+    { layer: "a", name: "ART WORK" },
+    { layer: "x", name: "Layer 3" },
+  ]);
 });
 
-test("layerPicsForJobTicket is the stacked print even when a Cut plate exists", () => {
+test("layerPicsForJobTicket includes Cut / Dieline as its own cell", () => {
   const pics = layerPicsForJobTicket({
     layers: [
       { id: "c", name: "Cut" },
       { id: "a", name: "Artwork" },
     ],
   });
-  assert.deepEqual(pics, [{ layer: "artwork", name: "Artwork" }]);
+  assert.deepEqual(pics, [
+    { layer: "c", name: "Cut" },
+    { layer: "a", name: "Artwork" },
+  ]);
 });
 
-test("layerPicsForJobTicket falls back to stacked print when only unnamed layers", () => {
-  const pics = layerPicsForJobTicket({
-    layers: [{ id: "1", name: "Layer 1" }],
-  });
+test("layerPicsForJobTicket falls back to stacked Artwork when no plates", () => {
+  const pics = layerPicsForJobTicket({ layers: [] });
   assert.deepEqual(pics, [{ layer: "artwork", name: "Artwork" }]);
 });

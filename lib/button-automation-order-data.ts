@@ -13,6 +13,10 @@ import {
   orderFormFieldLabel,
   ORDER_FORM_PRINT_FIELD_NAMES,
 } from "@/lib/order-form";
+import {
+  appendUniqueSpecDisplayRows,
+  webhookSpecRowsForJobTicket,
+} from "@/lib/product-spec-options";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
 import {
   attachSignedUrlsToSkuImages,
@@ -52,6 +56,8 @@ export interface OrderExportSkuRow {
   qty: number | null;
   imageLinks: string[];
   imageFiles: { name: string; url: string }[];
+  /** Per-plate PNGs already loaded from storage (job-ticket SKU pages). */
+  imageBuffers?: { name: string; buffer: Buffer }[];
 }
 
 export interface OrderExportSpecRow {
@@ -128,7 +134,8 @@ function valuesByFieldId(values: CustomFieldValue[]): Record<string, unknown> {
 
 function buildSpecRows(
   customFields: CustomField[],
-  fieldValues: Record<string, unknown>
+  fieldValues: Record<string, unknown>,
+  specs?: Record<string, unknown> | null
 ): OrderExportSpecRow[] {
   const checkboxToYesNo = (raw: unknown): "Yes" | "No" => {
     if (typeof raw === "boolean") return raw ? "Yes" : "No";
@@ -228,7 +235,14 @@ function buildSpecRows(
     });
   }
 
-  return rows;
+  return appendUniqueSpecDisplayRows(
+    rows,
+    webhookSpecRowsForJobTicket(specs).map((row) => ({
+      key: row.label,
+      label: row.label,
+      value: row.value,
+    }))
+  );
 }
 
 function buildSkuRows(
@@ -445,7 +459,11 @@ export async function loadOrderExportData(
     customFields,
     skus,
     skuRows,
-    specRows: buildSpecRows(customFields, fieldValues),
+    specRows: buildSpecRows(
+      customFields,
+      fieldValues,
+      order.specs as Record<string, unknown> | null
+    ),
     totalQty,
     customerName: customerName === "there" ? "—" : customerName,
     customerEmail: contact.email ?? order.customer?.email ?? null,

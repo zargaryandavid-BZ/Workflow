@@ -308,6 +308,137 @@ export function resolveLineSpecDisplay(
   return fromBody.length > 0 ? fromBody : null;
 }
 
+function specLabelKey(label: string): string {
+  return label.replace(/[\s-]+/g, " ").trim().toLowerCase();
+}
+
+function displayWebhookSpecValue(raw: unknown): string {
+  if (typeof raw === "boolean") return raw ? "Yes" : "No";
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => displayWebhookSpecValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (raw && typeof raw === "object") {
+    const rec = raw as Record<string, unknown>;
+    return (
+      displayWebhookSpecValue(rec.label) ||
+      displayWebhookSpecValue(rec.name) ||
+      displayWebhookSpecValue(rec.value)
+    );
+  }
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+/**
+ * Webhook cardboard data for the job ticket: spec_selections, product_options,
+ * cutting type, then leftover spec_display rows (no mapper ids).
+ */
+export function webhookSpecRowsForJobTicket(
+  specs: Record<string, unknown> | null | undefined
+): { label: string; value: string }[] {
+  if (!specs) return [];
+  const rows: { label: string; value: string }[] = [];
+  const used = new Set<string>();
+  const push = (label: string, value: string) => {
+    const key = specLabelKey(label);
+    const v = value.trim();
+    if (!key || !v || used.has(key)) return;
+    used.add(key);
+    rows.push({ label, value: v });
+  };
+
+  const selRaw = specs.spec_selections;
+  const sel =
+    selRaw && typeof selRaw === "object" && !Array.isArray(selRaw)
+      ? (selRaw as Record<string, unknown>)
+      : {};
+  const fieldOptions = nestedFieldOptions(specs);
+
+  for (const [key, raw] of Object.entries(sel)) {
+    if (isHiddenFloorSpecKey(key)) continue;
+    const options = normalizeSpecSelectOptions(fieldOptions?.[key]);
+    const text = displayWebhookSpecValue(raw);
+    if (!text) continue;
+    const matched =
+      (isSetSizeKey(key)
+        ? findMatchingSetSizeOption(options, text)
+        : options.find((o) => o.value === text || o.label === text)) ?? null;
+    push(sentenceCaseSpecLabel(key), matched?.label ?? text);
+  }
+
+  const productOptions = [
+    ...(Array.isArray(specs.product_options) ? specs.product_options : []),
+    ...(Array.isArray(specs.options) ? specs.options : []),
+  ]
+    .map(String)
+    .filter(Boolean);
+  for (const opt of productOptions) {
+    if (opt.replace(/[\s-]+/g, "_").toUpperCase() === "DESIGN_SERVICE") {
+      continue;
+    }
+    push(sentenceCaseSpecLabel(opt), "Yes");
+  }
+
+  const cutting =
+    typeof specs.cutting_type === "string" ? specs.cutting_type.trim() : "";
+  if (cutting) push("Cutting", cutting);
+
+  const skipLeftover = new Set([
+    "skus",
+    "card_image",
+    "card_images",
+    "card_pdf_rev",
+    "spec_display",
+    "spec_selections",
+    "field_options",
+    "product_options",
+    "options",
+    "catalog_source",
+    "connected_specs",
+    "webhook_order_number",
+    "webhook_source",
+    "designer_id",
+    "designer_name",
+    "design_task",
+    "po_number",
+    "purchase_order",
+    "po",
+  ]);
+  for (const [key, raw] of Object.entries(specs)) {
+    const norm = key.replace(/[\s-]+/g, "_").toLowerCase();
+    if (skipLeftover.has(norm)) continue;
+    if (norm.startsWith("webhook_") || norm.endsWith("_id") || norm.endsWith("_url")) {
+      continue;
+    }
+    if (isHiddenFloorSpecKey(key)) continue;
+    if (raw && typeof raw === "object") continue;
+    const text = displayWebhookSpecValue(raw);
+    if (!text) continue;
+    push(sentenceCaseSpecLabel(key), text);
+  }
+
+  return appendUniqueSpecDisplayRows(rows, specs.spec_display);
+}
+
+/** Append cardboard `spec_display` rows that are not already in `rows` (job ticket). */
+export function appendUniqueSpecDisplayRows<T extends { label: string; value: string }>(
+  rows: T[],
+  specDisplay: unknown
+): T[] {
+  const used = new Set(rows.map((row) => specLabelKey(row.label)));
+  const extra: T[] = [];
+  for (const row of parseSpecDisplay(specDisplay)) {
+    const key = specLabelKey(row.label);
+    if (!key || used.has(key)) continue;
+    used.add(key);
+    extra.push({ ...row, label: row.label, value: row.value } as T);
+  }
+  return extra.length > 0 ? [...rows, ...extra] : rows;
+}
+
 /** Floor rows after Q12: drop Size / Die already on custom fields. */
 export function floorSpecDisplayRows(raw: unknown): SpecDisplayRow[] {
   return parseSpecDisplay(raw).filter((row) => {

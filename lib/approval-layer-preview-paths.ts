@@ -65,13 +65,20 @@ export type RespondLayerPreview = {
 };
 
 /**
- * One stacked print picture (Artwork + foil / Spot UV / …) for the job ticket.
- * Isolated white / cut plates are omitted — they are blank or solid green in RGB.
+ * Every stored visual plate for the job-ticket SKU page (2-up grid).
+ * Falls back to the stacked Artwork JPEG when the PDF has no named layers.
  */
 export function layerPicsForJobTicket(
-  _preview?: Pick<RespondLayerPreview, "layers">
+  preview?: Pick<RespondLayerPreview, "layers">
 ): { layer: string; name: string }[] {
-  return [{ layer: "artwork", name: "Artwork" }];
+  const layers = preview?.layers ?? [];
+  if (layers.length === 0) {
+    return [{ layer: "artwork", name: "Artwork" }];
+  }
+  return layers.map((layer, index) => ({
+    layer: layer.id,
+    name: layer.name.trim() || `Layer ${index + 1}`,
+  }));
 }
 
 export function respondLayerPreviewUrl(

@@ -41,7 +41,6 @@ import {
   PRODUCTION_CARD_FILES,
   productionCardImageMeta,
 } from "@/lib/production-card-image";
-import sharp from "sharp";
 
 const CARD_PDF_REV_SPEC = "card_pdf_rev";
 
@@ -224,12 +223,17 @@ function skuIdForProductionCard(specs: Record<string, unknown>): string {
 
 function cardPdfRevValue(fingerprint: string): string {
   if (
-    fingerprint.endsWith(":print-art") ||
+    fingerprint.endsWith(":artwork:v2") ||
     fingerprint.endsWith(":drive-thumb")
   ) {
     return fingerprint;
   }
-  return `${fingerprint}:print-art`;
+  // Strip any legacy :artwork suffix (from pre-v2 green-thumbnail generation)
+  // before appending the versioned tag so we don't double-append.
+  const base = fingerprint.endsWith(":artwork")
+    ? fingerprint.slice(0, -":artwork".length)
+    : fingerprint;
+  return `${base}:artwork:v2`;
 }
 
 async function upsertProductionCardImage(
@@ -329,18 +333,21 @@ async function upsertProductionCardImage(
   return imageId;
 }
 
+function isPrintArtCardRev(specs: unknown): boolean {
+  if (!specs || typeof specs !== "object") return false;
+  const rev = (specs as Record<string, unknown>)[CARD_PDF_REV_SPEC];
+  return typeof rev === "string" && rev.trim().endsWith(":artwork:v2");
+}
+
 async function applyStoredCompositeToCard(
   admin: ReturnType<typeof createAdminClient>,
   order: Pick<Order, "id" | "tenant_id" | "specs">,
   preview: Pick<RespondLayerPreview, "fileId" | "rev" | "page" | "layers">,
   fingerprint: string
 ): Promise<boolean> {
-  const path = layerPreviewObjectPath(
-    preview.fileId,
-    preview.rev,
-    preview.page,
-    "composite"
-  );
+  const { ensurePrintProofJpeg } = await import("@/lib/flatten-print-proof");
+  const path = await ensurePrintProofJpeg(admin, preview);
+  if (!path) return false;
   const { data, error } = await admin.storage
     .from(ORDER_ASSETS_BUCKET)
     .download(path);
@@ -351,7 +358,7 @@ async function applyStoredCompositeToCard(
     admin,
     order,
     bytes,
-    `${fingerprint}:print-art`
+    fingerprint
   );
   return Boolean(imageId);
 }
@@ -413,7 +420,26 @@ export async function ensureBoardCardThumbnailFromFinalPdf(
   finalFolderIds: string[]
 ): Promise<{ id: string; url: string } | null> {
   const existing = await loadProductionCardPreviewUrl(order.id);
-  if (existing) return existing;
+  if (existing && isPrintArtCardRev(order.specs)) return existing;
+
+  try {
+    await generateApprovalLayerPreviewsForOrder(order);
+    const art = await loadProductionCardPreviewUrl(order.id);
+    const { data: refreshed } = await createAdminClient()
+      .from("orders")
+      .select("specs")
+      .eq("id", order.id)
+      .maybeSingle();
+    if (art && isPrintArtCardRev(refreshed?.specs)) return art;
+    if (art && isPrintArtCardRev(order.specs)) return art;
+  } catch (err) {
+    console.warn(
+      "[approval-layer-previews] artwork card from Final PDF failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  if (existing && isPrintArtCardRev(order.specs)) return existing;
 
   const latest = await findLatestPdfInFolders(settings, finalFolderIds);
   if (!latest?.id) return null;
@@ -524,7 +550,22 @@ async function generateApprovalLayerPreviewsForOrderUncached(
   const fingerprint = drivePdfFingerprint(fileId, rev);
   const already = await loadRespondPreviewIndex(order.id);
   if (!approvalPreviewIsStale(already, { fileId, rev })) {
-    return respondProofFromIndex(already!).layerPreviews;
+    const previews = respondProofFromIndex(already!).layerPreviews;
+    const first = Object.values(previews)[0];
+    if (first && !isPrintArtCardRev(order.specs)) {
+      await applyStoredCompositeToCard(
+        admin,
+        order,
+        first,
+        fingerprint
+      ).catch((err) =>
+        console.warn(
+          "[approval-layer-previews] card image update failed:",
+          err instanceof Error ? err.message : err
+        )
+      );
+    }
+    return previews;
   }
 
   const manifestPath = layerPreviewManifestPath(fileId, rev);
@@ -594,17 +635,6 @@ async function generateApprovalLayerPreviewsForOrderUncached(
       page.compositeJpg,
       "image/png"
     );
-    try {
-      const printJpeg = await sharp(page.compositeJpg)
-        .jpeg({ quality: 86 })
-        .toBuffer();
-      await uploadBytes(admin, `${dir}/artwork.jpg`, printJpeg, "image/jpeg");
-    } catch (err) {
-      console.warn(
-        "[approval-layer-previews] artwork.jpg encode failed:",
-        err instanceof Error ? err.message : err
-      );
-    }
     if (page.basePng.length > 0) {
       await uploadBytes(admin, `${dir}/base.png`, page.basePng, "image/png");
     }
@@ -947,7 +977,7 @@ export async function refreshProofsIfDrivePdfChanged(
     typeof specs[CARD_PDF_REV_SPEC] === "string"
       ? specs[CARD_PDF_REV_SPEC].trim()
       : "";
-  if (cardRev === `${fingerprint}:print-art`) return;
+  if (cardRev === cardPdfRevValue(fingerprint)) return;
 
   try {
     const admin = createAdminClient();

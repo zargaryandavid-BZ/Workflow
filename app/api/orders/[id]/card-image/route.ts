@@ -36,11 +36,11 @@ export async function GET(
   } = await import("@/lib/approval-layer-previews");
 
   const existing = await loadProductionCardPreviewUrl(orderId);
-  if (existing) {
-    return NextResponse.json({ ...existing, source: "sku_image" as const });
-  }
 
   if (loaded.kind !== "ok") {
+    if (existing) {
+      return NextResponse.json({ ...existing, source: "sku_image" as const });
+    }
     return NextResponse.json({ error: "No production PDF" }, { status: 404 });
   }
 
@@ -50,6 +50,9 @@ export async function GET(
     ),
   ];
   if (folderIds.length === 0) {
+    if (existing) {
+      return NextResponse.json({ ...existing, source: "sku_image" as const });
+    }
     return NextResponse.json({ error: "No production PDF" }, { status: 404 });
   }
 
@@ -63,13 +66,16 @@ export async function GET(
     loaded.settings,
     folderIds
   );
-  if (!preview) {
-    return NextResponse.json(
-      { error: "Could not build card picture from the Final PDF" },
-      { status: 404 }
-    );
+  if (preview) {
+    return NextResponse.json({ ...preview, source: "sku_image" as const });
   }
-  return NextResponse.json({ ...preview, source: "sku_image" as const });
+  if (existing) {
+    return NextResponse.json({ ...existing, source: "sku_image" as const });
+  }
+  return NextResponse.json(
+    { error: "Could not build card picture from the Final PDF" },
+    { status: 404 }
+  );
 }
 
 export async function POST(

@@ -797,16 +797,35 @@ function drawPage1(
     data.applicationEnabled && data.productionDateFormatted
       ? data.productionDateFormatted
       : data.dueDateFormatted;
+  const specsRec =
+    data.order.specs && typeof data.order.specs === "object"
+      ? (data.order.specs as Record<string, unknown>)
+      : {};
+  const poNumber = [
+    specsRec.po_number,
+    specsRec.purchase_order,
+    specsRec.PO,
+  ]
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .find(Boolean);
+  const crmNumber =
+    typeof specsRec.webhook_order_number === "string"
+      ? specsRec.webhook_order_number.trim()
+      : "";
   const leftCol: Array<[string, string]> = [
     ["Customer", data.customerName],
     [dueOrProductionLabel, dueOrProductionValue],
     ["Priority", capitalize(data.priority)],
   ];
+  if (poNumber) leftCol.push(["PO", poNumber]);
   const rightCol: Array<[string, string]> = [
     ["Account Manager", data.ownerName || "—"],
     ["Designer", data.designerName || "—"],
     ["TTL Qty", fmtQty(data.totalQty)],
   ];
+  if (crmNumber && crmNumber !== data.orderNumber) {
+    rightCol.push(["CRM #", crmNumber]);
+  }
   const summaryRows = Math.max(leftCol.length, rightCol.length);
   let rowY = y;
   for (let i = 0; i < summaryRows; i++) {
@@ -943,21 +962,8 @@ function drawArtworkPage(
     return;
   }
 
-  if (withBuf.length === 1) {
-    try {
-      doc.image(withBuf[0].buffer as Buffer, x0, imageTop, {
-        fit: [areaW, areaH],
-        align: "center",
-        valign: "center",
-      });
-    } catch {
-      drawNoArtworkPlaceholder(doc, imageTop, areaH, "Image could not be loaded");
-    }
-    return;
-  }
-
   const cols = 2;
-  const rows = Math.ceil(withBuf.length / cols);
+  const rows = Math.max(1, Math.ceil(withBuf.length / cols));
   const gap = 8;
   const labelH = 12;
   const cellW = (areaW - gap) / cols;
@@ -993,8 +999,27 @@ function drawArtworkPage(
   });
 }
 
+const JOB_TICKET_LAYERS_PER_PAGE = 4;
+
+function chunkArtworkPages<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return [[]];
+  const pages: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    pages.push(items.slice(i, i + size));
+  }
+  return pages;
+}
+
 function totalArtworkPages(data: OrderExportData): number {
-  return data.skuRows.length;
+  return data.skuRows.reduce((sum, sku) => {
+    const n = Math.max(
+      sku.imageBuffers?.length ?? 0,
+      sku.imageFiles.length,
+      sku.imageLinks.length,
+      1
+    );
+    return sum + Math.ceil(n / JOB_TICKET_LAYERS_PER_PAGE);
+  }, 0);
 }
 
 export async function generateJobTicketPdf(
@@ -1053,31 +1078,43 @@ export async function generateJobTicketPdf(
   if (!useFinalPdf) {
     for (let skuIdx = 0; skuIdx < data.skuRows.length; skuIdx++) {
       const sku = data.skuRows[skuIdx];
+      const fromBuffers = sku.imageBuffers ?? [];
       const files =
-        sku.imageFiles.length > 0
-          ? sku.imageFiles
-          : sku.imageLinks.map((url, i) => ({
-              name: sku.imageLinks.length > 1 ? `Layer ${i + 1}` : "",
-              url,
-            }));
-      const images = await Promise.all(
-        files.map(async (file) => ({
-          name: file.name,
-          buffer: await fetchImageBuffer(file.url),
-        }))
-      );
-      doc.addPage();
-      drawArtworkPage(
-        doc,
-        data,
-        skuIdx,
-        data.skuRows.length,
-        sku.name,
-        sku.qty,
-        images,
-        qrPng
-      );
-      drawnArtwork += 1;
+        fromBuffers.length > 0
+          ? []
+          : sku.imageFiles.length > 0
+            ? sku.imageFiles
+            : sku.imageLinks.map((url, i) => ({
+                name: `Layer ${i + 1}`,
+                url,
+              }));
+      const images =
+        fromBuffers.length > 0
+          ? fromBuffers.map((file) => ({
+              name: file.name,
+              buffer: file.buffer,
+            }))
+          : await Promise.all(
+              files.map(async (file) => ({
+                name: file.name,
+                buffer: await fetchImageBuffer(file.url),
+              }))
+            );
+      const pages = chunkArtworkPages(images, JOB_TICKET_LAYERS_PER_PAGE);
+      for (const slice of pages) {
+        doc.addPage();
+        drawArtworkPage(
+          doc,
+          data,
+          skuIdx,
+          data.skuRows.length,
+          sku.name,
+          sku.qty,
+          slice,
+          qrPng
+        );
+        drawnArtwork += 1;
+      }
     }
   }
 

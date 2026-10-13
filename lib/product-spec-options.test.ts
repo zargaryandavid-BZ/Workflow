@@ -16,6 +16,8 @@ import {
   parseSpecDisplay,
   resolveLineSpecDisplay,
   floorSpecDisplayRows,
+  appendUniqueSpecDisplayRows,
+  webhookSpecRowsForJobTicket,
   isSpecDisplayCoveredByCustomFields,
   visibleCatalogToggles,
 } from "./product-spec-options.ts";
@@ -280,6 +282,69 @@ describe("spec_display", () => {
     assert.equal(
       floor.some((r) => /top of copy/i.test(r.value)),
       false
+    );
+  });
+
+  it("prints webhook spec_selections, options, and leftover spec_display on the ticket", () => {
+    const rows = webhookSpecRowsForJobTicket({
+      spec_selections: {
+        ZIPPER: "Child-Resistant (CR) zipper",
+        CORNERS: "Rounded",
+        GUSSET_SIZE: "2 in (standard)",
+        FINISH_BOTH_SIDES: "Yes",
+        bazaar_item_id: "23",
+      },
+      product_options: ["TEAR_NOTCH", "GUSSET"],
+      spec_display: [
+        { key: "ZIPPER", label: "Zipper", value: "Cr" },
+        { key: "BOX", label: "Box size", value: "12x8x4" },
+      ],
+    });
+    assert.deepEqual(
+      rows.map((r) => r.label),
+      [
+        "Zipper",
+        "Corners",
+        "Gusset size",
+        "Finish both sides",
+        "Tear notch",
+        "Gusset",
+        "Box size",
+      ]
+    );
+    assert.equal(rows[0]?.value, "Child-Resistant (CR) zipper");
+  });
+
+  it("prints leftover webhook keys stored on the order specs root", () => {
+    const rows = webhookSpecRowsForJobTicket({
+      zipper: "Cr",
+      corners: "Rounded",
+      finish_both_sides: "Yes",
+      gusset: true,
+    });
+    assert.deepEqual(
+      rows.map((r) => `${r.label}:${r.value}`),
+      [
+        "Zipper:Cr",
+        "Corners:Rounded",
+        "Finish both sides:Yes",
+        "Gusset:Yes",
+      ]
+    );
+  });
+
+  it("appends cardboard spec_display onto job-ticket rows without duplicates", () => {
+    const merged = appendUniqueSpecDisplayRows(
+      [{ label: "Materials", value: "Clear PET" }],
+      [
+        { key: "MATERIALS", label: "Materials", value: "Clear PET" },
+        { key: "BOX", label: "Box size", value: "12x8x4" },
+        { key: "APPLICATION", label: "Application Service", value: "Yes" },
+      ]
+    );
+    assert.deepEqual(
+      merged.map((r) => r.label),
+      ["Materials", "Box size", "Application Service"]
     );
   });
 

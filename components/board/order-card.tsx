@@ -683,8 +683,17 @@ export function OrderCard({
     setPdfCardThumb(null);
   }, [order.id]);
 
+  const cardPdfRev =
+    typeof order.specs?.card_pdf_rev === "string"
+      ? order.specs.card_pdf_rev.trim()
+      : "";
+  const needsArtworkCard =
+    driveStatus.loaded &&
+    hasFinalPdf &&
+    !cardPdfRev.endsWith(":artwork");
+
   useEffect(() => {
-    if ((thumbnails?.length ?? 0) > 0) return;
+    if ((thumbnails?.length ?? 0) > 0 && !needsArtworkCard) return;
     let cancelled = false;
     void fetchWithAuth(`/api/orders/${order.id}/card-image`)
       .then(async (res) => {
@@ -718,14 +727,16 @@ export function OrderCard({
     return () => {
       cancelled = true;
     };
-  }, [order.id, thumbnails]);
+  }, [order.id, thumbnails, needsArtworkCard]);
 
-  const displayThumbs =
-    thumbnails && thumbnails.length > 0
+  const displayThumbs = pdfCardThumb
+    ? [
+        pdfCardThumb,
+        ...(thumbnails ?? []).filter((thumb) => thumb.id !== pdfCardThumb.id),
+      ]
+    : thumbnails && thumbnails.length > 0
       ? thumbnails
-      : pdfCardThumb
-        ? [pdfCardThumb]
-        : [];
+      : [];
 
   const designerName =
     designerNameProp?.trim() ||

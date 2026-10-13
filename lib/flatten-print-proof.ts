@@ -3,6 +3,7 @@ import "server-only";
 import sharp from "sharp";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  artworkPdfLayerIds,
   defaultVisiblePdfLayerIds,
   isUnnamedPdfLayer,
 } from "@/lib/pdf-ocg";
@@ -38,6 +39,24 @@ export async function ensurePrintProofJpeg(
     preview.page,
     "artwork"
   );
+  const layers = preview.layers ?? [];
+  // Named plates: always rebuild from Artwork (not the green white-ink composite
+  // that was previously saved as artwork.jpg).
+  if (layers.length > 0) {
+    const jpeg = await flattenPrintProofJpeg(admin, preview);
+    if (jpeg?.length) {
+      const { error } = await admin.storage.from(BUCKET).upload(artPath, jpeg, {
+        contentType: "image/jpeg",
+        upsert: true,
+      });
+      if (error) {
+        console.warn("[flatten-print-proof] upload failed:", error.message);
+        return null;
+      }
+      return artPath;
+    }
+  }
+
   const existing = await downloadBytes(admin, artPath);
   if (existing) return artPath;
 
@@ -83,10 +102,21 @@ export async function flattenPrintProofJpeg(
     if (png) overlays.push(png);
   }
 
-  if (base || overlays.length > 0) {
+  const hasArtworkPlate =
+    artworkPdfLayerIds(named.length ? named : preview.layers ?? []).length > 0;
+
+  // When artwork overlay PNGs are available, composite them on a plain white
+  // background rather than the base PNG. The base often carries spot-colour
+  // artefacts: pdf.js renders White/underprint ink as an arbitrary alternate
+  // colour (solid green on Clear PET), making every thumbnail look green.
+  // The overlay deltas are already computed relative to the base via
+  // ocgOverlayRgba — they are transparent wherever the base has content —
+  // so flattening them onto white gives a clean result that matches the
+  // SEE LAYERS / Artwork view exactly.
+  if (overlays.length > 0) {
     try {
-      const first = base ?? overlays[0]!;
-      const rest = base ? overlays : overlays.slice(1);
+      const first = overlays[0]!;
+      const rest = overlays.slice(1);
       let pipeline = sharp(first).ensureAlpha();
       if (rest.length > 0) {
         pipeline = pipeline.composite(
@@ -99,11 +129,31 @@ export async function flattenPrintProofJpeg(
         .toBuffer();
     } catch (err) {
       console.warn(
-        "[flatten-print-proof] stack failed:",
+        "[flatten-print-proof] artwork-overlay stack failed:",
         err instanceof Error ? err.message : err
       );
     }
   }
+
+  // No overlay PNGs downloaded (missing or wrong revision) — fall back to
+  // the base layer alone if available.
+  if (base) {
+    try {
+      return await sharp(base)
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .jpeg({ quality: 86 })
+        .toBuffer();
+    } catch (err) {
+      console.warn(
+        "[flatten-print-proof] base-only stack failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // White-ink / cut composite is the green Drive-style mess — never use it
+  // when an Artwork plate exists (same as SEE LAYERS / large view).
+  if (hasArtworkPlate) return null;
 
   return downloadBytes(
     admin,

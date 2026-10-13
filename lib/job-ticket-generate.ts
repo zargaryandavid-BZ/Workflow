@@ -6,28 +6,49 @@ import {
 import { generateJobTicketPdf } from "@/lib/button-automation-pdf";
 import {
   layerPicsForJobTicket,
+  layerPreviewObjectPath,
   type RespondLayerPreview,
 } from "@/lib/approval-layer-preview-paths";
+import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const BUCKET = "order-assets";
-
 /**
- * Signed URL for the stacked print picture (Artwork + finishes) used on the
- * job ticket. Isolated white / cut plates are omitted.
+ * Per-plate PNG bytes for each SKU (job-ticket 2-up grid).
+ * Downloads from storage so we never fall back to the green Drive thumb.
  */
 async function loadLayerPreviewImages(
   orderId: string,
   skus: { id: string }[]
-): Promise<Map<string, { name: string; url: string }[]>> {
-  const out = new Map<string, { name: string; url: string }[]>();
+): Promise<Map<string, { name: string; buffer: Buffer }[]>> {
+  const out = new Map<string, { name: string; buffer: Buffer }[]>();
   if (skus.length === 0) return out;
 
   try {
     const { loadRespondCustomerProofForOrderId } = await import(
       "@/lib/approval-layer-previews"
     );
-    const { ensurePrintProofJpeg } = await import("@/lib/flatten-print-proof");
+    const { generateApprovalLayerPreviewsForOrder } = await import(
+      "@/lib/approval-layer-previews"
+    );
+    const adminForGen = createAdminClient();
+    const { data: order } = await adminForGen
+      .from("orders")
+      .select("id, title, tenant_id, specs")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (order?.tenant_id) {
+      await generateApprovalLayerPreviewsForOrder({
+        id: order.id as string,
+        title: String(order.title ?? ""),
+        tenant_id: order.tenant_id as string,
+        specs: (order.specs ?? {}) as never,
+      }).catch((err) =>
+        console.warn(
+          "[job-ticket] generate layer previews failed:",
+          err instanceof Error ? err.message : err
+        )
+      );
+    }
     const proof = await loadRespondCustomerProofForOrderId(
       orderId,
       skus as never
@@ -36,37 +57,49 @@ async function loadLayerPreviewImages(
     if (Object.keys(previews).length === 0) return out;
 
     const admin = createAdminClient();
-    const pathToSlot: Array<{ path: string; skuId: string; name: string }> = [];
-    for (const [skuId, p] of Object.entries(previews)) {
-      const path = await ensurePrintProofJpeg(admin, p);
-      const pics = layerPicsForJobTicket(p);
-      if (path) {
-        pathToSlot.push({
-          path,
-          skuId,
-          name: pics[0]?.name ?? "Artwork",
-        });
-      }
-    }
-    if (pathToSlot.length === 0) return out;
+    const previewList = Object.entries(previews);
 
-    const { data: signed } = await admin.storage
-      .from(BUCKET)
-      .createSignedUrls(
-        pathToSlot.map((s) => s.path),
-        180
+    const downloadPic = async (
+      preview: RespondLayerPreview,
+      pic: { layer: string; name: string }
+    ): Promise<{ name: string; buffer: Buffer } | null> => {
+      const path = layerPreviewObjectPath(
+        preview.fileId,
+        preview.rev,
+        preview.page,
+        pic.layer
       );
+      const { data, error } = await admin.storage
+        .from(ORDER_ASSETS_BUCKET)
+        .download(path);
+      if (error || !data) return null;
+      const buffer = Buffer.from(await data.arrayBuffer());
+      if (buffer.length === 0) return null;
+      return { name: pic.name, buffer };
+    };
 
-    const byPath = new Map((signed ?? []).map((row) => [row.path, row]));
-    const bySku = new Map<string, { name: string; url: string }[]>();
-    for (const slot of pathToSlot) {
-      const row = byPath.get(slot.path);
-      if (!row?.signedUrl || row.error) continue;
-      const list = bySku.get(slot.skuId) ?? [];
-      list.push({ name: slot.name, url: row.signedUrl });
-      bySku.set(slot.skuId, list);
+    for (let i = 0; i < skus.length; i++) {
+      const sku = skus[i]!;
+      const preview =
+        previews[sku.id] ??
+        previewList[i]?.[1] ??
+        (previewList.length === 1 ? previewList[0]![1] : undefined);
+      if (!preview) continue;
+      const pics = layerPicsForJobTicket(preview);
+      const buffers: { name: string; buffer: Buffer }[] = [];
+      for (let n = 0; n < pics.length; n++) {
+        const pic = pics[n]!;
+        const loaded = await downloadPic(preview, pic);
+        if (loaded) {
+          buffers.push({
+            name: loaded.name || `Layer ${n + 1}`,
+            buffer: loaded.buffer,
+          });
+        }
+      }
+      if (buffers.length > 0) out.set(sku.id, buffers);
     }
-    return bySku;
+    return out;
   } catch (err) {
     console.error("[job-ticket] layer preview load failed:", err);
     return out;
@@ -96,11 +129,12 @@ export async function generateJobTicketPdfBuffer(
       if (layers && layers.length > 0) {
         return {
           ...row,
-          imageFiles: layers,
-          imageLinks: layers.map((l) => l.url),
+          imageFiles: [],
+          imageLinks: [],
+          imageBuffers: layers,
         };
       }
-      return row;
+      return { ...row, imageFiles: [], imageLinks: [], imageBuffers: [] };
     });
 
     const buffer = await generateJobTicketPdf(
