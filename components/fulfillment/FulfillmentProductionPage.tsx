@@ -91,8 +91,15 @@ export function FulfillmentProductionPage({
         setActionMenuOrderId(null);
       }
     };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActionMenuOrderId(null);
+    };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
   }, [actionMenuOrderId]);
 
   const visible = useMemo(() => {
@@ -293,7 +300,9 @@ export function FulfillmentProductionPage({
                   </div>
                   <div
                     data-action-menu
-                    className="relative z-20 shrink-0 rounded-md bg-white p-0.5"
+                    className={`relative shrink-0 rounded-md bg-white p-0.5 ${
+                      actionMenuOrderId === order.id ? "z-[100]" : "z-10"
+                    }`}
                   >
                     <button
                       type="button"
@@ -315,7 +324,21 @@ export function FulfillmentProductionPage({
                       )}
                     </button>
                     {actionMenuOrderId === order.id ? (
-                      <div className="absolute right-0 top-full z-40 mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl">
+                      <div className="absolute right-0 top-full z-[110] mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-xl">
+                        <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Actions
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setActionMenuOrderId(null)}
+                            title="Close menu"
+                            aria-label="Close actions menu"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
