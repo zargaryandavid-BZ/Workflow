@@ -42,11 +42,17 @@ function playScanBeep() {
 
 export type QrCameraFacing = "user" | "environment";
 
+export interface QrScannerController {
+  stop: () => void;
+  destroy: () => void;
+  setCamera: (facing: QrCameraFacing) => Promise<void>;
+}
+
 export async function startQrScanner(
   video: HTMLVideoElement,
   onCode: (code: string) => void,
   preferredCamera: QrCameraFacing = "user"
-): Promise<{ stop: () => void; destroy: () => void }> {
+): Promise<QrScannerController> {
   ensureBeepCtx();
   const { default: QrScanner } = await import("qr-scanner");
   let handled = false;
@@ -79,13 +85,44 @@ export async function startQrScanner(
       throw new Error("Could not start camera");
     }
   }
-  return scanner;
+
+  async function setCamera(facing: QrCameraFacing) {
+    const cameras = await QrScanner.listCameras(true).catch(() => []);
+    let selected: { id: string; label: string } | undefined;
+    if (cameras.length === 1) {
+      // Desktop device emulation exposes one webcam, not separate phone
+      // cameras. Keep that stream instead of selecting a nonexistent camera.
+      selected = cameras[0];
+    } else if (cameras.length > 1) {
+      const pattern =
+        facing === "environment"
+          ? /\b(back|rear|environment|world|outward)\b/i
+          : /\b(front|user|face|facetime|selfie)\b/i;
+      selected = cameras.find((camera) => pattern.test(camera.label));
+      selected ??=
+        facing === "environment"
+          ? cameras[cameras.length - 1]
+          : cameras[0];
+    }
+    await scanner.setCamera(selected?.id ?? facing);
+    try {
+      await video.play();
+    } catch {
+      // QrScanner owns the stream; a subsequent user gesture can resume it.
+    }
+  }
+
+  return {
+    stop: () => scanner.stop(),
+    destroy: () => scanner.destroy(),
+    setCamera,
+  };
 }
 
 /** Backwards-compatible front-camera entry point. */
 export async function startFrontQrScanner(
   video: HTMLVideoElement,
   onCode: (code: string) => void
-): Promise<{ stop: () => void; destroy: () => void }> {
+): Promise<QrScannerController> {
   return startQrScanner(video, onCode, "user");
 }

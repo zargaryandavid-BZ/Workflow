@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Camera,
   CheckCircle2,
   ChevronRight,
   CircleCheck,
@@ -59,6 +60,7 @@ import {
   ScanShippingSlipButtons,
 } from "@/components/fulfillment/ScanShippingSlipButtons";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
+import type { QrScannerController } from "@/lib/scan-qr-camera";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 function isPhoneScan(): boolean {
@@ -980,9 +982,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [cameraFacing, setCameraFacing] = useState<"user" | "environment">(
     "user"
   );
+  const [cameraSwitching, setCameraSwitching] = useState(false);
+  const cameraFacingRef = useRef(cameraFacing);
+  cameraFacingRef.current = cameraFacing;
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scannerRef = useRef<any>(null);
+  const scannerRef = useRef<QrScannerController | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<{ label: string; column: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1039,6 +1043,28 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     setCameraOpen(true);
   }
 
+  function switchCamera() {
+    if (cameraSwitching) return;
+    const previous = cameraFacing;
+    const next = cameraFacing === "user" ? "environment" : "user";
+    setCameraFacing(next);
+    const scanner = scannerRef.current;
+    if (!scanner) return;
+    setCameraSwitching(true);
+    void scanner
+      .setCamera(next)
+      .catch(async (err) => {
+        console.error("[scan-camera-switch]", err);
+        setCameraFacing(previous);
+        try {
+          await scanner.setCamera(previous);
+        } catch (restoreErr) {
+          console.error("[scan-camera-restore]", restoreErr);
+        }
+      })
+      .finally(() => setCameraSwitching(false));
+  }
+
   // Listen for camera-open event (dispatched by nav or other callers)
   useEffect(() => {
     function onCamera(e: Event) {
@@ -1072,7 +1098,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       if (destroyed || !videoRef.current) return;
       const { startQrScanner } = await import("@/lib/scan-qr-camera");
       if (destroyed || !videoRef.current) return;
-      let scanner: { stop: () => void; destroy: () => void } | null = null;
+      let scanner: QrScannerController | null = null;
       try {
         scanner = await startQrScanner(
           videoRef.current,
@@ -1086,7 +1112,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } })
             );
           },
-          cameraFacing
+          cameraFacingRef.current
         );
       } catch (err) {
         console.error("[scan-camera]", err);
@@ -1107,8 +1133,44 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         scannerRef.current.destroy();
         scannerRef.current = null;
       }
+      setCameraSwitching(false);
     };
-  }, [cameraOpen, cameraFacing]);
+  }, [cameraOpen]);
+
+  // Mobile browsers can detach or pause the video track when orientation
+  // changes. Re-select the active physical camera after the layout settles.
+  useEffect(() => {
+    if (!cameraOpen) return;
+    let timer: number | null = null;
+    let portrait = window.innerHeight >= window.innerWidth;
+
+    const recoverCamera = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const scanner = scannerRef.current;
+        if (!scanner) return;
+        setCameraSwitching(true);
+        void scanner
+          .setCamera(cameraFacingRef.current)
+          .catch((err) => console.error("[scan-camera-rotate]", err))
+          .finally(() => setCameraSwitching(false));
+      }, 400);
+    };
+    const onResize = () => {
+      const nextPortrait = window.innerHeight >= window.innerWidth;
+      if (nextPortrait === portrait) return;
+      portrait = nextPortrait;
+      recoverCamera();
+    };
+
+    window.addEventListener("orientationchange", recoverCamera);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("orientationchange", recoverCamera);
+      window.removeEventListener("resize", onResize);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [cameraOpen]);
 
   const lookup = useCallback(async (q: string) => {
     const trimmed = q.trim();
@@ -1327,16 +1389,21 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           </p>
           <button
             type="button"
-            onClick={() =>
-              setCameraFacing((current) =>
-                current === "user" ? "environment" : "user"
-              )
-            }
+            onClick={switchCamera}
+            disabled={cameraSwitching}
             aria-label={`Use ${cameraFacing === "user" ? "back" : "front"} camera`}
-            className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-white/20 px-3 py-2 text-sm font-semibold text-white hover:bg-white/30"
+            className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-white/20 px-3 py-2 text-sm font-semibold text-white hover:bg-white/30 disabled:cursor-wait disabled:opacity-60"
           >
-            <SwitchCamera className="h-5 w-5" />
-            {cameraFacing === "user" ? "Back camera" : "Front camera"}
+            {cameraSwitching ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <SwitchCamera className="h-5 w-5" />
+            )}
+            {cameraSwitching
+              ? "Switching…"
+              : cameraFacing === "user"
+                ? "Back camera"
+                : "Front camera"}
           </button>
           <button
             type="button"
@@ -1522,16 +1589,21 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   </p>
                   <button
                     type="button"
-                    onClick={() =>
-                      setCameraFacing((current) =>
-                        current === "user" ? "environment" : "user"
-                      )
-                    }
+                    onClick={switchCamera}
+                    disabled={cameraSwitching}
                     aria-label={`Use ${cameraFacing === "user" ? "back" : "front"} camera`}
-                    className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-black/70"
+                    className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-black/70 disabled:cursor-wait disabled:opacity-60"
                   >
-                    <SwitchCamera className="h-4 w-4" />
-                    {cameraFacing === "user" ? "Back" : "Front"}
+                    {cameraSwitching ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <SwitchCamera className="h-4 w-4" />
+                    )}
+                    {cameraSwitching
+                      ? "Switching…"
+                      : cameraFacing === "user"
+                        ? "Back"
+                        : "Front"}
                   </button>
                   <button
                     type="button"
@@ -1550,6 +1622,14 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   </svg>
                   <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
                   <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
+                  <button
+                    type="button"
+                    onClick={openCamera}
+                    className="mt-2 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                  >
+                    <Camera className="h-4 w-4" />
+                    Use camera
+                  </button>
                 </div>
               )}
             </div>
