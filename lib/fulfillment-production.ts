@@ -83,7 +83,7 @@ export async function listProductionOrders(
       const orderThumbs = thumbs[order.id] ?? [];
       const finalArtwork = finalArtworkSummaries.get(order.id);
       const artworkUrls =
-        finalArtwork && finalArtwork.artworkUrls.length > 0
+        finalArtwork && finalArtwork.artworkUrls.some(Boolean)
           ? finalArtwork.artworkUrls
           : orderThumbs.map((thumb) => thumb.url);
       return {

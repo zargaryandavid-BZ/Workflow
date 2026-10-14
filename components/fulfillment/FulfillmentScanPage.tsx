@@ -1518,16 +1518,14 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           )}
 
           {order && (
-            <div className="order-4 hidden lg:flex min-h-[9rem] max-h-[28vh] flex-col overflow-hidden border-b border-slate-100 px-4 py-3 lg:max-h-none lg:min-h-0 lg:flex-1 lg:border-b-0">
+            <div className="order-4 flex min-h-[9rem] flex-col border-b border-slate-100 px-4 py-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:border-b-0">
               <p className="mb-2 shrink-0 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                 Artwork
               </p>
               {order.sku_images?.length ? (
                 <div
-                  className="grid min-h-0 flex-1 gap-3 overflow-y-auto pr-1"
+                  className="grid grid-cols-2 gap-3 pr-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
                   style={{
-                    gridTemplateColumns:
-                      order.sku_images.length === 1 ? "1fr" : "1fr 1fr",
                     gridAutoRows:
                       order.sku_images.length <= 4
                         ? "minmax(0, 1fr)"
@@ -1539,7 +1537,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                       type="button"
                       key={sku.sku_id}
                       onClick={() => setLightboxUrl(sku.url)}
-                      className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-left transition hover:border-blue-300 hover:bg-blue-50/30"
+                      className={cn(
+                        "flex h-44 min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-left transition hover:border-blue-300 hover:bg-blue-50/30 lg:h-auto",
+                        order.sku_images?.length === 1 &&
+                          "col-span-2 lg:col-span-1"
+                      )}
                       aria-label={`View ${sku.sku_name} artwork`}
                     >
                       <p className="shrink-0 truncate border-b border-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-700">
@@ -1570,6 +1572,24 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               )}
             </div>
           )}
+
+          {loading && !order ? (
+            <div
+              className="order-2 flex min-h-[15rem] flex-1 flex-col items-center justify-center gap-3 text-slate-500"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
+                <Loader2 className="h-7 w-7 animate-spin text-blue-600" />
+              </div>
+              <p className="text-sm font-semibold text-slate-700">
+                Loading order…
+              </p>
+              <p className="text-xs text-slate-400">
+                Finding order details
+              </p>
+            </div>
+          ) : null}
 
           {!order && !loading && !lookupError && (
             <div className="order-2 flex flex-1 flex-col items-center justify-center text-slate-400">

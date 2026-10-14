@@ -40,6 +40,21 @@ export async function ensurePrintProofJpeg(
     "artwork"
   );
   const layers = preview.layers ?? [];
+  // No named OCG layers means there is no reliable Artwork plate to isolate.
+  // The composite is the Final PDF page with all of its default-visible
+  // content; using base.png here drops artwork from flattened PDFs.
+  if (layers.length === 0) {
+    const compositePath = layerPreviewObjectPath(
+      preview.fileId,
+      preview.rev,
+      preview.page,
+      "composite"
+    );
+    return (await downloadBytes(admin, compositePath))
+      ? compositePath
+      : null;
+  }
+
   // Named plates: always rebuild from Artwork (not the green white-ink composite
   // that was previously saved as artwork.jpg).
   if (layers.length > 0) {

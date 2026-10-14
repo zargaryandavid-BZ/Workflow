@@ -12,6 +12,7 @@ type FinalArtworkIndex = {
   fileId: string;
   rev: string;
   pages: number[];
+  hasNamedLayers: boolean;
 };
 
 const previewKindCache = new Map<
@@ -22,6 +23,7 @@ const previewKindCache = new Map<
 async function usablePreviewKind(
   index: FinalArtworkIndex
 ): Promise<"artwork" | "composite"> {
+  if (!index.hasNamedLayers) return "composite";
   const key = `${index.fileId}/${index.rev}`;
   const cached = previewKindCache.get(key);
   if (cached) return cached;
@@ -67,6 +69,7 @@ async function loadFinalArtworkIndex(
       fileId?: unknown;
       rev?: unknown;
       pages?: unknown;
+      layers?: unknown;
     };
     if (
       typeof parsed.fileId !== "string" ||
@@ -86,7 +89,12 @@ async function loadFinalArtworkIndex(
       ),
     ].sort((a, b) => a - b);
     if (pages.length === 0) return null;
-    return { fileId: parsed.fileId, rev: parsed.rev, pages };
+    return {
+      fileId: parsed.fileId,
+      rev: parsed.rev,
+      pages,
+      hasNamedLayers: Array.isArray(parsed.layers) && parsed.layers.length > 0,
+    };
   } catch {
     return null;
   }
@@ -114,8 +122,9 @@ export async function loadFinalArtworkSummary(
   const { data } = await admin.storage
     .from(ORDER_ASSETS_BUCKET)
     .createSignedUrls(paths, 3600);
-  const artworkUrls = (data ?? [])
-    .map((row) => (row.error ? null : row.signedUrl))
-    .filter((url): url is string => Boolean(url));
+  const artworkUrls = paths.map((_, index) => {
+    const row = data?.[index];
+    return row && !row.error && row.signedUrl ? row.signedUrl : "";
+  });
   return { count: index.pages.length, artworkUrls };
 }
