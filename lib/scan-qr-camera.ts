@@ -1,6 +1,6 @@
 /**
- * Start a QR/barcode scanner on a video element, preferring the front (user)
- * camera for tablets. Falls back to the rear camera if the front is unavailable.
+ * Start a QR/barcode scanner on a video element with a requested camera.
+ * Falls back to the other camera if the requested camera is unavailable.
  */
 
 let beepCtx: AudioContext | null = null;
@@ -40,9 +40,12 @@ function playScanBeep() {
   }
 }
 
-export async function startFrontQrScanner(
+export type QrCameraFacing = "user" | "environment";
+
+export async function startQrScanner(
   video: HTMLVideoElement,
-  onCode: (code: string) => void
+  onCode: (code: string) => void,
+  preferredCamera: QrCameraFacing = "user"
 ): Promise<{ stop: () => void; destroy: () => void }> {
   ensureBeepCtx();
   const { default: QrScanner } = await import("qr-scanner");
@@ -60,14 +63,16 @@ export async function startFrontQrScanner(
       returnDetailedScanResult: true,
       highlightScanRegion: true,
       highlightCodeOutline: true,
-      preferredCamera: "user",
+      preferredCamera,
     }
   );
   try {
     await scanner.start();
   } catch {
     try {
-      await scanner.setCamera("environment");
+      await scanner.setCamera(
+        preferredCamera === "user" ? "environment" : "user"
+      );
     } catch {
       scanner.stop();
       scanner.destroy();
@@ -75,4 +80,12 @@ export async function startFrontQrScanner(
     }
   }
   return scanner;
+}
+
+/** Backwards-compatible front-camera entry point. */
+export async function startFrontQrScanner(
+  video: HTMLVideoElement,
+  onCode: (code: string) => void
+): Promise<{ stop: () => void; destroy: () => void }> {
+  return startQrScanner(video, onCode, "user");
 }

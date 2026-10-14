@@ -11,6 +11,7 @@ import {
   Package,
   PackageCheck,
   Plus,
+  SwitchCamera,
   Trash2,
   Truck,
   X,
@@ -975,6 +976,10 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<OrderResult | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraInline, setCameraInline] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<"user" | "environment">(
+    "user"
+  );
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null);
@@ -1027,11 +1032,22 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     }
   }
 
+  function openCamera() {
+    const inline =
+      isPhoneScan() || window.matchMedia("(max-width: 767px)").matches;
+    setCameraInline(inline);
+    setCameraOpen(true);
+  }
+
   // Listen for camera-open event (dispatched by nav or other callers)
   useEffect(() => {
     function onCamera(e: Event) {
       const open = (e as CustomEvent<{ open?: boolean }>).detail?.open;
-      setCameraOpen(open !== false);
+      if (open === false) {
+        setCameraOpen(false);
+      } else {
+        openCamera();
+      }
     }
     window.addEventListener(SCAN_CAMERA_EVENT, onCamera);
     return () => window.removeEventListener(SCAN_CAMERA_EVENT, onCamera);
@@ -1039,7 +1055,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
   // Auto-open camera on mobile when the page first loads
   useEffect(() => {
-    if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+    if (
+      isPhoneScan() ||
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      setCameraInline(true);
       setCameraOpen(true);
     }
   }, []);
@@ -1050,20 +1070,24 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     let destroyed = false;
     void (async () => {
       if (destroyed || !videoRef.current) return;
-      const { startFrontQrScanner } = await import("@/lib/scan-qr-camera");
+      const { startQrScanner } = await import("@/lib/scan-qr-camera");
       if (destroyed || !videoRef.current) return;
       let scanner: { stop: () => void; destroy: () => void } | null = null;
       try {
-        scanner = await startFrontQrScanner(videoRef.current, (code) => {
-          scanner?.stop();
-          scanner?.destroy();
-          scanner = null;
-          scannerRef.current = null;
-          setCameraOpen(false);
-          window.dispatchEvent(
-            new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } })
-          );
-        });
+        scanner = await startQrScanner(
+          videoRef.current,
+          (code) => {
+            scanner?.stop();
+            scanner?.destroy();
+            scanner = null;
+            scannerRef.current = null;
+            setCameraOpen(false);
+            window.dispatchEvent(
+              new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } })
+            );
+          },
+          cameraFacing
+        );
       } catch (err) {
         console.error("[scan-camera]", err);
         if (!destroyed) setCameraOpen(false);
@@ -1084,7 +1108,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         scannerRef.current = null;
       }
     };
-  }, [cameraOpen]);
+  }, [cameraOpen, cameraFacing]);
 
   const lookup = useCallback(async (q: string) => {
     const trimmed = q.trim();
@@ -1287,7 +1311,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         />
       ) : null}
 
-      {cameraOpen ? (
+      {cameraOpen && !cameraInline ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90">
           <video
             ref={videoRef}
@@ -1299,8 +1323,21 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             <div className="h-56 w-56 rounded-xl border-4 border-white/80 shadow-lg" />
           </div>
           <p className="absolute bottom-10 left-0 right-0 text-center text-sm font-medium text-white/70">
-            Point the front camera at a QR code
+            Point the {cameraFacing === "user" ? "front" : "back"} camera at a QR code
           </p>
+          <button
+            type="button"
+            onClick={() =>
+              setCameraFacing((current) =>
+                current === "user" ? "environment" : "user"
+              )
+            }
+            aria-label={`Use ${cameraFacing === "user" ? "back" : "front"} camera`}
+            className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-white/20 px-3 py-2 text-sm font-semibold text-white hover:bg-white/30"
+          >
+            <SwitchCamera className="h-5 w-5" />
+            {cameraFacing === "user" ? "Back camera" : "Front camera"}
+          </button>
           <button
             type="button"
             onClick={() => setCameraOpen(false)}
@@ -1469,14 +1506,52 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
 
           {!order && !loading && !lookupError && (
             <div className="order-2 flex flex-1 flex-col items-center justify-center text-slate-400">
-              <div className="flex flex-col items-center justify-center gap-3 py-16">
-                <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
-                  <rect x="8" y="8" width="8" height="8" rx="1" />
-                </svg>
-                <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
-                <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
-              </div>
+              {cameraOpen && cameraInline ? (
+                <div className="relative min-h-[15rem] w-full flex-1 overflow-hidden bg-black">
+                  <video
+                    ref={videoRef}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    playsInline
+                    muted
+                  />
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="h-36 w-36 rounded-xl border-4 border-white/80 shadow-lg" />
+                  </div>
+                  <p className="absolute bottom-3 left-0 right-0 text-center text-xs font-medium text-white/80">
+                    Point the {cameraFacing === "user" ? "front" : "back"} camera at a QR code
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCameraFacing((current) =>
+                        current === "user" ? "environment" : "user"
+                      )
+                    }
+                    aria-label={`Use ${cameraFacing === "user" ? "back" : "front"} camera`}
+                    className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-black/70"
+                  >
+                    <SwitchCamera className="h-4 w-4" />
+                    {cameraFacing === "user" ? "Back" : "Front"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCameraOpen(false)}
+                    aria-label="Close camera"
+                    className="absolute right-3 top-3 rounded-full bg-black/50 p-1.5 text-white hover:bg-black/70"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-3 py-16">
+                  <svg className="h-10 w-10 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+                    <rect x="8" y="8" width="8" height="8" rx="1" />
+                  </svg>
+                  <p className="text-[13px] md:text-[15px] font-medium text-slate-500">Scan or enter an order number</p>
+                  <p className="text-[12px] md:text-[14px]">Order details will appear here</p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1514,7 +1589,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                         setQuery("");
                         setActionResult(null);
                         setLookupError(null);
-                        setCameraOpen(true);
+                        openCamera();
                         window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
                       }}
                       className="absolute right-1.5 top-1.5 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
