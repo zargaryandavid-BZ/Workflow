@@ -13,6 +13,7 @@ import {
   shortDriveOrderCode,
 } from "@/lib/drive-folder-names";
 import { driveFolderUrlFromOrderSpecs } from "@/lib/webhook-line-folder";
+import { reorderOrderNumberVariants } from "@/lib/reorder-source";
 
 export function driveFolderUrlFromId(id: string): string {
   return `https://drive.google.com/drive/folders/${id}`;
@@ -44,6 +45,13 @@ export function orderFolderNeedles(order: {
       ? order.specs.webhook_item_title.trim()
       : "";
   if (itemTitle) push(itemTitle);
+  // Reorder cards reuse the ORIGINAL order's folders, whose Final production
+  // folder is named after the original number — match it too (reorders only).
+  const reorderOf =
+    order.specs.is_reorder === true && typeof order.specs.reorder_of === "string"
+      ? order.specs.reorder_of.trim()
+      : "";
+  for (const variant of reorderOrderNumberVariants(reorderOf)) push(variant);
   return [...new Set(out)];
 }
 

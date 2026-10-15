@@ -5,11 +5,15 @@ import {
   touchWebhookLastUsed,
 } from "@/lib/webhook-config";
 import { secretsMatch } from "@/lib/webhook-order";
+import { respondUrl } from "@/lib/notification-messages";
+import { boardExportDetails } from "@/lib/board-export-details";
+import type { ApprovalRow } from "@/lib/reorder-source";
 
 export const dynamic = "force-dynamic";
 
 const DEFAULT_LIMIT = 2000;
 const MAX_LIMIT = 5000;
+const APPROVAL_CHUNK = 200;
 
 type OrderRow = {
   id: string;
@@ -55,6 +59,11 @@ function readSecret(request: NextRequest): string | null {
  * Optional query:
  *   limit  — max rows (default 2000, max 5000)
  *   offset — pagination offset (default 0)
+ *
+ * Each order row also carries OPTIONAL detail fields (additive, may be null):
+ *   item_index, item_title, design_folder_url, production_notes,
+ *   approval_url + approval_status (newest non-expired customer approval round:
+ *   approved | rejected | pending), is_reorder, reorder_of.
  */
 export async function GET(request: NextRequest) {
   const secret = readSecret(request);
@@ -138,8 +147,43 @@ export async function GET(request: NextRequest) {
 
   void touchWebhookLastUsed(adminClient, webhookConfig.id);
 
+  // Optional per-card details (additive): newest non-expired customer approval
+  // round per card, read in chunks. A failure here never fails the export — the
+  // rows just carry null approval fields.
+  const approvalsByOrder = new Map<string, ApprovalRow[]>();
+  const orderIds = ((orders ?? []) as OrderRow[]).map((o) => o.id);
+  for (let i = 0; i < orderIds.length; i += APPROVAL_CHUNK) {
+    const chunk = orderIds.slice(i, i + APPROVAL_CHUNK);
+    try {
+      const { data: notes } = await adminClient
+        .from("job_notifications")
+        .select(
+          "order_id, token, status, customer_response, channel, token_expires_at, created_at"
+        )
+        .eq("tenant_id", tenantId)
+        .eq("type", "customer_approval")
+        .in("order_id", chunk)
+        .in("status", ["pending", "sent", "responded"]);
+      for (const n of (notes ?? []) as (ApprovalRow & { order_id: string })[]) {
+        const list = approvalsByOrder.get(n.order_id) ?? [];
+        list.push(n);
+        approvalsByOrder.set(n.order_id, list);
+      }
+    } catch (err) {
+      console.error(
+        "[export/board-columns] approval lookup failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   const rows = ((orders ?? []) as OrderRow[]).map((order) => {
     const col = columnById.get(order.column_id);
+    const details = boardExportDetails(
+      order.specs,
+      approvalsByOrder.get(order.id) ?? [],
+      respondUrl
+    );
     return {
       order_id: order.id,
       order_number: resolveOrderNumber(order),
@@ -150,6 +194,7 @@ export async function GET(request: NextRequest) {
       card_position: order.position,
       updated_at: order.updated_at,
       created_at: order.created_at,
+      ...details,
     };
   });
 

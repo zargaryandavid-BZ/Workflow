@@ -62,9 +62,22 @@ import {
   type OrderBillingInfo,
 } from "@/lib/order-billing";
 import {
+  applyReorderFinalArtworkLink,
   attachGdriveFoldersToOrders,
   linkExistingDriveFolderToOrder,
 } from "@/lib/order-gdrive";
+import {
+  buildReorderLinks,
+  cleanReorderRef,
+  reorderTargetItemIndex,
+  senderReorderLinks,
+  type ReorderSourceCard,
+  type ReorderSourceInfo,
+} from "@/lib/reorder-source";
+import {
+  loadReorderOriginalCards,
+  resolveReorderSourceForLine,
+} from "@/lib/reorder-source-lookup";
 import { resolveWebhookLineFolderUrl } from "@/lib/webhook-line-folder";
 import {
   cardPartNumber,
@@ -427,6 +440,17 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   is_rush?: boolean | string | number;
   rush_order?: boolean | string | number;
   rush_status?: boolean | string | number;
+  /**
+   * Reorder line → ORIGINAL line (0-based). Omitted = same position as this line.
+   * Lets a broker reorder only line 3 of an old order.
+   */
+  reorder_of_item_index?: number | string;
+  /** Original line's designer folder (sender-known; else Workflow looks it up). */
+  reorder_source_design_folder_url?: string;
+  /** Original line's Final production folder (approved print files). */
+  reorder_source_final_folder_url?: string;
+  /** Original line's customer approval page. */
+  reorder_source_approval_url?: string;
 }
 
 export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerInput {
@@ -471,6 +495,10 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
    * field is the explicit label and is stored for clarity.
    */
   reorder_mode?: string;
+  /** Order-level fallbacks of the per-line reorder source links (single-item senders). */
+  reorder_source_design_folder_url?: string;
+  reorder_source_final_folder_url?: string;
+  reorder_source_approval_url?: string;
   /** Extra board labels from Bazaar (e.g. ["Reorder","No proof needed"]). */
   tags?: string[];
   /** Portal-intake Admin order ref (`BZ-…`). Not the CRM `ORD-…` card title. */
@@ -3453,6 +3481,12 @@ interface CreateSingleJobParams {
   reorderTags?: string[];
   /** "exact" | "changed" — explicit reorder kind from Bazaar (additive on specs). */
   reorderMode?: string | null;
+  /**
+   * Original card's links for THIS reorder line (designer folder, Final production
+   * folder, approval page). Stamped as NEW keys `specs.reorder_source` +
+   * `specs.reorder_links`; read-only lookup of the original card.
+   */
+  reorderSource?: ReorderSourceInfo | null;
   /** CRM `customers.id` stamped on specs for matching. */
   crmCustomerId?: string | null;
   /** CRM order id stamped on the card + specs for re-sync. */
@@ -3610,6 +3644,7 @@ async function createSingleWebhookJob(
     cardColor = null,
     reorderTags = [],
     reorderMode = null,
+    reorderSource = null,
     crmCustomerId = null,
     crmOrderId = null,
     requestOwnerSpecs,
@@ -3912,6 +3947,13 @@ async function createSingleWebhookJob(
     // EXACT reorder wanted Prepress but this tenant has no identifiable Prepress
     // column — flag it so staff route it manually. We never guess the column.
     if (reorderPrepressMissing) specs.reorder_prepress_routing_failed = true;
+    // Original card's designer / Final production folders + approval page, so
+    // staff can refer back from the reorder card (owner rule 2026-10-14).
+    if (reorderSource) {
+      specs.reorder_source = reorderSource;
+      const links = buildReorderLinks(reorderSource);
+      if (links.length > 0) specs.reorder_links = links;
+    }
   }
   // Stable CRM line id → lets a later CRM edit re-sync to THIS exact card by id.
   {
@@ -4554,6 +4596,11 @@ export async function createOrderFromWebhook(
 
   // When appending portal lines on re-fire, treat as multi-item for titles.
   const createAsMultiItem = isMultiItem || startCreateIndex > 0;
+  // Reorder → original order lookups (read-only; cached across lines).
+  const reorderRefForLookup =
+    body.is_reorder === true ? cleanReorderRef(body.reorder_of_order_number) : "";
+  let reorderOriginalCards: ReorderSourceCard[] | null = null;
+  const reorderFinalLinks: { orderId: string; finalUrl: string }[] = [];
 
   for (let i = startCreateIndex; i < items.length; i++) {
     const rawItem = items[i];
@@ -4654,6 +4701,65 @@ export async function createOrderFromWebhook(
       ? null
       : resolveMisroutedDesignTaskText(designerInput);
 
+    // Design files folder the sender sent for this line (CRM Files / portal job folder).
+    let lineFolderUrl = resolveWebhookLineFolderUrl(
+      item as unknown as Record<string, unknown>,
+      body as unknown as Record<string, unknown>
+    );
+    // REORDER: find the ORIGINAL line's designer folder, Final production folder
+    // and approval page (read-only). When the sender sent no folder, the reorder
+    // card reuses the original's folder instead of getting a new empty one.
+    let reorderSource: ReorderSourceInfo | null = null;
+    if (reorderRefForLookup) {
+      try {
+        const itemRec = item as unknown as Record<string, unknown>;
+        const bodyRec = body as unknown as Record<string, unknown>;
+        const sender = senderReorderLinks(itemRec, bodyRec);
+        const targetIndex = reorderTargetItemIndex(itemRec, i);
+        if (reorderOriginalCards === null) {
+          reorderOriginalCards = await loadReorderOriginalCards(
+            client,
+            tenantId,
+            reorderRefForLookup,
+            baseOrderNumber
+          ).catch(() => []);
+        }
+        const looked = await resolveReorderSourceForLine(client, tenantId, {
+          reorderRef: reorderRefForLookup,
+          cards: reorderOriginalCards,
+          itemIndex: targetIndex,
+          itemTitle: jobTitle,
+        }).catch(() => null);
+        // Sender-supplied links win; the lookup fills whatever is missing.
+        const merged: ReorderSourceInfo = {
+          order_ref: reorderRefForLookup,
+          order_id: looked?.order_id ?? null,
+          title: looked?.title ?? null,
+          item_index: looked?.item_index ?? targetIndex,
+          design_folder_url: sender.design ?? looked?.design_folder_url ?? null,
+          final_folder_url: sender.final ?? looked?.final_folder_url ?? null,
+          approval_url: sender.approval ?? looked?.approval_url ?? null,
+          approval_status: looked?.approval_status ?? null,
+        };
+        if (
+          merged.order_id ||
+          merged.design_folder_url ||
+          merged.final_folder_url ||
+          merged.approval_url
+        ) {
+          reorderSource = merged;
+        }
+        if (!lineFolderUrl && merged.design_folder_url) {
+          lineFolderUrl = merged.design_folder_url;
+        }
+      } catch (err) {
+        console.error(
+          "[webhook/orders] reorder source lookup failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+
     const result = await createSingleWebhookJob({
       client,
       tenantId,
@@ -4677,6 +4783,7 @@ export async function createOrderFromWebhook(
       cardColor: typeof body.card_color === "string" ? body.card_color : null,
       reorderTags: Array.isArray(body.tags) ? body.tags : [],
       reorderMode: typeof body.reorder_mode === "string" ? body.reorder_mode : null,
+      reorderSource,
       item,
       priority,
       dueDate,
@@ -4694,10 +4801,7 @@ export async function createOrderFromWebhook(
       designerId,
       designerName,
       designNotes: resolveDesignNotes(designerInput),
-      designTaskUrl: resolveWebhookLineFolderUrl(
-        item as unknown as Record<string, unknown>,
-        body as unknown as Record<string, unknown>
-      ),
+      designTaskUrl: lineFolderUrl,
       misroutedDesignTask,
       internalNote: combinedAttention,
       orderProductionNotes: crmOrderProductionNote(body),
@@ -4731,6 +4835,12 @@ export async function createOrderFromWebhook(
       item_index: i,
       title: result.title,
     });
+    if (reorderSource?.final_folder_url) {
+      reorderFinalLinks.push({
+        orderId: result.orderId,
+        finalUrl: reorderSource.final_folder_url,
+      });
+    }
   }
 
   if (startCreateIndex > 0) {
@@ -4771,6 +4881,23 @@ export async function createOrderFromWebhook(
       const message = err instanceof Error ? err.message : String(err);
       console.error("[webhook/orders] gdrive error:", message);
       allWarnings.push(`Google Drive: ${message}`);
+    }
+  }
+
+  // REORDER: Artwork (Final production) = the ORIGINAL line's Final production
+  // folder — the approved print files go to production. Exact reorders always
+  // point there; changed reorders only when the new card has no Artwork link yet
+  // (staff will make a new proof). Runs after the Drive step so it is the final
+  // word on the NEW card only; the original card is never written.
+  for (const link of reorderFinalLinks) {
+    try {
+      await applyReorderFinalArtworkLink(client, tenantId, link.orderId, link.finalUrl, {
+        onlyIfEmpty: body.no_proof_needed !== true,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[webhook/orders] reorder final link failed:", message);
+      allWarnings.push(`Reorder final folder link: ${message}`);
     }
   }
 

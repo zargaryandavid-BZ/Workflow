@@ -33,6 +33,7 @@ import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { ConnectedSpecsSection } from "./connected-specs-section";
 import { DesignReferenceBlock, SourceChannelChip } from "./design-reference";
+import { ReorderLinksBlock } from "./reorder-links";
 import { isConnectedOrder } from "@/lib/connected-specs";
 import { NudgeButton } from "./nudge-button";
 import { ComboStockControl } from "./combo-stock-control";
@@ -2453,6 +2454,12 @@ export function CardDetailModal({
           {tab === "details" && data ? (
             <div className="mb-3">
               <DesignReferenceBlock specs={data.order.specs} />
+            </div>
+          ) : null}
+
+          {tab === "details" && data && data.order.specs?.is_reorder === true ? (
+            <div className="mb-3">
+              <ReorderLinksBlock specs={data.order.specs} />
             </div>
           ) : null}
 
