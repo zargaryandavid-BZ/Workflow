@@ -24,10 +24,11 @@ const card = (id: string, title: string, specs: Record<string, unknown>): Reorde
 describe("reorder → original order number spellings", () => {
   it("covers CRM, website and portal numbers", () => {
     assert.deepEqual(reorderOrderNumberVariants("ORD-2026-15108"), ["ORD-2026-15108", "15108"]);
-    assert.deepEqual(reorderOrderNumberVariants("211"), ["211", "W211"]);
-    assert.deepEqual(reorderOrderNumberVariants("W211"), ["W211", "211"]);
-    assert.deepEqual(reorderOrderNumberVariants("BZ-323"), ["BZ-323"]);
-    assert.deepEqual(reorderOrderNumberVariants(" #182 "), ["182", "W182"]);
+    assert.deepEqual(reorderOrderNumberVariants("211"), ["211", "W211", "BZ-211"]);
+    assert.deepEqual(reorderOrderNumberVariants("W211"), ["W211", "211", "BZ-211"]);
+    assert.deepEqual(reorderOrderNumberVariants("BZ-323"), ["BZ-323", "323", "W323"]);
+    assert.deepEqual(reorderOrderNumberVariants(" #182 "), ["182", "W182", "BZ-182"]);
+    assert.deepEqual(reorderOrderNumberVariants("TEST-MAP-RD-05"), ["TEST-MAP-RD-05"]);
     assert.deepEqual(reorderOrderNumberVariants(""), []);
     assert.equal(cleanReorderRef(null), "");
   });

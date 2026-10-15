@@ -77,9 +77,15 @@ export function reorderOrderNumberVariants(rawRef: unknown): string[] {
   const out = new Set<string>([ref]);
   const ord = /^ord-\d{4}-(.+)$/i.exec(ref);
   if (ord?.[1]) out.add(ord[1].trim());
-  const w = /^w(\d+)$/i.exec(ref);
-  if (w?.[1]) out.add(w[1]);
-  if (/^\d+$/.test(ref)) out.add(`W${ref}`);
+  // Bazaar order numbers: the same Bazaar order N reaches Workflow as "N"/"W N"
+  // (website lane) or "BZ-N" (portal Order Sync lane), so all three are one order.
+  const w = /^(?:w|bz-)(\d+)$/i.exec(ref);
+  const n = w?.[1] ?? (/^\d+$/.test(ref) ? ref : null);
+  if (n) {
+    out.add(n);
+    out.add(`W${n}`);
+    out.add(`BZ-${n}`);
+  }
   return [...out].filter(Boolean);
 }
 
