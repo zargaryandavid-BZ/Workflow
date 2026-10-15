@@ -67,6 +67,8 @@ interface Props {
   onClose: () => void;
   dismissing?: boolean;
   onSent: (toastMessage: string) => void;
+  /** Tell the board to show all parts in this column right after a group move. */
+  onMovedGroup?: () => void;
 }
 
 function emptyBox(): BoxDraft {
@@ -97,6 +99,7 @@ export function ReadyToShipPopup({
   onClose,
   dismissing = false,
   onSent,
+  onMovedGroup,
 }: Props) {
   const contact = useMemo(
     () => customerContactFromOrder(order, fieldValues, customFields),
@@ -186,6 +189,9 @@ export function ReadyToShipPopup({
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to move parts");
+      // Reflect the move on the board right away so the other line items jump
+      // into this column instead of looking stuck where they were.
+      onMovedGroup?.();
       await refreshCheck();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to move parts");
