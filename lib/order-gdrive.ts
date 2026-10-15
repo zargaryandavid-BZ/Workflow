@@ -147,6 +147,45 @@ async function upsertArtworkLink(
   }
 }
 
+/**
+ * REORDER cards only: point the NEW card's Artwork (Final production) link at the
+ * ORIGINAL order's Final production folder (owner rule 2026-10-14 — a reorder
+ * prints the approved files). Writes only the reorder card's own Artwork value;
+ * the original card is never touched. `onlyIfEmpty` keeps any Artwork link the
+ * new card already has (changed reorders).
+ */
+export async function applyReorderFinalArtworkLink(
+  client: Client,
+  tenantId: string,
+  orderId: string,
+  finalUrl: string,
+  opts: { onlyIfEmpty: boolean }
+): Promise<"written" | "kept"> {
+  const url = finalUrl.trim();
+  if (!url) return "kept";
+  if (opts.onlyIfEmpty) {
+    const { data: field } = await client
+      .from("custom_fields")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .ilike("name", ARTWORK_FIELD_NAME)
+      .maybeSingle();
+    const fieldId = (field as { id: string } | null)?.id;
+    if (fieldId) {
+      const { data: row } = await client
+        .from("custom_field_values")
+        .select("value")
+        .eq("order_id", orderId)
+        .eq("custom_field_id", fieldId)
+        .maybeSingle();
+      const existing = (row as { value?: unknown } | null)?.value;
+      if (typeof existing === "string" && existing.trim()) return "kept";
+    }
+  }
+  await upsertArtworkLink(client, tenantId, [orderId], url);
+  return "written";
+}
+
 export type AttachGdriveResult = {
   /** URL saved on Artwork (per link_target; often Final for Prod). */
   linkUrl: string;
