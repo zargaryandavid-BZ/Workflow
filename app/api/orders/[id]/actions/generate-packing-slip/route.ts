@@ -37,6 +37,14 @@ export async function POST(
     totalParts?: number;
     blind?: boolean;
     poNumber?: string;
+    /** Only include these SKU IDs in the packing slip (null = all). */
+    selectedSkuIds?: string[] | null;
+    /** Per-SKU quantity overrides (keyed by sku_id). */
+    copyQties?: Record<string, number>;
+    /** Print layout: multiple SKUs per page or one SKU per page. */
+    layout?: "multiple" | "one_per_slip";
+    /** Total number of boxes — printed in the BOX section of the slip. */
+    boxCount?: number | null;
   } = {};
   try {
     body = (await request.json()) as typeof body;
@@ -113,6 +121,10 @@ export async function POST(
       totalParts,
       blind: Boolean(body.blind),
       poNumber: poNumber || undefined,
+      selectedSkuIds: Array.isArray(body.selectedSkuIds) ? body.selectedSkuIds : undefined,
+      copyQties: body.copyQties && typeof body.copyQties === "object" ? body.copyQties : undefined,
+      layout: body.layout === "one_per_slip" ? "one_per_slip" : "multiple",
+      boxCount: typeof body.boxCount === "number" && body.boxCount > 0 ? Math.floor(body.boxCount) : undefined,
     });
     pdfBuffer = buffer;
   } catch (err) {

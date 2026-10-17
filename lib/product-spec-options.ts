@@ -386,39 +386,13 @@ export function webhookSpecRowsForJobTicket(
     typeof specs.cutting_type === "string" ? specs.cutting_type.trim() : "";
   if (cutting) push("Cutting", cutting);
 
-  const skipLeftover = new Set([
-    "skus",
-    "card_image",
-    "card_images",
-    "card_pdf_rev",
-    "spec_display",
-    "spec_selections",
-    "field_options",
-    "product_options",
-    "options",
-    "catalog_source",
-    "connected_specs",
-    "webhook_order_number",
-    "webhook_source",
-    "designer_id",
-    "designer_name",
-    "design_task",
-    "po_number",
-    "purchase_order",
-    "po",
-  ]);
-  for (const [key, raw] of Object.entries(specs)) {
-    const norm = key.replace(/[\s-]+/g, "_").toLowerCase();
-    if (skipLeftover.has(norm)) continue;
-    if (norm.startsWith("webhook_") || norm.endsWith("_id") || norm.endsWith("_url")) {
-      continue;
-    }
-    if (isHiddenFloorSpecKey(key)) continue;
-    if (raw && typeof raw === "object") continue;
-    const text = displayWebhookSpecValue(raw);
-    if (!text) continue;
-    push(sentenceCaseSpecLabel(key), text);
-  }
+  // Raw top-level specs keys (width, height, material, lamination, sku_qty…)
+  // are intentionally NOT dumped here. They duplicate information already
+  // present in spec_selections (above) and — more importantly — in the
+  // custom form fields the staff fill in on the card. The leftover dump was
+  // producing three versions of the same field in the job-ticket spec table.
+  // spec_display rows are still appended because they are explicitly prepared
+  // by the webhook for display and may carry information not in spec_selections.
 
   return appendUniqueSpecDisplayRows(rows, specs.spec_display);
 }

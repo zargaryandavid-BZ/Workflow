@@ -17,14 +17,13 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
   const { ctx } = auth;
 
-  const status = new URL(request.url).searchParams.get("status") ?? "open";
+  const searchParams = new URL(request.url).searchParams;
+  const status = searchParams.get("status") ?? "open";
   if (status !== "open" && status !== "saved") {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
   const supabase = await createClient();
-  const today = utcBoxDate();
-
   let query = supabase
     .from("multiitem_boxes")
     .select(
@@ -33,12 +32,10 @@ export async function GET(request: Request) {
     .eq("tenant_id", ctx.tenant.id)
     .eq("status", status)
     .order(status === "saved" ? "saved_at" : "created_at", {
-      ascending: false,
+      // Open boxes form a left-to-right working row, so newly created boxes
+      // must append on the right. Saved history remains newest-first.
+      ascending: status === "open",
     });
-
-  if (status === "open") {
-    query = query.eq("box_date", today);
-  }
 
   const { data, error } = await query;
   if (error) {
@@ -98,6 +95,7 @@ export async function GET(request: Request) {
 
   const boxes = rawBoxes.map((box) => ({
     ...box,
+    box_name: multiitemBoxNameFromIsoDate(box.box_number, box.box_date),
     multiitem_box_orders: [...(box.multiitem_box_orders ?? [])]
       .sort((a, b) => a.added_at.localeCompare(b.added_at))
       .map((row) => ({
@@ -138,56 +136,84 @@ export async function POST(request: Request) {
   const { ctx } = auth;
 
   const body = (await request.json().catch(() => ({}))) as {
+    box_date?: string;
     po_number?: string;
     size_label?: string;
     weight_lbs?: number | string | null;
   };
 
   const supabase = await createClient();
-  const boxDate = utcBoxDate();
-
-  const { data: latestBox, error: numberError } = await supabase
-    .from("multiitem_boxes")
-    .select("box_number")
-    .eq("tenant_id", ctx.tenant.id)
-    .eq("box_date", boxDate)
-    .order("box_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (numberError) {
-    return NextResponse.json({ error: numberError.message }, { status: 500 });
-  }
-
-  const boxNumber = Math.max(0, Number(latestBox?.box_number) || 0) + 1;
-  const boxName = multiitemBoxNameFromIsoDate(boxNumber, boxDate);
+  const boxDate =
+    typeof body.box_date === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(body.box_date)
+      ? body.box_date
+      : utcBoxDate();
   const weightRaw = body.weight_lbs;
   const weight =
     weightRaw == null || weightRaw === ""
       ? null
       : Number(weightRaw);
+  const insertRow = {
+    tenant_id: ctx.tenant.id,
+    box_date: boxDate,
+    po_number: body.po_number?.trim() || null,
+    size_label: body.size_label?.trim() || null,
+    weight_lbs: weight != null && Number.isFinite(weight) ? weight : null,
+    status: "open" as const,
+    created_by: ctx.userId,
+  };
+  const selectCols =
+    "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at";
 
-  const { data, error } = await supabase
-    .from("multiitem_boxes")
-    .insert({
-      tenant_id: ctx.tenant.id,
-      box_name: boxName,
-      box_number: boxNumber,
-      box_date: boxDate,
-      po_number: body.po_number?.trim() || null,
-      size_label: body.size_label?.trim() || null,
-      weight_lbs:
-        weight != null && Number.isFinite(weight) ? weight : null,
-      status: "open",
-      created_by: ctx.userId,
-    })
-    .select(
-      "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at"
-    )
-    .single();
+  async function nextBoxNumber(): Promise<number | { error: string }> {
+    const { data: rows, error } = await supabase
+      .from("multiitem_boxes")
+      .select("box_number")
+      .eq("tenant_id", ctx.tenant.id);
+    if (error) return { error: error.message };
+    const max = (rows ?? []).reduce(
+      (n, row) => Math.max(n, Number(row.box_number) || 0),
+      0
+    );
+    return max + 1;
+  }
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  let data: Record<string, unknown> | null = null;
+  let lastError: { code?: string; message: string } | null = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const next = await nextBoxNumber();
+    if (typeof next !== "number") {
+      return NextResponse.json({ error: next.error }, { status: 500 });
+    }
+    const boxNumber = next;
+    const inserted = await supabase
+      .from("multiitem_boxes")
+      .insert({
+        ...insertRow,
+        box_name: multiitemBoxNameFromIsoDate(boxNumber, boxDate),
+        box_number: boxNumber,
+      })
+      .select(selectCols)
+      .single();
+    if (!inserted.error && inserted.data) {
+      data = inserted.data;
+      lastError = null;
+      break;
+    }
+    lastError = inserted.error;
+    if (inserted.error?.code !== "23505") {
+      return NextResponse.json(
+        { error: inserted.error.message },
+        { status: 500 }
+      );
+    }
+  }
+
+  if (!data || lastError) {
+    return NextResponse.json(
+      { error: lastError?.message ?? "Failed to create box" },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json(

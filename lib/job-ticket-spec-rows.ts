@@ -88,20 +88,19 @@ export function buildJobTicketSpecRows(args: {
   }
   for (const field of visibleFields) appendField(field);
 
-  // Keep fields with the same label when their values differ (the cardboard
-  // can show both a catalog selection and a custom-field value).
-  const exactRows = new Set(
-    rows.map(
-      (row) =>
-        `${row.label.trim().toLowerCase()}\u0000${row.value.trim().toLowerCase()}`
-    )
-  );
+  // Suppress any webhook row whose normalized label is already covered by a
+  // custom field — regardless of value. "Material" is suppressed when
+  // "Materials" is already there; "Size" is suppressed when "Width"+"Height"
+  // are. This prevents the webhook's spec_selections (and spec_display) from
+  // duplicating information the staff already filled in on the card.
+  function normLabel(label: string): string {
+    return label.replace(/[\s-]+/g, " ").trim().toLowerCase();
+  }
+  const usedLabels = new Set(rows.map((r) => normLabel(r.label)));
   for (const row of webhookSpecRowsForJobTicket(specs)) {
-    const exact = `${row.label.trim().toLowerCase()}\u0000${row.value
-      .trim()
-      .toLowerCase()}`;
-    if (exactRows.has(exact)) continue;
-    exactRows.add(exact);
+    const key = normLabel(row.label);
+    if (usedLabels.has(key)) continue;
+    usedLabels.add(key);
     rows.push(row);
   }
 

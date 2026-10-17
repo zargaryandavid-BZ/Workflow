@@ -11,8 +11,9 @@ const PAGE_W = 420;   // A5 width in points
 const PAGE_H = 595;   // A5 height in points
 const MARGIN = 28;
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const HEADER_H = 100;
-const QR_SIZE = 44;
+const BASE_HEADER_H = 116;
+const PACKAGING_BANNER_H = 24;
+const QR_SIZE = 64;
 
 export type MultiitemBoxSlipItem = {
   orderTitle: string;
@@ -30,6 +31,12 @@ export type MultiitemBoxSlipInput = {
   poNumber: string | null;
   sizeLabel: string | null;
   weightLbs: number | null;
+  shipmentBoxNumber?: number | null;
+  shipmentBoxCount?: number | null;
+  palletNumber?: number | null;
+  palletCount?: number | null;
+  palletBoxNumber?: number | null;
+  palletBoxCount?: number | null;
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -76,6 +83,20 @@ function fmtDateTime(d: Date): string {
   });
 }
 
+function fitSingleLineFont(
+  doc: PdfDoc,
+  text: string,
+  font: string,
+  maxWidth: number,
+  preferredSize: number,
+  minimumSize: number
+): number {
+  doc.font(font).fontSize(preferredSize);
+  const measured = doc.widthOfString(text);
+  if (!Number.isFinite(measured) || measured <= maxWidth) return preferredSize;
+  return Math.max(minimumSize, preferredSize * (maxWidth / measured));
+}
+
 export async function generateMultiitemBoxSlipPdf(
   input: MultiitemBoxSlipInput
 ): Promise<Buffer> {
@@ -87,20 +108,36 @@ export async function generateMultiitemBoxSlipPdf(
   const sw = sizeWeightLine(input.sizeLabel, input.weightLbs);
   const dateStr = fmtDate(input.printedAt);
   const totalQty = input.items.reduce((s, r) => s + r.quantity, 0);
-  const tableItems = input.items.flatMap((item) =>
+  const packagingLabel = [
+    input.palletNumber && input.palletCount
+      ? `PALLET ${input.palletNumber} OF ${input.palletCount}`
+      : "",
+    input.palletBoxNumber && input.palletBoxCount
+      ? `BOX ${input.palletBoxNumber} OF ${input.palletBoxCount} ON PALLET`
+      : "",
+    input.shipmentBoxNumber && input.shipmentBoxCount
+      ? `SHIPMENT BOX ${input.shipmentBoxNumber} OF ${input.shipmentBoxCount}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
+  const tableItems = input.items.flatMap((item, itemIndex) =>
     item.skuLines?.length
       ? item.skuLines.map((line) => ({
+          itemIndex,
           orderTitle: `${item.orderTitle} · ${line.label}`,
           itemTitle: item.itemTitle,
           quantity: line.quantity,
         }))
-      : [item]
+      : [{ ...item, itemIndex }]
   );
   const qrPng = await orderNumberQrPng(boxName);
 
-  // Pre-generate per-item QR codes in parallel
+  // One QR per order. It is repeated only if that order continues on a new page.
   const itemQrPngs = await Promise.all(
-    tableItems.map((item) => orderNumberQrPng(item.orderTitle).catch(() => null))
+    input.items.map((item) =>
+      orderNumberQrPng(item.orderTitle).catch(() => null)
+    )
   );
 
   const doc = new PDFDocument({
@@ -121,18 +158,20 @@ export async function generateMultiitemBoxSlipPdf(
   const QR_ITEM_SIZE = 22;   // per-item QR size in points
   const rowsPerPage = 11;    // fewer rows per page to accommodate taller rows
   const pages = Math.max(1, Math.ceil(tableItems.length / rowsPerPage) || 1);
+  const headerHeight =
+    BASE_HEADER_H + (packagingLabel ? PACKAGING_BANNER_H : 0);
 
   for (let pageNum = 0; pageNum < pages; pageNum++) {
     doc.addPage();
-    drawHeader(doc, boxName, po, sw, customer, customerEmail, customerPhone, totalQty, input.printedAt, qrPng, pageNum + 1, pages);
+    drawHeader(doc, boxName, po, sw, customer, customerEmail, customerPhone, totalQty, input.printedAt, qrPng, pageNum + 1, pages, packagingLabel, headerHeight);
 
-    let y = HEADER_H + 14;
+    let y = headerHeight + 14;
 
     // Column positions — QR | Order # | Item | Qty
     const colQrX = MARGIN + 2;
     const colQrW = QR_ITEM_SIZE + 4;
     const colOrder = colQrX + colQrW + 4;
-    const colOrderW = 64;
+    const colOrderW = 82;
     const colItem = colOrder + colOrderW + 6;
     const colQtyW = 44;
     const colQty = MARGIN + CONTENT_W - colQtyW;
@@ -159,27 +198,50 @@ export async function generateMultiitemBoxSlipPdf(
       if (i % 2 === 1) {
         doc.rect(MARGIN, y - 2, CONTENT_W, ROW_H).fill("#f8f9fb");
       }
-      // Per-item QR code
-      const itemQr = itemQrPngs[globalIdx];
-      if (itemQr) {
+      // Draw once for this order on each page where it appears.
+      const startsOrderOnPage =
+        i === 0 ||
+        tableItems[globalIdx - 1]?.itemIndex !== item.itemIndex;
+      const itemQr = itemQrPngs[item.itemIndex];
+      if (startsOrderOnPage && itemQr) {
         const qrY = y + (ROW_H - QR_ITEM_SIZE) / 2 - 2;
         doc.image(itemQr, colQrX, qrY, { width: QR_ITEM_SIZE, height: QR_ITEM_SIZE });
       }
+      const orderText = pdfWinAnsiText(item.orderTitle) || "—";
+      const orderFontSize = fitSingleLineFont(
+        doc,
+        orderText,
+        "Helvetica-Bold",
+        colOrderW,
+        9,
+        6.5
+      );
       doc
         .fillColor("#111827")
         .font("Helvetica-Bold")
-        .fontSize(9)
-        .text(pdfWinAnsiText(item.orderTitle) || "—", colOrder, y + (ROW_H - 9) / 2 - 2, {
+        .fontSize(orderFontSize)
+        .text(orderText, colOrder, y + (ROW_H - orderFontSize) / 2 - 2, {
           width: colOrderW,
+          height: orderFontSize + 2,
           lineBreak: false,
           ellipsis: true,
         });
+      const itemText = pdfWinAnsiText(item.itemTitle) || "—";
+      const itemFontSize = fitSingleLineFont(
+        doc,
+        itemText,
+        "Helvetica",
+        colItemW,
+        9,
+        7
+      );
       doc
         .font("Helvetica")
         .fillColor("#4b5563")
-        .fontSize(9)
-        .text(pdfWinAnsiText(item.itemTitle) || "—", colItem, y + (ROW_H - 9) / 2 - 2, {
+        .fontSize(itemFontSize)
+        .text(itemText, colItem, y + (ROW_H - itemFontSize) / 2 - 2, {
           width: colItemW,
+          height: itemFontSize + 2,
           lineBreak: false,
           ellipsis: true,
         });
@@ -221,7 +283,9 @@ function drawHeader(
   printedAt: Date,
   qrPng: Buffer | null,
   pageNum: number,
-  totalPages: number
+  totalPages: number,
+  packagingLabel: string,
+  headerHeight: number
 ) {
   const qrSize = qrPng ? QR_SIZE : 0;
   const labelText = `MULTI-ITEM BOX SLIP  ·  ${fmtDateTime(printedAt)}`;
@@ -229,48 +293,108 @@ function drawHeader(
   const leftX = MARGIN;
   const midX = MARGIN + colW;
   const qrX = PAGE_W - MARGIN - qrSize;
-  const topY = 8;
+  const topY = packagingLabel ? PACKAGING_BANNER_H + 8 : 8;
 
-  doc.rect(0, 0, PAGE_W, HEADER_H).fill("#ffffff");
+  doc.rect(0, 0, PAGE_W, headerHeight).fill("#ffffff");
+  if (packagingLabel) {
+    const packagingFontSize = fitSingleLineFont(
+      doc,
+      packagingLabel,
+      "Helvetica-Bold",
+      PAGE_W - 20,
+      12,
+      8
+    );
+    doc.rect(0, 0, PAGE_W, PACKAGING_BANNER_H).fill("#111827");
+    doc
+      .fillColor("#ffffff")
+      .font("Helvetica-Bold")
+      .fontSize(packagingFontSize)
+      .text(packagingLabel, 10, (PACKAGING_BANNER_H - packagingFontSize) / 2 - 1, {
+        width: PAGE_W - 20,
+        height: packagingFontSize + 2,
+        lineBreak: false,
+        align: "center",
+      });
+  }
   doc
-    .moveTo(0, HEADER_H)
-    .lineTo(PAGE_W, HEADER_H)
+    .moveTo(0, headerHeight)
+    .lineTo(PAGE_W, headerHeight)
     .strokeColor("#1a1f2e")
     .lineWidth(2.5)
     .stroke();
 
-  // — Full-width label spanning both text columns —
-  const labelW = PAGE_W - MARGIN * 2 - (qrPng ? qrSize + 12 : 0);
+  // — Label constrained to left column so it doesn't overlap the customer name —
   doc
     .fillColor("#9aa4b5")
     .fontSize(7)
     .font("Helvetica")
     .text(labelText + (totalPages > 1 ? `  (${pageNum}/${totalPages})` : ""), leftX, topY, {
-      width: labelW,
+      width: colW - 6,
       lineBreak: false,
     });
 
+  const boxNameFontSize = fitSingleLineFont(
+    doc,
+    boxName,
+    "Helvetica-Bold",
+    colW - 6,
+    16,
+    10
+  );
   doc
     .fillColor("#1a1f2e")
-    .fontSize(16)
+    .fontSize(boxNameFontSize)
     .font("Helvetica-Bold")
-    .text(boxName, leftX, topY + 13, { width: colW - 4, lineBreak: false });
+    .text(boxName, leftX, topY + 13, {
+      width: colW - 6,
+      height: boxNameFontSize + 2,
+      lineBreak: false,
+      ellipsis: true,
+    });
 
   let leftY = topY + 33;
   if (po) {
+    const poText = `PO: ${po}`;
+    const poFontSize = fitSingleLineFont(
+      doc,
+      poText,
+      "Helvetica",
+      colW - 6,
+      9,
+      7
+    );
     doc
       .fillColor("#4b5563")
-      .fontSize(9)
+      .fontSize(poFontSize)
       .font("Helvetica")
-      .text(`PO: ${po}`, leftX, leftY, { width: colW - 4, lineBreak: false });
+      .text(poText, leftX, leftY, {
+        width: colW - 6,
+        height: poFontSize + 2,
+        lineBreak: false,
+        ellipsis: true,
+      });
     leftY += 13;
   }
   if (sizeWeight) {
+    const sizeWeightFontSize = fitSingleLineFont(
+      doc,
+      sizeWeight,
+      "Helvetica-Bold",
+      colW - 6,
+      9,
+      7
+    );
     doc
       .fillColor("#1a1f2e")
-      .fontSize(9)
+      .fontSize(sizeWeightFontSize)
       .font("Helvetica-Bold")
-      .text(sizeWeight, leftX, leftY, { width: colW - 4, lineBreak: false });
+      .text(sizeWeight, leftX, leftY, {
+        width: colW - 6,
+        height: sizeWeightFontSize + 2,
+        lineBreak: false,
+        ellipsis: true,
+      });
     leftY += 13;
   }
   if (totalQty > 0) {
@@ -285,37 +409,72 @@ function drawHeader(
   }
 
   // — Center column: customer name, email, phone —
-  doc
-    .fillColor("#9aa4b5")
-    .fontSize(7)
-    .font("Helvetica")
-    .text("CUSTOMER", midX, topY, { width: colW - 8, lineBreak: false });
+  const customerText = customer || "—";
+  const customerFontSize = fitSingleLineFont(
+    doc,
+    customerText,
+    "Helvetica-Bold",
+    colW - 8,
+    13,
+    9
+  );
   doc
     .fillColor("#1a1f2e")
-    .fontSize(13)
+    .fontSize(customerFontSize)
     .font("Helvetica-Bold")
-    .text(customer || "—", midX, topY + 13, { width: colW - 8, lineBreak: false });
+    .text(customerText, midX, topY, {
+      width: colW - 8,
+      height: customerFontSize + 2,
+      lineBreak: false,
+      ellipsis: true,
+    });
 
-  let custY = topY + 31;
+  let custY = topY + 18;
   if (customerEmail) {
+    const emailFontSize = fitSingleLineFont(
+      doc,
+      customerEmail,
+      "Helvetica",
+      colW - 8,
+      8,
+      6
+    );
     doc
       .fillColor("#4b5563")
-      .fontSize(8)
+      .fontSize(emailFontSize)
       .font("Helvetica")
-      .text(customerEmail, midX, custY, { width: colW - 8, lineBreak: false });
+      .text(customerEmail, midX, custY, {
+        width: colW - 8,
+        height: emailFontSize + 2,
+        lineBreak: false,
+        ellipsis: true,
+      });
     custY += 12;
   }
   if (customerPhone) {
+    const phoneFontSize = fitSingleLineFont(
+      doc,
+      customerPhone,
+      "Helvetica",
+      colW - 8,
+      8,
+      6
+    );
     doc
       .fillColor("#4b5563")
-      .fontSize(8)
+      .fontSize(phoneFontSize)
       .font("Helvetica")
-      .text(customerPhone, midX, custY, { width: colW - 8, lineBreak: false });
+      .text(customerPhone, midX, custY, {
+        width: colW - 8,
+        height: phoneFontSize + 2,
+        lineBreak: false,
+        ellipsis: true,
+      });
   }
 
   // — QR code —
   if (qrPng) {
-    const qrY = (HEADER_H - qrSize) / 2;
+    const qrY = topY + 18;
     doc.save();
     doc
       .rect(qrX - 2, qrY - 2, qrSize + 4, qrSize + 4)

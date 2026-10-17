@@ -253,7 +253,8 @@ function drawTopInfoRow(
   doc: PdfDoc,
   data: OrderExportData,
   blind: boolean,
-  startY: number
+  startY: number,
+  boxCount?: number
 ): number {
   const bodyTop = startY;
   const pad = 8;
@@ -281,15 +282,18 @@ function drawTopInfoRow(
     !blind && salesRep ? `Sales Rep: ${salesRep}` : "",
   ].filter(Boolean);
 
+  const skuCount = data.skus.length;
+
   const colCount = blind ? 3 : 4;
   const colW = CONTENT_W / colCount;
   const colXs = Array.from({ length: colCount }, (_, i) => MARGIN + colW * i);
 
+  // 4 order-detail rows: Due Date / Priority / SKUs / QTY
   const tallestBlock = blind
-    ? Math.max(customerBlock.length, 3)
-    : Math.max(companyLines.length, customerBlock.length, 3);
+    ? Math.max(customerBlock.length, 4)
+    : Math.max(companyLines.length, customerBlock.length, 4);
 
-  const bodyH = Math.max(52, pad * 2 + tallestBlock * lineH);
+  const bodyH = Math.max(64, pad * 2 + tallestBlock * lineH);
 
   doc
     .rect(MARGIN, bodyTop, CONTENT_W, bodyH)
@@ -340,10 +344,18 @@ function drawTopInfoRow(
   );
   drawLabeledValue(
     doc,
-    "QTY",
-    fmtQty(data.totalQty),
+    "SKUs",
+    String(skuCount),
     detailX,
     textTop + rowH * 2,
+    textW
+  );
+  drawLabeledValue(
+    doc,
+    "Total Items",
+    fmtQty(data.totalQty),
+    detailX,
+    textTop + rowH * 3,
     textW
   );
 
@@ -373,6 +385,18 @@ function drawTopInfoRow(
       align: "center",
     });
   drawUnderline(doc, boxStartX + underlineW + gap, boxLineY, underlineW);
+
+  // Pre-fill the total box count when provided by the user.
+  if (boxCount != null && boxCount > 0) {
+    doc
+      .fontSize(10)
+      .font("Helvetica-Bold")
+      .fillColor("#111827")
+      .text(String(boxCount), boxStartX + underlineW + gap, boxLineY - 10, {
+        width: underlineW,
+        align: "center",
+      });
+  }
 
   doc.fillColor("#000000").font("Helvetica");
   return bodyTop + bodyH;
@@ -557,7 +581,14 @@ function drawItemsGrid(
   slipPageIndex: number,
   pdfArtBySku: Map<string, PackingSlipPdfArt>
 ): PackingSlipArtSlot[] {
-  let y = drawSectionBar(doc, startY, "ITEMS");
+  const totalSkus = data.skus.length;
+  const totalItems = data.totalQty;
+  const skuLabel = totalSkus === 1 ? "1 SKU" : `${totalSkus} SKUs`;
+  const qtyLabel = totalItems != null ? `${totalItems.toLocaleString("en-US")} items` : "";
+  const sectionLabel = qtyLabel
+    ? `ITEMS  ·  ${skuLabel}  ·  ${qtyLabel}`
+    : `ITEMS  ·  ${skuLabel}`;
+  let y = drawSectionBar(doc, startY, sectionLabel);
   y += 6;
   const slots: PackingSlipArtSlot[] = [];
 
@@ -629,6 +660,10 @@ export async function generatePackingSlipPdf(
     blind?: boolean;
     poNumber?: string;
     pdfArt?: PackingSlipPdfArt[];
+    /** When true, each SKU gets its own slip page (SKU_PER_PAGE = 1). */
+    oneSkuPerSlip?: boolean;
+    /** Pre-filled total box count for the BOX section. */
+    boxCount?: number;
   }
 ): Promise<{ buffer: Buffer; artSlots: PackingSlipArtSlot[] }> {
   const blind = Boolean(opts.blind);
@@ -644,13 +679,14 @@ export async function generatePackingSlipPdf(
     (opts.pdfArt ?? []).map((a) => [a.skuId, a] as const)
   );
 
+  const skusPerPage = opts.oneSkuPerSlip ? 1 : SKU_PER_PAGE;
   const skus = data.skuRows ?? [];
   const pages: OrderExportSkuRow[][] = [];
   if (skus.length === 0) {
     pages.push([]);
   } else {
-    for (let i = 0; i < skus.length; i += SKU_PER_PAGE) {
-      pages.push(skus.slice(i, i + SKU_PER_PAGE));
+    for (let i = 0; i < skus.length; i += skusPerPage) {
+      pages.push(skus.slice(i, i + skusPerPage));
     }
   }
 
@@ -692,7 +728,7 @@ export async function generatePackingSlipPdf(
       doc.addPage();
       drawPageHeader(doc, orderLabel, pageNum + 1, pages.length, qrPng);
       drawHRule(doc, HEADER_H, "#1a1f2e");
-      const afterTop = drawTopInfoRow(doc, data, blind, HEADER_H + 8);
+      const afterTop = drawTopInfoRow(doc, data, blind, HEADER_H + 8, opts.boxCount);
       artSlots.push(
         ...drawItemsGrid(
           doc,

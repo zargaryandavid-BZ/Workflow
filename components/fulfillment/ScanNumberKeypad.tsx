@@ -35,12 +35,14 @@ export function ScanNumberKeypad({
   onBackspace,
   onSubmit,
   onClose,
+  extraKeys = [],
 }: {
   value: string;
   onInsert: (ch: string) => void;
   onBackspace: () => void;
   onSubmit: () => void;
   onClose: () => void;
+  extraKeys?: string[];
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8">
@@ -93,6 +95,29 @@ export function ScanNumberKeypad({
               ))}
             </div>
           ))}
+          {extraKeys.length > 0 ? (
+            <div
+              className="grid gap-2 md:gap-2.5"
+              style={{
+                gridTemplateColumns: `repeat(${Math.min(
+                  extraKeys.length,
+                  3
+                )}, minmax(0, 1fr))`,
+              }}
+            >
+              {extraKeys.slice(0, 3).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => onInsert(key)}
+                  className={keyClass}
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="grid grid-cols-3 gap-2 md:gap-2.5">
             <button
               type="button"

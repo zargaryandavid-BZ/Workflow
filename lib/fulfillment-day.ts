@@ -42,8 +42,8 @@ export function ddmmyy(value: Date | string): string {
 
 /**
  * Build a Multi-item box name.
- * Format: BX{N}{MMDDYY} where N = daily counter (1, 2, 3…)
- * Example: BX1092926 = box 1 on Sep 29, 2026
+ * Format: BZ BOX {N} · MM/DD/YY where N = daily counter (1, 2, 3…)
+ * Example: BZ BOX 1 · 09/29/26
  */
 export function multiitemBoxName(
   boxNumber: number,
@@ -52,7 +52,7 @@ export function multiitemBoxName(
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   const yy = String(date.getFullYear()).slice(-2);
-  return `BX${boxNumber}${mm}${dd}${yy}`;
+  return `BZ BOX ${boxNumber} · ${mm}/${dd}/${yy}`;
 }
 
 /** UTC calendar date `YYYY-MM-DD` for multi-item box daily counters. */
@@ -68,7 +68,7 @@ export function multiitemBoxNameFromIsoDate(
   const year = Number(y);
   const month = Number(m);
   const day = Number(d);
-  if (!year || !month || !day) return `BX${boxNumber}`;
+  if (!year || !month || !day) return `BZ BOX ${boxNumber}`;
   return multiitemBoxName(boxNumber, new Date(year, month - 1, day));
 }
 

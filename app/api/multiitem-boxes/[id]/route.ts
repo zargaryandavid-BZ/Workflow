@@ -40,6 +40,9 @@ export async function PATCH(
   if (body.status === "saved") {
     patch.status = "saved";
     patch.saved_at = new Date().toISOString();
+  } else if (body.status === "open") {
+    patch.status = "open";
+    patch.saved_at = null;
   }
   if (body.customer_order_id !== undefined) {
     const orderId = body.customer_order_id.trim();

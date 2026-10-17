@@ -15,9 +15,15 @@ import {
 } from "./fulfillment-day.ts";
 
 describe("multiitemBoxName", () => {
-  it("is BX + daily number + MMDDYY", () => {
-    assert.equal(multiitemBoxName(1, new Date(2026, 8, 29)), "BX1092926");
-    assert.equal(multiitemBoxNameFromIsoDate(2, "2026-09-29"), "BX2092926");
+  it("uses the BZ BOX number and readable date", () => {
+    assert.equal(
+      multiitemBoxName(1, new Date(2026, 8, 29)),
+      "BZ BOX 1 · 09/29/26"
+    );
+    assert.equal(
+      multiitemBoxNameFromIsoDate(2, "2026-09-29"),
+      "BZ BOX 2 · 09/29/26"
+    );
   });
 });
 

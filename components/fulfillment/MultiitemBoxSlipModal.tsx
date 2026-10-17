@@ -1,14 +1,41 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { CopyPlus, Package, Printer, Trash2, X } from "lucide-react";
+import {
+  CopyPlus,
+  GripVertical,
+  Loader2,
+  Minus,
+  Package,
+  PackagePlus,
+  Plus,
+  Printer,
+  Trash2,
+  X,
+} from "lucide-react";
 import QRCode from "qrcode";
+import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import { cn } from "@/lib/utils";
 import { formatShortOrderNumber } from "@/lib/order-number-tokens";
 import {
+  buildBoxSlipAssignments,
+  buildBoxSlipAssignmentsFromPallets,
+  distributeBoxIdsAcrossPallets,
+  partitionBoxesForSlip,
+} from "@/lib/multiitem-box-print";
+import {
   boxesForSavedMultiitemDay,
+  localDayKey,
   localDayLabel,
   savedMultiitemDayKeys,
 } from "@/lib/fulfillment-day";
@@ -50,10 +77,6 @@ const SIZE_PRESETS = [
 
 const CUSTOM_SIZE = "__custom__";
 
-const chipOn =
-  "rounded-md px-3 py-2 text-sm font-medium bg-slate-900 text-white";
-const chipOff =
-  "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50";
 const dateTab =
   "-mb-px border-b-2 px-1 pb-2 pt-1 text-sm font-medium transition-colors";
 const dateTabOn = `${dateTab} border-slate-900 text-slate-900`;
@@ -108,6 +131,14 @@ interface ScanSkuPreview {
   query: string;
   lines: (MultiitemBoxSkuLine & { checked: boolean })[];
 }
+
+interface BoxDragPayload {
+  fromBoxId: string;
+  orderId: string;
+  skuPage?: number;
+}
+
+const BOX_DRAG_TYPE = "application/x-workflow-box-item";
 
 function skuLinesForScan(
   countRaw: number | null | undefined,
@@ -164,6 +195,16 @@ function formatCustomSize(l: string, w: string, h: string): string {
   return `${a}×${b}×${c} in`;
 }
 
+function boxCreationDateLabel(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value || "—";
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function BoxArtworkThumb({
   orderId,
   url,
@@ -217,12 +258,25 @@ function compactSizeLabel(sizeLabel: string): string {
     .replace(/\s+/g, "");
 }
 
+const WEIGHT_STEP_LBS = 1;
+const WEIGHT_MAX_LBS = 9999.99;
+
+function bumpWeightLbs(current: string, delta: number): string {
+  const parsed = Number.parseFloat(current.trim());
+  const base = Number.isFinite(parsed) ? parsed : 0;
+  const next = Math.min(
+    WEIGHT_MAX_LBS,
+    Math.max(0, Math.round((base + delta) * 100) / 100)
+  );
+  return Number.isInteger(next) ? String(next) : next.toFixed(2);
+}
+
 function sizeWeightLine(sizeLabel: string, weightLbs: string): string {
   const parts: string[] = [];
   const size = compactSizeLabel(sizeLabel);
-  if (size) parts.push(`S:${size}`);
+  if (size) parts.push(`Size: ${size}`);
   const w = weightLbs.trim();
-  if (w) parts.push(`W:${w}lb`);
+  if (w) parts.push(`Weight: ${w} lbs`);
   return parts.join(" ");
 }
 
@@ -259,29 +313,57 @@ function HistoryBoxCard({
   box,
   onPrint,
   onRemove,
+  onSelect,
+  selectedForPrint,
+  onTogglePrintSelection,
+  onDragItem,
+  onChooseMove,
 }: {
   box: BoxState;
   onPrint: (boxId: string) => void;
   onRemove: (boxId: string) => void;
+  onSelect?: (boxId: string) => void;
+  selectedForPrint?: boolean;
+  onTogglePrintSelection?: (boxId: string) => void;
+  onDragItem?: (
+    event: DragEvent<HTMLElement>,
+    payload: BoxDragPayload
+  ) => void;
+  onChooseMove?: (payload: BoxDragPayload) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   return (
-    <article className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-slate-300 bg-white">
+    <article
+      className={`flex h-full min-w-0 flex-col overflow-hidden rounded-lg border bg-white ${
+        selectedForPrint
+          ? "border-blue-500 ring-2 ring-blue-100"
+          : "border-slate-300"
+      }`}
+    >
       <div className="border-b border-slate-200 p-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              Box
-            </p>
+          <div className="flex min-w-0 gap-2">
+            {onTogglePrintSelection ? (
+              <input
+                type="checkbox"
+                checked={Boolean(selectedForPrint)}
+                onChange={() => onTogglePrintSelection(box.id)}
+                aria-label={`Select ${box.name} for printing`}
+                className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+            ) : null}
+            <div className="min-w-0">
             <p className="truncate text-base font-semibold text-slate-900">
               {box.name}
             </p>
             <p className="truncate text-xs text-slate-500">
-              PO: {box.poNumber || "—"}
+              PO Number: {box.poNumber || "—"}
             </p>
             <p className="truncate text-xs font-medium text-slate-700">
-              {sizeWeightLine(box.sizeLabel, box.weightLbs) || "No size/weight"}
+              {sizeWeightLine(box.sizeLabel, box.weightLbs) ||
+                "No size/weight"}
             </p>
+            </div>
           </div>
           <BoxQrImage
             boxName={box.name}
@@ -305,27 +387,37 @@ function HistoryBoxCard({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {onSelect ? (
+            <button
+              type="button"
+              onClick={() => onSelect(box.id)}
+              className="inline-flex min-h-10 items-center rounded-lg px-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 hover:text-blue-900"
+            >
+              Edit
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => onPrint(box.id)}
-            className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            title="Print box"
+            aria-label={`Print ${box.name}`}
           >
-            <Printer className="h-3.5 w-3.5" />
-            Print
+            <Printer className="h-4 w-4" />
           </button>
           {confirming ? (
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => onRemove(box.id)}
-                className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-red-700"
+                className="min-h-10 rounded-lg bg-red-600 px-3 text-sm font-semibold text-white hover:bg-red-700"
               >
                 Remove
               </button>
               <button
                 type="button"
                 onClick={() => setConfirming(false)}
-                className="rounded px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100"
+                className="min-h-10 rounded-lg px-3 text-sm text-slate-600 hover:bg-slate-100"
               >
                 Cancel
               </button>
@@ -334,18 +426,18 @@ function HistoryBoxCard({
             <button
               type="button"
               onClick={() => setConfirming(true)}
-              className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700"
+              title="Remove box"
               aria-label={`Remove box ${box.name}`}
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              Remove
+              <Trash2 className="h-4 w-4" />
             </button>
           )}
         </div>
       </div>
 
       <div className="min-h-0 px-3 py-1">
-        <div className="grid grid-cols-[2rem_5.5rem_2.5rem_minmax(0,1fr)_auto] gap-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <div className="grid grid-cols-[3.5rem_5.5rem_2.5rem_minmax(0,1fr)_auto] gap-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
           <span />
           <span>Order</span>
           <span>Art</span>
@@ -355,39 +447,97 @@ function HistoryBoxCard({
         {box.items.map((item) => (
           <div
             key={item.id}
-            className="grid grid-cols-[2rem_5.5rem_2.5rem_minmax(0,1fr)_auto] items-center gap-2 border-t border-slate-100 py-1.5 text-xs"
+            className="border-t border-slate-100 py-1.5 text-xs"
           >
-            <ItemQrCode value={item.orderTitle} size={32} />
-            <span className="truncate font-mono font-medium">
-              {formatShortOrderNumber(item.orderTitle)}
-            </span>
-            <BoxArtworkThumb
-              orderId={item.orderId}
-              url={item.thumbnailUrl}
-              size={40}
-              orderNumber={formatShortOrderNumber(item.orderTitle)}
-            />
-            <span className="min-w-0">
-              <span className="block truncate font-medium text-slate-800">
-                {item.itemTitle || item.orderTitle || "—"}
+            <div className="grid grid-cols-[3.5rem_5.5rem_2.5rem_minmax(0,1fr)_auto] items-start gap-2">
+              <ItemQrCode value={item.orderTitle} size={56} />
+              <span className="flex min-w-0 items-center gap-0.5">
+                {onDragItem ? (
+                  <span
+                    draggable
+                    onDragStart={(event) =>
+                      onDragItem(event, {
+                        fromBoxId: box.id,
+                        orderId: item.orderId,
+                      })
+                    }
+                    onClick={() =>
+                      onChooseMove?.({
+                        fromBoxId: box.id,
+                        orderId: item.orderId,
+                      })
+                    }
+                    className="inline-flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing"
+                    title="Move order to another box"
+                    aria-label="Move order to another box"
+                  >
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </span>
+                ) : null}
+                <span className="truncate font-mono font-medium">
+                  {formatShortOrderNumber(item.orderTitle)}
+                </span>
               </span>
-              {item.customerName ? (
-                <span className="block truncate text-[10px] text-slate-500">
-                  {item.customerName}
+              <BoxArtworkThumb
+                orderId={item.orderId}
+                url={item.thumbnailUrl}
+                size={40}
+                orderNumber={formatShortOrderNumber(item.orderTitle)}
+              />
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-slate-800">
+                  {item.itemTitle || item.orderTitle || "—"}
                 </span>
-              ) : null}
-              {item.skuLines.length > 0 ? (
-                <span className="block truncate text-[10px] text-slate-500">
-                  {item.skuLines
-                    .map(
-                      (line) =>
-                        `${line.label} QTY ${line.quantity.toLocaleString()}`
-                    )
-                    .join(" · ")}
-                </span>
-              ) : null}
-            </span>
-            <span className="tabular-nums">{item.quantity}</span>
+                {item.customerName ? (
+                  <span className="block truncate text-[10px] text-slate-500">
+                    {item.customerName}
+                  </span>
+                ) : null}
+              </span>
+              <span className="tabular-nums">{item.quantity}</span>
+            </div>
+            {item.skuLines.length > 0 ? (
+              <div className="mt-1 grid grid-cols-1 gap-1 text-[11px] text-slate-600">
+                {item.skuLines.map((line) => (
+                  <div
+                    key={line.page}
+                    draggable={Boolean(onDragItem)}
+                    onDragStart={(event) =>
+                      onDragItem?.(event, {
+                        fromBoxId: box.id,
+                        orderId: item.orderId,
+                        skuPage: line.page,
+                      })
+                    }
+                    onClick={() =>
+                      onChooseMove?.({
+                        fromBoxId: box.id,
+                        orderId: item.orderId,
+                        skuPage: line.page,
+                      })
+                    }
+                    className={cn(
+                      "flex min-h-10 items-center gap-2 rounded bg-slate-50 px-3",
+                      onDragItem &&
+                        "cursor-grab hover:bg-slate-100 active:cursor-grabbing"
+                    )}
+                    title={
+                      onDragItem
+                        ? `Drag ${line.label} to another box`
+                        : undefined
+                    }
+                  >
+                    {onDragItem ? (
+                      <GripVertical className="h-4 w-4 shrink-0" />
+                    ) : null}
+                    <span className="font-medium">{line.label}</span>
+                    <span className="ml-auto tabular-nums">
+                      QTY {line.quantity.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -447,8 +597,36 @@ export function MultiitemBoxSlipModal({
   );
   const [scanPreviewLoading, setScanPreviewLoading] = useState(false);
   const [zeroError, setZeroError] = useState(false);
+  const [headerActionsEl, setHeaderActionsEl] = useState<HTMLElement | null>(
+    null
+  );
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [printBusy, setPrintBusy] = useState(false);
+  const [printWarning, setPrintWarning] = useState<{
+    emptyNames: string[];
+    printableIds: string[];
+    saveAfterPrint: boolean;
+  } | null>(null);
+  const [selectedPrintBoxIds, setSelectedPrintBoxIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [printSetup, setPrintSetup] = useState<{
+    boxIds: string[];
+    saveAfterPrint: boolean;
+    usePallets: boolean;
+    palletCount: string;
+    palletBoxIds: string[][];
+  } | null>(null);
+  const [draggedPalletBoxId, setDraggedPalletBoxId] = useState<string | null>(
+    null
+  );
+  const [dragOverPalletIndex, setDragOverPalletIndex] = useState<number | null>(
+    null
+  );
+  const [dragOverBoxId, setDragOverBoxId] = useState<string | null>(null);
+  const [movePicker, setMovePicker] = useState<BoxDragPayload | null>(null);
+  const [scanKeypadOpen, setScanKeypadOpen] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -471,11 +649,60 @@ export function MultiitemBoxSlipModal({
     () => boxesForSavedMultiitemDay(boxes, selectedSavedDay),
     [boxes, selectedSavedDay]
   );
+  const selectedPrintBoxes = useMemo(
+    () => viewBoxes.filter((box) => selectedPrintBoxIds.has(box.id)),
+    [selectedPrintBoxIds, viewBoxes]
+  );
+  const printSetupBoxes = useMemo(
+    () =>
+      printSetup
+        ? printSetup.boxIds
+            .map((id) => boxes.find((box) => box.id === id))
+            .filter((box): box is BoxState => Boolean(box))
+        : [],
+    [boxes, printSetup]
+  );
+  const configuredPalletCount = printSetup?.usePallets
+    ? Math.max(
+        1,
+        Math.min(
+          printSetupBoxes.length,
+          Number.parseInt(printSetup.palletCount, 10) || 1
+        )
+      )
+    : null;
+  const palletPreview = useMemo(() => {
+    if (!configuredPalletCount || printSetupBoxes.length === 0) return [];
+    const boxById = new Map(printSetupBoxes.map((box) => [box.id, box]));
+    return printSetup!.palletBoxIds.map((boxIds, index) => ({
+      palletNumber: index + 1,
+      boxes: boxIds
+        .map((boxId) => boxById.get(boxId))
+        .filter((box): box is BoxState => Boolean(box)),
+    }));
+  }, [configuredPalletCount, printSetup, printSetupBoxes]);
   const active = viewBoxes.find((b) => b.id === activeId) ?? viewBoxes[0] ?? null;
+  const activeIndex = active
+    ? viewBoxes.findIndex((box) => box.id === active.id)
+    : -1;
   const viewingHistory = Boolean(selectedSavedDay);
   const readOnly = viewingHistory || active?.status === "saved";
   const sizeValue = active ? sizeSelectValue(active) : "";
   const isCustom = Boolean(active?.sizeCustom) || sizeValue === CUSTOM_SIZE;
+
+  useEffect(() => {
+    setSelectedPrintBoxIds(new Set());
+  }, [selectedSavedDay]);
+
+  useEffect(() => {
+    if (!open) {
+      setHeaderActionsEl(null);
+      return;
+    }
+    setHeaderActionsEl(
+      document.getElementById("multiitem-box-header-actions")
+    );
+  }, [open]);
 
   useEffect(() => {
     let cancelled = false;
@@ -632,8 +859,14 @@ export function MultiitemBoxSlipModal({
       setLoadError("");
       setBusy(true);
       try {
+        const boxDate = localDayKey(new Date());
         const [openRes, savedRes] = await Promise.all([
-          fetch("/api/multiitem-boxes?status=open", { cache: "no-store" }),
+          fetch(
+            `/api/multiitem-boxes?status=open&box_date=${encodeURIComponent(
+              boxDate
+            )}`,
+            { cache: "no-store" }
+          ),
           fetch("/api/multiitem-boxes?status=saved", { cache: "no-store" }),
         ]);
         const openJson = (await openRes.json()) as {
@@ -648,23 +881,8 @@ export function MultiitemBoxSlipModal({
         if (!savedRes.ok) {
           throw new Error(savedJson.error ?? "Failed to load saved boxes");
         }
-        let openList = (openJson.boxes ?? []).map(boxFromApi);
+        const openList = (openJson.boxes ?? []).map(boxFromApi);
         const savedList = (savedJson.boxes ?? []).map(boxFromApi);
-        if (openList.length === 0) {
-          const createdRes = await fetch("/api/multiitem-boxes", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-          });
-          const createdJson = (await createdRes.json()) as {
-            box?: MultiitemBoxRow;
-            error?: string;
-          };
-          if (!createdRes.ok || !createdJson.box) {
-            throw new Error(createdJson.error ?? "Failed to create box");
-          }
-          openList = [boxFromApi(createdJson.box)];
-        }
         if (cancelled) return;
         const list = [...openList, ...savedList];
         setBoxes(list);
@@ -704,6 +922,7 @@ export function MultiitemBoxSlipModal({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        box_date: localDayKey(new Date()),
         po_number: fields.poNumber?.trim() || undefined,
         size_label: fields.sizeLabel?.trim() || undefined,
         weight_lbs: fields.weightLbs?.trim() || undefined,
@@ -760,6 +979,38 @@ export function MultiitemBoxSlipModal({
     }
   }
 
+  async function reopenSavedBox(boxId: string) {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/multiitem-boxes/${boxId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "open" }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!res.ok) {
+        showHint("error", json.error ?? "Could not edit saved box", 2200);
+        return;
+      }
+      setBoxes((current) =>
+        current.map((box) =>
+          box.id === boxId
+            ? { ...box, status: "open", savedAt: null }
+            : box
+        )
+      );
+      setSelectedSavedDay(null);
+      setActiveId(boxId);
+      setPending(null);
+      setConfirmRemove(false);
+      focusScan();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function confirmAndRemoveBox(boxId?: string) {
     const id = boxId ?? active?.id;
     if (!id) return;
@@ -781,7 +1032,12 @@ export function MultiitemBoxSlipModal({
       setScan("");
 
       const [openRes, savedRes] = await Promise.all([
-        fetch("/api/multiitem-boxes?status=open", { cache: "no-store" }),
+        fetch(
+          `/api/multiitem-boxes?status=open&box_date=${encodeURIComponent(
+            localDayKey(new Date())
+          )}`,
+          { cache: "no-store" }
+        ),
         fetch("/api/multiitem-boxes?status=saved", { cache: "no-store" }),
       ]);
       const [openJson, savedJson] = (await Promise.all([
@@ -853,13 +1109,13 @@ export function MultiitemBoxSlipModal({
     });
   }
 
-  async function addOrderToActive(args: {
+  async function addOrderToBox(box: BoxState, args: {
     orderId: string;
     query?: string;
     skuLines?: MultiitemBoxSkuLine[];
   }) {
-    if (!active || active.status === "saved") return;
-    const res = await fetch(`/api/multiitem-boxes/${active.id}/orders`, {
+    if (box.status === "saved") return;
+    const res = await fetch(`/api/multiitem-boxes/${box.id}/orders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -905,11 +1161,11 @@ export function MultiitemBoxSlipModal({
         : [],
       thumbnailUrl: json.order.thumbnail_url ?? null,
     };
-    patchBoxLocal(active.id, {
-      items: [...active.items, item],
-      customer: active.customer || item.customerName || active.customer,
-      customerEmail: active.customerEmail || item.customerEmail || null,
-      customerPhone: active.customerPhone || item.customerPhone || null,
+    patchBoxLocal(box.id, {
+      items: [...box.items, item],
+      customer: box.customer || item.customerName || box.customer,
+      customerEmail: box.customerEmail || item.customerEmail || null,
+      customerPhone: box.customerPhone || item.customerPhone || null,
     });
     setZeroError(false);
     replaceNextScan.current = false;
@@ -930,7 +1186,8 @@ export function MultiitemBoxSlipModal({
 
   async function handleScanSubmit() {
     const q = scan.trim();
-    if (!q || !active || active.status === "saved") return;
+    if (!q || active?.status === "saved") return;
+    let targetBox = active;
     const matchingPreview =
       scanSkuPreview?.query === q ? scanSkuPreview : null;
     const selectedSkuLines = matchingPreview?.lines
@@ -945,7 +1202,8 @@ export function MultiitemBoxSlipModal({
       return;
     }
     if (pending && pending.query === q) {
-      await addOrderToActive({
+      if (!targetBox) return;
+      await addOrderToBox(targetBox, {
         orderId: pending.orderId,
         query: pending.query,
         skuLines: selectedSkuLines ?? pending.skuLines,
@@ -953,7 +1211,11 @@ export function MultiitemBoxSlipModal({
       return;
     }
     replaceNextScan.current = true;
-    if (active.items.some((it) => it.orderTitle === q || it.orderId === q)) {
+    if (
+      targetBox?.items.some(
+        (it) => it.orderTitle === q || it.orderId === q
+      )
+    ) {
       showHint("amber", "Already in this box", 1400);
       return;
     }
@@ -984,7 +1246,7 @@ export function MultiitemBoxSlipModal({
       showHint("error", json.error ?? "Lookup failed", 1800);
       return;
     }
-    if (active.items.some((it) => it.orderId === json.id)) {
+    if (targetBox?.items.some((it) => it.orderId === json.id)) {
       showHint("amber", "Already in this box", 1400);
       replaceNextScan.current = true;
       focusScan();
@@ -998,10 +1260,30 @@ export function MultiitemBoxSlipModal({
         json.qty_per_sku
       ).map(({ checked: _checked, ...line }) => line);
     const customerName = json.customer?.name?.trim() || "";
+    if (!targetBox) {
+      setBusy(true);
+      try {
+        const created = await createBox();
+        if (!created) return;
+        setBoxes((current) => [...current, created]);
+        setSelectedSavedDay(null);
+        setActiveId(created.id);
+        targetBox = created;
+      } catch (err) {
+        showHint(
+          "error",
+          err instanceof Error ? err.message : "Failed to create box",
+          2200
+        );
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
     if (
-      active.customer &&
+      targetBox.customer &&
       customerName &&
-      customerName.toLowerCase() !== active.customer.toLowerCase()
+      customerName.toLowerCase() !== targetBox.customer.toLowerCase()
     ) {
       setPending({
         query: q,
@@ -1012,7 +1294,7 @@ export function MultiitemBoxSlipModal({
       });
       return;
     }
-    await addOrderToActive({
+    await addOrderToBox(targetBox, {
       orderId: json.id,
       query: q,
       skuLines: lookupSkuLines.length > 0 ? lookupSkuLines : undefined,
@@ -1113,20 +1395,414 @@ export function MultiitemBoxSlipModal({
     await saveSkuLines(item.orderId, next, item.skuLines);
   }
 
-  async function printSlip(boxId: string | undefined = active?.id) {
-    if (!boxId) return;
-    const res = await fetch(`/api/multiitem-boxes/${boxId}/slip-pdf`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      showHint("error", json.error ?? "PDF failed", 1800);
+  function beginBoxItemDrag(
+    event: DragEvent<HTMLElement>,
+    payload: BoxDragPayload
+  ) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(BOX_DRAG_TYPE, JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", payload.orderId);
+    event.currentTarget.addEventListener(
+      "dragend",
+      () => setDragOverBoxId(null),
+      { once: true }
+    );
+  }
+
+  async function dropBoxItem(
+    event: DragEvent<HTMLElement>,
+    toBoxId: string
+  ) {
+    event.preventDefault();
+    setDragOverBoxId(null);
+    const raw = event.dataTransfer.getData(BOX_DRAG_TYPE);
+    if (!raw) return;
+
+    let payload: BoxDragPayload;
+    try {
+      payload = JSON.parse(raw) as BoxDragPayload;
+    } catch {
       return;
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    await moveBoxItem(payload, toBoxId);
+  }
+
+  async function moveBoxItem(
+    payload: BoxDragPayload,
+    toBoxId: string
+  ) {
+    setMovePicker(null);
+    if (
+      !payload.fromBoxId ||
+      !payload.orderId ||
+      payload.fromBoxId === toBoxId
+    ) {
+      return;
+    }
+
+    const sourceBox = boxes.find((box) => box.id === payload.fromBoxId);
+    const sourceItem = sourceBox?.items.find(
+      (item) => item.orderId === payload.orderId
+    );
+    if (!sourceBox || !sourceItem) return;
+
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/multiitem-boxes/${payload.fromBoxId}/orders/${payload.orderId}/move`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to_box_id: toBoxId,
+            ...(payload.skuPage != null
+              ? { sku_page: payload.skuPage }
+              : {}),
+          }),
+        }
+      );
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        showHint("error", json.error ?? "Move failed", 2200);
+        return;
+      }
+
+      const movedLine =
+        payload.skuPage == null
+          ? null
+          : sourceItem.skuLines.find(
+              (line) => line.page === payload.skuPage
+            ) ?? null;
+      const localItemId = `${sourceItem.id}:${toBoxId}`;
+      setBoxes((current) =>
+        current.map((box) => {
+          if (box.id === payload.fromBoxId) {
+            if (!movedLine) {
+              return {
+                ...box,
+                items: box.items.filter(
+                  (item) => item.orderId !== payload.orderId
+                ),
+              };
+            }
+            const items = box.items.flatMap((item) => {
+              if (item.orderId !== payload.orderId) return [item];
+              const skuLines = item.skuLines.filter(
+                (line) => line.page !== movedLine.page
+              );
+              if (skuLines.length === 0) return [];
+              return [
+                {
+                  ...item,
+                  skuLines,
+                  quantity: skuLines.reduce(
+                    (sum, line) => sum + line.quantity,
+                    0
+                  ),
+                },
+              ];
+            });
+            return { ...box, items };
+          }
+
+          if (box.id === toBoxId) {
+            if (!movedLine) {
+              return {
+                ...box,
+                customer: box.customer || sourceBox.customer,
+                customerEmail:
+                  box.customerEmail || sourceBox.customerEmail,
+                customerPhone:
+                  box.customerPhone || sourceBox.customerPhone,
+                items: [...box.items, { ...sourceItem, id: localItemId }],
+              };
+            }
+            const existing = box.items.find(
+              (item) => item.orderId === payload.orderId
+            );
+            if (existing) {
+              return {
+                ...box,
+                items: box.items.map((item) => {
+                  if (item.orderId !== payload.orderId) return item;
+                  const skuLines = [...item.skuLines, movedLine].sort(
+                    (a, b) => a.page - b.page
+                  );
+                  return {
+                    ...item,
+                    skuLines,
+                    quantity: skuLines.reduce(
+                      (sum, line) => sum + line.quantity,
+                      0
+                    ),
+                  };
+                }),
+              };
+            }
+            return {
+              ...box,
+              customer: box.customer || sourceBox.customer,
+              customerEmail: box.customerEmail || sourceBox.customerEmail,
+              customerPhone: box.customerPhone || sourceBox.customerPhone,
+              items: [
+                ...box.items,
+                {
+                  ...sourceItem,
+                  id: localItemId,
+                  quantity: movedLine.quantity,
+                  skuLines: [movedLine],
+                },
+              ],
+            };
+          }
+          return box;
+        })
+      );
+      setActiveId(toBoxId);
+      showHint(
+        "amber",
+        movedLine ? `${movedLine.label} moved` : "Order moved",
+        1400
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePrintedBoxes(boxesToSave: BoxState[]) {
+    const savedAt = new Date().toISOString();
+    await Promise.all(
+      boxesToSave.map(async (box) => {
+        const res = await fetch(`/api/multiitem-boxes/${box.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            po_number: box.poNumber,
+            size_label: box.sizeCustom
+              ? formatCustomSize(box.sizeL, box.sizeW, box.sizeH) || null
+              : box.sizeLabel || null,
+            weight_lbs: box.weightLbs,
+            status: "saved",
+          }),
+        });
+        if (!res.ok) {
+          const json = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(json.error ?? `Failed to save ${box.name}`);
+        }
+      })
+    );
+
+    const savedIds = new Set(boxesToSave.map((box) => box.id));
+    setBoxes((prev) =>
+      prev.map((box) =>
+        savedIds.has(box.id)
+          ? { ...box, status: "saved" as const, savedAt }
+          : box
+      )
+    );
+
+    const remainingOpen = boxes.filter(
+      (box) => box.status === "open" && !savedIds.has(box.id)
+    );
+    if (remainingOpen.length > 0) {
+      setActiveId(remainingOpen[0]!.id);
+    } else {
+      const created = await createBox();
+      if (created) {
+        setBoxes((prev) => [...prev, created]);
+        setActiveId(created.id);
+      }
+    }
+    setSelectedSavedDay(null);
+    setPending(null);
+    setScan("");
+    focusScan();
+  }
+
+  async function generateBoxSlips(
+    boxesToPrint: BoxState[],
+    options?: {
+      saveAfterPrint?: boolean;
+      palletCount?: number | null;
+      palletBoxIds?: string[][];
+      includeNumbering?: boolean;
+    }
+  ) {
+    if (boxesToPrint.length === 0 || printBusy) return;
+    setPrintBusy(true);
+    try {
+      const assignments = options?.includeNumbering
+        ? new Map(
+            (options.palletBoxIds
+              ? buildBoxSlipAssignmentsFromPallets(options.palletBoxIds)
+              : buildBoxSlipAssignments(
+                  boxesToPrint.map((box) => box.id),
+                  options.palletCount ?? null
+                )
+            ).map((assignment) => [assignment.boxId, assignment])
+          )
+        : new Map();
+      const pdfBytes = await Promise.all(
+        boxesToPrint.map(async (box) => {
+          const assignment = assignments.get(box.id);
+          const res = await fetch(`/api/multiitem-boxes/${box.id}/slip-pdf`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(assignment ?? {}),
+          });
+          if (!res.ok) {
+            const json = (await res.json().catch(() => ({}))) as {
+              error?: string;
+            };
+            throw new Error(json.error ?? `PDF failed for ${box.name}`);
+          }
+          return new Uint8Array(await res.arrayBuffer());
+        })
+      );
+
+      let output: Uint8Array;
+      if (pdfBytes.length === 1) {
+        output = pdfBytes[0]!;
+      } else {
+        const { PDFDocument } = await import("pdf-lib");
+        const merged = await PDFDocument.create();
+        for (const bytes of pdfBytes) {
+          const source = await PDFDocument.load(bytes);
+          const pages = await merged.copyPages(
+            source,
+            source.getPageIndices()
+          );
+          for (const page of pages) merged.addPage(page);
+        }
+        output = await merged.save();
+      }
+
+      const blob = new Blob([new Uint8Array(output)], {
+        type: "application/pdf",
+      });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+      if (options?.saveAfterPrint) {
+        await savePrintedBoxes(boxesToPrint);
+        showHint(
+          "amber",
+          `${boxesToPrint.length} ${boxesToPrint.length === 1 ? "box" : "boxes"} printed and saved`,
+          1800
+        );
+      }
+    } catch (err) {
+      showHint(
+        "error",
+        err instanceof Error ? err.message : "PDF failed",
+        2200
+      );
+    } finally {
+      setPrintBusy(false);
+    }
+  }
+
+  function prepareBoxSlipPrint(
+    boxesToPrint: BoxState[],
+    saveAfterPrint: boolean
+  ) {
+    if (boxesToPrint.length > 1) {
+      setPrintSetup({
+        boxIds: boxesToPrint.map((box) => box.id),
+        saveAfterPrint,
+        usePallets: false,
+        palletCount: "1",
+        palletBoxIds: [boxesToPrint.map((box) => box.id)],
+      });
+      return;
+    }
+    void generateBoxSlips(boxesToPrint, { saveAfterPrint });
+  }
+
+  function changePalletCount(change: number) {
+    setPrintSetup((current) => {
+      if (!current) return current;
+      const count = Math.max(
+        1,
+        Math.min(
+          current.boxIds.length,
+          (Number.parseInt(current.palletCount, 10) || 1) + change
+        )
+      );
+      return {
+        ...current,
+        usePallets: true,
+        palletCount: String(count),
+        palletBoxIds: distributeBoxIdsAcrossPallets(current.boxIds, count),
+      };
+    });
+    setDraggedPalletBoxId(null);
+    setDragOverPalletIndex(null);
+  }
+
+  function moveBoxToPallet(boxId: string, targetPalletIndex: number) {
+    setPrintSetup((current) => {
+      if (!current) return current;
+      const sourcePalletIndex = current.palletBoxIds.findIndex((group) =>
+        group.includes(boxId)
+      );
+      if (
+        sourcePalletIndex < 0 ||
+        sourcePalletIndex === targetPalletIndex ||
+        current.palletBoxIds[sourcePalletIndex]!.length <= 1
+      ) {
+        return current;
+      }
+      const palletBoxIds = current.palletBoxIds.map((group) =>
+        group.filter((id) => id !== boxId)
+      );
+      palletBoxIds[targetPalletIndex] = [
+        ...palletBoxIds[targetPalletIndex]!,
+        boxId,
+      ];
+      return { ...current, palletBoxIds };
+    });
+    setDraggedPalletBoxId(null);
+    setDragOverPalletIndex(null);
+  }
+
+  function requestBoxSlipPrint(
+    requested: BoxState[],
+    saveAfterPrint: boolean
+  ) {
+    if (printBusy) return;
+    const { printable, empty } = partitionBoxesForSlip(requested);
+
+    if (printable.length === 0) {
+      showHint(
+        "error",
+        empty.length === 1
+          ? `${empty[0]!.name} is empty. Add an order before printing.`
+          : "All boxes are empty. Add an order before printing.",
+        2400
+      );
+      return;
+    }
+
+    if (empty.length > 0) {
+      setPrintWarning({
+        emptyNames: empty.map((box) => box.name),
+        printableIds: printable.map((box) => box.id),
+        saveAfterPrint,
+      });
+      return;
+    }
+
+    prepareBoxSlipPrint(printable, saveAfterPrint);
+  }
+
+  function printSlip(boxId?: string) {
+    requestBoxSlipPrint(
+      boxId ? boxes.filter((box) => box.id === boxId) : viewBoxes,
+      !boxId
+    );
   }
 
   async function saveAndClose() {
@@ -1166,8 +1842,427 @@ export function MultiitemBoxSlipModal({
 
   if (!open) return null;
 
+  const scanHeaderControls = !readOnly ? (
+    <div className="flex min-w-0 items-center gap-2 pl-3">
+      <form
+        className="flex min-w-0 flex-1 gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleScanSubmit();
+        }}
+      >
+        <input
+          ref={scanRef}
+          autoFocus
+          value={scan}
+          onChange={(e) => applyScanField(e.target.value)}
+          onClick={() => setScanKeypadOpen(true)}
+          inputMode="none"
+          autoComplete="off"
+          placeholder="Scan or type order #"
+          className={cn(
+            "h-[52px] min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-4 text-base text-slate-900 focus:border-[#1a1f2e] focus:outline-none focus:ring-2 focus:ring-[#1a1f2e]/20",
+            shake && "animate-scan-shake border-red-500"
+          )}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            setScanKeypadOpen(false);
+            setCameraOpen((v) => !v);
+          }}
+          title={cameraOpen ? "Close camera" : "Open camera"}
+          aria-label={cameraOpen ? "Close camera" : "Scan with camera"}
+          className={cn(
+            "inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-xl border text-slate-500",
+            cameraOpen
+              ? "border-slate-900 bg-slate-900 text-white"
+              : "border-slate-300 bg-white hover:bg-slate-50 hover:text-slate-800"
+          )}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="13" r="4" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            replaceNextScan.current = false;
+            setPending(null);
+            setScan("");
+            scanRef.current?.focus();
+          }}
+          disabled={!scan && !pending}
+          title="Clear"
+          aria-label="Clear scan text"
+          className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-30"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <button
+          type="submit"
+          className={cn(btnPrimary, "h-[52px] shrink-0 px-5 text-base")}
+        >
+          Add
+        </button>
+      </form>
+    </div>
+  ) : null;
+
+  const renderInactiveBox = (box: BoxState) => (
+    <div
+      key={box.id}
+      className={cn(
+        "relative cursor-pointer rounded-lg transition",
+        dragOverBoxId === box.id && "ring-2 ring-blue-500 ring-offset-2"
+      )}
+      onClick={(event) => {
+        const target = event.target as HTMLElement;
+        if (
+          target.closest(
+            "button, input, select, a, [draggable='true']"
+          )
+        ) {
+          return;
+        }
+        setActiveId(box.id);
+        setPending(null);
+        setConfirmRemove(false);
+        focusScan();
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(BOX_DRAG_TYPE)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDragOverBoxId(box.id);
+      }}
+      onDragLeave={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        setDragOverBoxId((current) => (current === box.id ? null : current));
+      }}
+      onDrop={(event) => void dropBoxItem(event, box.id)}
+    >
+      <HistoryBoxCard
+        box={box}
+        onPrint={(boxId) => void printSlip(boxId)}
+        onRemove={(boxId) => void confirmAndRemoveBox(boxId)}
+        onDragItem={beginBoxItemDrag}
+        onChooseMove={setMovePicker}
+        onSelect={(boxId) => {
+          setActiveId(boxId);
+          setPending(null);
+          setConfirmRemove(false);
+          focusScan();
+        }}
+      />
+      {dragOverBoxId === box.id ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-blue-50/80 text-sm font-semibold text-blue-800">
+          Drop order or SKU here
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <>
+    {printWarning ? (
+      <div
+        className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="empty-box-warning-title"
+      >
+        <div className="w-full max-w-md rounded-xl border-2 border-amber-300 bg-amber-50 p-5 shadow-2xl">
+          <h2
+            id="empty-box-warning-title"
+            className="text-lg font-semibold text-slate-900"
+          >
+            Attention
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-700">
+            {printWarning.emptyNames.length === 1
+              ? `${printWarning.emptyNames[0]} has no orders.`
+              : `${printWarning.emptyNames.length} boxes have no orders:`}
+          </p>
+          {printWarning.emptyNames.length > 1 ? (
+            <p className="mt-1 text-sm font-medium text-slate-800">
+              {printWarning.emptyNames.join(", ")}
+            </p>
+          ) : null}
+          <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950">
+            Empty boxes will not be included in the packing slip.
+          </p>
+          <p className="mt-3 text-sm text-slate-700">
+            {printWarning.saveAfterPrint
+              ? "Would you like to print and save the non-empty boxes?"
+              : "Would you like to continue with the non-empty boxes?"}
+          </p>
+          <div className="mt-5 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setPrintWarning(null)}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Go back
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const printable = viewBoxes.filter((box) =>
+                  printWarning.printableIds.includes(box.id)
+                );
+                const saveAfterPrint = printWarning.saveAfterPrint;
+                setPrintWarning(null);
+                prepareBoxSlipPrint(printable, saveAfterPrint);
+              }}
+              className="rounded-md bg-[#1a1f2e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2d3550]"
+            >
+              {printWarning.saveAfterPrint
+                ? "Print and save"
+                : "Continue"}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {printSetup ? (
+      <div
+        className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shipping-setup-title"
+      >
+        <div className="w-full max-w-xl rounded-xl bg-white p-5 shadow-2xl">
+          <h2
+            id="shipping-setup-title"
+            className="text-lg font-semibold text-slate-900"
+          >
+            Shipping setup
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            You are printing {printSetupBoxes.length} box slips. Will these
+            boxes ship on pallets?
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                setPrintSetup((current) =>
+                  current ? { ...current, usePallets: false } : current
+                )
+              }
+              className={`rounded-lg border px-3 py-3 text-sm font-semibold ${
+                !printSetup.usePallets
+                  ? "border-blue-600 bg-blue-50 text-blue-800"
+                  : "border-slate-300 text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              No pallet
+            </button>
+            <div
+              className={`rounded-lg border px-3 py-3 text-sm font-semibold ${
+                printSetup.usePallets
+                  ? "border-blue-600 bg-blue-50 text-blue-800"
+                  : "border-slate-300 text-slate-700"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  setPrintSetup((current) =>
+                    current ? { ...current, usePallets: true } : current
+                  )
+                }
+                className="min-h-10 w-full text-center text-sm font-semibold"
+              >
+                Yes, use pallets
+              </button>
+              <div className="mt-2 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => changePalletCount(-1)}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-xl text-slate-800"
+                  aria-label="Decrease pallet quantity"
+                >
+                  −
+                </button>
+                <span className="min-w-20 text-center text-base font-semibold tabular-nums">
+                  {configuredPalletCount ?? 1}{" "}
+                  {(configuredPalletCount ?? 1) === 1 ? "pallet" : "pallets"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => changePalletCount(1)}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-xl text-slate-800"
+                  aria-label="Increase pallet quantity"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+          {printSetup.usePallets ? (
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-semibold text-slate-800">
+                Box assignment
+              </p>
+              <p className="text-xs text-slate-500">
+                Drag a box to another pallet, or tap the box and then tap its
+                destination. Each pallet must keep at least one box.
+              </p>
+              {palletPreview.map((group, palletIndex) => (
+                <div
+                  key={group.palletNumber}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDragOverPalletIndex(palletIndex);
+                  }}
+                  onDragLeave={(event) => {
+                    const next = event.relatedTarget;
+                    if (
+                      next instanceof Node &&
+                      event.currentTarget.contains(next)
+                    ) {
+                      return;
+                    }
+                    setDragOverPalletIndex((current) =>
+                      current === palletIndex ? null : current
+                    );
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const boxId =
+                      event.dataTransfer.getData(
+                        "application/x-multiitem-pallet-box"
+                      ) || draggedPalletBoxId;
+                    if (boxId) moveBoxToPallet(boxId, palletIndex);
+                  }}
+                  onClick={() => {
+                    if (draggedPalletBoxId) {
+                      moveBoxToPallet(draggedPalletBoxId, palletIndex);
+                    }
+                  }}
+                  className={`min-h-20 rounded-lg border px-3 py-2 transition-colors ${
+                    dragOverPalletIndex === palletIndex
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-slate-900">
+                    Pallet {group.palletNumber}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {group.boxes.map((box) => (
+                      <button
+                        key={box.id}
+                        type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.stopPropagation();
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData(
+                            "application/x-multiitem-pallet-box",
+                            box.id
+                          );
+                          setDraggedPalletBoxId(box.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedPalletBoxId(null);
+                          setDragOverPalletIndex(null);
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDraggedPalletBoxId((current) =>
+                            current === box.id ? null : box.id
+                          );
+                        }}
+                        className={`inline-flex min-h-10 items-center gap-1.5 rounded-md border bg-white px-2.5 py-1.5 text-left text-sm font-medium shadow-sm ${
+                          draggedPalletBoxId === box.id
+                            ? "border-blue-500 text-blue-800 ring-2 ring-blue-100"
+                            : "border-slate-300 text-slate-700 hover:border-blue-400"
+                        }`}
+                        aria-pressed={draggedPalletBoxId === box.id}
+                        title={`Move ${box.name}`}
+                      >
+                        <GripVertical className="h-4 w-4 shrink-0 text-slate-400" />
+                        {box.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              No pallets. Boxes will ship loose and slips will be numbered Box
+              1 of {printSetupBoxes.length}, Box 2 of {printSetupBoxes.length},
+              and so on.
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setPrintSetup(null);
+                setDraggedPalletBoxId(null);
+                setDragOverPalletIndex(null);
+              }}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={printSetupBoxes.length === 0 || printBusy}
+              onClick={() => {
+                const boxById = new Map(
+                  printSetupBoxes.map((box) => [box.id, box])
+                );
+                const palletBoxIds = printSetup.usePallets
+                  ? printSetup.palletBoxIds
+                  : undefined;
+                const boxesToPrint = palletBoxIds
+                  ? palletBoxIds
+                      .flat()
+                      .map((boxId) => boxById.get(boxId))
+                      .filter((box): box is BoxState => Boolean(box))
+                  : printSetupBoxes;
+                const saveAfterPrint = printSetup.saveAfterPrint;
+                const palletCount = printSetup.usePallets
+                  ? configuredPalletCount
+                  : null;
+                setPrintSetup(null);
+                setDraggedPalletBoxId(null);
+                setDragOverPalletIndex(null);
+                void generateBoxSlips(boxesToPrint, {
+                  saveAfterPrint,
+                  palletCount,
+                  palletBoxIds,
+                  includeNumbering: true,
+                });
+              }}
+              className="rounded-md bg-[#1a1f2e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2d3550] disabled:opacity-50"
+            >
+              Continue to print
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    {headerActionsEl && scanHeaderControls
+      ? createPortal(scanHeaderControls, headerActionsEl)
+      : null}
+    <div className="flex h-full min-h-0 flex-col bg-slate-100">
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
         {loadError ? (
           <p className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1211,245 +2306,65 @@ export function MultiitemBoxSlipModal({
         </div>
 
         <div className="mt-[10px]">
-        {!viewingHistory ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          {viewBoxes.map((box) => (
-            <button
-              key={box.id}
-              type="button"
-              onClick={() => {
-                setActiveId(box.id);
-                setPending(null);
-                setConfirmRemove(false);
-                if (!viewingHistory) focusScan();
-              }}
-              className={box.id === active?.id ? chipOn : chipOff}
-            >
-              {box.name}
-            </button>
-          ))}
-          {!viewingHistory ? (
-            <>
-              <button
-                type="button"
-                onClick={() => void addBoxTab()}
-                disabled={busy}
-                className={btnPrimary}
-              >
-                + Add box
-              </button>
-              {active?.status === "open" ? (
-                <button
-                  type="button"
-                  onClick={() => void duplicateActiveBox()}
-                  disabled={busy}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  title={`Duplicate ${active.name} with the next box number`}
-                >
-                  <CopyPlus className="h-4 w-4" />
-                  Duplicate box
-                </button>
-              ) : null}
-              {active?.status === "open" ? (
-                confirmRemove ? (
-                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-900">
-                    <span className="font-medium">Remove {active.name}?</span>
-                    <button
-                      type="button"
-                      onClick={() => void confirmAndRemoveBox()}
-                      disabled={busy}
-                      className="rounded bg-[#1a1f2e] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#2d3550] disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmRemove(false)}
-                      className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRemove(true)}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Remove box
-                  </button>
-                )
-              ) : null}
-            </>
-          ) : null}
-        </div>
-        ) : null}
 
         {viewingHistory ? (
           viewBoxes.length > 0 ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {viewBoxes.map((box) => (
-                <HistoryBoxCard
-                  key={box.id}
-                  box={box}
-                  onPrint={(boxId) => void printSlip(boxId)}
-                  onRemove={(boxId) => void confirmAndRemoveBox(boxId)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <p className="text-sm font-medium text-slate-700">
+                  {selectedPrintBoxes.length} of {viewBoxes.length} selected
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedPrintBoxIds(
+                        new Set(viewBoxes.map((box) => box.id))
+                      )
+                    }
+                    className="rounded-md px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPrintBoxIds(new Set())}
+                    disabled={selectedPrintBoxes.length === 0}
+                    className="rounded-md px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {viewBoxes.map((box) => (
+                  <HistoryBoxCard
+                    key={box.id}
+                    box={box}
+                    onPrint={(boxId) => void printSlip(boxId)}
+                    onRemove={(boxId) => void confirmAndRemoveBox(boxId)}
+                    onSelect={(boxId) => void reopenSavedBox(boxId)}
+                    selectedForPrint={selectedPrintBoxIds.has(box.id)}
+                    onTogglePrintSelection={(boxId) =>
+                      setSelectedPrintBoxIds((current) => {
+                        const next = new Set(current);
+                        if (next.has(boxId)) next.delete(boxId);
+                        else next.add(boxId);
+                        return next;
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </>
           ) : (
             <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400">
               Nothing was saved on this day.
             </div>
           )
         ) : active ? (
-          <div className="grid min-h-0 grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="flex min-h-0 flex-col gap-4">
             <div className="flex min-h-0 flex-col gap-4">
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className={fieldLabel}>Box name</span>
-                  <input
-                    value={active.name}
-                    readOnly
-                    aria-readonly="true"
-                    title="Box names are assigned automatically"
-                    className={cn(
-                      fieldControl,
-                      "cursor-not-allowed bg-slate-50 text-slate-700"
-                    )}
-                  />
-                  </label>
-                  <label className="block">
-                  <span className={fieldLabel}>PO number</span>
-                    <input
-                      value={active.poNumber}
-                      onChange={(e) =>
-                        patchBoxLocal(active.id, { poNumber: e.target.value })
-                      }
-                      onBlur={() =>
-                        void saveBoxFields(active.id, {
-                          po_number: active.poNumber,
-                        })
-                      }
-                    className={cn(fieldControl, readOnly && "bg-slate-50")}
-                    disabled={readOnly}
-                    />
-                  </label>
-                  <label className="block">
-                  <span className={fieldLabel}>Size</span>
-                    <select
-                      value={sizeValue}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v === CUSTOM_SIZE) {
-                          pendingCustomFocus.current = true;
-                          patchBoxLocal(active.id, {
-                            sizeCustom: true,
-                            sizeLabel: "",
-                            sizeL: "",
-                            sizeW: "",
-                            sizeH: "",
-                          });
-                          void saveBoxFields(active.id, { size_label: null });
-                          return;
-                        }
-                        patchBoxLocal(active.id, {
-                          sizeCustom: false,
-                          sizeLabel: v,
-                          sizeL: "",
-                          sizeW: "",
-                          sizeH: "",
-                        });
-                        void saveBoxFields(active.id, {
-                          size_label: v || null,
-                        });
-                      }}
-                    className={cn(fieldControl, readOnly && "bg-slate-50")}
-                    disabled={readOnly}
-                    >
-                      <option value="">Select size</option>
-                      {SIZE_PRESETS.map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                      <option value={CUSTOM_SIZE}>Custom…</option>
-                    </select>
-                  </label>
-                  <label className="block">
-                  <span className={fieldLabel}>Weight (lbs)</span>
-                    <input
-                      ref={weightRef}
-                      inputMode="decimal"
-                      value={active.weightLbs}
-                      onChange={(e) =>
-                        patchBoxLocal(active.id, { weightLbs: e.target.value })
-                      }
-                      onBlur={() =>
-                        void saveBoxFields(active.id, {
-                          weight_lbs: active.weightLbs,
-                        })
-                      }
-                    className={cn(fieldControl, readOnly && "bg-slate-50")}
-                    disabled={readOnly}
-                    />
-                  </label>
-                  {isCustom ? (
-                    <div
-                      className="col-span-2 grid grid-cols-3 gap-3"
-                      data-enter-focus-sequence
-                    >
-                      {(
-                        [
-                          ["sizeL", "Length (in)", active.sizeL],
-                          ["sizeW", "Width (in)", active.sizeW],
-                          ["sizeH", "Height (in)", active.sizeH],
-                        ] as const
-                      ).map(([key, label, value]) => (
-                        <label key={key} className="block">
-                          <span className={fieldLabel}>{label}</span>
-                          <input
-                            ref={key === "sizeL" ? customLengthRef : undefined}
-                            inputMode="decimal"
-                            placeholder="0"
-                            data-enter-focus-next
-                            value={value}
-                            onChange={(e) =>
-                              patchCustomDim(active.id, key, e.target.value)
-                            }
-                            onBlur={(e) =>
-                              persistCustomSize(active.id, {
-                                sizeL: key === "sizeL" ? e.target.value : active.sizeL,
-                                sizeW: key === "sizeW" ? e.target.value : active.sizeW,
-                                sizeH: key === "sizeH" ? e.target.value : active.sizeH,
-                              })
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key !== "Enter") return;
-                              if (key === "sizeH") {
-                                e.preventDefault();
-                                persistCustomSize(active.id, {
-                                  sizeL: active.sizeL,
-                                  sizeW: active.sizeW,
-                                  sizeH: e.currentTarget.value,
-                                });
-                                weightRef.current?.focus();
-                                weightRef.current?.select();
-                                return;
-                              }
-                              focusNextInputOnEnter(e);
-                            }}
-                          className={cn(fieldControl, readOnly && "bg-slate-50")}
-                    disabled={readOnly}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
                 {pending ? (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                     <p className="font-semibold">Different customer detected</p>
@@ -1462,11 +2377,7 @@ export function MultiitemBoxSlipModal({
 
                 {!readOnly ? (
                 <div>
-                  <div className="mb-1">
-                    <span className="text-base font-semibold text-slate-800">
-                      Scan order QR
-                    </span>
-                  </div>
+                  {!headerActionsEl ? (
                   <form
                     className="flex gap-2"
                     onSubmit={(e) => {
@@ -1524,6 +2435,7 @@ export function MultiitemBoxSlipModal({
                       Add
                     </button>
                   </form>
+                  ) : null}
                   {/* Inline camera */}
                   {cameraOpen && (
                     <div className="relative mt-3 flex h-56 w-full overflow-hidden rounded-xl bg-black">
@@ -1537,72 +2449,6 @@ export function MultiitemBoxSlipModal({
                       </button>
                     </div>
                   )}
-                  {scanPreviewLoading ? (
-                    <p className="mt-2 text-sm text-slate-500">
-                      Reading Final Production artwork…
-                    </p>
-                  ) : scanSkuPreview && scanSkuPreview.lines.length > 0 ? (
-                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm font-semibold text-slate-800">
-                        <span>
-                          Total QTY{" "}
-                          <span className="tabular-nums">
-                            {scanSkuPreview.lines
-                              .filter((line) => line.checked)
-                              .reduce(
-                                (sum, line) => sum + line.quantity,
-                                0
-                              )
-                              .toLocaleString()}
-                          </span>
-                        </span>
-                        <span>
-                          SKU QTY{" "}
-                          <span className="tabular-nums">
-                            {
-                              scanSkuPreview.lines.filter(
-                                (line) => line.checked
-                              ).length
-                            }
-                          </span>
-                        </span>
-                      </div>
-                      <div className="mt-2 grid max-h-44 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-                        {scanSkuPreview.lines.map((line) => (
-                          <label
-                            key={line.page}
-                            className="flex cursor-pointer items-center justify-between gap-3 rounded border border-slate-200 bg-white px-2.5 py-2 text-sm"
-                          >
-                            <span className="font-medium text-slate-800">
-                              {line.label} – QTY{" "}
-                              <span className="tabular-nums">
-                                {line.quantity.toLocaleString()}
-                              </span>
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={line.checked}
-                              onChange={() =>
-                                setScanSkuPreview((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        lines: current.lines.map((row) =>
-                                          row.page === line.page
-                                            ? { ...row, checked: !row.checked }
-                                            : row
-                                        ),
-                                      }
-                                    : current
-                                )
-                              }
-                              className="h-4 w-4 rounded border-slate-300 text-slate-900"
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
                   {hint ? (
                     <p
                       className={cn(
@@ -1612,48 +2458,380 @@ export function MultiitemBoxSlipModal({
                     >
                       {hint.text}
                     </p>
-                  ) : (
+                  ) : !headerActionsEl ? (
                     <p className="mt-2 text-sm text-slate-500">
                       Enter or scan, then Add
                     </p>
-                  )}
+                  ) : null}
                 </div>
                 ) : null}
               </div>
 
-              <div className="flex flex-col overflow-hidden rounded-lg border border-slate-300 bg-white md:-mt-[3.25rem]">
+              <div className="grid min-h-0 grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+              {viewBoxes.slice(0, activeIndex).map(renderInactiveBox)}
+              <div
+                className={cn(
+                  "relative mr-12 flex flex-col overflow-visible rounded-lg border-[3px] border-blue-600 bg-white shadow-sm ring-2 ring-blue-100 transition",
+                  dragOverBoxId === active.id &&
+                    "ring-blue-500 ring-offset-2"
+                )}
+                style={{ borderColor: "#2563eb" }}
+                onDragOver={(event) => {
+                  if (!event.dataTransfer.types.includes(BOX_DRAG_TYPE)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverBoxId(active.id);
+                }}
+                onDragLeave={(event) => {
+                  const next = event.relatedTarget;
+                  if (
+                    next instanceof Node &&
+                    event.currentTarget.contains(next)
+                  ) {
+                    return;
+                  }
+                  setDragOverBoxId((current) =>
+                    current === active.id ? null : current
+                  );
+                }}
+                onDrop={(event) => void dropBoxItem(event, active.id)}
+              >
                 <div className="border-b border-slate-200 px-4 pb-3 pt-2">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        Box
-                      </p>
-                      <p className="truncate text-lg font-semibold text-slate-900">
-                        {active.name || "Unnamed box"}
-                      </p>
-                      {active.poNumber ? (
-                        <p className="mt-0.5 text-sm text-slate-500">
-                          PO: {active.poNumber}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-baseline gap-3">
+                        <p className="truncate text-base font-semibold text-slate-900">
+                          {active.name || "Unnamed box"}
                         </p>
-                      ) : null}
-                      {sizeWeightLine(active.sizeLabel, active.weightLbs) ? (
-                        <p className="mt-0.5 text-sm font-medium tabular-nums text-slate-700">
-                          {sizeWeightLine(active.sizeLabel, active.weightLbs)}
+                        <p className="shrink-0 text-sm font-medium tabular-nums text-slate-500">
+                          {boxCreationDateLabel(active.boxDate)}
                         </p>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <div className="col-span-2 grid grid-cols-3 gap-3">
+                          <label className="block">
+                            <span className={fieldLabel}>PO number</span>
+                            <input
+                              value={active.poNumber}
+                              onChange={(e) =>
+                                patchBoxLocal(active.id, {
+                                  poNumber: e.target.value,
+                                })
+                              }
+                              onBlur={() =>
+                                void saveBoxFields(active.id, {
+                                  po_number: active.poNumber,
+                                })
+                              }
+                              className={cn(
+                                fieldControl,
+                                readOnly && "bg-slate-50"
+                              )}
+                              disabled={readOnly}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className={fieldLabel}>Size</span>
+                            <select
+                              value={sizeValue}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === CUSTOM_SIZE) {
+                                  pendingCustomFocus.current = true;
+                                  patchBoxLocal(active.id, {
+                                    sizeCustom: true,
+                                    sizeLabel: "",
+                                    sizeL: "",
+                                    sizeW: "",
+                                    sizeH: "",
+                                  });
+                                  void saveBoxFields(active.id, {
+                                    size_label: null,
+                                  });
+                                  return;
+                                }
+                                patchBoxLocal(active.id, {
+                                  sizeCustom: false,
+                                  sizeLabel: v,
+                                  sizeL: "",
+                                  sizeW: "",
+                                  sizeH: "",
+                                });
+                                void saveBoxFields(active.id, {
+                                  size_label: v || null,
+                                });
+                              }}
+                              className={cn(
+                                fieldControl,
+                                readOnly && "bg-slate-50"
+                              )}
+                              disabled={readOnly}
+                            >
+                              <option value="">Select size</option>
+                              {SIZE_PRESETS.map((p) => (
+                                <option key={p} value={p}>
+                                  {p}
+                                </option>
+                              ))}
+                              <option value={CUSTOM_SIZE}>Custom…</option>
+                            </select>
+                          </label>
+                          <label className="block">
+                            <span className={fieldLabel}>Weight (lbs)</span>
+                            <div className="flex items-stretch gap-1">
+                              <button
+                                type="button"
+                                aria-label="Decrease weight"
+                                title="Decrease weight"
+                                disabled={readOnly}
+                                onClick={() => {
+                                  const next = bumpWeightLbs(
+                                    active.weightLbs,
+                                    -WEIGHT_STEP_LBS
+                                  );
+                                  patchBoxLocal(active.id, { weightLbs: next });
+                                  void saveBoxFields(active.id, {
+                                    weight_lbs: next,
+                                  });
+                                }}
+                                className="inline-flex w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                <Minus className="h-3.5 w-3.5" />
+                              </button>
+                              <input
+                                ref={weightRef}
+                                inputMode="decimal"
+                                value={active.weightLbs}
+                                onChange={(e) =>
+                                  patchBoxLocal(active.id, {
+                                    weightLbs: e.target.value,
+                                  })
+                                }
+                                onBlur={() =>
+                                  void saveBoxFields(active.id, {
+                                    weight_lbs: active.weightLbs,
+                                  })
+                                }
+                                className={cn(
+                                  fieldControl,
+                                  readOnly && "bg-slate-50"
+                                )}
+                                disabled={readOnly}
+                              />
+                              <button
+                                type="button"
+                                aria-label="Increase weight"
+                                title="Increase weight"
+                                disabled={readOnly}
+                                onClick={() => {
+                                  const next = bumpWeightLbs(
+                                    active.weightLbs,
+                                    WEIGHT_STEP_LBS
+                                  );
+                                  patchBoxLocal(active.id, { weightLbs: next });
+                                  void saveBoxFields(active.id, {
+                                    weight_lbs: next,
+                                  });
+                                }}
+                                className="inline-flex w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </label>
+                        </div>
+                        {isCustom ? (
+                          <div
+                            className="col-span-2 grid grid-cols-3 gap-3"
+                            data-enter-focus-sequence
+                          >
+                            {(
+                              [
+                                ["sizeL", "Length (in)", active.sizeL],
+                                ["sizeW", "Width (in)", active.sizeW],
+                                ["sizeH", "Height (in)", active.sizeH],
+                              ] as const
+                            ).map(([key, label, value]) => (
+                              <label key={key} className="block">
+                                <span className={fieldLabel}>{label}</span>
+                                <input
+                                  ref={key === "sizeL" ? customLengthRef : undefined}
+                                  inputMode="decimal"
+                                  placeholder="0"
+                                  data-enter-focus-next
+                                  value={value}
+                                  onChange={(e) =>
+                                    patchCustomDim(active.id, key, e.target.value)
+                                  }
+                                  onBlur={(e) =>
+                                    persistCustomSize(active.id, {
+                                      sizeL:
+                                        key === "sizeL"
+                                          ? e.target.value
+                                          : active.sizeL,
+                                      sizeW:
+                                        key === "sizeW"
+                                          ? e.target.value
+                                          : active.sizeW,
+                                      sizeH:
+                                        key === "sizeH"
+                                          ? e.target.value
+                                          : active.sizeH,
+                                    })
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") return;
+                                    if (key === "sizeH") {
+                                      e.preventDefault();
+                                      persistCustomSize(active.id, {
+                                        sizeL: active.sizeL,
+                                        sizeW: active.sizeW,
+                                        sizeH: e.currentTarget.value,
+                                      });
+                                      weightRef.current?.focus();
+                                      weightRef.current?.select();
+                                      return;
+                                    }
+                                    focusNextInputOnEnter(e);
+                                  }}
+                                  className={cn(
+                                    fieldControl,
+                                    readOnly && "bg-slate-50"
+                                  )}
+                                  disabled={readOnly}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-start gap-2">
+                      {qrDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={qrDataUrl}
+                          alt={`QR code for ${active.name}`}
+                          className="h-20 w-20 shrink-0 rounded-md border border-slate-200 bg-white p-1"
+                        />
+                      ) : (
+                        <div className="h-20 w-20 shrink-0" />
+                      )}
+                      {active.status === "open" ? (
+                        <div className="absolute -right-[50px] top-2 flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void addBoxTab()}
+                            disabled={busy}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            title="New box"
+                            aria-label="New box"
+                          >
+                            <PackagePlus className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void duplicateActiveBox()}
+                            disabled={busy}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            title={`Duplicate ${active.name}`}
+                            aria-label={`Duplicate ${active.name}`}
+                          >
+                            <CopyPlus className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRemove(true)}
+                            disabled={busy}
+                            className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50"
+                            title={`Remove ${active.name}`}
+                            aria-label={`Remove ${active.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       ) : null}
                     </div>
-                    {qrDataUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={qrDataUrl}
-                        alt={`QR code for ${active.name}`}
-                        className="h-20 w-20 shrink-0 rounded-md border border-slate-200 bg-white p-1"
-                      />
-                    ) : (
-                      <div className="h-20 w-20 shrink-0" />
-                    )}
                   </div>
+                  {active.status === "open" && confirmRemove ? (
+                    <div className="mt-3 flex items-center justify-end gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                      <span className="mr-auto font-medium">
+                        Remove {active.name}?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void confirmAndRemoveBox()}
+                        disabled={busy}
+                        className="rounded bg-[#1a1f2e] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#2d3550] disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemove(false)}
+                        className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
+
+                {scanPreviewLoading ? (
+                  <p className="px-3 py-2 text-sm text-slate-500">Reading Final Production artwork…</p>
+                ) : scanSkuPreview && scanSkuPreview.lines.length > 0 ? (
+                  <div className="border-b border-slate-200 px-3 py-3">
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm font-semibold text-slate-800">
+                      <span>
+                        Total QTY{" "}
+                        <span className="tabular-nums">
+                          {scanSkuPreview.lines
+                            .filter((line) => line.checked)
+                            .reduce((sum, line) => sum + line.quantity, 0)
+                            .toLocaleString()}
+                        </span>
+                      </span>
+                      <span>
+                        SKU QTY{" "}
+                        <span className="tabular-nums">
+                          {scanSkuPreview.lines.filter((line) => line.checked).length}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="mt-2 grid max-h-44 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
+                      {scanSkuPreview.lines.map((line) => (
+                        <label
+                          key={line.page}
+                          className="flex cursor-pointer items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 px-2.5 py-2 text-sm"
+                        >
+                          <span className="font-medium text-slate-800">
+                            {line.label} – QTY{" "}
+                            <span className="tabular-nums">{line.quantity.toLocaleString()}</span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={line.checked}
+                            onChange={() =>
+                              setScanSkuPreview((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      lines: current.lines.map((row) =>
+                                        row.page === line.page
+                                          ? { ...row, checked: !row.checked }
+                                          : row
+                                      ),
+                                    }
+                                  : current
+                              )
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-slate-900"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -1680,7 +2858,7 @@ export function MultiitemBoxSlipModal({
                   </div>
                 ) : (
                   <div className="min-h-0 flex-1 overflow-y-auto px-3 py-1">
-                    <div className="grid grid-cols-[4rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] gap-x-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <div className="grid grid-cols-[6rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] gap-x-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       <span />
                       <span>Order</span>
                       <span>Artwork</span>
@@ -1689,16 +2867,46 @@ export function MultiitemBoxSlipModal({
                       <span className="w-7" />
                     </div>
                     <ul>
-                      {active.items.map((item) => (
+                      {active.items.map((item, itemIndex) => (
                         <li
                           key={item.id}
                           className="border-b border-slate-100 py-1.5"
                         >
-                          <div className="grid grid-cols-[4rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
-                            <ItemQrCode value={item.orderTitle} size={64} />
-                            <p className="truncate font-mono text-sm font-medium tabular-nums text-slate-900">
-                              {formatShortOrderNumber(item.orderTitle)}
-                            </p>
+                          <div className="grid grid-cols-[6rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
+                            <div className="flex items-center gap-1">
+                              <span className="w-5 shrink-0 font-semibold tabular-nums text-slate-500">
+                                {itemIndex + 1}.
+                              </span>
+                              <ItemQrCode value={item.orderTitle} size={64} />
+                            </div>
+                            <div className="flex min-w-0 items-center gap-1">
+                              {!readOnly && viewBoxes.length > 1 ? (
+                                <span
+                                  draggable
+                                  onDragStart={(event) =>
+                                    beginBoxItemDrag(event, {
+                                      fromBoxId: active.id,
+                                      orderId: item.orderId,
+                                    })
+                                  }
+                                  onDragEnd={() => setDragOverBoxId(null)}
+                                  onClick={() =>
+                                    setMovePicker({
+                                      fromBoxId: active.id,
+                                      orderId: item.orderId,
+                                    })
+                                  }
+                                  className="inline-flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing"
+                                  title="Move order to another box"
+                                  aria-label="Move order to another box"
+                                >
+                                  <GripVertical className="h-4 w-4" />
+                                </span>
+                              ) : null}
+                              <p className="truncate font-mono text-sm font-medium tabular-nums text-slate-900">
+                                {formatShortOrderNumber(item.orderTitle)}
+                              </p>
+                            </div>
                             <BoxArtworkThumb
                               orderId={item.orderId}
                               url={item.thumbnailUrl}
@@ -1752,7 +2960,7 @@ export function MultiitemBoxSlipModal({
                             <button
                               type="button"
                               onClick={() => void removeItem(item.orderId)}
-                              className="rounded p-1 text-slate-600 hover:bg-slate-100 hover:text-red-600"
+                              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-red-600"
                               aria-label={`Remove order ${item.orderTitle} from box`}
                               title="Remove item from box"
                             >
@@ -1761,12 +2969,40 @@ export function MultiitemBoxSlipModal({
                             )}
                           </div>
                           {item.skuLines.length > 0 ? (
-                            <div className="ml-[13rem] mt-1 grid grid-cols-1 gap-1 pb-1 sm:grid-cols-2 xl:grid-cols-3">
-                              {item.skuLines.map((line) => (
+                            <div className="mt-1 grid grid-cols-1 gap-1 pb-1">
+                              {item.skuLines.map((line, index) => (
                                 <div
                                   key={line.page}
                                   className="flex items-center justify-between gap-3 rounded bg-slate-50 px-2 py-1 text-xs text-slate-700"
                                 >
+                                  <span className="w-5 shrink-0 font-semibold tabular-nums text-slate-500">
+                                    {index + 1}.
+                                  </span>
+                                  {!readOnly && viewBoxes.length > 1 ? (
+                                    <span
+                                      draggable
+                                      onDragStart={(event) =>
+                                        beginBoxItemDrag(event, {
+                                          fromBoxId: active.id,
+                                          orderId: item.orderId,
+                                          skuPage: line.page,
+                                        })
+                                      }
+                                      onDragEnd={() => setDragOverBoxId(null)}
+                                      onClick={() =>
+                                        setMovePicker({
+                                          fromBoxId: active.id,
+                                          orderId: item.orderId,
+                                          skuPage: line.page,
+                                        })
+                                      }
+                                      className="inline-flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-slate-700 active:cursor-grabbing"
+                                      title={`Move ${line.label} to another box`}
+                                      aria-label={`Move ${line.label} to another box`}
+                                    >
+                                      <GripVertical className="h-4 w-4" />
+                                    </span>
+                                  ) : null}
                                   <span className="font-medium">{line.label}</span>
                                   <label className="ml-auto flex items-center gap-1">
                                     <span className="text-[10px] font-semibold uppercase text-slate-500">
@@ -1818,7 +3054,7 @@ export function MultiitemBoxSlipModal({
                                           previous
                                         );
                                       }}
-                                      className="w-20 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
+                                      className="h-10 w-20 rounded border border-slate-300 bg-white px-2 text-right text-base tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
                                     />
                                   </label>
                                   {readOnly ? (
@@ -1831,7 +3067,7 @@ export function MultiitemBoxSlipModal({
                                       onClick={() =>
                                         void removeSkuLine(item, line.page)
                                       }
-                                      className="rounded p-1 text-red-500 hover:bg-red-50 hover:text-red-700"
+                                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 hover:text-red-700"
                                       title={`Remove ${line.label}`}
                                       aria-label={`Remove ${line.label}`}
                                     >
@@ -1848,32 +3084,68 @@ export function MultiitemBoxSlipModal({
                   </div>
                 )}
               </div>
+              {viewBoxes.slice(activeIndex + 1).map(renderInactiveBox)}
+              </div>
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400">
-              {viewingHistory
-                ? "Nothing was saved on this day."
-                : "Click Add box to start a packing slip."}
+            <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-slate-200 bg-white px-4 py-12 text-center">
+              {viewingHistory ? (
+                <p className="text-sm text-slate-400">Nothing was saved on this day.</p>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-400">No boxes yet. Start your first packing slip.</p>
+                  <button
+                    type="button"
+                    onClick={() => void addBoxTab()}
+                    disabled={busy}
+                    className="inline-flex w-full max-w-xs items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-4 text-base font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    <span className="text-lg leading-none">+</span> Add box
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
       </div>
-      <div className="flex shrink-0 items-center justify-between border-t border-slate-200 px-4 py-3">
+      <div className="sticky bottom-0 z-10 flex shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 py-3">
         <button type="button" onClick={goToScan}
-          className="rounded-md px-4 py-2.5 text-base text-slate-600 hover:bg-slate-100">
+          className="ml-8 rounded-xl border border-slate-200 px-5 py-2.5 text-base font-medium text-slate-600 hover:bg-slate-100">
           Cancel
         </button>
         <div className="flex gap-3">
           {!viewingHistory ? (
           <button
             type="button"
+            disabled={printBusy}
             onClick={() => void printSlip()}
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2.5 text-base font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2.5 text-base font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
-            <Printer className="h-5 w-5" />
-            Print slip
+            {printBusy ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Printer className="h-5 w-5" />
+            )}
+            Print slip and Save
           </button>
-          ) : null}
+          ) : (
+          <button
+            type="button"
+            disabled={printBusy || selectedPrintBoxes.length === 0}
+            onClick={() => requestBoxSlipPrint(selectedPrintBoxes, false)}
+            className="inline-flex items-center gap-2 rounded-md bg-[#1a1f2e] px-4 py-2.5 text-base font-semibold text-white hover:bg-[#2d3550] disabled:opacity-50"
+          >
+            {printBusy ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Printer className="h-5 w-5" />
+            )}
+            Print selected
+            {selectedPrintBoxes.length > 0
+              ? ` (${selectedPrintBoxes.length})`
+              : ""}
+          </button>
+          )}
           {!readOnly ? (
           <button
             type="button"
@@ -1887,5 +3159,83 @@ export function MultiitemBoxSlipModal({
         </div>
       </div>
     </div>
+    {scanKeypadOpen && !readOnly ? (
+      <ScanNumberKeypad
+        value={scan}
+        extraKeys={["W"]}
+        onInsert={(character) => {
+          if (replaceNextScan.current) {
+            replaceNextScan.current = false;
+            setScan(character);
+            return;
+          }
+          setScan((current) => current + character);
+        }}
+        onBackspace={() => {
+          replaceNextScan.current = false;
+          setScan((current) => current.slice(0, -1));
+        }}
+        onSubmit={() => {
+          setScanKeypadOpen(false);
+          void handleScanSubmit();
+        }}
+        onClose={() => {
+          setScanKeypadOpen(false);
+          scanRef.current?.focus();
+        }}
+      />
+    ) : null}
+    {movePicker ? (
+      <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
+        <button
+          type="button"
+          aria-label="Close move box picker"
+          className="absolute inset-0 bg-slate-900/40"
+          onClick={() => setMovePicker(null)}
+        />
+        <div className="relative z-10 w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-lg font-semibold text-slate-900">
+                Move {movePicker.skuPage != null ? "SKU" : "order"}
+              </p>
+              <p className="text-sm text-slate-500">
+                Select the destination box
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMovePicker(null)}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="grid gap-3">
+            {viewBoxes
+              .filter(
+                (box) =>
+                  box.id !== movePicker.fromBoxId && box.status === "open"
+              )
+              .map((box) => (
+                <button
+                  key={box.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void moveBoxItem(movePicker, box.id)}
+                  className="flex min-h-14 items-center justify-between rounded-xl border border-slate-300 bg-white px-4 text-left text-base font-semibold text-slate-900 hover:border-blue-500 hover:bg-blue-50 disabled:opacity-50"
+                >
+                  <span>{box.name}</span>
+                  <span className="text-sm font-medium text-slate-500">
+                    {box.items.length} items
+                  </span>
+                </button>
+              ))}
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }

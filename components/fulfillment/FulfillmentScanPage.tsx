@@ -634,6 +634,9 @@ function ShippingReminderSection({
             orderNumber={slipNumber}
             groupSize={groupSize}
             compact
+            skuImages={order.sku_images}
+            totalQty={order.qty}
+            qtyPerSku={order.qty_per_sku}
           />
         </div>
 
@@ -1645,9 +1648,9 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   <button
                     type="button"
                     onClick={openCamera}
-                    className="mt-2 inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-4 text-base font-semibold text-white hover:bg-slate-800"
                   >
-                    <Camera className="h-4 w-4" />
+                    <Camera className="h-5 w-5" />
                     Use camera
                   </button>
                 </div>
@@ -1776,19 +1779,22 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               (!isFinishedStage && orderColumn?.kind === "normal" && !!order.shipping_request);
             return (
               <div className="order-3 flex shrink-0 flex-col gap-4 px-4 pt-1 lg:px-0 lg:pt-0">
-                {isShippingColumn ? (
+                {scanStation === "sender" || !isShippingColumn ? (
+                  <ScanShippingSlipButtons
+                    orderId={order.id}
+                    orderNumber={order.order_number?.trim() || order.title}
+                    groupSize={Math.max(1, order.main_item_count ?? 1)}
+                    skuImages={order.sku_images}
+                    totalQty={order.qty}
+                    qtyPerSku={order.qty_per_sku}
+                  />
+                ) : (
                   <ShippingReminderSection
                     order={order}
                     onShippingCreated={() => void lookup(order.title)}
                     tenantName={tenantName}
                     customFields={customFields}
                     smsConfigured={smsConfigured}
-                  />
-                ) : (
-                  <ScanShippingSlipButtons
-                    orderId={order.id}
-                    orderNumber={order.order_number?.trim() || order.title}
-                    groupSize={Math.max(1, order.main_item_count ?? 1)}
                   />
                 )}
               </div>
@@ -1833,7 +1839,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               </div>
             </div>
             <div className="flex flex-col gap-2">
-              {visibleScanButtons.map((button, index) => {
+              {scanStation === "sender" ? (
+                <p className="text-[12px] md:text-[14px] text-slate-400">
+                  Sender prints the packing slip only.
+                </p>
+              ) : visibleScanButtons.map((button, index) => {
                 const configured = !!button.columnId;
                 const columnName =
                   columns.find((c) => c.id === button.columnId)?.name ?? null;
@@ -1850,7 +1860,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                       actionFeedback?.phase === "loading"
                     }
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[13px] md:text-[15px] font-medium transition-colors",
+                      "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-[13px] md:text-[15px] font-medium transition-colors min-h-[4rem]",
                       order && configured
                         ? "border-slate-200 bg-white hover:bg-slate-50 text-slate-800"
                         : "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed"
@@ -1858,7 +1868,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   >
                     <span
                       className={cn(
-                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
                         order && configured
                           ? ACTION_ICON_COLORS[index % ACTION_ICON_COLORS.length]
                           : "bg-slate-100 text-slate-400"
@@ -1877,12 +1887,12 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     {actingOn === button.id ? (
                       <span className="text-[11px] md:text-[13px] text-slate-400">…</span>
                     ) : (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                      <ChevronRight className="h-5 w-5 shrink-0 text-slate-300" />
                     )}
                   </button>
                 );
               })}
-              {visibleScanButtons.length === 0 ? (
+              {scanStation !== "sender" && visibleScanButtons.length === 0 ? (
                 <p className="text-[12px] md:text-[14px] text-slate-400">
                   {scanButtons.length === 0
                     ? "No scan buttons. Add them in Configure columns."

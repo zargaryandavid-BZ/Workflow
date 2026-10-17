@@ -191,6 +191,12 @@ export function FulfillmentNav() {
         </span>
         <span className="hidden md:inline">Multi-item Box Slip</span>
       </Link>
+      {isBoxSlip ? (
+        <div
+          id="multiitem-box-header-actions"
+          className="ml-auto min-w-0 flex-1"
+        />
+      ) : null}
 
       {/* Inline scan input — visible only on scan page */}
       {isScan && (
@@ -209,7 +215,7 @@ export function FulfillmentNav() {
             onChange={(e) => applyScanInput(e.target.value)}
             onClick={() => setKeypadOpen(true)}
             placeholder="e.g. 15118-1"
-            className="h-8 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[16px] text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-300 md:h-10 md:text-[17px]"
+            className="h-12 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-[17px] text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
           />
           <button
             type="button"
@@ -217,14 +223,14 @@ export function FulfillmentNav() {
             disabled={!navQuery}
             title="Clear"
             aria-label="Clear scan text"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 md:h-10 md:w-10"
+            className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
           <button
             type="submit"
             disabled={navLoading || !navQuery.trim()}
-            className="h-8 rounded-lg bg-slate-900 px-4 text-[13px] font-medium text-white disabled:opacity-40 md:h-10"
+            className="h-12 rounded-xl bg-slate-900 px-6 text-[15px] font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
           >
             {navLoading ? "…" : "Scan"}
           </button>
@@ -238,9 +244,9 @@ export function FulfillmentNav() {
             }}
             title="Scan with camera"
             aria-label="Scan with camera"
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-100 md:h-10"
+            className="inline-flex h-12 shrink-0 items-center gap-2 rounded-xl border border-slate-200 px-4 text-[14px] font-medium text-slate-700 hover:bg-slate-100"
           >
-            <Camera className="h-4 w-4" />
+            <Camera className="h-5 w-5" />
             <span className="hidden sm:inline">Camera</span>
           </button>
           <button
