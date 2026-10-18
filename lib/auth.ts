@@ -1,8 +1,41 @@
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { TENANT_COOKIE } from "@/lib/constants";
 import type { Membership, Role, Tenant } from "@/lib/types";
+
+/**
+ * Resolve the signed-in user WITHOUT a round-trip to the Auth server on every
+ * request. `getClaims()` verifies the login token locally using the project's
+ * asymmetric signing key (cached JWKS) — no network hop, no auth-DB reads. This
+ * was the single most-called thing in the whole system (tens of millions of
+ * `sessions`/`mfa`/`identities`/`users` reads), because the old `getUser()`
+ * re-validated against the Auth server on literally every navigation.
+ *
+ * Safety: if local verification can't produce a user (token near/expired, a
+ * symmetric-key project, or any edge case), we fall straight back to
+ * `getUser()` — the exact previous behavior, which also refreshes the session.
+ * Worst case it is as slow as before; it can NEVER lock anyone out.
+ */
+async function resolveAuthUser(
+  supabase: SupabaseClient
+): Promise<{ id: string; email: string | null } | null> {
+  try {
+    const { data, error } = await supabase.auth.getClaims();
+    const claims = data?.claims as
+      | { sub?: string; email?: string }
+      | undefined;
+    if (!error && claims?.sub) {
+      return { id: claims.sub, email: claims.email ?? null };
+    }
+  } catch {
+    // fall through to the authoritative getUser() path
+  }
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData.user;
+  return user ? { id: user.id, email: user.email ?? null } : null;
+}
 
 export interface TenantContext {
   userId: string;
@@ -27,11 +60,10 @@ export interface TenantContext {
 // supabase.auth.getUser() network hop + 2 queries from every navigation.
 export const getTenantContext = cache(async function getTenantContext(): Promise<TenantContext | null> {
   const supabase = await createClient();
-  const [{ data: authData }, cookieStore] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, cookieStore] = await Promise.all([
+    resolveAuthUser(supabase),
     cookies(),
   ]);
-  const user = authData.user;
   if (!user) return null;
 
   // Memberships + profile in parallel — both only need user.id.
@@ -80,9 +112,7 @@ export async function requireTenantMember(
   tenantId: string
 ): Promise<{ userId: string; role: Role }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await resolveAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
 
   const { data: membership } = await supabase
