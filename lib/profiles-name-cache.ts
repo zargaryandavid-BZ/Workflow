@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { remember } from "@/lib/cache";
 
 /**
  * Short-TTL cache for the tiny `profiles` table (team members — ~20 rows).
@@ -21,16 +22,34 @@ type ProfileRow = { id: string; full_name: string | null };
 // still fetched directly on demand (see getCachedProfilesByIds), so names are
 // never shown blank.
 const TTL_MS = 5 * 60_000;
+// Shared cache key + TTL (seconds). The Redis layer makes the 5-minute cache
+// SHARED across all serverless instances — a per-process cache barely helped
+// because Vercel spins up many short-lived instances, so this list was still
+// re-read from the DB tens of millions of times. Now one instance warms it and
+// the rest read it from memory.
+const REDIS_KEY = "wf:profiles:fullnames:v1";
+const REDIS_TTL_SECONDS = 300;
 
 let cache: { at: number; byId: Map<string, string | null> } | null = null;
 
 async function warmAllProfiles(supabase: SupabaseClient): Promise<void> {
-  const { data, error } = await supabase.from("profiles").select("id, full_name");
-  if (error) return; // leave stale/empty cache; callers fall back to direct fetch
-  cache = {
-    at: Date.now(),
-    byId: new Map((data ?? []).map((p: ProfileRow) => [p.id, p.full_name ?? null])),
-  };
+  try {
+    const rows = await remember<ProfileRow[]>(REDIS_KEY, REDIS_TTL_SECONDS, async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name");
+      // Throw on error so a failed read is NOT cached; the stale local cache is
+      // kept and missing ids still fall back to a direct fetch.
+      if (error) throw new Error(error.message);
+      return (data ?? []) as ProfileRow[];
+    });
+    cache = {
+      at: Date.now(),
+      byId: new Map(rows.map((p: ProfileRow) => [p.id, p.full_name ?? null])),
+    };
+  } catch {
+    // leave stale/empty cache; callers fall back to direct fetch
+  }
 }
 
 /**
