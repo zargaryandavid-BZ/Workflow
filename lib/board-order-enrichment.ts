@@ -6,6 +6,7 @@ import {
 } from "@/lib/card-badges";
 import { isVisibleCustomerReplyActivity } from "@/lib/activity";
 import { getCachedProfilesByIds } from "@/lib/profiles-name-cache";
+import { getCachedFieldValues } from "@/lib/field-values-cache";
 import {
   boardThumbnailsByOrder,
   designerNamesByOrder,
@@ -188,10 +189,9 @@ export async function enrichBoardOrders(
     replyActivityRes,
   ] =
     await Promise.all([
-      supabase
-        .from("custom_field_values")
-        .select("order_id, custom_field_id, value")
-        .in("order_id", orderIds),
+      // Cached (30s) per-order custom-field values — the highest total-time
+      // query in the DB. Same `{ data }` shape; see lib/field-values-cache.
+      getCachedFieldValues(supabase, orderIds),
 
       orderCardThumbnails(supabase, orders),
 
