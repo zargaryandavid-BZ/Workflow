@@ -3692,6 +3692,20 @@ async function createSingleWebhookJob(
   } = normalizeWebhookSkus(item.skus);
   const skus = prepareSkusForSave(rawSkus);
 
+  // Website order that arrived WITHOUT any customer artwork → the folder came in
+  // empty, so land it in Missing Info and ask for files (instead of Start). We
+  // skip "design from scratch" orders (nothing to request) and exact reorders
+  // (files already approved). Treated like the CRM "files coming" capture.
+  const hasAnyCustomerArtwork =
+    Array.from(artworkBySkuId.values()).some((refs) => refs.length > 0) ||
+    (typeof item.artwork_url === "string" && item.artwork_url.trim() !== "") ||
+    (Array.isArray(item.artwork_files) && item.artwork_files.length > 0);
+  const websiteMissingFiles =
+    isWebsiteWebhookSource(webhookSource) &&
+    !hasAnyCustomerArtwork &&
+    !isReorder &&
+    designSourceClean !== "needs_design";
+
   const specFields = normalizeSpecFields(item);
   if (designNotes) {
     specFields.designer_information = designNotes;
@@ -3777,7 +3791,8 @@ async function createSingleWebhookJob(
       initialColumn: initialColumnClean,
       designSource: designSourceClean,
       needsCustomerFiles,
-    })
+    }) ||
+    websiteMissingFiles
   ) {
     const missingCol = await resolveMissingInfoColumn(client, tenantId);
     if (missingCol) {
