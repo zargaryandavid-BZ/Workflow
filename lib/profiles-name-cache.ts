@@ -14,7 +14,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type ProfileRow = { id: string; full_name: string | null };
 
-const TTL_MS = 60_000;
+// Staff names change very rarely, so a 5-minute cache is safe and cuts the
+// number of times this 20-row list is re-read from the database (it was one of
+// the single most-called queries in the whole system). A brand-new teammate's
+// name still appears within 5 minutes, and any id missing from the cache is
+// still fetched directly on demand (see getCachedProfilesByIds), so names are
+// never shown blank.
+const TTL_MS = 5 * 60_000;
 
 let cache: { at: number; byId: Map<string, string | null> } | null = null;
 

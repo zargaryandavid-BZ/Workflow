@@ -1941,15 +1941,18 @@ export function Board({
     };
   }, [tenantId, scheduleRefresh, fetchColumnOrders, scheduleLoadedColumnRefresh]);
 
-  // 20-second polling fallback for missed realtime events. Only while the tab
-  // is visible (a backgrounded board shouldn't keep hammering the server), and
-  // as a LIGHT refresh (columns only, no full server re-render). Returning to
-  // the tab triggers one full catch-up refresh.
+  // Fallback poll for missed realtime events. Realtime is the PRIMARY live
+  // path — this interval only catches the rare dropped event, so it can be
+  // infrequent. It was 20s, which re-pulled every open column's full card data
+  // three times a minute forever and was the single biggest steady-state load
+  // on the database; 60s keeps it a safety net while cutting that load ~3x.
+  // Only while the tab is visible, and as a LIGHT refresh (columns only, no
+  // full server re-render). Returning to the tab triggers one full catch-up.
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (!draggingRef.current) scheduleRefresh("poll-20s", { full: false });
-    }, 20_000);
+      if (!draggingRef.current) scheduleRefresh("poll-60s", { full: false });
+    }, 60_000);
     const onVisible = () => {
       if (document.visibilityState === "visible" && !draggingRef.current) {
         scheduleRefresh("tab-visible");
