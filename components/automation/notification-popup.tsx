@@ -21,6 +21,8 @@ interface Props {
   groupOrderIds?: string[];
   onClose: () => void;
   onSaved: (message: string) => void;
+  /** Reflect a "bring all parts here" group move on the board immediately. */
+  onMovedGroup?: () => void;
 }
 
 export function NotificationPopup({
@@ -35,6 +37,7 @@ export function NotificationPopup({
   groupOrderIds,
   onClose,
   onSaved,
+  onMovedGroup,
 }: Props) {
   const [dismissing, setDismissing] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -99,6 +102,7 @@ export function NotificationPopup({
         onClose={onClose}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
+        onMovedGroup={onMovedGroup}
       />
     ) : (
       <ApprovalPopup

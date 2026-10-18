@@ -2094,6 +2094,30 @@ export function Board({
     });
   }
 
+  // Immediately show every line item of an order in the target column after a
+  // group move (the "Bring all N parts here" button in the Ready-to-Ship popup,
+  // and the right-click "Move all parts"). The server already moved them, but
+  // the board used to wait on a realtime event that often didn't repaint the
+  // siblings — so the other line items looked stuck in their own column.
+  const moveGroupLocally = useCallback(
+    (order: OrderWithRelations, toColumnId: string) => {
+      const key = getGroupKey(order);
+      const apply = (o: OrderWithRelations): OrderWithRelations => {
+        const belongs = key ? getGroupKey(o) === key : o.id === order.id;
+        return belongs && o.column_id !== toColumnId
+          ? { ...o, column_id: toColumnId, last_moved_at: new Date().toISOString() }
+          : o;
+      };
+      setOrders((prev) => {
+        const next = prev.map(apply);
+        boardOrdersRef.current = next;
+        return next;
+      });
+      setSearchResults((prev) => (prev ? prev.map(apply) : prev));
+    },
+    []
+  );
+
   // Move EVERY line item of an order into one column in a single click (used by
   // the "Move all N parts" toggle in the right-click menu). Quiet move; a
   // Finished column still sends one "finished / review" text for the order.
@@ -2116,6 +2140,7 @@ export function Board({
         moved?: number;
       };
       if (!res.ok) throw new Error(data.error ?? "Failed to move parts");
+      moveGroupLocally(order, toColumnId);
       const colName = columnsById.get(toColumnId)?.name ?? "that stage";
       flashToast(
         `Moved ${data.moved ?? 0} part${data.moved === 1 ? "" : "s"} to ${colName}`
@@ -4476,6 +4501,12 @@ export function Board({
           smsConfigured={smsConfigured}
           publicAppUrl={publicAppUrl}
           groupOrderIds={notifyPopup.groupOrders?.map((o) => o.id)}
+          onMovedGroup={() =>
+            moveGroupLocally(
+              notifyPopup.order,
+              notifyPopup.notifyColumn.column_id
+            )
+          }
           onClose={() => {
             const canceled = notifyPopup;
             setNotifyPopup(null);
