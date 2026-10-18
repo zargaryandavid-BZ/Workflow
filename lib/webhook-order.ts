@@ -7,6 +7,10 @@ import {
 } from "@/lib/missing-info-column";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
 import {
+  getDesignerAssignmentSettings,
+  pickLeastBusyDesigner,
+} from "@/lib/designer-assignment-settings";
+import {
   normalizeSourceChannel,
   shouldApplyMissingInfoFallback,
 } from "@/lib/source-channel";
@@ -4602,6 +4606,32 @@ export async function createOrderFromWebhook(
   let reorderOriginalCards: ReorderSourceCard[] | null = null;
   const reorderFinalLinks: { orderId: string; finalUrl: string }[] = [];
 
+  // Auto-assign the least-busy pool designer to brand-new orders that arrive
+  // with no designer (Settings → Designers). Computed once per webhook and only
+  // on CREATE (no existing cards), so edits/re-syncs never reassign.
+  let autoAssignDesignerId: string | null | undefined = undefined;
+  async function resolveAutoAssignDesigner(): Promise<string | null> {
+    if (autoAssignDesignerId !== undefined) return autoAssignDesignerId;
+    autoAssignDesignerId = null;
+    if (existingOrders.length > 0) return null;
+    try {
+      const settings = await getDesignerAssignmentSettings(client, tenantId);
+      if (!settings.enabled || settings.pool.length === 0) return null;
+      autoAssignDesignerId = await pickLeastBusyDesigner(
+        client,
+        tenantId,
+        settings
+      );
+    } catch (err) {
+      console.warn(
+        "[webhook-order] designer auto-assign failed:",
+        err instanceof Error ? err.message : err
+      );
+      autoAssignDesignerId = null;
+    }
+    return autoAssignDesignerId;
+  }
+
   for (let i = startCreateIndex; i < items.length; i++) {
     const rawItem = items[i];
     const merged = mergeItemWithOrder(body, rawItem);
@@ -4633,12 +4663,23 @@ export async function createOrderFromWebhook(
     }
 
     const designerInput = mergeDesignerInput(body, item);
-    const {
+    // eslint-disable-next-line prefer-const
+    let {
       designerId,
       designerName,
       warning: designerWarning,
     } = await resolveWebhookDesigner(client, tenantId, designerInput);
     if (designerWarning) allWarnings.push(designerWarning);
+
+    // No designer on the incoming order → auto-assign the least-busy pool
+    // designer (Settings → Designers). Create-only; respects an explicit designer.
+    if (!designerId) {
+      const auto = await resolveAutoAssignDesigner();
+      if (auto) {
+        designerId = auto;
+        designerName = (await profileName(client, auto)) ?? designerName;
+      }
+    }
 
     const ownerInput = mergeOwnerInput(body, item);
     const {

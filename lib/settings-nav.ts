@@ -126,6 +126,11 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         description: "People and roles on this workspace",
       },
       {
+        href: "/settings/designers",
+        label: "Designers",
+        description: "Auto-assign new orders and transfer stale jobs",
+      },
+      {
         href: "/settings/fulfillment",
         label: "Fulfillment",
         description: "Columns for delivered, received, counted, and missing/wrong",
