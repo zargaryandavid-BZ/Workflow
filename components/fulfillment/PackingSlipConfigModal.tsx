@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Package, Printer, X } from "lucide-react";
+import { Box, LayoutGrid, Loader2, Package, Printer, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type PackingSlipLayout = "multiple" | "one_per_slip";
@@ -631,35 +631,38 @@ function SenderPackingSlipWizard({
         </div>
 
         {step === 1 ? (
-          <div className="px-5 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
             <div className="flex overflow-hidden rounded-xl border border-slate-200">
               <button
                 type="button"
                 onClick={() => setLayout("multiple")}
                 className={cn(
-                  "flex h-14 flex-1 items-center justify-center gap-2 text-[15px] font-medium",
+                  "flex min-h-14 flex-1 items-center justify-center gap-2 px-3 py-2 text-center text-[14px] font-medium leading-tight",
                   layout === "multiple"
                     ? "bg-slate-900 text-white"
                     : "text-slate-600 hover:bg-slate-50"
                 )}
               >
-                Multi-SKU
+                <LayoutGrid className="h-4 w-4 shrink-0" />
+                All SKUs in one label
               </button>
               <button
                 type="button"
                 onClick={() => setLayout("one_per_slip")}
                 className={cn(
-                  "flex h-14 flex-1 items-center justify-center gap-2 border-l border-slate-200 text-[15px] font-medium",
+                  "flex min-h-14 flex-1 items-center justify-center gap-2 border-l border-slate-200 px-3 py-2 text-center text-[14px] font-medium leading-tight",
                   layout === "one_per_slip"
                     ? "bg-slate-900 text-white"
                     : "text-slate-600 hover:bg-slate-50"
                 )}
               >
-                1 per slip
+                <Square className="h-4 w-4 shrink-0" />
+                Each SKU one label
               </button>
             </div>
             <label className="mt-5 flex items-center justify-between gap-4">
-              <span className="text-[15px] font-medium text-slate-800">
+              <span className="inline-flex items-center gap-2 text-[15px] font-medium text-slate-800">
+                <Box className="h-4 w-4 shrink-0 text-slate-500" />
                 How many boxes
               </span>
               <input
@@ -671,6 +674,36 @@ function SenderPackingSlipWizard({
                 className="h-14 w-28 rounded-xl border border-slate-200 text-center text-[20px] font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
               />
             </label>
+            <p className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              SKUs
+            </p>
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              {skus.map((sku) => (
+                <div
+                  key={sku.skuId}
+                  className="flex items-center gap-3 border-t border-slate-100 px-3 py-2 first:border-t-0"
+                >
+                  {sku.artworkUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={sku.artworkUrl}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-contain"
+                    />
+                  ) : (
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
+                      <Package className="h-4 w-4 text-slate-300" />
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-800">
+                    {sku.skuName || "SKU"}
+                  </span>
+                  <span className="shrink-0 text-[14px] font-semibold text-slate-700">
+                    {requiredSkuQty(sku).toLocaleString("en-US")}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
