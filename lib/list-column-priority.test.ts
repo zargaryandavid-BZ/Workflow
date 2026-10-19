@@ -8,6 +8,8 @@ import {
   posByIdFromOrder,
   positionForMovedId,
   priorityGroupKey,
+  priorityOptions,
+  reorderAfterDrag,
   sortForColumnPriority,
 } from "./list-column-priority.ts";
 
@@ -118,5 +120,34 @@ describe("reorder → renumber", () => {
     assert.equal(positionForMovedId(["a", "c", "b"], "c", positions), 1500);
     assert.equal(positionForMovedId(["c", "a", "b"], "c", positions), 0);
     assert.equal(positionForMovedId(["a", "b", "c"], "a", positions), 1000);
+  });
+});
+
+describe("drag + 1..N priority picker", () => {
+  const ids = ["a", "b", "c", "d", "e"];
+
+  it("drag down lands in the dropped-on row's slot", () => {
+    assert.deepEqual(reorderAfterDrag(ids, "a", "c"), ["b", "c", "a", "d", "e"]);
+  });
+  it("drag up lands in the dropped-on row's slot", () => {
+    assert.deepEqual(reorderAfterDrag(ids, "e", "b"), ["a", "e", "b", "c", "d"]);
+  });
+  it("drag to first / last", () => {
+    assert.deepEqual(reorderAfterDrag(ids, "c", "a"), ["c", "a", "b", "d", "e"]);
+    assert.deepEqual(reorderAfterDrag(ids, "c", "e"), ["a", "b", "d", "e", "c"]);
+  });
+  it("dropped outside, on itself, or on another group's row → unchanged", () => {
+    assert.equal(reorderAfterDrag(ids, "a", null), ids);
+    assert.equal(reorderAfterDrag(ids, "a", "a"), ids);
+    assert.equal(reorderAfterDrag(ids, "a", "zz"), ids);
+  });
+  it("picker offers 1..N for the designer's job count", () => {
+    assert.deepEqual(priorityOptions(15), Array.from({ length: 15 }, (_, i) => i + 1));
+    assert.deepEqual(priorityOptions(1), [1]);
+    assert.deepEqual(priorityOptions(0), []);
+  });
+  it("picking a number moves the job to that slot", () => {
+    assert.deepEqual(moveIdToNumber(ids, "e", 2), ["a", "e", "b", "c", "d"]);
+    assert.deepEqual(moveIdToNumber(ids, "a", 5), ["b", "c", "d", "e", "a"]);
   });
 });

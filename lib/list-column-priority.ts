@@ -175,3 +175,25 @@ export function positionForMovedId(
   if (next === undefined) return prev + 1000;
   return (prev + next) / 2;
 }
+
+/**
+ * Drag result: the dragged row takes the slot of the row it was dropped on
+ * (dragging down lands after it, dragging up lands before it — dnd-kit
+ * sortable semantics). Unknown ids / dropped on itself → unchanged.
+ */
+export function reorderAfterDrag(
+  ids: string[],
+  activeId: string,
+  overId: string | null | undefined
+): string[] {
+  if (!overId || activeId === overId) return ids;
+  const to = ids.indexOf(overId);
+  if (to === -1 || !ids.includes(activeId)) return ids;
+  return moveId(ids, activeId, to);
+}
+
+/** Priority picker choices for a group of `count` jobs: 1..count. */
+export function priorityOptions(count: number): number[] {
+  const n = Math.max(0, Math.floor(count));
+  return Array.from({ length: n }, (_, i) => i + 1);
+}
