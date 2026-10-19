@@ -1841,11 +1841,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               </div>
             </div>
             <div className="flex flex-col gap-2">
-              {scanStation === "sender" ? (
-                <p className="text-[12px] md:text-[14px] text-slate-400">
-                  Sender prints the packing slip only.
-                </p>
-              ) : visibleScanButtons.map((button, index) => {
+              {visibleScanButtons.map((button, index) => {
                 const configured = !!button.columnId;
                 const columnName =
                   columns.find((c) => c.id === button.columnId)?.name ?? null;
@@ -1894,7 +1890,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   </button>
                 );
               })}
-              {scanStation !== "sender" && visibleScanButtons.length === 0 ? (
+              {visibleScanButtons.length === 0 ? (
                 <p className="text-[12px] md:text-[14px] text-slate-400">
                   {scanButtons.length === 0
                     ? "No scan buttons. Add them in Configure columns."
