@@ -75,7 +75,8 @@ export async function GET(
   const cacheKey = `${ctx.tenant.id}:${orderId}`;
   if (bust) {
     driveStatusCache.delete(cacheKey);
-    await cacheInvalidate(sharedKey(cacheKey));
+    // A manual Drive refresh also lets the card retry building its picture.
+    await cacheInvalidate([sharedKey(cacheKey), `wf:card-image-miss:v1:${cacheKey}`]);
   }
   const cached = getCachedDriveStatus(cacheKey);
   if (cached) return NextResponse.json(cached);

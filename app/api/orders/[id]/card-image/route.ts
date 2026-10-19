@@ -4,6 +4,16 @@ import { getTenantContext } from "@/lib/auth";
 import { canEditOrderDetails } from "@/lib/permissions";
 import { preserveCardImage, type CardImageSource } from "@/lib/card-image";
 import { loadOrderFinalDriveContext } from "@/lib/order-gdrive";
+import { cacheGet, cacheSet } from "@/lib/cache";
+
+// When a card has no buildable picture, every board load re-ran the full
+// "build picture from the Final PDF" attempt (~4s each, ~20 cards). Remember
+// that miss for 10 min, keyed by the order's Final folders AND its card_pdf_rev,
+// so a new folder or a regenerated card picture skips the remembered miss.
+// A Drive refresh (gdrive-status?refresh=1) also clears it.
+const CARD_MISS_TTL_SECONDS = 10 * 60;
+const cardImageMissKey = (tenantId: string, orderId: string) =>
+  `wf:card-image-miss:v1:${tenantId}:${orderId}`;
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -56,6 +66,21 @@ export async function GET(
     return NextResponse.json({ error: "No production PDF" }, { status: 404 });
   }
 
+  const specs = (loaded.order.specs ?? {}) as Record<string, unknown>;
+  const missFingerprint = `${[...folderIds].sort().join(",")}|${
+    typeof specs.card_pdf_rev === "string" ? specs.card_pdf_rev : ""
+  }`;
+  const missKey = cardImageMissKey(ctx.tenant.id, orderId);
+  if ((await cacheGet<string>(missKey)) === missFingerprint) {
+    if (existing) {
+      return NextResponse.json({ ...existing, source: "sku_image" as const });
+    }
+    return NextResponse.json(
+      { error: "Could not build card picture from the Final PDF" },
+      { status: 404 }
+    );
+  }
+
   const preview = await ensureBoardCardThumbnailFromFinalPdf(
     {
       id: loaded.order.id,
@@ -69,6 +94,7 @@ export async function GET(
   if (preview) {
     return NextResponse.json({ ...preview, source: "sku_image" as const });
   }
+  await cacheSet(missKey, missFingerprint, CARD_MISS_TTL_SECONDS);
   if (existing) {
     return NextResponse.json({ ...existing, source: "sku_image" as const });
   }
