@@ -13,6 +13,7 @@ export const PUBLIC_PATHS = [
   "/kiosk",
   "/fulfillment/scan",
   "/fulfillment/production",
+  "/fulfillment/multiitem-box",
 ];
 
 /** Still refresh/clear cookies here so a dead refresh token doesn't overlay login. */

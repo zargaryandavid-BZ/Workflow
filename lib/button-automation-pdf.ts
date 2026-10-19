@@ -559,6 +559,7 @@ function drawSpecs(
 
   const jobTicketHiddenSpecLabels = new Set([
     "production notes",
+    "design list",
     "designer queue pos",
     "request owner name",
     "request owner email",
@@ -644,6 +645,218 @@ function drawSpecs(
   }
 
   const boxH = headerH + specsH + descH + 10;
+
+  // Large values (notably CRM DESIGN_LIST) cannot be drawn in the fixed
+  // two-column box: PDFKit auto-creates a page for every subsequent absolute
+  // text call once that box extends below the page. Use a bounded, paginated
+  // one-column table instead and preserve every value.
+  if (startY + boxH > CONTENT_BOTTOM) {
+    const paginatedRows: SpecCell[] = [...specRows];
+    if (description) {
+      paginatedRows.push({
+        label: "Order Description",
+        value: pdfWinAnsiText(description),
+      });
+    }
+
+    const tableX = x + 4;
+    const tableW = w - 4;
+    const fullLabelW = 126;
+    const fullValueW = tableW - fullLabelW - padX * 2;
+    const maxRowH = CONTENT_BOTTOM - (HEADER_H + 12 + headerH);
+    let y = startY;
+
+    const drawSpecsTitle = (continued: boolean) => {
+      doc.rect(x, y, w, headerH).fill("#fff7ed");
+      doc.rect(x, y, 4, headerH).fill("#f59e0b");
+      doc
+        .rect(x, y, w, headerH)
+        .strokeColor("#fcd34d")
+        .lineWidth(0.5)
+        .stroke();
+      doc.fillColor("#92400e").fontSize(9).font("Helvetica-Bold");
+      textAt(
+        doc,
+        continued
+          ? "PRODUCT SPECIFICATIONS — CONTINUED"
+          : "PRODUCT SPECIFICATIONS",
+        innerX + 6,
+        y + 8
+      );
+      y += headerH;
+    };
+
+    const startSpecsPage = () => {
+      doc.addPage();
+      pageCtx?.onNewPage?.();
+      if (pageCtx) {
+        drawHeader(
+          doc,
+          pageCtx.tenantName,
+          pageCtx.orderNumber,
+          pageCtx.qrPng
+        );
+      }
+      y = HEADER_H + 12;
+      drawSpecsTitle(true);
+    };
+
+    const drawRowFrame = (rowY: number, rowH: number) => {
+      doc.rect(tableX, rowY, tableW, rowH).fill("#fff7ed");
+      doc
+        .rect(tableX, rowY, tableW, rowH)
+        .strokeColor("#fde68a")
+        .lineWidth(0.5)
+        .stroke();
+    };
+
+    const drawBoundedText = (
+      text: string,
+      textX: number,
+      textY: number,
+      width: number,
+      height: number,
+      options?: { link?: string; underline?: boolean }
+    ) => {
+      doc.text(pdfWinAnsiText(text), textX, textY, {
+        width,
+        height,
+        lineBreak: true,
+        ...(options ?? {}),
+      });
+    };
+
+    drawSpecsTitle(false);
+    for (const cell of paginatedRows) {
+      const imgGap = cell.imagePath ? ROLL_DIR_IMG_W + 6 : 0;
+      const availableValueW = Math.max(24, fullValueW - imgGap);
+      const labelH =
+        doc
+          .fontSize(LABEL_SIZE)
+          .font("Helvetica-Bold")
+          .heightOfString(cell.label, { width: fullLabelW }) ?? 0;
+      const valueH =
+        doc
+          .fontSize(VALUE_SIZE)
+          .font("Helvetica-Bold")
+          .heightOfString(cell.value || "—", { width: availableValueW }) ?? 0;
+      const rowH = Math.max(
+        20,
+        Math.max(labelH, valueH, cell.imagePath ? ROLL_DIR_IMG_H : 0) +
+          padY * 2
+      );
+
+      if (rowH <= maxRowH) {
+        if (y + rowH > CONTENT_BOTTOM) startSpecsPage();
+        drawRowFrame(y, rowH);
+        doc
+          .fontSize(LABEL_SIZE)
+          .font("Helvetica-Bold")
+          .fillColor("#78350f");
+        drawBoundedText(
+          cell.label,
+          tableX + padX,
+          y + padY,
+          fullLabelW,
+          rowH - padY * 2
+        );
+        let valueX = tableX + padX + fullLabelW;
+        let valueWidth = fullValueW;
+        if (cell.imagePath) {
+          try {
+            doc.image(
+              cell.imagePath,
+              valueX,
+              y + Math.max(1, padY - 2),
+              {
+                fit: [ROLL_DIR_IMG_W, ROLL_DIR_IMG_H],
+                valign: "center",
+              }
+            );
+          } catch {
+            /* keep text-only if the diagram cannot be embedded */
+          }
+          valueX += ROLL_DIR_IMG_W + 6;
+          valueWidth = Math.max(24, valueWidth - ROLL_DIR_IMG_W - 6);
+        }
+        doc
+          .fontSize(VALUE_SIZE)
+          .font("Helvetica-Bold")
+          .fillColor(cell.link ? "#1d4ed8" : "#111827");
+        drawBoundedText(
+          cell.value || "—",
+          valueX,
+          y + padY,
+          valueWidth,
+          rowH - padY * 2,
+          cell.link ? { link: cell.link, underline: true } : undefined
+        );
+        y += rowH;
+        continue;
+      }
+
+      // A single value is taller than a whole content page. Give it the full
+      // table width and split it only at whitespace/newline boundaries.
+      let remaining = cell.value || "—";
+      let firstChunk = true;
+      while (remaining) {
+        if (y + 48 > CONTENT_BOTTOM) startSpecsPage();
+        const chunkLabel = firstChunk
+          ? cell.label
+          : `${cell.label} (continued)`;
+        doc.fontSize(LABEL_SIZE).font("Helvetica-Bold");
+        const chunkLabelH = Math.max(
+          11,
+          doc.heightOfString(chunkLabel, { width: tableW - padX * 2 })
+        );
+        const maxTextH =
+          CONTENT_BOTTOM - y - padY * 3 - chunkLabelH;
+        const { fitted, rest } = splitTextToHeight(
+          doc,
+          remaining,
+          tableW - padX * 2,
+          maxTextH,
+          VALUE_SIZE
+        );
+        if (!fitted) {
+          startSpecsPage();
+          continue;
+        }
+        doc.fontSize(VALUE_SIZE).font("Helvetica-Bold");
+        const fittedH = doc.heightOfString(fitted, {
+          width: tableW - padX * 2,
+        });
+        const chunkH = padY * 3 + chunkLabelH + fittedH;
+        drawRowFrame(y, chunkH);
+        doc
+          .fontSize(LABEL_SIZE)
+          .font("Helvetica-Bold")
+          .fillColor("#78350f");
+        drawBoundedText(
+          chunkLabel,
+          tableX + padX,
+          y + padY,
+          tableW - padX * 2,
+          chunkLabelH
+        );
+        doc.fontSize(VALUE_SIZE).font("Helvetica-Bold").fillColor("#111827");
+        drawBoundedText(
+          fitted,
+          tableX + padX,
+          y + padY * 2 + chunkLabelH,
+          tableW - padX * 2,
+          fittedH
+        );
+        y += chunkH;
+        remaining = rest;
+        firstChunk = false;
+        if (remaining) startSpecsPage();
+      }
+    }
+
+    doc.fillColor("#000000").font("Helvetica");
+    return drawAttentionBlocks(doc, data, y + 8, pageCtx);
+  }
 
   // Highlighted background box (same cream + amber accent)
   doc.rect(x, startY, w, boxH).fill("#fff7ed");

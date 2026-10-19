@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { requireFulfillmentApi } from "@/lib/fulfillment-access";
+import { lookupFulfillmentScan } from "@/lib/fulfillment-scan-public";
+import { resolveFloorTenant } from "@/lib/kiosk-token";
 import { createClient } from "@/lib/supabase/server";
 import {
   buildScanCardDisplay,
@@ -25,9 +27,17 @@ import { loadScanFinalArtworkPictures } from "@/lib/fulfillment-scan-final-artwo
  * customer, thumbnail, print specs, due label, billing, owner, designer.
  */
 export async function GET(request: Request) {
-  const auth = requireFulfillmentApi(await getTenantContext());
+  const ctx = await getTenantContext();
+  if (!ctx) {
+    const floor = await resolveFloorTenant();
+    if (!floor) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+    return lookupFulfillmentScan(floor.supabase, floor.tenantId, q);
+  }
+  const auth = requireFulfillmentApi(ctx);
   if ("error" in auth) return auth.error;
-  const { ctx } = auth;
 
   const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
   if (!q) {

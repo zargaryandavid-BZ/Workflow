@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth";
-import { requireFulfillmentApi } from "@/lib/fulfillment-access";
+import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 import {
   multiitemBoxNameFromIsoDate,
   utcBoxDate,
 } from "@/lib/fulfillment-day";
 import type { MultiitemBoxRow } from "@/lib/multiitem-box-lookup";
 import { normalizeMultiitemBoxSkuLines } from "@/lib/multiitem-box-lookup";
-import { createClient } from "@/lib/supabase/server";
 import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
 import { loadFinalArtworkSkuCount } from "@/lib/final-artwork-sku-count";
 import { scanQtyPerSkuFromSpecs } from "@/lib/fulfillment-scan-order";
 
 export async function GET(request: Request) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId } = access;
 
   const searchParams = new URL(request.url).searchParams;
   const status = searchParams.get("status") ?? "open";
@@ -23,13 +21,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
-  const supabase = await createClient();
   let query = supabase
     .from("multiitem_boxes")
     .select(
       "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at, multiitem_box_orders(*)"
     )
-    .eq("tenant_id", ctx.tenant.id)
+    .eq("tenant_id", tenantId)
     .eq("status", status)
     .order(status === "saved" ? "saved_at" : "created_at", {
       // Open boxes form a left-to-right working row, so newly created boxes
@@ -60,7 +57,7 @@ export async function GET(request: Request) {
     const { data: orders } = await supabase
       .from("orders")
       .select("id, specs, customer:customers(email, phone)")
-      .eq("tenant_id", ctx.tenant.id)
+      .eq("tenant_id", tenantId)
       .in("id", orderIds);
 
     for (const order of (orders ?? []) as {
@@ -131,9 +128,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId, userId } = access;
 
   const body = (await request.json().catch(() => ({}))) as {
     box_date?: string;
@@ -142,7 +139,6 @@ export async function POST(request: Request) {
     weight_lbs?: number | string | null;
   };
 
-  const supabase = await createClient();
   const boxDate =
     typeof body.box_date === "string" &&
     /^\d{4}-\d{2}-\d{2}$/.test(body.box_date)
@@ -154,13 +150,13 @@ export async function POST(request: Request) {
       ? null
       : Number(weightRaw);
   const insertRow = {
-    tenant_id: ctx.tenant.id,
+    tenant_id: tenantId,
     box_date: boxDate,
     po_number: body.po_number?.trim() || null,
     size_label: body.size_label?.trim() || null,
     weight_lbs: weight != null && Number.isFinite(weight) ? weight : null,
     status: "open" as const,
-    created_by: ctx.userId,
+    created_by: userId,
   };
   const selectCols =
     "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at";
@@ -169,7 +165,7 @@ export async function POST(request: Request) {
     const { data: rows, error } = await supabase
       .from("multiitem_boxes")
       .select("box_number")
-      .eq("tenant_id", ctx.tenant.id);
+      .eq("tenant_id", tenantId);
     if (error) return { error: error.message };
     const max = (rows ?? []).reduce(
       (n, row) => Math.max(n, Number(row.box_number) || 0),

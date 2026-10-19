@@ -1830,6 +1830,8 @@ End-to-end flows as implemented in code. Column **kinds** in the database are `e
 
 `/fulfillment/production` (`components/fulfillment/FulfillmentProductionPage.tsx`). Floor list of jobs in the board **In Production** column only (same count as the Kanban header — not Hrach, Apparel, Outsource, or Production Completed). Chrome is **search + qty ttl** and a **two-column** artwork | order # | item title | print list (one column on small screens). Each row prints a **job ticket** (`POST …/job-ticket`) and a **packing slip** (`POST …/packing-slip`) on `/api/fulfillment/production/[id]/…` or public `/api/public/floor/production/[id]/…` (same PDF as Scan / board packing slip; `lib/packing-slip-generate.ts`). **No login.** No fulfillment nav on this page.
 
+Job-ticket product specifications use the compact two-column table when it fits and switch oversized values to bounded continuation pages. **Design List is never printed in Product Specifications**; production-floor staff use the copy in **Production Notes** instead.
+
 ### Fulfillment Scan
 
 On phone-sized screens the QR camera auto-opens **inside the empty scan/order-details box**, rather than covering the whole page. Desktop keeps the full-screen camera. Both views start with the front camera and include a **Front camera / Back camera** switch; if the requested camera is unavailable, they fall back to the other camera.

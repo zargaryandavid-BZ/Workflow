@@ -394,7 +394,9 @@ export function webhookSpecRowsForJobTicket(
   // spec_display rows are still appended because they are explicitly prepared
   // by the webhook for display and may carry information not in spec_selections.
 
-  return appendUniqueSpecDisplayRows(rows, specs.spec_display);
+  return appendUniqueSpecDisplayRows(rows, specs.spec_display).filter(
+    (row) => specLabelKey(row.label) !== "design list"
+  );
 }
 
 /** Append cardboard `spec_display` rows that are not already in `rows` (job ticket). */

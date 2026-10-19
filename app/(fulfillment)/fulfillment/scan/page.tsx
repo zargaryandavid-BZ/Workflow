@@ -3,18 +3,27 @@ import { getTenantContext } from "@/lib/auth";
 import { assertFulfillmentPageAccess } from "@/lib/fulfillment-access";
 import { createClient } from "@/lib/supabase/server";
 import { FulfillmentScanPage } from "@/components/fulfillment/FulfillmentScanPage";
-import { KioskScanView } from "@/components/fulfillment/KioskScanView";
+import {
+  KioskScanView,
+  PublicFloorScanView,
+} from "@/components/fulfillment/KioskScanView";
 import { normalizeScanButtons } from "@/lib/fulfillment-scan-config";
-import { resolveFloorScanKiosk } from "@/lib/kiosk-token";
+import { resolveFloorTenant, resolveKioskTenant } from "@/lib/kiosk-token";
 import { isSmsConfigured } from "@/lib/sms";
 import type { BoardColumn, CustomField } from "@/lib/types";
 
 export default async function Page() {
   const ctx = await getTenantContext();
   if (!ctx) {
-    const kiosk = await resolveFloorScanKiosk();
-    if (!kiosk) notFound();
-    return <KioskScanView kiosk={kiosk} />;
+    const floor = await resolveFloorTenant();
+    if (!floor) notFound();
+    if (floor.token) {
+      const kiosk = await resolveKioskTenant(floor.token);
+      if (kiosk) return <KioskScanView kiosk={kiosk} />;
+    }
+    return (
+      <PublicFloorScanView supabase={floor.supabase} tenantId={floor.tenantId} />
+    );
   }
 
   assertFulfillmentPageAccess(ctx);

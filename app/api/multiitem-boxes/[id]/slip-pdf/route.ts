@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth";
-import { requireFulfillmentApi } from "@/lib/fulfillment-access";
+import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 import { generateMultiitemBoxSlipPdf } from "@/lib/multiitem-box-slip-pdf";
-import { createClient } from "@/lib/supabase/server";
 import { loadFinalArtworkSkuCount } from "@/lib/final-artwork-sku-count";
 import { scanQtyPerSkuFromSpecs } from "@/lib/fulfillment-scan-order";
 import { normalizeMultiitemBoxSkuLines } from "@/lib/multiitem-box-lookup";
@@ -15,11 +13,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId } = access;
   const { id: boxId } = await params;
-  const supabase = await createClient();
   const positiveInt = (value: unknown): number | null => {
     const number = Number(value);
     return Number.isInteger(number) && number > 0 && number <= 10_000
@@ -39,7 +36,7 @@ export async function POST(
       "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_name, customer_email, customer_phone, multiitem_box_orders(*)"
     )
     .eq("id", boxId)
-    .eq("tenant_id", ctx.tenant.id)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
 
   if (boxError || !box) {
@@ -57,7 +54,7 @@ export async function POST(
       ? await supabase
           .from("orders")
           .select("id, specs")
-          .eq("tenant_id", ctx.tenant.id)
+          .eq("tenant_id", tenantId)
           .in("id", orderIds)
       : { data: [] };
   const specsByOrderId = new Map(

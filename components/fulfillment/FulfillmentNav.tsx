@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Camera, Package, PackageCheck, PackagePlus, Printer, ScanLine, Settings, X } from "lucide-react";
+import { Camera, Package, ScanLine, Settings, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 
@@ -16,8 +16,6 @@ export const SCAN_CAMERA_EVENT = "workflow:scan-camera";
 
 export function FulfillmentNav() {
   const pathname = usePathname();
-  const isSend = pathname === "/fulfillment/send" || pathname === "/fulfillment";
-  const isReceived = pathname === "/fulfillment/received";
   const isScan = pathname === "/fulfillment/scan" || pathname.startsWith("/fulfillment/scan/");
   const isProduction = pathname === "/fulfillment/production";
   const isBoxSlip = pathname === "/fulfillment/multiitem-box";
@@ -118,33 +116,7 @@ export function FulfillmentNav() {
 
   return (
     <>
-    <header className="flex flex-nowrap items-center gap-1 border-b border-slate-200 bg-white px-2 py-2 md:px-4">
-      <Link
-        href="/fulfillment/send"
-        title="Send"
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
-          isSend
-            ? "bg-slate-900 text-white"
-            : "text-slate-600 hover:bg-slate-100"
-        )}
-      >
-        <PackagePlus className="h-4 w-4 shrink-0" />
-        <span className="hidden md:inline">Send</span>
-      </Link>
-      <Link
-        href="/fulfillment/received"
-        title="Received"
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
-          isReceived
-            ? "bg-slate-900 text-white"
-            : "text-slate-600 hover:bg-slate-100"
-        )}
-      >
-        <PackageCheck className="h-4 w-4 shrink-0" />
-        <span className="hidden md:inline">Received</span>
-      </Link>
+    <header className="flex flex-nowrap items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-2 py-2 md:px-4">
       <Link
         href="/fulfillment/scan"
         title="Scan"
@@ -156,20 +128,7 @@ export function FulfillmentNav() {
         )}
       >
         <ScanLine className="h-4 w-4 shrink-0" />
-        <span className="hidden md:inline">Scan</span>
-      </Link>
-      <Link
-        href="/fulfillment/production"
-        title="Production"
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors md:px-3",
-          isProduction
-            ? "bg-slate-900 text-white"
-            : "text-slate-600 hover:bg-slate-100"
-        )}
-      >
-        <Printer className="h-4 w-4 shrink-0" />
-        <span className="hidden md:inline">Production</span>
+        <span className="inline">Scan</span>
       </Link>
       <Link
         href="/fulfillment/multiitem-box"
@@ -189,7 +148,7 @@ export function FulfillmentNav() {
             </span>
           )}
         </span>
-        <span className="hidden md:inline">Multi-item Box Slip</span>
+        <span className="inline">Multi-item box</span>
       </Link>
       {isBoxSlip ? (
         <div

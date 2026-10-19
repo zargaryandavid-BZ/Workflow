@@ -1163,7 +1163,7 @@ export function MultiitemBoxSlipModal({
     };
     patchBoxLocal(box.id, {
       items: [...box.items, item],
-      customer: box.customer || item.customerName || box.customer,
+      customer: box.customer || item.customerName || null,
       customerEmail: box.customerEmail || item.customerEmail || null,
       customerPhone: box.customerPhone || item.customerPhone || null,
     });

@@ -5,9 +5,17 @@ import { normalizeScanButtons } from "@/lib/fulfillment-scan-config";
 import { isSmsConfigured } from "@/lib/sms";
 import type { BoardColumn, CustomField } from "@/lib/types";
 
-export async function KioskScanView({ kiosk }: { kiosk: KioskTenant }) {
-  const { supabase, tenantId, token } = kiosk;
-
+async function FloorScanShell({
+  supabase,
+  tenantId,
+  scanColumnConfig,
+  scanApiBase,
+}: {
+  supabase: KioskTenant["supabase"];
+  tenantId: string;
+  scanColumnConfig: unknown;
+  scanApiBase: string;
+}) {
   const [tenantRes, columnsRes, fieldsRes] = await Promise.all([
     supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle(),
     supabase
@@ -22,14 +30,14 @@ export async function KioskScanView({ kiosk }: { kiosk: KioskTenant }) {
   ]);
 
   const tenantName =
-    (tenantRes.data as { name: string } | null)?.name ?? "Kiosk";
+    (tenantRes.data as { name: string } | null)?.name ?? "Scan";
   const columns = (columnsRes.data ?? []) as BoardColumn[];
   const customFields = (fieldsRes.data ?? []) as CustomField[];
-  const initialButtons = normalizeScanButtons(kiosk.scanColumnConfig);
+  const initialButtons = normalizeScanButtons(scanColumnConfig);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-50">
-      <KioskScanNav tenantName={tenantName} kioskToken={token} />
+      <KioskScanNav tenantName={tenantName} kioskToken="" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <FulfillmentScanPage
           columns={columns}
@@ -37,9 +45,44 @@ export async function KioskScanView({ kiosk }: { kiosk: KioskTenant }) {
           tenantName={tenantName}
           customFields={customFields}
           smsConfigured={isSmsConfigured()}
-          scanApiBase={`/api/kiosk/${token}`}
+          scanApiBase={scanApiBase}
         />
       </div>
     </div>
+  );
+}
+
+export async function KioskScanView({ kiosk }: { kiosk: KioskTenant }) {
+  return (
+    <FloorScanShell
+      supabase={kiosk.supabase}
+      tenantId={kiosk.tenantId}
+      scanColumnConfig={kiosk.scanColumnConfig}
+      scanApiBase={`/api/kiosk/${kiosk.token}`}
+    />
+  );
+}
+
+/** Logged-out `/fulfillment/scan` when no kiosk token is configured. */
+export async function PublicFloorScanView({
+  supabase,
+  tenantId,
+}: {
+  supabase: KioskTenant["supabase"];
+  tenantId: string;
+}) {
+  const { data } = await supabase
+    .from("fulfillment_settings")
+    .select("scan_column_config")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  return (
+    <FloorScanShell
+      supabase={supabase}
+      tenantId={tenantId}
+      scanColumnConfig={data?.scan_column_config}
+      scanApiBase="/api/public/floor/scan"
+    />
   );
 }
