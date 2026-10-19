@@ -57,6 +57,29 @@ export function shouldSyncCustomerPriority(
   return score == null;
 }
 
+/**
+ * Board priority for website / storefront checkouts when the buyer's company
+ * has no default. Website buyers are usually brand-new customers, so without
+ * this their cards had NO priority badge while CRM cards (whose companies
+ * have a default set) did. Stamped as customer-sourced, so setting a company
+ * default later still overrides it and a manual card priority is never touched.
+ * Change this one number to change the website default.
+ */
+export const WEBSITE_ORDER_DEFAULT_PRIORITY_SCORE: PriorityScore = 1;
+
+/**
+ * Priority score for a NEW webhook card: the company default when set,
+ * otherwise the website default for website orders, otherwise none.
+ */
+export function newWebhookOrderPriorityScore(
+  customerScore: number | null | undefined,
+  isWebsiteOrder: boolean
+): PriorityScore | null {
+  const fromCustomer = parsePriorityScore(customerScore);
+  if (fromCustomer != null) return fromCustomer;
+  return isWebsiteOrder ? WEBSITE_ORDER_DEFAULT_PRIORITY_SCORE : null;
+}
+
 /** Specs patch when applying company default (or clearing it). */
 export function customerPrioritySpecsPatch(
   existingSpecs: Record<string, unknown> | null | undefined,

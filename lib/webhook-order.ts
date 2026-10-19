@@ -6,6 +6,7 @@ import {
   pickMissingInfoColumn,
 } from "@/lib/missing-info-column";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
+import { newWebhookOrderPriorityScore } from "@/lib/order-priority-score";
 import {
   getDesignerAssignmentSettings,
   pickLeastBusyDesigner,
@@ -4849,7 +4850,10 @@ export async function createOrderFromWebhook(
       corrections: allCorrections,
       webhookSource,
       billing,
-      customerPriorityScore,
+      customerPriorityScore: newWebhookOrderPriorityScore(
+        customerPriorityScore,
+        isWebsiteWebhookSource(webhookSource)
+      ),
       portalBrokerId,
       portalCompanyName,
       bazaarOrderNumber: bazaarOrderNumberFromWebhook(body, item),

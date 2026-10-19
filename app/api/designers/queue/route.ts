@@ -124,6 +124,8 @@ export async function PATCH(request: Request) {
   for (let i = 0; i < ids.length; i++) {
     const cur = specsById.get(ids[i]);
     if (!cur) continue;
+    // Already at this slot → skip the write (fewer realtime refetches).
+    if (queuePos(cur) === i) continue;
     await supabase
       .from("orders")
       .update({ specs: { ...cur, designer_queue_pos: i }, updated_at: now })
