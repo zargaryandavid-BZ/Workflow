@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Box, LayoutGrid, Loader2, Package, Printer, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -394,21 +394,27 @@ function SenderPackingSlipWizard({
   onClose,
 }: Props) {
   const skuList = skuImages ?? [];
-  // Product specifications store a quantity on each SKU. Extra production-PDF
-  // pages are artwork only and must not split that quantity across pages.
-  const specified = skuList.filter(
+  // Each Final Production page is one SKU. "3,200 QTY each" applies to every
+  // page. A single specs.skus row often stores the order total, so it must
+  // not replace the other pages.
+  const ownQtyCount = skuList.filter(
     (img) => typeof img.qty === "number" && img.qty > 0
-  );
-  const rows = specified.length > 0 ? specified : skuList;
-  const perQty =
-    specified.length > 0
-      ? null
-      : deriveQty(totalQty, qtyPerSku, rows.length);
+  ).length;
+  const eachQty =
+    qtyPerSku && qtyPerSku > 0
+      ? qtyPerSku
+      : ownQtyCount === skuList.length
+        ? null
+        : deriveQty(totalQty, null, skuList.length);
   const skus: SkuSlipConfig[] =
-    rows.length > 0
-      ? rows.map((img) => {
+    skuList.length > 0
+      ? skuList.map((img) => {
           const qty =
-            typeof img.qty === "number" && img.qty > 0 ? img.qty : perQty;
+            ownQtyCount === skuList.length &&
+            typeof img.qty === "number" &&
+            img.qty > 0
+              ? img.qty
+              : eachQty;
           return {
             skuId: img.sku_id,
             skuName: img.sku_name,
@@ -438,8 +444,68 @@ function SenderPackingSlipWizard({
     fromBox: number | null;
     key?: string;
   } | null>(null);
+  const [boxMenu, setBoxMenu] = useState<{
+    skuId: string;
+    fromBox: number | null;
+    key?: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const pressRef = useRef<{
+    timer: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const ignoreClickRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (pressRef.current) window.clearTimeout(pressRef.current.timer);
+    };
+  }, []);
+
+  function cancelPress() {
+    if (!pressRef.current) return;
+    window.clearTimeout(pressRef.current.timer);
+    pressRef.current = null;
+  }
+
+  function startBoxPress(
+    event: ReactPointerEvent<HTMLElement>,
+    target: { skuId: string; fromBox: number | null; key?: string }
+  ) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.pointerType !== "mouse") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    cancelPress();
+    const x = event.clientX;
+    const y = event.clientY;
+    const timer = window.setTimeout(() => {
+      ignoreClickRef.current = true;
+      pressRef.current = null;
+      setPicked(null);
+      setBoxMenu({ ...target, x, y });
+    }, 450);
+    pressRef.current = { timer, x, y };
+  }
+
+  function moveBoxPress(event: ReactPointerEvent<HTMLElement>) {
+    const press = pressRef.current;
+    if (!press) return;
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 12) {
+      cancelPress();
+    }
+  }
+
+  function chooseBox(boxIndex: number) {
+    if (!boxMenu) return;
+    if (boxMenu.fromBox == null) placeFromPool(boxIndex, boxMenu.skuId);
+    else if (boxMenu.key) moveLine(boxMenu.fromBox, boxMenu.key, boxIndex);
+    setBoxMenu(null);
+  }
 
   const skuById = new Map(skus.map((sku) => [sku.skuId, sku]));
 
@@ -467,6 +533,7 @@ function SenderPackingSlipWizard({
       setBoxes(Array.from({ length: count }, () => []));
     }
     setPicked(null);
+    setBoxMenu(null);
     setError("");
     setStep(2);
   }
@@ -703,11 +770,11 @@ function SenderPackingSlipWizard({
             <p className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               SKUs
             </p>
-            <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="grid grid-cols-2 gap-2">
               {skus.map((sku) => (
                 <div
                   key={sku.skuId}
-                  className="flex items-center gap-3 border-t border-slate-100 px-3 py-2 first:border-t-0"
+                  className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-2"
                 >
                   {sku.artworkUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -736,7 +803,7 @@ function SenderPackingSlipWizard({
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Unassigned
             </p>
-            <div className="mb-4 flex flex-col gap-2">
+            <div className="mb-4 grid grid-cols-2 gap-2">
               {skus.map((sku) => {
                 const left = remaining(sku.skuId);
                 const active = picked?.skuId === sku.skuId && picked.fromBox == null;
@@ -745,7 +812,17 @@ function SenderPackingSlipWizard({
                     key={sku.skuId}
                     type="button"
                     draggable={left > 0}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onPointerDown={(e) => {
+                      if (left <= 0) return;
+                      if (e.pointerType !== "mouse") e.currentTarget.draggable = false;
+                      startBoxPress(e, { skuId: sku.skuId, fromBox: null });
+                    }}
+                    onPointerMove={moveBoxPress}
+                    onPointerUp={cancelPress}
+                    onPointerCancel={cancelPress}
                     onDragStart={(e) => {
+                      cancelPress();
                       const payload = JSON.stringify({
                         skuId: sku.skuId,
                         fromBox: null,
@@ -754,13 +831,18 @@ function SenderPackingSlipWizard({
                       e.dataTransfer.setData("application/json", payload);
                       e.dataTransfer.effectAllowed = "copy";
                     }}
-                    onClick={() =>
+                    onClick={() => {
+                      if (ignoreClickRef.current) {
+                        ignoreClickRef.current = false;
+                        return;
+                      }
+                      setBoxMenu(null);
                       setPicked(
                         active ? null : { skuId: sku.skuId, fromBox: null }
-                      )
-                    }
+                      );
+                    }}
                     className={cn(
-                      "flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 text-left",
+                      "flex min-h-14 min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left",
                       left === 0
                         ? "border-slate-100 bg-slate-50 opacity-60"
                         : active
@@ -840,8 +922,21 @@ function SenderPackingSlipWizard({
                           <div
                             key={line.key}
                             draggable
+                            onContextMenu={(e) => e.preventDefault()}
+                            onPointerDown={(e) => {
+                              if (e.pointerType !== "mouse") e.currentTarget.draggable = false;
+                              startBoxPress(e, {
+                                skuId: line.skuId,
+                                fromBox: boxIndex,
+                                key: line.key,
+                              });
+                            }}
+                            onPointerMove={moveBoxPress}
+                            onPointerUp={cancelPress}
+                            onPointerCancel={cancelPress}
                             onDragStart={(e) => {
                               e.stopPropagation();
+                              cancelPress();
                               const payload = JSON.stringify({
                                 skuId: line.skuId,
                                 fromBox: boxIndex,
@@ -852,6 +947,11 @@ function SenderPackingSlipWizard({
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (ignoreClickRef.current) {
+                                ignoreClickRef.current = false;
+                                return;
+                              }
+                              setBoxMenu(null);
                               setPicked(
                                 active
                                   ? null
@@ -891,6 +991,55 @@ function SenderPackingSlipWizard({
             </div>
           </div>
         )}
+
+        {boxMenu ? (
+          <div
+            className="fixed inset-0 z-[80]"
+            onClick={() => {
+              if (ignoreClickRef.current) {
+                ignoreClickRef.current = false;
+                return;
+              }
+              setBoxMenu(null);
+            }}
+          >
+            <div
+              role="menu"
+              aria-label="Move to box"
+              className="absolute min-w-44 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+              style={{
+                left: Math.max(8, Math.min(boxMenu.x, window.innerWidth - 196)),
+                top: Math.max(
+                  8,
+                  Math.min(boxMenu.y, window.innerHeight - (52 + boxes.length * 44))
+                ),
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Move to
+              </p>
+              {boxes.map((_, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  role="menuitem"
+                  disabled={boxMenu.fromBox === index}
+                  onClick={() => {
+                    if (ignoreClickRef.current) {
+                      ignoreClickRef.current = false;
+                      return;
+                    }
+                    chooseBox(index);
+                  }}
+                  className="flex min-h-11 w-full items-center px-3 text-left text-[14px] font-medium text-slate-800 hover:bg-slate-50 disabled:text-slate-300"
+                >
+                  Box {index + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="shrink-0 border-t border-slate-100 px-5 py-4">
           {(error || (step === 2 && issues.length > 0)) && (
