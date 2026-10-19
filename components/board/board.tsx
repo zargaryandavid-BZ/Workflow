@@ -732,6 +732,8 @@ export function Board({
   const [boardView, setBoardView] = useState<"kanban" | "table" | "list">(
     "kanban"
   );
+  // List view → "Column" picker ("" = All stages, the original list).
+  const [listPriorityColumnId, setListPriorityColumnId] = useState("");
   const [hiddenColIds, setHiddenColIds] = useState<Set<string>>(() => new Set());
   const [columnSortById, setColumnSortById] = useState<ColumnSortMap>({});
   const columnSortByIdRef = useRef<ColumnSortMap>({});
@@ -1698,6 +1700,51 @@ export function Board({
     }
   }, [boardView, columns, fetchColumnOrders]);
 
+  // List view with one column picked: make sure EVERY card of that column is
+  // loaded (Kanban pages 25 at a time). Filtered views already hold the full
+  // match set from search, so this only runs unfiltered. Capped for safety.
+  const listColumnPagesRef = useRef(0);
+  useEffect(() => {
+    listColumnPagesRef.current = 0;
+  }, [listPriorityColumnId]);
+  useEffect(() => {
+    if (boardView !== "list" || !listPriorityColumnId) return;
+    if (
+      orderQuery.trim() !== "" ||
+      personFilter !== "" ||
+      ownerFilter !== "" ||
+      webhookSourceFilter !== "" ||
+      overdueOnly ||
+      dueTodayOnly
+    ) {
+      return;
+    }
+    const colId = listPriorityColumnId;
+    const status = columnLoadStatus[colId] ?? "idle";
+    if (status === "loading") return;
+    if (status === "idle" || status === "error") {
+      void fetchColumnOrders(colId, 0);
+      return;
+    }
+    if (columnHasMore[colId] && listColumnPagesRef.current < 40) {
+      listColumnPagesRef.current += 1;
+      const nextPage = (columnCurrentPageRef.current[colId] ?? 0) + 1;
+      void fetchColumnOrders(colId, nextPage);
+    }
+  }, [
+    boardView,
+    listPriorityColumnId,
+    columnLoadStatus,
+    columnHasMore,
+    fetchColumnOrders,
+    orderQuery,
+    personFilter,
+    ownerFilter,
+    webhookSourceFilter,
+    overdueOnly,
+    dueTodayOnly,
+  ]);
+
   // Called by Column's "Load more" button.
   const onLoadMore = useCallback(
     (columnId: string) => {
@@ -2331,17 +2378,17 @@ export function Board({
     });
 
     try {
-      await Promise.all(
-        groupOrders.map((order) =>
-          patchOrderApi(order.id, {
-            specs: {
-              ...(order.specs ?? {}),
-              designer_id: designer.id,
-              designer_name: designer.name,
-            },
-          })
-        )
-      );
+      // One at a time: each part takes the next slot at the end of the
+      // designer's queue (parallel saves would all grab the same #N).
+      for (const order of groupOrders) {
+        await patchOrderApi(order.id, {
+          specs: {
+            ...(order.specs ?? {}),
+            designer_id: designer.id,
+            designer_name: designer.name,
+          },
+        });
+      }
       flashToast(
         designer.name
           ? `Assigned ${designer.name} to ${groupOrders.length} items`
@@ -4005,6 +4052,32 @@ export function Board({
             ownerNameByOrder={displayOwnerNameByOrder}
             designerNameByOrder={displayDesignerNameByOrder}
             onOpenOrder={(o) => openOrderDetail(o.id)}
+            priorityColumnId={listPriorityColumnId}
+            onPriorityColumnChange={setListPriorityColumnId}
+            canReorderPriority={
+              role === "admin" ||
+              role === "preprod_owner" ||
+              role === "account_manager"
+            }
+            onSetPriorityScore={
+              canSetBoardTagAndPriority(role)
+                ? handleSetPriorityScore
+                : undefined
+            }
+            onPositionSaved={(orderId, position) => {
+              const col = listPriorityColumnId;
+              if (!col) return;
+              patchOrderPlacement(orderId, { column_id: col, position });
+              // Same as a Kanban same-column drag: show this column in
+              // Manual order so the board matches the list.
+              setColumnSortMode(col, "manual");
+            }}
+            priorityColumnLoadingMore={
+              Boolean(listPriorityColumnId) &&
+              !filtersActive &&
+              (columnLoadStatus[listPriorityColumnId] === "loading" ||
+                Boolean(columnHasMore[listPriorityColumnId]))
+            }
           />
         </div>
       ) : boardView === "table" ? (

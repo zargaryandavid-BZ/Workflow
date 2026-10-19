@@ -15,6 +15,8 @@ import { effectiveDaysUntilDue } from "@/lib/board-due-date";
 import { formatDateShort } from "@/lib/utils";
 import { priorityScoreFromSpecs } from "@/lib/order-priority-score";
 import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
+import type { PriorityScore } from "@/lib/order-priority-score";
+import { ColumnPriorityList } from "./column-priority-list";
 
 type GroupBy = "none" | "designer" | "owner";
 const UNASSIGNED = "Unassigned";
@@ -38,6 +40,19 @@ interface Props {
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
   onOpenOrder: (order: OrderWithRelations) => void;
+  /**
+   * Optional "Column" picker. "" (default) = All stages = the original list.
+   * When a column is chosen the list switches to that column's priority order.
+   */
+  priorityColumnId?: string;
+  onPriorityColumnChange?: (columnId: string) => void;
+  canReorderPriority?: boolean;
+  onSetPriorityScore?: (
+    order: OrderWithRelations,
+    score: PriorityScore | null
+  ) => void;
+  onPositionSaved?: (orderId: string, position: number) => void;
+  priorityColumnLoadingMore?: boolean;
 }
 
 /**
@@ -54,6 +69,12 @@ export function BoardListView({
   ownerNameByOrder,
   designerNameByOrder,
   onOpenOrder,
+  priorityColumnId = "",
+  onPriorityColumnChange,
+  canReorderPriority = false,
+  onSetPriorityScore,
+  onPositionSaved,
+  priorityColumnLoadingMore = false,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("due");
   const [asc, setAsc] = useState(true);
@@ -256,9 +277,56 @@ export function BoardListView({
     );
   };
 
+  const priorityColumn = priorityColumnId
+    ? columnById.get(priorityColumnId) ?? null
+    : null;
+
+  const columnPicker = onPriorityColumnChange ? (
+    <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
+      Column
+      <select
+        value={priorityColumn ? priorityColumn.id : ""}
+        onChange={(e) => onPriorityColumnChange(e.target.value)}
+        className="h-7 rounded border border-slate-300 bg-white px-1.5 text-xs text-slate-800"
+        aria-label="Show one column to set priorities"
+      >
+        <option value="">All stages</option>
+        {columns.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  ) : null;
+
+  if (priorityColumn) {
+    return (
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto px-4 pb-4">
+        <div className="mb-2 flex items-center gap-3">{columnPicker}</div>
+        <ColumnPriorityList
+          columnId={priorityColumn.id}
+          columnName={priorityColumn.name}
+          orders={orders.filter((o) => o.column_id === priorityColumn.id)}
+          customFields={customFields}
+          fieldValuesByOrder={fieldValuesByOrder}
+          thumbnailByOrder={thumbnailByOrder}
+          ownerNameByOrder={ownerNameByOrder}
+          designerNameByOrder={designerNameByOrder}
+          canReorder={canReorderPriority}
+          onSetPriorityScore={onSetPriorityScore}
+          onPositionSaved={onPositionSaved}
+          onOpenOrder={onOpenOrder}
+          loadingMore={priorityColumnLoadingMore}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-auto px-4 pb-4">
       <div className="mb-2 flex items-center gap-3">
+        {columnPicker}
         <span className="text-[11px] text-slate-500">
           {rows.length} order{rows.length === 1 ? "" : "s"}
         </span>

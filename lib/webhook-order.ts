@@ -6,6 +6,8 @@ import {
   pickMissingInfoColumn,
 } from "@/lib/missing-info-column";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
+import { newWebhookOrderPriorityScore } from "@/lib/order-priority-score";
+import { appendDesignerQueuePos } from "@/lib/designer-queue.server";
 import {
   getDesignerAssignmentSettings,
   pickLeastBusyDesigner,
@@ -4023,6 +4025,12 @@ async function createSingleWebhookJob(
       : reorderAnnotation
     : customerFacingNoteText;
 
+  // Every designer card gets a real queue slot: end of that designer's queue.
+  if (designerId) {
+    const queuePos = await appendDesignerQueuePos(client, tenantId, designerId);
+    if (queuePos != null) specs.designer_queue_pos = queuePos;
+  }
+
   const { data: order, error: orderError } = await client
     .from("orders")
     .insert({
@@ -4849,7 +4857,10 @@ export async function createOrderFromWebhook(
       corrections: allCorrections,
       webhookSource,
       billing,
-      customerPriorityScore,
+      customerPriorityScore: newWebhookOrderPriorityScore(
+        customerPriorityScore,
+        isWebsiteWebhookSource(webhookSource)
+      ),
       portalBrokerId,
       portalCompanyName,
       bazaarOrderNumber: bazaarOrderNumberFromWebhook(body, item),

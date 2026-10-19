@@ -5,6 +5,10 @@ import { normalizeWorkingDays } from "@/lib/card-warning-rules";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { logActivity } from "@/lib/automation";
 import {
+  appendDesignerQueuePos,
+  resequenceDesignerQueue,
+} from "@/lib/designer-queue.server";
+import {
   getDesignerAssignmentSettings,
   pickLeastBusyDesigner,
 } from "@/lib/designer-assignment-settings";
@@ -114,10 +118,18 @@ export async function runDesignerStaleReassignForTenant(
     });
     if (!next || next === designerId) continue;
 
+    // Land at the END of the new designer's queue (real #N slot).
+    const queuePos = await appendDesignerQueuePos(admin, tenantId, next);
+
     const { error: upErr } = await admin
       .from("orders")
       .update({
-        specs: { ...specs, designer_id: next, designer_assigned_at: nowIso },
+        specs: {
+          ...specs,
+          designer_id: next,
+          designer_assigned_at: nowIso,
+          ...(queuePos != null ? { designer_queue_pos: queuePos } : {}),
+        },
         updated_at: nowIso,
       })
       .eq("id", row.id)
@@ -125,6 +137,8 @@ export async function runDesignerStaleReassignForTenant(
     if (upErr) continue;
 
     moved++;
+    // Close the gap the card left in the previous designer's queue.
+    await resequenceDesignerQueue(admin, tenantId, designerId).catch(() => {});
     try {
       await logActivity(admin, {
         tenantId,

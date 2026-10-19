@@ -21,6 +21,10 @@ import {
   pruneOrphanedSkuImages,
 } from "@/lib/sku-images";
 import { withCanonicalDesignerName } from "@/lib/order-designer";
+import {
+  appendDesignerQueuePos,
+  resequenceDesignerQueue,
+} from "@/lib/designer-queue.server";
 import { preserveDesignTaskUrl } from "@/lib/design-task";
 import { preserveCardImage } from "@/lib/card-image";
 import { preserveFinishedCustomerSms } from "@/lib/net-terms-fulfill";
@@ -587,6 +591,7 @@ export async function PATCH(
     updates.specs = mergeDueSpecsIntoOrderSpecs(existingSpecs, staffDue.specs);
   }
 
+  let designerChangedFrom: string | null = null;
   if (updates.specs && typeof updates.specs === "object") {
     const nextSpecs = updates.specs as Record<string, unknown>;
     const prevDesigner =
@@ -595,6 +600,21 @@ export async function PATCH(
       (nextSpecs.designer_id as string | null | undefined) ?? null;
     if (prevDesigner !== nextDesigner) {
       updates.specs = await withCanonicalDesignerName(supabase, nextSpecs);
+      // (Re)assigned → real slot at the END of the new designer's queue.
+      if (nextDesigner) {
+        const queuePos = await appendDesignerQueuePos(
+          supabase,
+          tenantId,
+          nextDesigner
+        );
+        if (queuePos != null) {
+          updates.specs = {
+            ...(updates.specs as Record<string, unknown>),
+            designer_queue_pos: queuePos,
+          };
+        }
+      }
+      designerChangedFrom = prevDesigner;
     }
   }
 
@@ -714,6 +734,14 @@ export async function PATCH(
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+  }
+
+  // Card left its previous designer's queue → close the gap in their numbers.
+  if (designerChangedFrom) {
+    await resequenceDesignerQueue(supabase, tenantId, designerChangedFrom).catch(
+      (err: unknown) =>
+        console.warn("[orders PATCH] resequence previous designer failed:", err)
+    );
   }
 
   if (updates.specs && Array.isArray((updates.specs as { skus?: unknown }).skus)) {

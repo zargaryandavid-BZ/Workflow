@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   manualPrioritySpecsPatch,
+  newWebhookOrderPriorityScore,
+  WEBSITE_ORDER_DEFAULT_PRIORITY_SCORE,
   preservePriorityScore,
 } from "./order-priority-score.ts";
 
@@ -40,5 +42,22 @@ describe("manualPrioritySpecsPatch", () => {
     assert.equal(next.priority_score, null);
     assert.equal(next.priority_source, null);
     assert.equal(next.rush, true);
+  });
+});
+
+describe("newWebhookOrderPriorityScore", () => {
+  it("uses the company default when set", () => {
+    assert.equal(newWebhookOrderPriorityScore(3, true), 3);
+    assert.equal(newWebhookOrderPriorityScore(4, false), 4);
+  });
+  it("website orders without a company default get the website default", () => {
+    assert.equal(
+      newWebhookOrderPriorityScore(null, true),
+      WEBSITE_ORDER_DEFAULT_PRIORITY_SCORE
+    );
+  });
+  it("non-website orders without a default stay unset (unchanged behaviour)", () => {
+    assert.equal(newWebhookOrderPriorityScore(null, false), null);
+    assert.equal(newWebhookOrderPriorityScore(undefined, false), null);
   });
 });
