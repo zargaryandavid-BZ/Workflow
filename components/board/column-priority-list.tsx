@@ -402,6 +402,8 @@ export function ColumnPriorityList({
             sensors={sensors}
             collisionDetection={closestCenter}
             modifiers={[restrictToVerticalAxis]}
+            // Scroll the list when dragging near its top / bottom edge.
+            autoScroll={{ threshold: { x: 0, y: 0.15 }, acceleration: 12 }}
             onDragStart={handleDragStart}
             onDragCancel={() => setActiveId(null)}
             onDragEnd={(e) => handleDragEnd(key, e)}
@@ -650,6 +652,9 @@ function PriorityRow({ onOpen, ...props }: RowProps) {
       style={{
         transform: CSS.Translate.toString(transform),
         transition,
+        // Never block scrolling: touch scrolls vertically until press-and-hold
+        // starts a drag (mouse wheel / trackpad are never intercepted).
+        touchAction: "pan-y",
       }}
       {...attributes}
       {...listeners}
