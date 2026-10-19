@@ -15,7 +15,6 @@ import { effectiveDaysUntilDue } from "@/lib/board-due-date";
 import { formatDateShort } from "@/lib/utils";
 import { priorityScoreFromSpecs } from "@/lib/order-priority-score";
 import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
-import type { PriorityScore } from "@/lib/order-priority-score";
 import { ColumnPriorityList } from "./column-priority-list";
 
 type GroupBy = "none" | "designer" | "owner";
@@ -47,10 +46,6 @@ interface Props {
   priorityColumnId?: string;
   onPriorityColumnChange?: (columnId: string) => void;
   canReorderPriority?: boolean;
-  onSetPriorityScore?: (
-    order: OrderWithRelations,
-    score: PriorityScore | null
-  ) => void;
   onPositionSaved?: (orderId: string, position: number) => void;
   priorityColumnLoadingMore?: boolean;
 }
@@ -72,7 +67,6 @@ export function BoardListView({
   priorityColumnId = "",
   onPriorityColumnChange,
   canReorderPriority = false,
-  onSetPriorityScore,
   onPositionSaved,
   priorityColumnLoadingMore = false,
 }: Props) {
@@ -314,7 +308,6 @@ export function BoardListView({
           ownerNameByOrder={ownerNameByOrder}
           designerNameByOrder={designerNameByOrder}
           canReorder={canReorderPriority}
-          onSetPriorityScore={onSetPriorityScore}
           onPositionSaved={onPositionSaved}
           onOpenOrder={onOpenOrder}
           loadingMore={priorityColumnLoadingMore}

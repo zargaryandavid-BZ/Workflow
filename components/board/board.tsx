@@ -4059,11 +4059,6 @@ export function Board({
               role === "preprod_owner" ||
               role === "account_manager"
             }
-            onSetPriorityScore={
-              canSetBoardTagAndPriority(role)
-                ? handleSetPriorityScore
-                : undefined
-            }
             onPositionSaved={(orderId, position) => {
               const col = listPriorityColumnId;
               if (!col) return;

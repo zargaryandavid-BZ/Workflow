@@ -11,11 +11,15 @@ import {
 import Image from "next/image";
 import {
   DndContext,
-  PointerSensor,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
+  type Modifier,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -32,22 +36,17 @@ import {
 } from "@/lib/notification-messages";
 import { partCardTitle } from "@/lib/group-orders";
 import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
-import {
-  PRIORITY_SCORES,
-  priorityScoreFromSpecs,
-  parsePriorityScore,
-  type PriorityScore,
-} from "@/lib/order-priority-score";
 import { notifyQueueChanged } from "@/lib/queue-events";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import {
   columnPriorityMode,
   mergeSubsetOrder,
-  moveId,
   moveIdToNumber,
   posByIdFromOrder,
   positionForMovedId,
   priorityGroupKey,
+  priorityOptions,
+  reorderAfterDrag,
   sortForColumnPriority,
 } from "@/lib/list-column-priority";
 import { formatShortOrderNumber } from "./order-number-label";
@@ -70,10 +69,6 @@ interface Props {
   designerNameByOrder: Record<string, string>;
   /** Manager roles (admin / pre-prod owner / account manager). */
   canReorder: boolean;
-  onSetPriorityScore?: (
-    order: OrderWithRelations,
-    score: PriorityScore | null
-  ) => void;
   /** Manual-order columns: keep board state in sync after a move. */
   onPositionSaved?: (orderId: string, position: number) => void;
   onOpenOrder: (order: OrderWithRelations) => void;
@@ -83,9 +78,15 @@ interface Props {
 
 const SAVE_DEBOUNCE_MS = 600;
 
+/** Rows only move up/down (no sideways wobble). */
+const restrictToVerticalAxis: Modifier = ({ transform }) => ({
+  ...transform,
+  x: 0,
+});
+
 /**
- * List view → one column, ordered like the Kanban shows it, with an editable
- * "#" (1 = top), drag handle and ↑/↓ buttons. Reorders are optimistic, batched
+ * List view → one column, ordered like the Kanban shows it. One "Priority"
+ * control (1..N for that designer's jobs), drag the whole row, ↑/↓ buttons. Reorders are optimistic, batched
  * (one save per designer / column after a short pause) and rolled back on
  * error.
  */
@@ -99,7 +100,6 @@ export function ColumnPriorityList({
   ownerNameByOrder,
   designerNameByOrder,
   canReorder,
-  onSetPriorityScore,
   onPositionSaved,
   onOpenOrder,
   loadingMore,
@@ -305,25 +305,50 @@ export function ColumnPriorityList({
     );
   }
 
+  // Mouse: drag the whole row after a small move (a plain click still opens
+  // the order). Touch: press-and-hold so the list can still scroll.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 6 },
+    })
   );
+  const [activeId, setActiveId] = useState<string | null>(null);
+  // The click that ends a drag must not open the order.
+  const suppressClickUntilRef = useRef(0);
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id));
+  }
 
   function handleDragEnd(key: string, event: DragEndEvent) {
+    setActiveId(null);
+    suppressClickUntilRef.current = Date.now() + 250;
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
     const ids = groupIds(key);
-    const to = ids.indexOf(String(over.id));
-    if (to === -1) return;
-    applyMove(key, moveId(ids, String(active.id), to), String(active.id));
+    const next = reorderAfterDrag(
+      ids,
+      String(active.id),
+      over ? String(over.id) : null
+    );
+    if (next !== ids) applyMove(key, next, String(active.id));
   }
 
   const total = orders.length;
   const showGroupHeaders =
     (mode === "designer_queue" || readOnlyColumn) && groupKeys.length > 0;
+  const activeOrder = activeId ? orderById.get(activeId) ?? null : null;
+
+  const rowProps = (id: string) => ({
+    customFields,
+    fieldValues: fieldValuesByOrder[id] ?? {},
+    thumb: firstThumbnailUrl(thumbnailByOrder[id]) ?? null,
+    owner: ownerNameByOrder[id] ?? "",
+    designer: designerNameByOrder[id] ?? "",
+  });
 
   return (
-    <div className="min-w-0">
+    <div className="min-w-[900px]">
       <div className="mb-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
         <span>
           {total} order{total === 1 ? "" : "s"} in {columnName}
@@ -334,9 +359,9 @@ export function ColumnPriorityList({
             ? "Queue order (shared with Start) — reorder from the Start column."
             : isQueue
               ? mode === "designer_queue"
-                ? "#1 = top of each designer's queue. Drag, use ↑/↓, or type a number."
-                : "#1 = top of the prepress queue. Drag, use ↑/↓, or type a number."
-              : "Manual order (#1 = top). Kanban shows this order when the column sort is “Manual order”."}
+                ? "Priority 1 = top of each designer's queue. Drag a row, use ↑/↓, or pick a number."
+                : "Priority 1 = top of the prepress queue. Drag a row, use ↑/↓, or pick a number."
+              : "Manual order (1 = top). Kanban shows this order when the column sort is “Manual order”."}
         </span>
         {!canReorder && !readOnlyColumn ? (
           <span className="text-amber-600">Only a manager can change the order.</span>
@@ -344,85 +369,96 @@ export function ColumnPriorityList({
         <SaveIndicator state={saveState} />
       </div>
 
-      <table className="w-full min-w-[900px] border-separate border-spacing-0 text-sm">
-        <thead className="sticky top-0 z-10 bg-white">
-          <tr>
-            {["", "#", "", "Priority", "Order", "Customer", "Item", "Designer", "Owner", "Due"].map(
-              (h, i) => (
-                <th
-                  key={i}
-                  className="border-b border-slate-200 px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500"
-                >
-                  {h}
-                </th>
-              )
-            )}
-          </tr>
-        </thead>
-        {groupKeys.map((key) => {
-          const ids = groupIds(key);
-          const editable = groupEditable(key);
-          const firstId = ids[0];
-          const label =
-            mode === "designer_queue" || readOnlyColumn
-              ? key
-                ? (firstId && designerNameByOrder[firstId]) || "Designer"
-                : "No designer"
-              : null;
-          return (
-            <DndContext
-              key={key || "none"}
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={(e) => handleDragEnd(key, e)}
-            >
-              <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-                <tbody>
-                  {showGroupHeaders ? (
-                    <tr className="bg-slate-50">
-                      <td
-                        colSpan={10}
-                        className="border-b border-t border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                      >
-                        {label}{" "}
-                        <span className="font-normal text-slate-400">· {ids.length}</span>
-                        {mode === "designer_queue" && !key ? (
-                          <span className="ml-2 font-normal text-slate-400">
-                            Assign a designer to put these in a queue.
-                          </span>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ) : null}
-                  {ids.map((id, index) => {
-                    const order = orderById.get(id);
-                    if (!order) return null;
-                    return (
-                      <PriorityRow
-                        key={id}
-                        order={order}
-                        index={index}
-                        count={ids.length}
-                        editable={editable}
-                        customFields={customFields}
-                        fieldValues={fieldValuesByOrder[id] ?? {}}
-                        thumb={firstThumbnailUrl(thumbnailByOrder[id]) ?? null}
-                        owner={ownerNameByOrder[id] ?? ""}
-                        designer={designerNameByOrder[id] ?? ""}
-                        onSetPriorityScore={onSetPriorityScore}
-                        onOpen={() => onOpenOrder(order)}
-                        onMoveTo={(oneBased) =>
-                          applyMove(key, moveIdToNumber(ids, id, oneBased), id)
-                        }
-                      />
-                    );
-                  })}
-                </tbody>
-              </SortableContext>
-            </DndContext>
-          );
-        })}
-      </table>
+      <div
+        className={cn(
+          GRID,
+          "sticky top-0 z-10 border-b border-slate-200 bg-white py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+        )}
+      >
+        <span />
+        <span>Priority</span>
+        <span />
+        <span>Order</span>
+        <span>Customer</span>
+        <span>Item</span>
+        <span>Designer</span>
+        <span>Owner</span>
+        <span>Due</span>
+      </div>
+
+      {groupKeys.map((key) => {
+        const ids = groupIds(key);
+        const editable = groupEditable(key);
+        const firstId = ids[0];
+        const label =
+          mode === "designer_queue" || readOnlyColumn
+            ? key
+              ? (firstId && designerNameByOrder[firstId]) || "Designer"
+              : "No designer"
+            : null;
+        return (
+          <DndContext
+            key={key || "none"}
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragStart={handleDragStart}
+            onDragCancel={() => setActiveId(null)}
+            onDragEnd={(e) => handleDragEnd(key, e)}
+          >
+            {showGroupHeaders ? (
+              <div className="border-b border-t border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                {label}{" "}
+                <span className="font-normal text-slate-400">
+                  · {ids.length} job{ids.length === 1 ? "" : "s"}
+                </span>
+                {mode === "designer_queue" && !key ? (
+                  <span className="ml-2 font-normal text-slate-400">
+                    Assign a designer to put these in a queue.
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+              <div>
+                {ids.map((id, index) => {
+                  const order = orderById.get(id);
+                  if (!order) return null;
+                  return (
+                    <PriorityRow
+                      key={id}
+                      order={order}
+                      index={index}
+                      count={ids.length}
+                      editable={editable}
+                      {...rowProps(id)}
+                      onOpen={() => {
+                        if (Date.now() < suppressClickUntilRef.current) return;
+                        onOpenOrder(order);
+                      }}
+                      onMoveTo={(oneBased) =>
+                        applyMove(key, moveIdToNumber(ids, id, oneBased), id)
+                      }
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+            <DragOverlay>
+              {activeOrder && ids.includes(activeOrder.id) ? (
+                <RowContent
+                  order={activeOrder}
+                  index={ids.indexOf(activeOrder.id)}
+                  count={ids.length}
+                  editable={false}
+                  overlay
+                  {...rowProps(activeOrder.id)}
+                />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        );
+      })}
       {total === 0 ? (
         <p className="px-3 py-6 text-center text-sm text-slate-400">
           No orders in this column for the current filters.
@@ -431,6 +467,12 @@ export function ColumnPriorityList({
     </div>
   );
 }
+
+/** Columns: handle | priority | ↑↓ | order | customer | item | designer | owner | due */
+const GRID =
+  "grid grid-cols-[28px_76px_56px_minmax(180px,1.2fr)_minmax(120px,1fr)_minmax(140px,1.4fr)_110px_110px_90px] items-center gap-x-2 px-2";
+
+const THUMB_PX = 72;
 
 function SaveIndicator({ state }: { state: SaveState }) {
   if (state.kind === "idle") return null;
@@ -447,7 +489,7 @@ function SaveIndicator({ state }: { state: SaveState }) {
   );
 }
 
-interface RowProps {
+interface ContentProps {
   order: OrderWithRelations;
   index: number;
   count: number;
@@ -457,15 +499,21 @@ interface RowProps {
   thumb: string | null;
   owner: string;
   designer: string;
-  onSetPriorityScore?: (
-    order: OrderWithRelations,
-    score: PriorityScore | null
-  ) => void;
-  onOpen: () => void;
-  onMoveTo: (oneBased: number) => void;
+  onMoveTo?: (oneBased: number) => void;
+  /** Floating copy shown under the pointer while dragging. */
+  overlay?: boolean;
 }
 
-function PriorityRow({
+/** Stop pointer/click on controls so they never start a drag or open the order. */
+const stopAll = {
+  onPointerDown: (e: SyntheticEvent) => e.stopPropagation(),
+  onMouseDown: (e: SyntheticEvent) => e.stopPropagation(),
+  onTouchStart: (e: SyntheticEvent) => e.stopPropagation(),
+  onClick: (e: SyntheticEvent) => e.stopPropagation(),
+  onKeyDown: (e: SyntheticEvent) => e.stopPropagation(),
+};
+
+function RowContent({
   order,
   index,
   count,
@@ -475,86 +523,59 @@ function PriorityRow({
   thumb,
   owner,
   designer,
-  onSetPriorityScore,
-  onOpen,
   onMoveTo,
-}: RowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: order.id, disabled: !editable });
-  const [draft, setDraft] = useState(String(index + 1));
-  useEffect(() => setDraft(String(index + 1)), [index]);
-
+  overlay,
+}: ContentProps) {
   const product = productFromOrder(fieldValues, customFields);
   const customer = customerNameFromOrder(order, fieldValues, customFields);
   const item = partCardTitle(order, product) || product;
-  const score = priorityScoreFromSpecs(order.specs);
-
-  function commitDraft() {
-    const n = Math.floor(Number(draft));
-    if (!Number.isFinite(n) || n < 1 || n === index + 1) {
-      setDraft(String(index + 1));
-      return;
-    }
-    onMoveTo(n);
-  }
-
-  const stop = (e: SyntheticEvent) => e.stopPropagation();
+  const rank = index + 1;
 
   return (
-    <tr
-      ref={setNodeRef}
-      data-order-id={order.id}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      onClick={onOpen}
+    <div
       className={cn(
-        "cursor-pointer border-b border-slate-100 bg-white hover:bg-slate-50",
-        isDragging && "relative z-20 shadow-md"
+        GRID,
+        "min-h-[84px] border-b border-slate-100 bg-white py-1.5 text-sm",
+        overlay && "rounded-md border border-blue-300 shadow-xl ring-2 ring-blue-200"
       )}
     >
-      <td className="w-6 px-1 py-1.5" onClick={stop}>
-        {editable ? (
-          <button
-            type="button"
-            {...attributes}
-            {...listeners}
-            className="cursor-grab touch-none rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing"
-            aria-label={`Drag ${order.title}`}
-            title="Drag to reorder"
+      <span
+        className="flex h-full items-center justify-center text-slate-400"
+        title={editable || overlay ? "Drag to reorder" : undefined}
+      >
+        {editable || overlay ? <GripVertical className="h-5 w-5" /> : null}
+      </span>
+
+      <span {...stopAll}>
+        {editable && onMoveTo ? (
+          <select
+            value={rank}
+            onChange={(e) => onMoveTo(Number(e.target.value))}
+            aria-label={`Priority of ${order.title} (1 = top)`}
+            title={`Priority ${rank} of ${count} — pick a number to move this job`}
+            className="h-8 w-[68px] cursor-pointer rounded-md border border-slate-300 bg-white px-1.5 text-sm font-bold tabular-nums text-slate-800 focus:border-blue-400 focus:outline-none"
           >
-            <GripVertical className="h-4 w-4" />
-          </button>
-        ) : null}
-      </td>
-      <td className="w-14 px-1 py-1.5" onClick={stop}>
-        {editable ? (
-          <input
-            type="number"
-            min={1}
-            max={count}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitDraft}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              if (e.key === "Escape") setDraft(String(index + 1));
-            }}
-            aria-label={`Position of ${order.title}`}
-            className="h-7 w-12 rounded border border-slate-300 px-1 text-center text-sm font-bold tabular-nums focus:border-blue-400 focus:outline-none"
-          />
+            {priorityOptions(count).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
         ) : (
-          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-slate-800 px-1 text-[11px] font-bold tabular-nums text-white">
-            {index + 1}
+          <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-slate-800 px-1.5 text-xs font-bold tabular-nums text-white">
+            {rank}
           </span>
         )}
-      </td>
-      <td className="w-14 whitespace-nowrap px-1 py-1.5" onClick={stop}>
-        {editable ? (
-          <span className="inline-flex gap-0.5">
+      </span>
+
+      <span className="inline-flex gap-0.5" {...stopAll}>
+        {editable && onMoveTo ? (
+          <>
             <button
               type="button"
               disabled={index === 0}
               onClick={() => onMoveTo(index)}
-              className="rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30"
+              className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30"
               aria-label="Move up"
               title="Move up"
             >
@@ -564,61 +585,84 @@ function PriorityRow({
               type="button"
               disabled={index === count - 1}
               onClick={() => onMoveTo(index + 2)}
-              className="rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30"
+              className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30"
               aria-label="Move down"
               title="Move down"
             >
               <ArrowDown className="h-4 w-4" />
             </button>
-          </span>
+          </>
         ) : null}
-      </td>
-      <td className="w-20 px-1 py-1.5" onClick={stop}>
-        {onSetPriorityScore ? (
-          <select
-            value={score ?? ""}
-            onChange={(e) =>
-              onSetPriorityScore(order, parsePriorityScore(e.target.value))
-            }
-            aria-label={`Priority score of ${order.title}`}
-            title="Priority score (1–5, 5 = key account)"
-            className="h-7 rounded border border-slate-300 bg-white px-1 text-sm tabular-nums"
-          >
-            <option value="">—</option>
-            {PRIORITY_SCORES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="text-slate-600 tabular-nums">{score ?? "—"}</span>
-        )}
-      </td>
-      <td className="whitespace-nowrap px-2 py-1.5 font-semibold text-slate-800">
-        <span className="inline-flex items-center gap-2">
+      </span>
+
+      <span className="inline-flex min-w-0 items-center gap-2 font-semibold text-slate-800">
+        <span
+          className="flex shrink-0 items-center justify-center overflow-hidden rounded bg-slate-50"
+          style={{ width: THUMB_PX, height: THUMB_PX }}
+        >
           {thumb ? (
             <Image
               src={thumb}
               alt=""
-              width={24}
-              height={24}
+              width={THUMB_PX}
+              height={THUMB_PX}
               unoptimized
-              className="h-6 w-6 shrink-0 rounded object-cover"
+              loading="lazy"
+              draggable={false}
+              className="max-h-full max-w-full object-contain"
             />
           ) : null}
-          {formatShortOrderNumber(order.title)}
         </span>
-      </td>
-      <td className="max-w-[180px] truncate px-2 py-1.5 text-slate-700">
+        <span className="truncate">{formatShortOrderNumber(order.title)}</span>
+      </span>
+      <span className="truncate text-slate-700">
         {customer === "there" ? "" : customer}
-      </td>
-      <td className="max-w-[220px] truncate px-2 py-1.5 text-slate-700">{item}</td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-slate-600">{designer}</td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-slate-600">{owner}</td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-slate-600">
+      </span>
+      <span className="truncate text-slate-700">{item}</span>
+      <span className="truncate text-slate-600">{designer}</span>
+      <span className="truncate text-slate-600">{owner}</span>
+      <span className="whitespace-nowrap text-slate-600">
         {order.due_date ? formatDateShort(order.due_date) : "—"}
-      </td>
-    </tr>
+      </span>
+    </div>
+  );
+}
+
+interface RowProps extends Omit<ContentProps, "overlay" | "onMoveTo"> {
+  onOpen: () => void;
+  onMoveTo: (oneBased: number) => void;
+}
+
+/**
+ * Whole row is the drag target (mouse: move 4px; touch: press-and-hold).
+ * Plain <div> rows, not <tr> — Safari doesn't move table rows with
+ * transforms, which is why the old handle-only drag didn't work there.
+ * While dragging, the row's slot shows as a blue dashed drop placeholder.
+ */
+function PriorityRow({ onOpen, ...props }: RowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.order.id, disabled: !props.editable });
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-order-id={props.order.id}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+      }}
+      {...attributes}
+      {...listeners}
+      onClick={onOpen}
+      className={cn(
+        "relative select-none",
+        props.editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+        "hover:[&>div]:bg-slate-50",
+        isDragging &&
+          "z-10 [&>div]:border-2 [&>div]:border-dashed [&>div]:border-blue-400 [&>div]:!bg-blue-50 [&>div>*]:opacity-30"
+      )}
+    >
+      <RowContent {...props} />
+    </div>
   );
 }
