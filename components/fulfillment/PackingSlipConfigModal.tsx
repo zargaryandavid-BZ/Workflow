@@ -541,11 +541,16 @@ function SenderPackingSlipWizard({
   function placeFromPool(boxIndex: number, skuId: string) {
     setBoxes((prev) => {
       const left = remaining(skuId, prev);
-      if (left <= 0) return prev;
       const next = prev.map((lines) => lines.map((line) => ({ ...line })));
       const existing = next[boxIndex]?.find((line) => line.skuId === skuId);
-      if (existing) existing.qty += left;
-      else next[boxIndex] = [...(next[boxIndex] ?? []), newLine(skuId, left)];
+      const quantityToAdd = left > 0 ? left : 1;
+      if (existing) existing.qty += quantityToAdd;
+      else {
+        next[boxIndex] = [
+          ...(next[boxIndex] ?? []),
+          newLine(skuId, quantityToAdd),
+        ];
+      }
       return next;
     });
     setPicked(null);
@@ -590,16 +595,11 @@ function SenderPackingSlipWizard({
     setBoxes((prev) => {
       const line = prev[boxIndex]?.find((item) => item.key === key);
       if (!line) return prev;
-      const others = prev
-        .flat()
-        .filter((item) => item.skuId === line.skuId && item.key !== key)
-        .reduce((sum, item) => sum + item.qty, 0);
-      const sku = skuById.get(line.skuId);
-      const max = sku ? Math.max(0, requiredSkuQty(sku) - others) : entered;
-      const qty = Math.min(entered, max);
       return prev.map((lines, index) =>
         index === boxIndex
-          ? lines.map((item) => (item.key === key ? { ...item, qty } : item))
+          ? lines.map((item) =>
+              item.key === key ? { ...item, qty: entered } : item
+            )
           : lines
       );
     });
@@ -611,10 +611,6 @@ function SenderPackingSlipWizard({
     if (left > 0) {
       issues.push(
         `${sku.skuName || "SKU"} is short ${left.toLocaleString("en-US")}`
-      );
-    } else if (left < 0) {
-      issues.push(
-        `${sku.skuName || "SKU"} is over by ${Math.abs(left).toLocaleString("en-US")}`
       );
     }
   }
@@ -801,7 +797,7 @@ function SenderPackingSlipWizard({
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Unassigned
+              SKU list
             </p>
             <div className="mb-4 grid grid-cols-2 gap-2">
               {skus.map((sku) => {
@@ -811,10 +807,9 @@ function SenderPackingSlipWizard({
                   <button
                     key={sku.skuId}
                     type="button"
-                    draggable={left > 0}
+                    draggable
                     onContextMenu={(e) => e.preventDefault()}
                     onPointerDown={(e) => {
-                      if (left <= 0) return;
                       if (e.pointerType !== "mouse") e.currentTarget.draggable = false;
                       startBoxPress(e, { skuId: sku.skuId, fromBox: null });
                     }}
@@ -843,11 +838,9 @@ function SenderPackingSlipWizard({
                     }}
                     className={cn(
                       "flex min-h-14 min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left",
-                      left === 0
-                        ? "border-slate-100 bg-slate-50 opacity-60"
-                        : active
-                          ? "border-blue-500 bg-blue-50"
-                          : "border-slate-200 bg-white"
+                      active
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-slate-200 bg-white"
                     )}
                   >
                     {sku.artworkUrl ? (
@@ -866,12 +859,18 @@ function SenderPackingSlipWizard({
                     <span
                       className={cn(
                         "shrink-0 text-[13px] font-semibold",
-                        left === 0 ? "text-emerald-600" : "text-amber-700"
+                        left < 0
+                          ? "text-blue-700"
+                          : left === 0
+                            ? "text-emerald-600"
+                            : "text-amber-700"
                       )}
                     >
-                      {left === 0
-                        ? "Assigned"
-                        : `${left.toLocaleString("en-US")} left`}
+                      {left < 0
+                        ? `+${Math.abs(left).toLocaleString("en-US")} extra`
+                        : left === 0
+                          ? "Assigned"
+                          : `${left.toLocaleString("en-US")} left`}
                     </span>
                   </button>
                 );

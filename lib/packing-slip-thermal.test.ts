@@ -58,6 +58,7 @@ describe("generateThermalBoxSlipPdf", () => {
 
   it("prints the spec quantity and the amount in the box", async () => {
     assert.equal(thermalInBoxQtyLabel(1735, 5205), "From 5,205 / 1,735 In box");
+    assert.equal(thermalInBoxQtyLabel(110, 100), "From 100 / 110 In box");
     assert.equal(thermalInBoxQtyLabel(1735), "1,735");
     const pdf = await generateThermalBoxSlipPdf({
       orderLabel: "15441-1 (1)",
