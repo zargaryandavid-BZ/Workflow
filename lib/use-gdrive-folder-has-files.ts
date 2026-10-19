@@ -81,20 +81,74 @@ function subscribe(orderId: string, fn: () => void) {
   };
 }
 
+type DriveStatusJson = {
+  hasFiles?: boolean;
+  hasPdf?: boolean;
+  hasFinalPdf?: boolean;
+  hasDesignerFiles?: boolean;
+  designerUrl?: string | null;
+  finalUrl?: string | null;
+};
+
 async function fetchStatus(orderId: string, bust = false): Promise<FolderDriveStatus> {
   const url = bust
     ? `/api/orders/${orderId}/gdrive-status?refresh=1`
     : `/api/orders/${orderId}/gdrive-status`;
   const res = await fetch(url);
   if (!res.ok) return EMPTY;
-  const json = (await res.json()) as {
-    hasFiles?: boolean;
-    hasPdf?: boolean;
-    hasFinalPdf?: boolean;
-    hasDesignerFiles?: boolean;
-    designerUrl?: string | null;
-    finalUrl?: string | null;
-  };
+  return toStatus((await res.json()) as DriveStatusJson);
+}
+
+// ---------------------------------------------------------------------------
+// Batching: cards that mount together (a board load) are checked in ONE
+// request instead of one request each. Anything the batch can't answer falls
+// back to the old single-order request, so nothing is ever lost.
+// ---------------------------------------------------------------------------
+const BATCH_WINDOW_MS = 30;
+const BATCH_MAX = 40;
+let batchWaiting: Array<{ orderId: string; resolve: (s: FolderDriveStatus) => void }> = [];
+let batchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function fetchStatusBatched(orderId: string): Promise<FolderDriveStatus> {
+  return new Promise((resolve) => {
+    batchWaiting.push({ orderId, resolve });
+    if (batchWaiting.length >= BATCH_MAX) flushBatch();
+    else if (!batchTimer) batchTimer = setTimeout(flushBatch, BATCH_WINDOW_MS);
+  });
+}
+
+function flushBatch() {
+  if (batchTimer) {
+    clearTimeout(batchTimer);
+    batchTimer = null;
+  }
+  const group = batchWaiting;
+  batchWaiting = [];
+  if (group.length === 0) return;
+  const fallback = (item: (typeof group)[number]) =>
+    enqueueCheck(() => fetchStatus(item.orderId)).then(item.resolve, () => item.resolve(EMPTY));
+  void fetch("/api/orders/gdrive-status-batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: group.map((g) => g.orderId) }),
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`batch ${res.status}`);
+      const { results } = (await res.json()) as {
+        results?: Record<string, DriveStatusJson | null>;
+      };
+      for (const item of group) {
+        const json = results?.[item.orderId];
+        if (json) item.resolve(toStatus(json));
+        else void fallback(item);
+      }
+    })
+    .catch(() => {
+      for (const item of group) void fallback(item);
+    });
+}
+
+function toStatus(json: DriveStatusJson): FolderDriveStatus {
   return {
     hasFiles: Boolean(json.hasFiles),
     hasPdf: Boolean(json.hasPdf),
@@ -110,8 +164,7 @@ function fetchStatusDeduped(orderId: string, bust = false): Promise<FolderDriveS
   const existing = inFlight.get(orderId);
   if (existing && !bust) return existing;
 
-  const promise = enqueueCheck(() =>
-    fetchStatus(orderId, bust)
+  const promise = (bust ? enqueueCheck(() => fetchStatus(orderId, true)) : fetchStatusBatched(orderId))
       .then((next) => {
         statusCache.set(orderId, next);
         return next;
@@ -120,9 +173,9 @@ function fetchStatusDeduped(orderId: string, bust = false): Promise<FolderDriveS
         statusCache.set(orderId, EMPTY);
         return EMPTY;
       })
-  ).finally(() => {
-    inFlight.delete(orderId);
-  });
+    .finally(() => {
+      inFlight.delete(orderId);
+    });
 
   inFlight.set(orderId, promise);
   return promise;
