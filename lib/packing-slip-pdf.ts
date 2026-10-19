@@ -755,6 +755,13 @@ export async function generatePackingSlipPdf(
   return { buffer, artSlots };
 }
 
+export type {
+  ThermalSlipBox,
+  ThermalSlipLine,
+  ThermalSlipSku,
+} from "@/lib/packing-slip-thermal-pdf";
+export { generateThermalBoxSlipPdf } from "@/lib/packing-slip-thermal-pdf";
+
 export async function stampPackingSlipPdfArtwork(
   slipPdf: Buffer,
   slots: PackingSlipArtSlot[],

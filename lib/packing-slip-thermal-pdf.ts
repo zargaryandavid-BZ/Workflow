@@ -1,0 +1,319 @@
+import { createRequire } from "node:module";
+import { orderNumberQrPng } from "./order-qr.ts";
+import { pdfWinAnsiText } from "./pdf-winansi-text.ts";
+
+const require = createRequire(import.meta.url);
+const PDFDocument = require("pdfkit") as typeof import("pdfkit");
+
+type PdfDoc = InstanceType<typeof PDFDocument>;
+
+export type ThermalSlipLine = { skuId: string; qty: number };
+
+export type ThermalSlipBox = {
+  boxNumber: number;
+  lines: ThermalSlipLine[];
+};
+
+export type ThermalSlipSku = {
+  id: string;
+  name: string;
+  imageUrl?: string | null;
+};
+
+const THERMAL_W = 288;
+const THERMAL_H = 432;
+const THERMAL_ROWS = 6;
+
+function fmtQty(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString("en-US");
+}
+
+async function fetchImageBuffer(url: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+function drawDashedPlaceholder(
+  doc: PdfDoc,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+) {
+  doc
+    .rect(x, y, w, h)
+    .strokeColor("#d1d5db")
+    .lineWidth(0.75)
+    .dash(3, { space: 3 })
+    .stroke();
+  doc.undash();
+  doc
+    .fontSize(8)
+    .fillColor("#9ca3af")
+    .text("No image", x, y + h / 2 - 4, { width: w, align: "center" });
+}
+
+function thermalChunks<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return [[]];
+  const pages: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    pages.push(items.slice(i, i + size));
+  }
+  return pages;
+}
+
+function drawThermalBanner(
+  doc: PdfDoc,
+  boxNumber: number,
+  boxCount: number,
+  pageInBox: number,
+  pagesInBox: number
+) {
+  doc.rect(0, 0, THERMAL_W, 28).fill("#111827");
+  const continued = pagesInBox > 1 ? `  ·  ${pageInBox}/${pagesInBox}` : "";
+  doc
+    .fillColor("#ffffff")
+    .font("Helvetica-Bold")
+    .fontSize(11)
+    .text(`BOX ${boxNumber} OF ${boxCount}${continued}`, 8, 8, {
+      width: THERMAL_W - 16,
+      align: "center",
+      lineBreak: false,
+    });
+}
+
+function drawThermalIdentity(
+  doc: PdfDoc,
+  orderLabel: string,
+  customerName: string,
+  qrPng: Buffer | null
+) {
+  const qrSize = 46;
+  const textW = THERMAL_W - 16 - (qrPng ? qrSize + 8 : 0);
+  doc
+    .fillColor("#6b7280")
+    .font("Helvetica")
+    .fontSize(8)
+    .text("PACKING SLIP", 8, 36, { width: textW, lineBreak: false });
+  doc
+    .fillColor("#111827")
+    .font("Helvetica-Bold")
+    .fontSize(13)
+    .text(pdfWinAnsiText(orderLabel || "Order"), 8, 48, {
+      width: textW,
+      height: 16,
+      ellipsis: true,
+    });
+  doc
+    .fillColor("#374151")
+    .font("Helvetica")
+    .fontSize(9)
+    .text(pdfWinAnsiText(customerName || ""), 8, 66, {
+      width: textW,
+      height: 12,
+      ellipsis: true,
+    });
+  if (qrPng) {
+    try {
+      doc.image(qrPng, THERMAL_W - 8 - qrSize, 34, {
+        width: qrSize,
+        height: qrSize,
+      });
+    } catch {
+      /* skip a bad QR */
+    }
+  }
+  doc
+    .moveTo(8, 84)
+    .lineTo(THERMAL_W - 8, 84)
+    .strokeColor("#111827")
+    .lineWidth(1)
+    .stroke();
+}
+
+/** 4×6 in thermal label. One page per box, or one page per SKU when requested. */
+export async function generateThermalBoxSlipPdf(input: {
+  orderLabel: string;
+  customerName: string;
+  skus: ThermalSlipSku[];
+  boxes: ThermalSlipBox[];
+  layout: "multiple" | "one_per_slip";
+}): Promise<Buffer> {
+  const skuById = new Map(input.skus.map((sku) => [sku.id, sku]));
+  const boxes =
+    input.boxes.length > 0 ? input.boxes : [{ boxNumber: 1, lines: [] }];
+  const boxCount = boxes.length;
+
+  const urls = [
+    ...new Set(
+      input.skus
+        .map((sku) => sku.imageUrl)
+        .filter((url): url is string => Boolean(url))
+    ),
+  ];
+  const imageBuffers = new Map<string, Buffer | null>();
+  await Promise.all(
+    urls.map(async (url) => {
+      imageBuffers.set(url, await fetchImageBuffer(url));
+    })
+  );
+
+  const qrPng = input.orderLabel
+    ? await orderNumberQrPng(input.orderLabel)
+    : null;
+  const doc = new PDFDocument({
+    size: [THERMAL_W, THERMAL_H],
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    autoFirstPage: false,
+  });
+  const chunks: Buffer[] = [];
+  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+  const done = new Promise<Buffer>((resolve, reject) => {
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+
+  const resolved = (line: ThermalSlipLine) => {
+    const sku = skuById.get(line.skuId);
+    return {
+      name: sku?.name?.trim() || line.skuId,
+      qty: line.qty,
+      image: sku?.imageUrl ? (imageBuffers.get(sku.imageUrl) ?? null) : null,
+    };
+  };
+
+  try {
+    for (const box of boxes) {
+      const lines = box.lines.filter((line) => line.qty > 0);
+      if (input.layout === "one_per_slip") {
+        const pages = lines.length > 0 ? lines : [null];
+        pages.forEach((line, index) => {
+          doc.addPage({ size: [THERMAL_W, THERMAL_H], margin: 0 });
+          drawThermalBanner(
+            doc,
+            box.boxNumber,
+            boxCount,
+            index + 1,
+            pages.length
+          );
+          drawThermalIdentity(
+            doc,
+            input.orderLabel,
+            input.customerName,
+            qrPng
+          );
+          if (!line) {
+            doc
+              .fontSize(10)
+              .fillColor("#9ca3af")
+              .text("No SKUs in this box", 8, 180, {
+                width: THERMAL_W - 16,
+                align: "center",
+              });
+            return;
+          }
+          const item = resolved(line);
+          const img = 168;
+          const imgX = (THERMAL_W - img) / 2;
+          const imgY = 100;
+          if (item.image) {
+            try {
+              doc.image(item.image, imgX, imgY, {
+                fit: [img, img],
+                align: "center",
+                valign: "center",
+              });
+            } catch {
+              drawDashedPlaceholder(doc, imgX, imgY, img, img);
+            }
+          } else {
+            drawDashedPlaceholder(doc, imgX, imgY, img, img);
+          }
+          doc
+            .fillColor("#111827")
+            .font("Helvetica-Bold")
+            .fontSize(12)
+            .text(pdfWinAnsiText(item.name), 12, 280, {
+              width: THERMAL_W - 24,
+              align: "center",
+              height: 32,
+              ellipsis: true,
+            });
+          doc.fontSize(22).text(fmtQty(item.qty), 12, 320, {
+            width: THERMAL_W - 24,
+            align: "center",
+          });
+        });
+        continue;
+      }
+
+      const pages = thermalChunks(lines, THERMAL_ROWS);
+      pages.forEach((pageLines, index) => {
+        doc.addPage({ size: [THERMAL_W, THERMAL_H], margin: 0 });
+        drawThermalBanner(doc, box.boxNumber, boxCount, index + 1, pages.length);
+        drawThermalIdentity(doc, input.orderLabel, input.customerName, qrPng);
+        if (pageLines.length === 0) {
+          doc
+            .fontSize(10)
+            .fillColor("#9ca3af")
+            .text("No SKUs in this box", 8, 160, {
+              width: THERMAL_W - 16,
+              align: "center",
+            });
+          return;
+        }
+        pageLines.forEach((line, row) => {
+          const item = resolved(line);
+          const y = 94 + row * 54;
+          doc
+            .rect(8, y, THERMAL_W - 16, 50)
+            .strokeColor("#e5e7eb")
+            .lineWidth(0.6)
+            .stroke();
+          if (item.image) {
+            try {
+              doc.image(item.image, 12, y + 5, {
+                fit: [40, 40],
+                align: "center",
+                valign: "center",
+              });
+            } catch {
+              drawDashedPlaceholder(doc, 12, y + 5, 40, 40);
+            }
+          } else {
+            drawDashedPlaceholder(doc, 12, y + 5, 40, 40);
+          }
+          doc
+            .fillColor("#111827")
+            .font("Helvetica-Bold")
+            .fontSize(9)
+            .text(pdfWinAnsiText(item.name), 58, y + 8, {
+              width: 140,
+              height: 34,
+              ellipsis: true,
+            });
+          doc.fontSize(11).text(fmtQty(item.qty), 198, y + 16, {
+            width: 74,
+            align: "right",
+          });
+        });
+      });
+    }
+    doc.end();
+  } catch (err) {
+    try {
+      doc.end();
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+
+  return done;
+}

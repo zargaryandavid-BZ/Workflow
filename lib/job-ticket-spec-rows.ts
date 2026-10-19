@@ -54,6 +54,7 @@ export function buildJobTicketSpecRows(args: {
       ARTWORK_FIELD_NAME,
       DESIGNER_FIELD_NAME,
       "designer",
+      "Design List",
       "Unit Price",
       "Unit Price ($)",
     ].map((name) => name.toLowerCase())

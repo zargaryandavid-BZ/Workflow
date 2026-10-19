@@ -5,7 +5,10 @@ import {
   assertButtonVisibleForOrder,
   loadOrderExportData,
 } from "@/lib/button-automation-order-data";
-import { generatePackingSlipPdfFromExport } from "@/lib/packing-slip-generate";
+import {
+  generatePackingSlipPdfFromExport,
+  normalizeSlipBoxes,
+} from "@/lib/packing-slip-generate";
 
 export const runtime = "nodejs";
 // Long enough for layer-preview fetches + PDF generation.
@@ -45,6 +48,8 @@ export async function POST(
     layout?: "multiple" | "one_per_slip";
     /** Total number of boxes — printed in the BOX section of the slip. */
     boxCount?: number | null;
+    pageSize?: "letter" | "4x6";
+    boxes?: { boxNumber?: number; lines?: { skuId?: string; qty?: number }[] }[];
   } = {};
   try {
     body = (await request.json()) as typeof body;
@@ -125,6 +130,8 @@ export async function POST(
       copyQties: body.copyQties && typeof body.copyQties === "object" ? body.copyQties : undefined,
       layout: body.layout === "one_per_slip" ? "one_per_slip" : "multiple",
       boxCount: typeof body.boxCount === "number" && body.boxCount > 0 ? Math.floor(body.boxCount) : undefined,
+      pageSize: body.pageSize === "4x6" ? "4x6" : "letter",
+      boxes: normalizeSlipBoxes(body.boxes),
     });
     pdfBuffer = buffer;
   } catch (err) {

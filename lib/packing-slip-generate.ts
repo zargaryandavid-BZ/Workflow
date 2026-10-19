@@ -4,11 +4,40 @@ import {
   type OrderExportData,
   type OrderExportSkuRow,
 } from "@/lib/button-automation-order-data";
-import { generatePackingSlipPdf } from "@/lib/packing-slip-pdf";
+import {
+  generatePackingSlipPdf,
+  generateThermalBoxSlipPdf,
+  packingSlipOrderLabel,
+  type ThermalSlipBox,
+} from "@/lib/packing-slip-pdf";
 import type { SkuItem } from "@/lib/skus";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const BUCKET = "order-assets";
+
+export function normalizeSlipBoxes(
+  raw: { boxNumber?: number; lines?: { skuId?: string; qty?: number }[] }[] | undefined
+): ThermalSlipBox[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const boxes = raw
+    .map((box, index) => ({
+      boxNumber:
+        typeof box?.boxNumber === "number" && box.boxNumber > 0
+          ? Math.floor(box.boxNumber)
+          : index + 1,
+      lines: (Array.isArray(box?.lines) ? box.lines : [])
+        .map((line) => ({
+          skuId: typeof line?.skuId === "string" ? line.skuId.trim() : "",
+          qty:
+            typeof line?.qty === "number" && Number.isFinite(line.qty)
+              ? Math.max(0, Math.floor(line.qty))
+              : 0,
+        }))
+        .filter((line) => line.skuId && line.qty > 0),
+    }))
+    .filter((box) => box.boxNumber > 0);
+  return boxes.length > 0 ? boxes : undefined;
+}
 
 export function packingSlipPartFromOrderNumber(orderNumber: string): number {
   const m = String(orderNumber).trim().match(/-(\d+)\s*$/);
@@ -132,6 +161,9 @@ export async function generatePackingSlipPdfFromExport(
     layout?: "multiple" | "one_per_slip";
     /** Total boxes — pre-fills the BOX section on the slip. */
     boxCount?: number;
+    /** Sender thermal labels. Letter size stays the default. */
+    pageSize?: "letter" | "4x6";
+    boxes?: ThermalSlipBox[];
   }
 ): Promise<{ buffer: Buffer }> {
   // Load composite artwork URLs from the proof/layer-preview system.
@@ -241,6 +273,35 @@ export async function generatePackingSlipPdfFromExport(
     pdfData = { ...pdfData, totalQty: newTotal };
   }
 
+  if (opts.pageSize === "4x6" && opts.boxes && opts.boxes.length > 0) {
+    const orderLabel = opts.blind
+      ? (opts.poNumber?.trim() || "Order")
+      : packingSlipOrderLabel(
+          pdfData.orderNumberDisplay || pdfData.orderNumber,
+          pdfData.orderNumber,
+          opts.totalParts
+        );
+    const buffer = await generateThermalBoxSlipPdf({
+      orderLabel,
+      customerName:
+        pdfData.customerName && pdfData.customerName !== "—"
+          ? pdfData.customerName
+          : "",
+      skus: pdfData.skuRows.flatMap((row, index) => {
+        const sku = {
+          id: row.id,
+          name: row.name,
+          imageUrl: row.imageLinks[0] ?? null,
+        };
+        const pageId = `__pdf_page_${index + 1}__`;
+        return row.id === pageId ? [sku] : [sku, { ...sku, id: pageId }];
+      }),
+      boxes: opts.boxes,
+      layout: opts.layout === "one_per_slip" ? "one_per_slip" : "multiple",
+    });
+    return { buffer };
+  }
+
   const { buffer } = await generatePackingSlipPdf(pdfData, {
     part: opts.part,
     totalParts: opts.totalParts,
@@ -302,6 +363,74 @@ export async function generatePackingSlipPdfBuffer(
     const message =
       err instanceof Error ? err.message : "Failed to generate packing slip";
     console.error("[generate-packing-slip]", err);
+    return { error: message, status: 500 };
+  }
+}
+
+/** No-login Sender print. Same PDF options as the staff generate route. */
+export async function generateFloorPackingSlip(
+  supabase: SupabaseClient,
+  orderId: string,
+  tenantId: string,
+  tenantName: string,
+  body: {
+    part?: number;
+    totalParts?: number;
+    layout?: "multiple" | "one_per_slip";
+    pageSize?: "letter" | "4x6";
+    boxes?: { boxNumber?: number; lines?: { skuId?: string; qty?: number }[] }[];
+  }
+): Promise<
+  { buffer: Buffer; orderNumber: string; part: number; totalParts: number } | {
+    error: string;
+    status: number;
+  }
+> {
+  let exportData: OrderExportData | null;
+  try {
+    exportData = await loadOrderExportData(
+      supabase,
+      orderId,
+      tenantId,
+      tenantName
+    );
+  } catch (err) {
+    console.error("[floor-packing-slip] loadOrderExportData", err);
+    return { error: "Failed to load order data for packing slip", status: 500 };
+  }
+  if (!exportData) {
+    return { error: "Order not found", status: 404 };
+  }
+
+  const groupSize =
+    exportData.groupSize != null && exportData.groupSize >= 1
+      ? exportData.groupSize
+      : 1;
+  const requestedPart =
+    typeof body.part === "number" && body.part >= 1 ? Math.floor(body.part) : 1;
+  const requestedTotal =
+    typeof body.totalParts === "number" && body.totalParts >= 1
+      ? Math.floor(body.totalParts)
+      : groupSize;
+  const totalParts = Math.max(requestedTotal, requestedPart, groupSize);
+  const part = Math.min(requestedPart, totalParts);
+
+  try {
+    const { buffer } = await generatePackingSlipPdfFromExport(exportData, {
+      part,
+      totalParts,
+      layout: body.layout === "one_per_slip" ? "one_per_slip" : "multiple",
+      pageSize: body.pageSize === "4x6" ? "4x6" : "letter",
+      boxes: normalizeSlipBoxes(body.boxes),
+    });
+    if (!buffer?.length) {
+      return { error: "Packing slip PDF was empty", status: 500 };
+    }
+    return { buffer, orderNumber: exportData.orderNumber, part, totalParts };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to generate packing slip";
+    console.error("[floor-packing-slip]", err);
     return { error: message, status: 500 };
   }
 }

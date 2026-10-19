@@ -60,7 +60,7 @@ test("job ticket mirrors all filled cardboard fields and SKU information", () =>
   });
 
   const pairs = rows.map((row) => `${row.label}:${row.value}`);
-  assert.ok(pairs.includes("Design List:flavor 500, flavor 200, flavor 300"));
+  assert.equal(pairs.some((pair) => pair.startsWith("Design List:")), false);
   assert.ok(pairs.includes("Qty Per Roll:500"));
   assert.ok(pairs.includes("Width:2"));
   assert.ok(pairs.includes("Height:4"));
@@ -72,4 +72,31 @@ test("job ticket mirrors all filled cardboard fields and SKU information", () =>
   assert.ok(pairs.includes("SKU 1:Roll Labels · Qty 1,000"));
   assert.equal(pairs.some((pair) => pair.startsWith("Roll Direction:")), false);
   assert.equal(pairs.some((pair) => pair.startsWith("Size (W, H):")), false);
+});
+
+test("job ticket excludes Design List from product specifications", () => {
+  const rows = buildJobTicketSpecRows({
+    customFields: [field("design-list", "Design List", "text", 1)],
+    fieldValues: {
+      "design-list": "Design A 300\nDesign B 300",
+    },
+    specs: {
+      spec_selections: {
+        DESIGN_LIST: "Design A 300\nDesign B 300",
+      },
+      spec_display: [
+        {
+          key: "DESIGN_LIST",
+          label: "Design list",
+          value: "Design A 300\nDesign B 300",
+        },
+      ],
+      production_notes: "Rush\nDesign A 300\nDesign B 300",
+    },
+  });
+
+  assert.equal(
+    rows.some((row) => row.label.trim().toLowerCase() === "design list"),
+    false
+  );
 });

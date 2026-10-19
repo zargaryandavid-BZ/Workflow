@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth";
-import { requireFulfillmentApi } from "@/lib/fulfillment-access";
-import { createClient } from "@/lib/supabase/server";
+import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 import {
   clampBoxLineToTicket,
   normalizeMultiitemBoxSkuLines,
@@ -13,9 +11,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string; orderId: string }> }
 ) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId } = access;
   const { id: boxId, orderId } = await params;
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -37,16 +35,15 @@ export async function PATCH(
     return NextResponse.json({ error: "quantity must be at least 1" }, { status: 400 });
   }
 
-  const supabase = await createClient();
   const { data: orderRow } = await supabase
     .from("orders")
     .select("specs")
     .eq("id", orderId)
-    .eq("tenant_id", ctx.tenant.id)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
   const ticketQty = await resolveBoxLineQuantity(
     supabase,
-    ctx.tenant.id,
+    tenantId,
     orderId,
     (orderRow?.specs ?? null) as Record<string, unknown> | null
   );
@@ -54,7 +51,7 @@ export async function PATCH(
   try {
     packedElsewhere = await packedBoxQuantityForOrder(
       supabase,
-      ctx.tenant.id,
+      tenantId,
       orderId,
       boxId
     );
@@ -80,7 +77,7 @@ export async function PATCH(
     })
     .eq("box_id", boxId)
     .eq("order_id", orderId)
-    .eq("tenant_id", ctx.tenant.id)
+    .eq("tenant_id", tenantId)
     .select("*")
     .maybeSingle();
 
@@ -94,7 +91,7 @@ export async function PATCH(
       .update({ quantity })
       .eq("box_id", boxId)
       .eq("order_id", orderId)
-      .eq("tenant_id", ctx.tenant.id)
+      .eq("tenant_id", tenantId)
       .select("*")
       .maybeSingle();
     data = legacy.data ? { ...legacy.data, sku_lines: skuLines } : legacy.data;
@@ -114,18 +111,17 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string; orderId: string }> }
 ) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId } = access;
   const { id: boxId, orderId } = await params;
 
-  const supabase = await createClient();
   const { error } = await supabase
     .from("multiitem_box_orders")
     .delete()
     .eq("box_id", boxId)
     .eq("order_id", orderId)
-    .eq("tenant_id", ctx.tenant.id);
+    .eq("tenant_id", tenantId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

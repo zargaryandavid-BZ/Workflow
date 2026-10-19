@@ -1787,6 +1787,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     skuImages={order.sku_images}
                     totalQty={order.qty}
                     qtyPerSku={order.qty_per_sku}
+                    sender={scanStation === "sender"}
+                    scanApiBase={scanApiBase}
                   />
                 ) : (
                   <ShippingReminderSection

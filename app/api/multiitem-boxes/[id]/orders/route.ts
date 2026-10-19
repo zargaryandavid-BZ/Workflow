@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth";
-import { requireFulfillmentApi } from "@/lib/fulfillment-access";
+import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 import {
   clampBoxLineToTicket,
   findTenantOrderByScan,
@@ -8,7 +7,6 @@ import {
   packedBoxQuantityForOrder,
   resolveBoxLineDetails,
 } from "@/lib/multiitem-box-lookup";
-import { createClient } from "@/lib/supabase/server";
 import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
 
 const BOX_ORDER_SELECT = "*";
@@ -17,9 +15,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId } = access;
   const { id: boxId } = await params;
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -35,12 +33,11 @@ export async function POST(
     );
   }
 
-  const supabase = await createClient();
   const { data: box, error: boxError } = await supabase
     .from("multiitem_boxes")
     .select("id, status, customer_id")
     .eq("id", boxId)
-    .eq("tenant_id", ctx.tenant.id)
+    .eq("tenant_id", tenantId)
     .maybeSingle();
 
   if (boxError || !box) {
@@ -62,7 +59,7 @@ export async function POST(
     try {
       const found = await findTenantOrderByScan(
         supabase,
-        ctx.tenant.id,
+        tenantId,
         body.query
       );
       if (!found) {
@@ -77,7 +74,7 @@ export async function POST(
         .from("orders")
         .select("customer:customers(id, email, phone)")
         .eq("id", orderId)
-        .eq("tenant_id", ctx.tenant.id)
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       const contactRaw = contactOrder?.customer as
         | { id: string; email: string | null; phone: string | null }
@@ -97,7 +94,7 @@ export async function POST(
       .from("orders")
       .select("id, title, specs, customer:customers(id, name, email, phone)")
       .eq("id", orderId)
-      .eq("tenant_id", ctx.tenant.id)
+      .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .maybeSingle();
     if (orderError || !order) {
@@ -133,7 +130,7 @@ export async function POST(
 
   const { quantity: ticketQty, itemTitle } = await resolveBoxLineDetails(
     supabase,
-    ctx.tenant.id,
+    tenantId,
     orderId,
     specs
   );
@@ -141,7 +138,7 @@ export async function POST(
   try {
     packedElsewhere = await packedBoxQuantityForOrder(
       supabase,
-      ctx.tenant.id,
+      tenantId,
       orderId,
       boxId
     );
@@ -181,7 +178,7 @@ export async function POST(
   }
 
   const insertPayload = {
-    tenant_id: ctx.tenant.id,
+    tenant_id: tenantId,
     box_id: boxId,
     order_id: orderId,
     order_title: orderTitle,
@@ -205,7 +202,7 @@ export async function POST(
     const legacy = await supabase
       .from("multiitem_box_orders")
       .insert({
-        tenant_id: ctx.tenant.id,
+        tenant_id: tenantId,
         box_id: boxId,
         order_id: orderId,
         order_title: orderTitle,
@@ -235,7 +232,7 @@ export async function POST(
         customer_phone: customerPhone || null,
       })
       .eq("id", boxId)
-      .eq("tenant_id", ctx.tenant.id);
+      .eq("tenant_id", tenantId);
   }
 
   const thumbs = await boxOrderThumbnailUrls(supabase, [orderId]);

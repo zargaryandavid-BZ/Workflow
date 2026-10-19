@@ -292,11 +292,17 @@ describe("spec_display", () => {
         CORNERS: "Rounded",
         GUSSET_SIZE: "2 in (standard)",
         FINISH_BOTH_SIDES: "Yes",
+        DESIGN_LIST: "Design A 300\nDesign B 300",
         bazaar_item_id: "23",
       },
       product_options: ["TEAR_NOTCH", "GUSSET"],
       spec_display: [
         { key: "ZIPPER", label: "Zipper", value: "Cr" },
+        {
+          key: "DESIGN_LIST",
+          label: "Design list",
+          value: "Design A 300\nDesign B 300",
+        },
         { key: "BOX", label: "Box size", value: "12x8x4" },
       ],
     });

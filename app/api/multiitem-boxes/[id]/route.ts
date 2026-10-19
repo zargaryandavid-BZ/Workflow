@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { getTenantContext } from "@/lib/auth";
-import { requireFulfillmentApi } from "@/lib/fulfillment-access";
-import { createClient } from "@/lib/supabase/server";
+import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId } = access;
   const { id } = await params;
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -20,7 +18,6 @@ export async function PATCH(
     customer_order_id?: string;
   };
 
-  const supabase = await createClient();
   const patch: Record<string, unknown> = {};
 
   if (body.po_number !== undefined) {
@@ -56,7 +53,7 @@ export async function PATCH(
       .from("orders")
       .select("customer:customers(id, name, email, phone)")
       .eq("id", orderId)
-      .eq("tenant_id", ctx.tenant.id)
+      .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .maybeSingle();
     if (orderError || !order) {
@@ -97,7 +94,7 @@ export async function PATCH(
     .from("multiitem_boxes")
     .update(patch)
     .eq("id", id)
-    .eq("tenant_id", ctx.tenant.id)
+    .eq("tenant_id", tenantId)
     .select(
       "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at"
     )
@@ -117,17 +114,16 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireFulfillmentApi(await getTenantContext());
-  if ("error" in auth) return auth.error;
-  const { ctx } = auth;
+  const access = await resolveMultiitemAccess();
+  if ("error" in access) return access.error;
+  const { supabase, tenantId } = access;
   const { id } = await params;
-  const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("multiitem_boxes")
     .delete()
     .eq("id", id)
-    .eq("tenant_id", ctx.tenant.id)
+    .eq("tenant_id", tenantId)
     .select("id")
     .maybeSingle();
 
