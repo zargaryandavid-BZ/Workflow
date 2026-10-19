@@ -2378,17 +2378,17 @@ export function Board({
     });
 
     try {
-      await Promise.all(
-        groupOrders.map((order) =>
-          patchOrderApi(order.id, {
-            specs: {
-              ...(order.specs ?? {}),
-              designer_id: designer.id,
-              designer_name: designer.name,
-            },
-          })
-        )
-      );
+      // One at a time: each part takes the next slot at the end of the
+      // designer's queue (parallel saves would all grab the same #N).
+      for (const order of groupOrders) {
+        await patchOrderApi(order.id, {
+          specs: {
+            ...(order.specs ?? {}),
+            designer_id: designer.id,
+            designer_name: designer.name,
+          },
+        });
+      }
       flashToast(
         designer.name
           ? `Assigned ${designer.name} to ${groupOrders.length} items`

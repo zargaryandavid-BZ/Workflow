@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { enrichBoardOrders } from "@/lib/board-order-enrichment";
+import { attachQueueRanksForOrders } from "@/lib/board-queue-ranks.server";
 import {
   businessDateString,
   isOrderNumberQuery,
@@ -331,7 +332,12 @@ export async function GET(req: NextRequest) {
     )
   );
 
-  const enrichment = await enrichBoardOrders(supabase, orders);
+  // #N queue badge for every designer card in Start / In Progress (and
+  // Prepress) — the filtered view never had ranks before.
+  const [enrichment] = await Promise.all([
+    enrichBoardOrders(supabase, orders),
+    attachQueueRanksForOrders(supabase, tenantId, orders),
+  ]);
 
   return NextResponse.json({
     orders,

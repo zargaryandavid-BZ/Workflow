@@ -24,8 +24,8 @@ export async function resequenceDesignerQueue(
   supabase: any,
   tenantId: string,
   designerId: string | null | undefined
-): Promise<void> {
-  if (!designerId) return;
+): Promise<number> {
+  if (!designerId) return 0;
 
   const { data: cols } = await supabase
     .from("board_columns")
@@ -34,7 +34,7 @@ export async function resequenceDesignerQueue(
   const queueColumnIds = (cols ?? [])
     .filter((c: { name: string }) => isDesignerQueueColumnName(c.name))
     .map((c: { id: string }) => c.id);
-  if (queueColumnIds.length === 0) return;
+  if (queueColumnIds.length === 0) return 0;
 
   const { data: rows } = await supabase
     .from("orders")
@@ -62,7 +62,9 @@ export async function resequenceDesignerQueue(
       if (a.pos !== b.pos) return a.pos - b.pos;
       const pr = (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2);
       if (pr !== 0) return pr;
-      return a.due.localeCompare(b.due);
+      if (a.due !== b.due) return a.due.localeCompare(b.due);
+      // Same tie-break as rankDesignerQueue so stamped order = shown order.
+      return a.id.localeCompare(b.id);
     });
 
   const now = new Date().toISOString();
@@ -76,5 +78,35 @@ export async function resequenceDesignerQueue(
       })
       .eq("id", ordered[i].id)
       .eq("tenant_id", tenantId);
+  }
+  return ordered.length;
+}
+
+/**
+ * Queue slot for a card that is being ASSIGNED to `designerId` (new order,
+ * reassignment, auto-assign): the END of that designer's queue, so every
+ * designer card has a real #N.
+ *
+ * Cards with no saved position always rank after saved ones, so first the
+ * designer's existing queue is stamped in its CURRENT displayed order
+ * (resequence — no reordering, unchanged rows are skipped), then the new card
+ * gets the next number. Call BEFORE the card is saved with the new designer.
+ * Returns null on any error — assignment must never fail because of the queue.
+ */
+export async function appendDesignerQueuePos(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  tenantId: string,
+  designerId: string | null | undefined
+): Promise<number | null> {
+  if (!designerId) return null;
+  try {
+    return await resequenceDesignerQueue(supabase, tenantId, designerId);
+  } catch (err) {
+    console.warn(
+      "[designer-queue] append position failed:",
+      err instanceof Error ? err.message : err
+    );
+    return null;
   }
 }

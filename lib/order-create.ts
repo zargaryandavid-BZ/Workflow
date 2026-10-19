@@ -16,6 +16,7 @@ import { validateDueDate, validateOrderQtyFromPayload } from "@/lib/order-form";
 import { normalizeSkus, prepareSkusForSave, validateSkus } from "@/lib/skus";
 import { attachGdriveFoldersToOrders } from "@/lib/order-gdrive";
 import { parsePriorityScore } from "@/lib/order-priority-score";
+import { appendDesignerQueuePos } from "@/lib/designer-queue.server";
 import { noteHistoryFromPlainText } from "@/lib/note-history";
 
 async function loadOrderQtyFieldId(
@@ -279,6 +280,19 @@ export async function createOrder(
     } catch (err) {
       console.error("[createOrder] customer priority lookup failed:", err);
     }
+  }
+  // Designer chosen on create → real slot at the END of that designer's queue.
+  if (
+    typeof baseSpecs.designer_id === "string" &&
+    baseSpecs.designer_id &&
+    baseSpecs.designer_queue_pos == null
+  ) {
+    const queuePos = await appendDesignerQueuePos(
+      supabase,
+      tenantId,
+      baseSpecs.designer_id
+    );
+    if (queuePos != null) baseSpecs.designer_queue_pos = queuePos;
   }
 
   const { data: order, error } = await supabase
