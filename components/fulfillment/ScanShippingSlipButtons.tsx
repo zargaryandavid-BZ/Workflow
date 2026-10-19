@@ -27,7 +27,12 @@ export function ScanShippingSlipButtons({
   orderNumber: string;
   groupSize: number;
   compact?: boolean;
-  skuImages?: { sku_id: string; sku_name: string; url: string }[];
+  skuImages?: {
+    sku_id: string;
+    sku_name: string;
+    url: string;
+    qty?: number | null;
+  }[];
   totalQty?: number | null;
   qtyPerSku?: number | null;
   sender?: boolean;

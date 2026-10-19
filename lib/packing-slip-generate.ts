@@ -16,7 +16,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const BUCKET = "order-assets";
 
 export function normalizeSlipBoxes(
-  raw: { boxNumber?: number; lines?: { skuId?: string; qty?: number }[] }[] | undefined
+  raw:
+    | {
+        boxNumber?: number;
+        lines?: { skuId?: string; qty?: number; fromQty?: number }[];
+      }[]
+    | undefined
 ): ThermalSlipBox[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const boxes = raw
@@ -32,6 +37,12 @@ export function normalizeSlipBoxes(
             typeof line?.qty === "number" && Number.isFinite(line.qty)
               ? Math.max(0, Math.floor(line.qty))
               : 0,
+          fromQty:
+            typeof line?.fromQty === "number" &&
+            Number.isFinite(line.fromQty) &&
+            line.fromQty > 0
+              ? Math.floor(line.fromQty)
+              : undefined,
         }))
         .filter((line) => line.skuId && line.qty > 0),
     }))
@@ -378,7 +389,10 @@ export async function generateFloorPackingSlip(
     totalParts?: number;
     layout?: "multiple" | "one_per_slip";
     pageSize?: "letter" | "4x6";
-    boxes?: { boxNumber?: number; lines?: { skuId?: string; qty?: number }[] }[];
+    boxes?: {
+      boxNumber?: number;
+      lines?: { skuId?: string; qty?: number; fromQty?: number }[];
+    }[];
   }
 ): Promise<
   { buffer: Buffer; orderNumber: string; part: number; totalParts: number } | {

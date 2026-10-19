@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { generateThermalBoxSlipPdf } from "./packing-slip-thermal-pdf.ts";
+import {
+  generateThermalBoxSlipPdf,
+  thermalInBoxQtyLabel,
+} from "./packing-slip-thermal-pdf.ts";
 
 function pageCount(pdf: Buffer): number {
   return pdf.toString("latin1").match(/\/Type \/Page(?!s)/g)?.length ?? 0;
@@ -51,5 +54,24 @@ describe("generateThermalBoxSlipPdf", () => {
       ],
     });
     assert.equal(pageCount(pdf), 2);
+  });
+
+  it("prints the spec quantity and the amount in the box", async () => {
+    assert.equal(thermalInBoxQtyLabel(1735, 5205), "From 5,205 / 1,735 In box");
+    assert.equal(thermalInBoxQtyLabel(1735), "1,735");
+    const pdf = await generateThermalBoxSlipPdf({
+      orderLabel: "15441-1 (1)",
+      customerName: "Mile High Cure",
+      skus: [{ id: "sku-1", name: "Postcards" }],
+      layout: "multiple",
+      boxes: [
+        {
+          boxNumber: 1,
+          lines: [{ skuId: "sku-1", qty: 1735, fromQty: 5205 }],
+        },
+      ],
+    });
+    assert.equal(pdf.subarray(0, 5).toString("utf8"), "%PDF-");
+    assert.equal(pageCount(pdf), 1);
   });
 });

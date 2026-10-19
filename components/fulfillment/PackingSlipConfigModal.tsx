@@ -26,7 +26,13 @@ interface Props {
   orderNumber: string;
   groupSize: number;
   /** SKU images from the scan result — each has id, name, artwork URL. */
-  skuImages?: { sku_id: string; sku_name: string; url: string }[];
+  skuImages?: {
+    sku_id: string;
+    sku_name: string;
+    url: string;
+    /** Product-specification quantity for this SKU. Absent on extra artwork pages. */
+    qty?: number | null;
+  }[];
   totalQty?: number | null;
   qtyPerSku?: number | null;
   /** Sender station uses the box-assignment wizard and 4×6 labels. */
@@ -388,17 +394,30 @@ function SenderPackingSlipWizard({
   onClose,
 }: Props) {
   const skuList = skuImages ?? [];
-  const perQty = deriveQty(totalQty, qtyPerSku, skuList.length);
+  // Product specifications store a quantity on each SKU. Extra production-PDF
+  // pages are artwork only and must not split that quantity across pages.
+  const specified = skuList.filter(
+    (img) => typeof img.qty === "number" && img.qty > 0
+  );
+  const rows = specified.length > 0 ? specified : skuList;
+  const perQty =
+    specified.length > 0
+      ? null
+      : deriveQty(totalQty, qtyPerSku, rows.length);
   const skus: SkuSlipConfig[] =
-    skuList.length > 0
-      ? skuList.map((img) => ({
-          skuId: img.sku_id,
-          skuName: img.sku_name,
-          artworkUrl: img.url,
-          qty: perQty,
-          copyQty: perQty,
-          enabled: true,
-        }))
+    rows.length > 0
+      ? rows.map((img) => {
+          const qty =
+            typeof img.qty === "number" && img.qty > 0 ? img.qty : perQty;
+          return {
+            skuId: img.sku_id,
+            skuName: img.sku_name,
+            artworkUrl: img.url,
+            qty,
+            copyQty: qty,
+            enabled: true,
+          };
+        })
       : [
           {
             skuId: "__all__",
@@ -566,7 +585,14 @@ function SenderPackingSlipWizard({
           boxNumber: index + 1,
           lines: lines
             .filter((line) => line.qty > 0)
-            .map((line) => ({ skuId: line.skuId, qty: line.qty })),
+            .map((line) => {
+              const sku = skuById.get(line.skuId);
+              return {
+                skuId: line.skuId,
+                qty: line.qty,
+                fromQty: sku ? requiredSkuQty(sku) : line.qty,
+              };
+            }),
         })),
       };
       const url = scanApiBase?.startsWith("/api/kiosk/")

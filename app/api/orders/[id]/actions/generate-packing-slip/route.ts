@@ -49,7 +49,10 @@ export async function POST(
     /** Total number of boxes — printed in the BOX section of the slip. */
     boxCount?: number | null;
     pageSize?: "letter" | "4x6";
-    boxes?: { boxNumber?: number; lines?: { skuId?: string; qty?: number }[] }[];
+    boxes?: {
+      boxNumber?: number;
+      lines?: { skuId?: string; qty?: number; fromQty?: number }[];
+    }[];
   } = {};
   try {
     body = (await request.json()) as typeof body;

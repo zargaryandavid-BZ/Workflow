@@ -12,7 +12,15 @@ export type ScanFinalArtworkPicture = {
   sku_id: string;
   sku_name: string;
   url: string;
+  /** Quantity from product specifications (`specs.skus`), when this page is a spec SKU. */
+  qty: number | null;
 };
+
+function specSkuQty(sku: SkuItem | undefined): number | null {
+  const qty = sku?.qty;
+  if (typeof qty !== "number" || !Number.isFinite(qty) || qty <= 0) return null;
+  return Math.floor(qty);
+}
 
 /**
  * Scan-station artwork comes exclusively from the Final Production PDF.
@@ -37,6 +45,7 @@ export async function loadScanFinalArtworkPictures(
               sku_id: ticketSku?.id ?? `__pdf_page_${page}__`,
               sku_name: ticketSku?.name.trim() || `SKU ${page}`,
               url,
+              qty: specSkuQty(ticketSku),
             },
           ];
         }),
@@ -56,6 +65,7 @@ export async function loadScanFinalArtworkPictures(
       skuId: string;
       skuName: string;
       path: string;
+      qty: number | null;
     }[] = [];
 
     for (const [previewSkuId, preview] of ordered) {
@@ -68,6 +78,7 @@ export async function loadScanFinalArtworkPictures(
         skuId: previewSkuId,
         skuName: ticketSku?.name.trim() || `SKU ${preview.page}`,
         path,
+        qty: specSkuQty(ticketSku),
       });
     }
 
@@ -91,7 +102,7 @@ export async function loadScanFinalArtworkPictures(
       pictures: rows.flatMap((row) => {
         const url = urlByPath.get(row.path);
         return url
-          ? [{ sku_id: row.skuId, sku_name: row.skuName, url }]
+          ? [{ sku_id: row.skuId, sku_name: row.skuName, url, qty: row.qty }]
           : [];
       }),
       pageCount: ordered.length,

@@ -7,7 +7,23 @@ const PDFDocument = require("pdfkit") as typeof import("pdfkit");
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
-export type ThermalSlipLine = { skuId: string; qty: number };
+export type ThermalSlipLine = {
+  skuId: string;
+  /** Quantity of this SKU placed in the box. */
+  qty: number;
+  /** Product-specification quantity this box amount was taken from. */
+  fromQty?: number;
+};
+
+/** "From 5,205 / 1,735 In box" — spec quantity, then the amount in this box. */
+export function thermalInBoxQtyLabel(
+  qty: number,
+  fromQty?: number | null
+): string {
+  const inBox = fmtQty(qty);
+  if (fromQty == null || !Number.isFinite(fromQty) || fromQty <= 0) return inBox;
+  return `From ${fmtQty(fromQty)} / ${inBox} In box`;
+}
 
 export type ThermalSlipBox = {
   boxNumber: number;
@@ -183,7 +199,7 @@ export async function generateThermalBoxSlipPdf(input: {
     const sku = skuById.get(line.skuId);
     return {
       name: sku?.name?.trim() || line.skuId,
-      qty: line.qty,
+      qtyLabel: thermalInBoxQtyLabel(line.qty, line.fromQty),
       image: sku?.imageUrl ? (imageBuffers.get(sku.imageUrl) ?? null) : null,
     };
   };
@@ -245,7 +261,7 @@ export async function generateThermalBoxSlipPdf(input: {
               height: 32,
               ellipsis: true,
             });
-          doc.fontSize(22).text(fmtQty(item.qty), 12, 320, {
+          doc.fontSize(14).text(item.qtyLabel, 12, 318, {
             width: THERMAL_W - 24,
             align: "center",
           });
@@ -293,14 +309,15 @@ export async function generateThermalBoxSlipPdf(input: {
             .fillColor("#111827")
             .font("Helvetica-Bold")
             .fontSize(9)
-            .text(pdfWinAnsiText(item.name), 58, y + 8, {
-              width: 140,
-              height: 34,
+            .text(pdfWinAnsiText(item.name), 58, y + 6, {
+              width: THERMAL_W - 74,
+              height: 18,
               ellipsis: true,
             });
-          doc.fontSize(11).text(fmtQty(item.qty), 198, y + 16, {
-            width: 74,
-            align: "right",
+          doc.font("Helvetica").fontSize(8).text(item.qtyLabel, 58, y + 26, {
+            width: THERMAL_W - 74,
+            height: 18,
+            ellipsis: true,
           });
         });
       });

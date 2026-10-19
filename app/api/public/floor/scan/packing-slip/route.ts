@@ -18,7 +18,10 @@ export async function POST(request: Request) {
     totalParts?: number;
     layout?: "multiple" | "one_per_slip";
     pageSize?: "letter" | "4x6";
-    boxes?: { boxNumber?: number; lines?: { skuId?: string; qty?: number }[] }[];
+    boxes?: {
+      boxNumber?: number;
+      lines?: { skuId?: string; qty?: number; fromQty?: number }[];
+    }[];
   };
   const orderId = body.order_id?.trim() ?? "";
   if (!orderId) {

@@ -100,7 +100,12 @@ interface OrderResult {
   };
   customer: { id: string; name: string | null; email: string | null; phone: string | null } | null;
   thumbnail_url: string | null;
-  sku_images?: { sku_id: string; sku_name: string; url: string }[];
+  sku_images?: {
+    sku_id: string;
+    sku_name: string;
+    url: string;
+    qty?: number | null;
+  }[];
   owner_name: string | null;
   designer_name: string | null;
   billing: { deposit: number | null; balance: number | null } | null;
