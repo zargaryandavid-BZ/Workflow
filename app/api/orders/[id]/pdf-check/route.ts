@@ -6,6 +6,13 @@ import {
   checkFinalFolderPdfPrintSpec,
   PDF_CHECK_UNCHECKED,
 } from "@/lib/gdrive-pdf-print-check";
+import { cacheGet, cacheSet } from "@/lib/cache";
+
+// Each card with a Final PDF re-ran this check (~2-3s: Drive folder listing)
+// on every board load. Real results are remembered 2 minutes per order; a
+// manual Drive refresh (gdrive-status?refresh=1) clears it. Unchecked/failed
+// results are never cached.
+const PDF_CHECK_TTL_SECONDS = 120;
 
 /**
  * GET — inspect the newest Final-folder PDF for Acrobat layers + Fast Web View.
@@ -21,6 +28,9 @@ export async function GET(
   }
 
   const { id: orderId } = await params;
+  const respKey = `wf:pdf-check-resp:v1:${ctx.tenant.id}:${orderId}`;
+  const cached = await cacheGet<Record<string, unknown>>(respKey);
+  if (cached) return NextResponse.json(cached);
   const supabase = await createClient();
 
   try {
@@ -49,6 +59,7 @@ export async function GET(
       fallbackDesigner ? [fallbackDesigner] : finalIds,
       fallbackDesigner ? { directOnly: true } : undefined
     );
+    if (result.checked) await cacheSet(respKey, result, PDF_CHECK_TTL_SECONDS);
     return NextResponse.json(result);
   } catch (err) {
     console.error("[pdf-check]", err);

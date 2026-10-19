@@ -4,7 +4,7 @@ import { getTenantContext } from "@/lib/auth";
 import { canEditOrderDetails } from "@/lib/permissions";
 import { preserveCardImage, type CardImageSource } from "@/lib/card-image";
 import { loadOrderFinalDriveContext } from "@/lib/order-gdrive";
-import { cacheGet, cacheSet } from "@/lib/cache";
+import { cacheGet, cacheInvalidate, cacheSet } from "@/lib/cache";
 
 // When a card has no buildable picture, every board load re-ran the full
 // "build picture from the Final PDF" attempt (~4s each, ~20 cards). Remember
@@ -14,6 +14,17 @@ import { cacheGet, cacheSet } from "@/lib/cache";
 const CARD_MISS_TTL_SECONDS = 10 * 60;
 const cardImageMissKey = (tenantId: string, orderId: string) =>
   `wf:card-image-miss:v1:${tenantId}:${orderId}`;
+
+// Whole-answer cache: every board load asked each picture-less card again and
+// each answer took ~1s even when nothing changed (folder lookup + image lookup).
+// The answer is remembered 10 min per order AND per card_pdf_rev, so a
+// regenerated picture (new rev) is picked up at once; choosing a picture
+// (POST below) or a Drive refresh clears it. Signed image links last 1 hour,
+// longer than this cache.
+const CARD_RESPONSE_TTL_SECONDS = 10 * 60;
+const cardResponseKey = (tenantId: string, orderId: string) =>
+  `wf:card-image-resp:v1:${tenantId}:${orderId}`;
+type CachedCardResponse = { rev: string; status: number; body: Record<string, unknown> };
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,6 +39,37 @@ export async function GET(
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = await createClient();
+  const { data: revRow } = await supabase
+    .from("orders")
+    .select("specs")
+    .eq("id", orderId)
+    .eq("tenant_id", ctx.tenant.id)
+    .maybeSingle();
+  const revSpecs = ((revRow?.specs ?? {}) as Record<string, unknown>);
+  const rev = typeof revSpecs.card_pdf_rev === "string" ? revSpecs.card_pdf_rev : "";
+  const respKey = cardResponseKey(ctx.tenant.id, orderId);
+  const cachedResp = revRow ? await cacheGet<CachedCardResponse>(respKey) : null;
+  if (cachedResp && cachedResp.rev === rev) {
+    return NextResponse.json(cachedResp.body, { status: cachedResp.status });
+  }
+
+  const res = await buildCardImageResponse(supabase, ctx.tenant.id, orderId);
+  if (revRow && (res.status === 200 || res.status === 404)) {
+    await cacheSet<CachedCardResponse>(
+      respKey,
+      { rev, status: res.status, body: res.body },
+      CARD_RESPONSE_TTL_SECONDS
+    );
+  }
+  return NextResponse.json(res.body, { status: res.status });
+}
+
+async function buildCardImageResponse(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  orderId: string
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const ctx = { tenant: { id: tenantId } };
   // Own line item's folder only — never the whole order group's folders, or a
   // sibling line item's newest file bleeds onto this card.
   const loaded = await loadOrderFinalDriveContext(
@@ -37,7 +79,7 @@ export async function GET(
     { includeGroupSeeds: false }
   );
   if (loaded.kind === "not_found") {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return { status: 404, body: { error: "Not found" } };
   }
 
   const {
@@ -49,9 +91,9 @@ export async function GET(
 
   if (loaded.kind !== "ok") {
     if (existing) {
-      return NextResponse.json({ ...existing, source: "sku_image" as const });
+      return { status: 200, body: { ...existing, source: "sku_image" } };
     }
-    return NextResponse.json({ error: "No production PDF" }, { status: 404 });
+    return { status: 404, body: { error: "No production PDF" } };
   }
 
   const folderIds = [
@@ -61,9 +103,9 @@ export async function GET(
   ];
   if (folderIds.length === 0) {
     if (existing) {
-      return NextResponse.json({ ...existing, source: "sku_image" as const });
+      return { status: 200, body: { ...existing, source: "sku_image" } };
     }
-    return NextResponse.json({ error: "No production PDF" }, { status: 404 });
+    return { status: 404, body: { error: "No production PDF" } };
   }
 
   const specs = (loaded.order.specs ?? {}) as Record<string, unknown>;
@@ -73,12 +115,9 @@ export async function GET(
   const missKey = cardImageMissKey(ctx.tenant.id, orderId);
   if ((await cacheGet<string>(missKey)) === missFingerprint) {
     if (existing) {
-      return NextResponse.json({ ...existing, source: "sku_image" as const });
+      return { status: 200, body: { ...existing, source: "sku_image" } };
     }
-    return NextResponse.json(
-      { error: "Could not build card picture from the Final PDF" },
-      { status: 404 }
-    );
+    return { status: 404, body: { error: "Could not build card picture from the Final PDF" } };
   }
 
   const preview = await ensureBoardCardThumbnailFromFinalPdf(
@@ -92,16 +131,13 @@ export async function GET(
     folderIds
   );
   if (preview) {
-    return NextResponse.json({ ...preview, source: "sku_image" as const });
+    return { status: 200, body: { ...preview, source: "sku_image" } };
   }
   await cacheSet(missKey, missFingerprint, CARD_MISS_TTL_SECONDS);
   if (existing) {
-    return NextResponse.json({ ...existing, source: "sku_image" as const });
+    return { status: 200, body: { ...existing, source: "sku_image" } };
   }
-  return NextResponse.json(
-    { error: "Could not build card picture from the Final PDF" },
-    { status: 404 }
-  );
+  return { status: 404, body: { error: "Could not build card picture from the Final PDF" } };
 }
 
 export async function POST(
@@ -187,5 +223,6 @@ export async function POST(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  await cacheInvalidate(cardResponseKey(ctx.tenant.id, orderId));
   return NextResponse.json({ success: true });
 }
