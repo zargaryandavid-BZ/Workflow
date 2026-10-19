@@ -125,3 +125,26 @@ export async function cacheInvalidate(key: string | string[]): Promise<void> {
     // best-effort
   }
 }
+
+/** Read one key; null on miss or any cache error. */
+export async function cacheGet<T>(key: string): Promise<T | null> {
+  const redis = getRedis();
+  if (!redis) return null;
+  try {
+    const v = await redis.get<T>(key);
+    return v ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write one key with a TTL. Best-effort; nullish values are never stored. */
+export async function cacheSet<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  const redis = getRedis();
+  if (!redis || value === null || value === undefined) return;
+  try {
+    await redis.set(key, value, { ex: ttlSeconds });
+  } catch {
+    // not fatal
+  }
+}

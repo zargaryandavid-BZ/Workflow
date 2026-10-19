@@ -9,6 +9,7 @@ import {
   applyResolvedDriveFolderUrls,
   loadOrderFinalDriveContext,
 } from "@/lib/order-gdrive";
+import { cacheGet, cacheInvalidate, cacheSet } from "@/lib/cache";
 
 // ---------------------------------------------------------------------------
 // Server-side TTL cache for Drive status results.
@@ -40,9 +41,16 @@ function setCachedDriveStatus(key: string, data: Record<string, unknown>) {
   driveStatusCache.set(key, { data, expiresAt: Date.now() + DRIVE_STATUS_TTL_MS });
 }
 
+// Shared (Upstash) copy of the same 5-min result so every serverless instance
+// benefits — the per-instance Map above only helps the instance that computed it.
+// Best-effort: any Redis error behaves exactly like a miss.
+const DRIVE_STATUS_SHARED_TTL_SECONDS = 5 * 60;
+const sharedKey = (key: string) => `wf:gdrive-status:v1:${key}`;
+
 /** Call this when an order's Drive folder changes (save, column move). */
 export function invalidateDriveStatusCache(tenantId: string, orderId: string) {
   driveStatusCache.delete(`${tenantId}:${orderId}`);
+  void cacheInvalidate(sharedKey(`${tenantId}:${orderId}`));
 }
 
 /**
@@ -65,9 +73,19 @@ export async function GET(
   // repeat loads of the same order card during an active board session).
   // Explicit refreshes (bust=true) evict the cache and re-fetch from Drive.
   const cacheKey = `${ctx.tenant.id}:${orderId}`;
-  if (bust) driveStatusCache.delete(cacheKey);
+  if (bust) {
+    driveStatusCache.delete(cacheKey);
+    await cacheInvalidate(sharedKey(cacheKey));
+  }
   const cached = getCachedDriveStatus(cacheKey);
   if (cached) return NextResponse.json(cached);
+  if (!bust) {
+    const shared = await cacheGet<Record<string, unknown>>(sharedKey(cacheKey));
+    if (shared) {
+      setCachedDriveStatus(cacheKey, shared);
+      return NextResponse.json(shared);
+    }
+  }
 
   const supabase = await createClient();
   // Resolve this line item's OWN Drive folder only. Pooling the order group's
@@ -220,6 +238,7 @@ export async function GET(
       finalUrl: resolved.finalUrl,
     };
     setCachedDriveStatus(cacheKey, responseData);
+    await cacheSet(sharedKey(cacheKey), responseData, DRIVE_STATUS_SHARED_TTL_SECONDS);
     return NextResponse.json(responseData);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
