@@ -50,7 +50,11 @@ const sharedKey = (key: string) => `wf:gdrive-status:v1:${key}`;
 /** Call this when an order's Drive folder changes (save, column move). */
 export function invalidateDriveStatusCache(tenantId: string, orderId: string) {
   driveStatusCache.delete(`${tenantId}:${orderId}`);
-  void cacheInvalidate(sharedKey(`${tenantId}:${orderId}`));
+  void cacheInvalidate([
+    sharedKey(`${tenantId}:${orderId}`),
+    `wf:card-image-resp:v1:${tenantId}:${orderId}`,
+    `wf:pdf-check-resp:v1:${tenantId}:${orderId}`,
+  ]);
 }
 
 /**
@@ -76,7 +80,12 @@ export async function GET(
   if (bust) {
     driveStatusCache.delete(cacheKey);
     // A manual Drive refresh also lets the card retry building its picture.
-    await cacheInvalidate([sharedKey(cacheKey), `wf:card-image-miss:v1:${cacheKey}`]);
+    await cacheInvalidate([
+      sharedKey(cacheKey),
+      `wf:card-image-miss:v1:${cacheKey}`,
+      `wf:card-image-resp:v1:${cacheKey}`,
+      `wf:pdf-check-resp:v1:${cacheKey}`,
+    ]);
   }
   const cached = getCachedDriveStatus(cacheKey);
   if (cached) return NextResponse.json(cached);
