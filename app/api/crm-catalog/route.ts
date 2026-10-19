@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { fetchCatalogJson } from "@/lib/import-catalog-fetch";
 import { nestedFieldOptions } from "@/lib/product-spec-options";
+import { cacheGet, cacheSet } from "@/lib/cache";
+
+// The CRM catalog is fetched page-by-page over HTTP (measured ~5.6s) every time
+// an order card opens. Product/material lists change rarely, so the BUILT
+// response is shared for 10 minutes. Failures are never cached.
+const CATALOG_TTL_SECONDS = 10 * 60;
 
 /**
  * GET /api/crm-catalog — proxies the tenant's linked CRM catalog URL
@@ -102,6 +108,13 @@ export async function GET() {
         : "") ||
       null;
 
+    const sharedKey = `wf:crm-catalog:v1:${ctx?.tenant.id ?? "none"}:${linkedUrl ?? "default"}`;
+    const cached = await cacheGet<Record<string, unknown>>(sharedKey);
+    if (cached) {
+      return NextResponse.json(cached, {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
     const payload = await fetchCatalogJson(linkedUrl);
     const data = (
       isRecord(payload) ? payload : {}
@@ -159,17 +172,21 @@ export async function GET() {
       productsByCategory[k].sort((a, b) => a.localeCompare(b));
     }
 
-    return NextResponse.json(
-      {
-        version: 1,
-        categories,
-        productsByCategory,
-        materialsByProduct,
-        fieldOptionsByProduct,
-        optionTogglesByProduct,
-      },
-      { headers: { "Cache-Control": "private, no-store" } }
-    );
+    const body = {
+      version: 1,
+      categories,
+      productsByCategory,
+      materialsByProduct,
+      fieldOptionsByProduct,
+      optionTogglesByProduct,
+    };
+    // Only cache a real catalog (an empty one usually means the fetch failed).
+    if (categories.length > 0 || Object.keys(materialsByProduct).length > 0) {
+      await cacheSet(sharedKey, body, CATALOG_TTL_SECONDS);
+    }
+    return NextResponse.json(body, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "crm_catalog_failed" },
