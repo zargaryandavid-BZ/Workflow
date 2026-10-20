@@ -37,6 +37,13 @@ import {
   resolveInboundSkuResync,
   skuContentFingerprint,
 } from "@/lib/sku-resync";
+import {
+  ROLL_INBOUND_FINGERPRINT_KEY,
+  hasAnyRollValue,
+  resolveInboundRollResync,
+  rollFingerprint,
+  rollSelectionValues,
+} from "@/lib/roll-options";
 import { normalizeSmsPhone } from "@/lib/sms";
 import { fuzzyMatch } from "@/lib/fuzzyMatch";
 import {
@@ -3310,6 +3317,20 @@ async function refreshPortalOrdersFromWebhook(params: {
     if (lineSpecDisplay) {
       nextSpecs.spec_display = lineSpecDisplay;
     }
+    // Labels per roll (QTY_PER_ROLL / _MODE / MIN_ / MAX_LABELS_PER_ROLL):
+    // keep a staff edit unless the source sent different roll values than
+    // last time (same rule as SKUs — lib/roll-options.ts).
+    if (lineSpecSelections) {
+      const rollResync = resolveInboundRollResync({
+        existingSpecs: baseSpecs,
+        nextSpecs,
+        inboundSelections: lineSpecSelections,
+      });
+      for (const k of Object.keys(nextSpecs)) {
+        if (!(k in rollResync.specs)) delete nextSpecs[k];
+      }
+      Object.assign(nextSpecs, rollResync.specs);
+    }
     if (Array.isArray(ir.product_options)) {
       nextSpecs.product_options = ir.product_options;
     }
@@ -3892,6 +3913,10 @@ async function createSingleWebhookJob(
     const lineSpecSelections = resolveLineSpecSelections(item);
     if (lineSpecSelections) {
       specs.spec_selections = lineSpecSelections;
+      // Remember the roll values the source sent (lib/roll-options.ts re-sync rule).
+      if (hasAnyRollValue(rollSelectionValues(lineSpecSelections))) {
+        specs[ROLL_INBOUND_FINGERPRINT_KEY] = rollFingerprint(lineSpecSelections);
+      }
     }
     const lineSpecDisplay = resolveLineSpecDisplay(item);
     if (lineSpecDisplay) {

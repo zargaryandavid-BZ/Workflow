@@ -39,6 +39,7 @@ import { NudgeButton } from "./nudge-button";
 import { ComboStockControl } from "./combo-stock-control";
 import { isComboOrder, getComboStock } from "@/lib/combo-stock";
 import { normalizeSkus, prepareSkusForSave, validateSkus, type SkuItem } from "./sku-editor";
+import { setRollSpecValue } from "@/lib/roll-options";
 import { PRIORITY_OPTIONS, PRIORITY_STYLES } from "@/lib/constants";
 import { Input, Label, Select } from "@/components/ui/input";
 import { describeActivity, formatStayDuration, isColumnMoveActivity, sentMessagesFromActivity, type ActivityLogEntry } from "@/lib/activity";
@@ -292,6 +293,8 @@ type TicketEditBaseline = {
   skus: ReturnType<typeof prepareSkusForSave>;
   specSelections: unknown;
   productOptions: string[];
+  /** specs.skus_text (raw free-form SKU list). */
+  skusText: string;
 };
 
 export function CardDetailModal({
@@ -616,6 +619,10 @@ export function CardDetailModal({
       productOptions: Array.isArray(json.order.specs?.product_options)
         ? (json.order.specs.product_options as unknown[]).map(String)
         : [],
+      skusText:
+        typeof json.order.specs?.skus_text === "string"
+          ? json.order.specs.skus_text
+          : "",
     };
   }, []);
 
@@ -1079,6 +1086,8 @@ export function CardDetailModal({
       productOptions: Array.isArray(nextSpecs.product_options)
         ? (nextSpecs.product_options as unknown[]).map(String)
         : [],
+      skusText:
+        typeof nextSpecs.skus_text === "string" ? nextSpecs.skus_text : "",
     };
     userTouchedRef.current = false;
     setTicketTouched(false);
@@ -1168,6 +1177,11 @@ export function CardDetailModal({
     if (
       JSON.stringify(data.order.specs?.spec_selections ?? {}) !==
       JSON.stringify(b.specSelections ?? {})
+    ) {
+      return true;
+    }
+    if (
+      String(data.order.specs?.skus_text ?? "") !== String(b.skusText ?? "")
     ) {
       return true;
     }
@@ -2805,6 +2819,43 @@ export function CardDetailModal({
                   ? data.order.specs.skus_staff_edited_at
                   : null
               }
+              skusText={
+                typeof data.order.specs?.skus_text === "string"
+                  ? data.order.specs.skus_text
+                  : ""
+              }
+              onSkusTextChange={(next) => {
+                markTicketTouched();
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        order: {
+                          ...prev.order,
+                          specs: { ...(prev.order.specs ?? {}), skus_text: next },
+                        },
+                      }
+                    : prev
+                );
+              }}
+              onRollValueChange={(key, value) => {
+                markTicketTouched();
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        order: {
+                          ...prev.order,
+                          specs: setRollSpecValue(
+                            (prev.order.specs ?? {}) as Record<string, unknown>,
+                            key,
+                            value
+                          ),
+                        },
+                      }
+                    : prev
+                );
+              }}
               readOnly={isViewOnly}
               designerReadOnly={designerReadOnly}
               tags={tags}

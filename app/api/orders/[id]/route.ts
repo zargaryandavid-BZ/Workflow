@@ -28,6 +28,8 @@ import {
 import { preserveDesignTaskUrl } from "@/lib/design-task";
 import { preserveCardImage } from "@/lib/card-image";
 import { applyStaffSkuEdit } from "@/lib/sku-resync";
+import { applyStaffRollEdit, describeRollActivityChanges } from "@/lib/roll-options";
+import { SKU_TEXT_SPEC_KEY, sanitizeSkuText } from "@/lib/sku-paste";
 import { preserveFinishedCustomerSms } from "@/lib/net-terms-fulfill";
 import { preservePriorityScore } from "@/lib/order-priority-score";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
@@ -226,6 +228,27 @@ async function recordSaveActivity(
     const skuChanges = describeSkuActivityChanges(oldSkus, newSkus);
     if (skuChanges.length > 0) {
       changes.push(...skuChanges);
+    }
+
+    changes.push(
+      ...describeRollActivityChanges(
+        oldSpecs.spec_selections,
+        newSpecs.spec_selections
+      )
+    );
+
+    const oldSkuText =
+      typeof oldSpecs.skus_text === "string" ? oldSpecs.skus_text : "";
+    const newSkuText =
+      typeof newSpecs.skus_text === "string" ? newSpecs.skus_text : "";
+    if (oldSkuText !== newSkuText) {
+      const clip = (t: string) =>
+        t.length > 160 ? `${t.slice(0, 157)}...` : t;
+      changes.push({
+        field: "SKU list text",
+        from: oldSkuText ? clip(oldSkuText) : "(empty)",
+        to: newSkuText ? clip(newSkuText) : "(empty)",
+      });
     }
   }
 
@@ -595,6 +618,22 @@ export async function PATCH(
       updates.specs as Record<string, unknown>,
       { userId: ctx.userId }
     );
+    // Labels per roll: same staff-edit-wins-until-source-changes rule.
+    updates.specs = applyStaffRollEdit(
+      existingSpecs,
+      updates.specs as Record<string, unknown>,
+      { userId: ctx.userId }
+    );
+    // Raw free-form SKU list text (string, capped); empty → key removed.
+    if (
+      Object.prototype.hasOwnProperty.call(body.specs, SKU_TEXT_SPEC_KEY)
+    ) {
+      const specsOut = { ...(updates.specs as Record<string, unknown>) };
+      const text = sanitizeSkuText(body.specs[SKU_TEXT_SPEC_KEY]);
+      if (text) specsOut[SKU_TEXT_SPEC_KEY] = text;
+      else delete specsOut[SKU_TEXT_SPEC_KEY];
+      updates.specs = specsOut;
+    }
   } else if (staffDue) {
     updates.specs = mergeDueSpecsIntoOrderSpecs(existingSpecs, staffDue.specs);
   }

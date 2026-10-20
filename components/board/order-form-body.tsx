@@ -70,6 +70,8 @@ import {
 import { isRollDirectionField } from "@/lib/roll-direction";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { RollDirectionSelect } from "./roll-direction-select";
+import { LabelsPerRollSection } from "./labels-per-roll-section";
+import { isRollDisplayRow, isRollLabelCard, isRollSpecKey, type RollKey } from "@/lib/roll-options";
 import type {
   Tag,
   CustomField,
@@ -158,6 +160,15 @@ export interface OrderFormBodyProps {
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   /** `specs.skus_staff_edited_at` of the saved order (edit modal only). */
   skusStaffEditedAt?: string | null;
+  /** Raw free-form SKU list text (`specs.skus_text`, edit modal only). */
+  skusText?: string;
+  onSkusTextChange?: (next: string) => void;
+  /**
+   * Labels per roll (roll-label cards): change one roll key
+   * (QTY_PER_ROLL / _MODE / MIN_ / MAX_LABELS_PER_ROLL). When unset the
+   * section is not shown.
+   */
+  onRollValueChange?: (key: RollKey, value: string) => void;
   readOnly?: boolean;
   /**
    * When set, overrides `readOnly` for the Assigned designer control only
@@ -209,7 +220,9 @@ function ProductSpecsSection({
   customFieldNames = [],
   hideKeysCoveredByCustomFields = false,
   hideEmpty = false,
+  hideRollKeys = false,
 }: {
+  hideRollKeys?: boolean;
   specs?: Record<string, unknown> | null;
   fieldOptions?: SpecFieldOptions | null;
   toggles?: { key: string; label: string }[] | null;
@@ -231,9 +244,13 @@ function ProductSpecsSection({
   const foKeys = allFoKeys.filter(
     (k) =>
       !isHiddenFloorSpecKey(k) &&
+      !(hideRollKeys && isRollSpecKey(k)) &&
       (!hideCovered || !specKeyCoveredByCustomFields(k, customFieldNames))
   );
-  const specDisplay = floorSpecDisplayRows(s.spec_display);
+  // Roll keys are edited in the "Labels per roll" section when it is shown.
+  const specDisplay = floorSpecDisplayRows(s.spec_display).filter(
+    (row) => !hideRollKeys || !isRollDisplayRow(row)
+  );
   const hasSpecDisplay = parseSpecDisplay(s.spec_display).length > 0;
   const specCurrentValue = (k: string) => {
     const fromSpecs = sel[k] != null ? String(sel[k]).trim() : "";
@@ -268,6 +285,7 @@ function ProductSpecsSection({
     : Object.entries(sel).filter(([k, v]) => {
         if (v == null || String(v).trim() === "") return false;
         if (isHiddenFloorSpecKey(k)) return false;
+        if (hideRollKeys && isRollSpecKey(k)) return false;
         if (allFoKeys.includes(k)) return false;
         if (
           hideCovered &&
@@ -497,6 +515,9 @@ export function OrderFormBody({
   onPendingImagesChange,
   ensureSkuPersisted,
   skusStaffEditedAt = null,
+  skusText,
+  onSkusTextChange,
+  onRollValueChange,
   readOnly = false,
   designerReadOnly,
   hideEmpty: hideEmptyProp = true,
@@ -633,6 +654,21 @@ export function OrderFormBody({
         ) as string[]
       )
     : new Set<string>();
+
+  const rollDirectionCustomField = customFields.find((f) =>
+    isRollDirectionField(f)
+  );
+  const showRollSection =
+    Boolean(onRollValueChange) &&
+    isRollLabelCard({
+      specs: productSpecs,
+      productName: productField
+        ? String(fieldValues[productField.id] ?? "")
+        : null,
+      rollDirectionValue: rollDirectionCustomField
+        ? fieldValues[rollDirectionCustomField.id]
+        : null,
+    });
 
   const visiblePrintFields = printFields
     .filter((f) => !cascadingFieldIds.has(f.id))
@@ -1225,6 +1261,7 @@ export function OrderFormBody({
 
         {hidePrintCustomFields ? printFieldsSlot : (
         <ProductSpecsSection
+          hideRollKeys={showRollSection}
           specs={productSpecs}
           fieldOptions={productSpecFieldOptions}
           toggles={productToggles}
@@ -1269,7 +1306,24 @@ export function OrderFormBody({
           />
         ) : null}
 
+        {showRollSection ? (
+          <LabelsPerRollSection
+            idPrefix={`${idPrefix}-roll`}
+            specs={productSpecs}
+            onChange={onRollValueChange}
+            readOnly={readOnly}
+            orderQty={skus.length > 0 ? sumSkuQty(skus) : null}
+            staffEditedAt={
+              typeof productSpecs?.roll_staff_edited_at === "string"
+                ? productSpecs.roll_staff_edited_at
+                : null
+            }
+          />
+        ) : null}
+
         <SkuEditor
+          freeText={skusText}
+          onFreeTextChange={onSkusTextChange}
           value={skus}
           onChange={handleSkusChange}
           orderId={orderId}
