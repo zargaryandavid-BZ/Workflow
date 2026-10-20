@@ -31,6 +31,12 @@ import {
   validateDueDate,
 } from "@/lib/order-form";
 import { prepareSkusForSave, normalizeSkus, type SkuItem } from "@/lib/skus";
+import {
+  SKU_INBOUND_FINGERPRINT_KEY,
+  applySpecsPatch,
+  resolveInboundSkuResync,
+  skuContentFingerprint,
+} from "@/lib/sku-resync";
 import { normalizeSmsPhone } from "@/lib/sms";
 import { fuzzyMatch } from "@/lib/fuzzyMatch";
 import {
@@ -3352,10 +3358,28 @@ async function refreshPortalOrdersFromWebhook(params: {
     const { skus: rawSkus, artworkBySkuId } = normalizeWebhookSkus(
       media.skus as WebhookSkuPayload[] | undefined
     );
-    const skus = prepareSkusForSave(rawSkus);
-    // Board card qty reads specs.skus first — keep SKUs in sync on portal re-fire.
-    if (skus.length > 0) {
-      nextSpecs.skus = skus;
+    const inboundSkus = prepareSkusForSave(rawSkus);
+    // Board card qty reads specs.skus first — keep SKUs in sync on re-fire, but
+    // never silently overwrite a staff SKU edit when the source's SKU list did
+    // not change (see lib/sku-resync.ts). Existing SKU ids are reused so
+    // per-SKU artwork stays attached.
+    const skuResync = resolveInboundSkuResync({
+      existingSpecs: baseSpecs,
+      existingSkus: normalizeSkus(baseSpecs.skus),
+      inbound: inboundSkus,
+    });
+    if (skuResync.skus) {
+      nextSpecs.skus = skuResync.skus;
+    }
+    applySpecsPatch(nextSpecs, skuResync.specsPatch);
+    const skus = skuResync.effectiveSkus;
+    const remappedArtworkBySkuId = new Map<string, WebhookArtworkRef[]>();
+    for (const [inboundId, refs] of artworkBySkuId) {
+      const target = skuResync.idMap.get(inboundId) ?? inboundId;
+      remappedArtworkBySkuId.set(target, [
+        ...(remappedArtworkBySkuId.get(target) ?? []),
+        ...refs,
+      ]);
     }
 
     const wasRush = baseSpecs.rush === true;
@@ -3442,7 +3466,7 @@ async function refreshPortalOrdersFromWebhook(params: {
       tenantId,
       orderId: order.id,
       item: { ...item, ...media },
-      artworkBySkuId,
+      artworkBySkuId: remappedArtworkBySkuId,
       soleSkuId: skus.length === 1 ? skus[0]!.id : null,
     });
     void import("@/lib/save-external-artwork")
@@ -3856,6 +3880,11 @@ async function createSingleWebhookJob(
     : null;
 
   const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs, ...dueSpecs };
+  // Remember what the source sent so a later re-fire can tell whether the
+  // source changed its SKUs or a staff edit should be kept (lib/sku-resync.ts).
+  if (skus.length > 0) {
+    specs[SKU_INBOUND_FINGERPRINT_KEY] = skuContentFingerprint(skus);
+  }
   // New quote-system per-product parameters from the CRM (combos, pouches, apparel,
   // boxes). Stored additively under specs so the card can show them. (Hayk 2026-08)
   {

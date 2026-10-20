@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { canEditOrderDetails } from "@/lib/permissions";
 import { normalizeSkus, prepareSkusForSave, type SkuItem } from "@/lib/skus";
+import { applyStaffSkuEdit } from "@/lib/sku-resync";
 
 /**
  * Upsert a single SKU into orders.specs.skus so gallery uploads can attach.
@@ -86,10 +87,11 @@ export async function POST(
   const { error } = await supabase
     .from("orders")
     .update({
-      specs: {
-        ...existingSpecs,
-        skus: nextSkus,
-      },
+      specs: applyStaffSkuEdit(
+        existingSpecs,
+        { ...existingSpecs, skus: nextSkus },
+        { userId: ctx.userId }
+      ),
     })
     .eq("id", orderId)
     .eq("tenant_id", tenantId);

@@ -165,6 +165,10 @@ const OPERATIONAL_SPEC_KEYS = new Set([
   "due_date_label",
   "due_date_status",
   "card_image",
+  // Server-owned SKU re-sync bookkeeping (lib/sku-resync.ts); client values ignored.
+  "skus_staff_edited_at",
+  "skus_staff_edited_by",
+  "skus_inbound_fingerprint",
 ]);
 
 function jsonStable(value: unknown): string {

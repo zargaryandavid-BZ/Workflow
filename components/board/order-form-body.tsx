@@ -156,6 +156,8 @@ export interface OrderFormBodyProps {
   onPendingImagesChange?: (skuId: string, next: PendingSkuImage[]) => void;
   /** Saves a newly added SKU row before gallery uploads can attach to it. */
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
+  /** `specs.skus_staff_edited_at` of the saved order (edit modal only). */
+  skusStaffEditedAt?: string | null;
   readOnly?: boolean;
   /**
    * When set, overrides `readOnly` for the Assigned designer control only
@@ -494,6 +496,7 @@ export function OrderFormBody({
   pendingImagesBySkuId,
   onPendingImagesChange,
   ensureSkuPersisted,
+  skusStaffEditedAt = null,
   readOnly = false,
   designerReadOnly,
   hideEmpty: hideEmptyProp = true,
@@ -1275,6 +1278,7 @@ export function OrderFormBody({
           onPendingImagesChange={onPendingImagesChange}
           ensureSkuPersisted={ensureSkuPersisted}
           disabled={readOnly}
+          staffEditedAt={skusStaffEditedAt}
         />
       </div>
 

@@ -556,7 +556,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `customer_id` | `uuid` | Linked customer (nullable) |
 | `title` | `text` | Order title / number |
 | `description` | `text` | Free text |
-| `specs` | `jsonb` | Structured data (SKUs in `specs.skus[]`) |
+| `specs` | `jsonb` | Structured data (SKUs in `specs.skus[]`; re-sync bookkeeping `skus_inbound_fingerprint`, `skus_staff_edited_at`, `skus_staff_edited_by` — see `lib/sku-resync.ts`: CRM/website re-fires keep staff SKU edits unless the source changed its own SKU list) |
 | `priority` | `order_priority` | Priority badge |
 | `due_date` | `date` | Absolute due date (nullable until CRM materializes after-approval dues) |
 | `position` | `double precision` | Sort within column |

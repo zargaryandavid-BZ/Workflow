@@ -2800,6 +2800,11 @@ export function CardDetailModal({
               orderId={orderId ?? undefined}
               skuImagesBySkuId={skuImagesBySkuId}
               ensureSkuPersisted={ensureSkuPersisted}
+              skusStaffEditedAt={
+                typeof data.order.specs?.skus_staff_edited_at === "string"
+                  ? data.order.specs.skus_staff_edited_at
+                  : null
+              }
               readOnly={isViewOnly}
               designerReadOnly={designerReadOnly}
               tags={tags}
