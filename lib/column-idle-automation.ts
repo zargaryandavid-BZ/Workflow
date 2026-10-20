@@ -14,6 +14,7 @@ import {
 } from "@/lib/column-idle-config";
 import { logActivity, onEnterColumn } from "@/lib/automation";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
+import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import {
   maybeStopPrepressTimersOnColumnLeave,
   maybeStopWorkTimersOnColumnEnter,
@@ -94,7 +95,16 @@ async function systemMoveOrder(
 
   if (error || !updated) return false;
 
-  const moved = updated as Order;
+  // After-approval jobs auto-moved past approval start their deadline clock now.
+  const due = await materializeDueOnProductionMove(client, {
+    tenantId: order.tenant_id,
+    orderId: order.id,
+    fromColumnId: fromColumn.id,
+    toColumnId: toColumn.id,
+  });
+  const moved = (
+    due ? { ...updated, due_date: due.dueDate, specs: due.specs } : updated
+  ) as Order;
   await maybeStopPrepressTimersOnColumnLeave({
     tenantId: order.tenant_id,
     orderId: order.id,

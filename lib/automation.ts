@@ -5,6 +5,7 @@ import {
   materializeAfterApprovalDue,
   mergeDueSpecsIntoOrderSpecs,
 } from "@/lib/due-date";
+import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import { sendApprovalEmail } from "@/lib/email";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { notifyRuleApprovalTarget, isApprovalRejection } from "@/lib/notify-rule-approval-target";
@@ -517,6 +518,14 @@ export async function onShippingOptSelected(
     console.error("[onShippingOptSelected] move failed", moveError);
     return;
   }
+
+  // After-approval jobs that jump straight to shipping start their clock now.
+  await materializeDueOnProductionMove(client, {
+    tenantId,
+    orderId,
+    fromColumnId: order.column_id as string | null,
+    toColumnId: toColumnId,
+  });
 
   await maybeStopPrepressTimersOnColumnLeave({
     tenantId,

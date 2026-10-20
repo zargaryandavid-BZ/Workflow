@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { listOrderGroupMembers } from "@/lib/ready-to-ship-group";
@@ -129,6 +130,14 @@ export async function POST(request: Request) {
     if (upErr) {
       return NextResponse.json({ error: upErr.message }, { status: 500 });
     }
+    // After-approval parts moved past approval start their deadline clock now.
+    await materializeDueOnProductionMove(supabase, {
+      tenantId,
+      orderId: m.id,
+      fromColumnId: m.column_id,
+      toColumnId,
+      movedAt: now,
+    });
     // Work done on this part — stop any running timers, same as a normal move.
     try {
       await stopOpenTimersForOrder(tenantId, m.id);
