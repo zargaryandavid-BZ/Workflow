@@ -125,6 +125,8 @@ export function KioskScanNav({ tenantName }: Props) {
             type="button"
             onClick={() => {
               setKeypadOpen(false);
+              replaceNextInput.current = false;
+              setQuery("");
               window.dispatchEvent(
                 new CustomEvent(SCAN_CAMERA_EVENT, { detail: { open: true } })
               );

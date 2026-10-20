@@ -197,6 +197,8 @@ export function FulfillmentNav() {
             type="button"
             onClick={() => {
               setKeypadOpen(false);
+              replaceNextInput.current = false;
+              setNavQuery("");
               window.dispatchEvent(
                 new CustomEvent(SCAN_CAMERA_EVENT, { detail: { open: true } })
               );

@@ -991,6 +991,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [order, setOrder] = useState<OrderResult | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraInline, setCameraInline] = useState(false);
+  const [cameraSession, setCameraSession] = useState(0);
   const [cameraFacing, setCameraFacing] = useState<"user" | "environment">(
     "user"
   );
@@ -999,6 +1000,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   cameraFacingRef.current = cameraFacing;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScannerController | null>(null);
+  const lookupSequenceRef = useRef(0);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<{ label: string; column: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1072,9 +1074,28 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   }
 
   function openCamera() {
+    // The header camera button starts a fresh scan, even when an order or an
+    // existing camera session is currently displayed.
+    lookupSequenceRef.current += 1;
+    setLoading(false);
+    setOrder(null);
+    setQuery("");
+    setLookupError(null);
+    setActionResult(null);
+    setActionError(null);
+    setActionFeedback(null);
+    setActingOn(null);
+    setPendingAction(null);
+    setReadyToShipPopup(null);
+    setPickupOpen(false);
+    setLightboxUrl(null);
+    window.dispatchEvent(
+      new CustomEvent(SCAN_LOADING_EVENT, { detail: { loading: false } })
+    );
     const inline =
       isPhoneScan() || window.matchMedia("(max-width: 767px)").matches;
     setCameraInline(inline);
+    setCameraSession((session) => session + 1);
     setCameraOpen(true);
   }
 
@@ -1170,7 +1191,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       }
       setCameraSwitching(false);
     };
-  }, [cameraOpen]);
+  }, [cameraOpen, cameraSession]);
 
   // Mobile browsers can detach or pause the video track when orientation
   // changes. Re-select the active physical camera after the layout settles.
@@ -1210,6 +1231,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const lookup = useCallback(async (q: string) => {
     const trimmed = q.trim();
     if (!trimmed) return;
+    const sequence = ++lookupSequenceRef.current;
     setLoading(true);
     window.dispatchEvent(new CustomEvent(SCAN_LOADING_EVENT, { detail: { loading: true } }));
     setLookupError(null);
@@ -1220,14 +1242,17 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     try {
       const res = await fetch(`${scanBase}?q=${encodeURIComponent(trimmed)}`);
       const json = await res.json();
+      if (sequence !== lookupSequenceRef.current) return;
       if (!res.ok) {
         setLookupError(json.error ?? "Order not found");
       } else {
         setOrder(json as OrderResult);
       }
     } catch {
+      if (sequence !== lookupSequenceRef.current) return;
       setLookupError("Network error");
     } finally {
+      if (sequence !== lookupSequenceRef.current) return;
       setLoading(false);
       window.dispatchEvent(new CustomEvent(SCAN_LOADING_EVENT, { detail: { loading: false } }));
     }
