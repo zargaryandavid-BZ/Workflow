@@ -27,6 +27,7 @@ import {
 } from "@/lib/designer-queue.server";
 import { preserveDesignTaskUrl } from "@/lib/design-task";
 import { preserveCardImage } from "@/lib/card-image";
+import { applyStaffSkuEdit } from "@/lib/sku-resync";
 import { preserveFinishedCustomerSms } from "@/lib/net-terms-fulfill";
 import { preservePriorityScore } from "@/lib/order-priority-score";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
@@ -586,6 +587,13 @@ export async function PATCH(
           )
         )
       )
+    );
+    // SKU sync keys are server-owned; stamp a staff SKU edit only when the
+    // SKU rows/names/qty actually changed (CRM/website re-sync rule).
+    updates.specs = applyStaffSkuEdit(
+      existingSpecs,
+      updates.specs as Record<string, unknown>,
+      { userId: ctx.userId }
     );
   } else if (staffDue) {
     updates.specs = mergeDueSpecsIntoOrderSpecs(existingSpecs, staffDue.specs);

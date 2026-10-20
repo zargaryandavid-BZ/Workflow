@@ -8,6 +8,7 @@ import {
   type PendingSkuImage,
 } from "./sku-image-upload";
 import type { SkuItem } from "@/lib/skus";
+import { skuTotalQty } from "@/lib/sku-resync";
 import type { OrderSkuImageWithUrl } from "@/lib/types";
 
 export type { SkuItem } from "@/lib/skus";
@@ -26,6 +27,11 @@ interface SkuEditorProps {
   /** Saves a newly added SKU row before gallery uploads can attach to it. */
   ensureSkuPersisted?: (skuId: string) => Promise<string | null>;
   disabled?: boolean;
+  /**
+   * `specs.skus_staff_edited_at` — when set, CRM / website re-syncs keep these
+   * SKUs unless the source changes its own SKU list.
+   */
+  staffEditedAt?: string | null;
 }
 
 export function SkuEditor({
@@ -37,7 +43,10 @@ export function SkuEditor({
   onPendingImagesChange,
   ensureSkuPersisted,
   disabled = false,
+  staffEditedAt = null,
 }: SkuEditorProps) {
+  const totalQty = skuTotalQty(value);
+
   function update(index: number, patch: Partial<SkuItem>) {
     onChange(value.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   }
@@ -67,6 +76,11 @@ export function SkuEditor({
           <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
             SKU QTY: {value.length}
           </span>
+          {value.length > 0 ? (
+            <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+              TOTAL QTY: {totalQty.toLocaleString("en-US")}
+            </span>
+          ) : null}
         </p>
         <button
           type="button"
@@ -77,6 +91,13 @@ export function SkuEditor({
           <Plus className="h-3.5 w-3.5" /> Add SKU
         </button>
       </div>
+
+      {staffEditedAt ? (
+        <p className="mb-2 text-xs text-slate-400">
+          Edited by staff — CRM / website updates keep these SKUs unless the
+          source changes its own SKU list.
+        </p>
+      ) : null}
 
       {value.length === 0 ? (
         <p className="text-sm text-slate-400">
