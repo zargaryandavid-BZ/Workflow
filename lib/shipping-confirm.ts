@@ -126,9 +126,13 @@ export async function completeShippingResponse(
     }
   }
 
+  // Pass the customer's choice so a pickup lands in the Pickup column and a
+  // delivery in the Shipping column (without it every first confirm fell back
+  // to the single Ship Opt rule, so pickups landed in "To be Shipped").
   await onShippingOptSelected(admin, {
     orderId: existing.order_id,
     tenantId: existing.tenant_id,
+    choice: args.choice,
   });
 
   return { ok: true, shippingRequestId: existing.id };
