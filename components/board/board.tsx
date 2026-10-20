@@ -4055,6 +4055,9 @@ export function Board({
             ownerNameByOrder={displayOwnerNameByOrder}
             designerNameByOrder={displayDesignerNameByOrder}
             onOpenOrder={(o) => openOrderDetail(o.id)}
+            timeChips={timeChips}
+            approvalDateByOrder={displayApprovalDateByOrder}
+            warningWorkingDays={warningWorkingDays}
             priorityColumnId={listPriorityColumnId}
             onPriorityColumnChange={setListPriorityColumnId}
             canReorderPriority={

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type SyntheticEvent,
 } from "react";
 import Image from "next/image";
@@ -50,6 +51,8 @@ import {
   sortForColumnPriority,
 } from "@/lib/list-column-priority";
 import { formatShortOrderNumber } from "./order-number-label";
+import { OrderCardTimeChips } from "./order-card-time-chips";
+import type { TimeChip } from "@/lib/time-chips";
 
 type SaveState =
   | { kind: "idle" }
@@ -60,6 +63,7 @@ type SaveState =
 interface Props {
   columnId: string;
   columnName: string;
+  columnKind?: string | null;
   /** Orders already narrowed to this column + the board's top filters. */
   orders: OrderWithRelations[];
   customFields: CustomField[];
@@ -67,6 +71,10 @@ interface Props {
   thumbnailByOrder: Record<string, BoardThumbnail[]>;
   ownerNameByOrder: Record<string, string>;
   designerNameByOrder: Record<string, string>;
+  /** Kanban card footer inputs — rows show the same timing chips. */
+  timeChips?: TimeChip[];
+  approvalDateByOrder?: Record<string, string>;
+  warningWorkingDays?: number[];
   /** Manager roles (admin / pre-prod owner / account manager). */
   canReorder: boolean;
   /** Manual-order columns: keep board state in sync after a move. */
@@ -93,12 +101,16 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
 export function ColumnPriorityList({
   columnId,
   columnName,
+  columnKind = null,
   orders,
   customFields,
   fieldValuesByOrder,
   thumbnailByOrder,
   ownerNameByOrder,
   designerNameByOrder,
+  timeChips = [],
+  approvalDateByOrder = {},
+  warningWorkingDays = [1, 2, 3, 4, 5],
   canReorder,
   onPositionSaved,
   onOpenOrder,
@@ -345,6 +357,19 @@ export function ColumnPriorityList({
     thumb: firstThumbnailUrl(thumbnailByOrder[id]) ?? null,
     owner: ownerNameByOrder[id] ?? "",
     designer: designerNameByOrder[id] ?? "",
+    timing: (
+      <OrderCardTimeChips
+        order={orderById.get(id)!}
+        columnId={columnId}
+        columnName={columnName}
+        columnKind={columnKind}
+        chips={timeChips}
+        approvalDate={approvalDateByOrder[id] ?? null}
+        warningWorkingDays={warningWorkingDays}
+        className="!mt-0 w-auto flex-none"
+        showPriority={false}
+      />
+    ),
   });
 
   return (
@@ -472,7 +497,7 @@ export function ColumnPriorityList({
 
 /** Columns: handle | priority | ↑↓ | order | customer | item | designer | owner | due */
 const GRID =
-  "grid grid-cols-[28px_76px_56px_minmax(180px,1.2fr)_minmax(120px,1fr)_minmax(140px,1.4fr)_110px_110px_90px] items-center gap-x-2 px-2";
+  "grid grid-cols-[28px_76px_56px_minmax(260px,1.8fr)_minmax(120px,1fr)_minmax(140px,1.4fr)_110px_110px_90px] items-center gap-x-2 px-2";
 
 const THUMB_PX = 72;
 
@@ -501,6 +526,8 @@ interface ContentProps {
   thumb: string | null;
   owner: string;
   designer: string;
+  /** Card-footer timing chips (Created / In col / open hours / due). */
+  timing?: ReactNode;
   onMoveTo?: (oneBased: number) => void;
   /** Floating copy shown under the pointer while dragging. */
   overlay?: boolean;
@@ -525,6 +552,7 @@ function RowContent({
   thumb,
   owner,
   designer,
+  timing,
   onMoveTo,
   overlay,
 }: ContentProps) {
@@ -615,7 +643,12 @@ function RowContent({
             />
           ) : null}
         </span>
-        <span className="truncate">{formatShortOrderNumber(order.title)}</span>
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="truncate">{formatShortOrderNumber(order.title)}</span>
+          {timing ? (
+            <span className="min-w-0 text-[11px] font-normal">{timing}</span>
+          ) : null}
+        </span>
       </span>
       <span className="truncate text-slate-700">
         {customer === "there" ? "" : customer}

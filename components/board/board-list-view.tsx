@@ -16,6 +16,8 @@ import { formatDateShort } from "@/lib/utils";
 import { priorityScoreFromSpecs } from "@/lib/order-priority-score";
 import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
 import { ColumnPriorityList } from "./column-priority-list";
+import { OrderCardTimeChips } from "./order-card-time-chips";
+import type { TimeChip } from "@/lib/time-chips";
 
 type GroupBy = "none" | "designer" | "owner";
 const UNASSIGNED = "Unassigned";
@@ -48,6 +50,10 @@ interface Props {
   canReorderPriority?: boolean;
   onPositionSaved?: (orderId: string, position: number) => void;
   priorityColumnLoadingMore?: boolean;
+  /** Same inputs the Kanban card footer uses, so the timing chips match. */
+  timeChips?: TimeChip[];
+  approvalDateByOrder?: Record<string, string>;
+  warningWorkingDays?: number[];
 }
 
 /**
@@ -69,6 +75,9 @@ export function BoardListView({
   canReorderPriority = false,
   onPositionSaved,
   priorityColumnLoadingMore = false,
+  timeChips = [],
+  approvalDateByOrder = {},
+  warningWorkingDays = [1, 2, 3, 4, 5],
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("due");
   const [asc, setAsc] = useState(true);
@@ -267,6 +276,19 @@ export function BoardListView({
         <td className="whitespace-nowrap px-3 py-1.5 text-slate-500">
           {r.inCol?.label ?? "—"}
         </td>
+        <td className="px-3 py-1.5">
+          <OrderCardTimeChips
+            order={r.order}
+            columnId={r.order.column_id}
+            columnName={r.stage}
+            columnKind={columnById.get(r.order.column_id)?.kind ?? null}
+            chips={timeChips}
+            approvalDate={approvalDateByOrder[r.order.id] ?? null}
+            warningWorkingDays={warningWorkingDays}
+            className="!mt-0 w-auto flex-none"
+            showPriority={false}
+          />
+        </td>
       </tr>
     );
   };
@@ -301,12 +323,16 @@ export function BoardListView({
         <ColumnPriorityList
           columnId={priorityColumn.id}
           columnName={priorityColumn.name}
+          columnKind={priorityColumn.kind}
           orders={orders.filter((o) => o.column_id === priorityColumn.id)}
           customFields={customFields}
           fieldValuesByOrder={fieldValuesByOrder}
           thumbnailByOrder={thumbnailByOrder}
           ownerNameByOrder={ownerNameByOrder}
           designerNameByOrder={designerNameByOrder}
+          timeChips={timeChips}
+          approvalDateByOrder={approvalDateByOrder}
+          warningWorkingDays={warningWorkingDays}
           canReorder={canReorderPriority}
           onPositionSaved={onPositionSaved}
           onOpenOrder={onOpenOrder}
@@ -361,6 +387,9 @@ export function BoardListView({
                 {sortKey === h.key ? (asc ? " ↑" : " ↓") : ""}
               </th>
             ))}
+            <th className="border-b border-slate-200 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Timing
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -369,7 +398,7 @@ export function BoardListView({
                 <Fragment key={person}>
                   <tr className="bg-slate-50">
                     <td
-                      colSpan={headers.length}
+                      colSpan={headers.length + 1}
                       className="sticky left-0 border-b border-t border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
                     >
                       {person}{" "}
