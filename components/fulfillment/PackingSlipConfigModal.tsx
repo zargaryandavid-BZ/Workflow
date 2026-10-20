@@ -2,6 +2,12 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Box, LayoutGrid, Loader2, Package, Printer, Square, X } from "lucide-react";
+import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
+import {
+  CUSTOM_BOX_SIZE_VALUE,
+  FULFILLMENT_BOX_SIZE_PRESETS,
+  formatCustomBoxSize,
+} from "@/lib/box-size-presets";
 import { cn } from "@/lib/utils";
 
 export type PackingSlipLayout = "multiple" | "one_per_slip";
@@ -369,6 +375,14 @@ function PackingSlipConfigForm({
 }
 
 type SlipLine = { key: string; skuId: string; qty: number };
+type SlipBoxDetails = {
+  sizeLabel: string;
+  sizeL: string;
+  sizeW: string;
+  sizeH: string;
+  weightLbs: string;
+};
+type BoxKeypadField = "sizeL" | "sizeW" | "sizeH" | "weightLbs";
 
 function requiredSkuQty(sku: SkuSlipConfig): number {
   if (sku.qty != null && sku.qty > 0) return sku.qty;
@@ -439,6 +453,11 @@ function SenderPackingSlipWizard({
   const [layout, setLayout] = useState<PackingSlipLayout>("multiple");
   const [boxCount, setBoxCount] = useState("1");
   const [boxes, setBoxes] = useState<SlipLine[][]>([]);
+  const [boxDetails, setBoxDetails] = useState<SlipBoxDetails[]>([]);
+  const [boxKeypadTarget, setBoxKeypadTarget] = useState<{
+    boxIndex: number;
+    field: BoxKeypadField;
+  } | null>(null);
   const [picked, setPicked] = useState<{
     skuId: string;
     fromBox: number | null;
@@ -532,10 +551,30 @@ function SenderPackingSlipWizard({
     } else {
       setBoxes(Array.from({ length: count }, () => []));
     }
+    setBoxDetails(
+      Array.from({ length: count }, () => ({
+        sizeLabel: "",
+        sizeL: "",
+        sizeW: "",
+        sizeH: "",
+        weightLbs: "",
+      }))
+    );
     setPicked(null);
     setBoxMenu(null);
     setError("");
     setStep(2);
+  }
+
+  function updateBoxDetails(
+    boxIndex: number,
+    patch: Partial<SlipBoxDetails>
+  ) {
+    setBoxDetails((current) =>
+      current.map((details, index) =>
+        index === boxIndex ? { ...details, ...patch } : details
+      )
+    );
   }
 
   function placeFromPool(boxIndex: number, skuId: string) {
@@ -646,6 +685,16 @@ function SenderPackingSlipWizard({
         pageSize: "4x6" as const,
         boxes: boxes.map((lines, index) => ({
           boxNumber: index + 1,
+          sizeLabel:
+            boxDetails[index]?.sizeLabel === CUSTOM_BOX_SIZE_VALUE
+              ? formatCustomBoxSize(
+                  boxDetails[index]?.sizeL ?? "",
+                  boxDetails[index]?.sizeW ?? "",
+                  boxDetails[index]?.sizeH ?? ""
+                ) || undefined
+              : boxDetails[index]?.sizeLabel || undefined,
+          weightLbs:
+            Number.parseFloat(boxDetails[index]?.weightLbs ?? "") || undefined,
           lines: lines
             .filter((line) => line.qty > 0)
             .map((line) => {
@@ -694,6 +743,7 @@ function SenderPackingSlipWizard({
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
       onClick={onClose}
@@ -908,6 +958,92 @@ function SenderPackingSlipWizard({
                   <p className="mb-2 text-[13px] font-semibold text-slate-700">
                     Box {boxIndex + 1}
                   </p>
+                  <div
+                    className="mb-3 grid grid-cols-2 gap-2"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Box size
+                      </span>
+                      <select
+                        value={boxDetails[boxIndex]?.sizeLabel ?? ""}
+                        onChange={(event) =>
+                          updateBoxDetails(boxIndex, {
+                            sizeLabel: event.target.value,
+                          })
+                        }
+                        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] font-medium text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      >
+                        <option value="">Select size</option>
+                        {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                        <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
+                      </select>
+                    </label>
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Weight (lbs)
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        readOnly
+                        value={boxDetails[boxIndex]?.weightLbs ?? ""}
+                        placeholder="Tap to enter"
+                        onFocus={() =>
+                          setBoxKeypadTarget({
+                            boxIndex,
+                            field: "weightLbs",
+                          })
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setBoxKeypadTarget({
+                            boxIndex,
+                            field: "weightLbs",
+                          });
+                        }}
+                        className="h-11 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-right text-[14px] font-semibold text-slate-800 placeholder:text-left placeholder:font-normal placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      />
+                    </label>
+                    {boxDetails[boxIndex]?.sizeLabel ===
+                    CUSTOM_BOX_SIZE_VALUE ? (
+                      <div className="col-span-2 grid grid-cols-3 gap-2">
+                        {(
+                          [
+                            ["sizeL", "Length"],
+                            ["sizeW", "Width"],
+                            ["sizeH", "Height"],
+                          ] as const
+                        ).map(([field, label]) => (
+                          <label key={field} className="min-w-0">
+                            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                              {label} (in)
+                            </span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              readOnly
+                              value={boxDetails[boxIndex]?.[field] ?? ""}
+                              placeholder="Tap"
+                              onFocus={() =>
+                                setBoxKeypadTarget({ boxIndex, field })
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setBoxKeypadTarget({ boxIndex, field });
+                              }}
+                              className="h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-right text-[13px] font-semibold text-slate-800 placeholder:text-left placeholder:font-normal placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                   {lines.length === 0 ? (
                     <p className="py-6 text-center text-[13px] text-slate-400">
                       {picked ? "Tap to place" : "Drop a SKU here"}
@@ -1089,6 +1225,32 @@ function SenderPackingSlipWizard({
         </div>
       </div>
     </div>
+    {boxKeypadTarget ? (
+      <ScanNumberKeypad
+        variant="decimal"
+        value={
+          boxDetails[boxKeypadTarget.boxIndex]?.[boxKeypadTarget.field] ?? ""
+        }
+        onInsert={(character) => {
+          const current =
+            boxDetails[boxKeypadTarget.boxIndex]?.[boxKeypadTarget.field] ?? "";
+          if (character === "." && current.includes(".")) return;
+          updateBoxDetails(boxKeypadTarget.boxIndex, {
+            [boxKeypadTarget.field]: `${current}${character}`,
+          });
+        }}
+        onBackspace={() => {
+          const current =
+            boxDetails[boxKeypadTarget.boxIndex]?.[boxKeypadTarget.field] ?? "";
+          updateBoxDetails(boxKeypadTarget.boxIndex, {
+            [boxKeypadTarget.field]: current.slice(0, -1),
+          });
+        }}
+        onSubmit={() => setBoxKeypadTarget(null)}
+        onClose={() => setBoxKeypadTarget(null)}
+      />
+    ) : null}
+    </>
   );
 }
 

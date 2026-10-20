@@ -24,6 +24,11 @@ import {
 } from "lucide-react";
 import QRCode from "qrcode";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
+import {
+  CUSTOM_BOX_SIZE_VALUE,
+  FULFILLMENT_BOX_SIZE_PRESETS,
+  formatCustomBoxSize,
+} from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import { cn } from "@/lib/utils";
 import { formatShortOrderNumber } from "@/lib/order-number-tokens";
@@ -63,19 +68,9 @@ function ItemQrCode({ value, size = 48 }: { value: string; size?: number }) {
   return <img src={url} alt={`QR ${value}`} width={size} height={size} className="shrink-0 rounded" />;
 }
 
-const SIZE_PRESETS = [
-  "6×6×6 in",
-  "8×6×4 in",
-  "10×8×6 in",
-  "10×10×10 in",
-  "12×10×8 in",
-  "12×12×12 in",
-  "16×12×10 in",
-  "20×16×12 in",
-  "24×18×12 in",
-] as const;
+const SIZE_PRESETS = FULFILLMENT_BOX_SIZE_PRESETS;
 
-const CUSTOM_SIZE = "__custom__";
+const CUSTOM_SIZE = CUSTOM_BOX_SIZE_VALUE;
 
 const dateTab =
   "-mb-px border-b-2 px-1 pb-2 pt-1 text-sm font-medium transition-colors";
@@ -185,14 +180,6 @@ function parseCustomDims(sizeLabel: string): { l: string; w: string; h: string }
     .match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
   if (!m) return { l: "", w: "", h: "" };
   return { l: m[1], w: m[2], h: m[3] };
-}
-
-function formatCustomSize(l: string, w: string, h: string): string {
-  const a = l.trim();
-  const b = w.trim();
-  const c = h.trim();
-  if (!a || !b || !c) return "";
-  return `${a}×${b}×${c} in`;
 }
 
 function boxCreationDateLabel(value: string): string {
@@ -1086,7 +1073,7 @@ export function MultiitemBoxSlipModal({
       prev.map((b) => {
         if (b.id !== id) return b;
         const next = { ...b, [dim]: value, sizeCustom: true };
-        next.sizeLabel = formatCustomSize(next.sizeL, next.sizeW, next.sizeH);
+        next.sizeLabel = formatCustomBoxSize(next.sizeL, next.sizeW, next.sizeH);
         return next;
       })
     );
@@ -1097,7 +1084,8 @@ export function MultiitemBoxSlipModal({
     dims: { sizeL: string; sizeW: string; sizeH: string }
   ) {
     void saveBoxFields(id, {
-      size_label: formatCustomSize(dims.sizeL, dims.sizeW, dims.sizeH) || null,
+      size_label:
+        formatCustomBoxSize(dims.sizeL, dims.sizeW, dims.sizeH) || null,
     });
   }
 
@@ -1579,7 +1567,7 @@ export function MultiitemBoxSlipModal({
           body: JSON.stringify({
             po_number: box.poNumber,
             size_label: box.sizeCustom
-              ? formatCustomSize(box.sizeL, box.sizeW, box.sizeH) || null
+              ? formatCustomBoxSize(box.sizeL, box.sizeW, box.sizeH) || null
               : box.sizeLabel || null,
             weight_lbs: box.weightLbs,
             status: "saved",
@@ -1816,7 +1804,7 @@ export function MultiitemBoxSlipModal({
       await saveBoxFields(active.id, {
         po_number: active.poNumber,
         size_label: active.sizeCustom
-          ? formatCustomSize(active.sizeL, active.sizeW, active.sizeH) || null
+          ? formatCustomBoxSize(active.sizeL, active.sizeW, active.sizeH) || null
           : active.sizeLabel || null,
         weight_lbs: active.weightLbs,
         status: "saved",

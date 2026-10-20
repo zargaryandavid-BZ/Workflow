@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { generateFloorPackingSlip } from "@/lib/packing-slip-generate";
+import {
+  generateFloorPackingSlip,
+  type PackingSlipBoxInput,
+} from "@/lib/packing-slip-generate";
 import { resolveFloorTenant } from "@/lib/kiosk-token";
 
 export const runtime = "nodejs";
@@ -18,10 +21,7 @@ export async function POST(request: Request) {
     totalParts?: number;
     layout?: "multiple" | "one_per_slip";
     pageSize?: "letter" | "4x6";
-    boxes?: {
-      boxNumber?: number;
-      lines?: { skuId?: string; qty?: number; fromQty?: number }[];
-    }[];
+    boxes?: PackingSlipBoxInput[];
   };
   const orderId = body.order_id?.trim() ?? "";
   if (!orderId) {

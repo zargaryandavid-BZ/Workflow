@@ -50,6 +50,7 @@ const MESSAGE_ACTIONS = new Set([
   "customer_notified",
   "shipping_link_sent",
   "fedex_tracking_sent",
+  "order_picked_up_sent",
 ]);
 
 function metaString(
@@ -267,6 +268,8 @@ export function sentMessagesFromActivity(
       title = buttonName ?? "Shipping link";
     } else if (log.action === "fedex_tracking_sent") {
       title = "FedEx tracking";
+    } else if (log.action === "order_picked_up_sent") {
+      title = "Order picked up";
     }
 
     const email = recipients[0] ?? metaString(meta, "email");
@@ -461,6 +464,12 @@ export function describeActivity(log: ActivityLog): string {
       return trackingNumber
         ? `FedEx tracking sent (${trackingNumber})`
         : "FedEx tracking sent";
+    }
+    case "order_picked_up_sent": {
+      const pickedUpBy = meta.pickedUpBy as string | undefined;
+      return pickedUpBy
+        ? `Pickup confirmation sent (${pickedUpBy})`
+        : "Pickup confirmation sent";
     }
     case "customer_merged":
       return "Customer records merged";

@@ -26,6 +26,29 @@ const KEYS: { label: string; value: string }[][] = [
   ],
 ];
 
+const DECIMAL_KEYS: { label: string; value: string }[][] = [
+  [
+    { label: "1", value: "1" },
+    { label: "2", value: "2" },
+    { label: "3", value: "3" },
+  ],
+  [
+    { label: "4", value: "4" },
+    { label: "5", value: "5" },
+    { label: "6", value: "6" },
+  ],
+  [
+    { label: "7", value: "7" },
+    { label: "8", value: "8" },
+    { label: "9", value: "9" },
+  ],
+  [
+    { label: ".", value: "." },
+    { label: "0", value: "0" },
+    { label: "00", value: "00" },
+  ],
+];
+
 const keyClass =
   "flex min-h-14 items-center justify-center rounded-xl bg-slate-100 text-2xl font-semibold text-slate-900 touch-manipulation active:bg-slate-200 md:min-h-20 md:text-3xl landscape:min-h-12 landscape:md:min-h-16";
 
@@ -36,6 +59,7 @@ export function ScanNumberKeypad({
   onSubmit,
   onClose,
   extraKeys = [],
+  variant = "scan",
 }: {
   value: string;
   onInsert: (ch: string) => void;
@@ -43,7 +67,9 @@ export function ScanNumberKeypad({
   onSubmit: () => void;
   onClose: () => void;
   extraKeys?: string[];
+  variant?: "scan" | "decimal";
 }) {
+  const keys = variant === "decimal" ? DECIMAL_KEYS : KEYS;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8">
       <button
@@ -76,11 +102,13 @@ export function ScanNumberKeypad({
         </div>
         <div className="mb-3 min-h-12 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-center text-2xl font-semibold tracking-wide text-slate-900 md:mb-4 md:min-h-14 md:text-3xl">
           {value || (
-            <span className="font-medium text-slate-400">e.g. 15118-1</span>
+            <span className="font-medium text-slate-400">
+              {variant === "decimal" ? "e.g. 12.5" : "e.g. 15118-1"}
+            </span>
           )}
         </div>
         <div className="grid gap-2 md:gap-2.5">
-          {KEYS.map((row, i) => (
+          {keys.map((row, i) => (
             <div key={i} className="grid grid-cols-3 gap-2 md:gap-2.5">
               {row.map((key) => (
                 <button
@@ -95,7 +123,7 @@ export function ScanNumberKeypad({
               ))}
             </div>
           ))}
-          {extraKeys.length > 0 ? (
+          {variant === "scan" && extraKeys.length > 0 ? (
             <div
               className="grid gap-2 md:gap-2.5"
               style={{
@@ -118,15 +146,22 @@ export function ScanNumberKeypad({
               ))}
             </div>
           ) : null}
-          <div className="grid grid-cols-3 gap-2 md:gap-2.5">
-            <button
-              type="button"
-              tabIndex={-1}
-              onClick={() => onInsert("-")}
-              className={keyClass}
-            >
-              -
-            </button>
+          <div
+            className={cn(
+              "grid gap-2 md:gap-2.5",
+              variant === "decimal" ? "grid-cols-2" : "grid-cols-3"
+            )}
+          >
+            {variant === "scan" ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => onInsert("-")}
+                className={keyClass}
+              >
+                -
+              </button>
+            ) : null}
             <button
               type="button"
               tabIndex={-1}
@@ -145,7 +180,7 @@ export function ScanNumberKeypad({
                 "bg-slate-900 text-base font-semibold text-white active:bg-slate-700 md:text-lg"
               )}
             >
-              Scan
+              {variant === "decimal" ? "Done" : "Scan"}
             </button>
           </div>
         </div>

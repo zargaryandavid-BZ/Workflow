@@ -27,6 +27,8 @@ export function thermalInBoxQtyLabel(
 
 export type ThermalSlipBox = {
   boxNumber: number;
+  sizeLabel?: string;
+  weightLbs?: number;
   lines: ThermalSlipLine[];
 };
 
@@ -84,23 +86,53 @@ function thermalChunks<T>(items: T[], size: number): T[][] {
   return pages;
 }
 
+export function thermalBoxBannerLabel(
+  box: ThermalSlipBox,
+  boxCount: number,
+  pageInBox: number,
+  pagesInBox: number
+): string {
+  const continued = pagesInBox > 1 ? `  ·  ${pageInBox}/${pagesInBox}` : "";
+  return `PACKING SLIP  ·  BOX ${box.boxNumber} OF ${boxCount}${continued}`;
+}
+
+export function thermalBoxDetailLabels(box: ThermalSlipBox): {
+  size: string;
+  weight: string;
+} {
+  const size = box.sizeLabel?.trim() || "—";
+  const weight =
+    box.weightLbs != null && Number.isFinite(box.weightLbs) && box.weightLbs > 0
+      ? `${box.weightLbs.toLocaleString("en-US", {
+          maximumFractionDigits: 2,
+        })} lb`
+      : "—";
+  return { size, weight };
+}
+
 function drawThermalBanner(
   doc: PdfDoc,
-  boxNumber: number,
+  box: ThermalSlipBox,
   boxCount: number,
   pageInBox: number,
   pagesInBox: number
 ) {
   doc.rect(0, 0, THERMAL_W, 28).fill("#111827");
-  const continued = pagesInBox > 1 ? `  ·  ${pageInBox}/${pagesInBox}` : "";
+  const label = thermalBoxBannerLabel(
+    box,
+    boxCount,
+    pageInBox,
+    pagesInBox
+  );
   doc
     .fillColor("#ffffff")
     .font("Helvetica-Bold")
     .fontSize(11)
-    .text(`BOX ${boxNumber} OF ${boxCount}${continued}`, 8, 8, {
+    .text(label, 8, 8, {
       width: THERMAL_W - 16,
       align: "center",
       lineBreak: false,
+      ellipsis: true,
     });
 }
 
@@ -108,36 +140,73 @@ function drawThermalIdentity(
   doc: PdfDoc,
   orderLabel: string,
   customerName: string,
+  box: ThermalSlipBox,
   qrPng: Buffer | null
 ) {
   const qrSize = 46;
-  const textW = THERMAL_W - 16 - (qrPng ? qrSize + 8 : 0);
+  const qrX = THERMAL_W - 8 - qrSize;
+  const leftX = 8;
+  const leftW = 112;
+  const detailsX = leftX + leftW + 8;
+  const detailsW = qrX - detailsX - 8;
+  const details = thermalBoxDetailLabels(box);
   doc
     .fillColor("#6b7280")
-    .font("Helvetica")
+    .font("Helvetica-Bold")
     .fontSize(8)
-    .text("PACKING SLIP", 8, 36, { width: textW, lineBreak: false });
+    .text("ORDER", leftX, 36, { width: leftW, lineBreak: false });
   doc
     .fillColor("#111827")
     .font("Helvetica-Bold")
-    .fontSize(13)
-    .text(pdfWinAnsiText(orderLabel || "Order"), 8, 48, {
-      width: textW,
+    .fontSize(12)
+    .text(pdfWinAnsiText(orderLabel || "Order"), leftX, 48, {
+      width: leftW,
       height: 16,
       ellipsis: true,
     });
   doc
     .fillColor("#374151")
     .font("Helvetica")
+    .fontSize(8)
+    .text(
+      pdfWinAnsiText(`CUSTOMER · ${customerName || "—"}`),
+      leftX,
+      67,
+      {
+      width: leftW,
+      height: 12,
+      ellipsis: true,
+      }
+    );
+  doc
+    .fillColor("#6b7280")
+    .font("Helvetica-Bold")
+    .fontSize(8)
+    .text("SIZE / WEIGHT", detailsX, 36, {
+      width: detailsW,
+      lineBreak: false,
+    });
+  doc
+    .fillColor("#111827")
+    .font("Helvetica-Bold")
     .fontSize(9)
-    .text(pdfWinAnsiText(customerName || ""), 8, 66, {
-      width: textW,
+    .text(pdfWinAnsiText(details.size), detailsX, 49, {
+      width: detailsW,
+      height: 13,
+      ellipsis: true,
+    });
+  doc
+    .fillColor("#374151")
+    .font("Helvetica")
+    .fontSize(9)
+    .text(pdfWinAnsiText(details.weight), detailsX, 66, {
+      width: detailsW,
       height: 12,
       ellipsis: true,
     });
   if (qrPng) {
     try {
-      doc.image(qrPng, THERMAL_W - 8 - qrSize, 34, {
+      doc.image(qrPng, qrX, 34, {
         width: qrSize,
         height: qrSize,
       });
@@ -213,7 +282,7 @@ export async function generateThermalBoxSlipPdf(input: {
           doc.addPage({ size: [THERMAL_W, THERMAL_H], margin: 0 });
           drawThermalBanner(
             doc,
-            box.boxNumber,
+            box,
             boxCount,
             index + 1,
             pages.length
@@ -222,6 +291,7 @@ export async function generateThermalBoxSlipPdf(input: {
             doc,
             input.orderLabel,
             input.customerName,
+            box,
             qrPng
           );
           if (!line) {
@@ -272,8 +342,14 @@ export async function generateThermalBoxSlipPdf(input: {
       const pages = thermalChunks(lines, THERMAL_ROWS);
       pages.forEach((pageLines, index) => {
         doc.addPage({ size: [THERMAL_W, THERMAL_H], margin: 0 });
-        drawThermalBanner(doc, box.boxNumber, boxCount, index + 1, pages.length);
-        drawThermalIdentity(doc, input.orderLabel, input.customerName, qrPng);
+        drawThermalBanner(doc, box, boxCount, index + 1, pages.length);
+        drawThermalIdentity(
+          doc,
+          input.orderLabel,
+          input.customerName,
+          box,
+          qrPng
+        );
         if (pageLines.length === 0) {
           doc
             .fontSize(10)

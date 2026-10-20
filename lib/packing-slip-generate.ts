@@ -15,13 +15,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const BUCKET = "order-assets";
 
+export type PackingSlipBoxInput = {
+  boxNumber?: number;
+  sizeLabel?: string;
+  weightLbs?: number;
+  lines?: { skuId?: string; qty?: number; fromQty?: number }[];
+};
+
 export function normalizeSlipBoxes(
-  raw:
-    | {
-        boxNumber?: number;
-        lines?: { skuId?: string; qty?: number; fromQty?: number }[];
-      }[]
-    | undefined
+  raw: PackingSlipBoxInput[] | undefined
 ): ThermalSlipBox[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const boxes = raw
@@ -30,6 +32,16 @@ export function normalizeSlipBoxes(
         typeof box?.boxNumber === "number" && box.boxNumber > 0
           ? Math.floor(box.boxNumber)
           : index + 1,
+      sizeLabel:
+        typeof box?.sizeLabel === "string" && box.sizeLabel.trim()
+          ? box.sizeLabel.trim().slice(0, 80)
+          : undefined,
+      weightLbs:
+        typeof box?.weightLbs === "number" &&
+        Number.isFinite(box.weightLbs) &&
+        box.weightLbs > 0
+          ? Math.round(box.weightLbs * 100) / 100
+          : undefined,
       lines: (Array.isArray(box?.lines) ? box.lines : [])
         .map((line) => ({
           skuId: typeof line?.skuId === "string" ? line.skuId.trim() : "",
@@ -389,10 +401,7 @@ export async function generateFloorPackingSlip(
     totalParts?: number;
     layout?: "multiple" | "one_per_slip";
     pageSize?: "letter" | "4x6";
-    boxes?: {
-      boxNumber?: number;
-      lines?: { skuId?: string; qty?: number; fromQty?: number }[];
-    }[];
+    boxes?: PackingSlipBoxInput[];
   }
 ): Promise<
   { buffer: Buffer; orderNumber: string; part: number; totalParts: number } | {

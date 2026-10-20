@@ -8,6 +8,7 @@ import {
 import {
   generatePackingSlipPdfFromExport,
   normalizeSlipBoxes,
+  type PackingSlipBoxInput,
 } from "@/lib/packing-slip-generate";
 
 export const runtime = "nodejs";
@@ -49,10 +50,7 @@ export async function POST(
     /** Total number of boxes — printed in the BOX section of the slip. */
     boxCount?: number | null;
     pageSize?: "letter" | "4x6";
-    boxes?: {
-      boxNumber?: number;
-      lines?: { skuId?: string; qty?: number; fromQty?: number }[];
-    }[];
+    boxes?: PackingSlipBoxInput[];
   } = {};
   try {
     body = (await request.json()) as typeof body;

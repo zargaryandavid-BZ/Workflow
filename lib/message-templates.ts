@@ -22,6 +22,9 @@ export const MESSAGE_TEMPLATE_KEYS = [
   "fedex_tracking_email_subject",
   "fedex_tracking_email_body",
   "fedex_tracking_sms",
+  "order_picked_up_email_subject",
+  "order_picked_up_email_body",
+  "order_picked_up_sms",
   "finished_review_sms",
   "finished_no_review_sms",
   "team_invite_email_subject",
@@ -189,6 +192,33 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
     ],
   },
   {
+    id: "order_picked_up",
+    title: "Order picked up",
+    description:
+      "Sent to the customer when someone signs for the order at pickup.",
+    keys: [
+      {
+        key: "order_picked_up_email_subject",
+        label: "Email subject",
+        kind: "subject",
+      },
+      {
+        key: "order_picked_up_email_body",
+        label: "Email body",
+        kind: "email",
+      },
+      { key: "order_picked_up_sms", label: "SMS", kind: "sms" },
+    ],
+    variables: [
+      "{{customer_name}}",
+      "{{order_number}}",
+      "{{picked_up_by}}",
+      "{{picked_up_at}}",
+      "{{team_name}}",
+      "{{brand}}",
+    ],
+  },
+  {
     id: "finished_order",
     title: "Order finished",
     description:
@@ -329,6 +359,17 @@ Thank you,
 {{team_name}}`,
   fedex_tracking_sms:
     "Hi {{customer_name}}, this is Bazaar Printing. Your order {{order_number}} has shipped. Tracking number: {{tracking_number}} {{tracking_url}}",
+
+  order_picked_up_email_subject:
+    "Order {{order_number}} was picked up",
+  order_picked_up_email_body: `Hi {{customer_name}},
+
+Your order {{order_number}} was picked up by {{picked_up_by}} on {{picked_up_at}}.
+
+Thank you,
+{{team_name}}`,
+  order_picked_up_sms:
+    "Hi {{customer_name}}, this is {{brand}}. Order {{order_number}} was picked up by {{picked_up_by}} on {{picked_up_at}}.",
 
   finished_review_sms:
     "Hi {{customer_name}}, this is Bazaar Printing. Your order {{order_number}} is finished. We'd love a quick review: {{review_link}}",

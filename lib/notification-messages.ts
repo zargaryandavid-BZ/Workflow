@@ -1128,6 +1128,90 @@ export function buildFedexTrackingEmailHtml(params: {
   });
 }
 
+export function orderPickedUpEmailSubject(
+  orderNumber: string,
+  templates?: MessageTemplateMap | null,
+  vars?: {
+    customer_name?: string;
+    picked_up_by?: string;
+    picked_up_at?: string;
+    team_name?: string;
+    brand?: string;
+  } | null
+) {
+  const map = templatesOrDefault(templates);
+  return renderMessageTemplate(map.order_picked_up_email_subject, {
+    order_number: orderNumber,
+    customer_name: vars?.customer_name ?? "",
+    picked_up_by: vars?.picked_up_by ?? "",
+    picked_up_at: vars?.picked_up_at ?? "",
+    team_name: vars?.team_name ?? "",
+    brand: vars?.brand ?? "",
+  });
+}
+
+export function buildOrderPickedUpEmailBody(params: {
+  customerName: string;
+  orderNumber: string;
+  pickedUpBy: string;
+  pickedUpAt: string;
+  teamName?: string;
+  brand?: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const map = templatesOrDefault(params.templates);
+  return renderMessageTemplate(map.order_picked_up_email_body, {
+    customer_name: params.customerName,
+    order_number: params.orderNumber,
+    picked_up_by: params.pickedUpBy,
+    picked_up_at: params.pickedUpAt,
+    team_name: params.teamName ?? "BazaarPrinting Team",
+    brand: params.brand ?? "Bazaar Printing",
+  });
+}
+
+export function buildOrderPickedUpEmailHtml(params: {
+  customerName: string;
+  orderNumber: string;
+  pickedUpBy: string;
+  pickedUpAt: string;
+  teamName?: string;
+  brand?: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const text = buildOrderPickedUpEmailBody(params);
+  return buildBrandedEmailLayout({
+    contextLabel: `Order #${params.orderNumber}`,
+    bodyHtml: plainTextToEmailParagraphs(text),
+    emailTitle: orderPickedUpEmailSubject(params.orderNumber, params.templates, {
+      customer_name: params.customerName,
+      picked_up_by: params.pickedUpBy,
+      picked_up_at: params.pickedUpAt,
+      team_name: params.teamName ?? "BazaarPrinting Team",
+      brand: params.brand ?? "Bazaar Printing",
+    }),
+  });
+}
+
+export function buildOrderPickedUpSmsBody(params: {
+  customerName?: string | null;
+  orderNumber: string;
+  pickedUpBy: string;
+  pickedUpAt: string;
+  brand?: string;
+  templates?: MessageTemplateMap | null;
+}) {
+  const map = templatesOrDefault(params.templates);
+  return renderMessageTemplate(map.order_picked_up_sms, {
+    customer_name: params.customerName?.trim() || "there",
+    order_number: params.orderNumber,
+    picked_up_by: params.pickedUpBy,
+    picked_up_at: params.pickedUpAt,
+    brand: params.brand ?? "Bazaar Printing",
+    team_name: "BazaarPrinting Team",
+  });
+}
+
 export function buildFedexTrackingSmsBody(params: {
   customerName?: string | null;
   orderNumber: string;

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { formatCustomBoxSize } from "./box-size-presets.ts";
 import {
   generateThermalBoxSlipPdf,
+  thermalBoxBannerLabel,
+  thermalBoxDetailLabels,
   thermalInBoxQtyLabel,
 } from "./packing-slip-thermal-pdf.ts";
 
@@ -15,6 +18,28 @@ const skus = Array.from({ length: 8 }, (_, index) => ({
 }));
 
 describe("generateThermalBoxSlipPdf", () => {
+  it("formats custom box dimensions for the printed header", () => {
+    assert.equal(formatCustomBoxSize("10", "8.5", "6"), "10×8.5×6 in");
+    assert.equal(formatCustomBoxSize("10", "", "6"), "");
+  });
+
+  it("prints each box size and weight in its header", () => {
+    const box = {
+      boxNumber: 2,
+      sizeLabel: "10×8×6 in",
+      weightLbs: 12.5,
+      lines: [],
+    };
+    assert.equal(
+      thermalBoxBannerLabel(box, 5, 1, 1),
+      "PACKING SLIP  ·  BOX 2 OF 5"
+    );
+    assert.deepEqual(thermalBoxDetailLabels(box), {
+      size: "10×8×6 in",
+      weight: "12.5 lb",
+    });
+  });
+
   it("prints one 4x6 page per box and continues a full box", async () => {
     const pdf = await generateThermalBoxSlipPdf({
       orderLabel: "15319-1 (2)",

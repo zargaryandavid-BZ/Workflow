@@ -55,6 +55,10 @@ import {
 } from "@/lib/fulfillment-scan-config";
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
 import {
+  PickupConfirmationModal,
+  type PickupFinishedChoice,
+} from "@/components/fulfillment/PickupConfirmationModal";
+import {
   SCAN_SHIPPING_ACTION_BTN,
   SCAN_SHIPPING_ACTION_BTN_READY,
   ScanShippingSlipButtons,
@@ -1012,6 +1016,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     buttonId: string;
     label: string;
   } | null>(null);
+  const [pickupOpen, setPickupOpen] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1034,6 +1039,28 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     () => scanButtonsForStation(scanButtons, scanStation),
     [scanButtons, scanStation]
   );
+  const pickupFinishedChoices = useMemo<PickupFinishedChoice[]>(() => {
+    return (["review", "no_review"] as const).map((kind) => {
+      const column =
+        columns.find(
+          (candidate) => finishedCustomerSmsKind(candidate.name) === kind
+        ) ?? null;
+      const button =
+        column == null
+          ? null
+          : scanButtons.find((candidate) => candidate.columnId === column.id) ??
+            null;
+      return {
+        kind,
+        columnName:
+          column?.name ??
+          (kind === "review"
+            ? "Finished: Review Request"
+            : "Finished: No Review Request"),
+        buttonId: button?.id ?? null,
+      };
+    });
+  }, [columns, scanButtons]);
 
   function selectScanStation(next: ScanStation) {
     setScanStation(next);
@@ -1216,9 +1243,16 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     return () => window.removeEventListener(SCAN_QUERY_EVENT, onQuery);
   }, [lookup]);
 
-  async function handleAction(button: ScanActionButton) {
+  async function handleAction(
+    button: ScanActionButton,
+    options?: { skipPhoneConfirm?: boolean }
+  ) {
     if (!order || !button.columnId) return;
-    if (isPhoneScan() && pendingAction?.id !== button.id) {
+    if (
+      isPhoneScan() &&
+      !options?.skipPhoneConfirm &&
+      pendingAction?.id !== button.id
+    ) {
       setPendingAction(button);
       return;
     }
@@ -1278,6 +1312,47 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     } finally {
       setActingOn(null);
     }
+  }
+
+  async function savePickupConfirmation(input: {
+    firstName: string;
+    lastName: string;
+    signatureDataUrl: string;
+  }) {
+    if (!order) throw new Error("Scan an order first.");
+    const response = await fetch(`${scanBase}/pickup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order_id: order.id,
+        ...input,
+      }),
+    });
+    const json = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      customerNotified?: { message?: string };
+    };
+    if (!response.ok) {
+      throw new Error(json.error ?? "Failed to confirm pickup");
+    }
+    return {
+      message:
+        json.customerNotified?.message ??
+        "The customer was notified that the order was picked up.",
+    };
+  }
+
+  async function finishPickup(choice: PickupFinishedChoice) {
+    const button = scanButtons.find(
+      (candidate) => candidate.id === choice.buttonId
+    );
+    if (!button) {
+      throw new Error(
+        `Configure a scan action for “${choice.columnName}” first.`
+      );
+    }
+    setPickupOpen(false);
+    await handleAction(button, { skipPhoneConfirm: true });
   }
 
   const actionFeedbackRef = useRef<ActionFeedback | null>(null);
@@ -1434,6 +1509,16 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           smsConfigured={smsConfigured}
           onClose={() => setReadyToShipPopup(null)}
           onSent={() => void completeReadyToShipAction()}
+        />
+      ) : null}
+
+      {pickupOpen && order ? (
+        <PickupConfirmationModal
+          orderNumber={order.title}
+          choices={pickupFinishedChoices}
+          onSave={savePickupConfirmation}
+          onChoose={finishPickup}
+          onClose={() => setPickupOpen(false)}
         />
       ) : null}
 
@@ -1846,6 +1931,33 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               </div>
             </div>
             <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setPickupOpen(true)}
+                onMouseDown={(event) => event.preventDefault()}
+                disabled={
+                  !order ||
+                  actingOn !== null ||
+                  actionFeedback?.phase === "loading"
+                }
+                className={cn(
+                  "flex min-h-[4rem] w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-[13px] font-medium transition-colors md:text-[15px]",
+                  order
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                    : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400"
+                )}
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                  <MapPinCheck className="h-4 w-4" />
+                </span>
+                <span className="flex-1">
+                  <span className="block">Pick Up</span>
+                  <span className="block text-[11px] font-normal text-slate-500 md:text-[13px]">
+                    Capture recipient name, date, and signature
+                  </span>
+                </span>
+                <ChevronRight className="h-5 w-5 shrink-0 text-emerald-400" />
+              </button>
               {visibleScanButtons.map((button, index) => {
                 const configured = !!button.columnId;
                 const columnName =
