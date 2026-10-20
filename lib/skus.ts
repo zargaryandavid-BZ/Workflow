@@ -79,11 +79,11 @@ export function validateSkus(
     if (!s.name.trim()) {
       return `SKU ${i + 1}: name is required.`;
     }
+    // Quantity is optional (blank stays blank — same as the CRM / portal
+    // SKU registration); when given it must be at least 1.
     if (
-      s.qty == null ||
-      typeof s.qty !== "number" ||
-      Number.isNaN(s.qty) ||
-      s.qty < 1
+      s.qty != null &&
+      (typeof s.qty !== "number" || Number.isNaN(s.qty) || s.qty < 1)
     ) {
       return `SKU ${i + 1}: quantity must be at least 1.`;
     }

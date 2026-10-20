@@ -169,6 +169,10 @@ const OPERATIONAL_SPEC_KEYS = new Set([
   "skus_staff_edited_at",
   "skus_staff_edited_by",
   "skus_inbound_fingerprint",
+  // Server-owned Labels-per-roll re-sync bookkeeping (lib/roll-options.ts).
+  "roll_staff_edited_at",
+  "roll_staff_edited_by",
+  "roll_inbound_fingerprint",
 ]);
 
 function jsonStable(value: unknown): string {
