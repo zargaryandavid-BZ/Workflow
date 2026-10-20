@@ -17,6 +17,7 @@ import { priorityScoreFromSpecs } from "@/lib/order-priority-score";
 import { firstThumbnailUrl, type BoardThumbnail } from "@/lib/card-image";
 import { ColumnPriorityList } from "./column-priority-list";
 import { OrderCardTimeChips } from "./order-card-time-chips";
+import { ListCardImageFallback } from "./use-list-card-image";
 import type { TimeChip } from "@/lib/time-chips";
 
 type GroupBy = "none" | "designer" | "owner";
@@ -242,6 +243,7 @@ export function BoardListView({
                 className="h-6 w-6 shrink-0 rounded object-cover"
               />
             ) : null}
+            <ListCardImageFallback orderId={r.order.id} hasThumb={Boolean(r.thumb)} />
             {r.orderNo}
           </span>
         </td>

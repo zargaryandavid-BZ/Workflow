@@ -52,6 +52,7 @@ import {
 } from "@/lib/list-column-priority";
 import { formatShortOrderNumber } from "./order-number-label";
 import { OrderCardTimeChips } from "./order-card-time-chips";
+import { ListCardImageFallback } from "./use-list-card-image";
 import type { TimeChip } from "@/lib/time-chips";
 
 type SaveState =
@@ -630,6 +631,9 @@ function RowContent({
           className="flex shrink-0 items-center justify-center overflow-hidden rounded bg-slate-50"
           style={{ width: THUMB_PX, height: THUMB_PX }}
         >
+          {!overlay ? (
+            <ListCardImageFallback orderId={order.id} hasThumb={Boolean(thumb)} />
+          ) : null}
           {thumb ? (
             <Image
               src={thumb}

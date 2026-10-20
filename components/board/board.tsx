@@ -3263,9 +3263,17 @@ export function Board({
   const displayFieldValuesByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.fieldValuesByOrder
     : fieldValuesByOrder;
-  const displayThumbnailByOrder = filtersActive && searchEnrichments
-    ? searchEnrichments.thumbnailByOrder
-    : thumbnailByOrder;
+  // Filtered view: search results only carry DB thumbnails. Keep any picture
+  // the board already knows (e.g. a Drive card picture fetched by a card) for
+  // orders the search returned none for, so rows/cards don't go blank.
+  const displayThumbnailByOrder = useMemo(() => {
+    if (!filtersActive || !searchEnrichments) return thumbnailByOrder;
+    const merged: Record<string, BoardThumbnail[]> = { ...thumbnailByOrder };
+    for (const [id, list] of Object.entries(searchEnrichments.thumbnailByOrder)) {
+      if (list && list.length > 0) merged[id] = list;
+    }
+    return merged;
+  }, [filtersActive, searchEnrichments, thumbnailByOrder]);
   const displayNotificationBadgeByOrder = filtersActive && searchEnrichments
     ? searchEnrichments.notificationBadgeByOrder
     : notificationBadgeByOrder;

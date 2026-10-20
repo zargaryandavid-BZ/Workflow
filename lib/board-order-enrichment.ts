@@ -69,6 +69,8 @@ const emptyEnrichment = (): BoardOrderEnrichment => ({
   hasCustomerReplyByOrder: {},
 });
 
+const THUMB_ID_CHUNK = 150;
+
 /** Cardboard main picture first (`specs.card_image`), then SKU/asset gallery. */
 export async function orderCardThumbnails(
   supabase: SupabaseClient,
@@ -77,22 +79,44 @@ export async function orderCardThumbnails(
   if (orders.length === 0) return {};
   const orderIds = orders.map((o) => o.id);
 
-  const [skuImagesRes, assetsRes] = await Promise.all([
-    supabase
-      .from("order_sku_images")
-      .select(
-        "id, order_id, storage_path, file_name, mime_type, position, created_at"
-      )
-      .in("order_id", orderIds)
-      .order("position", { ascending: true }),
-    supabase
-      .from("assets")
-      .select(
-        "id, order_id, storage_path, external_url, file_name, mime_type, created_at"
-      )
-      .in("order_id", orderIds)
-      .order("created_at", { ascending: true }),
-  ]);
+  // Chunk the id list: the filtered board (designer / owner / search) can
+  // pass hundreds of orders, and one huge `in (...)` URL can fail outright,
+  // leaving every thumbnail blank. All rows of one order stay in one chunk,
+  // so per-order ordering is unchanged.
+  const chunks: string[][] = [];
+  for (let i = 0; i < orderIds.length; i += THUMB_ID_CHUNK) {
+    chunks.push(orderIds.slice(i, i + THUMB_ID_CHUNK));
+  }
+  const parts = await Promise.all(
+    chunks.map((ids) =>
+      Promise.all([
+        supabase
+          .from("order_sku_images")
+          .select(
+            "id, order_id, storage_path, file_name, mime_type, position, created_at"
+          )
+          .in("order_id", ids)
+          .order("position", { ascending: true }),
+        supabase
+          .from("assets")
+          .select(
+            "id, order_id, storage_path, external_url, file_name, mime_type, created_at"
+          )
+          .in("order_id", ids)
+          .order("created_at", { ascending: true }),
+      ])
+    )
+  );
+  for (const [skuPart, assetPart] of parts) {
+    if (skuPart.error) {
+      console.warn("[enrichment] sku image thumbnails failed:", skuPart.error.message);
+    }
+    if (assetPart.error) {
+      console.warn("[enrichment] asset thumbnails failed:", assetPart.error.message);
+    }
+  }
+  const skuImagesRes = { data: parts.flatMap(([r]) => r.data ?? []) };
+  const assetsRes = { data: parts.flatMap(([, r]) => r.data ?? []) };
 
   const skuRows = (skuImagesRes.data ?? []).map((r) => ({
     id: r.id as string,
