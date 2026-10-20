@@ -159,8 +159,20 @@ export function OrderCardTimeChips({
 
   const left: ReactNode[] = [];
   let priorityNode: ReactNode = null;
+  // "Due" and "Late" both print the due label while waiting on approval
+  // (e.g. "5 wd after approval") — show that label only once.
+  let pendingApprovalLabelShown = false;
 
   for (const chip of visible) {
+    if (
+      chip.kind === "system" &&
+      (chip.system_key === "due" || chip.system_key === "late") &&
+      !order.due_date &&
+      dueStatus.kind === "pending_approval"
+    ) {
+      if (pendingApprovalLabelShown) continue;
+      pendingApprovalLabelShown = true;
+    }
     if (chip.kind === "system" && chip.system_key === "priority") {
       if (
         !showPriority ||
