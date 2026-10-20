@@ -4042,7 +4042,10 @@ export function Board({
       ) : null}
 
       {boardView === "list" ? (
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        // flex column so the list's own `flex-1 min-h-0 overflow-auto` gets a
+        // bounded height and scrolls (a plain block wrapper let it grow to
+        // full content height and the overflow-hidden here clipped it).
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <BoardListView
             orders={emergencyFilteredOrders}
             columns={columns}
