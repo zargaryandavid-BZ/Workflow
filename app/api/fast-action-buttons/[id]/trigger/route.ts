@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
@@ -83,6 +84,14 @@ export async function POST(
   if (moveError) {
     return NextResponse.json({ error: moveError.message }, { status: 500 });
   }
+
+  // After-approval jobs moved past approval start their deadline clock now.
+  await materializeDueOnProductionMove(supabase, {
+    tenantId,
+    orderId,
+    fromColumnId: order.column_id as string | null,
+    toColumnId: destColumnId,
+  });
 
   const { data: destCol } = await supabase
     .from("board_columns")

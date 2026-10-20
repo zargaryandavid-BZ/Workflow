@@ -9,6 +9,7 @@ import { canMove } from "@/lib/permissions";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
+import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import {
   chipsToStampOnEnter,
   withTimeChipStamp,
@@ -218,6 +219,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  // "N working days after approval" jobs dragged past approval by staff (or
+  // skipping approval) start their deadline clock now — same math as a
+  // customer approval. Never replaces an existing due date.
+  let responseOrder = updated as Order;
+  let dueMaterialized: string | null = null;
+  if (isColumnChange) {
+    const due = await materializeDueOnProductionMove(supabase, {
+      tenantId,
+      orderId: typedOrder.id,
+      fromColumnId,
+      toColumnId: body.toColumnId,
+      movedAt: responseOrder.last_moved_at ?? undefined,
+    });
+    if (due) {
+      dueMaterialized = due.dueDate;
+      responseOrder = {
+        ...responseOrder,
+        due_date: due.dueDate,
+        specs: due.specs as Order["specs"],
+      };
+    }
+  }
+
   if (isColumnChange) {
     await maybeStopWorkTimersOnColumnEnter({
       tenantId,
@@ -272,7 +296,7 @@ export async function POST(request: Request) {
   if (isColumnChange) {
     // Keep the move response fast, but use after() so Vercel/Node doesn't
     // freeze the isolate before SMS / column automations finish.
-    const movedOrder = updated as Order;
+    const movedOrder = responseOrder;
     const actorUserId = ctx.userId;
     const tenantName = ctx.tenant.name;
     after(async () => {
@@ -287,6 +311,9 @@ export async function POST(request: Request) {
             to: body.toColumnId,
             fromName: typedFromColumn.name,
             toName: typedColumn.name,
+            ...(dueMaterialized
+              ? { due_date_materialized: dueMaterialized }
+              : {}),
           },
         });
       } catch (err: unknown) {
@@ -387,5 +414,5 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({ order: updated });
+  return NextResponse.json({ order: responseOrder });
 }

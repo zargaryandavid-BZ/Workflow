@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import { getTenantContext } from "@/lib/auth";
 import { requireFulfillmentApi } from "@/lib/fulfillment-access";
 import { createClient } from "@/lib/supabase/server";
@@ -110,6 +111,14 @@ export async function POST(request: Request) {
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+
+  // After-approval jobs scanned past approval start their deadline clock now.
+  await materializeDueOnProductionMove(supabase, {
+    tenantId: ctx.tenant.id,
+    orderId: body.order_id,
+    fromColumnId: order.column_id as string | null,
+    toColumnId: targetColumnId,
+  });
 
   const { data: sourceColumn } = await supabase
     .from("board_columns")
