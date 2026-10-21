@@ -3,6 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { columnMoveColumnIds, enrichActivityLog, isColumnMoveActivity, mergeActivityById } from "@/lib/activity";
 import { ACTIVITY_LOG_LIMIT, ACTIVITY_MOVE_LOG_LIMIT } from "@/lib/constants";
+import {
+  isCustomerReferencePath,
+  referenceSkuIdFromPath,
+  toCustomerReferenceFiles,
+} from "@/lib/customer-references";
+import { normalizeSkus } from "@/lib/skus";
 import type {
   ActivityLog,
   Asset,
@@ -104,6 +110,13 @@ export async function GET(
     created_at: string;
   }[];
   const notificationIds = missingInfoList.map((n) => n.id as string);
+  // Approval rounds can carry customer reference images (proof rejected).
+  const responseNotificationIds = [
+    ...notificationIds,
+    ...approvalList
+      .filter((n) => n.status === "responded")
+      .map((n) => n.id as string),
+  ];
 
   const activityRows = mergeActivityById(
     (activityResult.data ?? []) as ActivityLog[],
@@ -132,11 +145,12 @@ export async function GET(
         : Promise.resolve({
             data: [] as { id: string; full_name: string | null }[],
           }),
-      notificationIds.length > 0
+      responseNotificationIds.length > 0
         ? supabase
             .from("assets")
             .select("*")
-            .in("notification_id", notificationIds)
+            .in("notification_id", responseNotificationIds)
+            .order("created_at", { ascending: true })
         : Promise.resolve({ data: [] as Asset[] }),
       columnIds.size > 0
         ? supabase
@@ -184,11 +198,38 @@ export async function GET(
     response_assets: assetsByNotification.get(n.id as string) ?? [],
   }));
 
+  // SKU labels for per-SKU references — only fetch specs when needed.
+  const approvalAssets = approvalList.flatMap(
+    (n) => assetsByNotification.get(n.id as string) ?? []
+  );
+  const needsSkuLabels = approvalAssets.some(
+    (a) =>
+      isCustomerReferencePath(a.storage_path) &&
+      referenceSkuIdFromPath(a.storage_path)
+  );
+  const referenceSkus = needsSkuLabels
+    ? normalizeSkus(
+        (
+          (
+            await supabase
+              .from("orders")
+              .select("specs")
+              .eq("id", id)
+              .maybeSingle()
+          ).data?.specs as { skus?: unknown } | null
+        )?.skus
+      )
+    : [];
+
   const approvalNotes = approvalList.map((n) => ({
     ...n,
     creator_name: n.created_by
       ? (creatorNameById.get(n.created_by as string) ?? null)
       : null,
+    reference_files: toCustomerReferenceFiles(
+      assetsByNotification.get(n.id as string) ?? [],
+      referenceSkus
+    ),
   }));
 
   const notifications = allNotifications.map((n) => ({

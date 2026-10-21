@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { RESPOND_MAX_BYTES } from "@/lib/respond-page";
 import { normalizeSkus } from "@/lib/skus";
+import {
+  REFERENCE_MAX_BYTES,
+  REFERENCE_MAX_FILES,
+  REFERENCE_TYPES_LABEL,
+  isAllowedReferenceFile,
+  ownsReferencePath,
+  referenceStoragePath,
+} from "@/lib/customer-references";
 
 const BUCKET = "order-assets";
 const ALLOWED_EXT = new Set(["pdf", "ai", "eps", "png", "jpg", "jpeg"]);
@@ -23,7 +31,11 @@ function jsonError(error: string, status: number) {
   return NextResponse.json({ error }, { status });
 }
 
-async function loadOpenMissingInfo(token: string) {
+/**
+ * Missing-info replies (artwork) and — additively — proof-rejection reference
+ * images on customer_approval links. Same bucket + `assets` table for both.
+ */
+async function loadOpenNotification(token: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("job_notifications")
@@ -31,7 +43,11 @@ async function loadOpenMissingInfo(token: string) {
     .eq("token", token)
     .maybeSingle();
   const notification = data as NotificationRow | null;
-  if (!notification || notification.type !== "missing_info") {
+  if (
+    !notification ||
+    (notification.type !== "missing_info" &&
+      notification.type !== "customer_approval")
+  ) {
     return { admin, error: jsonError("Invalid link", 404) as NextResponse };
   }
   if (notification.status === "responded") {
@@ -75,18 +91,80 @@ async function resolveSkuKey(
   return skus.some((s) => s.id === requested) ? requested : null;
 }
 
-function pathFor(notification: NotificationRow, fileName: string): string {
+function isApproval(notification: NotificationRow): boolean {
+  return notification.type === "customer_approval";
+}
+
+function pathFor(
+  notification: NotificationRow,
+  fileName: string,
+  skuKey: string | null = null
+): string {
+  if (isApproval(notification)) {
+    return referenceStoragePath({
+      tenantId: notification.tenant_id,
+      orderId: notification.order_id,
+      notificationId: notification.id,
+      skuId: skuKey,
+      fileName,
+    });
+  }
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
   return `${notification.tenant_id}/${notification.order_id}/${Date.now()}-${safeName}`;
 }
 
 function ownsPath(notification: NotificationRow, path: string): boolean {
+  if (isApproval(notification)) {
+    return ownsReferencePath(
+      path,
+      notification.tenant_id,
+      notification.order_id,
+      notification.id
+    );
+  }
   const prefix = `${notification.tenant_id}/${notification.order_id}/`;
   return path.startsWith(prefix) && !path.includes("..");
 }
 
+/** Size / type / count checks. Returns an error response or null. */
+async function validateUpload(
+  admin: ReturnType<typeof createAdminClient>,
+  notification: NotificationRow,
+  fileName: string,
+  size: number
+): Promise<NextResponse | null> {
+  if (isApproval(notification)) {
+    if (size > REFERENCE_MAX_BYTES) {
+      return jsonError("File must be 50MB or less.", 400);
+    }
+    if (!isAllowedReferenceFile(fileName)) {
+      return jsonError(`Allowed file types: ${REFERENCE_TYPES_LABEL}.`, 400);
+    }
+    const { count } = await admin
+      .from("assets")
+      .select("id", { count: "exact", head: true })
+      .eq("notification_id", notification.id);
+    if ((count ?? 0) >= REFERENCE_MAX_FILES) {
+      return jsonError(
+        `You can attach up to ${REFERENCE_MAX_FILES} reference files.`,
+        400
+      );
+    }
+    return null;
+  }
+  if (size > RESPOND_MAX_BYTES) {
+    return jsonError("File must be 50MB or less.", 400);
+  }
+  if (!ALLOWED_EXT.has(fileExt(fileName))) {
+    return jsonError("Allowed file types: PDF, AI, EPS, PNG, JPG.", 400);
+  }
+  return null;
+}
+
 /**
- * Customer missing-info uploads.
+ * Customer missing-info uploads, and reference images attached when a proof
+ * is not approved (customer_approval links; stored with sku_key NULL so they
+ * never count as artwork — see lib/customer-references.ts).
  * Files go to Storage via a signed URL so they never pass through Vercel’s
  * ~4.5 MB function body limit (the form still allows up to 50 MB).
  */
@@ -106,7 +184,7 @@ export async function POST(request: Request) {
     const token = typeof body.token === "string" ? body.token : "";
     if (!token) return jsonError("file and token are required", 400);
 
-    const loaded = await loadOpenMissingInfo(token);
+    const loaded = await loadOpenNotification(token);
     if (loaded.error) return loaded.error;
     const { admin, notification } = loaded;
     if (!notification) return jsonError("Invalid link", 404);
@@ -117,11 +195,13 @@ export async function POST(request: Request) {
       if (!path || !fileName || !ownsPath(notification, path)) {
         return jsonError("Upload could not be saved.", 400);
       }
-      const skuKey = await resolveSkuKey(
-        admin,
-        notification.order_id,
-        typeof body.skuKey === "string" ? body.skuKey : null
-      );
+      const skuKey = isApproval(notification)
+        ? null
+        : await resolveSkuKey(
+            admin,
+            notification.order_id,
+            typeof body.skuKey === "string" ? body.skuKey : null
+          );
       const { data: asset, error } = await admin
         .from("assets")
         .insert({
@@ -146,14 +226,18 @@ export async function POST(request: Request) {
     const fileName = typeof body.fileName === "string" ? body.fileName : "";
     const size = typeof body.size === "number" ? body.size : 0;
     if (!fileName) return jsonError("file and token are required", 400);
-    if (size > RESPOND_MAX_BYTES) {
-      return jsonError("File must be 50MB or less.", 400);
-    }
-    if (!ALLOWED_EXT.has(fileExt(fileName))) {
-      return jsonError("Allowed file types: PDF, AI, EPS, PNG, JPG.", 400);
-    }
+    const invalid = await validateUpload(admin, notification, fileName, size);
+    if (invalid) return invalid;
 
-    const path = pathFor(notification, fileName);
+    // Approval references: SKU only picks the storage folder (validated).
+    const referenceSku = isApproval(notification)
+      ? await resolveSkuKey(
+          admin,
+          notification.order_id,
+          typeof body.skuKey === "string" ? body.skuKey : null
+        )
+      : null;
+    const path = pathFor(notification, fileName, referenceSku);
     const { data: signed, error } = await admin.storage
       .from(BUCKET)
       .createSignedUploadUrl(path);
@@ -177,24 +261,23 @@ export async function POST(request: Request) {
   if (!(file instanceof File) || typeof token !== "string") {
     return jsonError("file and token are required", 400);
   }
-  if (file.size > RESPOND_MAX_BYTES) {
-    return jsonError("File must be 50MB or less.", 400);
-  }
-  if (!ALLOWED_EXT.has(fileExt(file.name))) {
-    return jsonError("Allowed file types: PDF, AI, EPS, PNG, JPG.", 400);
-  }
 
-  const loaded = await loadOpenMissingInfo(token);
+  const loaded = await loadOpenNotification(token);
   if (loaded.error) return loaded.error;
   const { admin, notification } = loaded;
   if (!notification) return jsonError("Invalid link", 404);
 
-  const skuKey = await resolveSkuKey(
+  const invalid = await validateUpload(admin, notification, file.name, file.size);
+  if (invalid) return invalid;
+
+  const resolvedSku = await resolveSkuKey(
     admin,
     notification.order_id,
     requestedSkuKey
   );
-  const path = pathFor(notification, file.name);
+  // Approval references never carry sku_key (would count as artwork).
+  const skuKey = isApproval(notification) ? null : resolvedSku;
+  const path = pathFor(notification, file.name, resolvedSku);
   const { error: uploadError } = await admin.storage
     .from(BUCKET)
     .upload(path, file, { contentType: file.type, upsert: false });

@@ -5,8 +5,9 @@ import { getTenantContext } from "@/lib/auth";
 const BUCKET = "order-assets";
 
 // Download: redirect to a short-lived signed URL.
+// `?inline=1` opens it in the browser instead (image thumbnails / full-size view).
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -29,9 +30,14 @@ export async function GET(
   // for idempotency, but portal artwork URLs are auth-gated (osk_ header) and
   // would 401 in a browser.
   if (asset.storage_path) {
+    const inline = new URL(request.url).searchParams.get("inline") === "1";
     const { data: signed, error } = await supabase.storage
       .from(BUCKET)
-      .createSignedUrl(asset.storage_path, 60, { download: asset.file_name });
+      .createSignedUrl(
+        asset.storage_path,
+        inline ? 600 : 60,
+        inline ? undefined : { download: asset.file_name }
+      );
 
     if (error || !signed) {
       return NextResponse.json(

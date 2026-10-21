@@ -1,4 +1,5 @@
 import type { BoardThumbnail, CardImageSource } from "@/lib/card-image";
+import { isCustomerReferencePath } from "./customer-references.ts";
 
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 
@@ -69,6 +70,9 @@ export async function boardThumbnailsByOrder(
   }[] = [];
 
   for (const asset of assets) {
+    // Proof-rejection reference images are the customer's examples, not this
+    // job's artwork — never use them as a card picture.
+    if (isCustomerReferencePath(asset.storage_path)) continue;
     const source = asset.source ?? "asset";
     const id = asset.id?.trim() ?? "";
     // Prefer stored bytes when present (portal external_url is auth-gated).

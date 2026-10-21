@@ -687,6 +687,8 @@ export interface MissingInfoNote extends JobNotification {
 /** Customer-approval note with staff/creator metadata for the order detail tab. */
 export interface ApprovalNote extends JobNotification {
   creator_name: string | null;
+  /** Reference images the customer attached when not approving (optional). */
+  reference_files?: import("@/lib/customer-references").CustomerReferenceFile[];
 }
 
 /**

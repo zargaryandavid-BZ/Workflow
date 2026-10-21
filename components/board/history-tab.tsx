@@ -19,6 +19,7 @@ import {
 } from "@/lib/notification-messages";
 import { cn, formatDateTime } from "@/lib/utils";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
+import { CustomerReferenceFiles } from "./customer-reference-files";
 import type { JobNotification, ShippingRequest } from "@/lib/types";
 import type { OrderSmsMessage } from "@/lib/order-sms-types";
 
@@ -424,7 +425,9 @@ function CommunicationRow({
   body,
   reconstructed,
   inbound,
+  children,
 }: {
+  children?: React.ReactNode;
   createdAt: string;
   owner: string;
   channel: string;
@@ -489,6 +492,7 @@ function CommunicationRow({
           Message body was not stored for this send.
         </p>
       )}
+      {children}
     </li>
   );
 }
@@ -661,7 +665,12 @@ export function HistoryTab(props: HistoryTabProps) {
                       to={entry.from}
                       body={entry.note}
                       inbound
-                    />
+                    >
+                      <CustomerReferenceFiles
+                        files={entry.referenceFiles}
+                        className="mt-2"
+                      />
+                    </CommunicationRow>
                   );
                 }
 

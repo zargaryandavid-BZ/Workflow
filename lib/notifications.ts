@@ -43,6 +43,11 @@ import { snapshotApprovalFiles } from "@/lib/approval-snapshot";
 import { getEnabledNotifyRule, logActivity, onApprovalResult } from "@/lib/automation";
 import { customerResponseToApprovalResult } from "@/lib/notify-rule-approval-target";
 import {
+  toCustomerReferenceFiles,
+  type CustomerReferenceFile,
+} from "@/lib/customer-references";
+import { normalizeSkus } from "@/lib/skus";
+import {
   maybeStopPrepressTimersOnColumnLeave,
   maybeStopWorkTimersOnColumnEnter,
   stopTimersAfterCustomerNotify,
@@ -1209,6 +1214,43 @@ async function missingInfoTargetColumn(
   return customerRepliedColumnId(client, order.tenant_id);
 }
 
+/** Rejection reference files uploaded on this approval link (never throws). */
+async function loadApprovalReferenceFiles(
+  admin: Client,
+  notificationId: string,
+  orderId: string
+): Promise<CustomerReferenceFile[]> {
+  try {
+    const [{ data: assets }, { data: order }] = await Promise.all([
+      admin
+        .from("assets")
+        .select("id, file_name, mime_type, size, storage_path")
+        .eq("notification_id", notificationId)
+        .order("created_at", { ascending: true }),
+      admin.from("orders").select("specs").eq("id", orderId).maybeSingle(),
+    ]);
+    const skus = normalizeSkus(
+      (order?.specs as { skus?: unknown } | null)?.skus
+    );
+    return toCustomerReferenceFiles(
+      (assets ?? []) as {
+        id: string;
+        file_name: string;
+        mime_type: string | null;
+        size: number | null;
+        storage_path: string | null;
+      }[],
+      skus
+    );
+  } catch (err) {
+    console.error(
+      "[respond] reference files lookup failed:",
+      err instanceof Error ? err.message : err
+    );
+    return [];
+  }
+}
+
 /**
  * Records a customer's response to a notification and applies the configured
  * card movement. Returns the resolved customer response value.
@@ -1300,12 +1342,24 @@ export async function respondToNotification(
       };
     }
     const moveResult = customerResponseToApprovalResult(params.response);
+    // Reference images the customer attached while requesting changes
+    // (uploaded just before this call). Additive: recorded on the "rejected"
+    // activity so History shows them; never blocks the response.
+    const referenceFiles =
+      params.response === "changes_requested"
+        ? await loadApprovalReferenceFiles(
+            admin,
+            notification.id as string,
+            notification.order_id as string
+          )
+        : [];
     if (moveResult) {
       await onApprovalResult(admin, {
         tenantId: notification.tenant_id,
         orderId: notification.order_id,
         result: moveResult,
         note: params.note?.trim() || null,
+        ...(referenceFiles.length > 0 ? { referenceFiles } : {}),
       });
     }
   } else if (notification.type === "ready_to_ship") {
