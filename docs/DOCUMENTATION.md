@@ -626,7 +626,7 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `email` | `text` | Email (unique per tenant when set) |
 | `phone` | `text` | Phone (unique per tenant when set) |
 | `company` | `text` | Company name |
-| `preferred_channel` | `text` | Default notify channel for every customer notification (`sms` / `email` / `both`; `both` needs migration `20261020000000_customer_preferred_channel_both.sql`). All send panels/popups pre-select it; saved only via explicit "Save … as default" (card customer dropdown, send panels, Settings → Customers). |
+| `preferred_channel` | `text` | Default notify channel for every customer notification (`sms` / `email` / `both`; `both` needs migration `20261020000000_customer_preferred_channel_both.sql`). All send panels/popups pre-select it; saved only via explicit "Save … as default" (card customer dropdown, send panels, the Customers page in the left menu). There is no tenant-wide default setting — a customer who never chose gets SMS (DB default). Batch re-request of stale requests also uses the saved default. |
 | `preferred_channel_set_at` | `timestamptz` | When staff last saved the default on purpose (NULL = DB default, never chosen). Automatic shipped / picked-up / stage-rule messages honor the default only when it was chosen (or is email/both). |
 | `default_priority_score` | `int` | Default board priority 1–5 |
 | `crm_customer_id` | `text` | Bazaar CRM customer id (migration `0101`); stamped from webhooks |

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   channelFromSelection,
   normalizePreferredChannel,
+  preferredChannelFallbackNote,
   preferredChannelLabel,
 } from "@/lib/preferred-channel";
 import { saveCustomerPreferredChannel } from "@/lib/persist-preferred-channel";
@@ -69,6 +70,7 @@ export function SaveChannelAsDefault({
   customerName,
   saved,
   selected,
+  contact,
   onSaved,
   className,
 }: {
@@ -76,6 +78,8 @@ export function SaveChannelAsDefault({
   customerName?: string | null;
   saved: PreferredChannel | string | null | undefined;
   selected: ReadonlyArray<"email" | "sms">;
+  /** Contact the panel sends to — explains an SMS/Email fallback. */
+  contact?: { email: string | null | undefined; phone: string | null | undefined };
   onSaved?: (pref: PreferredChannel) => void;
   className?: string;
 }) {
@@ -85,6 +89,9 @@ export function SaveChannelAsDefault({
     onSaved
   );
   const selection = channelFromSelection(selected);
+  const fallbackNote = contact
+    ? preferredChannelFallbackNote(contact, current)
+    : null;
 
   if (!customerId) {
     return (
@@ -120,6 +127,9 @@ export function SaveChannelAsDefault({
             ? "Saving…"
             : `Save ${preferredChannelLabel(selection)} as default`}
         </Button>
+      ) : null}
+      {fallbackNote ? (
+        <span className="basis-full text-amber-700">{fallbackNote}</span>
       ) : null}
       {message ? (
         <span

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActivityLog, Order } from "@/lib/types";
 import { pauseReasonLabel, formatDuration } from "@/lib/time-tracking";
 import {
+  isCustomerReferenceResponseActivity,
   parseReferenceFilesMeta,
   type CustomerReferenceFile,
 } from "@/lib/customer-references";
@@ -398,11 +399,28 @@ export function isVisibleCustomerReplyActivity(
   return !isColumnMoveActivity(log);
 }
 
+/**
+ * Com. History rows for customer responses. Same as the card chat-icon rule
+ * (isVisibleCustomerReplyActivity), plus customer approve / reject entries
+ * that carry reference files: a customer rejection almost always moves the
+ * card, and the move check used to hide it, so the reference images the
+ * customer attached never showed in Com. History.
+ */
+export function isCustomerResponseHistoryActivity(
+  log: Pick<ActivityLog, "action" | "metadata">
+): boolean {
+  if (isVisibleCustomerReplyActivity(log)) return true;
+  return isCustomerReferenceResponseActivity(
+    log.action,
+    (log.metadata ?? {}) as Record<string, unknown>
+  );
+}
+
 export function customerResponsesFromActivity(
   activity: ActivityLogEntry[]
 ): CustomerResponseEntry[] {
   return activity
-    .filter((log) => isVisibleCustomerReplyActivity(log))
+    .filter((log) => isCustomerResponseHistoryActivity(log))
     .map((log) => {
       const meta = (log.metadata ?? {}) as Record<string, unknown>;
       const note =

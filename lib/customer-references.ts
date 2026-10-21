@@ -202,6 +202,19 @@ export function parseReferenceFilesMeta(
   return out;
 }
 
+/**
+ * A customer approve / reject activity that carries reference files. These
+ * must show in Com. History even though the response also moved the card
+ * (move entries are otherwise hidden there).
+ */
+export function isCustomerReferenceResponseActivity(
+  action: string,
+  meta: Record<string, unknown> | null | undefined
+): boolean {
+  if (action !== "approved" && action !== "rejected") return false;
+  return parseReferenceFilesMeta(meta).length > 0;
+}
+
 /** Group by SKU label, whole-proof references first. */
 export function groupReferenceFiles(
   files: CustomerReferenceFile[]

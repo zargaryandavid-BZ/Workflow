@@ -73,9 +73,10 @@ export function defaultSendChannel(
 
 /**
  * Default Email/SMS chips on every customer send panel.
- * Uses the customer's saved default (Settings → Customers, or "Save as default"
- * on the card). Falls back to the other method if the preferred one has no
- * contact details.
+ * Uses the customer's saved default (the Customers page in the left menu, or
+ * "Save as default" on the card / send panel). There is no tenant-wide
+ * default setting: a customer who never chose gets SMS (the DB default).
+ * Falls back to the other method if the preferred one has no contact details.
  */
 export function defaultSendChannels(
   contact: { email: string | null; phone: string | null },
@@ -179,4 +180,58 @@ export function destinationForChannel(
   return channel === "sms"
     ? (contact.phone ?? "").trim()
     : (contact.email ?? "").trim();
+}
+
+/**
+ * Channel for re-sending an existing request (batch re-request of stale
+ * approvals / missing info). It used to always reuse the channel of the last
+ * send, so a customer later saved as "Email" kept getting SMS. Once the
+ * customer has an explicit default, use it (falling back to the other method
+ * when the preferred contact is missing); otherwise keep the previous channel.
+ */
+export function rerequestChannel(args: {
+  previous: string | null | undefined;
+  email: string | null | undefined;
+  phone: string | null | undefined;
+  preferred: PreferredChannel | string | null | undefined;
+  explicit: boolean;
+  smsConfigured?: boolean;
+}): "email" | "sms" | "both" {
+  const prev: "email" | "sms" | "both" =
+    args.previous === "sms" || args.previous === "both"
+      ? args.previous
+      : "email";
+  if (!args.explicit) return prev;
+  const resolved = resolvePreferredNotifyChannel(
+    { email: args.email ?? null, phone: args.phone ?? null },
+    args.preferred,
+    args.smsConfigured ?? true
+  );
+  return resolved === "manual" ? prev : resolved;
+}
+
+/**
+ * Plain note for a send panel when the customer's saved default cannot be
+ * used because that contact is missing on the customer record the card is
+ * linked to (e.g. saved as Email but this record has no email address).
+ */
+export function preferredChannelFallbackNote(
+  contact: { email: string | null | undefined; phone: string | null | undefined },
+  preferred: PreferredChannel | string | null | undefined
+): string | null {
+  const want = normalizePreferredChannel(preferred);
+  const hasEmail = Boolean(contact.email?.trim());
+  const hasPhone = Boolean(contact.phone?.trim());
+  if (want === "email" && !hasEmail && hasPhone) {
+    return "Saved default is Email, but this customer record has no email address, so SMS is selected.";
+  }
+  if (want === "sms" && !hasPhone && hasEmail) {
+    return "Saved default is SMS, but this customer record has no phone number, so Email is selected.";
+  }
+  if (want === "both" && hasEmail !== hasPhone) {
+    return hasEmail
+      ? "Saved default is Email + SMS, but this customer record has no phone number."
+      : "Saved default is Email + SMS, but this customer record has no email address.";
+  }
+  return null;
 }

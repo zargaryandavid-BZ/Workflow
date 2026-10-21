@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   groupReferenceFiles,
   isAllowedReferenceFile,
+  isCustomerReferenceResponseActivity,
   isCustomerReferencePath,
   isPreviewableReferenceImage,
   ownsReferencePath,
@@ -155,5 +156,53 @@ describe("customer reference display", () => {
       { id: "a", file_name: "a.png", mime_type: "image/png", size: 5, sku_label: "SKU 1" },
       { id: "b", file_name: "b.pdf", mime_type: null, size: null, sku_label: null },
     ]);
+  });
+});
+
+describe("customer rejection with references in Com. History", () => {
+  // Live shape (card 1177883, 2026-10-21): the rejection also moved the card,
+  // so metadata carries from/to/movedTo — which used to hide it entirely.
+  const rejectedMeta = {
+    via: "customer",
+    from: "col-waiting",
+    to: "col-start",
+    movedTo: "col-start",
+    toName: "Start (Create Order)",
+    note: "SKU 1 — Wine menu: Not approved",
+    reference_files: [
+      {
+        id: "ecb51853",
+        file_name: "IMG_2326.jpeg",
+        mime_type: "image/jpeg",
+        size: 2079112,
+        sku_label: "SKU 1 — Wine menu",
+      },
+    ],
+  };
+
+  it("shows a moving customer rejection that has reference files", () => {
+    assert.equal(
+      isCustomerReferenceResponseActivity("rejected", rejectedMeta),
+      true
+    );
+    assert.equal(
+      isCustomerReferenceResponseActivity("approved", rejectedMeta),
+      true
+    );
+  });
+
+  it("ignores responses without files and non-customer actions", () => {
+    assert.equal(
+      isCustomerReferenceResponseActivity("rejected", {
+        ...rejectedMeta,
+        reference_files: [],
+      }),
+      false
+    );
+    assert.equal(isCustomerReferenceResponseActivity("rejected", null), false);
+    assert.equal(
+      isCustomerReferenceResponseActivity("moved", rejectedMeta),
+      false
+    );
   });
 });
