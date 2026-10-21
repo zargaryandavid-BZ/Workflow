@@ -91,8 +91,11 @@ export type NotificationType = "missing_info" | "customer_approval" | "ready_to_
 
 export type NotificationChannel = "email" | "sms" | "both" | "none" | "manual";
 
-/** Customer preference for missing-info / approval / ready-to-ship sends. */
-export type PreferredChannel = "sms" | "email";
+/**
+ * Customer preference for every customer notification (approval, missing info,
+ * ready to ship / pickup, shipped, automatic stage messages). "both" = Email + SMS.
+ */
+export type PreferredChannel = "sms" | "email" | "both";
 
 export type NotificationStatus = "pending" | "sent" | "responded" | "expired";
 
@@ -214,6 +217,8 @@ export interface Customer {
   phone: string | null;
   company: string | null;
   preferred_channel: PreferredChannel;
+  /** When staff last saved preferred_channel on purpose (null = never; DB default). */
+  preferred_channel_set_at?: string | null;
   /** Default board priority 1–5 for new orders from this customer. */
   default_priority_score?: number | null;
   /** Bazaar CRM customer id (stamped from webhooks). */

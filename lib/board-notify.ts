@@ -46,8 +46,10 @@ function buildSendBody(params: {
       type,
       channel,
       staffNote: "We need additional information to complete your order.",
-      toEmail: channel === "email" ? contact.email : undefined,
-      toPhone: channel === "sms" ? contact.phone : undefined,
+      toEmail:
+        channel === "email" || channel === "both" ? contact.email : undefined,
+      toPhone:
+        channel === "sms" || channel === "both" ? contact.phone : undefined,
     };
   }
 
@@ -56,8 +58,10 @@ function buildSendBody(params: {
       orderId: order.id,
       type,
       channel,
-      toEmail: channel === "email" ? contact.email : undefined,
-      toPhone: channel === "sms" ? contact.phone : undefined,
+      toEmail:
+        channel === "email" || channel === "both" ? contact.email : undefined,
+      toPhone:
+        channel === "sms" || channel === "both" ? contact.phone : undefined,
     };
   }
 
@@ -149,6 +153,9 @@ export async function runColumnNotify(params: {
     }
     if (channel === "email") {
       return { ok: true, message: "Notification email sent" };
+    }
+    if (channel === "both") {
+      return { ok: true, message: "Notification email + SMS sent" };
     }
     return { ok: true, message: "Notification SMS sent" };
   } catch (err) {

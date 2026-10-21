@@ -4,8 +4,10 @@ import {
   formatStayDuration,
   isColumnMoveActivity,
   isVisibleCustomerReplyActivity,
+  latestSentToForNotification,
   mergeActivityById,
   resolveActivityActorName,
+  sendsForNotification,
 } from "./activity.ts";
 
 type TestActivity = Parameters<typeof resolveActivityActorName>[0];
@@ -134,4 +136,75 @@ test("mergeActivityById keeps unique rows", () => {
   const a = activity("moved");
   const b = { ...activity("updated"), id: "other" };
   assert.equal(mergeActivityById([a], [a, b]).length, 2);
+});
+
+// 15504-1 (2026-10-20): same approval notification sent SMS-only by Marianna,
+// then Email + SMS by Davit. The timeline is newest-first; "To:" showed only
+// the phone because the oldest log was picked.
+function sentLog(
+  id: string,
+  createdAt: string,
+  actorName: string,
+  metadata: Record<string, unknown>
+) {
+  return {
+    id,
+    tenant_id: "tenant-id",
+    order_id: "order-id",
+    actor: null,
+    action: "customer_notified",
+    metadata,
+    created_at: createdAt,
+    actor_name: actorName,
+  };
+}
+
+const newestFirst = [
+  sentLog("c", "2026-10-21T05:37:06Z", "Davit", {
+    notificationId: "n1",
+    channel: "both",
+    phone: "+18188569944",
+    recipients: ["safecarepackaging@gmail.com"],
+  }),
+  sentLog("b", "2026-10-20T23:02:49Z", "Marianna", {
+    notificationId: "n1",
+    channel: "sms",
+    phone: "+18188569944",
+  }),
+  sentLog("a", "2026-10-20T22:42:44Z", "Marianna", {
+    notificationId: "n0",
+    channel: "sms",
+    phone: "+18188569944",
+  }),
+];
+
+test("latest send for a reused notification shows both recipients", () => {
+  const latest = latestSentToForNotification(newestFirst, "n1");
+  assert.equal(latest?.email, "safecarepackaging@gmail.com");
+  assert.equal(latest?.phone, "+18188569944");
+  assert.equal(
+    latest?.line,
+    "safecarepackaging@gmail.com · +18188569944"
+  );
+  // Order of the input must not matter.
+  const oldestFirst = [...newestFirst].reverse();
+  assert.equal(
+    latestSentToForNotification(oldestFirst, "n1")?.line,
+    "safecarepackaging@gmail.com · +18188569944"
+  );
+});
+
+test("sendsForNotification lists every send with the channels used", () => {
+  const sends = sendsForNotification([...newestFirst].reverse(), "n1");
+  assert.deepEqual(
+    sends.map((s) => [s.actor_name, s.channel, s.line]),
+    [
+      [
+        "Davit",
+        "both",
+        "Email safecarepackaging@gmail.com · SMS +18188569944",
+      ],
+      ["Marianna", "sms", "SMS +18188569944"],
+    ]
+  );
 });

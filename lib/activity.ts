@@ -87,11 +87,26 @@ export function latestSentToForNotification(
   activity: ActivityLogEntry[],
   notificationId: string
 ): { email: string | null; phone: string | null; line: string | null } | null {
-  for (let i = activity.length - 1; i >= 0; i--) {
-    const log = activity[i];
+  // The card's activity list is newest-first (timeline API orders by
+  // created_at desc), so walking it from the end returned the OLDEST send for a
+  // reused notification — e.g. an earlier SMS-only resend instead of the
+  // latest Email + SMS one. Pick the newest by timestamp regardless of order.
+  let latest: ActivityLogEntry | null = null;
+  for (const log of activity) {
     if (!isSentMessageActivity(log)) continue;
     const meta = (log.metadata ?? {}) as Record<string, unknown>;
     if (metaString(meta, "notificationId") !== notificationId) continue;
+    if (
+      !latest ||
+      new Date(log.created_at).getTime() >=
+        new Date(latest.created_at).getTime()
+    ) {
+      latest = log;
+    }
+  }
+  if (latest) {
+    const log = latest;
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
     const email = recipientList(meta)[0] ?? metaString(meta, "email");
     const phone = metaString(meta, "phone");
     const channelRaw = metaString(meta, "channel");
@@ -112,6 +127,78 @@ export function latestSentToForNotification(
     };
   }
   return null;
+}
+
+export interface NotificationSendRecord {
+  id: string;
+  created_at: string;
+  actor_name: string;
+  channel: SentMessageEntry["channel"];
+  email: string | null;
+  phone: string | null;
+  /** "Email a@b.com · SMS +1…" — labels which channel went where. */
+  line: string;
+}
+
+function labeledSentToLine(opts: {
+  channel: SentMessageEntry["channel"];
+  email: string | null;
+  phone: string | null;
+}): string {
+  const parts: string[] = [];
+  if ((opts.channel === "email" || opts.channel === "both") && opts.email) {
+    parts.push(`Email ${opts.email}`);
+  }
+  if ((opts.channel === "sms" || opts.channel === "both") && opts.phone) {
+    parts.push(`SMS ${opts.phone}`);
+  }
+  if (parts.length > 0) return parts.join(" · ");
+  if (opts.channel === "both") return "Email + SMS";
+  if (opts.channel === "email") return "Email";
+  if (opts.channel === "sms") return "SMS";
+  return "—";
+}
+
+/**
+ * Every logged send (and resend) of one job_notifications row, newest first,
+ * with the channels that actually went out and to which address/number.
+ */
+export function sendsForNotification(
+  activity: ActivityLogEntry[],
+  notificationId: string
+): NotificationSendRecord[] {
+  const rows: NotificationSendRecord[] = [];
+  for (const log of activity) {
+    if (!isSentMessageActivity(log)) continue;
+    const meta = (log.metadata ?? {}) as Record<string, unknown>;
+    if (metaString(meta, "notificationId") !== notificationId) continue;
+    const email = recipientList(meta)[0] ?? metaString(meta, "email");
+    const phone = metaString(meta, "phone");
+    const channelRaw = metaString(meta, "channel");
+    const channel: SentMessageEntry["channel"] =
+      channelRaw === "email" || channelRaw === "sms" || channelRaw === "both"
+        ? channelRaw
+        : phone && email
+          ? "both"
+          : phone
+            ? "sms"
+            : email
+              ? "email"
+              : "unknown";
+    rows.push({
+      id: log.id,
+      created_at: log.created_at,
+      actor_name: log.actor_name,
+      channel,
+      email,
+      phone,
+      line: labeledSentToLine({ channel, email, phone }),
+    });
+  }
+  return rows.sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 }
 
 export function isColumnMoveActivity(

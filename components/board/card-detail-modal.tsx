@@ -77,6 +77,7 @@ import { useGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
 import { useOrderPdfCheck } from "@/lib/use-order-pdf-check";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
+import { CustomerNotifyPreference } from "@/components/notify/customer-notify-default";
 import { type WebhookSourceStyles } from "@/lib/webhook-source-styles";
 import { partCardTitle } from "@/lib/group-orders";
 import {
@@ -102,6 +103,7 @@ import type {
   OrderSkuImageWithUrl,
   OrderWithRelations,
   ButtonAutomation,
+  PreferredChannel,
   Role,
   ShippingRequest,
   JobNotification,
@@ -1539,6 +1541,19 @@ export function CardDetailModal({
     ? collapseDuplicatedLabel(customerName)
     : "";
 
+  // Customer default channel saved from the card (customer dropdown or a send
+  // panel). Update this card and the board copy so every popup/panel for the
+  // customer's orders defaults to it without a reload.
+  function handleCustomerChannelSaved(pref: PreferredChannel) {
+    const current = data?.order.customer;
+    if (!current) return;
+    const customer = { ...current, preferred_channel: pref };
+    setData((prev) =>
+      prev ? { ...prev, order: { ...prev.order, customer } } : prev
+    );
+    onChanged({ customer });
+  }
+
   async function copyOrderNumber() {
     if (!displayOrderNumber) return;
     try {
@@ -1851,7 +1866,7 @@ export function CardDetailModal({
                 />
               </button>
               {customerDropdownOpen ? (
-                <div className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                <div className="absolute left-0 top-full z-50 mt-1 w-[320px] max-w-[90vw] rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
                   <div className="space-y-2.5">
                     {/* Name */}
                     <div className="flex items-center justify-between gap-3">
@@ -1909,6 +1924,16 @@ export function CardDetailModal({
                     ) : null}
                     {!orderContact.email && !orderContact.phone ? (
                       <p className="text-[11px] text-slate-400">No contact info on file.</p>
+                    ) : null}
+                    {data?.order.customer?.id ? (
+                      <div className="border-t border-slate-100 pt-2.5">
+                        <CustomerNotifyPreference
+                          customerId={data.order.customer.id}
+                          customerName={data.order.customer.name}
+                          saved={data.order.customer.preferred_channel}
+                          onSaved={handleCustomerChannelSaved}
+                        />
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -2492,6 +2517,7 @@ export function CardDetailModal({
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
               activity={data.activity}
+              onCustomerChannelSaved={handleCustomerChannelSaved}
               onSent={() => {
                 load();
                 onChanged();
@@ -2522,6 +2548,7 @@ export function CardDetailModal({
               contactEmail={orderContact.email}
               contactPhone={orderContact.phone}
               activity={data.activity}
+              onCustomerChannelSaved={handleCustomerChannelSaved}
               onChanged={(patch) => {
                 if (patch?.column_id) {
                   setData((prev) =>

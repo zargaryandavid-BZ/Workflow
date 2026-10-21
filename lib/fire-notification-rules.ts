@@ -31,6 +31,8 @@ import {
   recipientsAfterMissingInfoHold,
 } from "@/lib/column-notify-hold";
 import { isFinishedNoReviewStage } from "@/lib/net-terms-fulfill";
+import { automaticNotifyChannels } from "@/lib/preferred-channel";
+import { loadOrderCustomerNotifyPreference } from "@/lib/customer-notify-preference.server";
 
 function uniqueStrings(values: (string | null | undefined)[]): string[] {
   return [...new Set(values.filter((v): v is string => Boolean(v?.trim())))];
@@ -296,6 +298,62 @@ async function deliverCustomerSmsFromRule(params: {
   return true;
 }
 
+function digitsOnly(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+/**
+ * Apply the customer's saved Email / SMS / Both default to a rule that sends
+ * BOTH email and SMS to the customer: drop the customer's non-preferred
+ * channel. Rules with a single channel are left alone (the customer must still
+ * hear), staff recipients are never touched, and customers who never chose a
+ * default keep the old behavior.
+ */
+async function filterCustomerChannelsByPreference(args: {
+  supabase: ReturnType<typeof createAdminClient>;
+  rule: NotificationRule;
+  orderId: string;
+  tenantId: string;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  emails: string[];
+  phones: string[];
+}): Promise<{ emails: string[]; phones: string[] }> {
+  const { rule } = args;
+  if (rule.recipient !== "customer" && rule.recipient !== "both") {
+    return { emails: args.emails, phones: args.phones };
+  }
+  if (!rule.send_email || !rule.send_sms) {
+    return { emails: args.emails, phones: args.phones };
+  }
+  const pref = await loadOrderCustomerNotifyPreference(
+    args.supabase,
+    args.orderId,
+    args.tenantId
+  );
+  if (!pref.explicit) return { emails: args.emails, phones: args.phones };
+  const use = automaticNotifyChannels({
+    email: args.customerEmail,
+    phone: args.customerPhone,
+    preferred: pref.preferred,
+    explicit: true,
+  });
+  const customerEmail = args.customerEmail?.trim().toLowerCase() || null;
+  const customerDigits = args.customerPhone
+    ? digitsOnly(args.customerPhone).slice(-10)
+    : null;
+  return {
+    emails:
+      use.email || !customerEmail
+        ? args.emails
+        : args.emails.filter((e) => e.trim().toLowerCase() !== customerEmail),
+    phones:
+      use.sms || !customerDigits
+        ? args.phones
+        : args.phones.filter((p) => digitsOnly(p).slice(-10) !== customerDigits),
+  };
+}
+
 function resolveRecipients(
   recipient: NotificationRuleRecipient,
   data: Awaited<ReturnType<typeof loadOrderExportData>>,
@@ -488,8 +546,16 @@ export async function fireNotificationRules(
         `[NotifRule] Holding customer notify for Missing Info — popup is the send gate (rule "${rule.name}")`
       );
     }
-    const emails = afterHold.emails;
-    const phones = afterHold.phones;
+    const { emails, phones } = await filterCustomerChannelsByPreference({
+      supabase,
+      rule,
+      orderId,
+      tenantId,
+      customerEmail: exportData.customerEmail,
+      customerPhone: exportData.customerPhone,
+      emails: afterHold.emails,
+      phones: afterHold.phones,
+    });
 
     console.log(
       `[NotifRule] rule "${rule.name}" recipient=${rule.recipient}` +
@@ -620,8 +686,17 @@ export async function fireNewJobNotificationRules(
       staffProfiles = await loadStaffProfiles(supabase, tenantId, rule).catch(() => []);
     }
 
-    const { emails, phones: recipientPhones2 } = resolveRecipients(rule.recipient, exportData, staffProfiles);
-    const phones2 = resolveRuleSmsPhones(rule, templateContext, recipientPhones2);
+    const resolved2 = resolveRecipients(rule.recipient, exportData, staffProfiles);
+    const { emails, phones: phones2 } = await filterCustomerChannelsByPreference({
+      supabase,
+      rule,
+      orderId,
+      tenantId,
+      customerEmail: exportData.customerEmail,
+      customerPhone: exportData.customerPhone,
+      emails: resolved2.emails,
+      phones: resolveRuleSmsPhones(rule, templateContext, resolved2.phones),
+    });
 
     if (rule.send_email && emails.length > 0) {
       const subject = normalizeFeedbackEmailSubject(

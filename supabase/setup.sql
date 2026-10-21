@@ -60,7 +60,8 @@ create table if not exists public.customers (
   phone text,
   company text,
   preferred_channel text not null default 'sms'
-    check (preferred_channel in ('sms', 'email')),
+    check (preferred_channel in ('sms', 'email', 'both')),
+  preferred_channel_set_at timestamptz,
   crm_customer_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

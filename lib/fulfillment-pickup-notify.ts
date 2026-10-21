@@ -20,6 +20,8 @@ import {
 } from "@/lib/notification-messages";
 import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { sendSms } from "@/lib/sms";
+import { automaticNotifyChannels } from "@/lib/preferred-channel";
+import { loadOrderCustomerNotifyPreference } from "@/lib/customer-notify-preference.server";
 
 export type PickupCustomerNotice = {
   emailSent: boolean;
@@ -135,7 +137,21 @@ export async function notifyCustomerOrderPickedUp(
   let smsSent = false;
   const errors: string[] = [];
 
-  if (email) {
+  // Honor the customer's saved Email / SMS / Both default. Customers who never
+  // chose keep the old behavior (every contact on file).
+  const pref = await loadOrderCustomerNotifyPreference(
+    supabase,
+    args.orderId,
+    args.tenantId
+  );
+  const use = automaticNotifyChannels({
+    email,
+    phone,
+    preferred: pref.preferred,
+    explicit: pref.explicit,
+  });
+
+  if (email && use.email) {
     const result = await sendTransactionalEmail({
       to: email,
       subject: orderPickedUpEmailSubject(orderNumber, templates, {
@@ -160,7 +176,7 @@ export async function notifyCustomerOrderPickedUp(
     if (!result.sent && result.error) errors.push(result.error);
   }
 
-  if (phone) {
+  if (phone && use.sms) {
     const result = await sendSms({ to: phone, body: smsBody });
     smsSent = result.sent;
     if (!result.sent && result.error) errors.push(result.error);
@@ -187,8 +203,17 @@ export async function notifyCustomerOrderPickedUp(
       emailSent,
       smsSent,
       errors,
-      email: email ?? undefined,
-      phone: phone ?? undefined,
+      // Only the channels actually attempted, so history shows what went out.
+      email: (use.email && email) || undefined,
+      phone: (use.sms && phone) || undefined,
+      channel:
+        emailSent && smsSent
+          ? "both"
+          : emailSent
+            ? "email"
+            : smsSent
+              ? "sms"
+              : undefined,
       messageBody: smsSent ? smsBody : emailText,
       emailBody: emailText,
     },

@@ -53,7 +53,7 @@ export async function GET(request: Request) {
   const supabase = await createClient();
 
   const orderSelect =
-    "id, title, specs, due_date, column_id, customer_id, created_by, customer:customers(id, name, email, phone)";
+    "id, title, specs, due_date, column_id, customer_id, created_by, customer:customers(id, name, email, phone, preferred_channel)";
 
   const { data: exactRows, error: exactError } = await supabase
     .from("orders")
