@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
   CloudUpload,
+  FileText,
+  ImagePlus,
   Paperclip,
   X,
 } from "lucide-react";
@@ -35,6 +37,14 @@ import {
   type SkuImageApprovalEntry,
 } from "@/lib/sku-approval";
 import type { SkuItem } from "@/lib/skus";
+import {
+  REFERENCE_ACCEPT,
+  REFERENCE_MAX_BYTES,
+  REFERENCE_MAX_FILES,
+  REFERENCE_TYPES_LABEL,
+  isAllowedReferenceFile,
+  isPreviewableReferenceImage,
+} from "@/lib/customer-references";
 import type { CustomerResponse, NotificationType } from "@/lib/types";
 import {
   imagesBySkuId,
@@ -77,6 +87,202 @@ async function readJson(res: Response): Promise<{ error?: string } & Record<stri
     }
     return { error: "Upload failed. Please try again." };
   }
+}
+
+/**
+ * Signed-URL upload of one file on this link (same flow for missing-info
+ * replies and proof-rejection references). Throws a customer-facing message.
+ */
+async function uploadNotificationFile(
+  token: string,
+  file: File,
+  skuKey: string | null
+): Promise<void> {
+  const signRes = await fetch("/api/notifications/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      token,
+      fileName: file.name,
+      size: file.size,
+      mimeType: file.type || null,
+      skuKey: skuKey || undefined,
+    }),
+  });
+  const signJson = (await readJson(signRes)) as {
+    error?: string;
+    signedUrl?: string;
+    path?: string;
+    token?: string;
+  };
+  if (!signRes.ok || !signJson.signedUrl || !signJson.path) {
+    throw new Error(signJson.error ?? `Failed to upload ${file.name}`);
+  }
+  const putHeaders: Record<string, string> = {
+    "Content-Type": file.type || "application/octet-stream",
+    "x-upsert": "false",
+  };
+  if (signJson.token) {
+    putHeaders.Authorization = `Bearer ${signJson.token}`;
+  }
+  const putRes = await fetch(signJson.signedUrl, {
+    method: "PUT",
+    headers: putHeaders,
+    body: file,
+  });
+  if (!putRes.ok) {
+    throw new Error(
+      `${file.name} could not be uploaded. Try a smaller file or another format.`
+    );
+  }
+  const completeRes = await fetch("/api/notifications/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "complete",
+      token,
+      path: signJson.path,
+      fileName: file.name,
+      size: file.size,
+      mimeType: file.type || null,
+      skuKey: skuKey || undefined,
+    }),
+  });
+  const completeJson = (await readJson(completeRes)) as { error?: string };
+  if (!completeRes.ok) {
+    throw new Error(completeJson.error ?? `Failed to upload ${file.name}`);
+  }
+}
+
+/** Key for whole-proof references (single approve / not-approve buttons). */
+const REFERENCE_ALL = "__all__";
+
+/** Local thumbnail for a picked reference file (object URL, revoked on unmount). */
+function ReferenceThumb({ file }: { file: File }) {
+  const previewable = isPreviewableReferenceImage(file.name, file.type);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!previewable) return;
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file, previewable]);
+
+  if (url) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={url} alt={file.name} className="h-full w-full object-cover" />;
+  }
+  return file.name.toLowerCase().endsWith(".pdf") ? (
+    <FileText className="h-7 w-7 text-red-500" />
+  ) : (
+    <ImagePlus className="h-7 w-7 text-slate-400" />
+  );
+}
+
+/**
+ * Optional reference images/PDFs for a "not approved" response: drag & drop
+ * on desktop, tap to pick (camera / photos) on phones, thumbnails, remove.
+ */
+function ReferenceDropzone({
+  label,
+  hint,
+  files,
+  disabled,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  hint?: string;
+  files: File[];
+  disabled: boolean;
+  onAdd: (list: FileList | null) => void;
+  onRemove: (index: number) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <div>
+      <Label className="mb-1 block text-sm font-medium text-slate-700">
+        {label}
+      </Label>
+      {hint ? <p className="mb-2 text-xs text-slate-500">{hint}</p> : null}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={REFERENCE_ACCEPT}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          onAdd(e.target.files);
+          if (inputRef.current) inputRef.current.value = "";
+        }}
+      />
+
+      {files.length > 0 ? (
+        <ul className="mb-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {files.map((file, index) => (
+            <li
+              key={`${file.name}-${file.size}-${index}`}
+              className="relative overflow-hidden rounded-md border border-slate-200 bg-white"
+            >
+              <div className="flex aspect-square w-full items-center justify-center bg-slate-50">
+                <ReferenceThumb file={file} />
+              </div>
+              <p
+                className="truncate px-1.5 py-1 text-[11px] text-slate-600"
+                title={file.name}
+              >
+                {file.name}
+              </p>
+              <button
+                type="button"
+                onClick={() => onRemove(index)}
+                disabled={disabled}
+                className="absolute right-1 top-1 rounded-full bg-white/90 p-1 text-slate-600 shadow hover:bg-white hover:text-red-600 disabled:opacity-50"
+                aria-label={`Remove ${file.name}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          onAdd(e.dataTransfer.files);
+        }}
+        disabled={disabled}
+        className={`flex min-h-[48px] w-full items-center gap-2.5 rounded-lg border border-dashed px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-60 ${
+          dragOver
+            ? "border-[#1d4ed8] bg-[#f0f9ff] text-[#1d4ed8]"
+            : "border-slate-300 bg-slate-50 text-slate-500 hover:border-[#1d4ed8] hover:bg-[#f0f9ff]"
+        }`}
+      >
+        <ImagePlus className="h-4 w-4 shrink-0" />
+        <span className="min-w-0">
+          <span className="block text-slate-600">
+            {files.length > 0
+              ? "Add more reference files"
+              : "Tap to add photos or files, or drag & drop"}
+          </span>
+          <span className="text-xs text-slate-400">
+            {REFERENCE_TYPES_LABEL} · Max 50MB each
+          </span>
+        </span>
+      </button>
+    </div>
+  );
 }
 
 /** A single titled upload control (its own file input + drag state). */
@@ -201,6 +407,12 @@ export function RespondForm({
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [filesBySlot, setFilesBySlot] = useState<Record<number, File[]>>({});
+  /** Proof-rejection reference files, keyed by SKU id (or REFERENCE_ALL). */
+  const [refFiles, setRefFiles] = useState<Record<string, File[]>>({});
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [sentReferenceCount, setSentReferenceCount] = useState(0);
+  /** Files already uploaded — a retry after a failed submit won't duplicate. */
+  const uploadedRefs = useRef<WeakSet<File>>(new WeakSet());
   const [skuChoices, setSkuChoices] = useState<
     Record<string, SkuApprovalDecision | undefined>
   >({});
@@ -349,7 +561,63 @@ export function RespondForm({
     }));
   }
 
-  async function respond(response: CustomerResponse, noteOverride?: string) {
+  function addReferenceFiles(key: string, list: FileList | null) {
+    if (!list || list.length === 0) return;
+    setError(null);
+    const total = Object.values(refFiles).reduce((n, f) => n + f.length, 0);
+    let room = REFERENCE_MAX_FILES - total;
+    const next: File[] = [];
+    for (const file of Array.from(list)) {
+      if (!isAllowedReferenceFile(file.name)) {
+        setError(`${file.name}: please attach images or PDFs only.`);
+        continue;
+      }
+      if (file.size > REFERENCE_MAX_BYTES) {
+        setError(`${file.name} is larger than 50MB.`);
+        continue;
+      }
+      if (room <= 0) {
+        setError(`You can attach up to ${REFERENCE_MAX_FILES} reference files.`);
+        break;
+      }
+      room -= 1;
+      next.push(file);
+    }
+    if (next.length > 0) {
+      setRefFiles((prev) => ({
+        ...prev,
+        [key]: [...(prev[key] ?? []), ...next],
+      }));
+    }
+  }
+
+  function removeReferenceFile(key: string, index: number) {
+    setRefFiles((prev) => ({
+      ...prev,
+      [key]: (prev[key] ?? []).filter((_, i) => i !== index),
+    }));
+  }
+
+  /** Reference uploads for the current decision (rejected SKUs only). */
+  function referenceUploadsFor(
+    rejectedSkuIds: string[] | null
+  ): { file: File; skuKey: string | null }[] {
+    if (rejectedSkuIds === null) {
+      return (refFiles[REFERENCE_ALL] ?? []).map((file) => ({
+        file,
+        skuKey: null,
+      }));
+    }
+    return rejectedSkuIds.flatMap((skuId) =>
+      (refFiles[skuId] ?? []).map((file) => ({ file, skuKey: skuId }))
+    );
+  }
+
+  async function respond(
+    response: CustomerResponse,
+    noteOverride?: string,
+    referenceUploads: { file: File; skuKey: string | null }[] = []
+  ) {
     if (type === "missing_info" && response === "info_submitted" && !canSend) {
       setError("Please attach a file or leave a comment before sending.");
       return;
@@ -363,67 +631,24 @@ export function RespondForm({
         const files = filesBySlot[slotIndex] ?? [];
         const { skuKey } = slots[slotIndex];
         for (const file of files) {
-          const signRes = await fetch("/api/notifications/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              token,
-              fileName: file.name,
-              size: file.size,
-              mimeType: file.type || null,
-              skuKey: skuKey || undefined,
-            }),
-          });
-          const signJson = (await readJson(signRes)) as {
-            error?: string;
-            signedUrl?: string;
-            path?: string;
-            token?: string;
-          };
-          if (!signRes.ok || !signJson.signedUrl || !signJson.path) {
-            throw new Error(
-              signJson.error ?? `Failed to upload ${file.name}`
-            );
-          }
-          const putHeaders: Record<string, string> = {
-            "Content-Type": file.type || "application/octet-stream",
-            "x-upsert": "false",
-          };
-          if (signJson.token) {
-            putHeaders.Authorization = `Bearer ${signJson.token}`;
-          }
-          const putRes = await fetch(signJson.signedUrl, {
-            method: "PUT",
-            headers: putHeaders,
-            body: file,
-          });
-          if (!putRes.ok) {
-            throw new Error(
-              `${file.name} could not be uploaded. Try a smaller file or another format.`
-            );
-          }
-          const completeRes = await fetch("/api/notifications/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "complete",
-              token,
-              path: signJson.path,
-              fileName: file.name,
-              size: file.size,
-              mimeType: file.type || null,
-              skuKey: skuKey || undefined,
-            }),
-          });
-          const completeJson = (await readJson(completeRes)) as {
-            error?: string;
-          };
-          if (!completeRes.ok) {
-            throw new Error(
-              completeJson.error ?? `Failed to upload ${file.name}`
-            );
-          }
+          await uploadNotificationFile(token, file, skuKey || null);
         }
+      }
+
+      // Proof not approved: optional reference images/PDFs for this response.
+      if (response === "changes_requested" && referenceUploads.length > 0) {
+        const pending = referenceUploads.filter(
+          (u) => !uploadedRefs.current.has(u.file)
+        );
+        for (let i = 0; i < pending.length; i += 1) {
+          setUploadStatus(
+            `Uploading reference ${i + 1} of ${pending.length}…`
+          );
+          const { file, skuKey } = pending[i]!;
+          await uploadNotificationFile(token, file, skuKey);
+          uploadedRefs.current.add(file);
+        }
+        setUploadStatus(null);
       }
 
       const res = await fetch("/api/notifications/respond", {
@@ -440,6 +665,9 @@ export function RespondForm({
         throw new Error(json.error ?? "Something went wrong");
       }
       setDone(true);
+      if (response === "changes_requested") {
+        setSentReferenceCount(referenceUploads.length);
+      }
       if (type === "customer_approval") {
         const kind = response === "approved" ? "approved" : "rejected";
         setDoneKind(kind);
@@ -450,6 +678,7 @@ export function RespondForm({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
+      setUploadStatus(null);
       setLoading(false);
     }
   }
@@ -470,9 +699,13 @@ export function RespondForm({
     }
     setSubmittedSkuEntries(built.skuEntries);
     setSubmittedImageEntries(built.imageEntries);
+    const rejectedSkuIds = approvalSkus
+      .map((sku) => sku.id)
+      .filter((id) => skuRollup[id] === "rejected");
     respond(
       overall,
-      formatSkuApprovalNote(built.skuEntries, built.imageEntries, note)
+      formatSkuApprovalNote(built.skuEntries, built.imageEntries, note),
+      overall === "changes_requested" ? referenceUploadsFor(rejectedSkuIds) : []
     );
   }
 
@@ -577,6 +810,12 @@ export function RespondForm({
               })}
             </ul>
           ) : null}
+          {rejectionDone && sentReferenceCount > 0 ? (
+            <p className="mt-3 text-sm text-red-800">
+              {sentReferenceCount} reference file
+              {sentReferenceCount === 1 ? "" : "s"} sent to our team.
+            </p>
+          ) : null}
         </div>
         {orderReview ? <div className="mt-5">{orderReview}</div> : null}
       </SkuDecisionProvider>
@@ -675,6 +914,38 @@ export function RespondForm({
             rows={4}
           />
         </div>
+        {perSkuApproval ? (
+          approvalSkus
+            .map((sku, i) => ({ sku, index: i }))
+            .filter(({ sku }) => skuRollup[sku.id] === "rejected")
+            .map(({ sku, index }) => (
+              <ReferenceDropzone
+                key={sku.id}
+                label={`Reference files for SKU ${index + 1}${
+                  sku.name.trim() ? ` — ${sku.name.trim()}` : ""
+                } (optional)`}
+                hint="Show us what you want changed — photos, screenshots, or PDFs."
+                files={refFiles[sku.id] ?? []}
+                disabled={loading}
+                onAdd={(list) => addReferenceFiles(sku.id, list)}
+                onRemove={(i) => removeReferenceFile(sku.id, i)}
+              />
+            ))
+        ) : (
+          <ReferenceDropzone
+            label="Not approving? Attach reference files (optional)"
+            hint="Show us what you want changed — photos, screenshots, or PDFs. Sent only if you choose Not Approved."
+            files={refFiles[REFERENCE_ALL] ?? []}
+            disabled={loading}
+            onAdd={(list) => addReferenceFiles(REFERENCE_ALL, list)}
+            onRemove={(i) => removeReferenceFile(REFERENCE_ALL, i)}
+          />
+        )}
+        {uploadStatus ? (
+          <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            {uploadStatus}
+          </p>
+        ) : null}
         {error ? (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
@@ -711,7 +982,11 @@ export function RespondForm({
                   setError("Please tell us why the proof was not approved.");
                   return;
                 }
-                respond("changes_requested");
+                respond(
+                  "changes_requested",
+                  undefined,
+                  referenceUploadsFor(null)
+                );
               }}
               disabled={loading}
             >

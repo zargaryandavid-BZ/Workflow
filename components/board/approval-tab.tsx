@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { cn, formatDateTime } from "@/lib/utils";
 import { CustomerLinkRow } from "./customer-link-row";
 import { MoveBlockedModal } from "./move-blocked-modal";
+import { CustomerReferenceFiles } from "./customer-reference-files";
 import {
   isTimeoutError,
   APPROVAL_SEND_TIMEOUT_MS,
@@ -803,6 +804,10 @@ export function ApprovalTab({
                           </div>
                         );
                       })()}
+                      <CustomerReferenceFiles
+                        files={note.reference_files}
+                        className="mt-3"
+                      />
                     </div>
                   ) : null}
                 </div>

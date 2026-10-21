@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActivityLog, Order } from "@/lib/types";
 import { pauseReasonLabel, formatDuration } from "@/lib/time-tracking";
+import {
+  parseReferenceFilesMeta,
+  type CustomerReferenceFile,
+} from "@/lib/customer-references";
 
 export interface ActivityLogEntry extends ActivityLog {
   actor_name: string;
@@ -32,6 +36,8 @@ export interface CustomerResponseEntry {
   /** Phone / email shown as "from" — pulled from notification meta if present. */
   from: string | null;
   notificationId: string | null;
+  /** Reference images attached to a proof rejection (empty when none). */
+  referenceFiles: CustomerReferenceFile[];
 }
 
 const CUSTOMER_ACTIONS = new Set([
@@ -353,6 +359,7 @@ export function customerResponsesFromActivity(
         note,
         from,
         notificationId: metaString(meta, "notificationId"),
+        referenceFiles: parseReferenceFilesMeta(meta),
       };
     });
 }

@@ -22,6 +22,7 @@ import {
 import { isHoldColumn } from "@/lib/hold-column";
 import { notifyHoldWatchers } from "@/lib/user-notifications";
 import { resolveShippingChoiceColumnId } from "@/lib/shipping-opt-column";
+import type { CustomerReferenceFile } from "@/lib/customer-references";
 
 type Client = SupabaseClient;
 
@@ -325,6 +326,8 @@ export async function onApprovalResult(
     result: ApprovalStatus;
     /** Customer rejection note from /respond (optional). */
     note?: string | null;
+    /** Reference images attached to a rejection on /respond (optional). */
+    referenceFiles?: CustomerReferenceFile[];
   }
 ) {
   const { data: order } = await client
@@ -424,6 +427,9 @@ export async function onApprovalResult(
       fromName,
       toName,
       ...(params.note?.trim() ? { note: params.note.trim() } : {}),
+      ...(params.referenceFiles && params.referenceFiles.length > 0
+        ? { reference_files: params.referenceFiles }
+        : {}),
       ...(updates.due_date
         ? { due_date_materialized: updates.due_date }
         : {}),
