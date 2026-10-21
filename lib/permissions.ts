@@ -173,6 +173,9 @@ const OPERATIONAL_SPEC_KEYS = new Set([
   "roll_staff_edited_at",
   "roll_staff_edited_by",
   "roll_inbound_fingerprint",
+  // Server-owned due-date re-sync bookkeeping (lib/due-resync.ts).
+  "due_staff_edited_at",
+  "due_staff_edited_by",
 ]);
 
 function jsonStable(value: unknown): string {

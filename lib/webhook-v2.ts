@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertCustomer } from "@/lib/customers";
 import {
+  activityShowsStaffDue,
+  needsLegacyStaffCheck,
+  resolveInboundDueResync,
+} from "@/lib/due-resync";
+import {
   asTrimmedString,
   isRecord,
   isStaleCrmUpdate,
@@ -559,7 +564,35 @@ async function updateConnectedOrder(
     const prevDue = existing.due_date
       ? String(existing.due_date).slice(0, 10)
       : null;
-    if (nextDue !== prevDue) {
+    // Staff due dates win (lib/due-resync.ts): never clear an existing date,
+    // never replace one staff set in Workflow.
+    let legacyStaffSet = false;
+    if (
+      needsLegacyStaffCheck({
+        existingDueDate: prevDue,
+        existingSpecs: existing.specs,
+        inboundDueDate: nextDue,
+      })
+    ) {
+      const { data: acts } = await client
+        .from("activity_log")
+        .select("actor, metadata")
+        .eq("order_id", orderId)
+        .eq("action", "updated")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      legacyStaffSet = activityShowsStaffDue(
+        (acts ?? []) as { actor: string | null; metadata: unknown }[],
+        prevDue
+      );
+    }
+    const dueDecision = resolveInboundDueResync({
+      existingDueDate: prevDue,
+      existingSpecs: existing.specs,
+      inboundDueDate: nextDue,
+      legacyStaffSet,
+    });
+    if (dueDecision.action === "apply" && nextDue !== prevDue) {
       updates.due_date = nextDue;
       if (prevDue || nextDue) {
         changes.push({

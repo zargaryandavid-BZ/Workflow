@@ -147,6 +147,11 @@ import {
   type OrderDueSpecs,
 } from "@/lib/due-date";
 import type { WebhookConfig } from "@/lib/types";
+import {
+  activityShowsStaffDue,
+  needsLegacyStaffCheck,
+  resolveInboundDueResync,
+} from "@/lib/due-resync";
 
 type Client = SupabaseClient;
 
@@ -3132,6 +3137,10 @@ async function refreshExistingOrderArtwork(
 /**
  * When CRM re-fires a webhook (e.g. after-approval due materializes), update
  * existing cards instead of creating duplicates.
+ *
+ * Staff due dates win (lib/due-resync.ts): a re-fire never clears an existing
+ * due date and never replaces one staff set in Workflow. Every due-date change
+ * a re-fire DOES make is written to the card's activity log.
  */
 async function updateExistingOrdersDue(
   client: Client,
@@ -3139,10 +3148,25 @@ async function updateExistingOrdersDue(
   existing: { id: string; title: string; specs: Record<string, unknown> }[],
   dueDate: string | null,
   dueSpecs: OrderDueSpecs,
-  rush?: boolean
+  rush?: boolean,
+  sourceLabel?: string | null
 ): Promise<void> {
   await Promise.all(
     existing.map(async (order) => {
+      // Fresh read: the board may have changed the due date since the lookup.
+      const { data: fresh } = await client
+        .from("orders")
+        .select("due_date, specs")
+        .eq("id", order.id)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      const currentSpecs =
+        fresh?.specs && typeof fresh.specs === "object"
+          ? (fresh.specs as Record<string, unknown>)
+          : (order.specs ?? {});
+      const currentDue =
+        typeof fresh?.due_date === "string" ? fresh.due_date.slice(0, 10) : null;
+
       let nextDueDate = dueDate;
       let nextDueSpecs = dueSpecs;
 
@@ -3155,7 +3179,7 @@ async function updateExistingOrdersDue(
         !dueDate
       ) {
         const recomputed = recomputeDueFromProcessingDays(
-          { ...order.specs, ...dueSpecs },
+          { ...currentSpecs, ...dueSpecs },
           null,
           dueSpecs.due_processing_days
         );
@@ -3165,21 +3189,57 @@ async function updateExistingOrdersDue(
         }
       }
 
-      // Absolute date from CRM wins; merge/replace due keys cleanly.
-      const nextSpecs = mergeDueSpecsIntoOrderSpecs(order.specs, nextDueSpecs);
+      let legacyStaffSet = false;
+      if (
+        needsLegacyStaffCheck({
+          existingDueDate: currentDue,
+          existingSpecs: currentSpecs,
+          inboundDueDate: nextDueDate,
+        })
+      ) {
+        const { data: acts } = await client
+          .from("activity_log")
+          .select("actor, metadata")
+          .eq("order_id", order.id)
+          .eq("action", "updated")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        legacyStaffSet = activityShowsStaffDue(
+          (acts ?? []) as { actor: string | null; metadata: unknown }[],
+          currentDue
+        );
+      }
+      const decision = resolveInboundDueResync({
+        existingDueDate: currentDue,
+        existingSpecs: currentSpecs,
+        inboundDueDate: nextDueDate,
+        legacyStaffSet,
+      });
+
+      let nextSpecs: Record<string, unknown>;
+      let writeDue: string | null;
+      if (decision.action === "keep") {
+        // Keep the card's date AND its due_* specs untouched.
+        nextSpecs = { ...currentSpecs };
+        writeDue = decision.dueDate;
+      } else {
+        // Absolute date from CRM wins; merge/replace due keys cleanly.
+        nextSpecs = mergeDueSpecsIntoOrderSpecs(currentSpecs, nextDueSpecs);
+        if (nextDueDate && nextDueSpecs.due_date_status === "set") {
+          // Keep prior human label only when CRM omitted one.
+          if (!nextDueSpecs.due_date_label && currentSpecs.due_date_label) {
+            nextSpecs.due_date_label = currentSpecs.due_date_label;
+          }
+        }
+        writeDue = decision.dueDate;
+      }
       if (rush === true) nextSpecs.rush = true;
       else if (rush === false) nextSpecs.rush = false;
-      if (nextDueDate && nextDueSpecs.due_date_status === "set") {
-        // Keep prior human label only when CRM omitted one.
-        if (!nextDueSpecs.due_date_label && order.specs.due_date_label) {
-          nextSpecs.due_date_label = order.specs.due_date_label;
-        }
-      }
 
       const { error } = await client
         .from("orders")
         .update({
-          due_date: nextDueDate,
+          due_date: writeDue,
           specs: nextSpecs,
           updated_at: new Date().toISOString(),
         })
@@ -3190,6 +3250,29 @@ async function updateExistingOrdersDue(
           order_id: order.id,
           message: error.message,
         });
+        return;
+      }
+      if ((writeDue ?? null) !== (currentDue ?? null)) {
+        try {
+          await logActivity(client, {
+            tenantId,
+            orderId: order.id,
+            actor: null,
+            action: "updated",
+            metadata: {
+              source: "webhook",
+              ...(sourceLabel ? { webhook_source: sourceLabel } : {}),
+              changes: [
+                { field: "Due date", from: currentDue, to: writeDue ?? null },
+              ],
+            },
+          });
+        } catch (err) {
+          console.error(
+            "[webhook/orders] due-date activity log failed:",
+            err instanceof Error ? err.message : err
+          );
+        }
       }
     })
   );
@@ -4323,7 +4406,8 @@ export async function createOrderFromWebhook(
       existingOrders,
       dueDate,
       dueSpecs,
-      webhookRushFromPayload(body as Record<string, unknown>)
+      webhookRushFromPayload(body as Record<string, unknown>),
+      webhookSource
     );
     // CRM is the source of truth for contact info. Previously a CRM re-fire only
     // refreshed the due date on an existing card — so a phone/email added in the CRM

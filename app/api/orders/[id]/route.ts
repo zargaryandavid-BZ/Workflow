@@ -28,6 +28,7 @@ import {
 import { preserveDesignTaskUrl } from "@/lib/design-task";
 import { preserveCardImage } from "@/lib/card-image";
 import { applyStaffSkuEdit } from "@/lib/sku-resync";
+import { applyStaffDueEdit, preserveDueSyncKeys } from "@/lib/due-resync";
 import { applyStaffRollEdit, describeRollActivityChanges } from "@/lib/roll-options";
 import { SKU_TEXT_SPEC_KEY, sanitizeSkuText } from "@/lib/sku-paste";
 import { preserveFinishedCustomerSms } from "@/lib/net-terms-fulfill";
@@ -636,6 +637,33 @@ export async function PATCH(
     }
   } else if (staffDue) {
     updates.specs = mergeDueSpecsIntoOrderSpecs(existingSpecs, staffDue.specs);
+  }
+
+  // Due-date re-sync bookkeeping is server-owned (lib/due-resync.ts): ignore
+  // client values, then stamp a staff due-date edit so CRM / website re-syncs
+  // never clear or replace it. Clearing the date removes the stamp.
+  if (updates.specs !== undefined) {
+    updates.specs = preserveDueSyncKeys(
+      existingSpecs,
+      updates.specs as Record<string, unknown>
+    );
+  }
+  if (updates.due_date !== undefined) {
+    const prevDue =
+      typeof (existingOrder as { due_date?: string | null }).due_date === "string"
+        ? String((existingOrder as { due_date?: string | null }).due_date).slice(0, 10)
+        : null;
+    const nextDue =
+      typeof updates.due_date === "string" && updates.due_date
+        ? String(updates.due_date).slice(0, 10)
+        : null;
+    if (prevDue !== nextDue) {
+      updates.specs = applyStaffDueEdit(
+        (updates.specs as Record<string, unknown> | undefined) ?? existingSpecs,
+        nextDue,
+        { userId: ctx.userId }
+      );
+    }
   }
 
   let designerChangedFrom: string | null = null;
