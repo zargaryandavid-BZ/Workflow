@@ -6,6 +6,7 @@ export const FULFILLMENT_BOX_SIZE_PRESETS = [
   "12×10×8 in",
   "12×12×12 in",
   "16×12×10 in",
+  "18×12×12 in",
   "20×16×12 in",
   "24×18×12 in",
 ] as const;

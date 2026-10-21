@@ -44,10 +44,11 @@ import {
   localDayLabel,
   savedMultiitemDayKeys,
 } from "@/lib/fulfillment-day";
-import type {
-  MultiitemBoxOrderRow,
-  MultiitemBoxRow,
-  MultiitemBoxSkuLine,
+import {
+  multiitemBoxSkuLinesFromTicket,
+  type MultiitemBoxOrderRow,
+  type MultiitemBoxRow,
+  type MultiitemBoxSkuLine,
 } from "@/lib/multiitem-box-lookup";
 
 /** Small inline QR code for a single order item (encodes the order title). */
@@ -135,22 +136,14 @@ interface BoxDragPayload {
 
 const BOX_DRAG_TYPE = "application/x-workflow-box-item";
 
-function skuLinesForScan(
-  countRaw: number | null | undefined,
-  totalRaw: number | null | undefined,
-  eachRaw: number | null | undefined
-): (MultiitemBoxSkuLine & { checked: boolean })[] {
-  const count = Math.max(0, Math.floor(Number(countRaw) || 0));
-  const total = Math.max(0, Math.floor(Number(totalRaw) || 0));
-  const explicitEach = Math.max(0, Math.floor(Number(eachRaw) || 0));
-  const dividedEach =
-    count > 0 && total > 0 && total % count === 0 ? total / count : 0;
-  const quantity = explicitEach || dividedEach;
-  if (count < 1 || quantity < 1) return [];
-  return Array.from({ length: count }, (_, index) => ({
-    page: index + 1,
-    label: `SKU ${index + 1}`,
-    quantity,
+function skuLinesForScan(input: {
+  skus?: { name?: string | null; qty?: number | null }[];
+  totalQty?: number | null;
+  qtyPerSku?: number | null;
+  skuCount?: number | null;
+}): (MultiitemBoxSkuLine & { checked: boolean })[] {
+  return multiitemBoxSkuLinesFromTicket(input).map((line) => ({
+    ...line,
     checked: true,
   }));
 }
@@ -788,6 +781,10 @@ export function MultiitemBoxSlipModal({
             qty?: number | null;
             final_artwork_sku_count?: number | null;
             qty_per_sku?: number | null;
+            sku_images?: {
+              sku_name?: string | null;
+              qty?: number | null;
+            }[];
           };
         })
         .then((json) => {
@@ -798,11 +795,15 @@ export function MultiitemBoxSlipModal({
               : null;
           setScanSkuPreview({
             query,
-            lines: skuLinesForScan(
-              json.final_artwork_sku_count,
+            lines: skuLinesForScan({
+              skus: (json.sku_images ?? []).map((sku) => ({
+                name: sku.sku_name,
+                qty: sku.qty,
+              })),
               totalQty,
-              json.qty_per_sku
-            ),
+              qtyPerSku: json.qty_per_sku,
+              skuCount: json.final_artwork_sku_count,
+            }),
           });
         })
         .catch((err: unknown) => {
@@ -1228,6 +1229,10 @@ export function MultiitemBoxSlipModal({
       qty?: number | null;
       final_artwork_sku_count?: number | null;
       qty_per_sku?: number | null;
+      sku_images?: {
+        sku_name?: string | null;
+        qty?: number | null;
+      }[];
       error?: string;
     };
     if (!lookup.ok || !json.id) {
@@ -1242,11 +1247,18 @@ export function MultiitemBoxSlipModal({
     }
     const lookupSkuLines =
       selectedSkuLines ??
-      skuLinesForScan(
-        json.final_artwork_sku_count,
-        json.qty,
-        json.qty_per_sku
-      ).map(({ checked: _checked, ...line }) => line);
+      skuLinesForScan({
+        skus: (json.sku_images ?? []).map((sku) => ({
+          name: sku.sku_name,
+          qty: sku.qty,
+        })),
+        totalQty:
+          json.qty != null && Number.isFinite(Number(json.qty))
+            ? Math.floor(Number(json.qty))
+            : null,
+        qtyPerSku: json.qty_per_sku,
+        skuCount: json.final_artwork_sku_count,
+      }).map(({ checked: _checked, ...line }) => line);
     const customerName = json.customer?.name?.trim() || "";
     if (!targetBox) {
       setBusy(true);
@@ -3150,7 +3162,6 @@ export function MultiitemBoxSlipModal({
     {scanKeypadOpen && !readOnly ? (
       <ScanNumberKeypad
         value={scan}
-        extraKeys={["W"]}
         onInsert={(character) => {
           if (replaceNextScan.current) {
             replaceNextScan.current = false;

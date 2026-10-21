@@ -6,6 +6,7 @@ import {
   pickScannedOrder,
   sanitizeScanLookupToken,
   scanQtyPerSkuFromSpecs,
+  scanSkuLineQtys,
   scanPartLocationsFromMembers,
 } from "./fulfillment-scan-order.ts";
 
@@ -32,6 +33,41 @@ describe("pickScannedOrder", () => {
 
   it("returns null when nothing matches", () => {
     assert.equal(pickScannedOrder(orders, "99999"), null);
+  });
+});
+
+describe("scanSkuLineQtys", () => {
+  it("splits the order total when only one page stores that total", () => {
+    assert.deepEqual(
+      scanSkuLineQtys({
+        skus: [{ qty: 750 }, { qty: null }, { qty: null }],
+        totalQty: 750,
+        qtyPerSku: null,
+      }),
+      [250, 250, 250]
+    );
+  });
+
+  it("uses the each-quantity for every SKU", () => {
+    assert.deepEqual(
+      scanSkuLineQtys({
+        skus: [{ qty: 48000 }, { qty: null }],
+        totalQty: 48000,
+        qtyPerSku: 3200,
+      }),
+      [3200, 3200]
+    );
+  });
+
+  it("keeps a quantity stored on every SKU", () => {
+    assert.deepEqual(
+      scanSkuLineQtys({
+        skus: [{ qty: 100 }, { qty: 200 }, { qty: 450 }],
+        totalQty: 750,
+        qtyPerSku: null,
+      }),
+      [100, 200, 450]
+    );
   });
 });
 

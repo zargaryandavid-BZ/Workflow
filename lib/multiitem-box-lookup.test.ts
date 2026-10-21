@@ -4,8 +4,10 @@ import {
   boxLineItemTitleFromScan,
   boxLineQuantityFromScan,
   clampBoxLineToTicket,
+  multiitemBoxSkuLinesFromOrderSpecs,
   normalizeMultiitemBoxSkuLines,
   remainingTicketQuantity,
+  resolveStoredBoxSkuLines,
 } from "./multiitem-box-lookup.ts";
 
 describe("boxLineQuantityFromScan", () => {
@@ -82,6 +84,80 @@ describe("boxLineItemTitleFromScan", () => {
         skus: [{ id: "a", name: "Rounded labels ozzos", qty: 1 }],
       }),
       "Rounded labels ozzos"
+    );
+  });
+});
+
+describe("multiitemBoxSkuLinesFromOrderSpecs", () => {
+  it("uses each job-ticket SKU quantity instead of an even split", () => {
+    assert.deepEqual(
+      multiitemBoxSkuLinesFromOrderSpecs(
+        {
+          skus: [
+            { id: "a", name: "SOLANA COFFEE", qty: 150 },
+            { id: "b", name: "DOUBLE SHOT", qty: 150 },
+            { id: "c", name: "STILLWATER STICKER", qty: 450 },
+          ],
+        },
+        750,
+        3
+      ),
+      [
+        { page: 1, label: "SOLANA COFFEE", quantity: 150 },
+        { page: 2, label: "DOUBLE SHOT", quantity: 150 },
+        { page: 3, label: "STILLWATER STICKER", quantity: 450 },
+      ]
+    );
+  });
+});
+
+describe("resolveStoredBoxSkuLines", () => {
+  it("replaces an even split with the job-ticket quantities", () => {
+    const specs = {
+      skus: [
+        { id: "a", name: "SOLANA COFFEE", qty: 150 },
+        { id: "b", name: "DOUBLE SHOT", qty: 150 },
+        { id: "c", name: "STILLWATER STICKER", qty: 450 },
+      ],
+    };
+    assert.deepEqual(
+      resolveStoredBoxSkuLines({
+        stored: [
+          { page: 1, label: "SKU 1", quantity: 250 },
+          { page: 2, label: "SKU 2", quantity: 250 },
+          { page: 3, label: "SKU 3", quantity: 250 },
+        ],
+        specs,
+        totalQty: 750,
+        skuCount: 3,
+      }),
+      [
+        { page: 1, label: "SOLANA COFFEE", quantity: 150 },
+        { page: 2, label: "DOUBLE SHOT", quantity: 150 },
+        { page: 3, label: "STILLWATER STICKER", quantity: 450 },
+      ]
+    );
+  });
+
+  it("keeps a quantity the packer changed", () => {
+    const specs = {
+      skus: [
+        { id: "a", name: "SOLANA COFFEE", qty: 150 },
+        { id: "b", name: "DOUBLE SHOT", qty: 150 },
+      ],
+    };
+    const stored = [
+      { page: 1, label: "SOLANA COFFEE", quantity: 40 },
+      { page: 2, label: "DOUBLE SHOT", quantity: 150 },
+    ];
+    assert.deepEqual(
+      resolveStoredBoxSkuLines({
+        stored,
+        specs,
+        totalQty: 300,
+        skuCount: 2,
+      }),
+      stored
     );
   });
 });

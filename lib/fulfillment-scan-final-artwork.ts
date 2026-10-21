@@ -36,18 +36,15 @@ export async function loadScanFinalArtworkPictures(
     const cached = await loadFinalArtworkSummary(order.id);
     if (cached.count && cached.artworkUrls.some(Boolean)) {
       return {
-        pictures: cached.artworkUrls.flatMap((url, index) => {
-          if (!url) return [];
+        pictures: cached.artworkUrls.map((url, index) => {
           const page = index + 1;
           const ticketSku = ticketSkus[index];
-          return [
-            {
-              sku_id: ticketSku?.id ?? `__pdf_page_${page}__`,
-              sku_name: ticketSku?.name.trim() || `SKU ${page}`,
-              url,
-              qty: specSkuQty(ticketSku),
-            },
-          ];
+          return {
+            sku_id: ticketSku?.id ?? `__pdf_page_${page}__`,
+            sku_name: ticketSku?.name.trim() || `SKU ${page}`,
+            url,
+            qty: specSkuQty(ticketSku),
+          };
         }),
         pageCount: cached.count,
       };
@@ -98,12 +95,24 @@ export async function loadScanFinalArtworkPictures(
         .map((row) => [row.path, row.signedUrl])
     );
 
+    // Build a url lookup by skuId so we can fill all pages, not just the ones
+    // that produced a JPEG. Pages that failed ensurePrintProofJpeg get url=""
+    // and show a placeholder thumbnail in the modal — but still appear as a SKU.
+    const urlBySkuId = new Map(
+      rows.map((row) => [row.skuId, urlByPath.get(row.path) ?? ""])
+    );
+
     return {
-      pictures: rows.flatMap((row) => {
-        const url = urlByPath.get(row.path);
-        return url
-          ? [{ sku_id: row.skuId, sku_name: row.skuName, url, qty: row.qty }]
-          : [];
+      pictures: ordered.map(([previewSkuId, preview]) => {
+        const ticketSku =
+          ticketSkus.find((sku) => sku.id === previewSkuId) ??
+          ticketSkus[preview.page - 1];
+        return {
+          sku_id: previewSkuId,
+          sku_name: ticketSku?.name.trim() || `SKU ${preview.page}`,
+          url: urlBySkuId.get(previewSkuId) ?? "",
+          qty: specSkuQty(ticketSku),
+        };
       }),
       pageCount: ordered.length,
     };

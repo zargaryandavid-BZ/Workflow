@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Box, LayoutGrid, Loader2, Package, Printer, Square, X } from "lucide-react";
+import { Box, Copy, LayoutGrid, Loader2, Package, Printer, Settings, Square, Trash2, X } from "lucide-react";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 import {
   CUSTOM_BOX_SIZE_VALUE,
   FULFILLMENT_BOX_SIZE_PRESETS,
   formatCustomBoxSize,
 } from "@/lib/box-size-presets";
+import { scanSkuLineQtys } from "@/lib/fulfillment-scan-order";
 import { cn } from "@/lib/utils";
 
 export type PackingSlipLayout = "multiple" | "one_per_slip";
@@ -70,18 +71,25 @@ function PackingSlipConfigForm({
   onClose,
 }: Props) {
   const skuList = skuImages ?? [];
+  // Fallback qty used only when a specific SKU doesn't carry its own qty.
   const perQty = deriveQty(totalQty, qtyPerSku, skuList.length);
 
   const [skus, setSkus] = useState<SkuSlipConfig[]>(() =>
     skuList.length > 0
-      ? skuList.map((img) => ({
-          skuId: img.sku_id,
-          skuName: img.sku_name,
-          artworkUrl: img.url,
-          qty: perQty,
-          copyQty: perQty,
-          enabled: true,
-        }))
+      ? skuList.map((img) => {
+          // Prefer the per-SKU qty from specs; fall back to the even-split only
+          // when the SKU doesn't have its own quantity defined.
+          const skuQty =
+            img.qty != null && img.qty > 0 ? img.qty : perQty;
+          return {
+            skuId: img.sku_id,
+            skuName: img.sku_name,
+            artworkUrl: img.url,
+            qty: skuQty,
+            copyQty: skuQty,
+            enabled: true,
+          };
+        })
       : [
           {
             skuId: "__all__",
@@ -95,6 +103,10 @@ function PackingSlipConfigForm({
   );
   const [layout, setLayout] = useState<PackingSlipLayout>("multiple");
   const [boxCount, setBoxCount] = useState<string>("1");
+  const [boxCountKeypadOpen, setBoxCountKeypadOpen] = useState(false);
+  const replaceBoxCountRef = useRef(true);
+  const [copyQtyKeypadId, setCopyQtyKeypadId] = useState<string | null>(null);
+  const [copyQtyKeypadStr, setCopyQtyKeypadStr] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -190,9 +202,9 @@ function PackingSlipConfigForm({
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
-      onClick={onClose}
     >
       <div
         className="flex max-h-[92dvh] w-full max-w-xl flex-col rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
@@ -254,12 +266,16 @@ function PackingSlipConfigForm({
             <div className="flex shrink-0 items-center gap-2">
               <span className="whitespace-nowrap text-[12px] text-slate-400">Boxes</span>
               <input
-                type="number"
-                min="1"
+                type="text"
+                inputMode="numeric"
+                readOnly
                 value={boxCount}
-                onChange={(e) => setBoxCount(e.target.value)}
                 placeholder="—"
-                className="h-10 w-20 rounded-xl border border-slate-200 bg-white px-3 text-center text-[14px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                onClick={() => {
+                  replaceBoxCountRef.current = true;
+                  setBoxCountKeypadOpen(true);
+                }}
+                className="h-10 w-20 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-center text-[14px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300"
               />
             </div>
           </div>
@@ -320,16 +336,21 @@ function PackingSlipConfigForm({
                     {sku.qty != null ? sku.qty.toLocaleString("en-US") : "—"}
                   </div>
 
-                  {/* Copy QTY (editable) */}
+                  {/* Copy QTY (tap to open keypad) */}
                   <div className="w-20 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <input
-                      type="number"
-                      min="0"
-                      value={sku.copyQty ?? ""}
-                      onChange={(e) => updateCopyQty(sku.skuId, e.target.value)}
+                      type="text"
+                      inputMode="numeric"
+                      readOnly
+                      value={sku.copyQty != null ? sku.copyQty.toLocaleString("en-US") : ""}
                       disabled={!sku.enabled}
                       placeholder="—"
-                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-[13px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:bg-slate-50 disabled:text-slate-300"
+                      onClick={() => {
+                        if (!sku.enabled) return;
+                        setCopyQtyKeypadId(sku.skuId);
+                        setCopyQtyKeypadStr(sku.copyQty?.toString() ?? "");
+                      }}
+                      className="h-9 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-right text-[13px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:cursor-default disabled:bg-slate-50 disabled:text-slate-300"
                     />
                   </div>
                 </div>
@@ -371,6 +392,40 @@ function PackingSlipConfigForm({
         </div>
       </div>
     </div>
+    {boxCountKeypadOpen ? (
+      <ScanNumberKeypad
+        variant="integer"
+        value={boxCount}
+        onInsert={(ch) => {
+          setBoxCount((prev) => (replaceBoxCountRef.current ? ch : prev + ch));
+          replaceBoxCountRef.current = false;
+        }}
+        onBackspace={() => {
+          if (replaceBoxCountRef.current) {
+            replaceBoxCountRef.current = false;
+            setBoxCount("");
+            return;
+          }
+          setBoxCount((prev) => prev.slice(0, -1) || "");
+        }}
+        onSubmit={() => setBoxCountKeypadOpen(false)}
+        onClose={() => setBoxCountKeypadOpen(false)}
+      />
+    ) : null}
+    {copyQtyKeypadId ? (
+      <ScanNumberKeypad
+        variant="integer"
+        value={copyQtyKeypadStr}
+        onInsert={(ch) => setCopyQtyKeypadStr((prev) => prev + ch)}
+        onBackspace={() => setCopyQtyKeypadStr((prev) => prev.slice(0, -1))}
+        onSubmit={() => {
+          if (copyQtyKeypadId) updateCopyQty(copyQtyKeypadId, copyQtyKeypadStr);
+          setCopyQtyKeypadId(null);
+        }}
+        onClose={() => setCopyQtyKeypadId(null)}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -408,27 +463,15 @@ function SenderPackingSlipWizard({
   onClose,
 }: Props) {
   const skuList = skuImages ?? [];
-  // Each Final Production page is one SKU. "3,200 QTY each" applies to every
-  // page. A single specs.skus row often stores the order total, so it must
-  // not replace the other pages.
-  const ownQtyCount = skuList.filter(
-    (img) => typeof img.qty === "number" && img.qty > 0
-  ).length;
-  const eachQty =
-    qtyPerSku && qtyPerSku > 0
-      ? qtyPerSku
-      : ownQtyCount === skuList.length
-        ? null
-        : deriveQty(totalQty, null, skuList.length);
+  const lineQtys = scanSkuLineQtys({
+    skus: skuList.map((img) => ({ qty: img.qty })),
+    totalQty,
+    qtyPerSku,
+  });
   const skus: SkuSlipConfig[] =
     skuList.length > 0
-      ? skuList.map((img) => {
-          const qty =
-            ownQtyCount === skuList.length &&
-            typeof img.qty === "number" &&
-            img.qty > 0
-              ? img.qty
-              : eachQty;
+      ? skuList.map((img, index) => {
+          const qty = lineQtys[index] ?? null;
           return {
             skuId: img.sku_id,
             skuName: img.sku_name,
@@ -452,12 +495,31 @@ function SenderPackingSlipWizard({
   const [step, setStep] = useState<1 | 2>(1);
   const [layout, setLayout] = useState<PackingSlipLayout>("multiple");
   const [boxCount, setBoxCount] = useState("1");
+  const [boxCountKeypadOpen, setBoxCountKeypadOpen] = useState(false);
+  const replaceBoxCountRef = useRef(true);
   const [boxes, setBoxes] = useState<SlipLine[][]>([]);
   const [boxDetails, setBoxDetails] = useState<SlipBoxDetails[]>([]);
-  const [boxKeypadTarget, setBoxKeypadTarget] = useState<{
+  const [lineQtyKeypad, setLineQtyKeypad] = useState<{
     boxIndex: number;
-    field: BoxKeypadField;
+    key: string;
   } | null>(null);
+  const [lineQtyKeypadStr, setLineQtyKeypadStr] = useState("");
+  const [lineQtyIsDefault, setLineQtyIsDefault] = useState(false);
+  const [dropQtyPending, setDropQtyPending] = useState<{
+    boxIndex: number;
+    skuId: string;
+    fromBox: number | null;
+    key?: string;
+  } | null>(null);
+  const [dropQtyStr, setDropQtyStr] = useState("");
+  const [dropQtyIsDefault, setDropQtyIsDefault] = useState(false);
+  const [boxSettingsOpen, setBoxSettingsOpen] = useState(false);
+  const [settingsApplyTo, setSettingsApplyTo] = useState<"all" | number[]>("all");
+  const [settingsDraft, setSettingsDraft] = useState<SlipBoxDetails>({
+    sizeLabel: "", sizeL: "", sizeW: "", sizeH: "", weightLbs: "",
+  });
+  const [settingsWeightKeypad, setSettingsWeightKeypad] = useState(false);
+  const [settingsDimKeypad, setSettingsDimKeypad] = useState<"sizeL" | "sizeW" | "sizeH" | null>(null);
   const [picked, setPicked] = useState<{
     skuId: string;
     fromBox: number | null;
@@ -519,9 +581,70 @@ function SenderPackingSlipWizard({
     }
   }
 
+  function openDropQty(boxIndex: number, skuId: string, fromBox: number | null, key?: string) {
+    const left = remaining(skuId);
+    setDropQtyPending({ boxIndex, skuId, fromBox, key });
+    setDropQtyStr(String(left > 0 ? left : 1));
+    setDropQtyIsDefault(true);
+    setPicked(null);
+    setBoxMenu(null);
+  }
+
+  function commitDropQty() {
+    if (!dropQtyPending) return;
+    const { boxIndex, skuId, fromBox, key } = dropQtyPending;
+    const qty = Math.max(1, parseInt(dropQtyStr, 10) || 1);
+    if (fromBox == null) {
+      placeFromPool(boxIndex, skuId, qty);
+    } else if (key) {
+      moveLine(fromBox, key, boxIndex);
+    }
+    setDropQtyPending(null);
+    setDropQtyStr("");
+  }
+
+  function applyBoxSettings() {
+    const targets =
+      settingsApplyTo === "all"
+        ? boxes.map((_, i) => i)
+        : settingsApplyTo;
+    setBoxDetails((prev) =>
+      prev.map((d, i) => (targets.includes(i) ? { ...d, ...settingsDraft } : d))
+    );
+    setBoxSettingsOpen(false);
+  }
+
+  function toggleSettingsBox(i: number) {
+    setSettingsApplyTo((prev) => {
+      if (prev === "all") return [i];
+      return prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i];
+    });
+  }
+
+  function duplicateBox(boxIndex: number) {
+    setBoxes((prev) => {
+      const copy = prev[boxIndex]?.map((line) => ({ ...line, key: newLine(line.skuId, 0).key })) ?? [];
+      const next = [...prev];
+      next.splice(boxIndex + 1, 0, copy);
+      return next;
+    });
+    setBoxDetails((prev) => {
+      const copy = { ...prev[boxIndex] };
+      const next = [...prev];
+      next.splice(boxIndex + 1, 0, copy);
+      return next;
+    });
+  }
+
+  function removeBox(boxIndex: number) {
+    if (boxes.length <= 1) return;
+    setBoxes((prev) => prev.filter((_, i) => i !== boxIndex));
+    setBoxDetails((prev) => prev.filter((_, i) => i !== boxIndex));
+  }
+
   function chooseBox(boxIndex: number) {
     if (!boxMenu) return;
-    if (boxMenu.fromBox == null) placeFromPool(boxIndex, boxMenu.skuId);
+    if (boxMenu.fromBox == null) openDropQty(boxIndex, boxMenu.skuId, null);
     else if (boxMenu.key) moveLine(boxMenu.fromBox, boxMenu.key, boxIndex);
     setBoxMenu(null);
   }
@@ -577,12 +700,12 @@ function SenderPackingSlipWizard({
     );
   }
 
-  function placeFromPool(boxIndex: number, skuId: string) {
+  function placeFromPool(boxIndex: number, skuId: string, qty?: number) {
     setBoxes((prev) => {
       const left = remaining(skuId, prev);
       const next = prev.map((lines) => lines.map((line) => ({ ...line })));
       const existing = next[boxIndex]?.find((line) => line.skuId === skuId);
-      const quantityToAdd = left > 0 ? left : 1;
+      const quantityToAdd = qty !== undefined ? qty : (left > 0 ? left : 1);
       if (existing) existing.qty += quantityToAdd;
       else {
         next[boxIndex] = [
@@ -625,7 +748,7 @@ function SenderPackingSlipWizard({
       return;
     }
     if (!payload.skuId) return;
-    if (payload.fromBox == null) placeFromPool(boxIndex, payload.skuId);
+    if (payload.fromBox == null) openDropQty(boxIndex, payload.skuId, null);
     else if (payload.key) moveLine(payload.fromBox, payload.key, boxIndex);
   }
 
@@ -746,7 +869,6 @@ function SenderPackingSlipWizard({
     <>
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
-      onClick={onClose}
     >
       <div
         className="flex max-h-[92dvh] w-full max-w-3xl flex-col rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
@@ -805,12 +927,15 @@ function SenderPackingSlipWizard({
                 How many boxes
               </span>
               <input
-                type="number"
-                min="1"
+                type="text"
                 inputMode="numeric"
+                readOnly
                 value={boxCount}
-                onChange={(e) => setBoxCount(e.target.value)}
-                className="h-14 w-28 rounded-xl border border-slate-200 text-center text-[20px] font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                onClick={() => {
+                  replaceBoxCountRef.current = true;
+                  setBoxCountKeypadOpen(true);
+                }}
+                className="h-14 w-28 cursor-pointer rounded-xl border border-slate-200 text-center text-[20px] font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
               />
             </label>
             <p className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -827,11 +952,11 @@ function SenderPackingSlipWizard({
                     <img
                       src={sku.artworkUrl}
                       alt=""
-                      className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-contain"
+                      className="h-24 w-24 shrink-0 rounded-lg border border-slate-200 object-contain"
                     />
                   ) : (
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
-                      <Package className="h-4 w-4 text-slate-300" />
+                    <span className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
+                      <Package className="h-8 w-8 text-slate-300" />
                     </span>
                   )}
                   <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-800">
@@ -845,11 +970,13 @@ function SenderPackingSlipWizard({
             </div>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            {/* Left: SKU list */}
+            <div className="panel-scroll w-[40%] shrink-0 border-r border-slate-100 px-3 py-4">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              SKU list
+              SKUs
             </p>
-            <div className="mb-4 grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-2">
               {skus.map((sku) => {
                 const left = remaining(sku.skuId);
                 const active = picked?.skuId === sku.skuId && picked.fromBox == null;
@@ -890,7 +1017,9 @@ function SenderPackingSlipWizard({
                       "flex min-h-14 min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left",
                       active
                         ? "border-blue-500 bg-blue-50"
-                        : "border-slate-200 bg-white"
+                        : left === 0
+                          ? "border-emerald-400 bg-emerald-50"
+                          : "border-slate-200 bg-white"
                     )}
                   >
                     {sku.artworkUrl ? (
@@ -926,13 +1055,13 @@ function SenderPackingSlipWizard({
                 );
               })}
             </div>
-
-            <div
-              className={cn(
-                "grid gap-3",
-                boxes.length > 1 ? "sm:grid-cols-2" : "grid-cols-1"
-              )}
-            >
+            </div>{/* end left panel */}
+            {/* Right: Boxes */}
+            <div className="panel-scroll min-w-0 flex-1 px-4 py-4">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Boxes
+            </p>
+            <div className="flex flex-col gap-3">
               {boxes.map((lines, boxIndex) => (
                 <div
                   key={boxIndex}
@@ -947,7 +1076,7 @@ function SenderPackingSlipWizard({
                   }}
                   onClick={() => {
                     if (!picked) return;
-                    if (picked.fromBox == null) placeFromPool(boxIndex, picked.skuId);
+                    if (picked.fromBox == null) openDropQty(boxIndex, picked.skuId, null);
                     else if (picked.key) moveLine(picked.fromBox, picked.key, boxIndex);
                   }}
                   className={cn(
@@ -955,93 +1084,48 @@ function SenderPackingSlipWizard({
                     picked ? "border-blue-400 bg-blue-50/40" : "border-slate-200"
                   )}
                 >
-                  <p className="mb-2 text-[13px] font-semibold text-slate-700">
-                    Box {boxIndex + 1}
-                  </p>
-                  <div
-                    className="mb-3 grid grid-cols-2 gap-2"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <label className="min-w-0">
-                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                        Box size
+                  <div className="mb-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <p className="flex-1 text-[13px] font-semibold text-slate-700">
+                      Box {boxIndex + 1}
+                    </p>
+                    {/* Size/weight badge */}
+                    {(boxDetails[boxIndex]?.sizeLabel || boxDetails[boxIndex]?.weightLbs) ? (
+                      <span className="truncate text-[11px] text-slate-400">
+                        {boxDetails[boxIndex]?.sizeLabel === CUSTOM_BOX_SIZE_VALUE
+                          ? formatCustomBoxSize(boxDetails[boxIndex]?.sizeL ?? "", boxDetails[boxIndex]?.sizeW ?? "", boxDetails[boxIndex]?.sizeH ?? "") || "Custom"
+                          : boxDetails[boxIndex]?.sizeLabel}
+                        {boxDetails[boxIndex]?.weightLbs ? ` · ${boxDetails[boxIndex].weightLbs} lbs` : ""}
                       </span>
-                      <select
-                        value={boxDetails[boxIndex]?.sizeLabel ?? ""}
-                        onChange={(event) =>
-                          updateBoxDetails(boxIndex, {
-                            sizeLabel: event.target.value,
-                          })
-                        }
-                        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] font-medium text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    ) : null}
+                    <button
+                      type="button"
+                      title="Box settings"
+                      onClick={() => {
+                        setSettingsDraft({ ...boxDetails[boxIndex] });
+                        setSettingsApplyTo("all");
+                        setBoxSettingsOpen(true);
+                      }}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Duplicate box"
+                      onClick={() => duplicateBox(boxIndex)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                    {boxes.length > 1 ? (
+                      <button
+                        type="button"
+                        title="Remove box"
+                        onClick={() => removeBox(boxIndex)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
                       >
-                        <option value="">Select size</option>
-                        {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
-                        <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
-                      </select>
-                    </label>
-                    <label className="min-w-0">
-                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                        Weight (lbs)
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        readOnly
-                        value={boxDetails[boxIndex]?.weightLbs ?? ""}
-                        placeholder="Tap to enter"
-                        onFocus={() =>
-                          setBoxKeypadTarget({
-                            boxIndex,
-                            field: "weightLbs",
-                          })
-                        }
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setBoxKeypadTarget({
-                            boxIndex,
-                            field: "weightLbs",
-                          });
-                        }}
-                        className="h-11 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-right text-[14px] font-semibold text-slate-800 placeholder:text-left placeholder:font-normal placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                      />
-                    </label>
-                    {boxDetails[boxIndex]?.sizeLabel ===
-                    CUSTOM_BOX_SIZE_VALUE ? (
-                      <div className="col-span-2 grid grid-cols-3 gap-2">
-                        {(
-                          [
-                            ["sizeL", "Length"],
-                            ["sizeW", "Width"],
-                            ["sizeH", "Height"],
-                          ] as const
-                        ).map(([field, label]) => (
-                          <label key={field} className="min-w-0">
-                            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                              {label} (in)
-                            </span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              readOnly
-                              value={boxDetails[boxIndex]?.[field] ?? ""}
-                              placeholder="Tap"
-                              onFocus={() =>
-                                setBoxKeypadTarget({ boxIndex, field })
-                              }
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setBoxKeypadTarget({ boxIndex, field });
-                              }}
-                              className="h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-right text-[13px] font-semibold text-slate-800 placeholder:text-left placeholder:font-normal placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                            />
-                          </label>
-                        ))}
-                      </div>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     ) : null}
                   </div>
                   {lines.length === 0 ? (
@@ -1102,19 +1186,24 @@ function SenderPackingSlipWizard({
                               active ? "border-blue-500" : "border-slate-200"
                             )}
                           >
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800">
+                            <span className="min-w-0 flex-1 text-[13px] font-medium text-slate-800">
+                              <span className="font-semibold text-slate-400">
+                                SKU {skus.findIndex((s) => s.skuId === line.skuId) + 1}:
+                              </span>{" "}
                               {sku?.skuName || "SKU"}
                             </span>
                             <input
-                              type="number"
-                              min="1"
+                              type="text"
                               inputMode="numeric"
-                              value={line.qty}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) =>
-                                setLineQty(boxIndex, line.key, e.target.value)
-                              }
-                              className="h-10 w-24 rounded-lg border border-slate-200 text-right text-[14px] font-semibold"
+                              readOnly
+                              value={line.qty.toLocaleString("en-US")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLineQtyKeypad({ boxIndex, key: line.key });
+                                setLineQtyKeypadStr(line.qty.toString());
+                                setLineQtyIsDefault(true);
+                              }}
+                              className="h-10 w-24 cursor-pointer rounded-lg border border-slate-200 text-center text-[14px] font-semibold"
                             />
                           </div>
                         );
@@ -1124,6 +1213,7 @@ function SenderPackingSlipWizard({
                 </div>
               ))}
             </div>
+            </div>{/* end right panel */}
           </div>
         )}
 
@@ -1177,11 +1267,9 @@ function SenderPackingSlipWizard({
         ) : null}
 
         <div className="shrink-0 border-t border-slate-100 px-5 py-4">
-          {(error || (step === 2 && issues.length > 0)) && (
-            <p className="mb-3 text-[13px] text-amber-700">
-              {error || issues[0]}
-            </p>
-          )}
+          {error ? (
+            <p className="mb-3 text-[13px] text-amber-700">{error}</p>
+          ) : null}
           <div className="flex gap-3">
             <button
               type="button"
@@ -1225,29 +1313,259 @@ function SenderPackingSlipWizard({
         </div>
       </div>
     </div>
-    {boxKeypadTarget ? (
+    {boxCountKeypadOpen ? (
       <ScanNumberKeypad
-        variant="decimal"
-        value={
-          boxDetails[boxKeypadTarget.boxIndex]?.[boxKeypadTarget.field] ?? ""
-        }
-        onInsert={(character) => {
-          const current =
-            boxDetails[boxKeypadTarget.boxIndex]?.[boxKeypadTarget.field] ?? "";
-          if (character === "." && current.includes(".")) return;
-          updateBoxDetails(boxKeypadTarget.boxIndex, {
-            [boxKeypadTarget.field]: `${current}${character}`,
-          });
+        variant="integer"
+        value={boxCount}
+        onInsert={(ch) => {
+          const replace = replaceBoxCountRef.current;
+          replaceBoxCountRef.current = false;
+          setBoxCount((prev) => (replace ? ch : prev + ch));
         }}
         onBackspace={() => {
-          const current =
-            boxDetails[boxKeypadTarget.boxIndex]?.[boxKeypadTarget.field] ?? "";
-          updateBoxDetails(boxKeypadTarget.boxIndex, {
-            [boxKeypadTarget.field]: current.slice(0, -1),
-          });
+          if (replaceBoxCountRef.current) {
+            replaceBoxCountRef.current = false;
+            setBoxCount("");
+            return;
+          }
+          setBoxCount((prev) => prev.slice(0, -1) || "");
         }}
-        onSubmit={() => setBoxKeypadTarget(null)}
-        onClose={() => setBoxKeypadTarget(null)}
+        onSubmit={() => setBoxCountKeypadOpen(false)}
+        onClose={() => setBoxCountKeypadOpen(false)}
+      />
+    ) : null}
+    {lineQtyKeypad ? (
+      <ScanNumberKeypad
+        variant="integer"
+        value={lineQtyKeypadStr}
+        onInsert={(ch) => {
+          if (lineQtyIsDefault) {
+            setLineQtyIsDefault(false);
+            setLineQtyKeypadStr(ch === "0" ? "" : ch);
+          } else {
+            setLineQtyKeypadStr((prev) => (ch === "0" && prev === "" ? "" : prev + ch));
+          }
+        }}
+        onBackspace={() => {
+          if (lineQtyIsDefault) {
+            setLineQtyIsDefault(false);
+            setLineQtyKeypadStr("");
+          } else {
+            setLineQtyKeypadStr((prev) => prev.slice(0, -1));
+          }
+        }}
+        onSubmit={() => {
+          if (lineQtyKeypad) {
+            setLineQty(lineQtyKeypad.boxIndex, lineQtyKeypad.key, lineQtyKeypadStr || "0");
+          }
+          setLineQtyKeypad(null);
+        }}
+        onClose={() => setLineQtyKeypad(null)}
+      />
+    ) : null}
+    {dropQtyPending ? (
+      <ScanNumberKeypad
+        variant="integer"
+        value={dropQtyStr}
+        onInsert={(ch) => {
+          if (dropQtyIsDefault) {
+            setDropQtyIsDefault(false);
+            setDropQtyStr(ch === "0" ? "" : ch);
+          } else {
+            setDropQtyStr((prev) => (ch === "0" && prev === "" ? "" : prev + ch));
+          }
+        }}
+        onBackspace={() => {
+          if (dropQtyIsDefault) {
+            setDropQtyIsDefault(false);
+            setDropQtyStr("");
+          } else {
+            setDropQtyStr((prev) => prev.slice(0, -1));
+          }
+        }}
+        onSubmit={commitDropQty}
+        onClose={() => setDropQtyPending(null)}
+      />
+    ) : null}
+
+    {/* ── Box Settings Sheet ── */}
+    {boxSettingsOpen ? (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <button
+          type="button"
+          aria-label="Close settings"
+          className="absolute inset-0 bg-black/40"
+          onClick={() => setBoxSettingsOpen(false)}
+        />
+        <div className="relative z-10 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-[15px] font-semibold text-slate-900">Box Settings</h3>
+            <button
+              type="button"
+              onClick={() => setBoxSettingsOpen(false)}
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Apply to */}
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            Apply to
+          </p>
+          <div className="mb-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSettingsApplyTo("all")}
+              className={cn(
+                "flex-1 rounded-lg border py-2 text-[13px] font-medium",
+                settingsApplyTo === "all"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              All boxes
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setSettingsApplyTo((prev) => (prev === "all" ? [] : prev))
+              }
+              className={cn(
+                "flex-1 rounded-lg border py-2 text-[13px] font-medium",
+                Array.isArray(settingsApplyTo)
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              Select boxes
+            </button>
+          </div>
+          {Array.isArray(settingsApplyTo) ? (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {boxes.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => toggleSettingsBox(i)}
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-[13px] font-medium",
+                    settingsApplyTo.includes(i)
+                      ? "border-blue-500 bg-blue-50 text-blue-700"
+                      : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                  )}
+                >
+                  Box {i + 1}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Box Size */}
+          <label className="mb-3 block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Box size
+            </span>
+            <select
+              value={settingsDraft.sizeLabel}
+              onChange={(e) =>
+                setSettingsDraft((d) => ({ ...d, sizeLabel: e.target.value, sizeL: "", sizeW: "", sizeH: "" }))
+              }
+              className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] font-medium text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">Select size</option>
+              {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+              <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
+            </select>
+          </label>
+
+          {settingsDraft.sizeLabel === CUSTOM_BOX_SIZE_VALUE ? (
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              {(["sizeL", "sizeW", "sizeH"] as const).map((field, idx) => (
+                <label key={field} className="min-w-0">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {["Length", "Width", "Height"][idx]} (in)
+                  </span>
+                  <input
+                    type="text"
+                    readOnly
+                    value={settingsDraft[field]}
+                    placeholder="Tap"
+                    onClick={() => setSettingsDimKeypad(field)}
+                    className="h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-center text-[13px] font-semibold text-slate-800 placeholder:font-normal placeholder:text-slate-400"
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Weight */}
+          <label className="mb-5 block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Weight (lbs)
+            </span>
+            <input
+              type="text"
+              readOnly
+              value={settingsDraft.weightLbs}
+              placeholder="Tap to enter"
+              onClick={() => setSettingsWeightKeypad(true)}
+              className="h-11 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-center text-[14px] font-semibold text-slate-800 placeholder:font-normal placeholder:text-slate-400"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={applyBoxSettings}
+            disabled={Array.isArray(settingsApplyTo) && settingsApplyTo.length === 0}
+            className="w-full rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    ) : null}
+
+    {settingsWeightKeypad ? (
+      <ScanNumberKeypad
+        variant="decimal"
+        zIndex={70}
+        value={settingsDraft.weightLbs}
+        onInsert={(ch) =>
+          setSettingsDraft((d) => {
+            if (ch === "." && d.weightLbs.includes(".")) return d;
+            return { ...d, weightLbs: d.weightLbs + ch };
+          })
+        }
+        onBackspace={() =>
+          setSettingsDraft((d) => ({ ...d, weightLbs: d.weightLbs.slice(0, -1) }))
+        }
+        onSubmit={() => setSettingsWeightKeypad(false)}
+        onClose={() => setSettingsWeightKeypad(false)}
+      />
+    ) : null}
+    {settingsDimKeypad ? (
+      <ScanNumberKeypad
+        variant="decimal"
+        zIndex={70}
+        value={settingsDraft[settingsDimKeypad]}
+        onInsert={(ch) =>
+          setSettingsDraft((d) => {
+            const cur = d[settingsDimKeypad!];
+            if (ch === "." && cur.includes(".")) return d;
+            return { ...d, [settingsDimKeypad!]: cur + ch };
+          })
+        }
+        onBackspace={() =>
+          setSettingsDraft((d) => ({
+            ...d,
+            [settingsDimKeypad!]: d[settingsDimKeypad!].slice(0, -1),
+          }))
+        }
+        onSubmit={() => setSettingsDimKeypad(null)}
+        onClose={() => setSettingsDimKeypad(null)}
       />
     ) : null}
     </>

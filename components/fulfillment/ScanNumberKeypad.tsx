@@ -24,6 +24,7 @@ const KEYS: { label: string; value: string }[][] = [
     { label: "0", value: "0" },
     { label: ")", value: ")" },
   ],
+  [{ label: "W", value: "W" }],
 ];
 
 const DECIMAL_KEYS: { label: string; value: string }[][] = [
@@ -49,6 +50,26 @@ const DECIMAL_KEYS: { label: string; value: string }[][] = [
   ],
 ];
 
+/** Integer-only keypad — no decimal point, 0 spans full width. */
+const INTEGER_KEYS: { label: string; value: string }[][] = [
+  [
+    { label: "1", value: "1" },
+    { label: "2", value: "2" },
+    { label: "3", value: "3" },
+  ],
+  [
+    { label: "4", value: "4" },
+    { label: "5", value: "5" },
+    { label: "6", value: "6" },
+  ],
+  [
+    { label: "7", value: "7" },
+    { label: "8", value: "8" },
+    { label: "9", value: "9" },
+  ],
+  [{ label: "0", value: "0" }], // col-span-3 via row.length === 1
+];
+
 const keyClass =
   "flex min-h-14 items-center justify-center rounded-xl bg-slate-100 text-2xl font-semibold text-slate-900 touch-manipulation active:bg-slate-200 md:min-h-20 md:text-3xl landscape:min-h-12 landscape:md:min-h-16";
 
@@ -60,6 +81,7 @@ export function ScanNumberKeypad({
   onClose,
   extraKeys = [],
   variant = "scan",
+  zIndex = 50,
 }: {
   value: string;
   onInsert: (ch: string) => void;
@@ -67,11 +89,13 @@ export function ScanNumberKeypad({
   onSubmit: () => void;
   onClose: () => void;
   extraKeys?: string[];
-  variant?: "scan" | "decimal";
+  variant?: "scan" | "decimal" | "integer";
+  zIndex?: number;
 }) {
-  const keys = variant === "decimal" ? DECIMAL_KEYS : KEYS;
+  const keys =
+    variant === "decimal" ? DECIMAL_KEYS : variant === "integer" ? INTEGER_KEYS : KEYS;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8">
+    <div className="fixed inset-0 flex items-center justify-center p-4 md:p-8" style={{ zIndex }}>
       <button
         type="button"
         tabIndex={-1}
@@ -103,7 +127,7 @@ export function ScanNumberKeypad({
         <div className="mb-3 min-h-12 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-center text-2xl font-semibold tracking-wide text-slate-900 md:mb-4 md:min-h-14 md:text-3xl">
           {value || (
             <span className="font-medium text-slate-400">
-              {variant === "decimal" ? "e.g. 12.5" : "e.g. 15118-1"}
+              {variant === "decimal" ? "e.g. 12.5" : variant === "integer" ? "e.g. 100" : "e.g. 15118-1"}
             </span>
           )}
         </div>
@@ -115,7 +139,7 @@ export function ScanNumberKeypad({
                   key={key.value}
                   type="button"
                   onClick={() => onInsert(key.value)}
-                  className={keyClass}
+                  className={cn(keyClass, row.length === 1 && "col-span-3")}
                   tabIndex={-1}
                 >
                   {key.label}
@@ -149,7 +173,7 @@ export function ScanNumberKeypad({
           <div
             className={cn(
               "grid gap-2 md:gap-2.5",
-              variant === "decimal" ? "grid-cols-2" : "grid-cols-3"
+              variant === "decimal" || variant === "integer" ? "grid-cols-2" : "grid-cols-3"
             )}
           >
             {variant === "scan" ? (
@@ -180,7 +204,7 @@ export function ScanNumberKeypad({
                 "bg-slate-900 text-base font-semibold text-white active:bg-slate-700 md:text-lg"
               )}
             >
-              {variant === "decimal" ? "Done" : "Scan"}
+              {variant === "scan" ? "Scan" : "Done"}
             </button>
           </div>
         </div>

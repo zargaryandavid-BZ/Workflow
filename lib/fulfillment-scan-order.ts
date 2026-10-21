@@ -375,6 +375,40 @@ export type ScanPartLocation = {
   columnName: string;
 };
 
+/**
+ * Quantity shown for each Final Production SKU page.
+ * "QTY each" applies to every page. A single specs row often stores the
+ * order total, so it is used only when every page has its own quantity.
+ * Otherwise the order total is split evenly.
+ */
+export function scanSkuLineQtys(input: {
+  skus: { qty?: number | null }[];
+  totalQty?: number | null;
+  qtyPerSku?: number | null;
+}): (number | null)[] {
+  const list = input.skus;
+  const ownQtyCount = list.filter(
+    (sku) => typeof sku.qty === "number" && sku.qty > 0
+  ).length;
+  const split =
+    input.totalQty && input.totalQty > 0 && list.length > 0
+      ? Math.round(input.totalQty / list.length)
+      : null;
+  const eachQty =
+    input.qtyPerSku && input.qtyPerSku > 0
+      ? input.qtyPerSku
+      : ownQtyCount === list.length
+        ? null
+        : split;
+  return list.map((sku) =>
+    ownQtyCount === list.length &&
+    typeof sku.qty === "number" &&
+    sku.qty > 0
+      ? Math.floor(sku.qty)
+      : eachQty
+  );
+}
+
 /** One row per grouped part: `0467-1` + board column name. */
 export function scanPartLocationsFromMembers(
   members: Array<{ id: string; title: string; column_id: string | null }>,

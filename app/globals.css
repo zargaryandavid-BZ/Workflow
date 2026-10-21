@@ -38,6 +38,24 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Thin always-visible scrollbar for panels (packing slip columns, etc.) */
+.panel-scroll {
+  overflow-y: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+.panel-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.panel-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+.panel-scroll::-webkit-scrollbar-thumb {
+  background-color: #94a3b8;
+  border-radius: 3px;
+}
+
 /* Scrollbars for the board (horizontal column strip + vertical columns) */
 .board-scroll {
   scrollbar-width: thin;

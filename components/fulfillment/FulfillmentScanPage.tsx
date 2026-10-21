@@ -63,6 +63,7 @@ import {
   SCAN_SHIPPING_ACTION_BTN_READY,
   ScanShippingSlipButtons,
 } from "@/components/fulfillment/ScanShippingSlipButtons";
+import { scanSkuLineQtys } from "@/lib/fulfillment-scan-order";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
 import type { QrScannerController } from "@/lib/scan-qr-camera";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
@@ -148,6 +149,77 @@ function formatDate(iso: string | null): string {
   } catch {
     return iso;
   }
+}
+
+function SkuQtyList({
+  count,
+  lines,
+}: {
+  count: number;
+  lines: { id: string; label: string; name: string; qty: number | null }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const badge = (
+    <span className="inline-flex items-center justify-center rounded-full bg-blue-600 px-2.5 py-0.5 text-[13px] font-bold text-white md:text-[15px]">
+      {count.toLocaleString()} SKU
+    </span>
+  );
+  if (lines.length === 0) return badge;
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex items-center justify-center rounded-full bg-blue-600 px-2.5 py-0.5 text-[13px] font-bold text-white hover:bg-blue-700 md:text-[15px]"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+      >
+        {count.toLocaleString()} SKU
+      </button>
+      {open ? (
+        <div className="absolute left-0 z-40 mt-1 w-max min-w-[18rem] max-w-[24rem] rounded-xl border border-slate-200 bg-white py-1.5 shadow-lg">
+          {lines.map((line) => {
+            const showName =
+              line.name.length > 0 &&
+              line.name.toLowerCase() !== line.label.toLowerCase();
+            return (
+              <div
+                key={line.id}
+                className="flex items-baseline gap-3 px-3 py-1.5 text-[13px] md:text-[15px]"
+              >
+                <span className="shrink-0 font-semibold text-slate-900">
+                  {line.label}
+                </span>
+                {showName ? (
+                  <span className="min-w-0 flex-1 truncate text-slate-700">
+                    {line.name}
+                  </span>
+                ) : (
+                  <span className="flex-1" />
+                )}
+                <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                  {line.qty != null ? line.qty.toLocaleString() : "—"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function isLate(due: string | null): boolean {
@@ -365,6 +437,22 @@ function PinnedSpecTable({
   }
 
   function SkuQtyCell() {
+    const images = order.sku_images ?? [];
+    const parsedTotal = Number(String(ttlQty).replace(/,/g, ""));
+    const lineQtys = scanSkuLineQtys({
+      skus: images.map((sku) => ({ qty: sku.qty })),
+      totalQty:
+        Number.isFinite(parsedTotal) && parsedTotal > 0
+          ? parsedTotal
+          : order.qty,
+      qtyPerSku: order.qty_per_sku,
+    });
+    const lines = images.map((sku, index) => ({
+      id: `${sku.sku_id}-${index}`,
+      label: `SKU ${index + 1}`,
+      name: sku.sku_name.trim(),
+      qty: lineQtys[index] ?? null,
+    }));
     return (
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
         <span className="shrink-0 text-[11px] text-slate-400 md:text-[13px]">
@@ -372,9 +460,7 @@ function PinnedSpecTable({
         </span>
         {skuCount ? (
           <>
-            <span className="inline-flex items-center justify-center rounded-full bg-blue-600 px-2.5 py-0.5 text-[13px] font-bold text-white md:text-[15px]">
-              {skuCount.toLocaleString()} SKU
-            </span>
+            <SkuQtyList count={skuCount} lines={lines} />
             {order.qty_per_sku && order.qty_per_sku > 0 ? (
               <span className="inline-flex items-center justify-center rounded-full bg-blue-600 px-2.5 py-0.5 text-[13px] font-bold text-white md:text-[15px]">
                 {order.qty_per_sku.toLocaleString()} QTY each
@@ -462,31 +548,13 @@ const SHIPPING_LABELS: Record<string, { label: string; color: string }> = {
 const BASE_URL = "https://workflow-rho-one.vercel.app";
 
 function ShippingReminderSection({
-  order, onShippingCreated, tenantName, customFields, smsConfigured,
+  order,
 }: {
   order: OrderResult;
-  onShippingCreated: () => void;
-  tenantName: string;
-  customFields: CustomField[];
-  smsConfigured: boolean;
 }) {
   const [sending, setSending] = useState<"pickup" | "shipping" | null>(null);
   const [sent, setSent]       = useState<"pickup" | "shipping" | null>(null);
   const [smsError, setSmsError] = useState<string | null>(null);
-  const [showSetup, setShowSetup] = useState(false);
-  const [setupOrder, setSetupOrder] = useState<OrderWithRelations | null>(null);
-  const [setupLoading, setSetupLoading] = useState(false);
-
-  async function openSetup() {
-    setSetupLoading(true);
-    try {
-      const res = await fetch(`/api/orders/${order.id}`);
-      const json = await res.json() as { order?: OrderWithRelations };
-      if (json.order) { setSetupOrder(json.order); setShowSetup(true); }
-    } finally {
-      setSetupLoading(false);
-    }
-  }
 
   const sr = order.shipping_request;
   const choice = sr?.client_choice ?? null;
@@ -545,19 +613,6 @@ function ShippingReminderSection({
   }
 
   return (
-    <>
-      {showSetup && setupOrder && (
-        <ReadyToShipPopup
-          order={setupOrder}
-          columnId={order.column_id}
-          tenantName={tenantName}
-          customFields={customFields}
-          fieldValues={{}}
-          smsConfigured={smsConfigured}
-          onClose={() => { setShowSetup(false); setSetupOrder(null); }}
-          onSent={() => { setShowSetup(false); setSetupOrder(null); onShippingCreated(); }}
-        />
-      )}
     <div>
       <p className="mb-3 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
         Shipping
@@ -586,23 +641,6 @@ function ShippingReminderSection({
         )}
 
         <div className="flex flex-col gap-2">
-          {/* No shipping request yet — primary CTA */}
-          {!sr && (
-            <button
-              type="button"
-              onClick={() => void openSetup()}
-              disabled={setupLoading}
-              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {setupLoading ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-              ) : (
-                <PackageCheck className="h-4 w-4 shrink-0" />
-              )}
-              {setupLoading ? "Loading…" : "Set Up Shipping"}
-            </button>
-          )}
-
           {/* SMS reminder — primary CTA after shipping portal sent */}
           {sr && (choice === "pickup" || choice === null) && (
             <button
@@ -658,7 +696,6 @@ function ShippingReminderSection({
         )}
       </div>
     </div>
-    </>
   );
 }
 
@@ -1273,8 +1310,14 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     options?: { skipPhoneConfirm?: boolean }
   ) {
     if (!order || !button.columnId) return;
+    const targetColumn = columns.find(
+      (column) => column.id === button.columnId
+    );
+    const opensShippingSetup =
+      targetColumn?.kind === "ready_to_ship" && !scanApiBase;
     if (
       isPhoneScan() &&
+      !opensShippingSetup &&
       !options?.skipPhoneConfirm &&
       pendingAction?.id !== button.id
     ) {
@@ -1287,8 +1330,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     setActionError(null);
     setActionFeedback({ phase: "loading", label: button.label });
     try {
-      const targetColumn = columns.find((column) => column.id === button.columnId);
-      if (targetColumn?.kind === "ready_to_ship" && !scanApiBase) {
+      if (opensShippingSetup) {
         const orderRes = await fetch(`/api/orders/${order.id}`);
         const orderJson = await orderRes.json().catch(() => ({})) as {
           error?: string;
@@ -1422,6 +1464,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             .map((s) => ({ label: s.label, value: String(s.value) }))
       )
     : [];
+  const artworkImages = (order?.sku_images ?? []).filter((sku) => sku.url);
 
   async function completeReadyToShipAction() {
     const popup = readyToShipPopup;
@@ -1640,24 +1683,24 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               <p className="mb-2 shrink-0 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                 Artwork
               </p>
-              {order.sku_images?.length ? (
+              {artworkImages.length > 0 ? (
                 <div
                   className="grid grid-cols-2 gap-3 pr-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
                   style={{
                     gridAutoRows:
-                      order.sku_images.length <= 4
+                      artworkImages.length <= 4
                         ? "minmax(0, 1fr)"
                         : "minmax(10rem, 1fr)",
                   }}
                 >
-                  {order.sku_images.map((sku) => (
+                  {artworkImages.map((sku) => (
                     <button
                       type="button"
                       key={sku.sku_id}
                       onClick={() => setLightboxUrl(sku.url)}
                       className={cn(
                         "flex h-44 min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-left transition hover:border-blue-300 hover:bg-blue-50/30 lg:h-auto",
-                        order.sku_images?.length === 1 &&
+                        artworkImages.length === 1 &&
                           "col-span-2 lg:col-span-1"
                       )}
                       aria-label={`View ${sku.sku_name} artwork`}
@@ -1908,10 +1951,6 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                 ) : (
                   <ShippingReminderSection
                     order={order}
-                    onShippingCreated={() => void lookup(order.title)}
-                    tenantName={tenantName}
-                    customFields={customFields}
-                    smsConfigured={smsConfigured}
                   />
                 )}
               </div>

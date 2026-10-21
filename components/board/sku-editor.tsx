@@ -157,23 +157,23 @@ export function SkuEditor({
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-sm font-semibold text-slate-700">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="flex min-w-0 flex-wrap items-center text-sm font-semibold text-slate-700">
           SKUs
-          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+          <span className="ml-2 whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
             SKU QTY: {value.length}
           </span>
           {value.length > 0 ? (
-            <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+            <span className="ml-1 whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
               TOTAL QTY: {totalQty.toLocaleString("en-US")}
             </span>
           ) : null}
         </p>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={() => setTextOpen((o) => !o)}
-            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-slate-50 ${
+            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-xs font-medium hover:bg-slate-50 ${
               textOpen
                 ? "border-blue-300 bg-blue-50 text-blue-700"
                 : "border-slate-300 text-slate-700"
@@ -186,7 +186,7 @@ export function SkuEditor({
             type="button"
             onClick={add}
             disabled={disabled}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             <Plus className="h-3.5 w-3.5" /> Add SKU
           </button>

@@ -100,3 +100,35 @@ test("job ticket excludes Design List from product specifications", () => {
     false
   );
 });
+
+test("job ticket prefers cardboard dimensions over webhook set size", () => {
+  const rows = buildJobTicketSpecRows({
+    customFields: [
+      field("width", "Width", "number", 1),
+      field("height", "Height", "number", 2),
+    ],
+    fieldValues: {
+      width: 3,
+      height: 4,
+    },
+    specs: {
+      spec_selections: {
+        SET_SIZE: "2.75x5",
+      },
+      spec_display: [
+        {
+          key: "SIZE",
+          label: "Size",
+          value: "2.75x5",
+        },
+      ],
+    },
+  });
+
+  assert.ok(rows.some((row) => row.label === "Width" && row.value === "3"));
+  assert.ok(rows.some((row) => row.label === "Height" && row.value === "4"));
+  assert.equal(
+    rows.some((row) => ["set size", "size"].includes(row.label.toLowerCase())),
+    false
+  );
+});

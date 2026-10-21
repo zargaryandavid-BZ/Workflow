@@ -3,6 +3,8 @@ import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 import {
   clampBoxLineToTicket,
   findTenantOrderByScan,
+  isAutoSplitSkuLines,
+  multiitemBoxSkuLinesFromOrderSpecs,
   normalizeMultiitemBoxSkuLines,
   packedBoxQuantityForOrder,
   resolveBoxLineDetails,
@@ -134,6 +136,20 @@ export async function POST(
     orderId,
     specs
   );
+  const ticketLines = multiitemBoxSkuLinesFromOrderSpecs(
+    specs,
+    ticketQty,
+    null
+  );
+  const selectedPages = new Set(skuLines.map((line) => line.page));
+  const linesFromTicket =
+    skuLines.length === 0
+      ? ticketLines
+      : isAutoSplitSkuLines(skuLines, ticketQty)
+        ? ticketLines.filter((line) => selectedPages.has(line.page))
+        : skuLines;
+  const skuLinesToStore =
+    linesFromTicket.length > 0 ? linesFromTicket : skuLines;
   let packedElsewhere = 0;
   try {
     packedElsewhere = await packedBoxQuantityForOrder(
@@ -148,8 +164,8 @@ export async function POST(
   }
   const clamped = clampBoxLineToTicket({
     requested:
-      skuLines.length > 0
-        ? skuLines.reduce((sum, line) => sum + line.quantity, 0)
+      skuLinesToStore.length > 0
+        ? skuLinesToStore.reduce((sum, line) => sum + line.quantity, 0)
         : undefined,
     ticketQty,
     packedElsewhere,
@@ -185,7 +201,7 @@ export async function POST(
     item_title: itemTitle || null,
     customer_name: customerName || null,
     quantity,
-    sku_lines: skuLines,
+    sku_lines: skuLinesToStore,
   };
   let { data: inserted, error: insertError } = await supabase
     .from("multiitem_box_orders")
@@ -213,7 +229,7 @@ export async function POST(
       .select(BOX_ORDER_SELECT)
       .single();
     inserted = legacy.data
-      ? { ...legacy.data, sku_lines: skuLines }
+      ? { ...legacy.data, sku_lines: skuLinesToStore }
       : legacy.data;
     insertError = legacy.error;
   }

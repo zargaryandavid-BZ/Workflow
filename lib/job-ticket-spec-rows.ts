@@ -98,8 +98,17 @@ export function buildJobTicketSpecRows(args: {
     return label.replace(/[\s-]+/g, " ").trim().toLowerCase();
   }
   const usedLabels = new Set(rows.map((r) => normLabel(r.label)));
+  const hasCardSize =
+    usedLabels.has("finished size") ||
+    (usedLabels.has("width") && usedLabels.has("height"));
   for (const row of webhookSpecRowsForJobTicket(specs)) {
     const key = normLabel(row.label);
+    if (
+      hasCardSize &&
+      (key === "size" || /^set size(?: \d+)?$/.test(key))
+    ) {
+      continue;
+    }
     if (usedLabels.has(key)) continue;
     usedLabels.add(key);
     rows.push(row);

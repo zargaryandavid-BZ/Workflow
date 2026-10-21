@@ -4,6 +4,8 @@ import {
   pickScannedOrder,
   sanitizeScanLookupToken,
   scanQtyFromSpecs,
+  scanQtyPerSkuFromSpecs,
+  scanSkuLineQtys,
   specValueByNames,
 } from "./fulfillment-scan-order.ts";
 import { normalizeSkus, skuQtySumFromSpecs } from "./skus.ts";
@@ -88,6 +90,92 @@ export function nestedCustomerName(raw: OrderLookupRow["customer"]): string {
   const row = Array.isArray(raw) ? raw[0] : raw;
   const name = row?.name?.trim();
   return name || "";
+}
+
+/**
+ * SKU rows for a box, using each job-ticket SKU quantity.
+ * A single specs row that stores the order total is not copied onto every
+ * page; that case still splits the order total.
+ */
+export function multiitemBoxSkuLinesFromTicket(input: {
+  skus?: { name?: string | null; qty?: number | null }[];
+  totalQty?: number | null;
+  qtyPerSku?: number | null;
+  skuCount?: number | null;
+}): MultiitemBoxSkuLine[] {
+  const named = input.skus ?? [];
+  const count = Math.max(
+    named.length,
+    Math.max(0, Math.floor(Number(input.skuCount) || 0))
+  );
+  if (count < 1) return [];
+  const skus = Array.from({ length: count }, (_, index) => named[index] ?? {});
+  const quantities = scanSkuLineQtys({
+    skus,
+    totalQty: input.totalQty,
+    qtyPerSku: input.qtyPerSku,
+  });
+  return skus.flatMap((sku, index) => {
+    const quantity = quantities[index];
+    if (quantity == null || quantity < 1) return [];
+    const name = sku.name?.trim() ?? "";
+    return [
+      {
+        page: index + 1,
+        label: name || `SKU ${index + 1}`,
+        quantity: Math.floor(quantity),
+      },
+    ];
+  });
+}
+
+export function multiitemBoxSkuLinesFromOrderSpecs(
+  specs: Record<string, unknown> | null | undefined,
+  totalQty: number | null | undefined,
+  skuCount?: number | null
+): MultiitemBoxSkuLine[] {
+  const skus = normalizeSkus(specs?.skus);
+  const count = Math.max(skus.length, Math.floor(Number(skuCount) || 0));
+  return multiitemBoxSkuLinesFromTicket({
+    skus,
+    totalQty,
+    qtyPerSku: scanQtyPerSkuFromSpecs(specs, count),
+    skuCount: count,
+  });
+}
+
+/** True when lines are the old even split (`SKU 1` = total / count). */
+export function isAutoSplitSkuLines(
+  lines: MultiitemBoxSkuLine[],
+  orderTotal: number
+): boolean {
+  if (lines.length < 2 || orderTotal < 1 || orderTotal % lines.length !== 0) {
+    return false;
+  }
+  const each = orderTotal / lines.length;
+  return lines.every(
+    (line, index) =>
+      line.quantity === each &&
+      (line.label === `SKU ${line.page}` || line.label === `SKU ${index + 1}`)
+  );
+}
+
+export function resolveStoredBoxSkuLines(args: {
+  stored: MultiitemBoxSkuLine[];
+  specs: Record<string, unknown> | null | undefined;
+  totalQty: number;
+  skuCount?: number | null;
+}): MultiitemBoxSkuLine[] {
+  const ticket = multiitemBoxSkuLinesFromOrderSpecs(
+    args.specs,
+    args.totalQty,
+    args.skuCount
+  );
+  if (args.stored.length === 0) return ticket;
+  if (ticket.length > 0 && isAutoSplitSkuLines(args.stored, args.totalQty)) {
+    return ticket;
+  }
+  return args.stored;
 }
 
 export function boxLineQuantityFromScan(

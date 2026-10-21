@@ -5,10 +5,13 @@ import {
   utcBoxDate,
 } from "@/lib/fulfillment-day";
 import type { MultiitemBoxRow } from "@/lib/multiitem-box-lookup";
-import { normalizeMultiitemBoxSkuLines } from "@/lib/multiitem-box-lookup";
+import {
+  normalizeMultiitemBoxSkuLines,
+  resolveStoredBoxSkuLines,
+} from "@/lib/multiitem-box-lookup";
+import { skuQtySumFromSpecs } from "@/lib/skus";
 import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
 import { loadFinalArtworkSkuCount } from "@/lib/final-artwork-sku-count";
-import { scanQtyPerSkuFromSpecs } from "@/lib/fulfillment-scan-order";
 
 export async function GET(request: Request) {
   const access = await resolveMultiitemAccess();
@@ -90,6 +93,13 @@ export async function GET(request: Request) {
   ]);
   const skuCountByOrderId = new Map(skuCountPairs);
 
+  const repairs: {
+    boxId: string;
+    orderId: string;
+    skuLines: ReturnType<typeof resolveStoredBoxSkuLines>;
+    quantity: number;
+  }[] = [];
+
   const boxes = rawBoxes.map((box) => ({
     ...box,
     box_name: multiitemBoxNameFromIsoDate(box.box_number, box.box_date),
@@ -98,31 +108,56 @@ export async function GET(request: Request) {
       .map((row) => ({
         ...row,
         sku_lines: (() => {
+          const specs = specsByOrderId.get(row.order_id);
+          const ticketTotal = skuQtySumFromSpecs(specs);
           const stored = normalizeMultiitemBoxSkuLines(row.sku_lines);
-          if (stored.length > 0) return stored;
-          const count = skuCountByOrderId.get(row.order_id) ?? 0;
-          if (count < 1) return [];
-          const explicit = scanQtyPerSkuFromSpecs(
-            specsByOrderId.get(row.order_id),
-            count
-          );
-          const divided =
-            row.quantity > 0 && row.quantity % count === 0
-              ? row.quantity / count
-              : 0;
-          const quantity = explicit ?? divided;
-          if (quantity < 1) return [];
-          return Array.from({ length: count }, (_, index) => ({
-            page: index + 1,
-            label: `SKU ${index + 1}`,
-            quantity,
-          }));
+          const lines = resolveStoredBoxSkuLines({
+            stored,
+            specs,
+            totalQty: ticketTotal > 0 ? ticketTotal : row.quantity,
+            skuCount: skuCountByOrderId.get(row.order_id),
+          });
+          const changed =
+            lines.length !== stored.length ||
+            lines.some(
+              (line, index) =>
+                line.page !== stored[index]?.page ||
+                line.label !== stored[index]?.label ||
+                line.quantity !== stored[index]?.quantity
+            );
+          if (changed && lines.length > 0 && box.status === "open") {
+            const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+            repairs.push({
+              boxId: box.id,
+              orderId: row.order_id,
+              skuLines: lines,
+              quantity,
+            });
+            return lines;
+          }
+          return stored.length > 0 ? stored : lines;
         })(),
         customer_email: contactByOrderId.get(row.order_id)?.email ?? null,
         customer_phone: contactByOrderId.get(row.order_id)?.phone ?? null,
         thumbnail_url: thumbByOrder.get(row.order_id) ?? null,
       })),
   }));
+
+  if (repairs.length > 0) {
+    await Promise.all(
+      repairs.map((repair) =>
+        supabase
+          .from("multiitem_box_orders")
+          .update({
+            sku_lines: repair.skuLines,
+            quantity: repair.quantity,
+          })
+          .eq("box_id", repair.boxId)
+          .eq("order_id", repair.orderId)
+          .eq("tenant_id", tenantId)
+      )
+    );
+  }
 
   return NextResponse.json({ boxes });
 }
