@@ -22,6 +22,7 @@ type OrderRow = {
   position: number;
   updated_at: string | null;
   created_at: string;
+  due_date: string | null;
   specs: Record<string, unknown> | null;
 };
 
@@ -63,7 +64,9 @@ function readSecret(request: NextRequest): string | null {
  * Each order row also carries OPTIONAL detail fields (additive, may be null):
  *   item_index, item_title, design_folder_url, production_notes,
  *   approval_url + approval_status (newest non-expired customer approval round:
- *   approved | rejected | pending), is_reorder, reorder_of.
+ *   approved | rejected | pending), is_reorder, reorder_of,
+ *   due_date (the card's production due date, YYYY-MM-DD, or null — Bazaar's
+ *   board poller shows it as the portal "Due" date).
  */
 export async function GET(request: NextRequest) {
   const secret = readSecret(request);
@@ -129,7 +132,7 @@ export async function GET(request: NextRequest) {
     count,
   } = await adminClient
     .from("orders")
-    .select("id, title, column_id, position, updated_at, created_at, specs", {
+    .select("id, title, column_id, position, updated_at, created_at, due_date, specs", {
       count: "exact",
     })
     .eq("tenant_id", tenantId)
@@ -194,6 +197,10 @@ export async function GET(request: NextRequest) {
       card_position: order.position,
       updated_at: order.updated_at,
       created_at: order.created_at,
+      due_date:
+        typeof order.due_date === "string" && order.due_date
+          ? order.due_date.slice(0, 10)
+          : null,
       ...details,
     };
   });
