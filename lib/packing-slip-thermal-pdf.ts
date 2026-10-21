@@ -231,6 +231,7 @@ export async function generateThermalBoxSlipPdf(input: {
   layout: "multiple" | "one_per_slip";
 }): Promise<Buffer> {
   const skuById = new Map(input.skus.map((sku) => [sku.id, sku]));
+  const skuIndexById = new Map(input.skus.map((sku, i) => [sku.id, i + 1]));
   const boxes =
     input.boxes.length > 0 ? input.boxes : [{ boxNumber: 1, lines: [] }];
   const boxCount = boxes.length;
@@ -266,8 +267,11 @@ export async function generateThermalBoxSlipPdf(input: {
 
   const resolved = (line: ThermalSlipLine) => {
     const sku = skuById.get(line.skuId);
+    const skuNum = skuIndexById.get(line.skuId);
+    const baseName = sku?.name?.trim() || line.skuId;
+    const name = skuNum != null ? `SKU ${skuNum}: ${baseName}` : baseName;
     return {
-      name: sku?.name?.trim() || line.skuId,
+      name,
       qtyLabel: thermalInBoxQtyLabel(line.qty, line.fromQty),
       image: sku?.imageUrl ? (imageBuffers.get(sku.imageUrl) ?? null) : null,
     };

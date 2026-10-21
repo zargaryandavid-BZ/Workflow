@@ -789,7 +789,14 @@ function SenderPackingSlipWizard({
       const blob = await res.blob();
       if (!blob.size) throw new Error("Packing slip was empty");
       const objectUrl = URL.createObjectURL(blob);
-      // Open print dialog via a hidden iframe — works cross-browser for PDFs
+      // 1. Download the PDF
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `packing-slip-${orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // 2. Open print dialog via hidden iframe
       const iframe = document.createElement("iframe");
       iframe.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;border:none";
       iframe.src = objectUrl;
@@ -799,7 +806,6 @@ function SenderPackingSlipWizard({
           iframe.contentWindow?.focus();
           iframe.contentWindow?.print();
         } catch {
-          // Fallback: open in new tab so user can print manually
           window.open(objectUrl, "_blank");
         }
         setTimeout(() => {
