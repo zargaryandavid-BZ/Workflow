@@ -571,9 +571,8 @@ function SenderPackingSlipWizard({
 
   function duplicateBox(boxIndex: number) {
     setBoxes((prev) => {
-      const copy = prev[boxIndex]?.map((line) => ({ ...line, key: newLine(line.skuId, 0).key })) ?? [];
       const next = [...prev];
-      next.splice(boxIndex + 1, 0, copy);
+      next.splice(boxIndex + 1, 0, []); // empty — copy settings only, not contents
       return next;
     });
     setBoxDetails((prev) => {
@@ -790,15 +789,24 @@ function SenderPackingSlipWizard({
       const blob = await res.blob();
       if (!blob.size) throw new Error("Packing slip was empty");
       const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = `packing-slip-${orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      const w = window.open(objectUrl);
-      w?.addEventListener("load", () => w.print());
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+      // Open print dialog via a hidden iframe — works cross-browser for PDFs
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;border:none";
+      iframe.src = objectUrl;
+      document.body.appendChild(iframe);
+      iframe.onload = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch {
+          // Fallback: open in new tab so user can print manually
+          window.open(objectUrl, "_blank");
+        }
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+          URL.revokeObjectURL(objectUrl);
+        }, 60_000);
+      };
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate slip");
@@ -942,7 +950,7 @@ function SenderPackingSlipWizard({
                     }}
                     className={cn(
                       "flex min-h-14 min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left",
-                      left === 0
+                      left <= 0
                         ? "border-emerald-400 bg-emerald-50"
                         : "border-slate-200 bg-white"
                     )}
@@ -963,11 +971,7 @@ function SenderPackingSlipWizard({
                     <span
                       className={cn(
                         "shrink-0 text-[13px] font-semibold",
-                        left < 0
-                          ? "text-blue-700"
-                          : left === 0
-                            ? "text-emerald-600"
-                            : "text-amber-700"
+                        left <= 0 ? "text-emerald-600" : "text-amber-700"
                       )}
                     >
                       {left < 0
@@ -1119,7 +1123,7 @@ function SenderPackingSlipWizard({
             <div
               role="menu"
               aria-label="Move to box"
-              className="absolute min-w-44 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+              className="absolute min-w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
               style={{
                 left: Math.max(8, Math.min(boxMenu.x, window.innerWidth - 196)),
                 top: Math.max(
@@ -1132,18 +1136,39 @@ function SenderPackingSlipWizard({
               <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                 {boxMenu.fromBox == null ? "Add to box" : "Move to"}
               </p>
-              {boxes.map((_, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  role="menuitem"
-                  disabled={boxMenu.fromBox === index}
-                  onClick={() => chooseBox(index)}
-                  className="flex min-h-11 w-full items-center px-3 text-left text-[14px] font-medium text-slate-800 hover:bg-slate-50 disabled:text-slate-300"
-                >
-                  Box {index + 1}
-                </button>
-              ))}
+              {boxes.map((boxLines, index) => {
+                const summary = boxLines
+                  .filter((l) => l.qty > 0)
+                  .map((l) => {
+                    const name = skuById.get(l.skuId)?.skuName || "SKU";
+                    const short = name.length > 18 ? name.slice(0, 17) + "…" : name;
+                    return `${short}: ${l.qty.toLocaleString("en-US")}`;
+                  })
+                  .join("  ·  ");
+                return (
+                  <button
+                    key={index}
+                    type="button"
+                    role="menuitem"
+                    disabled={boxMenu.fromBox === index}
+                    onClick={() => chooseBox(index)}
+                    className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-2 text-left hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    <span className="text-[14px] font-medium text-slate-800">
+                      Box {index + 1}
+                    </span>
+                    {summary ? (
+                      <span className="mt-0.5 text-[11px] text-slate-400">
+                        {summary}
+                      </span>
+                    ) : (
+                      <span className="mt-0.5 text-[11px] text-slate-300">
+                        Empty
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : null}
