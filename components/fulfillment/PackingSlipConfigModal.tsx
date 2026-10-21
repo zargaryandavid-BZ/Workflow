@@ -960,10 +960,10 @@ function SenderPackingSlipWizard({
                       <img
                         src={sku.artworkUrl}
                         alt=""
-                        className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-contain"
+                        className="h-[52px] w-[52px] shrink-0 rounded-lg border border-slate-200 object-contain"
                       />
                     ) : (
-                      <Package className="h-5 w-5 shrink-0 text-slate-300" />
+                      <Package className="h-6 w-6 shrink-0 text-slate-300" />
                     )}
                     <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-800">
                       {sku.skuName || "SKU"}
@@ -1123,14 +1123,16 @@ function SenderPackingSlipWizard({
             <div
               role="menu"
               aria-label="Move to box"
-              className="absolute min-w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
-              style={{
-                left: Math.max(8, Math.min(boxMenu.x, window.innerWidth - 196)),
-                top: Math.max(
-                  8,
-                  Math.min(boxMenu.y, window.innerHeight - (52 + boxes.length * 44))
-                ),
-              }}
+              className="absolute w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+              style={(() => {
+                const W = 256; // matches w-64
+                const itemH = 60; // each box row (name + summary)
+                const H = 28 + boxes.length * itemH; // header + rows
+                const maxH = Math.min(H, window.innerHeight - 24);
+                const left = Math.max(8, Math.min(boxMenu.x, window.innerWidth - W - 8));
+                const top = Math.max(8, Math.min(boxMenu.y, window.innerHeight - maxH - 8));
+                return { left, top, maxHeight: maxH, overflowY: "auto" };
+              })()}
               onClick={(event) => event.stopPropagation()}
             >
               <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
