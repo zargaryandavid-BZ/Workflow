@@ -5,8 +5,10 @@ import {
   defaultSendChannels,
   isExplicitPreferredChannel,
   normalizePreferredChannel,
+  preferredChannelFallbackNote,
   preferredChannelFromSelection,
   preferredChannelLabel,
+  rerequestChannel,
   resolvePreferredNotifyChannel,
   toggleSendChannelSelection,
 } from "./preferred-channel.ts";
@@ -132,6 +134,87 @@ describe("automaticNotifyChannels", () => {
         explicit: true,
       }),
       { email: false, sms: true }
+    );
+  });
+});
+
+describe("rerequestChannel (batch re-request of stale requests)", () => {
+  it("uses the saved Email default instead of the last SMS send", () => {
+    // Safe Care Packaging: saved Email, earlier sends went out by SMS.
+    assert.equal(
+      rerequestChannel({
+        previous: "sms",
+        email: "safecarepackaging@gmail.com",
+        phone: "+18188569944",
+        preferred: "email",
+        explicit: true,
+      }),
+      "email"
+    );
+  });
+
+  it("keeps the last channel when the customer never chose", () => {
+    assert.equal(
+      rerequestChannel({
+        previous: "both",
+        email: "a@b.com",
+        phone: "+15551212",
+        preferred: "sms",
+        explicit: false,
+      }),
+      "both"
+    );
+  });
+
+  it("falls back to the other method when the preferred contact is missing", () => {
+    assert.equal(
+      rerequestChannel({
+        previous: "email",
+        email: null,
+        phone: "+15551212",
+        preferred: "email",
+        explicit: true,
+      }),
+      "sms"
+    );
+  });
+
+  it("treats an unknown previous channel as email", () => {
+    assert.equal(
+      rerequestChannel({
+        previous: "manual",
+        email: "a@b.com",
+        phone: null,
+        preferred: "sms",
+        explicit: false,
+      }),
+      "email"
+    );
+  });
+});
+
+describe("preferredChannelFallbackNote", () => {
+  it("explains why SMS is selected for an Email customer with no email", () => {
+    // Duplicate "Safe Care Packaging" record bf256e64: Email, phone only.
+    assert.match(
+      preferredChannelFallbackNote(
+        { email: null, phone: "+14243660000" },
+        "email"
+      ) ?? "",
+      /no email address, so SMS/
+    );
+  });
+
+  it("is silent when the saved default can be used", () => {
+    assert.equal(preferredChannelFallbackNote(both, "email"), null);
+    assert.equal(preferredChannelFallbackNote(both, "sms"), null);
+    assert.equal(preferredChannelFallbackNote(both, "both"), null);
+  });
+
+  it("is silent when there is no contact at all", () => {
+    assert.equal(
+      preferredChannelFallbackNote({ email: null, phone: null }, "email"),
+      null
     );
   });
 });

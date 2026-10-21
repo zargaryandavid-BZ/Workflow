@@ -804,6 +804,7 @@ export function ReadyToShipPopup({
             </div>
             {!isManual ? (
               <SaveChannelAsDefault
+                contact={contact}
                 className="mt-1.5"
                 customerId={order.customer?.id ?? order.customer_id}
                 customerName={order.customer?.name}

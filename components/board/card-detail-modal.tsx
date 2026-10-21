@@ -26,6 +26,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalTab } from "./approval-tab";
 import { HistoryTab } from "./history-tab";
+import { CustomerReferenceFiles } from "./customer-reference-files";
+import {
+  isCustomerReferenceResponseActivity,
+  parseReferenceFilesMeta,
+} from "@/lib/customer-references";
 import { MissingInfoTab } from "./missing-info-tab";
 import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
@@ -628,6 +633,35 @@ export function CardDetailModal({
     };
   }, []);
 
+  /** Activity / approvals / customer responses (incl. reference files). */
+  const refreshTimeline = useCallback(async () => {
+    if (!orderId) return;
+    try {
+      const timelineRes = await fetch(`/api/orders/${orderId}/timeline`);
+      if (!timelineRes.ok) throw new Error("timeline failed");
+      const side = (await timelineRes.json()) as TimelineResponse;
+      setData((current) => {
+        if (!current || current.order.id !== orderId) return current;
+        return {
+          ...current,
+          activity: side.activity ?? [],
+          approvals: side.approvals ?? [],
+          missingInfo: side.missingInfo ?? [],
+          approvalNotes: side.approvalNotes ?? [],
+          notifications: side.notifications ?? [],
+          notes: side.notes ?? [],
+          timelinePending: false,
+          tabHints: side.tabHints ?? current.tabHints,
+        };
+      });
+    } catch {
+      setData((current) => {
+        if (!current || current.order.id !== orderId) return current;
+        return { ...current, timelinePending: false };
+      });
+    }
+  }, [orderId]);
+
   const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!orderId) return;
     if (!options?.silent) setLoading(true);
@@ -666,39 +700,37 @@ export function CardDetailModal({
       applyDetail(merged, { preserveEdits: Boolean(options?.silent) });
       if (!options?.silent) setLoading(false);
 
-      if (!options?.silent && core.timelinePending !== false) {
-        void fetch(`/api/orders/${orderId}/timeline`)
-          .then(async (timelineRes) => {
-            if (!timelineRes.ok) return;
-            const side = (await timelineRes.json()) as TimelineResponse;
-            setData((current) => {
-              if (!current || current.order.id !== orderId) return current;
-              return {
-                ...current,
-                activity: side.activity ?? [],
-                approvals: side.approvals ?? [],
-                missingInfo: side.missingInfo ?? [],
-                approvalNotes: side.approvalNotes ?? [],
-                notifications: side.notifications ?? [],
-                notes: side.notes ?? [],
-                timelinePending: false,
-                tabHints: side.tabHints ?? current.tabHints,
-              };
-            });
-          })
-          .catch(() => {
-            setData((current) => {
-              if (!current || current.order.id !== orderId) return current;
-              return { ...current, timelinePending: false };
-            });
-          });
+      // Silent reloads used to keep the previous timeline forever, so a
+      // customer response (and its reference images) that arrived while the
+      // card was open never showed until the card was closed and reopened.
+      if (options?.silent || core.timelinePending !== false) {
+        void refreshTimeline();
       }
     } catch {
       setSaveError("Failed to load order");
     } finally {
       if (!options?.silent) setLoading(false);
     }
-  }, [orderId, applyDetail]);
+  }, [orderId, applyDetail, refreshTimeline]);
+
+  // Pick up customer responses / reference images that arrive while the card
+  // is open (e.g. staff switch back to this tab after the customer replied).
+  useEffect(() => {
+    if (!open || !orderId) return;
+    let last = Date.now();
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - last < 5_000) return;
+      last = Date.now();
+      void refreshTimeline();
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [open, orderId, refreshTimeline]);
 
   useEffect(() => {
     if (open && orderId) {
@@ -3178,6 +3210,17 @@ export function CardDetailModal({
                             {formatDateTime(log.created_at)}
                             {` · ${log.actor_name}`}
                           </span>
+                          {isCustomerReferenceResponseActivity(
+                            log.action,
+                            log.metadata as Record<string, unknown> | null
+                          ) ? (
+                            <CustomerReferenceFiles
+                              files={parseReferenceFilesMeta(
+                                log.metadata as Record<string, unknown> | null
+                              )}
+                              className="mt-1.5"
+                            />
+                          ) : null}
                         </li>
                       ))}
                       {data.activity.length === 0 ? (

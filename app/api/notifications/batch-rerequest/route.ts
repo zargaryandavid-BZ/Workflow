@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { resolvePreferredNotifyChannel } from "@/lib/preferred-channel";
+import {
+  isExplicitPreferredChannel,
+  rerequestChannel,
+  resolvePreferredNotifyChannel,
+} from "@/lib/preferred-channel";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
@@ -184,12 +188,24 @@ export async function POST(request: Request) {
   const supabase = await createClient();
 
   // Fetch orders in column with customer info
-  const { data: orders } = await supabase
+  // preferred_channel_set_at tells "never chose" (DB default 'sms') apart from
+  // a saved SMS default; tolerate DBs where that column is not added yet.
+  let { data: orders, error: ordersErr } = await supabase
     .from("orders")
-    .select("*, customer:customers(name, email, phone, preferred_channel)")
+    .select(
+      "*, customer:customers(name, email, phone, preferred_channel, preferred_channel_set_at)"
+    )
     .eq("tenant_id", ctx.tenant.id)
     .eq("column_id", body.columnId)
     .is("removed_at", null);
+  if (ordersErr) {
+    ({ data: orders } = await supabase
+      .from("orders")
+      .select("*, customer:customers(name, email, phone, preferred_channel)")
+      .eq("tenant_id", ctx.tenant.id)
+      .eq("column_id", body.columnId)
+      .is("removed_at", null));
+  }
 
   if (!orders || orders.length === 0) {
     return NextResponse.json({ ok: true, sent: 0, results: [] });
@@ -247,6 +263,7 @@ export async function POST(request: Request) {
       email?: string | null;
       phone?: string | null;
       preferred_channel?: string | null;
+      preferred_channel_set_at?: string | null;
     } | null;
 
     const title = String((order as { title?: unknown }).title ?? order.id);
@@ -265,10 +282,15 @@ export async function POST(request: Request) {
           .eq("id", sent.id)
           .eq("tenant_id", ctx.tenant.id);
 
-        const validChannels = ["email", "sms", "both"] as const;
-        const channel = (validChannels as readonly string[]).includes(sent.channel ?? "")
-          ? (sent.channel as "email" | "sms" | "both")
-          : "email";
+        // Honor the customer's saved Email / SMS / Both default (used to
+        // always reuse the last send's channel).
+        const channel = rerequestChannel({
+          previous: sent.channel,
+          email: customer?.email,
+          phone: customer?.phone,
+          preferred: customer?.preferred_channel,
+          explicit: isExplicitPreferredChannel(customer),
+        });
 
         await dispatchNotification(supabase, {
           notification: sent,

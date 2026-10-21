@@ -428,6 +428,10 @@ function NotifyRow({
       </div>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
       <SaveChannelAsDefault
+        contact={{
+          email: contactEmail ?? customer?.email,
+          phone: contactPhone ?? customer?.phone,
+        }}
         customerId={customer?.id}
         customerName={customer?.name}
         saved={customer?.preferred_channel}
