@@ -16,8 +16,9 @@ import {
 import {
   channelFromSelection,
   defaultSendChannels,
+  toggleSendChannelSelection,
 } from "@/lib/preferred-channel";
-import { toggleAndPersistNotifyChannel } from "@/lib/persist-preferred-channel";
+import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
 import {
   isTimeoutError,
   NOTIFICATION_SEND_TIMEOUT_MS,
@@ -116,9 +117,9 @@ export function MissingInfoPopup({
   const wantSms = selected.includes("sms");
 
   function toggleChannel(next: "email" | "sms") {
-    setSelected((prev) =>
-      toggleAndPersistNotifyChannel(prev, next, order.customer?.id, order.customer)
-    );
+    // Changes THIS send only; the customer default changes only through
+    // "Save … as default" (was a silent fire-and-forget PATCH).
+    setSelected((prev) => toggleSendChannelSelection(prev, next));
     setError(null);
   }
 
@@ -257,6 +258,16 @@ export function MissingInfoPopup({
                 SMS
               </button>
             </div>
+            <SaveChannelAsDefault
+              className="mt-1.5"
+              customerId={order.customer?.id ?? order.customer_id}
+              customerName={order.customer?.name}
+              saved={order.customer?.preferred_channel}
+              selected={selected}
+              onSaved={(pref) => {
+                if (order.customer) order.customer.preferred_channel = pref;
+              }}
+            />
           </div>
 
           <CompanyContactsPicker

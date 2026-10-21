@@ -27,7 +27,10 @@ export const BOARD_ORDER_LIST_SELECT = [
   "daily_priority_rank",
   "daily_priority_done",
   "daily_priority_done_at",
-  "customer:customers(id, name, email, phone, company)",
+  // preferred_channel drives the default Email/SMS on every customer send
+  // panel. It was dropped from this join on 2026-09-05 (debdbb4), which made
+  // every card default to SMS regardless of the customer's saved choice.
+  "customer:customers(id, name, email, phone, company, preferred_channel)",
   "tag:tags(id, name, color)",
 ].join(", ");
 
@@ -58,7 +61,10 @@ export const ORDER_DETAIL_SELECT = [
   "daily_priority_rank",
   "daily_priority_done",
   "daily_priority_done_at",
-  "customer:customers(id, name, email, phone, company)",
+  // preferred_channel drives the default Email/SMS on every customer send
+  // panel. It was dropped from this join on 2026-09-05 (debdbb4), which made
+  // every card default to SMS regardless of the customer's saved choice.
+  "customer:customers(id, name, email, phone, company, preferred_channel)",
   "tag:tags(id, name, color)",
 ].join(", ");
 

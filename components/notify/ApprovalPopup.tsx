@@ -15,9 +15,10 @@ import {
 import {
   channelFromSelection,
   defaultSendChannels,
+  toggleSendChannelSelection,
   resolvePreferredNotifyChannel,
 } from "@/lib/preferred-channel";
-import { toggleAndPersistNotifyChannel } from "@/lib/persist-preferred-channel";
+import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
 import {
   isTimeoutError,
   APPROVAL_SEND_TIMEOUT_MS,
@@ -151,9 +152,9 @@ export function ApprovalPopup({
 
   function toggleChannel(next: "email" | "sms") {
     setMode("notify");
-    setSelected((prev) =>
-      toggleAndPersistNotifyChannel(prev, next, order.customer?.id, order.customer)
-    );
+    // Changes THIS send only; the customer default changes only through
+    // "Save … as default" (was a silent fire-and-forget PATCH).
+    setSelected((prev) => toggleSendChannelSelection(prev, next));
     setError(null);
   }
 
@@ -380,6 +381,18 @@ export function ApprovalPopup({
               <p className="mt-1.5 text-xs text-slate-500">
                 Select Email, SMS, or both when contact details are available.
               </p>
+            ) : null}
+            {!isManual ? (
+              <SaveChannelAsDefault
+                className="mt-1.5"
+                customerId={order.customer?.id ?? order.customer_id}
+                customerName={order.customer?.name}
+                saved={order.customer?.preferred_channel}
+                selected={selected}
+                onSaved={(pref) => {
+                  if (order.customer) order.customer.preferred_channel = pref;
+                }}
+              />
             ) : null}
           </div>
 

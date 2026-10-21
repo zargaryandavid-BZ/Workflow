@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     email?: string | null;
     phone?: string | null;
     company?: string | null;
-    preferred_channel?: "sms" | "email" | null;
+    preferred_channel?: "sms" | "email" | "both" | null;
     default_priority_score?: number | string | null;
   };
 

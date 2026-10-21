@@ -18,6 +18,7 @@ import {
   destinationForChannel,
   resolvePreferredNotifyChannel,
 } from "@/lib/preferred-channel";
+import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
 import {
   isTimeoutError,
   NOTIFICATION_SEND_TIMEOUT_MS,
@@ -125,7 +126,8 @@ export function ReadyToShipPopup({
       smsConfigured
     );
     if (initial === "manual") return "";
-    return destinationForChannel(contact, initial);
+    // "both" keeps the email here; the phone goes in bothPhone below.
+    return destinationForChannel(contact, initial === "both" ? "email" : initial);
   });
   // Second destination used only in "both" (email + SMS) mode; `to` holds the email.
   const [bothPhone, setBothPhone] = useState(() => contact.phone ?? "");
@@ -800,6 +802,24 @@ export function ReadyToShipPopup({
                 Manual
               </button>
             </div>
+            {!isManual ? (
+              <SaveChannelAsDefault
+                className="mt-1.5"
+                customerId={order.customer?.id ?? order.customer_id}
+                customerName={order.customer?.name}
+                saved={order.customer?.preferred_channel}
+                selected={
+                  channel === "both"
+                    ? ["email", "sms"]
+                    : channel === "email" || channel === "sms"
+                      ? [channel]
+                      : []
+                }
+                onSaved={(pref) => {
+                  if (order.customer) order.customer.preferred_channel = pref;
+                }}
+              />
+            ) : null}
           </div>
 
           {isManual ? (

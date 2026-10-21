@@ -10,7 +10,10 @@ import type {
   CustomerWithStats,
   PreferredChannel,
 } from "@/lib/types";
-import { normalizePreferredChannel } from "@/lib/preferred-channel";
+import {
+  isPreferredChannel,
+  normalizePreferredChannel,
+} from "@/lib/preferred-channel";
 import {
   parsePriorityScore,
   customerPrioritySpecsPatch,
@@ -142,6 +145,66 @@ type CustomerCandidate = Customer & { created_at: string };
 
 function isUniqueViolation(error: { code?: string } | null): boolean {
   return error?.code === "23505";
+}
+
+/** 'both' rejected by the old customers_preferred_channel_check (migration not run yet). */
+function isPreferredChannelCheckViolation(
+  error: { code?: string; message?: string } | null
+): boolean {
+  return (
+    error?.code === "23514" &&
+    /preferred_channel/i.test(error.message ?? "")
+  );
+}
+
+/** preferred_channel_set_at column not added yet (migration not run). */
+function isMissingSetAtColumn(
+  error: { code?: string; message?: string } | null
+): boolean {
+  if (!error) return false;
+  return (
+    (error.code === "42703" || error.code === "PGRST204") &&
+    /preferred_channel_set_at/i.test(error.message ?? "")
+  );
+}
+
+const BOTH_NOT_ENABLED_MESSAGE =
+  "Saving \"Both\" needs a one-time database update that hasn't been applied yet. Pick Email or SMS for now.";
+
+/**
+ * Update customers with a preferred_channel change, stamping
+ * preferred_channel_set_at when that column exists.
+ */
+async function updateCustomerRowWithChannel(
+  client: Client,
+  tenantId: string,
+  customerId: string,
+  patch: Record<string, unknown>
+) {
+  const withStamp =
+    "preferred_channel" in patch
+      ? { ...patch, preferred_channel_set_at: new Date().toISOString() }
+      : patch;
+  let result = await client
+    .from("customers")
+    .update(withStamp)
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .select(CUSTOMER_SELECT)
+    .single();
+  if (result.error && isMissingSetAtColumn(result.error)) {
+    result = await client
+      .from("customers")
+      .update(patch)
+      .eq("id", customerId)
+      .eq("tenant_id", tenantId)
+      .select(CUSTOMER_SELECT)
+      .single();
+  }
+  if (result.error && isPreferredChannelCheckViolation(result.error)) {
+    throw new Error(BOTH_NOT_ENABLED_MESSAGE);
+  }
+  return result;
 }
 
 async function orderCountByCustomer(
@@ -675,10 +738,9 @@ export function validateAdminCustomerUpdate(
 
   if (
     input.preferred_channel != null &&
-    input.preferred_channel !== "sms" &&
-    input.preferred_channel !== "email"
+    !isPreferredChannel(input.preferred_channel)
   ) {
-    return "Preferred channel must be SMS or Email";
+    return "Preferred channel must be Email, SMS or Both";
   }
 
   if (
@@ -764,7 +826,12 @@ export async function updateCustomerByAdmin(
   const phone = normalizePhone(input.phone);
   const name = input.name.trim();
   const company = input.company?.trim() || null;
-  const preferred_channel = normalizePreferredChannel(input.preferred_channel);
+  // Only touch the channel when the caller sent one — omitting it used to
+  // silently reset every edited customer back to SMS.
+  const preferred_channel =
+    input.preferred_channel == null
+      ? undefined
+      : normalizePreferredChannel(input.preferred_channel);
   const default_priority_score =
     input.default_priority_score === undefined
       ? undefined
@@ -789,19 +856,24 @@ export async function updateCustomerByAdmin(
     email,
     phone,
     company,
-    preferred_channel,
   };
+  // Stamp "chosen on purpose" only when the default actually changes.
+  if (
+    preferred_channel !== undefined &&
+    preferred_channel !== normalizePreferredChannel(existing.preferred_channel)
+  ) {
+    patch.preferred_channel = preferred_channel;
+  }
   if (input.default_priority_score !== undefined) {
     patch.default_priority_score = default_priority_score;
   }
 
-  const { data: updated, error } = await client
-    .from("customers")
-    .update(patch)
-    .eq("id", customerId)
-    .eq("tenant_id", tenantId)
-    .select(CUSTOMER_SELECT)
-    .single();
+  const { data: updated, error } = await updateCustomerRowWithChannel(
+    client,
+    tenantId,
+    customerId,
+    patch
+  );
 
   if (error || !updated) {
     if (isUniqueViolation(error)) {
@@ -831,16 +903,15 @@ export async function updateCustomerPreferredChannel(
   preferred: PreferredChannel
 ): Promise<Customer> {
   const preferred_channel = normalizePreferredChannel(preferred);
-  const { data, error } = await client
-    .from("customers")
-    .update({
+  const { data, error } = await updateCustomerRowWithChannel(
+    client,
+    tenantId,
+    customerId,
+    {
       preferred_channel,
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", customerId)
-    .eq("tenant_id", tenantId)
-    .select(CUSTOMER_SELECT)
-    .single();
+    }
+  );
 
   if (error || !data) {
     throw new Error(error?.message ?? "Failed to update preferred channel");
@@ -897,6 +968,9 @@ export async function createCustomerManually(
   if (error || !created) {
     if (isUniqueViolation(error)) {
       throw new Error("Email or phone is already used by another customer");
+    }
+    if (isPreferredChannelCheckViolation(error)) {
+      throw new Error(BOTH_NOT_ENABLED_MESSAGE);
     }
     throw new Error(error?.message ?? "Failed to create customer");
   }

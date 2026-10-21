@@ -1,37 +1,41 @@
 "use client";
 
-import type { PreferredChannel } from "@/lib/types";
-import {
-  preferredChannelFromSelection,
-  toggleSendChannelSelection,
-} from "@/lib/preferred-channel";
+import type { Customer, PreferredChannel } from "@/lib/types";
 
-/** Save Settings → Customers default channel when staff pick Email or SMS only. */
-export function persistCustomerPreferredChannel(
+export type SavePreferredChannelResult =
+  | { ok: true; customer: Customer | null }
+  | { ok: false; error: string };
+
+/**
+ * Save the customer's default notification channel (Email / SMS / Both).
+ * Awaited — callers show "Saved" or the real error. Before 2026-10-20 this was
+ * fire-and-forget on every chip click and failures were swallowed.
+ */
+export async function saveCustomerPreferredChannel(
   customerId: string | null | undefined,
   channel: PreferredChannel
-): void {
-  if (!customerId) return;
-  void fetch(`/api/customers/${customerId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ preferred_channel: channel }),
-  }).catch(() => {
-    /* non-blocking — send still works */
-  });
-}
-
-export function toggleAndPersistNotifyChannel(
-  prev: ReadonlyArray<"email" | "sms">,
-  next: "email" | "sms",
-  customerId: string | null | undefined,
-  customer?: { preferred_channel?: PreferredChannel } | null
-): Array<"email" | "sms"> {
-  const nextSel = toggleSendChannelSelection(prev, next);
-  const preferred = preferredChannelFromSelection(nextSel);
-  if (preferred) {
-    persistCustomerPreferredChannel(customerId, preferred);
-    if (customer) customer.preferred_channel = preferred;
+): Promise<SavePreferredChannelResult> {
+  if (!customerId) {
+    return {
+      ok: false,
+      error: "This card is not linked to a saved customer yet.",
+    };
   }
-  return nextSel;
+  try {
+    const res = await fetch(`/api/customers/${customerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferred_channel: channel }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      customer?: Customer;
+      error?: string;
+    };
+    if (!res.ok) {
+      return { ok: false, error: json.error ?? "Could not save the default." };
+    }
+    return { ok: true, customer: json.customer ?? null };
+  } catch {
+    return { ok: false, error: "Could not save the default (network error)." };
+  }
 }

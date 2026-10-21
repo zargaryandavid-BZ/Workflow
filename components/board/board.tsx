@@ -4470,8 +4470,28 @@ export function Board({
               }
             }
 
-            const applyPatch = (o: OrderWithRelations) =>
-              o.id === detailId ? { ...o, ...patch } : o;
+            // A saved customer notify default applies to every card of that
+            // customer, not just the open one.
+            const savedChannelCustomer =
+              patch.customer?.id && patch.customer.preferred_channel
+                ? patch.customer
+                : null;
+            const applyPatch = (o: OrderWithRelations) => {
+              if (o.id === detailId) return { ...o, ...patch };
+              if (
+                savedChannelCustomer &&
+                o.customer?.id === savedChannelCustomer.id
+              ) {
+                return {
+                  ...o,
+                  customer: {
+                    ...o.customer,
+                    preferred_channel: savedChannelCustomer.preferred_channel,
+                  },
+                };
+              }
+              return o;
+            };
 
             setOrders((prev) => {
               const next = prev.map(applyPatch);

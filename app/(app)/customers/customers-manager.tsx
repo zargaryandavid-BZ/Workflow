@@ -40,6 +40,11 @@ import type {
   Role,
 } from "@/lib/types";
 import type { OrderOwner } from "@/components/board/order-form-body";
+import { CustomerNotifyPreference } from "@/components/notify/customer-notify-default";
+import {
+  normalizePreferredChannel,
+  preferredChannelLabel,
+} from "@/lib/preferred-channel";
 
 const EMPTY_CUSTOMER_FORM = {
   name: "",
@@ -58,9 +63,7 @@ function customerToForm(c: CustomerWithStats): CustomerForm {
     email: c.email ?? "",
     phone: c.phone ?? "",
     company: c.company ?? "",
-    preferred_channel: (c.preferred_channel === "email"
-      ? "email"
-      : "sms") as PreferredChannel,
+    preferred_channel: normalizePreferredChannel(c.preferred_channel),
     default_priority_score: parsePriorityScore(c.default_priority_score),
   };
 }
@@ -138,10 +141,12 @@ function CustomerFormFields({
         >
           <option value="sms">SMS</option>
           <option value="email">Email</option>
+          <option value="both">Both (Email + SMS)</option>
         </select>
         <p className="mt-1 text-xs text-slate-500">
-          Used for missing info and approval notifications. Falls back if that
-          contact method is missing.
+          Default for every customer notification on all their orders
+          (approval, missing info, ready to ship / pickup, shipped, automatic
+          messages). Falls back if that contact method is missing.
         </p>
       </div>
       {canSetPriority ? (
@@ -730,6 +735,8 @@ export function CustomersManager({
                         </p>
                       ) : null}
                       <p className="mt-1 text-xs text-slate-400">
+                        Notify by {preferredChannelLabel(c.preferred_channel)}
+                        {" · "}
                         {c.order_count}{" "}
                         {c.order_count === 1 ? "order" : "orders"}
                         {c.last_order_at
@@ -888,12 +895,18 @@ export function CustomersManager({
                   customerId={selected.id}
                   companyName={selected.company ?? selected.name}
                 />
-                <p className="mt-3 text-sm text-slate-600">
-                  Default channel:{" "}
-                  <span className="font-medium text-slate-800">
-                    {selected.preferred_channel === "email" ? "Email" : "SMS"}
-                  </span>
-                </p>
+                <CustomerNotifyPreference
+                  className="mt-3"
+                  customerId={selected.id}
+                  customerName={selected.name}
+                  saved={selected.preferred_channel}
+                  onSaved={(pref) =>
+                    applyCustomerUpdate({
+                      ...selected,
+                      preferred_channel: pref,
+                    })
+                  }
+                />
                 <div className="mt-3">
                   <p className="text-sm font-medium text-slate-700">
                     Board priority

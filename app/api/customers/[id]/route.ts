@@ -11,6 +11,10 @@ import { parsePriorityScore } from "@/lib/order-priority-score";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncCustomerToBazaar } from "@/lib/bazaar-customer-sync";
+import {
+  isPreferredChannel,
+  normalizePreferredChannel,
+} from "@/lib/preferred-channel";
 
 export async function GET(
   _request: Request,
@@ -67,7 +71,7 @@ export async function PATCH(
     email?: string | null;
     phone?: string | null;
     company?: string | null;
-    preferred_channel?: "sms" | "email" | null;
+    preferred_channel?: "sms" | "email" | "both" | null;
     default_priority_score?: number | string | null;
     /** When true with only priority fields, pre-prod may update priority. */
     priorityOnly?: boolean;
@@ -93,8 +97,21 @@ export async function PATCH(
       body.preferred_channel === undefined &&
       body.default_priority_score !== undefined);
 
+  if (
+    body.preferred_channel !== undefined &&
+    body.preferred_channel !== null &&
+    !isPreferredChannel(body.preferred_channel)
+  ) {
+    return NextResponse.json(
+      { error: "Preferred channel must be Email, SMS or Both" },
+      { status: 400 }
+    );
+  }
+
+  // Any team member may set how a customer is notified (send panels on the
+  // card); full customer edits stay admin-only below.
   const channelOnly =
-    (body.preferred_channel === "sms" || body.preferred_channel === "email") &&
+    isPreferredChannel(body.preferred_channel) &&
     body.name === undefined &&
     body.email === undefined &&
     body.phone === undefined &&
@@ -107,7 +124,7 @@ export async function PATCH(
         supabase,
         ctx.tenant.id,
         id,
-        body.preferred_channel === "email" ? "email" : "sms"
+        normalizePreferredChannel(body.preferred_channel)
       );
       return NextResponse.json({ customer });
     }

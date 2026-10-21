@@ -16,12 +16,24 @@ import {
 } from "@/lib/fetch-with-timeout";
 import { requestOrderMove } from "@/lib/orders/move-order-client";
 import type { MissingField } from "@/lib/orders/validate-ready-to-move";
-import { defaultSendChannels, channelFromSelection } from "@/lib/preferred-channel";
-import { toggleAndPersistNotifyChannel } from "@/lib/persist-preferred-channel";
+import {
+  defaultSendChannels,
+  channelFromSelection,
+  toggleSendChannelSelection,
+} from "@/lib/preferred-channel";
+import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
+import { NotificationSendLog } from "./notification-send-log";
 import { validateSmsRecipient } from "@/lib/sms";
-import type { Asset, BoardColumn, Customer, MissingInfoNote } from "@/lib/types";
+import type {
+  Asset,
+  BoardColumn,
+  Customer,
+  MissingInfoNote,
+  PreferredChannel,
+} from "@/lib/types";
 import {
   latestSentToForNotification,
+  sendsForNotification,
   type ActivityLogEntry,
 } from "@/lib/activity";
 import {
@@ -41,6 +53,8 @@ interface MissingInfoTabProps {
   contactPhone?: string | null;
   activity?: ActivityLogEntry[];
   onSent: () => void;
+  /** Customer default channel was saved from this panel. */
+  onCustomerChannelSaved?: (pref: PreferredChannel) => void;
   /** When the card is moved to In Progress from this tab. */
   onMoved?: (toColumnId: string) => void;
 }
@@ -68,12 +82,19 @@ function sentToLabel(
   contactPhone?: string | null,
   activity?: ActivityLogEntry[]
 ) {
+  // Latest logged send, labeled per channel ("Email a@b.com · SMS +1…") so
+  // an Email + SMS send never shows only the phone.
+  const latestSend = sendsForNotification(activity ?? [], note.id)[0];
+  if (latestSend) return latestSend.line;
   const logged = latestSentToForNotification(activity ?? [], note.id);
-  if (logged?.line) return logged.line;
   const email = logged?.email ?? contactEmail ?? customer?.email ?? null;
   const phone = logged?.phone ?? contactPhone ?? customer?.phone ?? null;
   if (note.channel === "both") {
-    return [email, phone].filter(Boolean).join(" · ") || "Email + SMS";
+    return (
+      [email ? `Email ${email}` : null, phone ? `SMS ${phone}` : null]
+        .filter(Boolean)
+        .join(" · ") || "Email + SMS"
+    );
   }
   if (note.channel === "sms") return phone ?? "SMS";
   if (note.channel === "email") return email ?? "Email";
@@ -160,6 +181,7 @@ function NotifyRow({
   label = "Send notification",
   sendLabel = "Send",
   onSent,
+  onCustomerChannelSaved,
 }: {
   note: MissingInfoNote | null;
   orderId: string;
@@ -169,6 +191,7 @@ function NotifyRow({
   label?: string;
   sendLabel?: string;
   onSent: () => void;
+  onCustomerChannelSaved?: (pref: PreferredChannel) => void;
 }) {
   const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
     defaultSendChannels(
@@ -218,9 +241,9 @@ function NotifyRow({
   ]);
 
   function toggleChannel(next: "email" | "sms") {
-    setSelected((prev) =>
-      toggleAndPersistNotifyChannel(prev, next, customer?.id, customer)
-    );
+    // Changes THIS send only. The customer default changes only through
+    // "Save … as default" below (was a silent fire-and-forget PATCH).
+    setSelected((prev) => toggleSendChannelSelection(prev, next));
     setError(null);
   }
 
@@ -404,6 +427,13 @@ function NotifyRow({
         ) : null}
       </div>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      <SaveChannelAsDefault
+        customerId={customer?.id}
+        customerName={customer?.name}
+        saved={customer?.preferred_channel}
+        selected={selected}
+        onSaved={onCustomerChannelSaved}
+      />
       <CompanyContactsPicker
         companyName={customer?.company ?? customer?.name}
         customerId={customer?.id}
@@ -556,6 +586,10 @@ function HistoryEntry({
         </p>
       ) : null}
 
+      {!isInternalNote && note.channel !== "none" && note.status !== "pending" ? (
+        <NotificationSendLog activity={activity ?? []} notificationId={note.id} />
+      ) : null}
+
       {showCustomerLink(note) ? <CustomerLinkRow token={note.token} /> : null}
 
       {!isInternalNote && note.status === "responded" ? (
@@ -604,6 +638,7 @@ export function MissingInfoTab({
   activity = [],
   onSent,
   onMoved,
+  onCustomerChannelSaved,
 }: MissingInfoTabProps) {
   const reusableNote = notes.find(canReuseNotification) ?? null;
   const sendCopy = sendPanelCopy(reusableNote);
@@ -652,6 +687,7 @@ export function MissingInfoTab({
           label={sendCopy.label}
           sendLabel={sendCopy.sendLabel}
           onSent={onSent}
+          onCustomerChannelSaved={onCustomerChannelSaved}
         />
       </div>
     );
@@ -687,6 +723,7 @@ export function MissingInfoTab({
         label={sendCopy.label}
         sendLabel={sendCopy.sendLabel}
         onSent={onSent}
+        onCustomerChannelSaved={onCustomerChannelSaved}
       />
 
       <div>

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolvePreferredNotifyChannel } from "@/lib/preferred-channel";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import {
@@ -293,11 +294,15 @@ export async function POST(request: Request) {
 
       try {
         // Determine channel
-        const preferred = customer?.preferred_channel;
+        // Honor the customer's saved Email / SMS / Both default (was always
+        // "both" when both contacts existed).
+        const resolved = resolvePreferredNotifyChannel(
+          { email: toEmail, phone: toPhone },
+          customer?.preferred_channel,
+          true
+        );
         const channel: "email" | "sms" | "both" =
-          toEmail && toPhone ? (preferred === "sms" ? "both" : "both")
-          : toEmail ? "email"
-          : "sms";
+          resolved === "manual" ? (toEmail ? "email" : "sms") : resolved;
 
         // Insert new notification
         const expiresAt = new Date(Date.now() + NOTIFICATION_TOKEN_TTL_MS).toISOString();

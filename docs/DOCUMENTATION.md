@@ -626,7 +626,8 @@ Source of truth: `supabase/migrations/` (applied via `supabase db push`) and `su
 | `email` | `text` | Email (unique per tenant when set) |
 | `phone` | `text` | Phone (unique per tenant when set) |
 | `company` | `text` | Company name |
-| `preferred_channel` | `text` | Default notify channel (`sms` / `email`). Missing Info and Approval Email/SMS chips auto-select this. Changing to exclusive Email or SMS on the card saves it here. |
+| `preferred_channel` | `text` | Default notify channel for every customer notification (`sms` / `email` / `both`; `both` needs migration `20261020000000_customer_preferred_channel_both.sql`). All send panels/popups pre-select it; saved only via explicit "Save … as default" (card customer dropdown, send panels, Settings → Customers). |
+| `preferred_channel_set_at` | `timestamptz` | When staff last saved the default on purpose (NULL = DB default, never chosen). Automatic shipped / picked-up / stage-rule messages honor the default only when it was chosen (or is email/both). |
 | `default_priority_score` | `int` | Default board priority 1–5 |
 | `crm_customer_id` | `text` | Bazaar CRM customer id (migration `0101`); stamped from webhooks |
 | `created_at` | `timestamptz` | Created |
@@ -1445,7 +1446,7 @@ Returns **403** — customers are auto-managed from orders.
 
 ### `PATCH /api/customers/[id]`
 
-Admin can update name, email, phone, company, preferred channel, and default priority. Any signed-in member can PATCH `{ preferred_channel: "sms" | "email" }` only (used when staff change Email/SMS on Missing Info / Approval). After a contact/name save, Workflow fire-and-forget PATCHes Bazaar CRM (`lib/bazaar-customer-sync.ts`) when `customers.crm_customer_id` and `webhook_configs.bazaar_api_url` + an `osk_…` key exist. Auth matches status callbacks (`x-webhook-secret`). Endpoint assumed: `PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}`. Confirm the contract with Bazaar before relying on it in production.
+Admin can update name, email, phone, company, preferred channel, and default priority. Any signed-in member can PATCH `{ preferred_channel: "sms" | "email" | "both" }` only (the explicit "Save as default" controls). After a contact/name save, Workflow fire-and-forget PATCHes Bazaar CRM (`lib/bazaar-customer-sync.ts`) when `customers.crm_customer_id` and `webhook_configs.bazaar_api_url` + an `osk_…` key exist. Auth matches status callbacks (`x-webhook-secret`). Endpoint assumed: `PATCH {bazaar_api_url}/api/v1/customers/{crm_customer_id}`. Confirm the contract with Bazaar before relying on it in production.
 
 ### `GET /api/customers/[id]/contacts`
 
@@ -1857,7 +1858,7 @@ Scan has a dedicated **Pick Up** action. It opens a pickup window for recipient 
 ### 2. Popup — operator fills note + selects channel
 
 - `MissingInfoPopup` shows customer contact (from custom fields + linked customer).
-- Channels: **Email**, **SMS** (if Twilio configured), **Manual** (link only, no send). Email/SMS defaults to Settings → Customers → Default communication channel (`customers.preferred_channel`). Toggling to Email-only or SMS-only saves that as the new customer default.
+- Channels: **Email**, **SMS** (if Twilio configured), **Manual** (link only, no send). Email/SMS defaults to the customer's saved default (`customers.preferred_channel`: Email / SMS / Both). Toggling chips changes only that send; "Save … as default" (with saved confirmation) changes the default for all the customer's orders. History lists every send of a request with the channels actually used.
 - Email shows a read-only preview from `lib/notification-messages.ts` (staff note included).
 - Operator clicks Send.
 
