@@ -534,6 +534,15 @@ function SenderPackingSlipWizard({
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [touchDragInfo, setTouchDragInfo] = useState<{
+    skuId: string;
+    skuName: string;
+    fromBox: number | null;
+    lineKey?: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const touchDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const pressRef = useRef<{
     timer: number;
     x: number;
@@ -987,12 +996,62 @@ function SenderPackingSlipWizard({
                     draggable
                     onContextMenu={(e) => e.preventDefault()}
                     onPointerDown={(e) => {
-                      if (e.pointerType !== "mouse") e.currentTarget.draggable = false;
+                      if (e.pointerType !== "mouse") {
+                        e.currentTarget.draggable = false;
+                        touchDragStartRef.current = { x: e.clientX, y: e.clientY };
+                      }
                       startBoxPress(e, { skuId: sku.skuId, fromBox: null });
                     }}
-                    onPointerMove={moveBoxPress}
-                    onPointerUp={cancelPress}
-                    onPointerCancel={cancelPress}
+                    onPointerMove={(e) => {
+                      moveBoxPress(e);
+                      if (e.pointerType !== "mouse" && touchDragStartRef.current) {
+                        const dx = e.clientX - touchDragStartRef.current.x;
+                        const dy = e.clientY - touchDragStartRef.current.y;
+                        if (
+                          touchDragInfo?.skuId === sku.skuId &&
+                          touchDragInfo?.fromBox == null
+                        ) {
+                          setTouchDragInfo((prev) =>
+                            prev ? { ...prev, x: e.clientX, y: e.clientY } : null
+                          );
+                        } else if (Math.hypot(dx, dy) > 10) {
+                          cancelPress();
+                          setTouchDragInfo({
+                            skuId: sku.skuId,
+                            skuName: sku.skuName,
+                            fromBox: null,
+                            x: e.clientX,
+                            y: e.clientY,
+                          });
+                        }
+                      }
+                    }}
+                    onPointerUp={(e) => {
+                      cancelPress();
+                      touchDragStartRef.current = null;
+                      if (
+                        touchDragInfo?.skuId === sku.skuId &&
+                        touchDragInfo?.fromBox == null
+                      ) {
+                        const els = document.elementsFromPoint(e.clientX, e.clientY);
+                        const boxEl = els.find((el) =>
+                          el.hasAttribute("data-box-index")
+                        );
+                        if (boxEl) {
+                          const idx = parseInt(
+                            boxEl.getAttribute("data-box-index") ?? "-1",
+                            10
+                          );
+                          if (idx >= 0) openDropQty(idx, sku.skuId, null);
+                        }
+                        setTouchDragInfo(null);
+                      }
+                    }}
+                    onPointerCancel={() => {
+                      cancelPress();
+                      touchDragStartRef.current = null;
+                      setTouchDragInfo(null);
+                    }}
                     onDragStart={(e) => {
                       cancelPress();
                       const payload = JSON.stringify({
@@ -1004,6 +1063,7 @@ function SenderPackingSlipWizard({
                       e.dataTransfer.effectAllowed = "copy";
                     }}
                     onClick={() => {
+                      if (touchDragInfo) return; // drag just ended
                       if (ignoreClickRef.current) {
                         ignoreClickRef.current = false;
                         return;
@@ -1065,6 +1125,7 @@ function SenderPackingSlipWizard({
               {boxes.map((lines, boxIndex) => (
                 <div
                   key={boxIndex}
+                  data-box-index={boxIndex}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
@@ -1143,16 +1204,67 @@ function SenderPackingSlipWizard({
                             draggable
                             onContextMenu={(e) => e.preventDefault()}
                             onPointerDown={(e) => {
-                              if (e.pointerType !== "mouse") e.currentTarget.draggable = false;
+                              if (e.pointerType !== "mouse") {
+                                e.currentTarget.draggable = false;
+                                touchDragStartRef.current = { x: e.clientX, y: e.clientY };
+                              }
                               startBoxPress(e, {
                                 skuId: line.skuId,
                                 fromBox: boxIndex,
                                 key: line.key,
                               });
                             }}
-                            onPointerMove={moveBoxPress}
-                            onPointerUp={cancelPress}
-                            onPointerCancel={cancelPress}
+                            onPointerMove={(e) => {
+                              moveBoxPress(e);
+                              if (e.pointerType !== "mouse" && touchDragStartRef.current) {
+                                const dx = e.clientX - touchDragStartRef.current.x;
+                                const dy = e.clientY - touchDragStartRef.current.y;
+                                if (
+                                  touchDragInfo?.lineKey === line.key &&
+                                  touchDragInfo?.fromBox === boxIndex
+                                ) {
+                                  setTouchDragInfo((prev) =>
+                                    prev ? { ...prev, x: e.clientX, y: e.clientY } : null
+                                  );
+                                } else if (Math.hypot(dx, dy) > 10) {
+                                  cancelPress();
+                                  setTouchDragInfo({
+                                    skuId: line.skuId,
+                                    skuName: skuById.get(line.skuId)?.skuName ?? "SKU",
+                                    fromBox: boxIndex,
+                                    lineKey: line.key,
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                  });
+                                }
+                              }
+                            }}
+                            onPointerUp={(e) => {
+                              cancelPress();
+                              touchDragStartRef.current = null;
+                              if (
+                                touchDragInfo?.lineKey === line.key &&
+                                touchDragInfo?.fromBox === boxIndex
+                              ) {
+                                const els = document.elementsFromPoint(e.clientX, e.clientY);
+                                const boxEl = els.find((el) =>
+                                  el.hasAttribute("data-box-index")
+                                );
+                                if (boxEl) {
+                                  const idx = parseInt(
+                                    boxEl.getAttribute("data-box-index") ?? "-1",
+                                    10
+                                  );
+                                  if (idx >= 0) moveLine(boxIndex, line.key, idx);
+                                }
+                                setTouchDragInfo(null);
+                              }
+                            }}
+                            onPointerCancel={() => {
+                              cancelPress();
+                              touchDragStartRef.current = null;
+                              setTouchDragInfo(null);
+                            }}
                             onDragStart={(e) => {
                               e.stopPropagation();
                               cancelPress();
@@ -1166,6 +1278,7 @@ function SenderPackingSlipWizard({
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (touchDragInfo) return; // drag just ended
                               if (ignoreClickRef.current) {
                                 ignoreClickRef.current = false;
                                 return;
@@ -1216,6 +1329,25 @@ function SenderPackingSlipWizard({
             </div>{/* end right panel */}
           </div>
         )}
+
+        {/* Touch-drag ghost — follows the finger so user sees what they're dragging */}
+        {touchDragInfo ? (
+          <div
+            style={{
+              position: "fixed",
+              left: touchDragInfo.x - 80,
+              top: touchDragInfo.y - 28,
+              zIndex: 200,
+              pointerEvents: "none",
+              userSelect: "none",
+              transform: "scale(1.06)",
+              transformOrigin: "center center",
+            }}
+            className="rounded-xl border-2 border-blue-400 bg-blue-50 px-4 py-2 text-[14px] font-semibold text-blue-800 shadow-lg"
+          >
+            {touchDragInfo.skuName}
+          </div>
+        ) : null}
 
         {boxMenu ? (
           <div
