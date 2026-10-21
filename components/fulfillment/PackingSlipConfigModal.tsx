@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState } from "react";
 import { Box, Copy, LayoutGrid, Loader2, Package, Printer, Settings, Square, Trash2, X } from "lucide-react";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 import {
@@ -520,11 +520,6 @@ function SenderPackingSlipWizard({
   });
   const [settingsWeightKeypad, setSettingsWeightKeypad] = useState(false);
   const [settingsDimKeypad, setSettingsDimKeypad] = useState<"sizeL" | "sizeW" | "sizeH" | null>(null);
-  const [picked, setPicked] = useState<{
-    skuId: string;
-    fromBox: number | null;
-    key?: string;
-  } | null>(null);
   const [boxMenu, setBoxMenu] = useState<{
     skuId: string;
     fromBox: number | null;
@@ -534,68 +529,12 @@ function SenderPackingSlipWizard({
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [touchDragInfo, setTouchDragInfo] = useState<{
-    skuId: string;
-    skuName: string;
-    fromBox: number | null;
-    lineKey?: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const touchDragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const pressRef = useRef<{
-    timer: number;
-    x: number;
-    y: number;
-  } | null>(null);
-  const ignoreClickRef = useRef(false);
-
-  useEffect(() => {
-    return () => {
-      if (pressRef.current) window.clearTimeout(pressRef.current.timer);
-    };
-  }, []);
-
-  function cancelPress() {
-    if (!pressRef.current) return;
-    window.clearTimeout(pressRef.current.timer);
-    pressRef.current = null;
-  }
-
-  function startBoxPress(
-    event: ReactPointerEvent<HTMLElement>,
-    target: { skuId: string; fromBox: number | null; key?: string }
-  ) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (event.pointerType !== "mouse") {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
-    cancelPress();
-    const x = event.clientX;
-    const y = event.clientY;
-    const timer = window.setTimeout(() => {
-      ignoreClickRef.current = true;
-      pressRef.current = null;
-      setPicked(null);
-      setBoxMenu({ ...target, x, y });
-    }, 450);
-    pressRef.current = { timer, x, y };
-  }
-
-  function moveBoxPress(event: ReactPointerEvent<HTMLElement>) {
-    const press = pressRef.current;
-    if (!press) return;
-    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 12) {
-      cancelPress();
-    }
-  }
 
   function openDropQty(boxIndex: number, skuId: string, fromBox: number | null, key?: string) {
     const left = remaining(skuId);
     setDropQtyPending({ boxIndex, skuId, fromBox, key });
     setDropQtyStr(String(left > 0 ? left : 1));
     setDropQtyIsDefault(true);
-    setPicked(null);
     setBoxMenu(null);
   }
 
@@ -692,7 +631,6 @@ function SenderPackingSlipWizard({
         weightLbs: "",
       }))
     );
-    setPicked(null);
     setBoxMenu(null);
     setError("");
     setStep(2);
@@ -724,14 +662,10 @@ function SenderPackingSlipWizard({
       }
       return next;
     });
-    setPicked(null);
   }
 
   function moveLine(fromBox: number, key: string, toBox: number) {
-    if (fromBox === toBox) {
-      setPicked(null);
-      return;
-    }
+    if (fromBox === toBox) return;
     setBoxes((prev) => {
       const next = prev.map((lines) => lines.map((line) => ({ ...line })));
       const source = next[fromBox] ?? [];
@@ -746,7 +680,6 @@ function SenderPackingSlipWizard({
       next[fromBox] = source;
       return next;
     });
-    setPicked(null);
   }
 
   function onBoxDrop(boxIndex: number, raw: string) {
@@ -988,98 +921,30 @@ function SenderPackingSlipWizard({
             <div className="flex flex-col gap-2">
               {skus.map((sku) => {
                 const left = remaining(sku.skuId);
-                const active = picked?.skuId === sku.skuId && picked.fromBox == null;
                 return (
                   <button
                     key={sku.skuId}
                     type="button"
                     draggable
-                    onContextMenu={(e) => e.preventDefault()}
-                    onPointerDown={(e) => {
-                      if (e.pointerType !== "mouse") {
-                        e.currentTarget.draggable = false;
-                        touchDragStartRef.current = { x: e.clientX, y: e.clientY };
-                      }
-                      startBoxPress(e, { skuId: sku.skuId, fromBox: null });
-                    }}
-                    onPointerMove={(e) => {
-                      moveBoxPress(e);
-                      if (e.pointerType !== "mouse" && touchDragStartRef.current) {
-                        const dx = e.clientX - touchDragStartRef.current.x;
-                        const dy = e.clientY - touchDragStartRef.current.y;
-                        if (
-                          touchDragInfo?.skuId === sku.skuId &&
-                          touchDragInfo?.fromBox == null
-                        ) {
-                          setTouchDragInfo((prev) =>
-                            prev ? { ...prev, x: e.clientX, y: e.clientY } : null
-                          );
-                        } else if (Math.hypot(dx, dy) > 10) {
-                          cancelPress();
-                          setTouchDragInfo({
-                            skuId: sku.skuId,
-                            skuName: sku.skuName,
-                            fromBox: null,
-                            x: e.clientX,
-                            y: e.clientY,
-                          });
-                        }
-                      }
-                    }}
-                    onPointerUp={(e) => {
-                      cancelPress();
-                      touchDragStartRef.current = null;
-                      if (
-                        touchDragInfo?.skuId === sku.skuId &&
-                        touchDragInfo?.fromBox == null
-                      ) {
-                        const els = document.elementsFromPoint(e.clientX, e.clientY);
-                        const boxEl = els.find((el) =>
-                          el.hasAttribute("data-box-index")
-                        );
-                        if (boxEl) {
-                          const idx = parseInt(
-                            boxEl.getAttribute("data-box-index") ?? "-1",
-                            10
-                          );
-                          if (idx >= 0) openDropQty(idx, sku.skuId, null);
-                        }
-                        setTouchDragInfo(null);
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      cancelPress();
-                      touchDragStartRef.current = null;
-                      setTouchDragInfo(null);
-                    }}
                     onDragStart={(e) => {
-                      cancelPress();
-                      const payload = JSON.stringify({
-                        skuId: sku.skuId,
-                        fromBox: null,
-                      });
+                      const payload = JSON.stringify({ skuId: sku.skuId, fromBox: null });
                       e.dataTransfer.setData("text/plain", payload);
                       e.dataTransfer.setData("application/json", payload);
                       e.dataTransfer.effectAllowed = "copy";
                     }}
-                    onClick={() => {
-                      if (touchDragInfo) return; // drag just ended
-                      if (ignoreClickRef.current) {
-                        ignoreClickRef.current = false;
-                        return;
-                      }
-                      setBoxMenu(null);
-                      setPicked(
-                        active ? null : { skuId: sku.skuId, fromBox: null }
-                      );
+                    onClick={(e) => {
+                      setBoxMenu({
+                        skuId: sku.skuId,
+                        fromBox: null,
+                        x: e.clientX,
+                        y: e.clientY,
+                      });
                     }}
                     className={cn(
                       "flex min-h-14 min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left",
-                      active
-                        ? "border-blue-500 bg-blue-50"
-                        : left === 0
-                          ? "border-emerald-400 bg-emerald-50"
-                          : "border-slate-200 bg-white"
+                      left === 0
+                        ? "border-emerald-400 bg-emerald-50"
+                        : "border-slate-200 bg-white"
                     )}
                   >
                     {sku.artworkUrl ? (
@@ -1135,15 +1000,7 @@ function SenderPackingSlipWizard({
                         e.dataTransfer.getData("application/json")
                     );
                   }}
-                  onClick={() => {
-                    if (!picked) return;
-                    if (picked.fromBox == null) openDropQty(boxIndex, picked.skuId, null);
-                    else if (picked.key) moveLine(picked.fromBox, picked.key, boxIndex);
-                  }}
-                  className={cn(
-                    "min-h-36 rounded-xl border-2 border-dashed p-3",
-                    picked ? "border-blue-400 bg-blue-50/40" : "border-slate-200"
-                  )}
+                  className="min-h-36 rounded-xl border-2 border-dashed border-slate-200 p-3"
                 >
                   <div className="mb-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <p className="flex-1 text-[13px] font-semibold text-slate-700">
@@ -1191,83 +1048,18 @@ function SenderPackingSlipWizard({
                   </div>
                   {lines.length === 0 ? (
                     <p className="py-6 text-center text-[13px] text-slate-400">
-                      {picked ? "Tap to place" : "Drop a SKU here"}
+                      Tap a SKU to add
                     </p>
                   ) : (
                     <div className="flex flex-col gap-2">
                       {lines.map((line) => {
                         const sku = skuById.get(line.skuId);
-                        const active = picked?.key === line.key;
                         return (
                           <div
                             key={line.key}
                             draggable
-                            onContextMenu={(e) => e.preventDefault()}
-                            onPointerDown={(e) => {
-                              if (e.pointerType !== "mouse") {
-                                e.currentTarget.draggable = false;
-                                touchDragStartRef.current = { x: e.clientX, y: e.clientY };
-                              }
-                              startBoxPress(e, {
-                                skuId: line.skuId,
-                                fromBox: boxIndex,
-                                key: line.key,
-                              });
-                            }}
-                            onPointerMove={(e) => {
-                              moveBoxPress(e);
-                              if (e.pointerType !== "mouse" && touchDragStartRef.current) {
-                                const dx = e.clientX - touchDragStartRef.current.x;
-                                const dy = e.clientY - touchDragStartRef.current.y;
-                                if (
-                                  touchDragInfo?.lineKey === line.key &&
-                                  touchDragInfo?.fromBox === boxIndex
-                                ) {
-                                  setTouchDragInfo((prev) =>
-                                    prev ? { ...prev, x: e.clientX, y: e.clientY } : null
-                                  );
-                                } else if (Math.hypot(dx, dy) > 10) {
-                                  cancelPress();
-                                  setTouchDragInfo({
-                                    skuId: line.skuId,
-                                    skuName: skuById.get(line.skuId)?.skuName ?? "SKU",
-                                    fromBox: boxIndex,
-                                    lineKey: line.key,
-                                    x: e.clientX,
-                                    y: e.clientY,
-                                  });
-                                }
-                              }
-                            }}
-                            onPointerUp={(e) => {
-                              cancelPress();
-                              touchDragStartRef.current = null;
-                              if (
-                                touchDragInfo?.lineKey === line.key &&
-                                touchDragInfo?.fromBox === boxIndex
-                              ) {
-                                const els = document.elementsFromPoint(e.clientX, e.clientY);
-                                const boxEl = els.find((el) =>
-                                  el.hasAttribute("data-box-index")
-                                );
-                                if (boxEl) {
-                                  const idx = parseInt(
-                                    boxEl.getAttribute("data-box-index") ?? "-1",
-                                    10
-                                  );
-                                  if (idx >= 0) moveLine(boxIndex, line.key, idx);
-                                }
-                                setTouchDragInfo(null);
-                              }
-                            }}
-                            onPointerCancel={() => {
-                              cancelPress();
-                              touchDragStartRef.current = null;
-                              setTouchDragInfo(null);
-                            }}
                             onDragStart={(e) => {
                               e.stopPropagation();
-                              cancelPress();
                               const payload = JSON.stringify({
                                 skuId: line.skuId,
                                 fromBox: boxIndex,
@@ -1278,26 +1070,15 @@ function SenderPackingSlipWizard({
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (touchDragInfo) return; // drag just ended
-                              if (ignoreClickRef.current) {
-                                ignoreClickRef.current = false;
-                                return;
-                              }
-                              setBoxMenu(null);
-                              setPicked(
-                                active
-                                  ? null
-                                  : {
-                                      skuId: line.skuId,
-                                      fromBox: boxIndex,
-                                      key: line.key,
-                                    }
-                              );
+                              setBoxMenu({
+                                skuId: line.skuId,
+                                fromBox: boxIndex,
+                                key: line.key,
+                                x: e.clientX,
+                                y: e.clientY,
+                              });
                             }}
-                            className={cn(
-                              "flex min-h-12 items-center gap-2 rounded-lg border bg-white px-2 py-1.5",
-                              active ? "border-blue-500" : "border-slate-200"
-                            )}
+                            className="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5"
                           >
                             <span className="min-w-0 flex-1 text-[13px] font-medium text-slate-800">
                               <span className="font-semibold text-slate-400">
@@ -1330,35 +1111,10 @@ function SenderPackingSlipWizard({
           </div>
         )}
 
-        {/* Touch-drag ghost — follows the finger so user sees what they're dragging */}
-        {touchDragInfo ? (
-          <div
-            style={{
-              position: "fixed",
-              left: touchDragInfo.x - 80,
-              top: touchDragInfo.y - 28,
-              zIndex: 200,
-              pointerEvents: "none",
-              userSelect: "none",
-              transform: "scale(1.06)",
-              transformOrigin: "center center",
-            }}
-            className="rounded-xl border-2 border-blue-400 bg-blue-50 px-4 py-2 text-[14px] font-semibold text-blue-800 shadow-lg"
-          >
-            {touchDragInfo.skuName}
-          </div>
-        ) : null}
-
         {boxMenu ? (
           <div
             className="fixed inset-0 z-[80]"
-            onClick={() => {
-              if (ignoreClickRef.current) {
-                ignoreClickRef.current = false;
-                return;
-              }
-              setBoxMenu(null);
-            }}
+            onClick={() => setBoxMenu(null)}
           >
             <div
               role="menu"
@@ -1374,7 +1130,7 @@ function SenderPackingSlipWizard({
               onClick={(event) => event.stopPropagation()}
             >
               <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                Move to
+                {boxMenu.fromBox == null ? "Add to box" : "Move to"}
               </p>
               {boxes.map((_, index) => (
                 <button
@@ -1382,13 +1138,7 @@ function SenderPackingSlipWizard({
                   type="button"
                   role="menuitem"
                   disabled={boxMenu.fromBox === index}
-                  onClick={() => {
-                    if (ignoreClickRef.current) {
-                      ignoreClickRef.current = false;
-                      return;
-                    }
-                    chooseBox(index);
-                  }}
+                  onClick={() => chooseBox(index)}
                   className="flex min-h-11 w-full items-center px-3 text-left text-[14px] font-medium text-slate-800 hover:bg-slate-50 disabled:text-slate-300"
                 >
                   Box {index + 1}
