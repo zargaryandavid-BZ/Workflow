@@ -9,6 +9,8 @@ import {
 import {
   buildFullOrderWebhookPayload,
   isFullOrderWebhookTemplate,
+  isPulseJobWebhookUrl,
+  preserveRenderedCustomFields,
 } from "@/lib/order-webhook-payload";
 import { sendTransactionalEmail } from "@/lib/email";
 import {
@@ -50,19 +52,37 @@ async function postNotificationRuleWebhook(args: {
   const url = args.rule.webhook_url?.trim();
   if (!args.rule.send_webhook || !url) return;
 
-  const body = isFullOrderWebhookTemplate(args.rule.webhook_body_template)
-    ? JSON.stringify(
-        buildFullOrderWebhookPayload(args.exportData, {
-          event: args.event,
-          columnId: args.columnId,
-          tenantId: args.tenantId,
-          movedAt: args.movedAt,
-        })
-      )
+  const fullOrderTemplate = isFullOrderWebhookTemplate(
+    args.rule.webhook_body_template
+  );
+  const pulseWebhook = isPulseJobWebhookUrl(url);
+  const renderedTemplate = fullOrderTemplate
+    ? ""
     : renderNotificationRuleTemplate(
         args.rule.webhook_body_template || "{}",
         args.templateContext
       );
+  const body =
+    fullOrderTemplate || pulseWebhook
+      ? JSON.stringify(
+          pulseWebhook && renderedTemplate
+            ? preserveRenderedCustomFields(
+                buildFullOrderWebhookPayload(args.exportData, {
+                  event: args.event,
+                  columnId: args.columnId,
+                  tenantId: args.tenantId,
+                  movedAt: args.movedAt,
+                }),
+                renderedTemplate
+              )
+            : buildFullOrderWebhookPayload(args.exportData, {
+                event: args.event,
+                columnId: args.columnId,
+                tenantId: args.tenantId,
+                movedAt: args.movedAt,
+              })
+        )
+      : renderedTemplate;
 
   await fetch(url, {
     method: "POST",

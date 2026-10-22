@@ -412,6 +412,17 @@ export async function onApprovalResult(
         toName,
       },
     });
+    try {
+      const { fireNotificationRules } = await import(
+        "@/lib/fire-notification-rules"
+      );
+      await fireNotificationRules(params.orderId, target, params.tenantId);
+    } catch (err) {
+      console.error(
+        "[approval] notification rules failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
   }
 
   await logActivity(client, {

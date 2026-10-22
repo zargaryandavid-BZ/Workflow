@@ -15,11 +15,51 @@ import { isApplicationEnabled } from "@/lib/order-application";
 
 /** Stored in `webhook_body_template` when "Send full order card JSON" is enabled. */
 export const FULL_ORDER_WEBHOOK_SENTINEL = "__FULL_ORDER_CARD__";
+const PULSE_WEBHOOK_HOST = "gkyupebgulpgwugsbvny.supabase.co";
+const PULSE_WEBHOOK_PATH = "/functions/v1/receive-job-webhook";
 
 export function isFullOrderWebhookTemplate(
   template: string | null | undefined
 ): boolean {
   return (template ?? "").trim() === FULL_ORDER_WEBHOOK_SENTINEL;
+}
+
+export function isPulseJobWebhookUrl(url: string | null | undefined): boolean {
+  if (!url?.trim()) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === PULSE_WEBHOOK_HOST &&
+      parsed.pathname.replace(/\/+$/, "") === PULSE_WEBHOOK_PATH
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pulse rules historically used a hand-written template for integration-only
+ * customFields. Keep that block byte-for-byte equivalent while replacing the
+ * incomplete top-level payload with the full card payload.
+ */
+export function preserveRenderedCustomFields(
+  fullPayload: Record<string, unknown>,
+  renderedTemplate: string
+): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(renderedTemplate) as Record<string, unknown>;
+    const customFields = parsed?.customFields;
+    if (
+      customFields &&
+      typeof customFields === "object" &&
+      !Array.isArray(customFields)
+    ) {
+      return { ...fullPayload, customFields };
+    }
+  } catch {
+    // Invalid legacy templates must not prevent delivery of the full payload.
+  }
+  return fullPayload;
 }
 
 function fieldRaw(
@@ -100,6 +140,12 @@ function asIsoDate(value: string | null | undefined): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
   return d.toISOString().slice(0, 10);
+}
+
+function displayPriority(value: string | null | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
 function resolveFacility(data: OrderExportData): string {
@@ -245,10 +291,31 @@ export function buildFullOrderWebhookPayload(
   // number (e.g. 0499-1), never the internal UUID.
   const crmOrderId = (data.orderNumber || order.title || "").trim();
 
-  const product = data.product || fieldString(data, "Product") || "";
+  const loadedProduct =
+    data.product?.trim().toLowerCase() === "order"
+      ? ""
+      : data.product?.trim() || "";
+  const product =
+    loadedProduct ||
+    fieldString(data, "Product") ||
+    data.skuRows?.[0]?.name.split(/\s*[–—]\s*|\s+-\s+/)[0]?.trim() ||
+    "";
   const finishing =
     fieldString(data, "Finishing", "Lamination") ||
     extractFinishingFromProductText(product);
+  const accountManager =
+    data.ownerName ||
+    (typeof specs.request_owner_name === "string"
+      ? specs.request_owner_name.trim()
+      : "");
+  const designer =
+    data.designerName ||
+    (typeof specs.designer_name === "string"
+      ? specs.designer_name.trim()
+      : "") ||
+    fieldString(data, "Designer");
+  const cuttingType =
+    typeof specs.cutting_type === "string" ? specs.cutting_type.trim() : "";
 
   return {
     orderId: crmOrderId,
@@ -257,9 +324,11 @@ export function buildFullOrderWebhookPayload(
     tenantName: data.tenantName || "",
     customer,
     dueDate: asIsoDate(order.due_date),
-    priority: data.priority && data.priority !== "—" ? data.priority : order.priority || "",
-    accountManager: data.ownerName || "",
-    designer: data.designerName || "",
+    priority: displayPriority(
+      data.priority && data.priority !== "—" ? data.priority : order.priority
+    ),
+    accountManager,
+    designer,
     totalQuantity,
     category: fieldString(data, "Category"),
     product,
@@ -274,7 +343,10 @@ export function buildFullOrderWebhookPayload(
     sizeWidth: width,
     sizeHeight: height,
     application,
-    dieCut: fieldString(data, "Die Cut") || (fieldBool(data, "Die Cut") ? "Yes" : ""),
+    dieCut:
+      cuttingType ||
+      fieldString(data, "Cut Method", "Cutting", "Cutting Type", "Die Cut") ||
+      (fieldBool(data, "Die Cut") ? "Yes" : ""),
     perforation: fieldBool(data, "Perforation"),
     needDesign: fieldBool(data, "Need a Design"),
     customFields: buildCustomFieldsMap(data),
