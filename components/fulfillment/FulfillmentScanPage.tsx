@@ -68,10 +68,18 @@ import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
 import type { QrScannerController } from "@/lib/scan-qr-camera";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
+/** True only on phones — used to decide camera auto-open and inline mode. */
 function isPhoneScan(): boolean {
-  if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) return true;
-  // iPadOS 13+ sends a desktop Mac user-agent; detect by touch-point count
-  // (real Macs have 0, iPads have 5)
+  return /Mobi|Android|iPhone/i.test(navigator.userAgent);
+}
+
+/**
+ * True on phones AND tablets (including iPadOS 13+ which sends a Mac UA).
+ * Used to require a tap-to-confirm before executing scan actions.
+ */
+function isTouchScan(): boolean {
+  if (isPhoneScan()) return true;
+  // iPadOS 13+ disguises itself as Macintosh; real Macs have 0 touch points.
   if (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
     return true;
   return false;
@@ -1321,7 +1329,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     const opensShippingSetup =
       targetColumn?.kind === "ready_to_ship" && !scanApiBase;
     if (
-      isPhoneScan() &&
+      isTouchScan() &&
       !opensShippingSetup &&
       !options?.skipPhoneConfirm &&
       pendingAction?.id !== button.id
