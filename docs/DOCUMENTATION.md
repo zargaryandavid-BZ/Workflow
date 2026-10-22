@@ -966,6 +966,20 @@ Pull every active board card with its current column (for CRM sync).
 
 Copy the URL from **Settings → Integrations → Board export (CRM pull)**.
 
+### `GET /api/export/order-card`
+
+Full card details for specific cards (companion to `board-columns`, which only lists cards). Used by Pulse's `sync-workflow-board` to fill the prepress job ticket.
+
+| | |
+| --- | --- |
+| **Auth** | Same as `board-columns`: header `x-webhook-secret` (preferred) or `?secret=`. Scoped to the secret's tenant. |
+| **Query** | `order_ids` — comma-separated `order_id` UUIDs from `board-columns` (required, max 25) |
+| **Response** | `{ cards[], missing[] }` — `missing` lists ids not found for this tenant |
+| **Card fields** | `order_id`, `order_number`, `column_name`, `customer_name`, `owner`, `designer`, `priority`, `tag`, `due_date`, `due_date_display`, `production_date`, `application_enabled`, `total_qty`, `product`, `die`, `artwork_link`, `design_task`, `spec_rows[]` (`{label, value}` for every filled card field — Category, Product, Materials, Width, Height, Finishing, Sides, Roll Direction, …), `skus[]` (`{index, name, qty, image_links[]}`) |
+| **Never included** | Customer email / phone / contact and any pricing (`lib/order-card-export.ts` strips them) |
+| **Notes** | `image_links` are signed storage URLs and expire — re-read on each sync. Additive: `board-columns` is unchanged. |
+| **Errors** | 400 missing/invalid/too many `order_ids`; 401 missing/invalid secret |
+
 ---
 
 ## Orders
