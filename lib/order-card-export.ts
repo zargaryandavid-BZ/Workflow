@@ -88,7 +88,8 @@ export function orderCardExport(src: OrderCardSource): OrderCardExport {
     production_date: text(src.productionDateFormatted),
     application_enabled: src.applicationEnabled,
     total_qty: src.totalQty,
-    product: text(src.product),
+    // productFromOrder() returns the placeholder "order" when the card has no Product field.
+    product: src.product?.trim().toLowerCase() === "order" ? null : text(src.product),
     die: text(src.die),
     artwork_link: text(src.artworkLink),
     design_task: text(src.designTask),

@@ -59,8 +59,9 @@ describe("order card export", () => {
   });
 
   it("turns blank / placeholder values into null", () => {
-    const c = orderCardExport({ ...base, customerName: "—", priority: "  ", die: "" });
+    const c = orderCardExport({ ...base, customerName: "—", priority: "  ", die: "", product: "order" });
     assert.equal(c.customer_name, null);
+    assert.equal(c.product, null);
     assert.equal(c.priority, null);
     assert.equal(c.die, null);
   });
