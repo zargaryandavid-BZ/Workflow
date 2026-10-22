@@ -722,7 +722,8 @@ function SenderPackingSlipWizard({
       issues.push(`Box ${index + 1} is empty`);
     }
   });
-  const ready = step === 2 && issues.length === 0;
+  // Print is always allowed — `issues` is only a heads-up shown above the
+  // buttons (short SKUs / empty boxes), never a blocker.
 
   function partFromOrderNumber(on: string): number {
     const m = on.trim().match(/-(\d+)$/);
@@ -732,10 +733,6 @@ function SenderPackingSlipWizard({
   }
 
   async function handlePrint() {
-    if (!ready) {
-      setError(issues[0] ?? "Assign every SKU before printing.");
-      return;
-    }
     setError("");
     setBusy(true);
     try {
@@ -1182,6 +1179,13 @@ function SenderPackingSlipWizard({
         ) : null}
 
         <div className="shrink-0 border-t border-slate-100 px-5 py-4">
+          {!error && step === 2 && issues.length > 0 ? (
+            <p className="mb-3 text-[12px] text-slate-500">
+              Heads up: {issues[0]}
+              {issues.length > 1 ? ` (+${issues.length - 1} more)` : ""} — you
+              can still print.
+            </p>
+          ) : null}
           {error ? (
             <p className="mb-3 text-[13px] text-amber-700">{error}</p>
           ) : null}
@@ -1213,7 +1217,7 @@ function SenderPackingSlipWizard({
               <button
                 type="button"
                 onClick={() => void handlePrint()}
-                disabled={busy || !ready}
+                disabled={busy}
                 className="flex flex-[2] items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
               >
                 {busy ? (
