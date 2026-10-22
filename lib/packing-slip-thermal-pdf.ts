@@ -36,6 +36,8 @@ export type ThermalSlipSku = {
   id: string;
   name: string;
   imageUrl?: string | null;
+  /** Printed "SKU N" number. Defaults to the position in `skus` (1-based). */
+  number?: number;
 };
 
 const THERMAL_W = 288;
@@ -93,7 +95,7 @@ export function thermalBoxBannerLabel(
   pagesInBox: number
 ): string {
   const continued = pagesInBox > 1 ? `  ·  ${pageInBox}/${pagesInBox}` : "";
-  return `PACKING SLIP  ·  BOX ${box.boxNumber} OF ${boxCount}${continued}`;
+  return `PACKING BOX SLIP  ·  BOX ${box.boxNumber} OF ${boxCount}${continued}`;
 }
 
 export function thermalBoxDetailLabels(box: ThermalSlipBox): {
@@ -222,9 +224,10 @@ function drawThermalIdentity(
     .stroke();
 }
 
-/** Pallet slip is added as the last page(s) when an order ships in more than this many boxes. */
-export const PALLET_SLIP_MIN_BOXES = 3;
-const PALLET_ROWS_PER_PAGE = 16;
+/** Default for the "Pallet slip" checkbox: on when the order ships in 2+ boxes. */
+export function defaultPalletSlip(boxCount: number): boolean {
+  return boxCount > 1;
+}
 
 export type PalletSlipRow = {
   itemNumber: number;
@@ -238,7 +241,7 @@ export function palletSlipRows(
   skus: ThermalSlipSku[],
   boxes: ThermalSlipBox[]
 ): PalletSlipRow[] {
-  const indexById = new Map(skus.map((sku, i) => [sku.id, i + 1]));
+  const indexById = new Map(skus.map((sku, i) => [sku.id, sku.number ?? i + 1]));
   const nameById = new Map(skus.map((sku) => [sku.id, sku.name?.trim() || sku.id]));
   const rows: PalletSlipRow[] = [];
   for (const box of boxes) {
@@ -271,6 +274,25 @@ function packedTimeLabel(now: Date): string {
   });
 }
 
+/**
+ * Pick a layout that fits every row on ONE 4×6 page: one column with roomy
+ * rows, then tighter rows, then two columns. Only very large orders (90+ box
+ * lines) spill onto a second page.
+ */
+function palletLayout(rowCount: number, areaH: number) {
+  const n = Math.max(1, rowCount);
+  const oneColH = areaH / n;
+  if (oneColH >= 10) {
+    return { cols: 1, rowH: Math.min(18, oneColH), perPage: n };
+  }
+  const twoColH = areaH / Math.ceil(n / 2);
+  if (twoColH >= 6.5) {
+    return { cols: 2, rowH: Math.min(14, twoColH), perPage: n };
+  }
+  const rowH = 6.5;
+  return { cols: 2, rowH, perPage: Math.floor(areaH / rowH) * 2 };
+}
+
 function drawPalletSlip(
   doc: PdfDoc,
   input: {
@@ -282,9 +304,18 @@ function drawPalletSlip(
   }
 ) {
   const rows = palletSlipRows(input.skus, input.boxes);
-  const pages = thermalChunks(rows, PALLET_ROWS_PER_PAGE);
   const totalQty = rows.reduce((sum, row) => sum + row.qty, 0);
-  const cols = { item: 8, name: 40, qty: 186, box: 240, end: THERMAL_W - 8 };
+
+  const tableTop = 98;
+  const headH = 13;
+  const footH = 20;
+  const areaH = THERMAL_H - 6 - footH - (tableTop + headH);
+  const layout = palletLayout(rows.length, areaH);
+  const pages = thermalChunks(rows, layout.perPage);
+  const tableW = THERMAL_W - 16;
+  const gap = layout.cols === 2 ? 6 : 0;
+  const colW = (tableW - gap * (layout.cols - 1)) / layout.cols;
+  const font = Math.max(5.5, Math.min(8, layout.rowH * 0.7));
 
   pages.forEach((pageRows, pageIndex) => {
     doc.addPage({ size: [THERMAL_W, THERMAL_H], margin: 0 });
@@ -318,7 +349,6 @@ function drawPalletSlip(
         ellipsis: true,
       });
     doc
-      .fillColor("#111827")
       .font("Helvetica")
       .fontSize(9)
       .text(`Total boxes: ${input.boxes.length}`, 8, 66, {
@@ -337,71 +367,84 @@ function drawPalletSlip(
       }
     }
 
-    // Table header
-    const headerY = 98;
-    doc.rect(8, headerY, THERMAL_W - 16, 16).fill("#111827");
-    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(8);
-    doc.text("Item N.", cols.item + 2, headerY + 4, { width: 32, lineBreak: false });
-    doc.text("Item SKU", cols.name, headerY + 4, { width: cols.qty - cols.name, lineBreak: false });
-    doc.text("QTY", cols.qty, headerY + 4, { width: cols.box - cols.qty - 6, align: "right", lineBreak: false });
-    doc.text("Box N", cols.box, headerY + 4, { width: cols.end - cols.box, align: "center", lineBreak: false });
+    const perCol = Math.ceil(pageRows.length / layout.cols);
+    for (let c = 0; c < layout.cols; c++) {
+      const x0 = 8 + c * (colW + gap);
+      const itemW = layout.cols === 2 ? 16 : 30;
+      const boxW = layout.cols === 2 ? 18 : 40;
+      const qtyW = layout.cols === 2 ? 30 : 50;
+      const nameX = x0 + itemW + 2;
+      const boxX = x0 + colW - boxW;
+      const qtyX = boxX - qtyW - 2;
+      const nameW = qtyX - nameX - 3;
 
-    // Rows
-    const rowH = 18;
-    pageRows.forEach((row, i) => {
-      const y = headerY + 16 + i * rowH;
-      if (i % 2 === 1) doc.rect(8, y, THERMAL_W - 16, rowH).fill("#f3f4f6");
-      doc.fillColor("#111827").font("Helvetica").fontSize(8);
-      doc.text(row.itemNumber ? String(row.itemNumber) : "—", cols.item + 2, y + 5, {
-        width: 30,
-        lineBreak: false,
-      });
-      doc.font("Helvetica-Bold").text(pdfWinAnsiText(row.name), cols.name, y + 5, {
-        width: cols.qty - cols.name - 4,
-        height: 10,
-        ellipsis: true,
-        lineBreak: false,
-      });
-      doc.font("Helvetica").text(fmtQty(row.qty), cols.qty, y + 5, {
-        width: cols.box - cols.qty - 6,
-        align: "right",
-        lineBreak: false,
-      });
-      doc.font("Helvetica-Bold").text(String(row.boxNumber), cols.box, y + 5, {
-        width: cols.end - cols.box,
-        align: "center",
-        lineBreak: false,
-      });
-    });
+      // Column header
+      doc.rect(x0, tableTop, colW, headH).fill("#111827");
+      doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(layout.cols === 2 ? 6.5 : 8);
+      const hy = tableTop + 3.5;
+      doc.text(layout.cols === 2 ? "#" : "Item N.", x0 + 2, hy, { width: itemW, lineBreak: false });
+      doc.text("Item SKU", nameX, hy, { width: nameW, lineBreak: false });
+      doc.text("QTY", qtyX, hy, { width: qtyW, align: "right", lineBreak: false });
+      doc.text("Box", boxX, hy, { width: boxW, align: "center", lineBreak: false });
 
-    // Total on the last page
+      const colRows = pageRows.slice(c * perCol, (c + 1) * perCol);
+      colRows.forEach((row, i) => {
+        const y = tableTop + headH + i * layout.rowH;
+        if (i % 2 === 1) doc.rect(x0, y, colW, layout.rowH).fill("#f3f4f6");
+        // New box starts → thin divider so each box reads as a group.
+        const prev = colRows[i - 1];
+        if (prev && prev.boxNumber !== row.boxNumber) {
+          doc
+            .moveTo(x0, y)
+            .lineTo(x0 + colW, y)
+            .strokeColor("#111827")
+            .lineWidth(0.6)
+            .stroke();
+        }
+        const ty = y + (layout.rowH - font) / 2;
+        doc.fillColor("#111827").font("Helvetica").fontSize(font);
+        doc.text(row.itemNumber ? String(row.itemNumber) : "—", x0 + 2, ty, {
+          width: itemW,
+          lineBreak: false,
+        });
+        doc.font("Helvetica-Bold").text(pdfWinAnsiText(row.name), nameX, ty, {
+          width: nameW,
+          height: font + 2,
+          ellipsis: true,
+          lineBreak: false,
+        });
+        doc.font("Helvetica").text(fmtQty(row.qty), qtyX, ty, {
+          width: qtyW,
+          align: "right",
+          lineBreak: false,
+        });
+        doc.font("Helvetica-Bold").text(String(row.boxNumber), boxX, ty, {
+          width: boxW,
+          align: "center",
+          lineBreak: false,
+        });
+      });
+    }
+
+    // Total on the last page, pinned to the bottom.
     if (pageIndex === pages.length - 1) {
-      const y = headerY + 16 + pageRows.length * rowH + 4;
-      doc
-        .moveTo(8, y)
-        .lineTo(THERMAL_W - 8, y)
-        .strokeColor("#111827")
-        .lineWidth(1)
-        .stroke();
-      doc.fillColor("#111827").font("Helvetica-Bold").fontSize(9);
-      doc.text("TOTAL", cols.name, y + 5, { width: 80, lineBreak: false });
-      doc.text(fmtQty(totalQty), cols.qty, y + 5, {
-        width: cols.box - cols.qty - 6,
-        align: "right",
-        lineBreak: false,
-      });
-      doc.text(`${input.boxes.length} boxes`, cols.box - 10, y + 5, {
-        width: cols.end - cols.box + 10,
-        align: "center",
-        lineBreak: false,
-      });
+      const y = THERMAL_H - 6 - footH + 2;
+      doc.rect(8, y, tableW, footH - 4).fill("#111827");
+      doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(9);
+      doc.text(
+        `TOTAL  ${fmtQty(totalQty)} pcs  ·  ${input.boxes.length} boxes  ·  ${rows.length} lines`,
+        12,
+        y + 4,
+        { width: tableW - 8, align: "center", lineBreak: false }
+      );
     }
   });
 }
 
 /**
  * 4×6 in thermal label. One page per box, or one page per SKU when requested.
- * Orders with PALLET_SLIP_MIN_BOXES+ boxes get a pallet slip as the last page.
+ * `palletSlip` adds one Packing Pallet Slip (all boxes) as the last page;
+ * when omitted it follows defaultPalletSlip(boxes).
  */
 export async function generateThermalBoxSlipPdf(input: {
   orderLabel: string;
@@ -409,9 +452,12 @@ export async function generateThermalBoxSlipPdf(input: {
   skus: ThermalSlipSku[];
   boxes: ThermalSlipBox[];
   layout: "multiple" | "one_per_slip";
+  palletSlip?: boolean;
 }): Promise<Buffer> {
   const skuById = new Map(input.skus.map((sku) => [sku.id, sku]));
-  const skuIndexById = new Map(input.skus.map((sku, i) => [sku.id, i + 1]));
+  const skuIndexById = new Map(
+    input.skus.map((sku, i) => [sku.id, sku.number ?? i + 1])
+  );
   const boxes =
     input.boxes.length > 0 ? input.boxes : [{ boxNumber: 1, lines: [] }];
   const boxCount = boxes.length;
@@ -582,7 +628,7 @@ export async function generateThermalBoxSlipPdf(input: {
         });
       });
     }
-    if (boxes.length >= PALLET_SLIP_MIN_BOXES) {
+    if (input.palletSlip ?? defaultPalletSlip(input.boxes.length)) {
       drawPalletSlip(doc, {
         orderLabel: input.orderLabel,
         skus: input.skus,

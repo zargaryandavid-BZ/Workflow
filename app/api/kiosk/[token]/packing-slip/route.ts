@@ -26,6 +26,7 @@ export async function POST(
     layout?: "multiple" | "one_per_slip";
     pageSize?: "letter" | "4x6";
     boxes?: PackingSlipBoxInput[];
+    palletSlip?: boolean;
   };
   const orderId = body.order_id?.trim() ?? "";
   if (!orderId) {

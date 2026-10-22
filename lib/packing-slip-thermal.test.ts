@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { formatCustomBoxSize } from "./box-size-presets.ts";
 import {
   generateThermalBoxSlipPdf,
+  palletSlipRows,
   thermalBoxBannerLabel,
   thermalBoxDetailLabels,
   thermalInBoxQtyLabel,
@@ -32,7 +33,7 @@ describe("generateThermalBoxSlipPdf", () => {
     };
     assert.equal(
       thermalBoxBannerLabel(box, 5, 1, 1),
-      "PACKING SLIP  ·  BOX 2 OF 5"
+      "PACKING BOX SLIP  ·  BOX 2 OF 5"
     );
     assert.deepEqual(thermalBoxDetailLabels(box), {
       size: "10×8×6 in",
@@ -59,7 +60,8 @@ describe("generateThermalBoxSlipPdf", () => {
     });
     assert.equal(pdf.subarray(0, 5).toString("utf8"), "%PDF-");
     assert.match(pdf.toString("latin1"), /MediaBox \[0 0 288 432\]/);
-    assert.equal(pageCount(pdf), 3);
+    // 2 box slip pages for box 1, 1 for box 2, + 1 pallet slip.
+    assert.equal(pageCount(pdf), 4);
   });
 
   it("prints one 4x6 page per SKU placement", async () => {
@@ -78,6 +80,7 @@ describe("generateThermalBoxSlipPdf", () => {
         },
       ],
     });
+    // 1 box → pallet slip off by default: 2 SKU pages only.
     assert.equal(pageCount(pdf), 2);
   });
 
@@ -98,6 +101,53 @@ describe("generateThermalBoxSlipPdf", () => {
       ],
     });
     assert.equal(pdf.subarray(0, 5).toString("utf8"), "%PDF-");
+    // 1 box → no pallet slip by default.
     assert.equal(pageCount(pdf), 1);
+  });
+
+  it("adds the pallet slip only when asked (default: 2+ boxes)", async () => {
+    const oneBox = [{ boxNumber: 1, lines: [{ skuId: "sku-1", qty: 5 }] }];
+    const twoBoxes = [
+      ...oneBox,
+      { boxNumber: 2, lines: [{ skuId: "sku-2", qty: 5 }] },
+    ];
+    const base = { orderLabel: "1-1", customerName: "", skus, layout: "multiple" as const };
+    assert.equal(pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: oneBox })), 1);
+    assert.equal(
+      pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: oneBox, palletSlip: true })),
+      2
+    );
+    assert.equal(pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: twoBoxes })), 3);
+    assert.equal(
+      pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: twoBoxes, palletSlip: false })),
+      2
+    );
+  });
+
+  it("uses the SKU's own number, not its list position", () => {
+    const rows = palletSlipRows(
+      [
+        { id: "a", name: "A", number: 1 },
+        { id: "__pdf_page_1__", name: "A", number: 1 },
+        { id: "b", name: "B", number: 2 },
+      ],
+      [{ boxNumber: 1, lines: [{ skuId: "b", qty: 3 }] }]
+    );
+    assert.equal(rows[0].itemNumber, 2);
+  });
+
+  it("lists every SKU in every box on the pallet slip", () => {
+    const rows = palletSlipRows(skus, [
+      { boxNumber: 1, lines: [{ skuId: "sku-2", qty: 10 }, { skuId: "sku-1", qty: 5 }] },
+      { boxNumber: 2, lines: [{ skuId: "sku-1", qty: 7 }, { skuId: "sku-2", qty: 0 }] },
+    ]);
+    assert.deepEqual(
+      rows.map((r) => [r.itemNumber, r.qty, r.boxNumber]),
+      [
+        [1, 5, 1],
+        [2, 10, 1],
+        [1, 7, 2],
+      ]
+    );
   });
 });

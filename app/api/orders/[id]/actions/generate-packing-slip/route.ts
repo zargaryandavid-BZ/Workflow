@@ -51,6 +51,8 @@ export async function POST(
     boxCount?: number | null;
     pageSize?: "letter" | "4x6";
     boxes?: PackingSlipBoxInput[];
+    /** 4×6 only: add the Packing Pallet Slip as the last page. */
+    palletSlip?: boolean;
   } = {};
   try {
     body = (await request.json()) as typeof body;
@@ -133,6 +135,8 @@ export async function POST(
       boxCount: typeof body.boxCount === "number" && body.boxCount > 0 ? Math.floor(body.boxCount) : undefined,
       pageSize: body.pageSize === "4x6" ? "4x6" : "letter",
       boxes: normalizeSlipBoxes(body.boxes),
+      palletSlip:
+        typeof body.palletSlip === "boolean" ? body.palletSlip : undefined,
     });
     pdfBuffer = buffer;
   } catch (err) {

@@ -187,6 +187,8 @@ export async function generatePackingSlipPdfFromExport(
     /** Sender thermal labels. Letter size stays the default. */
     pageSize?: "letter" | "4x6";
     boxes?: ThermalSlipBox[];
+    /** 4×6 only: add the Packing Pallet Slip as the last page. */
+    palletSlip?: boolean;
   }
 ): Promise<{ buffer: Buffer }> {
   // Load composite artwork URLs from the proof/layer-preview system.
@@ -311,16 +313,19 @@ export async function generatePackingSlipPdfFromExport(
           ? pdfData.customerName
           : "",
       skus: pdfData.skuRows.flatMap((row, index) => {
+        // Alias entries share the real SKU's number so labels read 1, 2, 3…
         const sku = {
           id: row.id,
           name: row.name,
           imageUrl: row.imageLinks[0] ?? null,
+          number: index + 1,
         };
         const pageId = `__pdf_page_${index + 1}__`;
         return row.id === pageId ? [sku] : [sku, { ...sku, id: pageId }];
       }),
       boxes: opts.boxes,
       layout: opts.layout === "one_per_slip" ? "one_per_slip" : "multiple",
+      palletSlip: opts.palletSlip,
     });
     return { buffer };
   }
@@ -402,6 +407,7 @@ export async function generateFloorPackingSlip(
     layout?: "multiple" | "one_per_slip";
     pageSize?: "letter" | "4x6";
     boxes?: PackingSlipBoxInput[];
+    palletSlip?: boolean;
   }
 ): Promise<
   { buffer: Buffer; orderNumber: string; part: number; totalParts: number } | {
@@ -445,6 +451,8 @@ export async function generateFloorPackingSlip(
       layout: body.layout === "one_per_slip" ? "one_per_slip" : "multiple",
       pageSize: body.pageSize === "4x6" ? "4x6" : "letter",
       boxes: normalizeSlipBoxes(body.boxes),
+      palletSlip:
+        typeof body.palletSlip === "boolean" ? body.palletSlip : undefined,
     });
     if (!buffer?.length) {
       return { error: "Packing slip PDF was empty", status: 500 };

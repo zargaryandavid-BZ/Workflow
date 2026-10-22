@@ -498,6 +498,14 @@ function SenderPackingSlipWizard({
   const [boxCountKeypadOpen, setBoxCountKeypadOpen] = useState(false);
   const replaceBoxCountRef = useRef(true);
   const [boxes, setBoxes] = useState<SlipLine[][]>([]);
+  // Pallet slip: checked by default for 2+ boxes, unchecked for 1. Picking a
+  // new box qty resets the user's manual choice back to that default.
+  const [palletOverride, setPalletOverride] = useState<boolean | null>(null);
+  const [palletForCount, setPalletForCount] = useState(boxCount);
+  if (palletForCount !== boxCount) {
+    setPalletForCount(boxCount);
+    setPalletOverride(null);
+  }
   const [boxDetails, setBoxDetails] = useState<SlipBoxDetails[]>([]);
   const [lineQtyKeypad, setLineQtyKeypad] = useState<{
     boxIndex: number;
@@ -722,6 +730,27 @@ function SenderPackingSlipWizard({
       issues.push(`Box ${index + 1} is empty`);
     }
   });
+  const palletBoxCount =
+    step === 2 ? boxes.length : Math.max(1, Math.floor(Number(boxCount)) || 1);
+  const palletSlip = palletOverride ?? palletBoxCount > 1;
+  const palletCheckbox = (
+    <label className="flex cursor-pointer items-center gap-2.5 text-[14px] text-slate-700">
+      <input
+        type="checkbox"
+        checked={palletSlip}
+        onChange={(e) => setPalletOverride(e.target.checked)}
+        className="h-5 w-5 shrink-0 cursor-pointer rounded border-slate-300 accent-slate-900"
+      />
+      <span>
+        <span className="font-medium text-slate-800">Pallet slip</span>
+        <span className="text-slate-400">
+          {" "}
+          — one extra slip listing every box
+        </span>
+      </span>
+    </label>
+  );
+
   // Print is always allowed — `issues` is only a heads-up shown above the
   // buttons (short SKUs / empty boxes), never a blocker.
 
@@ -744,6 +773,7 @@ function SenderPackingSlipWizard({
         totalParts,
         layout,
         pageSize: "4x6" as const,
+        palletSlip,
         boxes: boxes.map((lines, index) => ({
           boxNumber: index + 1,
           sizeLabel:
@@ -891,6 +921,7 @@ function SenderPackingSlipWizard({
                 className="h-14 w-28 cursor-pointer rounded-xl border border-slate-200 text-center text-[20px] font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
               />
             </label>
+            <div className="mt-4">{palletCheckbox}</div>
             <p className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               SKUs
             </p>
@@ -1179,6 +1210,7 @@ function SenderPackingSlipWizard({
         ) : null}
 
         <div className="shrink-0 border-t border-slate-100 px-5 py-4">
+          {step === 2 ? <div className="mb-3">{palletCheckbox}</div> : null}
           {!error && step === 2 && issues.length > 0 ? (
             <p className="mb-3 text-[12px] text-slate-500">
               Heads up: {issues[0]}
