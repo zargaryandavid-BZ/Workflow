@@ -112,6 +112,20 @@ function extractFinishingFromProductText(text: string): string {
   return "";
 }
 
+function alignSkuNameFinishing(name: string, finishing: string): string {
+  const current = extractFinishingFromProductText(name);
+  if (
+    !current ||
+    !finishing ||
+    current.toLowerCase() === finishing.toLowerCase()
+  ) {
+    return name;
+  }
+  const trimmed = name.trim();
+  if (!trimmed.toLowerCase().endsWith(current.toLowerCase())) return name;
+  return `${trimmed.slice(0, trimmed.length - current.length)}${finishing}`;
+}
+
 function fieldNumber(data: OrderExportData, ...names: string[]): number | null {
   const raw = fieldRaw(data, ...names);
   if (raw == null || raw === "") return null;
@@ -256,13 +270,14 @@ export function buildFullOrderWebhookPayload(
     data.designTask ||
     (typeof specs.design_task === "string" ? specs.design_task.trim() : "");
 
-  const productionNotes = formatNoteHistoryText(
-    typeof specs.production_notes === "string" ? specs.production_notes : ""
-  );
+  const internalNotes = formatNoteHistoryText(order.internal_note);
+  const productionNotes =
+    formatNoteHistoryText(
+      typeof specs.production_notes === "string" ? specs.production_notes : ""
+    ) || internalNotes;
   const designerNotes = formatNoteHistoryText(
     typeof specs.designer_notes === "string" ? specs.designer_notes : ""
   );
-  const internalNotes = formatNoteHistoryText(order.internal_note);
 
   // Line-item title (UI “Line 1” / webhook_item_title) — this is the job title for Pulse.
   const itemTitle =
@@ -280,7 +295,7 @@ export function buildFullOrderWebhookPayload(
   const color =
     fieldString(data, "Color Mode", "Color") ||
     (typeof specs.color === "string" ? specs.color : "") ||
-    "";
+    null;
 
   const application =
     isApplicationEnabled(order.specs, data.customFields, data.fieldValues) ||
@@ -335,7 +350,7 @@ export function buildFullOrderWebhookPayload(
     materials: fieldString(data, "Materials", "Material", "Paper Stock"),
     specialEffects: fieldString(data, "Special effects", "Special Effects"),
     finishing,
-    sides: fieldString(data, "Sides"),
+    sides: fieldString(data, "Sides") || null,
     position: fieldString(data, "Position"),
     rollDirection: fieldString(data, "Roll Direction"),
     color,
@@ -368,11 +383,11 @@ export function buildFullOrderWebhookPayload(
             }));
       const links = files.map((f) => f.url);
       return {
-        name: row.name || "",
+        name: alignSkuNameFinishing(row.name || "", finishing),
         quantity: row.qty,
-        artworkUrl: links[0] ?? "",
-        imageUrl: links[0] ?? "",
-        thumbnailUrl: links[1] ?? links[0] ?? "",
+        artworkUrl: links[0] ?? null,
+        imageUrl: links[0] ?? null,
+        thumbnailUrl: links[1] ?? links[0] ?? null,
         images: links,
         artworkFiles: files,
       };

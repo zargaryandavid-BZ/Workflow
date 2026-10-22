@@ -156,3 +156,125 @@ test("Pulse URL always uses full payload while preserving legacy customFields", 
   assert.equal(merged.customer, "Opal & Oak");
   assert.deepEqual(merged.customFields, customFields);
 });
+
+test("Pulse production notes fall back to the card internal notes", () => {
+  const payload = buildFullOrderWebhookPayload({
+    order: {
+      id: "order-uuid",
+      title: "15479-1",
+      priority: "normal",
+      due_date: null,
+      internal_note: "Need hanging hole.",
+      specs: {},
+    },
+    columnName: "Prepress",
+    fieldValues: {},
+    customFields: [],
+    skuRows: [],
+    totalQty: 0,
+    customerName: "Safe Care Packaging",
+    product: "Lay Flat Pouches",
+    die: "",
+    orderNumber: "15479-1",
+    tenantName: "BazaarPrinting",
+    ownerName: "Maria",
+    designerName: "Marianna",
+    designTask: "",
+    artworkLink: "",
+    priority: "normal",
+  } as unknown as OrderExportData);
+
+  assert.equal(payload.productionNotes, "Need hanging hole.");
+});
+
+test("Pulse uses null for unknown sides, color, and SKU artwork", () => {
+  const payload = buildFullOrderWebhookPayload({
+    order: {
+      id: "order-uuid",
+      title: "15479-1",
+      priority: "normal",
+      due_date: null,
+      internal_note: null,
+      specs: {},
+    },
+    columnName: "Prepress",
+    fieldValues: {},
+    customFields: [],
+    skuRows: [
+      {
+        id: "sku-1",
+        index: 0,
+        name: "Lay Flat Pouches",
+        qty: 5000,
+        imageLinks: [],
+        imageFiles: [],
+      },
+    ],
+    totalQty: 5000,
+    customerName: "Safe Care Packaging",
+    product: "Lay Flat Pouches",
+    die: "",
+    orderNumber: "15479-1",
+    tenantName: "BazaarPrinting",
+    ownerName: "",
+    designerName: "",
+    designTask: "",
+    artworkLink: "",
+    priority: "normal",
+  } as unknown as OrderExportData);
+
+  assert.equal(payload.sides, null);
+  assert.equal(payload.color, null);
+  assert.equal(
+    (payload.skus as { artworkUrl: string | null }[])[0]?.artworkUrl,
+    null
+  );
+});
+
+test("Pulse keeps real artwork URLs and aligns stale SKU finishing to the card", () => {
+  const finishingField = field("finishing", "Finishing", 1);
+  const payload = buildFullOrderWebhookPayload({
+    order: {
+      id: "order-uuid",
+      title: "15479-1",
+      priority: "normal",
+      due_date: null,
+      internal_note: null,
+      specs: {},
+    },
+    columnName: "Prepress",
+    fieldValues: { finishing: "Matte Lamination" },
+    customFields: [finishingField],
+    skuRows: [
+      {
+        id: "sku-1",
+        index: 0,
+        name: "Lay Flat Pouches – MET PET – Gloss Lamination",
+        qty: 5000,
+        imageLinks: ["https://example.com/signed-final.pdf"],
+        imageFiles: [],
+      },
+    ],
+    totalQty: 5000,
+    customerName: "Safe Care Packaging",
+    product: "Lay Flat Pouches",
+    die: "",
+    orderNumber: "15479-1",
+    tenantName: "BazaarPrinting",
+    ownerName: "",
+    designerName: "",
+    designTask: "",
+    artworkLink: "",
+    priority: "normal",
+  } as unknown as OrderExportData);
+
+  assert.equal(payload.finishing, "Matte Lamination");
+  assert.equal(
+    (payload.skus as { name: string }[])[0]?.name,
+    "Lay Flat Pouches – MET PET – Matte Lamination"
+  );
+  assert.equal(
+    (payload.skus as { artworkUrl: string | null }[])[0]?.artworkUrl,
+    "https://example.com/signed-final.pdf"
+  );
+});
