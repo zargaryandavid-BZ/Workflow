@@ -1326,8 +1326,9 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     const targetColumn = columns.find(
       (column) => column.id === button.columnId
     );
-    const opensShippingSetup =
-      targetColumn?.kind === "ready_to_ship" && !scanApiBase;
+    // Ready to Ship columns always open the box-size popup — on the staff page
+    // and on the no-login floor / kiosk page (via `<scanApiBase>/ready-to-ship`).
+    const opensShippingSetup = targetColumn?.kind === "ready_to_ship";
     if (
       isTouchScan() &&
       !opensShippingSetup &&
@@ -1344,7 +1345,11 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     setActionFeedback({ phase: "loading", label: button.label });
     try {
       if (opensShippingSetup) {
-        const orderRes = await fetch(`/api/orders/${order.id}`);
+        const orderRes = await fetch(
+          scanApiBase
+            ? `${scanApiBase}/ready-to-ship/order?orderId=${encodeURIComponent(order.id)}`
+            : `/api/orders/${order.id}`
+        );
         const orderJson = await orderRes.json().catch(() => ({})) as {
           error?: string;
           order?: OrderWithRelations;
@@ -1588,6 +1593,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           customFields={customFields}
           fieldValues={{}}
           smsConfigured={smsConfigured}
+          apiBase={scanApiBase ? `${scanApiBase}/ready-to-ship` : undefined}
           onClose={() => setReadyToShipPopup(null)}
           onSent={() => void completeReadyToShipAction()}
         />
@@ -2011,7 +2017,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               <button
                 type="button"
                 onClick={() => setPickupOpen(true)}
-                onMouseDown={(event) => event.preventDefault()}
+                onMouseDown={(event) => { if (!("ontouchstart" in window)) event.preventDefault(); }}
                 disabled={
                   !order ||
                   actingOn !== null ||
@@ -2044,7 +2050,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     key={button.id}
                     type="button"
                     onClick={() => void handleAction(button)}
-                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseDown={(e) => { if (!("ontouchstart" in window)) e.preventDefault(); }}
                     disabled={
                       !order ||
                       !configured ||

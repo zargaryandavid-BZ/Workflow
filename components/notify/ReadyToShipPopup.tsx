@@ -71,6 +71,11 @@ interface Props {
   onSent: (toastMessage: string) => void;
   /** Tell the board to show all parts in this column right after a group move. */
   onMovedGroup?: () => void;
+  /**
+   * No-login floor / kiosk scan: `<scanApiBase>/ready-to-ship`. When set, the
+   * popup uses those endpoints and sends only to the customer's saved contact.
+   */
+  apiBase?: string;
 }
 
 function emptyBox(): BoxDraft {
@@ -102,7 +107,9 @@ export function ReadyToShipPopup({
   dismissing = false,
   onSent,
   onMovedGroup,
+  apiBase,
 }: Props) {
+  const publicMode = Boolean(apiBase);
   const contact = useMemo(
     () => customerContactFromOrder(order, fieldValues, customFields),
     [order, fieldValues, customFields]
@@ -152,7 +159,9 @@ export function ReadyToShipPopup({
     selectedId: pickupLocationId,
     setSelectedId: setPickupLocationId,
     selected: selectedPickup,
-  } = useStaffPickupLocations();
+  } = useStaffPickupLocations(
+    apiBase ? `${apiBase}/pickup-locations` : undefined
+  );
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
   const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
@@ -164,14 +173,14 @@ export function ReadyToShipPopup({
   const refreshCheck = useCallback(async () => {
     try {
       const r = await fetch(
-        `/api/board/ready-to-ship-check?orderId=${encodeURIComponent(order.id)}&columnId=${encodeURIComponent(columnId)}`
+        `${apiBase ? `${apiBase}/check` : "/api/board/ready-to-ship-check"}?orderId=${encodeURIComponent(order.id)}&columnId=${encodeURIComponent(columnId)}`
       );
       const data = (await r.json()) as CheckResult;
       setCheckResult(data);
     } catch {
       /* non-critical */
     }
-  }, [order.id, columnId]);
+  }, [order.id, columnId, apiBase]);
 
   useEffect(() => {
     void refreshCheck();
@@ -185,11 +194,14 @@ export function ReadyToShipPopup({
     setMovingAll(true);
     setError(null);
     try {
-      const res = await fetch("/api/board/ready-to-ship/move-group", {
+      const res = await fetch(
+        apiBase ? `${apiBase}/move-group` : "/api/board/ready-to-ship/move-group",
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId: order.id, toColumnId: columnId }),
-      });
+        }
+      );
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to move parts");
       // Reflect the move on the board right away so the other line items jump
@@ -201,7 +213,7 @@ export function ReadyToShipPopup({
     } finally {
       setMovingAll(false);
     }
-  }, [order.id, columnId, refreshCheck]);
+  }, [order.id, columnId, refreshCheck, apiBase, onMovedGroup]);
 
   const orderLabel = checkResult?.groupLabel?.trim() || order.title;
   const notifyLabel =
@@ -371,7 +383,8 @@ export function ReadyToShipPopup({
       const { ok, data } = await postJsonWithTimeout<{
         error?: string;
         portalUrl?: string;
-      }>(`/api/orders/${order.id}/actions/ready-to-ship`, {
+      }>(apiBase ? `${apiBase}/send` : `/api/orders/${order.id}/actions/ready-to-ship`, {
+        orderId: order.id,
         channel,
         boxes: boxesRequired ? boxes : [],
         dimUnit,
@@ -803,7 +816,7 @@ export function ReadyToShipPopup({
                 Manual
               </button>
             </div>
-            {!isManual ? (
+            {!isManual && !publicMode ? (
               <SaveChannelAsDefault
                 contact={contact}
                 className="mt-1.5"
@@ -844,6 +857,7 @@ export function ReadyToShipPopup({
                   id="rts-to"
                   type={showsEmailFields ? "email" : "tel"}
                   value={to}
+                  readOnly={publicMode}
                   onChange={(e) => setTo(e.target.value)}
                   placeholder={
                     showsEmailFields
@@ -866,6 +880,7 @@ export function ReadyToShipPopup({
                     id="rts-to-phone"
                     type="tel"
                     value={bothPhone}
+                    readOnly={publicMode}
                     onChange={(e) => setBothPhone(e.target.value)}
                     placeholder="+1 555 123 4567"
                   />

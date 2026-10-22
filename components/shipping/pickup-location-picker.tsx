@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import type { StaffPickupLocation } from "@/lib/pickup-locations";
 
-export function useStaffPickupLocations() {
+export function useStaffPickupLocations(
+  url = "/api/shipping/pickup-locations"
+) {
   const [locations, setLocations] = useState<StaffPickupLocation[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/shipping/pickup-locations")
+    fetch(url)
       .then((r) => r.json())
       .then((json: { locations?: StaffPickupLocation[] }) => {
         if (cancelled) return;
@@ -26,7 +28,7 @@ export function useStaffPickupLocations() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [url]);
 
   const selected =
     locations.find((l) => l.id === selectedId) ?? locations[0] ?? null;
