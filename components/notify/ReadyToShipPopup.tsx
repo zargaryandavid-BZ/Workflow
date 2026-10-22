@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Copy, Mail, MessageSquare, Package, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -464,7 +465,7 @@ export function ReadyToShipPopup({
   const isManual = channel === "manual";
   const showsEmailFields = channel === "email" || channel === "both";
 
-  return (
+  const content = (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
       <div
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
@@ -500,7 +501,7 @@ export function ReadyToShipPopup({
           </button>
         </div>
 
-        <div className="space-y-4 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4" style={{ WebkitOverflowScrolling: "touch" }}>
           {checkResult && checkResult.siblingCount > 1 ? (
             <div
               className={cn(
@@ -960,4 +961,5 @@ export function ReadyToShipPopup({
       </div>
     </div>
   );
+  return createPortal(content, document.body);
 }
