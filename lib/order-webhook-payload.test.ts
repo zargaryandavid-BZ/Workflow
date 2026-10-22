@@ -44,6 +44,10 @@ test("Pulse receives the complete card payload", () => {
       specs: {
         production_notes: "Handle carefully",
         webhook_item_title: "Jar labels",
+        cutting_type: "Converting",
+        spec_selections: {
+          DIE_NUMBER: "Die #42",
+        },
       },
     },
     columnName: "Prepress",
@@ -100,7 +104,8 @@ test("Pulse receives the complete card payload", () => {
   assert.equal(payload.materials, "White BOPP");
   assert.equal(payload.finishing, "Matte Lamination");
   assert.equal(payload.sides, "Single-sided");
-  assert.equal(payload.die, "Jar label");
+  assert.equal(payload.die, "Die #42");
+  assert.equal(payload.dieCut, "Converting");
   assert.equal(payload.sizeWidth, 4);
   assert.equal(payload.sizeHeight, 6);
   assert.equal(payload.color, "CMYK");
@@ -188,6 +193,7 @@ test("Pulse production notes fall back to the card internal notes", () => {
 });
 
 test("Pulse uses null for unknown sides, color, and SKU artwork", () => {
+  const dieField = field("die", "Die", 1);
   const payload = buildFullOrderWebhookPayload({
     order: {
       id: "order-uuid",
@@ -195,11 +201,14 @@ test("Pulse uses null for unknown sides, color, and SKU artwork", () => {
       priority: "normal",
       due_date: null,
       internal_note: null,
-      specs: {},
+      specs: {
+        cutting_type: "Converting",
+        webhook_order_number: "ORD-2026-15479",
+      },
     },
     columnName: "Prepress",
-    fieldValues: {},
-    customFields: [],
+    fieldValues: { die: "Converting" },
+    customFields: [dieField],
     skuRows: [
       {
         id: "sku-1",
@@ -213,7 +222,7 @@ test("Pulse uses null for unknown sides, color, and SKU artwork", () => {
     totalQty: 5000,
     customerName: "Safe Care Packaging",
     product: "Lay Flat Pouches",
-    die: "",
+    die: "Converting",
     orderNumber: "15479-1",
     tenantName: "BazaarPrinting",
     ownerName: "",
@@ -225,6 +234,9 @@ test("Pulse uses null for unknown sides, color, and SKU artwork", () => {
 
   assert.equal(payload.sides, null);
   assert.equal(payload.color, null);
+  assert.equal(payload.die, null);
+  assert.equal(payload.dieCut, "Converting");
+  assert.equal(payload.workflowOrderNumber, "15479-1");
   assert.equal(
     (payload.skus as { artworkUrl: string | null }[])[0]?.artworkUrl,
     null

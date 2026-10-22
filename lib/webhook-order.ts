@@ -1599,7 +1599,7 @@ function mergeItemWithOrder(
       order.category_name
     ),
     finished_size: firstNonEmpty(item.finished_size, order.finished_size),
-    die: firstNonEmpty(item.die, item.cutting_type, order.die),
+    die: firstNonEmpty(item.die, order.die),
     materials: firstNonEmpty(
       item.materials,
       item.material,
@@ -1829,7 +1829,7 @@ function mergeDesignerInput(
 function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
   const width = formatDimension(item.width);
   const height = formatDimension(item.height);
-  const die = firstNonEmpty(item.die, item.cutting_type);
+  const die = firstNonEmpty(item.die);
   return {
     product: item.product,
     product_category: item.product_category,

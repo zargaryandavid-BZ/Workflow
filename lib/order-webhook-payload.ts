@@ -145,6 +145,58 @@ function fieldBool(data: OrderExportData, ...names: string[]): boolean {
   return false;
 }
 
+function specString(raw: unknown): string {
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  const value = raw as Record<string, unknown>;
+  return (
+    specString(value.label) ||
+    specString(value.name) ||
+    specString(value.value)
+  );
+}
+
+function resolveActualDie(
+  data: OrderExportData,
+  specs: Record<string, unknown>,
+  cuttingType: string
+): string | null {
+  const explicitField = fieldString(
+    data,
+    "Die Number",
+    "Die #",
+    "Die No",
+    "Die Name"
+  );
+  if (explicitField) return explicitField;
+
+  const selections =
+    specs.spec_selections &&
+    typeof specs.spec_selections === "object" &&
+    !Array.isArray(specs.spec_selections)
+      ? (specs.spec_selections as Record<string, unknown>)
+      : {};
+  for (const key of ["DIE_NUMBER", "DIE_NO", "DIE_NAME", "DIE"]) {
+    const value = specString(selections[key]);
+    if (value) return value;
+  }
+  for (const key of ["die_number", "die_no", "die_name", "die"]) {
+    const value = specString(specs[key]);
+    if (value) return value;
+  }
+
+  const genericDie = (data.die || fieldString(data, "Die")).trim();
+  if (
+    !genericDie ||
+    (cuttingType &&
+      genericDie.toLowerCase() === cuttingType.toLowerCase())
+  ) {
+    return null;
+  }
+  return genericDie;
+}
+
 function asIsoDate(value: string | null | undefined): string {
   if (!value?.trim()) return "";
   // Already ISO date / datetime
@@ -331,6 +383,7 @@ export function buildFullOrderWebhookPayload(
     fieldString(data, "Designer");
   const cuttingType =
     typeof specs.cutting_type === "string" ? specs.cutting_type.trim() : "";
+  const actualDie = resolveActualDie(data, specs, cuttingType);
 
   return {
     orderId: crmOrderId,
@@ -354,7 +407,7 @@ export function buildFullOrderWebhookPayload(
     position: fieldString(data, "Position"),
     rollDirection: fieldString(data, "Roll Direction"),
     color,
-    die: data.die || fieldString(data, "Die") || "",
+    die: actualDie,
     sizeWidth: width,
     sizeHeight: height,
     application,
