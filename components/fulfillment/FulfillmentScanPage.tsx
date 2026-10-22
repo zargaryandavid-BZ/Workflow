@@ -69,7 +69,12 @@ import type { QrScannerController } from "@/lib/scan-qr-camera";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 function isPhoneScan(): boolean {
-  return /Mobi|Android|iPhone/i.test(navigator.userAgent);
+  if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) return true;
+  // iPadOS 13+ sends a desktop Mac user-agent; detect by touch-point count
+  // (real Macs have 0, iPads have 5)
+  if (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+    return true;
+  return false;
 }
 
 function isFinishedReviewRequestColumn(name: string | null | undefined) {
