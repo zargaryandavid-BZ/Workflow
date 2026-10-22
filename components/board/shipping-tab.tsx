@@ -212,7 +212,7 @@ export function ShippingTab({
     shippingRequest.client_choice === "delivery" &&
     isClientFedExSelection(shippingRequest.fedex_selection);
   const isDelivery =
-    shippingRequest.client_choice === "delivery" && !isCurri && !isClientFedex;
+    shippingRequest.client_choice === "delivery" && !isCurri;
   const rate = shippingRequest.fedex_selection;
   const clientAccountOnResponse =
     clientFedExAccountFromSelection(rate) ?? clientFedexAccount ?? null;
@@ -554,45 +554,22 @@ export function ShippingTab({
               </p>
             ) : null}
           </div>
-        ) : isClientFedex ? (
-          <div className="space-y-3 text-sm text-slate-700">
-            <p className="flex items-center gap-2 font-medium text-slate-900">
-              <Truck className="h-4 w-4 text-purple-700" />
-              FedEx with client account
-            </p>
-            <dl className="space-y-1.5">
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">FedEx account</dt>
-                <dd className="font-mono font-semibold text-slate-900">
-                  {clientFedExAccountFromSelection(rate) ?? "—"}
-                </dd>
-              </div>
-            </dl>
-            {address ? (
-              <AddressBlock
-                address={address}
-                label="Deliver to"
-                copied={addressCopied}
-                onCopy={() => void copyDeliveryAddress()}
-              />
-            ) : null}
-            {shippingRequest.responded_at ? (
-              <p className="text-slate-500">
-                Confirmed {formatDateTime(shippingRequest.responded_at)}
-              </p>
-            ) : null}
-            <p className="rounded-lg bg-purple-50 px-3 py-2 text-sm text-purple-900">
-              Buy the label in FedEx using this account. Do not bill shop FedEx.
-            </p>
-          </div>
         ) : isDelivery ? (
           <div className="space-y-3 text-sm text-slate-700">
             <p className="flex items-center gap-2 font-medium text-slate-900">
               <Truck className="h-4 w-4 text-slate-500" />
-              Shipping
+              {isClientFedex ? "FedEx with client account" : "Shipping"}
               {rate?.serviceName ? ` · ${rate.serviceName}` : null}
             </p>
             <dl className="space-y-1.5">
+              {isClientFedex ? (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">FedEx account</dt>
+                  <dd className="font-mono font-semibold text-slate-900">
+                    {clientFedExAccountFromSelection(rate) ?? "—"}
+                  </dd>
+                </div>
+              ) : null}
               {money ? (
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">Rate</dt>

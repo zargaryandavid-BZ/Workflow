@@ -15,21 +15,40 @@ export function maskFedExAccountNumber(account: string): string {
 
 /** Stored on `shipping_requests.fedex_selection` when the client bills their account. */
 export const CLIENT_FEDEX_SERVICE_TYPE = "CLIENT_ACCOUNT";
+export const DEFAULT_CLIENT_FEDEX_SERVICE = "FEDEX_GROUND";
 
-export function clientFedExSelection(account: string): FedExRateOption {
+const CLIENT_FEDEX_SERVICE_NAMES: Record<string, string> = {
+  FEDEX_GROUND: "FedEx Ground",
+  FEDEX_2_DAY: "FedEx 2Day",
+  STANDARD_OVERNIGHT: "FedEx Standard Overnight",
+};
+
+export const CLIENT_FEDEX_SERVICES = Object.entries(
+  CLIENT_FEDEX_SERVICE_NAMES
+).map(([value, label]) => ({ value, label }));
+
+export function clientFedExSelection(
+  account: string,
+  clientServiceType = DEFAULT_CLIENT_FEDEX_SERVICE
+): FedExRateOption {
   const digits = normalizeFedExAccountNumber(account);
   if (!digits) {
     throw new Error("Enter a valid FedEx account number (8–12 digits).");
   }
+  const service =
+    CLIENT_FEDEX_SERVICE_NAMES[clientServiceType] != null
+      ? clientServiceType
+      : DEFAULT_CLIENT_FEDEX_SERVICE;
   return {
     serviceType: CLIENT_FEDEX_SERVICE_TYPE,
-    serviceName: "FedEx with my account",
+    serviceName: CLIENT_FEDEX_SERVICE_NAMES[service]!,
     totalCharge: null,
     currency: "USD",
     deliveryDate: null,
     transitDays: null,
     provider: "fedex",
     clientAccountNumber: digits,
+    clientServiceType: service,
   };
 }
 

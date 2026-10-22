@@ -466,6 +466,10 @@ export type RequestFedExShipmentArgs = {
   boxes: ShippingBox[];
   deliveryAddress: ShippingDeliveryAddress;
   serviceType: string;
+  /** Bill transportation charges to this customer account (third party). */
+  billingAccountNumber?: string | null;
+  /** FedEx requires the third-party payer postal code and country. */
+  billingAddress?: { postalCode: string; countryCode: string } | null;
   shipperContact: FedExContact;
   recipientContact: FedExContact;
   /** When set, used as-is (does not re-resolve from tenant settings). */
@@ -530,6 +534,10 @@ export async function requestFedExShipment(
   const shipAccount = config.accountNumber!.trim();
   const rateAccount = config.rateAccountNumber?.trim() || "";
   const accountsToTry = [...new Set([shipAccount, rateAccount].filter(Boolean))];
+  const billingAccountNumber = args.billingAccountNumber?.trim() || "";
+  const billingPostalCode = args.billingAddress?.postalCode?.trim() || "";
+  const billingCountryCode =
+    args.billingAddress?.countryCode?.trim().toUpperCase() || "US";
   const country =
     (args.deliveryAddress.country ?? "US").trim().toUpperCase() || "US";
   const residential = args.deliveryAddress.residential !== false;
@@ -583,10 +591,20 @@ export async function requestFedExShipment(
           },
         ],
         shippingChargesPayment: {
-          paymentType: "SENDER",
+          paymentType: billingAccountNumber ? "THIRD_PARTY" : "SENDER",
           payor: {
             responsibleParty: {
-              accountNumber: { value: accountNumber },
+              accountNumber: {
+                value: billingAccountNumber || accountNumber,
+              },
+              ...(billingAccountNumber
+                ? {
+                    address: {
+                      postalCode: billingPostalCode,
+                      countryCode: billingCountryCode,
+                    },
+                  }
+                : {}),
             },
           },
         },
@@ -720,6 +738,8 @@ export async function createFedExShipment(args: {
   boxes: ShippingBox[];
   deliveryAddress: ShippingDeliveryAddress;
   serviceType: string;
+  billingAccountNumber?: string | null;
+  billingAddress?: { postalCode: string; countryCode: string } | null;
   settings?: ShippingSettings | null;
   shipperContact: FedExContact;
   recipientContact: FedExContact;

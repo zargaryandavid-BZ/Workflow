@@ -4,7 +4,6 @@ import { ensureFedExLabel } from "@/lib/fedex-label";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { isClientFedExSelection } from "@/lib/client-fedex";
 import type { ShippingRequest } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -58,13 +57,6 @@ export async function POST(
       { status: 400 }
     );
   }
-  if (isClientFedExSelection(shipReq.fedex_selection)) {
-    return NextResponse.json(
-      { error: "This job ships on the customer's FedEx account. Buy the label in FedEx, not here." },
-      { status: 400 }
-    );
-  }
-
   const admin = createAdminClient();
   const result = await ensureFedExLabel(admin, shipReq.id, { force: true });
 

@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureFedExLabel } from "@/lib/fedex-label";
-import { verifyFedExAccountNumber } from "@/lib/fedex";
 import {
   clientFedExSelection,
   isClientFedExSelection,
-  normalizeFedExAccountNumber,
 } from "@/lib/client-fedex";
 import { completeShippingResponse } from "@/lib/shipping-confirm";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
@@ -94,7 +92,8 @@ export async function POST(
     if (clientFedex) {
       try {
         body.fedexSelection = clientFedExSelection(
-          body.fedexSelection?.clientAccountNumber ?? ""
+          body.fedexSelection?.clientAccountNumber ?? "",
+          body.fedexSelection?.clientServiceType ?? undefined
         );
       } catch (err) {
         return NextResponse.json(
@@ -106,14 +105,6 @@ export async function POST(
           },
           { status: 422 }
         );
-      }
-      const check = await verifyFedExAccountNumber(
-        normalizeFedExAccountNumber(body.fedexSelection.clientAccountNumber) ??
-          "",
-        settings
-      );
-      if (!check.ok) {
-        return NextResponse.json({ error: check.error }, { status: 400 });
       }
     }
     if (
@@ -249,13 +240,21 @@ export async function POST(
   const isFedExDelivery =
     body.choice === "delivery" &&
     body.fedexSelection?.provider !== "curri" &&
-    !isClientFedExSelection(body.fedexSelection) &&
     Boolean(body.fedexSelection?.serviceType);
 
+  let labelResult: Awaited<ReturnType<typeof ensureFedExLabel>> | null = null;
   if (isFedExDelivery) {
-    // Failures are stored on the shipping request; do not fail confirm.
-    await ensureFedExLabel(admin, result.shippingRequestId);
+    // Failures are stored on the shipping request; the customer choice remains saved.
+    labelResult = await ensureFedExLabel(admin, result.shippingRequestId);
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    labelReady:
+      labelResult?.ok === true && Boolean(labelResult.storagePath),
+    labelError:
+      labelResult && !labelResult.ok ? labelResult.error : null,
+    trackingNumber:
+      labelResult?.ok === true ? labelResult.trackingNumber : null,
+  });
 }

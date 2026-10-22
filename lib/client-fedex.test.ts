@@ -20,9 +20,17 @@ describe("client FedEx account", () => {
   });
 
   it("builds a client-account shipping selection", () => {
-    const sel = clientFedExSelection("12-3456-7890");
+    const sel = clientFedExSelection("12-3456-7890", "FEDEX_2_DAY");
     assert.equal(isClientFedExSelection(sel), true);
     assert.equal(clientFedExAccountFromSelection(sel), "1234567890");
+    assert.equal(sel.clientServiceType, "FEDEX_2_DAY");
+    assert.equal(sel.serviceName, "FedEx 2Day");
     assert.equal(isClientFedExSelection(null), false);
+  });
+
+  it("defaults unsupported service values to FedEx Ground", () => {
+    const sel = clientFedExSelection("123456789", "INVALID");
+    assert.equal(sel.clientServiceType, "FEDEX_GROUND");
+    assert.equal(sel.serviceName, "FedEx Ground");
   });
 });

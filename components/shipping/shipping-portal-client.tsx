@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Car,
   ChevronDown,
+  Download,
   IdCard,
   Loader2,
   MapPin,
@@ -20,6 +21,8 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
+  CLIENT_FEDEX_SERVICES,
+  DEFAULT_CLIENT_FEDEX_SERVICE,
   clientFedExSelection,
   isClientFedExSelection,
   maskFedExAccountNumber,
@@ -55,6 +58,7 @@ export interface ShippingPortalData {
   offerCurri: boolean;
   paymentReturnSessionId?: string | null;
   paymentCancelled?: boolean;
+  clientLabelReady?: boolean;
   /** Fallback when there are no per-SKU pictures. */
   mainImageUrl?: string | null;
   /** One main gallery picture per SKU (Artwork section). */
@@ -314,11 +318,12 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     "pickup" | "delivery" | "client_fedex" | "uber"
   >(data.offerPickup ? "pickup" : offerDelivery ? "delivery" : offerClientFedex ? "client_fedex" : "uber");
   const [clientAccount, setClientAccount] = useState("");
-  const [clientAccountMasked, setClientAccountMasked] = useState<string | null>(
-    null
+  const [clientServiceType, setClientServiceType] = useState(
+    data.fedexSelection?.clientServiceType ?? DEFAULT_CLIENT_FEDEX_SERVICE
   );
-  const [clientAccountValid, setClientAccountValid] = useState(false);
-  const [validatingAccount, setValidatingAccount] = useState(false);
+  const [clientLabelReady, setClientLabelReady] = useState(
+    Boolean(data.clientLabelReady)
+  );
   const shippingOptionsRef = useRef<HTMLDivElement | null>(null);
   const ratesPanelRef = useRef<HTMLDivElement | null>(null);
   const ratesLoadSeq = useRef(0);
@@ -433,42 +438,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     }
   }
 
-  async function validateClientFedexAccount() {
-    setValidatingAccount(true);
-    setError(null);
-    setClientAccountValid(false);
-    setClientAccountMasked(null);
-    try {
-      const res = await fetch(
-        `/api/shipping/${data.token}/verify-fedex-account`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accountNumber: clientAccount }),
-        }
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error ?? "Could not validate that FedEx account.");
-      }
-      setClientAccountValid(true);
-      setClientAccountMasked(
-        typeof json.accountMasked === "string" ? json.accountMasked : null
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not validate that FedEx account."
-      );
-    } finally {
-      setValidatingAccount(false);
-    }
-  }
-
   async function confirmClientFedex() {
-    if (!clientAccountValid) {
-      setError("Validate your FedEx account number first.");
-      return;
-    }
     setConfirming(true);
     setError(null);
     try {
@@ -477,7 +447,10 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           choice: "delivery" as const,
-          fedexSelection: clientFedExSelection(clientAccount),
+          fedexSelection: clientFedExSelection(
+            clientAccount,
+            clientServiceType
+          ),
           deliveryAddress: address,
         }),
       });
@@ -486,8 +459,14 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
         throw new Error(json.error ?? "Failed to save your FedEx account.");
       }
       setDoneChoice("delivery");
-      setDoneRate(clientFedExSelection(clientAccount));
+      setDoneRate(clientFedExSelection(clientAccount, clientServiceType));
       setDoneAddress(address);
+      setClientLabelReady(Boolean(json.labelReady));
+      if (json.labelError) {
+        setError(
+          `Your shipping information was saved, but the label could not be generated: ${json.labelError}`
+        );
+      }
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to confirm");
@@ -1149,8 +1128,6 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               value={clientAccount}
               onChange={(e) => {
                 setClientAccount(e.target.value);
-                setClientAccountValid(false);
-                setClientAccountMasked(null);
               }}
               inputMode="numeric"
               autoComplete="off"
@@ -1158,36 +1135,30 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               className={addressInputClass}
             />
           </label>
-          {clientAccountValid ? (
-            <p className="text-sm font-medium text-emerald-700">
-              Account verified
-              {clientAccountMasked ? ` · ${clientAccountMasked}` : null}. You
-              can apply.
-            </p>
-          ) : null}
-
+          <label className="block text-sm font-semibold text-slate-800">
+            FedEx service
+            <select
+              value={clientServiceType}
+              onChange={(e) => setClientServiceType(e.target.value)}
+              className={addressInputClass}
+            >
+              {CLIENT_FEDEX_SERVICES.map((service) => (
+                <option key={service.value} value={service.value}>
+                  {service.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
-            disabled={validatingAccount || !clientAccount.trim()}
-            onClick={() => void validateClientFedexAccount()}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border-2 border-purple-300 bg-white px-4 py-2.5 text-sm font-medium text-purple-900 hover:bg-purple-50 disabled:opacity-50"
-          >
-            {validatingAccount ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : null}
-            Validate account
-          </button>
-
-          <button
-            type="button"
-            disabled={confirming || !clientAccountValid}
+            disabled={confirming || !clientAccount.trim()}
             onClick={() => void confirmClientFedex()}
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1a1f2e] px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
             {confirming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : null}
-            Apply
+            Confirm and Generate Label
           </button>
         </div>
       ) : null}
@@ -1389,7 +1360,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             <div className="mt-3 space-y-1 text-sm text-emerald-800">
               <p>
                 {isClientFedExSelection(doneRate)
-                  ? `We will ship on your FedEx account ${maskFedExAccountNumber(doneRate.clientAccountNumber ?? "")}`
+                  ? `${doneRate.serviceName} billed to your account ${maskFedExAccountNumber(doneRate.clientAccountNumber ?? "")}`
                   : doneRate.serviceName}
                 {!isClientFedExSelection(doneRate) &&
                 doneRate.totalCharge != null
@@ -1405,6 +1376,15 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                   {doneAddress.street}, {doneAddress.city} {doneAddress.state}{" "}
                   {doneAddress.zip}
                 </p>
+              ) : null}
+              {isClientFedExSelection(doneRate) && clientLabelReady ? (
+                <a
+                  href={`/api/shipping/${data.token}/label`}
+                  className="mx-auto mt-3 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 font-semibold text-white hover:bg-emerald-800"
+                >
+                  <Download className="h-4 w-4" />
+                  Download FedEx Label
+                </a>
               ) : null}
             </div>
           ) : null}

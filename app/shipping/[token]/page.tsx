@@ -200,6 +200,23 @@ async function customerFallbacksForOrder(
   }
 }
 
+async function clientLabelReadyForRequest(requestId: string): Promise<boolean> {
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin
+      .from("shipping_requests")
+      .select("fedex_shipment_status, fedex_label_storage_path")
+      .eq("id", requestId)
+      .maybeSingle();
+    return (
+      data?.fedex_shipment_status === "created" &&
+      Boolean(data.fedex_label_storage_path)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function PortalShell({
   orderTitle,
   children,
@@ -280,9 +297,10 @@ export default async function ShippingPortalPage({
       ? query.session_id
       : null;
 
-  const [artwork, customerFallbacks] = await Promise.all([
+  const [artwork, customerFallbacks, clientLabelReady] = await Promise.all([
     artworkForOrder(row.order_id),
     customerFallbacksForOrder(row.order_id),
+    clientLabelReadyForRequest(row.shipping_request_id),
   ]);
 
   const orderDetailRows = buildRespondOrderRows(
@@ -317,6 +335,7 @@ export default async function ShippingPortalPage({
     offerCurri: Boolean(row.offer_curri),
     paymentReturnSessionId,
     paymentCancelled: query.payment === "cancelled",
+    clientLabelReady,
     mainImageUrl: artwork.mainImageUrl,
     skuArtworks: artwork.skuPictures,
   };

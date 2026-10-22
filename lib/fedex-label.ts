@@ -8,7 +8,10 @@ import {
   fedexServiceForAddress,
   friendlyFedExServiceName,
 } from "@/lib/fedex-service-display";
-import { isClientFedExSelection } from "@/lib/client-fedex";
+import {
+  clientFedExAccountFromSelection,
+  isClientFedExSelection,
+} from "@/lib/client-fedex";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import {
   loadShippingSettings,
@@ -42,7 +45,9 @@ function isFedExDeliveryRequest(row: {
 }): boolean {
   if (row.client_choice !== "delivery") return false;
   if (row.fedex_selection?.provider === "curri") return false;
-  if (isClientFedExSelection(row.fedex_selection)) return false;
+  if (isClientFedExSelection(row.fedex_selection)) {
+    return Boolean(row.fedex_selection?.clientServiceType);
+  }
   return Boolean(row.fedex_selection?.serviceType);
 }
 
@@ -187,8 +192,14 @@ export async function ensureFedExLabel(
     );
   }
 
+  const clientAccount = clientFedExAccountFromSelection(
+    request.fedex_selection
+  );
+  const requestedService = isClientFedExSelection(request.fedex_selection)
+    ? request.fedex_selection?.clientServiceType?.trim() ?? ""
+    : request.fedex_selection?.serviceType?.trim() ?? "";
   const serviceType = fedexServiceForAddress(
-    request.fedex_selection?.serviceType?.trim() ?? "",
+    requestedService,
     address.residential
   );
   if (!serviceType) {
@@ -239,6 +250,14 @@ export async function ensureFedExLabel(
         residential: address.residential === true,
       },
       serviceType,
+      billingAccountNumber: clientAccount,
+      billingAddress: clientAccount
+        ? {
+            postalCode: address.zip.trim(),
+            countryCode:
+              (address.country ?? "US").trim().toUpperCase() || "US",
+          }
+        : null,
       settings,
       shipperContact: {
         personName: shipperName,
