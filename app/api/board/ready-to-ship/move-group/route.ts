@@ -148,6 +148,15 @@ export async function POST(request: Request) {
     nextPos += 1;
   }
 
+  // Bazaar partner portal: report the card's new column (portal cards only;
+  // runs after the response, never throws).
+  try {
+    const { scheduleBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+    scheduleBazaarPortalCurrentColumn({ tenantId: tenantId, orderIds: movedIds });
+  } catch (err) {
+    console.error("[bazaar-portal-sync] schedule failed:", err instanceof Error ? err.message : err);
+  }
+
   // One finished / review text for the whole order (gating handled inside:
   // review columns send, no-review stays opt-in, already-sent is deduped).
   if (finishedKind) {

@@ -575,6 +575,15 @@ export async function readyToShipMoveGroup(
     nextPos += 1;
   }
 
+  // Bazaar partner portal: report the card's new column (portal cards only;
+  // runs after the response, never throws).
+  try {
+    const { scheduleBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+    scheduleBazaarPortalCurrentColumn({ tenantId: tenantId, orderIds: movedIds });
+  } catch (err) {
+    console.error("[bazaar-portal-sync] schedule failed:", err instanceof Error ? err.message : err);
+  }
+
   if (finishedKind) {
     try {
       await notifyCustomerOrderFinished(

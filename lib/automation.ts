@@ -568,4 +568,13 @@ export async function onShippingOptSelected(
       to: toColumnId,
     },
   });
+
+  // Bazaar partner portal: report the card's new column (portal cards only;
+  // runs after the response, never throws).
+  try {
+    const { scheduleBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+    scheduleBazaarPortalCurrentColumn({ tenantId: tenantId, orderIds: [orderId] });
+  } catch (err) {
+    console.error("[bazaar-portal-sync] schedule failed:", err instanceof Error ? err.message : err);
+  }
 }

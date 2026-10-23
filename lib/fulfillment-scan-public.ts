@@ -374,6 +374,13 @@ export async function applyFulfillmentScanAction(input: {
     } catch (err) {
       console.error(`[${via}] logActivity failed:`, err);
     }
+    // Bazaar partner portal: a scan move must reach the portal like a board move.
+    try {
+      const { notifyBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+      await notifyBazaarPortalCurrentColumn({ tenantId, orderId: movedOrder.id });
+    } catch (err) {
+      console.error(`[${via}] bazaar-portal-sync failed:`, err);
+    }
     try {
       await onEnterColumn(supabase, movedOrder, typedColumn, tenantName, null);
     } catch (err) {

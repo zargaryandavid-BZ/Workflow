@@ -179,6 +179,8 @@ export async function notifyBazaarPortalStatus(args: {
    * round opens. Optional + additive; omitted for ordinary column moves.
    */
   approvalStatus?: BazaarPortalApprovalStatus | null;
+  /** Hold / Missing-info reason staff typed (sent as `hold_reason`). Optional. */
+  holdReason?: string | null;
 }): Promise<void> {
   try {
     const order: BazaarPortalStatusOrder = {
@@ -265,6 +267,7 @@ export async function notifyBazaarPortalStatus(args: {
           movedAt: args.movedAt,
           approvalUrl,
           approvalStatus,
+          holdReason: args.holdReason ?? null,
         })
       ),
       // Never let a slow Bazaar API hold the caller open.
@@ -481,6 +484,98 @@ export function scheduleBazaarPortalApprovalDecision(args: {
   decision: "approved" | "rejected";
 }): void {
   const run = () => notifyBazaarPortalApprovalDecision(args);
+  try {
+    after(run);
+  } catch {
+    run().catch(() => {});
+  }
+}
+
+/**
+ * Report a portal card's CURRENT column to the Bazaar portal — for every move
+ * path that is not the board move route (fulfillment scans, Ready-to-Ship group
+ * moves, shipping-option automation, box receive, customer replies, idle moves)
+ * and for a Hold reason recorded after the move.
+ *
+ * Reads the card + its column fresh from the DB (never a stale caller copy, so a
+ * late call can't drag the portal backwards), then reuses
+ * `notifyBazaarPortalStatus` — same Bazaar-sourced guard, per-partner osk_ key,
+ * BZ-* order_number and opt-in flag. Uses the service-role client so it works
+ * from staff, public-scan and customer routes alike. No-op for non-portal cards.
+ * Fire-and-forget: never throws.
+ */
+export async function notifyBazaarPortalCurrentColumn(args: {
+  tenantId: string;
+  orderId: string;
+  /** Hold / Missing-info reason to send along (hold-reason route). */
+  holdReason?: string | null;
+}): Promise<void> {
+  try {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const client = createAdminClient();
+    const { data: row } = await client
+      .from("orders")
+      .select("id, title, tenant_id, webhook_source, specs, column_id, last_moved_at")
+      .eq("id", args.orderId)
+      .eq("tenant_id", args.tenantId)
+      .is("removed_at", null)
+      .maybeSingle();
+    if (!row) return;
+    const order: BazaarPortalStatusOrder = {
+      id: row.id as string,
+      title: row.title as string,
+      webhook_source: (row.webhook_source as string | null) ?? null,
+      specs: (row.specs as Record<string, unknown> | null) ?? {},
+    };
+    if (!isBazaarPortalCard(order)) return;
+    const columnId = typeof row.column_id === "string" ? row.column_id : "";
+    if (!columnId) return;
+    const { data: col } = await client
+      .from("board_columns")
+      .select("name, kind")
+      .eq("id", columnId)
+      .eq("tenant_id", args.tenantId)
+      .maybeSingle();
+    const columnName = typeof col?.name === "string" ? col.name.trim() : "";
+    if (!columnName) return;
+    await notifyBazaarPortalStatus({
+      client,
+      tenantId: args.tenantId,
+      order,
+      columnName,
+      columnKind: typeof col?.kind === "string" ? col.kind : null,
+      movedAt: typeof row.last_moved_at === "string" ? row.last_moved_at : undefined,
+      holdReason: args.holdReason ?? null,
+    });
+  } catch (err) {
+    console.error(
+      "[bazaar-portal-sync] current-column notify failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
+ * Schedule `notifyBazaarPortalCurrentColumn` for one or more cards AFTER the
+ * response is sent (Next `after()`); falls back to running immediately (not
+ * awaited) outside a request context. Never throws.
+ */
+export function scheduleBazaarPortalCurrentColumn(args: {
+  tenantId: string;
+  orderIds: string[];
+  holdReason?: string | null;
+}): void {
+  const ids = Array.from(new Set(args.orderIds.filter(Boolean)));
+  if (ids.length === 0) return;
+  const run = async () => {
+    for (const orderId of ids) {
+      await notifyBazaarPortalCurrentColumn({
+        tenantId: args.tenantId,
+        orderId,
+        holdReason: args.holdReason ?? null,
+      });
+    }
+  };
   try {
     after(run);
   } catch {

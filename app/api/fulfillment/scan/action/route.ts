@@ -158,6 +158,14 @@ export async function POST(request: Request) {
     } catch (err) {
       console.error("[scan/action] logActivity failed:", err instanceof Error ? err.message : err);
     }
+    // Bazaar partner portal: a scan move must reach the portal like a board move
+    // (BZ-437 sat at "In production" after a scan into Production Completed).
+    try {
+      const { notifyBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+      await notifyBazaarPortalCurrentColumn({ tenantId, orderId: movedOrder.id });
+    } catch (err) {
+      console.error("[scan/action] bazaar-portal-sync failed:", err instanceof Error ? err.message : err);
+    }
     try {
       await onEnterColumn(supabase, movedOrder, typedColumn, tenantName, null);
     } catch (err) {

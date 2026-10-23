@@ -33,6 +33,8 @@ export type BazaarPortalStatusPayload = {
   moved_at: string;
   approval_url?: string;
   approval_status?: BazaarPortalApprovalStatus;
+  /** Why the card is held (Hold / Missing info reason staff typed). Optional. */
+  hold_reason?: string;
 };
 
 /**
@@ -77,6 +79,8 @@ export function buildBazaarPortalStatusPayload(args: {
   approvalUrl?: string | null;
   /** Outcome of the customer's proof round, when this callback carries one. */
   approvalStatus?: string | null;
+  /** Hold / Missing-info reason, when the card is held and staff gave one. */
+  holdReason?: string | null;
 }): BazaarPortalStatusPayload {
   const payload: BazaarPortalStatusPayload = {
     event: "job_status_update",
@@ -88,6 +92,9 @@ export function buildBazaarPortalStatusPayload(args: {
   if (approvalUrl) payload.approval_url = approvalUrl;
   const approvalStatus = sanitizeApprovalStatus(args.approvalStatus);
   if (approvalStatus) payload.approval_status = approvalStatus;
+  const holdReason =
+    typeof args.holdReason === "string" ? args.holdReason.replace(/\s+/g, " ").trim().slice(0, 500) : "";
+  if (holdReason) payload.hold_reason = holdReason;
   return payload;
 }
 
