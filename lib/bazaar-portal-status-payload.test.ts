@@ -346,3 +346,15 @@ describe("pickActiveApprovalToken includeResponded (decision callbacks)", () => 
     );
   });
 });
+
+it("hold_reason: sent (trimmed, collapsed) only when given", () => {
+  const p = buildBazaarPortalStatusPayload({
+    orderNumber: "BZ-452",
+    columnName: "Hold",
+    movedAt: "2026-10-23T18:27:02.000Z",
+    holdReason: "  please specify skus\n and qty for each ",
+  });
+  assert.equal(p.hold_reason, "please specify skus and qty for each");
+  const q = buildBazaarPortalStatusPayload({ orderNumber: "BZ-452", columnName: "Prepress" });
+  assert.equal("hold_reason" in q, false);
+});

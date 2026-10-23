@@ -1435,6 +1435,15 @@ export async function respondToNotification(
             note: params.note?.trim() || null,
           },
         });
+        try {
+          const { scheduleBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+          scheduleBazaarPortalCurrentColumn({
+            tenantId: notification.tenant_id,
+            orderIds: [notification.order_id],
+          });
+        } catch (err) {
+          console.error("[bazaar-portal-sync] schedule failed:", err instanceof Error ? err.message : err);
+        }
       } else {
         await logActivity(admin, {
           tenantId: notification.tenant_id,

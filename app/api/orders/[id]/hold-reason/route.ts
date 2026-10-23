@@ -79,6 +79,20 @@ export async function POST(
     metadata: { reason, ...(columnName ? { columnName } : {}) },
   });
 
+  // Bazaar partner portal: show the partner WHY the job is held ("We need: …").
+  // The reason is recorded after the move, so send it with the card's current
+  // column (portal cards only; after the response; never throws).
+  try {
+    const { scheduleBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+    scheduleBazaarPortalCurrentColumn({
+      tenantId: ctx.tenant.id,
+      orderIds: [orderId],
+      holdReason: reason,
+    });
+  } catch (err) {
+    console.error("[hold-reason] bazaar-portal-sync", err);
+  }
+
   const specs =
     order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
       ? (order.specs as Record<string, unknown>)

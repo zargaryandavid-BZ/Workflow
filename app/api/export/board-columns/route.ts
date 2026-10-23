@@ -23,8 +23,16 @@ type OrderRow = {
   updated_at: string | null;
   created_at: string;
   due_date: string | null;
+  last_moved_at: string | null;
   specs: Record<string, unknown> | null;
 };
+
+/** Hold / Missing-info columns: the export carries the reason staff typed. */
+function isHoldLikeColumn(name: string | null | undefined): boolean {
+  if (typeof name !== "string") return false;
+  const key = name.toLowerCase();
+  return /\bhold\b/.test(key) || key.includes("missing") || key.includes("needs info");
+}
 
 type ColumnRow = {
   id: string;
@@ -66,7 +74,9 @@ function readSecret(request: NextRequest): string | null {
  *   approval_url + approval_status (newest non-expired customer approval round:
  *   approved | rejected | pending), is_reorder, reorder_of,
  *   due_date (the card's production due date, YYYY-MM-DD, or null — Bazaar's
- *   board poller shows it as the portal "Due" date).
+ *   board poller shows it as the portal "Due" date),
+ *   hold_reason (newest Hold / Missing-info reason while the card sits in such a
+ *   column, else null — the portal shows it as "We need: …").
  */
 export async function GET(request: NextRequest) {
   const secret = readSecret(request);
@@ -132,13 +142,16 @@ export async function GET(request: NextRequest) {
     count,
   } = await adminClient
     .from("orders")
-    .select("id, title, column_id, position, updated_at, created_at, due_date, specs", {
+    .select("id, title, column_id, position, updated_at, created_at, due_date, last_moved_at, specs", {
       count: "exact",
     })
     .eq("tenant_id", tenantId)
     .is("removed_at", null)
     .order("column_id", { ascending: true })
     .order("position", { ascending: true })
+    // Tie-breaker: many cards share a position inside a column, so without a
+    // unique last key offset pages could repeat one card and skip another.
+    .order("id", { ascending: true })
     .range(offset, offset + limit - 1);
 
   if (ordersError) {
@@ -180,6 +193,45 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Optional (additive): the newest Hold / Missing-info reason for cards sitting
+  // in such a column, recorded since the card entered it (hold_reason activity).
+  // A failure here never fails the export — the rows just carry null.
+  const holdReasonByOrder = new Map<string, string>();
+  const heldRows = ((orders ?? []) as OrderRow[]).filter((o) =>
+    isHoldLikeColumn(columnById.get(o.column_id)?.name)
+  );
+  for (let i = 0; i < heldRows.length; i += APPROVAL_CHUNK) {
+    const chunk = heldRows.slice(i, i + APPROVAL_CHUNK);
+    try {
+      const { data: acts } = await adminClient
+        .from("activity_log")
+        .select("order_id, metadata, created_at")
+        .eq("tenant_id", tenantId)
+        .eq("action", "hold_reason")
+        .in("order_id", chunk.map((o) => o.id))
+        .order("created_at", { ascending: false });
+      const movedAt = new Map(chunk.map((o) => [o.id, o.last_moved_at]));
+      for (const a of (acts ?? []) as {
+        order_id: string;
+        metadata: { reason?: unknown } | null;
+        created_at: string;
+      }[]) {
+        if (holdReasonByOrder.has(a.order_id)) continue;
+        const since = movedAt.get(a.order_id);
+        // Allow a small clock slack: the reason is typed right after the move.
+        if (since && Date.parse(a.created_at) < Date.parse(since) - 5_000) continue;
+        const reason =
+          typeof a.metadata?.reason === "string" ? a.metadata.reason.trim() : "";
+        if (reason) holdReasonByOrder.set(a.order_id, reason.slice(0, 500));
+      }
+    } catch (err) {
+      console.error(
+        "[export/board-columns] hold reason lookup failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   const rows = ((orders ?? []) as OrderRow[]).map((order) => {
     const col = columnById.get(order.column_id);
     const details = boardExportDetails(
@@ -201,6 +253,9 @@ export async function GET(request: NextRequest) {
         typeof order.due_date === "string" && order.due_date
           ? order.due_date.slice(0, 10)
           : null,
+      // Why the card is held (Hold / Missing info), or null — the Bazaar portal
+      // shows it to the partner as "We need: …".
+      hold_reason: holdReasonByOrder.get(order.id) ?? null,
       ...details,
     };
   });

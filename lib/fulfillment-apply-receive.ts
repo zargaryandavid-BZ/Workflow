@@ -46,6 +46,14 @@ export async function applyFulfillmentReceiveStatus(
       .eq("id", opts.orderId)
       .eq("tenant_id", opts.tenantId);
     if (moveError) return { error: moveError.message };
+    // Bazaar partner portal: report the card's new column (portal cards only;
+    // runs after the response, never throws).
+    try {
+      const { scheduleBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+      scheduleBazaarPortalCurrentColumn({ tenantId: opts.tenantId, orderIds: [opts.orderId] });
+    } catch (err) {
+      console.error("[bazaar-portal-sync] schedule failed:", err instanceof Error ? err.message : err);
+    }
   }
 
   try {
