@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { formatCustomBoxSize } from "./box-size-presets.ts";
+import {
+  applyPresetDimensions,
+  formatCustomBoxSize,
+  presetBoxDimensions,
+  resizeBoxDrafts,
+} from "./box-size-presets.ts";
 import {
   generateThermalBoxSlipPdf,
   palletSlipRows,
@@ -22,6 +27,30 @@ describe("generateThermalBoxSlipPdf", () => {
   it("formats custom box dimensions for the printed header", () => {
     assert.equal(formatCustomBoxSize("10", "8.5", "6"), "10×8.5×6 in");
     assert.equal(formatCustomBoxSize("10", "", "6"), "");
+    assert.deepEqual(presetBoxDimensions("18×12×12 in"), {
+      length: "18",
+      width: "12",
+      height: "12",
+    });
+    assert.equal(presetBoxDimensions("Custom"), null);
+    assert.deepEqual(
+      applyPresetDimensions(
+        [{ length: "", width: "", height: "", weight: "4" }],
+        "18×12×12 in"
+      ),
+      [{ length: "18", width: "12", height: "12", weight: "4" }]
+    );
+    assert.deepEqual(
+      resizeBoxDrafts(
+        [{ length: "18", width: "12", height: "12", weight: "4" }],
+        2,
+        "18×12×12 in"
+      ),
+      [
+        { length: "18", width: "12", height: "12", weight: "4" },
+        { length: "18", width: "12", height: "12", weight: "4" },
+      ]
+    );
   });
 
   it("prints each box size and weight in its header", () => {
