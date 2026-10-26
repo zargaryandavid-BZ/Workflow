@@ -25,6 +25,12 @@ import {
   NOTIFICATION_SEND_TIMEOUT_MS,
   postJsonWithTimeout,
 } from "@/lib/fetch-with-timeout";
+import {
+  applyPresetDimensions,
+  CUSTOM_BOX_SIZE_VALUE,
+  FULFILLMENT_BOX_SIZE_PRESETS,
+  resizeBoxDrafts,
+} from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
@@ -164,6 +170,7 @@ export function ReadyToShipPopup({
   );
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
+  const [sizePreset, setSizePreset] = useState("");
   const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
   const [weightUnit, setWeightUnit] = useState<ShippingWeightUnit>("lbs");
 
@@ -295,22 +302,29 @@ export function ReadyToShipPopup({
   function updateBoxCount(next: number) {
     const safe = Math.min(20, Math.max(1, Math.floor(next) || 1));
     setBoxCount(safe);
-    setBoxes((prev) => {
-      if (safe === prev.length) return prev;
-      if (safe > prev.length) {
-        return [
-          ...prev,
-          ...Array.from({ length: safe - prev.length }, () => emptyBox()),
-        ];
-      }
-      return prev.slice(0, safe);
-    });
+    setBoxes((prev) => resizeBoxDrafts(prev, safe, sizePreset));
+  }
+
+  function applySizePreset(label: string) {
+    setSizePreset(label);
+    if (!label || label === CUSTOM_BOX_SIZE_VALUE) return;
+    const next = applyPresetDimensions(boxes, label);
+    if (!next) return;
+    setDimUnit("in");
+    setBoxes(next);
   }
 
   function updateBox(index: number, field: keyof BoxDraft, value: string) {
     setBoxes((prev) =>
       prev.map((box, i) => (i === index ? { ...box, [field]: value } : box))
     );
+    if (
+      field !== "weight" &&
+      sizePreset &&
+      sizePreset !== CUSTOM_BOX_SIZE_VALUE
+    ) {
+      setSizePreset(CUSTOM_BOX_SIZE_VALUE);
+    }
   }
 
   function duplicateBox(index: number) {
@@ -654,6 +668,22 @@ export function ReadyToShipPopup({
                 rates.
               </p>
               <label className="block text-sm text-slate-700">
+                Box size
+                <select
+                  value={sizePreset}
+                  onChange={(e) => applySizePreset(e.target.value)}
+                  className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
+                >
+                  <option value="">Select size</option>
+                  {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
+                </select>
+              </label>
+              <label className="block text-sm text-slate-700">
                 How many boxes?
                 <input
                   type="number"
@@ -669,9 +699,17 @@ export function ReadyToShipPopup({
                   Dimensions
                   <select
                     value={dimUnit}
-                    onChange={(e) =>
-                      setDimUnit(e.target.value === "cm" ? "cm" : "in")
-                    }
+                    onChange={(e) => {
+                      const next = e.target.value === "cm" ? "cm" : "in";
+                      setDimUnit(next);
+                      if (
+                        next !== "in" &&
+                        sizePreset &&
+                        sizePreset !== CUSTOM_BOX_SIZE_VALUE
+                      ) {
+                        setSizePreset(CUSTOM_BOX_SIZE_VALUE);
+                      }
+                    }}
                     className="rounded border border-slate-300 bg-white px-1.5 py-0.5"
                   >
                     <option value="in">in</option>
