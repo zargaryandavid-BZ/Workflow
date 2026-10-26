@@ -13,6 +13,7 @@ import {
   notifyCrmOrderFulfilled,
 } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
+import { removeShippingStatusForOrder } from "@/lib/shipping-status";
 import {
   buildScanCardDisplay,
   nestedCustomer,
@@ -356,6 +357,22 @@ export async function applyFulfillmentScanAction(input: {
 
   const movedOrder = { ...order, column_id: targetColumnId } as Order;
   const typedColumn = column as BoardColumn;
+
+  if (isFulfilledStage(typedColumn.name)) {
+    try {
+      await removeShippingStatusForOrder(supabase, {
+        tenantId,
+        orderId: movedOrder.id,
+        choice: "delivery",
+        reason: "fulfilled_scan",
+      });
+    } catch (err) {
+      console.error(
+        `[scan/${via}] remove shipping status failed:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   after(async () => {
     try {

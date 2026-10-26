@@ -124,6 +124,7 @@ const nav: NavItem[] = [
       { href: "/fulfillment/received", label: "Received", icon: PackageCheck },
       { href: "/fulfillment/scan", label: "Scan", icon: ScanLine },
       { href: "/fulfillment/production", label: "Production", icon: Printer },
+      { href: "/shippingstatus", label: "Shipping Status", icon: Truck },
     ],
   },
   {
@@ -204,7 +205,15 @@ export function Sidebar({ role, open, onClose, dieQuotedCount = 0 }: SidebarProp
       const next = { ...prev };
       for (const item of nav) {
         if (!item.children) continue;
-        if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
+        const childActive = item.children.some(
+          (child) =>
+            pathname === child.href || pathname.startsWith(`${child.href}/`)
+        );
+        if (
+          pathname === item.href ||
+          pathname.startsWith(`${item.href}/`) ||
+          childActive
+        ) {
           next[item.href] = true;
         }
       }
@@ -222,7 +231,16 @@ export function Sidebar({ role, open, onClose, dieQuotedCount = 0 }: SidebarProp
 
   function isMenuOpen(href: string): boolean {
     if (openMenus[href] != null) return openMenus[href];
-    return pathname === href || pathname.startsWith(`${href}/`);
+    const item = nav.find((candidate) => candidate.href === href);
+    const childActive = item?.children?.some(
+      (child) =>
+        pathname === child.href || pathname.startsWith(`${child.href}/`)
+    );
+    return (
+      pathname === href ||
+      pathname.startsWith(`${href}/`) ||
+      Boolean(childActive)
+    );
   }
 
   function navLinkClass(href: string, opts?: { nested?: boolean }) {

@@ -22,6 +22,7 @@ import { insertOrderSmsMessage } from "@/lib/order-sms";
 import { sendSms } from "@/lib/sms";
 import { automaticNotifyChannels } from "@/lib/preferred-channel";
 import { loadOrderCustomerNotifyPreference } from "@/lib/customer-notify-preference.server";
+import { removeShippingStatusForOrder } from "@/lib/shipping-status";
 
 export type PickupCustomerNotice = {
   emailSent: boolean;
@@ -248,6 +249,20 @@ export async function savePickupAndNotifyCustomer(args: {
 > {
   const saved = await savePickupConfirmation(args);
   if ("error" in saved) return saved;
+
+  try {
+    await removeShippingStatusForOrder(args.supabase, {
+      tenantId: args.tenantId,
+      orderId: args.input.orderId.trim(),
+      choice: "pickup",
+      reason: "pickup_confirmed",
+    });
+  } catch (err) {
+    console.error(
+      "[pickup] remove shipping status failed",
+      err instanceof Error ? err.message : err
+    );
+  }
 
   try {
     const customerNotified = await notifyCustomerOrderPickedUp(args.supabase, {

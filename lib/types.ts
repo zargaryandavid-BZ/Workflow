@@ -973,6 +973,9 @@ export interface ShippingRequest {
   fedex_shipment_status: FedExShipmentStatus | null;
   fedex_label_error: string | null;
   fedex_shipped_at: string | null;
+  shipping_status_seen_at: string | null;
+  shipping_status_removed_at: string | null;
+  shipping_status_removed_reason: string | null;
   sent_at: string | null;
   responded_at: string | null;
   expires_at: string | null;
