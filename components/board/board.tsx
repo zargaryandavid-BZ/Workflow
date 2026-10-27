@@ -2168,6 +2168,30 @@ export function Board({
     []
   );
 
+  /** Immediately repaint only the specified cards in a target column. */
+  const moveOrdersLocally = useCallback(
+    (orderIds: string[], toColumnId: string) => {
+      const ids = new Set(orderIds);
+      const apply = (order: OrderWithRelations): OrderWithRelations =>
+        ids.has(order.id) && order.column_id !== toColumnId
+          ? {
+              ...order,
+              column_id: toColumnId,
+              last_moved_at: new Date().toISOString(),
+            }
+          : order;
+      setOrders((previous) => {
+        const next = previous.map(apply);
+        boardOrdersRef.current = next;
+        return next;
+      });
+      setSearchResults((previous) =>
+        previous ? previous.map(apply) : previous
+      );
+    },
+    []
+  );
+
   // Move EVERY line item of an order into one column in a single click (used by
   // the "Move all N parts" toggle in the right-click menu). Quiet move; a
   // Finished column still sends one "finished / review" text for the order.
@@ -4623,6 +4647,10 @@ export function Board({
               const movedOrders = canceled.groupOrders?.length
                 ? canceled.groupOrders
                 : [canceled.order];
+              moveOrdersLocally(
+                movedOrders.map((order) => order.id),
+                canceled.fromColumnId
+              );
               void (async () => {
                 let position =
                   Math.max(

@@ -9,6 +9,7 @@ import {
   SCAN_FOCUS_EVENT,
   SCAN_LOADING_EVENT,
   SCAN_QUERY_EVENT,
+  looksLikeScanOrderNumber,
 } from "@/components/fulfillment/FulfillmentNav";
 
 interface Props {
@@ -22,6 +23,25 @@ export function KioskScanNav({ tenantName }: Props) {
   const [keypadOpen, setKeypadOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceNextInput = useRef(false);
+  const lookupTimer = useRef<number | null>(null);
+
+  function openTypedOrder(raw: string) {
+    const q = raw.trim();
+    if (!q) return;
+    if (lookupTimer.current != null) window.clearTimeout(lookupTimer.current);
+    setQuery(q);
+    setKeypadOpen(false);
+    window.dispatchEvent(
+      new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: q } })
+    );
+  }
+
+  function scheduleTypedOrder(raw: string) {
+    if (lookupTimer.current != null) window.clearTimeout(lookupTimer.current);
+    const q = raw.trim();
+    if (!looksLikeScanOrderNumber(q)) return;
+    lookupTimer.current = window.setTimeout(() => openTypedOrder(q), 200);
+  }
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -49,26 +69,14 @@ export function KioskScanNav({ tenantName }: Props) {
   }, []);
 
   function applyScanInput(next: string) {
-    if (replaceNextInput.current) {
-      replaceNextInput.current = false;
-      const prev = query;
-      setQuery(next.startsWith(prev) ? next.slice(prev.length) : next);
-      return;
-    }
+    replaceNextInput.current = false;
     setQuery(next);
+    scheduleTypedOrder(next);
   }
 
   function submit(event?: React.FormEvent) {
     event?.preventDefault();
-    const q = query.trim();
-    if (!q) return;
-    setKeypadOpen(false);
-    replaceNextInput.current = true;
-    inputRef.current?.focus();
-    inputRef.current?.select();
-    window.dispatchEvent(
-      new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: q } })
-    );
+    openTypedOrder(inputRef.current?.value ?? query);
   }
 
   return (
@@ -79,14 +87,14 @@ export function KioskScanNav({ tenantName }: Props) {
         </span>
         <Link
           href="/fulfillment/multiitem-box"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-xs font-semibold sm:h-auto sm:px-2.5 sm:py-1.5 text-slate-700 hover:bg-slate-100"
         >
           <Package className="h-4 w-4" />
           Multi-item box
         </Link>
         <form
           onSubmit={submit}
-          className="flex min-w-[16rem] flex-1 items-center gap-2"
+          className="flex min-w-full flex-1 items-center gap-2 sm:min-w-[16rem]"
         >
           <input
             ref={inputRef}
@@ -97,9 +105,16 @@ export function KioskScanNav({ tenantName }: Props) {
             spellCheck={false}
             value={query}
             onChange={(e) => applyScanInput(e.target.value)}
-            onClick={() => setKeypadOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              openTypedOrder(e.currentTarget.value);
+            }}
+            onPointerDown={(e) => {
+              if (e.pointerType === "touch") setKeypadOpen(true);
+            }}
             placeholder="e.g. 15118-1"
-            className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-[17px] text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="h-12 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[17px] sm:px-4 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
           />
           <button
             type="button"
@@ -110,14 +125,14 @@ export function KioskScanNav({ tenantName }: Props) {
             }}
             disabled={!query}
             aria-label="Clear scan text"
-            className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+            className="inline-flex h-12 w-11 shrink-0 sm:w-12 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30"
           >
             <X className="h-5 w-5" />
           </button>
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="h-12 shrink-0 rounded-xl bg-slate-900 px-5 text-[15px] font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+            className="h-12 shrink-0 rounded-xl bg-slate-900 px-4 text-[15px] sm:px-5 font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
           >
             {loading ? "…" : "Scan"}
           </button>
@@ -132,10 +147,10 @@ export function KioskScanNav({ tenantName }: Props) {
               );
             }}
             aria-label="Scan with camera"
-            className="inline-flex h-12 shrink-0 items-center gap-2 rounded-xl border border-slate-200 px-4 text-[14px] font-medium text-slate-700 hover:bg-slate-100"
+            className="inline-flex h-12 w-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 text-[14px] font-medium text-slate-700 hover:bg-slate-100 sm:w-auto sm:px-4"
           >
             <Camera className="h-5 w-5" />
-            Camera
+            <span className="hidden sm:inline">Camera</span>
           </button>
         </form>
       </header>
@@ -143,16 +158,16 @@ export function KioskScanNav({ tenantName }: Props) {
         <ScanNumberKeypad
           value={query}
           onInsert={(ch) => {
-            if (replaceNextInput.current) {
-              replaceNextInput.current = false;
-              setQuery(ch);
-              return;
-            }
-            setQuery((current) => current + ch);
+            const next = replaceNextInput.current ? ch : `${query}${ch}`;
+            replaceNextInput.current = false;
+            setQuery(next);
+            scheduleTypedOrder(next);
           }}
           onBackspace={() => {
             replaceNextInput.current = false;
-            setQuery((current) => current.slice(0, -1));
+            const next = query.slice(0, -1);
+            setQuery(next);
+            scheduleTypedOrder(next);
           }}
           onSubmit={() => submit()}
           onClose={() => setKeypadOpen(false)}

@@ -28,7 +28,7 @@ import {
 import {
   applyPresetDimensions,
   CUSTOM_BOX_SIZE_VALUE,
-  FULFILLMENT_BOX_SIZE_PRESETS,
+  READY_TO_SHIP_BOX_SIZE_PRESETS,
   resizeBoxDrafts,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
@@ -171,8 +171,8 @@ export function ReadyToShipPopup({
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
   const [sizePreset, setSizePreset] = useState("");
-  const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
-  const [weightUnit, setWeightUnit] = useState<ShippingWeightUnit>("lbs");
+  const dimUnit: ShippingDimUnit = "in";
+  const weightUnit: ShippingWeightUnit = "lbs";
 
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
   const [movingAll, setMovingAll] = useState(false);
@@ -310,7 +310,6 @@ export function ReadyToShipPopup({
     if (!label || label === CUSTOM_BOX_SIZE_VALUE) return;
     const next = applyPresetDimensions(boxes, label);
     if (!next) return;
-    setDimUnit("in");
     setBoxes(next);
   }
 
@@ -335,6 +334,13 @@ export function ReadyToShipPopup({
       ...prev.slice(index + 1),
     ]);
     setBoxCount(boxes.length + 1);
+  }
+
+  function removeBox(index: number) {
+    if (boxes.length <= 1) return;
+    const next = boxes.filter((_, i) => i !== index);
+    setBoxes(next);
+    setBoxCount(next.length);
   }
 
   async function saveAndSend() {
@@ -667,67 +673,33 @@ export function ReadyToShipPopup({
                 Required so the customer can choose pickup or delivery with
                 rates.
               </p>
-              <label className="block text-sm text-slate-700">
-                Box size
-                <select
-                  value={sizePreset}
-                  onChange={(e) => applySizePreset(e.target.value)}
-                  className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
-                >
-                  <option value="">Select size</option>
-                  {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
-                </select>
-              </label>
-              <label className="block text-sm text-slate-700">
-                How many boxes?
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={boxCount}
-                  onChange={(e) => updateBoxCount(Number(e.target.value))}
-                  className="ml-3 w-16 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                />
-              </label>
-              <div className="flex flex-wrap gap-3 text-xs text-slate-600">
-                <label className="inline-flex items-center gap-1.5">
-                  Dimensions
+              <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-end gap-3">
+                <label className="block text-sm text-slate-700">
+                  Box size
                   <select
-                    value={dimUnit}
-                    onChange={(e) => {
-                      const next = e.target.value === "cm" ? "cm" : "in";
-                      setDimUnit(next);
-                      if (
-                        next !== "in" &&
-                        sizePreset &&
-                        sizePreset !== CUSTOM_BOX_SIZE_VALUE
-                      ) {
-                        setSizePreset(CUSTOM_BOX_SIZE_VALUE);
-                      }
-                    }}
-                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5"
+                    value={sizePreset}
+                    onChange={(e) => applySizePreset(e.target.value)}
+                    className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
                   >
-                    <option value="in">in</option>
-                    <option value="cm">cm</option>
+                    <option value="">Select size</option>
+                    {READY_TO_SHIP_BOX_SIZE_PRESETS.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
                   </select>
                 </label>
-                <label className="inline-flex items-center gap-1.5">
-                  Weight
-                  <select
-                    value={weightUnit}
-                    onChange={(e) =>
-                      setWeightUnit(e.target.value === "kg" ? "kg" : "lbs")
-                    }
-                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5"
-                  >
-                    <option value="lbs">lbs</option>
-                    <option value="kg">kg</option>
-                  </select>
+                <label className="block text-sm text-slate-700">
+                  Box qty
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={boxCount}
+                    onChange={(e) => updateBoxCount(Number(e.target.value))}
+                    className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
+                  />
                 </label>
               </div>
               <div className="space-y-3" data-enter-focus-sequence>
@@ -740,28 +712,44 @@ export function ReadyToShipPopup({
                     <p className="text-sm font-medium text-slate-800">
                       Box {index + 1}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => duplicateBox(index)}
-                      disabled={boxes.length >= 20}
-                      title={
-                        boxes.length >= 20
-                          ? "Maximum 20 boxes"
-                          : `Duplicate Box ${index + 1}`
-                      }
-                      aria-label={`Duplicate Box ${index + 1}`}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => removeBox(index)}
+                        disabled={boxes.length <= 1}
+                        title={
+                          boxes.length <= 1
+                            ? "At least one box is required"
+                            : `Remove Box ${index + 1}`
+                        }
+                        aria-label={`Remove Box ${index + 1}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => duplicateBox(index)}
+                        disabled={boxes.length >= 20}
+                        title={
+                          boxes.length >= 20
+                            ? "Maximum 20 boxes"
+                            : `Duplicate Box ${index + 1}`
+                        }
+                        aria-label={`Duplicate Box ${index + 1}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Copy className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {(
                       [
-                        ["length", "Length"],
-                        ["width", "Width"],
-                        ["height", "Height"],
-                        ["weight", "Weight"],
+                        ["length", "Length (in)"],
+                        ["width", "Width (in)"],
+                        ["height", "Height (in)"],
+                        ["weight", "Weight (lb)"],
                       ] as const
                     ).map(([field, label]) => (
                       <label

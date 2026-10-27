@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, Loader2, Mail, Package, Phone } from "lucide-react";
+import { Copy, Loader2, Mail, Package, Phone, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import {
   PickupLocationPicker,
@@ -10,7 +10,7 @@ import {
 import {
   applyPresetDimensions,
   CUSTOM_BOX_SIZE_VALUE,
-  FULFILLMENT_BOX_SIZE_PRESETS,
+  READY_TO_SHIP_BOX_SIZE_PRESETS,
   resizeBoxDrafts,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
@@ -69,8 +69,8 @@ export function ShippingModal({
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
   const [sizePreset, setSizePreset] = useState("");
-  const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
-  const [weightUnit, setWeightUnit] = useState<ShippingWeightUnit>("lbs");
+  const dimUnit: ShippingDimUnit = "in";
+  const weightUnit: ShippingWeightUnit = "lbs";
   const [fulfillment, setFulfillment] = useState<"choose" | "pickup">("choose");
   const [sending, setSending] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -94,8 +94,6 @@ export function ShippingModal({
     setBoxCount(1);
     setBoxes([emptyBox()]);
     setSizePreset("");
-    setDimUnit("in");
-    setWeightUnit("lbs");
     setFulfillment("choose");
     setSending(false);
     setLocalError(null);
@@ -112,7 +110,6 @@ export function ShippingModal({
     if (!label || label === CUSTOM_BOX_SIZE_VALUE) return;
     const next = applyPresetDimensions(boxes, label);
     if (!next) return;
-    setDimUnit("in");
     setBoxes(next);
   }
 
@@ -137,6 +134,13 @@ export function ShippingModal({
       ...prev.slice(index + 1),
     ]);
     setBoxCount(boxes.length + 1);
+  }
+
+  function removeBox(index: number) {
+    if (boxes.length <= 1) return;
+    const next = boxes.filter((_, i) => i !== index);
+    setBoxes(next);
+    setBoxCount(next.length);
   }
 
   async function handleSend() {
@@ -320,33 +324,35 @@ export function ShippingModal({
 
         {boxesRequired ? (
           <>
-            <label className="block text-sm text-slate-700">
-              Box size
-              <select
-                value={sizePreset}
-                onChange={(e) => applySizePreset(e.target.value)}
-                className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
-              >
-                <option value="">Select size</option>
-                {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-                <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
-              </select>
-            </label>
-            <label className="block text-sm text-slate-700">
-              How many boxes?
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={boxCount}
-                onChange={(e) => updateBoxCount(Number(e.target.value))}
-                className="ml-3 w-16 rounded-md border border-slate-300 px-2 py-1 text-sm"
-              />
-            </label>
+            <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-end gap-3">
+              <label className="block text-sm text-slate-700">
+                Box size
+                <select
+                  value={sizePreset}
+                  onChange={(e) => applySizePreset(e.target.value)}
+                  className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
+                >
+                  <option value="">Select size</option>
+                  {READY_TO_SHIP_BOX_SIZE_PRESETS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
+                </select>
+              </label>
+              <label className="block text-sm text-slate-700">
+                Box qty
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={boxCount}
+                  onChange={(e) => updateBoxCount(Number(e.target.value))}
+                  className="mt-1 h-10 w-full rounded-md border border-slate-300 px-2 text-sm"
+                />
+              </label>
+            </div>
 
             <div className="space-y-3" data-enter-focus-sequence>
               {boxes.map((box, index) => (
@@ -358,20 +364,36 @@ export function ShippingModal({
                     <p className="text-sm font-medium text-slate-800">
                       Box {index + 1}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => duplicateBox(index)}
-                      disabled={boxes.length >= 20}
-                      title={
-                        boxes.length >= 20
-                          ? "Maximum 20 boxes"
-                          : `Duplicate Box ${index + 1}`
-                      }
-                      aria-label={`Duplicate Box ${index + 1}`}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => removeBox(index)}
+                        disabled={boxes.length <= 1}
+                        title={
+                          boxes.length <= 1
+                            ? "At least one box is required"
+                            : `Remove Box ${index + 1}`
+                        }
+                        aria-label={`Remove Box ${index + 1}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => duplicateBox(index)}
+                        disabled={boxes.length >= 20}
+                        title={
+                          boxes.length >= 20
+                            ? "Maximum 20 boxes"
+                            : `Duplicate Box ${index + 1}`
+                        }
+                        aria-label={`Duplicate Box ${index + 1}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Copy className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {(
@@ -402,7 +424,7 @@ export function ShippingModal({
                       </label>
                     ))}
                     <label className="block text-xs text-slate-500">
-                      Weight ({weightUnit}) *
+                      Weight (lb) *
                       <input
                         type="number"
                         min={0.01}
@@ -420,56 +442,6 @@ export function ShippingModal({
                   </div>
                 </div>
               ))}
-            </div>
-
-            <div className="flex flex-wrap gap-6 text-sm text-slate-700">
-              <fieldset className="space-y-1">
-                <legend className="text-xs font-medium text-slate-500">
-                  Dimensions unit
-                </legend>
-                <label className="mr-3 inline-flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    checked={dimUnit === "in"}
-                    onChange={() => setDimUnit("in")}
-                  />
-                  inches
-                </label>
-                <label className="inline-flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    checked={dimUnit === "cm"}
-                    onChange={() => {
-                      setDimUnit("cm");
-                      if (sizePreset && sizePreset !== CUSTOM_BOX_SIZE_VALUE) {
-                        setSizePreset(CUSTOM_BOX_SIZE_VALUE);
-                      }
-                    }}
-                  />
-                  cm
-                </label>
-              </fieldset>
-              <fieldset className="space-y-1">
-                <legend className="text-xs font-medium text-slate-500">
-                  Weight unit
-                </legend>
-                <label className="mr-3 inline-flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    checked={weightUnit === "lbs"}
-                    onChange={() => setWeightUnit("lbs")}
-                  />
-                  lbs
-                </label>
-                <label className="inline-flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    checked={weightUnit === "kg"}
-                    onChange={() => setWeightUnit("kg")}
-                  />
-                  kg
-                </label>
-              </fieldset>
             </div>
           </>
         ) : (

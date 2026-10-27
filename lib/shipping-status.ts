@@ -12,6 +12,7 @@ export interface ShippingStatusItem {
   orderId: string;
   orderNumber: string;
   customerName: string | null;
+  artworkUrl: string | null;
   kind: ShippingStatusKind;
   respondedAt: string;
   isNew: boolean;
@@ -36,6 +37,11 @@ export interface ShippingStatusRow {
     | {
         id: string;
         title: string;
+        specs: unknown;
+        column:
+          | { name: string | null }
+          | { name: string | null }[]
+          | null;
         customer:
           | { name: string | null }
           | { name: string | null }[]
@@ -44,6 +50,11 @@ export interface ShippingStatusRow {
     | {
         id: string;
         title: string;
+        specs: unknown;
+        column:
+          | { name: string | null }
+          | { name: string | null }[]
+          | null;
         customer:
           | { name: string | null }
           | { name: string | null }[]
@@ -58,6 +69,15 @@ function relatedOne<T>(value: T | T[] | null | undefined): T | null {
 
 function responseTime(row: ShippingStatusRow): string {
   return row.responded_at ?? row.created_at;
+}
+
+export function shippingStatusKindForColumnName(
+  value: string | null | undefined
+): ShippingStatusKind | null {
+  const name = value?.trim().toLowerCase();
+  if (name === "pickup" || name === "pickups") return "pickup";
+  if (name === "to be shipped") return "delivery";
+  return null;
 }
 
 /**
@@ -90,12 +110,16 @@ export function buildShippingStatusItems(
       continue;
     }
     const order = relatedOne(row.order);
+    const column = relatedOne(order?.column);
+    const columnKind = shippingStatusKindForColumnName(column?.name);
+    if (columnKind !== row.client_choice) continue;
     const customer = relatedOne(order?.customer);
     items.push({
       id: row.id,
       orderId: row.order_id,
       orderNumber: order?.title?.trim() || "Untitled order",
       customerName: customer?.name?.trim() || null,
+      artworkUrl: null,
       kind: row.client_choice,
       respondedAt: responseTime(row),
       isNew: !row.shipping_status_seen_at,

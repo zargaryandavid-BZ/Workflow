@@ -110,9 +110,14 @@ export async function loadFinalArtworkSkuCount(
 
 export async function loadFinalArtworkSummary(
   orderId: string
-): Promise<{ count: number | null; artworkUrls: string[] }> {
+): Promise<{
+  count: number | null;
+  artworkUrls: string[];
+  /** Storage paths behind `artworkUrls`, same order. */
+  artworkPaths: string[];
+}> {
   const index = await loadFinalArtworkIndex(orderId);
-  if (!index) return { count: null, artworkUrls: [] };
+  if (!index) return { count: null, artworkUrls: [], artworkPaths: [] };
 
   const admin = createAdminClient();
   const previewKind = await usablePreviewKind(index);
@@ -126,5 +131,5 @@ export async function loadFinalArtworkSummary(
     const row = data?.[index];
     return row && !row.error && row.signedUrl ? row.signedUrl : "";
   });
-  return { count: index.pages.length, artworkUrls };
+  return { count: index.pages.length, artworkUrls, artworkPaths: paths };
 }

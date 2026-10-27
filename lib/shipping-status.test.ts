@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildShippingStatusItems,
+  shippingStatusKindForColumnName,
   shouldAutoRemoveShippingStatus,
   splitShippingStatusItems,
   type ShippingStatusRow,
@@ -39,6 +40,8 @@ function row(
     order: {
       id: orderId,
       title: `ORDER-${orderId}`,
+      specs: {},
+      column: { name: choice === "pickup" ? "Pickups " : "To be Shipped " },
       customer: { name: `Customer ${orderId}` },
     },
     ...overrides,
@@ -86,6 +89,32 @@ describe("shipping status dashboard rows", () => {
     ]);
 
     assert.deepEqual(items, []);
+  });
+
+  it("only includes responses whose order is in the matching status column", () => {
+    const wrongColumn = row(
+      "pickup-in-shipping",
+      "1",
+      "pickup",
+      "2026-10-20T10:00:00.000Z",
+      {
+        order: {
+          id: "1",
+          title: "ORDER-1",
+          specs: {},
+          column: { name: "To be Shipped " },
+          customer: { name: "Customer 1" },
+        },
+      }
+    );
+
+    assert.deepEqual(buildShippingStatusItems([wrongColumn]), []);
+  });
+
+  it("recognizes only the Pickup and To be Shipped columns", () => {
+    assert.equal(shippingStatusKindForColumnName("Pickups "), "pickup");
+    assert.equal(shippingStatusKindForColumnName("To be Shipped "), "delivery");
+    assert.equal(shippingStatusKindForColumnName("Ready to Ship"), null);
   });
 });
 
