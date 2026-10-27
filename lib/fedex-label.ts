@@ -10,6 +10,7 @@ import {
 } from "@/lib/fedex-service-display";
 import {
   clientFedExAccountFromSelection,
+  clientFedExServiceFromSelection,
   isClientFedExSelection,
 } from "@/lib/client-fedex";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
@@ -46,7 +47,7 @@ function isFedExDeliveryRequest(row: {
   if (row.client_choice !== "delivery") return false;
   if (row.fedex_selection?.provider === "curri") return false;
   if (isClientFedExSelection(row.fedex_selection)) {
-    return Boolean(row.fedex_selection?.clientServiceType);
+    return Boolean(clientFedExAccountFromSelection(row.fedex_selection));
   }
   return Boolean(row.fedex_selection?.serviceType);
 }
@@ -196,7 +197,7 @@ export async function ensureFedExLabel(
     request.fedex_selection
   );
   const requestedService = isClientFedExSelection(request.fedex_selection)
-    ? request.fedex_selection?.clientServiceType?.trim() ?? ""
+    ? clientFedExServiceFromSelection(request.fedex_selection) ?? ""
     : request.fedex_selection?.serviceType?.trim() ?? "";
   const serviceType = fedexServiceForAddress(
     requestedService,

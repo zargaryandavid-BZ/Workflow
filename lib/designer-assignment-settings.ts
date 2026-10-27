@@ -2,6 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
+import {
+  countDesignerLoads,
+  pickLeastLoadedDesigner,
+  type DesignerLoadStats,
+} from "@/lib/designer-load";
 
 /**
  * Tenant config for automatic designer assignment, stored as columns on
@@ -85,28 +90,41 @@ async function designerQueueColumnIds(
     .map((c) => c.id);
 }
 
-/** Open (Start / In Progress) card count for one designer. */
-async function openQueueCount(
+/** Open (Start / In Progress) cards + SKU rows per pool designer. */
+async function openQueueLoads(
   client: SupabaseClient,
   tenantId: string,
   columnIds: string[],
-  designerId: string
-): Promise<number> {
-  if (columnIds.length === 0) return 0;
-  const { count } = await client
+  pool: string[]
+): Promise<Map<string, DesignerLoadStats>> {
+  if (columnIds.length === 0) return countDesignerLoads(pool, [], []);
+  const { data, error } = await client
     .from("orders")
-    .select("id", { count: "exact", head: true })
+    .select("column_id, designer_id:specs->>designer_id, skus:specs->skus")
     .eq("tenant_id", tenantId)
-    .eq("specs->>designer_id", designerId)
+    .in("specs->>designer_id", pool)
     .in("column_id", columnIds)
     .is("removed_at", null);
-  return count ?? 0;
+  if (error) throw error;
+  const rows = (data ?? []) as {
+    column_id: string;
+    designer_id: string | null;
+    skus: unknown;
+  }[];
+  return countDesignerLoads(
+    pool,
+    rows.map((row) => ({
+      column_id: row.column_id,
+      specs: { designer_id: row.designer_id, skus: row.skus },
+    })),
+    columnIds
+  );
 }
 
 /**
- * The pool designer with the fewest open Start/In-Progress cards. Ties break by
- * pool order (stable). `excludeId` lets the stale-transfer skip the current
- * designer. Returns null when the pool is empty.
+ * The most available pool designer: fewest open Start/In-Progress cards, then
+ * fewest SKU rows on those cards, then pool order (stable). `excludeId` lets the
+ * stale-transfer skip the current designer. Returns null when the pool is empty.
  */
 export async function pickLeastBusyDesigner(
   client: SupabaseClient,
@@ -119,14 +137,6 @@ export async function pickLeastBusyDesigner(
   if (pool.length === 1) return pool[0] ?? null;
 
   const columnIds = await designerQueueColumnIds(client, tenantId);
-  let best: string | null = null;
-  let bestCount = Number.POSITIVE_INFINITY;
-  for (const id of pool) {
-    const n = await openQueueCount(client, tenantId, columnIds, id);
-    if (n < bestCount) {
-      bestCount = n;
-      best = id;
-    }
-  }
-  return best;
+  const loads = await openQueueLoads(client, tenantId, columnIds, pool);
+  return pickLeastLoadedDesigner(pool, loads);
 }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   clientFedExAccountFromSelection,
+  clientFedExServiceFromSelection,
   clientFedExSelection,
   isClientFedExSelection,
   maskFedExAccountNumber,
@@ -32,5 +33,21 @@ describe("client FedEx account", () => {
     const sel = clientFedExSelection("123456789", "INVALID");
     assert.equal(sel.clientServiceType, "FEDEX_GROUND");
     assert.equal(sel.serviceName, "FedEx Ground");
+  });
+
+  it("uses Ground for legacy saved client-account choices", () => {
+    assert.equal(
+      clientFedExServiceFromSelection({
+        serviceType: "CLIENT_ACCOUNT",
+        serviceName: "FedEx with my account",
+        totalCharge: null,
+        currency: "USD",
+        deliveryDate: null,
+        transitDays: null,
+        provider: "fedex",
+        clientAccountNumber: "717201728",
+      }),
+      "FEDEX_GROUND"
+    );
   });
 });

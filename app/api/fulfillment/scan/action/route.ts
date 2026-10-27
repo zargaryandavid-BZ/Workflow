@@ -15,6 +15,7 @@ import {
   notifyCrmOrderFulfilled,
 } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
+import { removeShippingStatusForOrder } from "@/lib/shipping-status";
 import type { Order, BoardColumn } from "@/lib/types";
 
 /**
@@ -140,6 +141,22 @@ export async function POST(request: Request) {
   const typedColumn = column as BoardColumn;
   const tenantId = ctx.tenant.id;
   const tenantName = ctx.tenant.name;
+
+  if (isFulfilledStage(typedColumn.name)) {
+    try {
+      await removeShippingStatusForOrder(supabase, {
+        tenantId,
+        orderId: movedOrder.id,
+        choice: "delivery",
+        reason: "fulfilled_scan",
+      });
+    } catch (err) {
+      console.error(
+        "[scan/action] remove shipping status failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   after(async () => {
     try {

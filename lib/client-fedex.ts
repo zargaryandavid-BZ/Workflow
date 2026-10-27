@@ -73,3 +73,13 @@ export function clientFedExAccountFromSelection(
       : null)
   );
 }
+
+/** Older saved client-account choices predate service selection; use Ground. */
+export function clientFedExServiceFromSelection(
+  rate: FedExRateOption | null | undefined
+): string | null {
+  if (!isClientFedExSelection(rate)) return null;
+  const selected = rate?.clientServiceType?.trim();
+  if (selected && CLIENT_FEDEX_SERVICE_NAMES[selected] != null) return selected;
+  return DEFAULT_CLIENT_FEDEX_SERVICE;
+}

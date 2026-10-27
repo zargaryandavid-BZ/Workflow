@@ -122,6 +122,8 @@ interface OrderResult {
     sku_id: string;
     sku_name: string;
     url: string;
+    /** Small tile preview; empty until generated. */
+    thumb_url?: string;
     qty?: number | null;
   }[];
   owner_name: string | null;
@@ -299,7 +301,7 @@ function MainOrderItemsCount({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex min-w-6 items-center justify-center rounded-full bg-blue-600 px-2 py-0.5 text-[13px] font-bold text-white hover:bg-blue-700 md:text-[15px]"
+        className="relative inline-flex min-w-6 items-center justify-center rounded-full bg-blue-600 px-2 py-0.5 text-[13px] font-bold text-white before:absolute before:-inset-2.5 before:content-[''] hover:bg-blue-700 md:text-[15px]"
         aria-expanded={open}
         aria-haspopup="dialog"
       >
@@ -1578,7 +1580,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             type="button"
             onClick={() => setCameraOpen(false)}
             aria-label="Close camera"
-            className="absolute right-4 top-4 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+            className="absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30"
           >
             <X className="h-5 w-5" />
           </button>
@@ -1698,7 +1700,9 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
           )}
 
           {order && (
-            <div className="order-4 flex min-h-[9rem] flex-col border-b border-slate-100 px-4 py-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:border-b-0">
+            // Below `lg`, artwork sits after the actions (order-5) so floor
+            // staff reach the buttons without scrolling past every SKU tile.
+            <div className="order-6 flex min-h-[9rem] flex-col border-b border-slate-100 px-4 py-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:border-b-0">
               <p className="mb-2 shrink-0 text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                 Artwork
               </p>
@@ -1730,8 +1734,10 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                       <div className="relative min-h-0 flex-1">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={sku.url}
+                          src={sku.thumb_url || sku.url}
                           alt={sku.sku_name}
+                          loading="lazy"
+                          decoding="async"
                           className="absolute inset-0 h-full w-full object-contain p-2"
                         />
                       </div>
@@ -1792,7 +1798,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     onClick={switchCamera}
                     disabled={cameraSwitching}
                     aria-label={`Use ${cameraFacing === "user" ? "back" : "front"} camera`}
-                    className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-black/70 disabled:cursor-wait disabled:opacity-60"
+                    className="absolute left-3 top-3 inline-flex h-11 items-center gap-1.5 rounded-full bg-black/50 px-3.5 text-xs font-semibold text-white hover:bg-black/70 disabled:cursor-wait disabled:opacity-60"
                   >
                     {cameraSwitching ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1802,16 +1808,16 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     {cameraSwitching
                       ? "Switching…"
                       : cameraFacing === "user"
-                        ? "Back"
-                        : "Front"}
+                        ? "Back camera"
+                        : "Front camera"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setCameraOpen(false)}
                     aria-label="Close camera"
-                    className="absolute right-3 top-3 rounded-full bg-black/50 p-1.5 text-white hover:bg-black/70"
+                    className="absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70"
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
               ) : (
@@ -1872,7 +1878,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                         openCamera();
                         window.dispatchEvent(new Event(SCAN_FOCUS_EVENT));
                       }}
-                      className="absolute right-1.5 top-1.5 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      className="absolute right-0 top-0 inline-flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                     >
                       <X className="h-5 w-5" />
                     </button>
@@ -1895,7 +1901,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                       onClick={() => setLightboxUrl(order.sku_images?.[0]?.url ?? order.thumbnail_url ?? null)}
                       className="relative w-16 shrink-0 overflow-hidden bg-slate-100 md:w-20" style={{ minHeight: "4rem" }}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={order.sku_images?.[0]?.url ?? order.thumbnail_url ?? ""} alt="Artwork"
+                      <img src={order.sku_images?.[0]?.thumb_url || order.sku_images?.[0]?.url || order.thumbnail_url || ""} alt="Artwork"
                         className="absolute inset-0 h-full w-full object-contain p-1" />
                     </button>
                   ) : null}
@@ -1990,7 +1996,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   aria-pressed={scanStation === "receiver"}
                   onClick={() => selectScanStation("receiver")}
                   className={cn(
-                    "h-7 rounded px-2.5 text-[11px] font-medium",
+                    "h-10 rounded px-3.5 text-[13px] font-medium sm:h-7 sm:px-2.5 sm:text-[11px]",
                     scanStation === "receiver"
                       ? "bg-slate-900 text-white"
                       : "text-slate-500 hover:text-slate-800"
@@ -2003,7 +2009,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   aria-pressed={scanStation === "sender"}
                   onClick={() => selectScanStation("sender")}
                   className={cn(
-                    "h-7 rounded px-2.5 text-[11px] font-medium",
+                    "h-10 rounded px-3.5 text-[13px] font-medium sm:h-7 sm:px-2.5 sm:text-[11px]",
                     scanStation === "sender"
                       ? "bg-slate-900 text-white"
                       : "text-slate-500 hover:text-slate-800"

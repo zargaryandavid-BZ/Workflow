@@ -7,11 +7,14 @@ import { generateApprovalLayerPreviewsForOrder } from "@/lib/approval-layer-prev
 import { ensurePrintProofJpeg } from "@/lib/flatten-print-proof";
 import { ORDER_ASSETS_BUCKET } from "@/lib/order-assets";
 import { loadFinalArtworkSummary } from "@/lib/final-artwork-sku-count";
+import { signArtworkThumbUrls } from "@/lib/artwork-thumbnails";
 
 export type ScanFinalArtworkPicture = {
   sku_id: string;
   sku_name: string;
   url: string;
+  /** Small preview for tiles; "" until generated (use `url` then). */
+  thumb_url: string;
   /** Quantity from product specifications (`specs.skus`), when this page is a spec SKU. */
   qty: number | null;
 };
@@ -35,6 +38,12 @@ export async function loadScanFinalArtworkPictures(
     // was sent/updated. This avoids a Drive lookup and rebuilding every page.
     const cached = await loadFinalArtworkSummary(order.id);
     if (cached.count && cached.artworkUrls.some(Boolean)) {
+      const thumbUrls = await signArtworkThumbUrls(
+        createAdminClient(),
+        cached.artworkPaths.map((path, index) =>
+          cached.artworkUrls[index] ? path : ""
+        )
+      );
       return {
         pictures: cached.artworkUrls.map((url, index) => {
           const page = index + 1;
@@ -43,6 +52,7 @@ export async function loadScanFinalArtworkPictures(
             sku_id: ticketSku?.id ?? `__pdf_page_${page}__`,
             sku_name: ticketSku?.name.trim() || `SKU ${page}`,
             url,
+            thumb_url: thumbUrls[index] ?? "",
             qty: specSkuQty(ticketSku),
           };
         }),
@@ -101,6 +111,13 @@ export async function loadScanFinalArtworkPictures(
     const urlBySkuId = new Map(
       rows.map((row) => [row.skuId, urlByPath.get(row.path) ?? ""])
     );
+    const thumbUrls = await signArtworkThumbUrls(
+      admin,
+      rows.map((row) => (urlByPath.get(row.path) ? row.path : ""))
+    );
+    const thumbBySkuId = new Map(
+      rows.map((row, index) => [row.skuId, thumbUrls[index] ?? ""])
+    );
 
     return {
       pictures: ordered.map(([previewSkuId, preview]) => {
@@ -111,6 +128,7 @@ export async function loadScanFinalArtworkPictures(
           sku_id: previewSkuId,
           sku_name: ticketSku?.name.trim() || `SKU ${preview.page}`,
           url: urlBySkuId.get(previewSkuId) ?? "",
+          thumb_url: thumbBySkuId.get(previewSkuId) ?? "",
           qty: specSkuQty(ticketSku),
         };
       }),

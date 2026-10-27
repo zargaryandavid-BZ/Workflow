@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   countDesignerLoads,
+  orderGroupDesignerId,
+  pickLeastLoadedDesigner,
   formatDesignerLoadSuffix,
   formatDesignerOptionLabel,
   sortDesignersByLoad,
@@ -63,5 +65,44 @@ describe("sortDesignersByLoad", () => {
       sorted.map((d) => d.name),
       ["Bo", "Cy", "Ann", "Zed"]
     );
+  });
+});
+
+describe("pickLeastLoadedDesigner", () => {
+  it("picks the fewest open cards first", () => {
+    const loads = new Map([
+      ["a", { load: 3, skuCount: 2 }],
+      ["b", { load: 1, skuCount: 40 }],
+    ]);
+    assert.equal(pickLeastLoadedDesigner(["a", "b"], loads), "b");
+  });
+
+  it("breaks a card tie by fewer SKU rows, then pool order", () => {
+    const loads = new Map([
+      ["a", { load: 2, skuCount: 9 }],
+      ["b", { load: 2, skuCount: 4 }],
+      ["c", { load: 2, skuCount: 4 }],
+    ]);
+    assert.equal(pickLeastLoadedDesigner(["a", "b", "c"], loads), "b");
+  });
+
+  it("treats a designer with no open work as free", () => {
+    const loads = new Map([["a", { load: 1, skuCount: 1 }]]);
+    assert.equal(pickLeastLoadedDesigner(["a", "z"], loads), "z");
+    assert.equal(pickLeastLoadedDesigner([], loads), null);
+  });
+});
+
+describe("orderGroupDesignerId", () => {
+  it("keeps appended lines with the existing cards' designer", () => {
+    assert.equal(orderGroupDesignerId([null, " d1 "], ["d2"]), "d1");
+  });
+
+  it("shares the first line's designer with lines that have none", () => {
+    assert.equal(orderGroupDesignerId([], [null, "d2", "d3"]), "d2");
+  });
+
+  it("returns null when no line names a designer", () => {
+    assert.equal(orderGroupDesignerId([], [null, undefined, ""]), null);
   });
 });
