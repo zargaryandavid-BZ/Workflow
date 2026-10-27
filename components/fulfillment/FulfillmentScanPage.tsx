@@ -66,6 +66,7 @@ import {
 import { scanSkuLineQtys } from "@/lib/fulfillment-scan-order";
 import { finishedCustomerSmsKind } from "@/lib/net-terms-fulfill";
 import type { QrScannerController } from "@/lib/scan-qr-camera";
+import { resetMobileZoom, scrollToTopFrom } from "@/lib/fit-mobile-viewport";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
 /** True only on phones — used to decide camera auto-open and inline mode. */
@@ -1051,6 +1052,9 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScannerController | null>(null);
   const lookupSequenceRef = useRef(0);
+  // Set by a camera scan so the loaded order is fitted to the phone screen.
+  const fitAfterCameraScanRef = useRef(false);
+  const layoutRootRef = useRef<HTMLDivElement>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<{ label: string; column: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1214,6 +1218,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
             scanner = null;
             scannerRef.current = null;
             setCameraOpen(false);
+            fitAfterCameraScanRef.current = true;
+            resetMobileZoom();
             window.dispatchEvent(
               new CustomEvent(SCAN_QUERY_EVENT, { detail: { query: code } })
             );
@@ -1305,6 +1311,14 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       if (sequence !== lookupSequenceRef.current) return;
       setLoading(false);
       window.dispatchEvent(new CustomEvent(SCAN_LOADING_EVENT, { detail: { loading: false } }));
+      if (fitAfterCameraScanRef.current) {
+        fitAfterCameraScanRef.current = false;
+        // After the order renders: undo any zoom and show it from the top.
+        window.requestAnimationFrame(() => {
+          resetMobileZoom();
+          scrollToTopFrom(layoutRootRef.current);
+        });
+      }
     }
   }, [scanBase]);
 
@@ -1679,7 +1693,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         />
       )}
 
-      <div className="flex flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
+      <div ref={layoutRootRef} className="flex flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
         {/* On small screens `contents` unwraps so identity + shipping sit above artwork. */}
         <div className="max-lg:contents flex min-h-0 min-w-0 w-full flex-col lg:h-full lg:w-[55%] lg:overflow-hidden lg:border-r lg:border-slate-100">
           {lookupError && (
