@@ -11,6 +11,16 @@ export const FULFILLMENT_BOX_SIZE_PRESETS = [
   "24×18×12 in",
 ] as const;
 
+/** Sizes offered when telling a customer the order is ready. */
+export const READY_TO_SHIP_BOX_SIZE_PRESETS = [
+  "18×12×12 in",
+  "6×6×6 in",
+  "10×10×10 in",
+  "14×14×14 in",
+  "16×16×16 in",
+  "18×18×18 in",
+] as const;
+
 export const CUSTOM_BOX_SIZE_VALUE = "__custom__";
 
 export function formatCustomBoxSize(

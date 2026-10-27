@@ -28,7 +28,7 @@ import {
 import {
   applyPresetDimensions,
   CUSTOM_BOX_SIZE_VALUE,
-  FULFILLMENT_BOX_SIZE_PRESETS,
+  READY_TO_SHIP_BOX_SIZE_PRESETS,
   resizeBoxDrafts,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
@@ -675,7 +675,7 @@ export function ReadyToShipPopup({
                   className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
                 >
                   <option value="">Select size</option>
-                  {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
+                  {READY_TO_SHIP_BOX_SIZE_PRESETS.map((size) => (
                     <option key={size} value={size}>
                       {size}
                     </option>
