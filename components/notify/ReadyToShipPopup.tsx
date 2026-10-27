@@ -28,7 +28,9 @@ import {
 import {
   applyPresetDimensions,
   CUSTOM_BOX_SIZE_VALUE,
+  missingBoxFieldsMessage,
   READY_TO_SHIP_BOX_SIZE_PRESETS,
+  removeBoxDraft,
   resizeBoxDrafts,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
@@ -171,8 +173,9 @@ export function ReadyToShipPopup({
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
   const [sizePreset, setSizePreset] = useState("");
-  const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
-  const [weightUnit, setWeightUnit] = useState<ShippingWeightUnit>("lbs");
+  // Units are fixed (shown inside each input) to keep the form short on phones.
+  const dimUnit: ShippingDimUnit = "in";
+  const weightUnit: ShippingWeightUnit = "lbs";
 
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
   const [movingAll, setMovingAll] = useState(false);
@@ -292,6 +295,9 @@ export function ReadyToShipPopup({
     : null;
 
   const allBoxesFilled = boxes.every(isBoxComplete);
+  const missingBoxesMessage = boxesRequired
+    ? missingBoxFieldsMessage(boxes)
+    : null;
   const pickupLocationReady =
     fulfillment !== "pickup" || Boolean(pickupLocationId);
   const canSend =
@@ -310,7 +316,6 @@ export function ReadyToShipPopup({
     if (!label || label === CUSTOM_BOX_SIZE_VALUE) return;
     const next = applyPresetDimensions(boxes, label);
     if (!next) return;
-    setDimUnit("in");
     setBoxes(next);
   }
 
@@ -335,6 +340,12 @@ export function ReadyToShipPopup({
       ...prev.slice(index + 1),
     ]);
     setBoxCount(boxes.length + 1);
+  }
+
+  function removeBox(index: number) {
+    if (boxes.length <= 1) return;
+    setBoxes((prev) => removeBoxDraft(prev, index));
+    setBoxCount(boxes.length - 1);
   }
 
   async function saveAndSend() {
@@ -667,67 +678,35 @@ export function ReadyToShipPopup({
                 Required so the customer can choose pickup or delivery with
                 rates.
               </p>
-              <label className="block text-sm text-slate-700">
-                Box size
-                <select
-                  value={sizePreset}
-                  onChange={(e) => applySizePreset(e.target.value)}
-                  className="mt-1 block h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
-                >
-                  <option value="">Select size</option>
-                  {READY_TO_SHIP_BOX_SIZE_PRESETS.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
-                </select>
-              </label>
-              <label className="block text-sm text-slate-700">
-                How many boxes?
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={boxCount}
-                  onChange={(e) => updateBoxCount(Number(e.target.value))}
-                  className="ml-3 w-16 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                />
-              </label>
-              <div className="flex flex-wrap gap-3 text-xs text-slate-600">
-                <label className="inline-flex items-center gap-1.5">
-                  Dimensions
+              <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] items-end gap-2">
+                <label className="block min-w-0 text-sm text-slate-700">
+                  Box size
                   <select
-                    value={dimUnit}
-                    onChange={(e) => {
-                      const next = e.target.value === "cm" ? "cm" : "in";
-                      setDimUnit(next);
-                      if (
-                        next !== "in" &&
-                        sizePreset &&
-                        sizePreset !== CUSTOM_BOX_SIZE_VALUE
-                      ) {
-                        setSizePreset(CUSTOM_BOX_SIZE_VALUE);
-                      }
-                    }}
-                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5"
+                    value={sizePreset}
+                    onChange={(e) => applySizePreset(e.target.value)}
+                    className="mt-1 block h-11 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800"
                   >
-                    <option value="in">in</option>
-                    <option value="cm">cm</option>
+                    <option value="">Select size</option>
+                    {READY_TO_SHIP_BOX_SIZE_PRESETS.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
                   </select>
                 </label>
-                <label className="inline-flex items-center gap-1.5">
-                  Weight
-                  <select
-                    value={weightUnit}
-                    onChange={(e) =>
-                      setWeightUnit(e.target.value === "kg" ? "kg" : "lbs")
-                    }
-                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5"
-                  >
-                    <option value="lbs">lbs</option>
-                    <option value="kg">kg</option>
-                  </select>
+                <label className="block text-sm text-slate-700">
+                  Boxes
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={20}
+                    value={boxCount}
+                    onChange={(e) => updateBoxCount(Number(e.target.value))}
+                    aria-label="How many boxes"
+                    className="mt-1 block h-11 w-full rounded-md border border-slate-300 bg-white px-2 text-center text-sm"
+                  />
                 </label>
               </div>
               <div className="space-y-3" data-enter-focus-sequence>
@@ -740,20 +719,36 @@ export function ReadyToShipPopup({
                     <p className="text-sm font-medium text-slate-800">
                       Box {index + 1}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => duplicateBox(index)}
-                      disabled={boxes.length >= 20}
-                      title={
-                        boxes.length >= 20
-                          ? "Maximum 20 boxes"
-                          : `Duplicate Box ${index + 1}`
-                      }
-                      aria-label={`Duplicate Box ${index + 1}`}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => duplicateBox(index)}
+                        disabled={boxes.length >= 20}
+                        title={
+                          boxes.length >= 20
+                            ? "Maximum 20 boxes"
+                            : `Duplicate Box ${index + 1}`
+                        }
+                        aria-label={`Duplicate Box ${index + 1}`}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40 sm:h-8 sm:w-8"
+                      >
+                        <Copy className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeBox(index)}
+                        disabled={boxes.length <= 1}
+                        title={
+                          boxes.length <= 1
+                            ? "At least one box is needed"
+                            : `Delete Box ${index + 1}`
+                        }
+                        aria-label={`Delete Box ${index + 1}`}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 sm:h-8 sm:w-8"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {(
@@ -769,18 +764,27 @@ export function ReadyToShipPopup({
                         className="block text-xs text-slate-600"
                       >
                         {label}
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          data-enter-focus-next
-                          value={box[field]}
-                          onChange={(e) =>
-                            updateBox(index, field, e.target.value)
-                          }
-                          onKeyDown={focusNextInputOnEnter}
-                          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                        />
+                        <span className="relative mt-1 block">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="any"
+                            data-enter-focus-next
+                            value={box[field]}
+                            onChange={(e) =>
+                              updateBox(index, field, e.target.value)
+                            }
+                            onKeyDown={focusNextInputOnEnter}
+                            className="h-11 w-full rounded-md border border-slate-300 py-1.5 pl-2 pr-9 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          />
+                          <span
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-slate-400"
+                          >
+                            {field === "weight" ? weightUnit : dimUnit}
+                          </span>
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -989,23 +993,25 @@ export function ReadyToShipPopup({
           <Button
             onClick={saveAndSend}
             disabled={loading || dismissing || !canSend}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            title={
-              boxesRequired && !allBoxesFilled
-                ? "Fill length, width, height, and weight for every box"
-                : undefined
-            }
+            className={cn(
+              "min-h-11 flex-1 whitespace-normal bg-emerald-600 text-white hover:bg-emerald-700 sm:flex-none",
+              !loading &&
+                !waitingForGroup &&
+                missingBoxesMessage &&
+                "border border-red-300 disabled:bg-red-50 disabled:text-red-700 disabled:opacity-100"
+            )}
+            title={missingBoxesMessage ?? undefined}
           >
             {loading
               ? "Saving…"
-              : isManual
-                ? fulfillment === "pickup"
-                  ? "Save pickup"
-                  : "Save with boxes"
-                : waitingForGroup
-                  ? "Waiting for all parts"
-                  : boxesRequired && !allBoxesFilled
-                    ? "Enter box sizes"
+              : waitingForGroup
+                ? "Waiting for all parts"
+                : missingBoxesMessage
+                  ? missingBoxesMessage
+                  : isManual
+                    ? fulfillment === "pickup"
+                      ? "Save pickup"
+                      : "Save with boxes"
                     : fulfillment === "pickup"
                       ? "Notify ready for pickup"
                       : "Send notification"}

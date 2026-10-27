@@ -88,3 +88,54 @@ export function resizeBoxDrafts<T extends SizedBox>(
     ...Array.from({ length: safe - current.length }, () => ({ ...added })),
   ];
 }
+
+/** Drop one box; the last remaining box is kept. */
+export function removeBoxDraft<T>(current: T[], index: number): T[] {
+  if (current.length <= 1 || index < 0 || index >= current.length) {
+    return current;
+  }
+  return current.filter((_, i) => i !== index);
+}
+
+function isPositiveDimension(value: string): boolean {
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) && n > 0;
+}
+
+const BOX_FIELD_LABELS = [
+  ["length", "length"],
+  ["width", "width"],
+  ["height", "height"],
+  ["weight", "weight"],
+] as const;
+
+/**
+ * Short, exact reason the boxes can't be sent yet, e.g.
+ * "Enter weight for Box 1 & 2". Null when every box is complete.
+ */
+export function missingBoxFieldsMessage(boxes: SizedBox[]): string | null {
+  const missingFields = new Set<string>();
+  const boxNumbers: number[] = [];
+  boxes.forEach((box, index) => {
+    const missing = BOX_FIELD_LABELS.filter(
+      ([field]) => !isPositiveDimension(box[field])
+    ).map(([, label]) => label);
+    if (missing.length === 0) return;
+    boxNumbers.push(index + 1);
+    for (const label of missing) missingFields.add(label);
+  });
+  if (boxNumbers.length === 0) return null;
+
+  const fields =
+    missingFields.size === BOX_FIELD_LABELS.length
+      ? "size and weight"
+      : joinWords(BOX_FIELD_LABELS.map(([, l]) => l).filter((l) => missingFields.has(l)));
+  const which =
+    boxes.length === 1 ? "" : ` for Box ${joinWords(boxNumbers.map(String))}`;
+  return `Enter ${fields}${which}`;
+}
+
+function joinWords(words: string[]): string {
+  if (words.length <= 1) return words.join("");
+  return `${words.slice(0, -1).join(", ")} & ${words[words.length - 1]}`;
+}
