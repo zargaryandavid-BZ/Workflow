@@ -88,6 +88,45 @@ export function countDesignerLoads(
   return counts;
 }
 
+/**
+ * Most available designer: fewest open cards, then fewest SKU rows, then pool
+ * order (stable). Returns null for an empty pool.
+ */
+export function pickLeastLoadedDesigner(
+  pool: string[],
+  loads: Map<string, DesignerLoadStats>
+): string | null {
+  let best: string | null = null;
+  let bestStats: DesignerLoadStats | null = null;
+  for (const id of pool) {
+    const stats = loads.get(id) ?? { load: 0, skuCount: 0 };
+    if (
+      !bestStats ||
+      stats.load < bestStats.load ||
+      (stats.load === bestStats.load && stats.skuCount < bestStats.skuCount)
+    ) {
+      best = id;
+      bestStats = stats;
+    }
+  }
+  return best;
+}
+
+/**
+ * The designer every line of one order (xxx-1, xxx-2, …) should share: the one
+ * already on existing sibling cards, else the first line that names one.
+ * Null means none is known yet (auto-assign may pick one).
+ */
+export function orderGroupDesignerId(
+  siblingDesignerIds: (string | null | undefined)[],
+  lineDesignerIds: (string | null | undefined)[]
+): string | null {
+  const first = (ids: (string | null | undefined)[]) =>
+    ids.map((id) => (typeof id === "string" ? id.trim() : "")).find(Boolean) ??
+    null;
+  return first(siblingDesignerIds) ?? first(lineDesignerIds);
+}
+
 /** Format for selects/menus: `Manny (3)/8` */
 export function formatDesignerOptionLabel(
   name: string,

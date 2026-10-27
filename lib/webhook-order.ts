@@ -12,6 +12,7 @@ import {
   getDesignerAssignmentSettings,
   pickLeastBusyDesigner,
 } from "@/lib/designer-assignment-settings";
+import { orderGroupDesignerId } from "@/lib/designer-load";
 import {
   normalizeSourceChannel,
   shouldApplyMissingInfoFallback,
@@ -4752,9 +4753,33 @@ export async function createOrderFromWebhook(
   let reorderOriginalCards: ReorderSourceCard[] | null = null;
   const reorderFinalLinks: { orderId: string; finalUrl: string }[] = [];
 
-  // Auto-assign the least-busy pool designer to brand-new orders that arrive
-  // with no designer (Settings → Designers). Computed once per webhook and only
-  // on CREATE (no existing cards), so edits/re-syncs never reassign.
+  // One designer per order: every line (xxx-1, xxx-2, …) gets the same one.
+  // Resolve each line's explicit designer up front so a line without one can
+  // inherit a sibling's, even when that sibling comes later in `items`.
+  const resolvedLineDesigners: Awaited<
+    ReturnType<typeof resolveWebhookDesigner>
+  >[] = [];
+  for (let i = startCreateIndex; i < items.length; i++) {
+    resolvedLineDesigners[i] = await resolveWebhookDesigner(
+      client,
+      tenantId,
+      mergeDesignerInput(body, items[i])
+    );
+  }
+  // Portal append: new lines join the designer already on their sibling cards.
+  const groupDesignerId = orderGroupDesignerId(
+    existingOrders.map((order) =>
+      typeof order.specs?.designer_id === "string"
+        ? order.specs.designer_id
+        : null
+    ),
+    resolvedLineDesigners.map((resolved) => resolved?.designerId)
+  );
+
+  // Auto-assign the most available pool designer (fewest open cards, then
+  // SKUs) to brand-new orders that arrive with no designer on any line
+  // (Settings → Designers). Computed once per webhook and only on CREATE (no
+  // existing cards), so edits/re-syncs never reassign.
   let autoAssignDesignerId: string | null | undefined = undefined;
   async function resolveAutoAssignDesigner(): Promise<string | null> {
     if (autoAssignDesignerId !== undefined) return autoAssignDesignerId;
@@ -4814,16 +4839,17 @@ export async function createOrderFromWebhook(
       designerId,
       designerName,
       warning: designerWarning,
-    } = await resolveWebhookDesigner(client, tenantId, designerInput);
+    } = resolvedLineDesigners[i] ?? { designerId: null, designerName: null };
     if (designerWarning) allWarnings.push(designerWarning);
 
-    // No designer on the incoming order → auto-assign the least-busy pool
-    // designer (Settings → Designers). Create-only; respects an explicit designer.
+    // No designer on this line → use the order's designer (a sibling line's or
+    // the existing cards'), else auto-assign the most available pool designer
+    // (Settings → Designers). Create-only; respects an explicit designer.
     if (!designerId) {
-      const auto = await resolveAutoAssignDesigner();
-      if (auto) {
-        designerId = auto;
-        designerName = (await profileName(client, auto)) ?? designerName;
+      const shared = groupDesignerId ?? (await resolveAutoAssignDesigner());
+      if (shared) {
+        designerId = shared;
+        designerName = (await profileName(client, shared)) ?? designerName;
       }
     }
 

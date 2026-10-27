@@ -2045,6 +2045,14 @@ Automated, operator-free email/SMS fired whenever a card enters a column.
 4. `logActivity` (`created`).
 5. Board refreshes; new card appears in column.
 
+### Designer auto-assign on webhook orders
+
+Orders created by the CRM/portal webhook (`lib/webhook-order.ts`) get a designer automatically when **Settings → Designers** has auto-assign on and a designer pool (`tenants.designer_autoassign_enabled`, `designer_pool`).
+
+- **One designer per order.** Every line of a multi-item order (`xxx-1`, `xxx-2`, `xxx-3`) gets the same designer. A line that names a designer keeps it; lines without one take the first designer named on any line (`orderGroupDesignerId` in `lib/designer-load.ts`). Portal lines appended to an existing order take the designer already on their sibling cards.
+- **Most available designer.** When no line names one, `pickLeastBusyDesigner` (`lib/designer-assignment-settings.ts`) picks the pool designer with the fewest open cards in Start / In Progress, then the fewest SKU rows on those cards, then pool order (`pickLeastLoadedDesigner`). This is the same `Name (cards)/SKUs` load shown in designer pickers. The stale-transfer timer uses the same pick.
+- **Create only.** Re-fires and edits of an existing order never reassign.
+
 ---
 
 ## Order edit workflow (deferred assets)
