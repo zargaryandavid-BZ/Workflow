@@ -354,13 +354,13 @@ function HistoryBoxCard({
               />
             ) : null}
             <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-slate-900">
+            <p className="break-words text-base font-semibold text-slate-900">
               {box.name}
             </p>
-            <p className="truncate text-xs text-slate-500">
+            <p className="break-words text-xs text-slate-500">
               PO Number: {box.poNumber || "—"}
             </p>
-            <p className="truncate text-xs font-medium text-slate-700">
+            <p className="break-words text-xs font-medium text-slate-700">
               {sizeWeightLine(box.sizeLabel, box.weightLbs) ||
                 "No size/weight"}
             </p>
@@ -486,11 +486,11 @@ function HistoryBoxCard({
                 orderNumber={formatShortOrderNumber(item.orderTitle)}
               />
               <span className="min-w-0">
-                <span className="block truncate font-medium text-slate-800">
+                <span className="block break-words font-medium text-slate-800">
                   {item.itemTitle || item.orderTitle || "—"}
                 </span>
                 {item.customerName ? (
-                  <span className="block truncate text-[10px] text-slate-500">
+                  <span className="block break-words text-[10px] text-slate-500">
                     {item.customerName}
                   </span>
                 ) : null}
@@ -2463,7 +2463,7 @@ export function MultiitemBoxSlipModal({
               {viewBoxes.slice(0, activeIndex).map(renderInactiveBox)}
               <div
                 className={cn(
-                  "relative mr-12 flex flex-col overflow-visible rounded-lg border-[3px] border-blue-600 bg-white shadow-sm ring-2 ring-blue-100 transition",
+                  "relative mr-12 flex min-w-0 flex-col overflow-visible rounded-lg md:col-span-2 border-[3px] border-blue-600 bg-white shadow-sm ring-2 ring-blue-100 transition",
                   dragOverBoxId === active.id &&
                     "ring-blue-500 ring-offset-2"
                 )}
@@ -2849,6 +2849,7 @@ export function MultiitemBoxSlipModal({
                               min={0}
                               max={line.left}
                               value={fullyBoxed ? 0 : line.quantity}
+                              onFocus={(e) => e.currentTarget.select()}
                               disabled={fullyBoxed}
                               onChange={(e) => {
                                 const quantity = Math.min(
@@ -2987,22 +2988,24 @@ export function MultiitemBoxSlipModal({
                             />
                             <div className="min-w-0">
                               <p
-                                className="line-clamp-2 break-words text-sm font-medium text-slate-800"
+                                className="break-words text-sm font-medium text-slate-800"
                                 title={item.itemTitle || item.orderTitle || undefined}
                               >
                                 {item.itemTitle || item.orderTitle || "—"}
                               </p>
                               {item.customerName ? (
-                                <p className="truncate text-xs text-slate-500">
+                                <p className="break-words text-xs text-slate-500">
                                   {item.customerName}
                                 </p>
                               ) : null}
                             </div>
                             <input
                               type="number"
+                              inputMode="numeric"
                               min={1}
                               max={99999999}
                               value={item.quantity}
+                              onFocus={(e) => e.currentTarget.select()}
                               onChange={(e) =>
                                 patchBoxLocal(active.id, {
                                   items: active.items.map((it) =>
@@ -3085,15 +3088,17 @@ export function MultiitemBoxSlipModal({
                                     </span>
                                     <input
                                       type="number"
+                                      inputMode="numeric"
                                       min={1}
                                       value={line.quantity}
                                       disabled={readOnly}
-                                      onFocus={() =>
+                                      onFocus={(e) => {
+                                        e.currentTarget.select();
                                         skuEditPrevious.current.set(
                                           `${item.orderId}:${line.page}`,
                                           item.skuLines.map((row) => ({ ...row }))
-                                        )
-                                      }
+                                        );
+                                      }}
                                       onChange={(e) => {
                                         const quantity = Math.max(
                                           1,

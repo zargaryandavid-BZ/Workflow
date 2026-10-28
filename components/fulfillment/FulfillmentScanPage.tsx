@@ -16,6 +16,7 @@ import {
   Trash2,
   Truck,
   X,
+  LineChart,
 } from "lucide-react";
 import {
   DndContext,
@@ -54,6 +55,7 @@ import {
   type ScanStation,
 } from "@/lib/fulfillment-scan-config";
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
+import { ScanDeliveryHistory } from "@/components/fulfillment/ScanDeliveryHistory";
 import {
   PickupConfirmationModal,
   type PickupFinishedChoice,
@@ -1065,6 +1067,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [pendingAction, setPendingAction] = useState<ScanActionButton | null>(null);
   const [scanButtons, setScanButtons] = useState<ScanActionButton[]>(initialButtons);
   const [scanStation, setScanStation] = useState<ScanStation>("receiver");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [readyToShipPopup, setReadyToShipPopup] = useState<{
     order: OrderWithRelations;
@@ -1998,6 +2001,17 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               <p className="text-[11px] md:text-[12px] font-semibold uppercase tracking-wide text-slate-400">
                 Actions
               </p>
+              <div className="flex items-center gap-2">
+              {scanStation === "sender" ? (
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50 md:text-[12px]"
+                >
+                  <LineChart className="h-3.5 w-3.5" />
+                  See history
+                </button>
+              ) : null}
               <div className="flex shrink-0 rounded-md border border-slate-200 bg-white p-0.5">
                 <button
                   type="button"
@@ -2026,7 +2040,13 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                   Sender
                 </button>
               </div>
+              </div>
             </div>
+            <ScanDeliveryHistory
+              open={historyOpen}
+              onClose={() => setHistoryOpen(false)}
+              apiUrl={`${scanBase}/history`}
+            />
             <div className="flex flex-col gap-2">
               <button
                 type="button"
