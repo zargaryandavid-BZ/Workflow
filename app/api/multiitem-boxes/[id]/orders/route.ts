@@ -6,7 +6,10 @@ import {
   isAutoSplitSkuLines,
   multiitemBoxSkuLinesFromOrderSpecs,
   normalizeMultiitemBoxSkuLines,
+  overPackedSkuError,
   packedBoxQuantityForOrder,
+  packedSkuQuantitiesForOrder,
+  remainingSkuLines,
   resolveBoxLineDetails,
 } from "@/lib/multiitem-box-lookup";
 import { boxOrderThumbnailUrls } from "@/lib/multiitem-box-artwork";
@@ -141,12 +144,32 @@ export async function POST(
     ticketQty,
     null
   );
+  // A SKU can be split across boxes: default to what other boxes left over.
+  let packedByPage: Map<number, number>;
+  try {
+    packedByPage = await packedSkuQuantitiesForOrder(
+      supabase,
+      tenantId,
+      orderId,
+      boxId
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Lookup failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+  const ticketLeft = remainingSkuLines(ticketLines, packedByPage).filter(
+    (line) => line.quantity > 0
+  );
+  const overPacked = overPackedSkuError(skuLines, ticketLines, packedByPage);
+  if (overPacked) {
+    return NextResponse.json({ error: overPacked }, { status: 409 });
+  }
   const selectedPages = new Set(skuLines.map((line) => line.page));
   const linesFromTicket =
     skuLines.length === 0
-      ? ticketLines
+      ? ticketLeft
       : isAutoSplitSkuLines(skuLines, ticketQty)
-        ? ticketLines.filter((line) => selectedPages.has(line.page))
+        ? ticketLeft.filter((line) => selectedPages.has(line.page))
         : skuLines;
   const skuLinesToStore =
     linesFromTicket.length > 0 ? linesFromTicket : skuLines;

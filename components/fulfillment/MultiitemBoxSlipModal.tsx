@@ -26,7 +26,7 @@ import QRCode from "qrcode";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 import {
   CUSTOM_BOX_SIZE_VALUE,
-  FULFILLMENT_BOX_SIZE_PRESETS,
+  READY_TO_SHIP_BOX_SIZE_PRESETS,
   formatCustomBoxSize,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
@@ -46,6 +46,7 @@ import {
 } from "@/lib/fulfillment-day";
 import {
   multiitemBoxSkuLinesFromTicket,
+  remainingSkuLines,
   type MultiitemBoxOrderRow,
   type MultiitemBoxRow,
   type MultiitemBoxSkuLine,
@@ -69,7 +70,8 @@ function ItemQrCode({ value, size = 48 }: { value: string; size?: number }) {
   return <img src={url} alt={`QR ${value}`} width={size} height={size} className="shrink-0 rounded" />;
 }
 
-const SIZE_PRESETS = FULFILLMENT_BOX_SIZE_PRESETS;
+// Same sizes as the Ready to Ship popup so packers and customers see one list.
+const SIZE_PRESETS = READY_TO_SHIP_BOX_SIZE_PRESETS;
 
 const CUSTOM_SIZE = CUSTOM_BOX_SIZE_VALUE;
 
@@ -115,17 +117,48 @@ interface BoxState {
   boxDate: string;
 }
 
-interface PendingScan {
-  query: string;
-  orderId: string;
-  orderTitle: string;
-  customerName: string;
-  skuLines: MultiitemBoxSkuLine[];
-}
+type ScanSkuPreviewLine = MultiitemBoxSkuLine & {
+  checked: boolean;
+  /** Full quantity on the job ticket for this SKU. */
+  ticketQty: number;
+  /** Still to pack (ticket minus other boxes); the most this box can take. */
+  left: number;
+};
 
 interface ScanSkuPreview {
   query: string;
-  lines: (MultiitemBoxSkuLine & { checked: boolean })[];
+  lines: ScanSkuPreviewLine[];
+}
+
+/** Per-SKU quantities of an order already packed in other boxes. */
+async function fetchPackedByPage(
+  orderId: string,
+  excludeBoxId: string | null | undefined,
+  signal?: AbortSignal
+): Promise<Map<number, number>> {
+  const params = new URLSearchParams({ order_id: orderId });
+  if (excludeBoxId) params.set("exclude_box_id", excludeBoxId);
+  const res = await fetch(`/api/multiitem-boxes/packed?${params}`, { signal });
+  if (!res.ok) return new Map();
+  const json = (await res.json()) as {
+    packed?: { page: number; quantity: number }[];
+  };
+  return new Map((json.packed ?? []).map((row) => [row.page, row.quantity]));
+}
+
+/** Ticket SKU lines offered for this box: what's left, unchecked when none is. */
+function previewLinesLeft(
+  ticket: MultiitemBoxSkuLine[],
+  packedByPage: Map<number, number>
+): ScanSkuPreviewLine[] {
+  const left = remainingSkuLines(ticket, packedByPage);
+  return ticket.map((line, index) => ({
+    ...line,
+    quantity: left[index]?.quantity ?? line.quantity,
+    ticketQty: line.quantity,
+    left: left[index]?.quantity ?? line.quantity,
+    checked: (left[index]?.quantity ?? line.quantity) > 0,
+  }));
 }
 
 interface BoxDragPayload {
@@ -135,18 +168,6 @@ interface BoxDragPayload {
 }
 
 const BOX_DRAG_TYPE = "application/x-workflow-box-item";
-
-function skuLinesForScan(input: {
-  skus?: { name?: string | null; qty?: number | null }[];
-  totalQty?: number | null;
-  qtyPerSku?: number | null;
-  skuCount?: number | null;
-}): (MultiitemBoxSkuLine & { checked: boolean })[] {
-  return multiitemBoxSkuLinesFromTicket(input).map((line) => ({
-    ...line,
-    checked: true,
-  }));
-}
 
 function rowsToItems(rows: MultiitemBoxOrderRow[] | null | undefined): BoxItem[] {
   return (rows ?? []).map((row) => ({
@@ -571,7 +592,6 @@ export function MultiitemBoxSlipModal({
     null
   );
   const [shake, setShake] = useState(false);
-  const [pending, setPending] = useState<PendingScan | null>(null);
   const [scanSkuPreview, setScanSkuPreview] = useState<ScanSkuPreview | null>(
     null
   );
@@ -662,6 +682,9 @@ export function MultiitemBoxSlipModal({
     }));
   }, [configuredPalletCount, printSetup, printSetupBoxes]);
   const active = viewBoxes.find((b) => b.id === activeId) ?? viewBoxes[0] ?? null;
+  // Read by the scan preview so it can skip this box when counting what's left.
+  const activeBoxIdRef = useRef<string | null>(null);
+  activeBoxIdRef.current = active?.id ?? null;
   const activeIndex = active
     ? viewBoxes.findIndex((box) => box.id === active.id)
     : -1;
@@ -749,7 +772,6 @@ export function MultiitemBoxSlipModal({
   }, [cameraOpen]);
 
   function applyScanField(next: string) {
-    setPending(null);
     setScanSkuPreview(null);
     if (replaceNextScan.current) {
       replaceNextScan.current = false;
@@ -787,24 +809,27 @@ export function MultiitemBoxSlipModal({
             }[];
           };
         })
-        .then((json) => {
+        .then(async (json) => {
           if (!json?.id) return;
           const totalQty =
             json.qty != null && Number.isFinite(Number(json.qty))
               ? Math.floor(Number(json.qty))
               : null;
-          setScanSkuPreview({
-            query,
-            lines: skuLinesForScan({
-              skus: (json.sku_images ?? []).map((sku) => ({
-                name: sku.sku_name,
-                qty: sku.qty,
-              })),
-              totalQty,
-              qtyPerSku: json.qty_per_sku,
-              skuCount: json.final_artwork_sku_count,
-            }),
+          const ticket = multiitemBoxSkuLinesFromTicket({
+            skus: (json.sku_images ?? []).map((sku) => ({
+              name: sku.sku_name,
+              qty: sku.qty,
+            })),
+            totalQty,
+            qtyPerSku: json.qty_per_sku,
+            skuCount: json.final_artwork_sku_count,
           });
+          const packed = await fetchPackedByPage(
+            json.id,
+            activeBoxIdRef.current,
+            ac.signal
+          );
+          setScanSkuPreview({ query, lines: previewLinesLeft(ticket, packed) });
         })
         .catch((err: unknown) => {
           if (!(err instanceof Error) || err.name !== "AbortError") {
@@ -929,7 +954,6 @@ export function MultiitemBoxSlipModal({
       setBoxes((prev) => [...prev, created]);
       setSelectedSavedDay(null);
       setActiveId(created.id);
-      setPending(null);
       setScan("");
       focusScan();
     } catch (err) {
@@ -952,7 +976,6 @@ export function MultiitemBoxSlipModal({
       setBoxes((prev) => [...prev, created]);
       setSelectedSavedDay(null);
       setActiveId(created.id);
-      setPending(null);
       setScanSkuPreview(null);
       setScan("");
       focusScan();
@@ -991,7 +1014,6 @@ export function MultiitemBoxSlipModal({
       );
       setSelectedSavedDay(null);
       setActiveId(boxId);
-      setPending(null);
       setConfirmRemove(false);
       focusScan();
     } finally {
@@ -1015,7 +1037,6 @@ export function MultiitemBoxSlipModal({
       }
       setActiveId((prev) => (prev === id ? null : prev));
       setBoxes((prev) => prev.filter((box) => box.id !== id));
-      setPending(null);
       setConfirmRemove(false);
       setScan("");
 
@@ -1160,7 +1181,6 @@ export function MultiitemBoxSlipModal({
     replaceNextScan.current = false;
     setScan("");
     setScanSkuPreview(null);
-    setPending(null);
     const ticketQty = json.ticket_qty ?? 0;
     const packedElsewhere = json.packed_elsewhere ?? 0;
     if (ticketQty > 0 && packedElsewhere > 0) {
@@ -1180,23 +1200,20 @@ export function MultiitemBoxSlipModal({
     const matchingPreview =
       scanSkuPreview?.query === q ? scanSkuPreview : null;
     const selectedSkuLines = matchingPreview?.lines
-      .filter((line) => line.checked)
-      .map(({ checked: _checked, ...line }) => line);
+      .filter((line) => line.checked && line.quantity > 0)
+      .map(({ page, label, quantity }) => ({ page, label, quantity }));
     if (
       matchingPreview &&
       matchingPreview.lines.length > 0 &&
       selectedSkuLines?.length === 0
     ) {
-      showHint("error", "Select at least one SKU", 1800);
-      return;
-    }
-    if (pending && pending.query === q) {
-      if (!targetBox) return;
-      await addOrderToBox(targetBox, {
-        orderId: pending.orderId,
-        query: pending.query,
-        skuLines: selectedSkuLines ?? pending.skuLines,
-      });
+      showHint(
+        "error",
+        matchingPreview.lines.every((line) => line.left === 0)
+          ? "This order is already fully boxed"
+          : "Select at least one SKU with a quantity",
+        2000
+      );
       return;
     }
     replaceNextScan.current = true;
@@ -1245,21 +1262,26 @@ export function MultiitemBoxSlipModal({
       focusScan();
       return;
     }
+    // No preview yet (fast wedge scan): offer what other boxes left over.
     const lookupSkuLines =
       selectedSkuLines ??
-      skuLinesForScan({
-        skus: (json.sku_images ?? []).map((sku) => ({
-          name: sku.sku_name,
-          qty: sku.qty,
-        })),
-        totalQty:
-          json.qty != null && Number.isFinite(Number(json.qty))
-            ? Math.floor(Number(json.qty))
-            : null,
-        qtyPerSku: json.qty_per_sku,
-        skuCount: json.final_artwork_sku_count,
-      }).map(({ checked: _checked, ...line }) => line);
-    const customerName = json.customer?.name?.trim() || "";
+      previewLinesLeft(
+        multiitemBoxSkuLinesFromTicket({
+          skus: (json.sku_images ?? []).map((sku) => ({
+            name: sku.sku_name,
+            qty: sku.qty,
+          })),
+          totalQty:
+            json.qty != null && Number.isFinite(Number(json.qty))
+              ? Math.floor(Number(json.qty))
+              : null,
+          qtyPerSku: json.qty_per_sku,
+          skuCount: json.final_artwork_sku_count,
+        }),
+        await fetchPackedByPage(json.id, targetBox?.id)
+      )
+        .filter((line) => line.quantity > 0)
+        .map(({ page, label, quantity }) => ({ page, label, quantity }));
     if (!targetBox) {
       setBusy(true);
       try {
@@ -1280,20 +1302,8 @@ export function MultiitemBoxSlipModal({
         setBusy(false);
       }
     }
-    if (
-      targetBox.customer &&
-      customerName &&
-      customerName.toLowerCase() !== targetBox.customer.toLowerCase()
-    ) {
-      setPending({
-        query: q,
-        orderId: json.id,
-        orderTitle: json.title ?? q,
-        customerName,
-        skuLines: lookupSkuLines,
-      });
-      return;
-    }
+    // Orders from any customer can share a box; the box keeps its first
+    // customer for the slip header.
     await addOrderToBox(targetBox, {
       orderId: json.id,
       query: q,
@@ -1616,7 +1626,6 @@ export function MultiitemBoxSlipModal({
       }
     }
     setSelectedSavedDay(null);
-    setPending(null);
     setScan("");
     focusScan();
   }
@@ -1831,7 +1840,6 @@ export function MultiitemBoxSlipModal({
         });
         setSelectedSavedDay(null);
         setActiveId(created.id);
-        setPending(null);
         setScan("");
         focusScan();
       }
@@ -1897,11 +1905,10 @@ export function MultiitemBoxSlipModal({
           type="button"
           onClick={() => {
             replaceNextScan.current = false;
-            setPending(null);
             setScan("");
             scanRef.current?.focus();
           }}
-          disabled={!scan && !pending}
+          disabled={!scan}
           title="Clear"
           aria-label="Clear scan text"
           className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-30"
@@ -1935,7 +1942,6 @@ export function MultiitemBoxSlipModal({
           return;
         }
         setActiveId(box.id);
-        setPending(null);
         setConfirmRemove(false);
         focusScan();
       }}
@@ -1960,7 +1966,6 @@ export function MultiitemBoxSlipModal({
         onChooseMove={setMovePicker}
         onSelect={(boxId) => {
           setActiveId(boxId);
-          setPending(null);
           setConfirmRemove(false);
           focusScan();
         }}
@@ -2275,7 +2280,6 @@ export function MultiitemBoxSlipModal({
             type="button"
             onClick={() => {
               setSelectedSavedDay(null);
-              setPending(null);
               const firstOpen = boxes.find((b) => b.status === "open");
               setActiveId(firstOpen?.id ?? null);
               focusScan();
@@ -2290,7 +2294,6 @@ export function MultiitemBoxSlipModal({
               type="button"
               onClick={() => {
                 setSelectedSavedDay(key);
-                setPending(null);
                 const first = boxesForSavedMultiitemDay(boxes, key)[0];
                 setActiveId(first?.id ?? null);
               }}
@@ -2365,16 +2368,6 @@ export function MultiitemBoxSlipModal({
         ) : active ? (
           <div className="flex min-h-0 flex-col gap-4">
             <div className="flex min-h-0 flex-col gap-4">
-                {pending ? (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    <p className="font-semibold">Different customer detected</p>
-                    <p className="mt-1 text-slate-700">
-                      #{pending.orderTitle} → {pending.customerName}
-                    </p>
-                    <p className="text-slate-700">Box has: {active.customer}</p>
-                  </div>
-                ) : null}
-
                 {!readOnly ? (
                 <div>
                   {!headerActionsEl ? (
@@ -2420,11 +2413,10 @@ export function MultiitemBoxSlipModal({
                       type="button"
                       onClick={() => {
                         replaceNextScan.current = false;
-                        setPending(null);
                         setScan("");
                         scanRef.current?.focus();
                       }}
-                      disabled={!scan && !pending}
+                      disabled={!scan}
                       title="Clear"
                       aria-label="Clear scan text"
                       className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-30"
@@ -2498,9 +2490,10 @@ export function MultiitemBoxSlipModal({
               >
                 <div className="border-b border-slate-200 px-4 pb-3 pt-2">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-baseline gap-3">
-                        <p className="truncate text-base font-semibold text-slate-900">
+                    {/* @container: lay the fields out by the card's width, not the window's. */}
+                    <div className="@container min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                        <p className="break-words text-base font-semibold text-slate-900">
                           {active.name || "Unnamed box"}
                         </p>
                         <p className="shrink-0 text-sm font-medium tabular-nums text-slate-500">
@@ -2508,7 +2501,7 @@ export function MultiitemBoxSlipModal({
                         </p>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3">
-                        <div className="col-span-2 grid grid-cols-3 gap-3">
+                        <div className="col-span-2 grid grid-cols-1 gap-3 @3xs:grid-cols-2 @xs:grid-cols-[minmax(0,0.8fr)_minmax(0,1.15fr)_minmax(0,1.15fr)]">
                           <label className="block">
                             <span className={fieldLabel}>PO number</span>
                             <input
@@ -2576,7 +2569,7 @@ export function MultiitemBoxSlipModal({
                               <option value={CUSTOM_SIZE}>Custom…</option>
                             </select>
                           </label>
-                          <label className="block">
+                          <label className="block min-w-0 @3xs:col-span-2 @xs:col-span-1">
                             <span className={fieldLabel}>Weight (lbs)</span>
                             <div className="flex items-stretch gap-1">
                               <button
@@ -2798,37 +2791,114 @@ export function MultiitemBoxSlipModal({
                         </span>
                       </span>
                     </div>
-                    <div className="mt-2 grid max-h-44 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
-                      {scanSkuPreview.lines.map((line) => (
-                        <label
-                          key={line.page}
-                          className="flex cursor-pointer items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 px-2.5 py-2 text-sm"
-                        >
-                          <span className="font-medium text-slate-800">
-                            {line.label} – QTY{" "}
-                            <span className="tabular-nums">{line.quantity.toLocaleString()}</span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={line.checked}
-                            onChange={() =>
-                              setScanSkuPreview((current) =>
-                                current
-                                  ? {
-                                      ...current,
-                                      lines: current.lines.map((row) =>
-                                        row.page === line.page
-                                          ? { ...row, checked: !row.checked }
-                                          : row
-                                      ),
-                                    }
-                                  : current
-                              )
-                            }
-                            className="h-4 w-4 rounded border-slate-300 text-slate-900"
-                          />
-                        </label>
-                      ))}
+                    <p className="mt-1 text-xs text-slate-500">
+                      Set how many of each SKU go in this box. The rest stays
+                      available for the next box.
+                    </p>
+                    <div className="mt-2 flex max-h-72 flex-col gap-1 overflow-y-auto">
+                      {scanSkuPreview.lines.map((line, lineIndex) => {
+                        const fullyBoxed = line.left === 0;
+                        const setLine = (patch: Partial<ScanSkuPreviewLine>) =>
+                          setScanSkuPreview((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  lines: current.lines.map((row) =>
+                                    row.page === line.page
+                                      ? { ...row, ...patch }
+                                      : row
+                                  ),
+                                }
+                              : current
+                          );
+                        return (
+                          // Same row layout as the SKU lines inside a box.
+                          <div
+                            key={line.page}
+                            className={cn(
+                              "flex items-center gap-3 rounded px-2 py-1 text-sm text-slate-700",
+                              fullyBoxed
+                                ? "bg-slate-50 text-slate-400"
+                                : line.checked
+                                  ? "bg-blue-50/70"
+                                  : "bg-slate-50"
+                            )}
+                          >
+                            <span className="w-5 shrink-0 font-semibold tabular-nums text-slate-500">
+                              {lineIndex + 1}.
+                            </span>
+                            <span
+                              className="min-w-0 flex-1 break-words font-medium"
+                              title={line.label}
+                            >
+                              {line.label}
+                            </span>
+                            {fullyBoxed || line.left < line.ticketQty ? (
+                              <span className="shrink-0 text-xs text-slate-500">
+                                {fullyBoxed
+                                  ? `All ${line.ticketQty.toLocaleString()} boxed`
+                                  : `${line.left.toLocaleString()} left of ${line.ticketQty.toLocaleString()}`}
+                              </span>
+                            ) : null}
+                            <span className="shrink-0 text-[10px] font-semibold uppercase text-slate-500">
+                              Qty
+                            </span>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={0}
+                              max={line.left}
+                              value={fullyBoxed ? 0 : line.quantity}
+                              disabled={fullyBoxed}
+                              onChange={(e) => {
+                                const quantity = Math.min(
+                                  line.left,
+                                  Math.max(0, Math.floor(Number(e.target.value)) || 0)
+                                );
+                                setLine({ quantity, checked: quantity > 0 });
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void handleScanSubmit();
+                                }
+                              }}
+                              aria-label={`${line.label} quantity for this box`}
+                              className="h-10 w-20 shrink-0 rounded border border-slate-300 bg-white px-2 text-right text-base tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
+                            />
+                            <input
+                              type="checkbox"
+                              checked={line.checked && !fullyBoxed}
+                              disabled={fullyBoxed}
+                              onChange={() =>
+                                setLine({
+                                  checked: !line.checked,
+                                  quantity:
+                                    !line.checked && line.quantity < 1
+                                      ? line.left
+                                      : line.quantity,
+                                })
+                              }
+                              aria-label={`Include ${line.label}`}
+                              className="h-5 w-5 shrink-0 rounded border-slate-300 text-slate-900"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void handleScanSubmit()}
+                        disabled={
+                          !scanSkuPreview.lines.some(
+                            (line) => line.checked && line.quantity > 0
+                          )
+                        }
+                        className="inline-flex h-10 items-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+                      >
+                        Add to box
+                      </button>
                     </div>
                   </div>
                 ) : null}
@@ -2857,8 +2927,8 @@ export function MultiitemBoxSlipModal({
                     <p>Scan orders to add them here</p>
                   </div>
                 ) : (
-                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-1">
-                    <div className="grid grid-cols-[6rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] gap-x-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="@container min-h-0 flex-1 overflow-y-auto px-3 py-1">
+                    <div className="grid grid-cols-[1.5rem_auto_3.5rem_minmax(0,1fr)_auto_auto] @lg:grid-cols-[4.5rem_auto_4rem_minmax(0,1fr)_auto_auto] gap-x-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       <span />
                       <span>Order</span>
                       <span>Artwork</span>
@@ -2872,12 +2942,14 @@ export function MultiitemBoxSlipModal({
                           key={item.id}
                           className="border-b border-slate-100 py-1.5"
                         >
-                          <div className="grid grid-cols-[6rem_7.5rem_4.5rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
+                          <div className="grid grid-cols-[1.5rem_auto_3.5rem_minmax(0,1fr)_auto_auto] @lg:grid-cols-[4.5rem_auto_4rem_minmax(0,1fr)_auto_auto] items-center gap-x-3">
                             <div className="flex items-center gap-1">
                               <span className="w-5 shrink-0 font-semibold tabular-nums text-slate-500">
                                 {itemIndex + 1}.
                               </span>
-                              <ItemQrCode value={item.orderTitle} size={64} />
+                              <span className="hidden @lg:inline-flex">
+                                <ItemQrCode value={item.orderTitle} size={44} />
+                              </span>
                             </div>
                             <div className="flex min-w-0 items-center gap-1">
                               {!readOnly && viewBoxes.length > 1 ? (
@@ -2910,11 +2982,14 @@ export function MultiitemBoxSlipModal({
                             <BoxArtworkThumb
                               orderId={item.orderId}
                               url={item.thumbnailUrl}
-                              size={64}
+                              size={56}
                               orderNumber={formatShortOrderNumber(item.orderTitle)}
                             />
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-slate-800">
+                              <p
+                                className="line-clamp-2 break-words text-sm font-medium text-slate-800"
+                                title={item.itemTitle || item.orderTitle || undefined}
+                              >
                                 {item.itemTitle || item.orderTitle || "—"}
                               </p>
                               {item.customerName ? (
@@ -2946,7 +3021,7 @@ export function MultiitemBoxSlipModal({
                                   Number(e.currentTarget.value)
                                 )
                               }
-                              className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-right font-mono text-base tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-50"
+                              className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right font-mono text-base tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-50"
                               disabled={readOnly || item.skuLines.length > 0}
                               title={
                                 item.skuLines.length > 0

@@ -6,6 +6,9 @@ import {
   clampBoxLineToTicket,
   multiitemBoxSkuLinesFromOrderSpecs,
   normalizeMultiitemBoxSkuLines,
+  overPackedSkuError,
+  packedQuantitiesByPage,
+  remainingSkuLines,
   remainingTicketQuantity,
   resolveStoredBoxSkuLines,
 } from "./multiitem-box-lookup.ts";
@@ -175,6 +178,46 @@ describe("normalizeMultiitemBoxSkuLines", () => {
         { page: 1, label: "SKU 1", quantity: 3200 },
         { page: 2, label: "SKU 2", quantity: 3200 },
       ]
+    );
+  });
+});
+
+describe("splitting a SKU across boxes", () => {
+  const ticket = [
+    { page: 1, label: "Roll Labels", quantity: 250 },
+    { page: 2, label: "SKU 2", quantity: 100 },
+  ];
+
+  it("sums each SKU already packed in other boxes", () => {
+    const packed = packedQuantitiesByPage([
+      { sku_lines: [{ page: 1, label: "Roll Labels", quantity: 100 }] },
+      { sku_lines: [{ page: 1, label: "Roll Labels", quantity: 50 }, { page: 2, label: "SKU 2", quantity: 100 }] },
+      { sku_lines: null },
+    ]);
+    assert.deepEqual([...packed], [[1, 150], [2, 100]]);
+  });
+
+  it("offers only what is left, never below zero", () => {
+    const left = remainingSkuLines(ticket, new Map([[1, 100], [2, 120]]));
+    assert.deepEqual(
+      left.map((line) => line.quantity),
+      [150, 0]
+    );
+  });
+
+  it("rejects a box quantity above what is left for that SKU", () => {
+    const packed = new Map([[1, 100], [2, 100]]);
+    assert.equal(
+      overPackedSkuError([{ page: 1, label: "Roll Labels", quantity: 150 }], ticket, packed),
+      null
+    );
+    assert.equal(
+      overPackedSkuError([{ page: 1, label: "Roll Labels", quantity: 151 }], ticket, packed),
+      "Only 150 of Roll Labels left to box"
+    );
+    assert.equal(
+      overPackedSkuError([{ page: 2, label: "SKU 2", quantity: 1 }], ticket, packed),
+      "SKU 2 is already fully boxed"
     );
   });
 });

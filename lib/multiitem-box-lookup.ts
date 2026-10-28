@@ -252,6 +252,74 @@ export async function packedBoxQuantityForOrder(
   return total;
 }
 
+/** Sum each SKU page's quantity across box rows (their stored `sku_lines`). */
+export function packedQuantitiesByPage(
+  rows: { sku_lines?: unknown }[]
+): Map<number, number> {
+  const packed = new Map<number, number>();
+  for (const row of rows) {
+    for (const line of normalizeMultiitemBoxSkuLines(row.sku_lines)) {
+      packed.set(line.page, (packed.get(line.page) ?? 0) + line.quantity);
+    }
+  }
+  return packed;
+}
+
+/**
+ * Ticket SKU lines minus what other boxes already hold, so a SKU can be split
+ * across boxes (250 → 100 in Box 1, 150 left for Box 2). Never below 0.
+ */
+export function remainingSkuLines(
+  ticket: MultiitemBoxSkuLine[],
+  packedByPage: Map<number, number>
+): MultiitemBoxSkuLine[] {
+  return ticket.map((line) => ({
+    ...line,
+    quantity: Math.max(0, line.quantity - (packedByPage.get(line.page) ?? 0)),
+  }));
+}
+
+/** Error for the first requested SKU that exceeds what is left to pack, else null. */
+export function overPackedSkuError(
+  requested: MultiitemBoxSkuLine[],
+  ticket: MultiitemBoxSkuLine[],
+  packedByPage: Map<number, number>
+): string | null {
+  const left = new Map(
+    remainingSkuLines(ticket, packedByPage).map((line) => [line.page, line])
+  );
+  for (const line of requested) {
+    const ticketLine = left.get(line.page);
+    if (!ticketLine) continue;
+    if (line.quantity > ticketLine.quantity) {
+      return ticketLine.quantity === 0
+        ? `${ticketLine.label} is already fully boxed`
+        : `Only ${ticketLine.quantity} of ${ticketLine.label} left to box`;
+    }
+  }
+  return null;
+}
+
+/** Per-SKU quantities of one order already packed in boxes other than `excludeBoxId`. */
+export async function packedSkuQuantitiesForOrder(
+  supabase: SupabaseClient,
+  tenantId: string,
+  orderId: string,
+  excludeBoxId?: string | null
+): Promise<Map<number, number>> {
+  const { data, error } = await supabase
+    .from("multiitem_box_orders")
+    .select("box_id, sku_lines")
+    .eq("tenant_id", tenantId)
+    .eq("order_id", orderId);
+  if (error) throw new Error(error.message);
+  return packedQuantitiesByPage(
+    ((data ?? []) as { box_id: string; sku_lines?: unknown }[]).filter(
+      (row) => !excludeBoxId || row.box_id !== excludeBoxId
+    )
+  );
+}
+
 const ITEM_TITLE_KEYS = [
   "webhook_item_title",
   "webhook_order_title",

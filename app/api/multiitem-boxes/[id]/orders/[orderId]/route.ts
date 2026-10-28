@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 import {
   clampBoxLineToTicket,
+  multiitemBoxSkuLinesFromOrderSpecs,
   normalizeMultiitemBoxSkuLines,
+  overPackedSkuError,
   packedBoxQuantityForOrder,
+  packedSkuQuantitiesForOrder,
   resolveBoxLineQuantity,
 } from "@/lib/multiitem-box-lookup";
 
@@ -58,6 +61,31 @@ export async function PATCH(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Lookup failed";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+  if (hasSkuLines) {
+    try {
+      const packedByPage = await packedSkuQuantitiesForOrder(
+        supabase,
+        tenantId,
+        orderId,
+        boxId
+      );
+      const overPacked = overPackedSkuError(
+        skuLines,
+        multiitemBoxSkuLinesFromOrderSpecs(
+          (orderRow?.specs ?? null) as Record<string, unknown> | null,
+          ticketQty,
+          null
+        ),
+        packedByPage
+      );
+      if (overPacked) {
+        return NextResponse.json({ error: overPacked }, { status: 409 });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Lookup failed";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
   }
   const clamped = clampBoxLineToTicket({
     requested,
