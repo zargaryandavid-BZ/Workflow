@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dollarsToCents } from "@/lib/shipping-markup";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
+import { serverPricedSelection } from "@/lib/shipping-quote.server";
+import { isClientFedExSelection } from "@/lib/client-fedex";
 import {
   isShippingChoiceOffered,
   isStripeConfiguredFromSettings,
@@ -11,6 +13,7 @@ import {
 import { getStripeClient } from "@/lib/stripe-shipping";
 import type {
   FedExRateOption,
+  ShippingBox,
   ShippingDeliveryAddress,
 } from "@/lib/types";
 
@@ -34,10 +37,10 @@ export async function POST(
     deliveryAddress?: ShippingDeliveryAddress;
   };
 
-  const fedexSelection = body.fedexSelection;
+  const requestedSelection = body.fedexSelection;
   const deliveryAddress = body.deliveryAddress;
 
-  if (!fedexSelection?.serviceType || fedexSelection.totalCharge == null) {
+  if (!requestedSelection?.serviceType) {
     return NextResponse.json(
       { error: "Select a shipping option with a valid price." },
       { status: 422 }
@@ -64,7 +67,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: shipReq, error } = await admin
     .from("shipping_requests")
-    .select("id, status, tenant_id, order_id")
+    .select("id, status, tenant_id, order_id, boxes")
     .eq("token", token)
     .maybeSingle();
 
@@ -104,6 +107,42 @@ export async function POST(
     return NextResponse.json(
       { error: "Stripe publishable key is missing." },
       { status: 503 }
+    );
+  }
+
+  if (isClientFedExSelection(requestedSelection)) {
+    return NextResponse.json(
+      { error: "Shipping on your own FedEx account needs no payment." },
+      { status: 422 }
+    );
+  }
+
+  // Never charge a price sent by the browser: re-quote and use our rate.
+  let fedexSelection: FedExRateOption | null;
+  try {
+    fedexSelection = await serverPricedSelection({
+      selection: requestedSelection,
+      boxes: (shipReq.boxes ?? []) as ShippingBox[],
+      deliveryAddress: normalizeDeliveryAddress(deliveryAddress),
+      settings,
+    });
+  } catch (err) {
+    console.error(
+      "[create-checkout-session] re-quote failed",
+      err instanceof Error ? err.message : err
+    );
+    return NextResponse.json(
+      { error: "Could not confirm the shipping price. Please try again." },
+      { status: 502 }
+    );
+  }
+  if (!fedexSelection || fedexSelection.totalCharge == null) {
+    return NextResponse.json(
+      {
+        error:
+          "That shipping option is no longer available. Refresh the rates and pick again.",
+      },
+      { status: 409 }
     );
   }
 

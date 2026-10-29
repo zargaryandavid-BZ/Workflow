@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchFedExRates, friendlyFedExCustomerError } from "@/lib/fedex";
-import { applyShippingMarkup } from "@/lib/shipping-markup";
+import { friendlyFedExCustomerError } from "@/lib/fedex";
+import { quoteFedExCustomerRates } from "@/lib/shipping-quote.server";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { loadShippingSettings } from "@/lib/shipping-settings";
 import type {
-  FedExRateOption,
   ShippingBox,
   ShippingDeliveryAddress,
 } from "@/lib/types";
@@ -70,31 +69,12 @@ export async function POST(
   const deliveryAddress = normalizeDeliveryAddress(addr);
 
   try {
-    const baseRates = await fetchFedExRates({
+    const rates = await quoteFedExCustomerRates({
       boxes,
       deliveryAddress,
       settings,
     });
-
-    // Customer price uses FedEx ACCOUNT rates (see pickRatedDetail).
-
     const paymentEnabled = settings?.payment_enabled ?? false;
-    const markupPercent = settings?.markup_percent ?? 0;
-
-    const rates: FedExRateOption[] = baseRates.map((rate) => {
-      const tagged = { ...rate, provider: "fedex" as const };
-      const base = tagged.totalCharge;
-      // Client price = FedEx API rate + percent markup only (no fixed fee).
-      if (!paymentEnabled || base == null || markupPercent === 0) {
-        return tagged;
-      }
-      const withMarkup = applyShippingMarkup(base, 0, markupPercent);
-      return {
-        ...tagged,
-        fedexBaseCharge: base,
-        totalCharge: withMarkup,
-      };
-    });
 
     return NextResponse.json({
       rates,

@@ -642,6 +642,8 @@ export function MultiitemBoxSlipModal({
   const skuEditPrevious = useRef(
     new Map<string, MultiitemBoxSkuLine[]>()
   );
+  /** Order qty when its input was focused, to undo a rejected save. */
+  const qtyEditPrevious = useRef(new Map<string, number>());
   const router = useRouter();
 
   const savedDayKeys = useMemo(() => savedMultiitemDayKeys(boxes), [boxes]);
@@ -1326,9 +1328,15 @@ export function MultiitemBoxSlipModal({
 
   async function saveQty(orderId: string, quantity: number) {
     if (!active || active.status === "saved") return;
+    // onChange already wrote the typed value locally: roll back to the
+    // value the input had when it was focused.
     const previous =
-      active.items.find((it) => it.orderId === orderId)?.quantity ?? 1;
+      qtyEditPrevious.current.get(orderId) ??
+      active.items.find((it) => it.orderId === orderId)?.quantity ??
+      1;
+    qtyEditPrevious.current.delete(orderId);
     const qty = Math.max(1, Math.floor(quantity) || 1);
+    if (qty === previous) return;
     patchBoxLocal(active.id, {
       items: active.items.map((it) =>
         it.orderId === orderId ? { ...it, quantity: qty } : it
@@ -3005,7 +3013,13 @@ export function MultiitemBoxSlipModal({
                               min={1}
                               max={99999999}
                               value={item.quantity}
-                              onFocus={(e) => e.currentTarget.select()}
+                              onFocus={(e) => {
+                                e.currentTarget.select();
+                                qtyEditPrevious.current.set(
+                                  item.orderId,
+                                  item.quantity
+                                );
+                              }}
                               onChange={(e) =>
                                 patchBoxLocal(active.id, {
                                   items: active.items.map((it) =>

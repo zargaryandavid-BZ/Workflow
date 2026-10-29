@@ -220,6 +220,16 @@ async function claimEventId(
   throw new Error(error.message);
 }
 
+async function releaseEventId(client: Client, eventId: string): Promise<void> {
+  const { error } = await client
+    .from("processed_webhook_events")
+    .delete()
+    .eq("event_id", eventId);
+  if (error) {
+    console.error("[webhook/v2] release claim failed:", error.message);
+  }
+}
+
 async function pruneOldWebhookEvents(client: Client): Promise<void> {
   try {
     await client
@@ -293,13 +303,39 @@ export async function handleWebhookV2(
     };
   }
 
-  const { data: existingRows } = await client
+  // The event is only "processed" once the work succeeded: on a failure we
+  // release the claim so the CRM's retry is applied instead of answered
+  // "duplicate" (which used to lose the order).
+  try {
+    const result = await applyClaimedWebhookV2(client, tenantId, payload);
+    if (result.httpStatus >= 500) {
+      await releaseEventId(client, payload.event_id);
+    } else {
+      await pruneOldWebhookEvents(client);
+    }
+    return result;
+  } catch (err) {
+    await releaseEventId(client, payload.event_id);
+    throw err;
+  }
+}
+
+async function applyClaimedWebhookV2(
+  client: Client,
+  tenantId: string,
+  payload: WebhookV2Payload
+): Promise<WebhookV2HttpResult> {
+  const { data: existingRows, error: existingError } = await client
     .from("orders")
     .select(
       "id, crm_updated_at, user_overrides, integration_mode, customer_id, due_date, tag_id, specs, description, customer:customers(name)"
     )
     .eq("tenant_id", tenantId)
     .eq("crm_order_id", payload.crm_order_id);
+  // A failed lookup must not look like "new order" (that would duplicate it).
+  if (existingError) {
+    return { httpStatus: 500, body: { error: existingError.message } };
+  }
 
   const existing = existingRows?.[0];
 
@@ -307,7 +343,6 @@ export async function handleWebhookV2(
     const mode = (existing as { integration_mode?: string | null })
       .integration_mode;
     if (mode === "local" || mode == null) {
-      await pruneOldWebhookEvents(client);
       return {
         httpStatus: 200,
         body: { status: "skipped", skipped: true, reason: "local_order" },
@@ -320,7 +355,6 @@ export async function handleWebhookV2(
         payload.crm_updated_at
       )
     ) {
-      await pruneOldWebhookEvents(client);
       return {
         httpStatus: 200,
         body: { status: "stale", skipped: true },
@@ -340,7 +374,6 @@ export async function handleWebhookV2(
       },
       payload,
     });
-    await pruneOldWebhookEvents(client);
     return result;
   }
 
@@ -348,7 +381,6 @@ export async function handleWebhookV2(
     tenantId,
     payload,
   });
-  await pruneOldWebhookEvents(client);
   return created;
 }
 

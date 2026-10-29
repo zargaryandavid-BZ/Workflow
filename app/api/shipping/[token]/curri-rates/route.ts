@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchCurriRates, isCurriConfigured } from "@/lib/curri";
-import { applyShippingMarkup } from "@/lib/shipping-markup";
+import { isCurriConfigured } from "@/lib/curri";
+import { quoteCurriCustomerRates } from "@/lib/shipping-quote.server";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
-import {
-  loadShippingSettings,
-  resolveFedExConfig,
-} from "@/lib/shipping-settings";
+import { loadShippingSettings } from "@/lib/shipping-settings";
 import type {
-  FedExRateOption,
   ShippingBox,
   ShippingDeliveryAddress,
 } from "@/lib/types";
@@ -67,50 +63,12 @@ export async function POST(
     return NextResponse.json({ rates: [], paymentEnabled: false });
   }
 
-  const storedBoxes = (shipReq.boxes ?? []) as ShippingBox[];
-  const boxes: ShippingBox[] =
-    storedBoxes.length > 0
-      ? storedBoxes
-      : [
-          {
-            length: 12,
-            width: 10,
-            height: 6,
-            weight: 5,
-            dimUnit: "in",
-            weightUnit: "lbs",
-          },
-        ];
-
-  const config = resolveFedExConfig(settings);
-  const deliveryAddress = normalizeDeliveryAddress(addr);
-
-  const baseRates = await fetchCurriRates({
-    boxes,
-    deliveryAddress,
-    origin: {
-      street: config.shipper.street,
-      city: config.shipper.city,
-      state: config.shipper.state,
-      zip: config.shipper.zip,
-    },
+  const rates = await quoteCurriCustomerRates({
+    boxes: (shipReq.boxes ?? []) as ShippingBox[],
+    deliveryAddress: normalizeDeliveryAddress(addr),
+    settings,
   });
-
   const paymentEnabled = settings?.payment_enabled ?? false;
-  const markupPercent = settings?.markup_percent ?? 0;
-
-  const rates: FedExRateOption[] = baseRates.map((rate) => {
-    const base = rate.totalCharge;
-    if (!paymentEnabled || base == null || markupPercent === 0) {
-      return rate;
-    }
-    const withMarkup = applyShippingMarkup(base, 0, markupPercent);
-    return {
-      ...rate,
-      fedexBaseCharge: base,
-      totalCharge: withMarkup,
-    };
-  });
 
   return NextResponse.json({ rates, paymentEnabled });
 }

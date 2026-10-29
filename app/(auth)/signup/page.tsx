@@ -179,35 +179,12 @@ export default function SignupPage() {
       return;
     }
 
-    const res = await fetch("/api/auth/complete-invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: inviteEmail,
-        password,
-        fullName: inviteName || undefined,
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setLoading(false);
-      setError(json.error ?? "Could not complete signup.");
-      return;
-    }
-
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: inviteEmail,
-      password,
-    });
+    // Without a session from the emailed invite link we cannot prove the
+    // person owns this email, so the password can't be set here.
     setLoading(false);
-    if (signInError) {
-      setError(
-        `${signInError.message} Your password was saved — try signing in.`
-      );
-      return;
-    }
-    router.push("/board");
-    router.refresh();
+    setError(
+      "Open the invite link from your email to set your password. If it expired, ask your admin to resend the invite."
+    );
   }
 
   async function createWorkspace(e: React.FormEvent) {

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { FLOOR_DEVICE_COOKIE } from "@/lib/floor-device-cookie";
 
 export type KioskTenant = NonNullable<
   Awaited<ReturnType<typeof resolveKioskTenant>>
@@ -26,51 +27,40 @@ export async function resolveKioskTenant(token: string | undefined) {
   };
 }
 
-/**
- * Floor URL `/fulfillment/scan` with no login: env token, else the only
- * (or Bazaar) kiosk_token on fulfillment_settings.
- */
-export async function resolveFloorScanKiosk() {
-  const fromEnv = (
-    process.env.KIOSK_TOKEN ??
-    process.env.NEXT_PUBLIC_KIOSK_TOKEN ??
-    ""
-  ).trim();
-  if (fromEnv) return resolveKioskTenant(fromEnv);
 
-  const supabase = createAdminClient();
-  const { data: rows } = await supabase
+async function floorDeviceToken(): Promise<string> {
+  const { cookies } = await import("next/headers");
+  return (await cookies()).get(FLOOR_DEVICE_COOKIE)?.value?.trim() ?? "";
+}
+
+/** False until the kiosk_token migration is applied (no tokens to check). */
+async function kioskTokensAvailable(): Promise<boolean> {
+  const { error } = await createAdminClient()
     .from("fulfillment_settings")
-    .select("kiosk_token, tenant_id, scan_column_config")
-    .not("kiosk_token", "is", null)
-    .limit(8);
-
-  if (!rows?.length) return null;
-  if (rows.length === 1) {
-    return resolveKioskTenant(String(rows[0].kiosk_token));
-  }
-
-  const { data: tenants } = await supabase
-    .from("tenants")
-    .select("id, name")
-    .in(
-      "id",
-      rows.map((r) => r.tenant_id as string)
+    .select("kiosk_token")
+    .limit(1);
+  if (error) {
+    console.error(
+      "[kiosk] kiosk_token unavailable; floor pages open without a device token:",
+      error.message
     );
-  const bazaar = (tenants ?? []).find((t) =>
-    String((t as { name?: string }).name ?? "")
-      .toLowerCase()
-      .includes("bazaar")
-  );
-  const row = bazaar
-    ? rows.find((r) => r.tenant_id === (bazaar as { id: string }).id)
-    : rows[0];
-  return resolveKioskTenant(String(row?.kiosk_token ?? ""));
+  }
+  return !error;
 }
 
 /**
- * Tenant for public floor pages (Production list). Prefers the kiosk token,
- * otherwise the Bazaar workspace (or the only tenant).
+ * Floor URL `/fulfillment/scan` with no login: only a device registered by
+ * opening its `/kiosk/<token>` link (the token is kept in a cookie).
+ */
+export async function resolveFloorScanKiosk() {
+  const token = await floorDeviceToken();
+  return token ? resolveKioskTenant(token) : null;
+}
+
+/**
+ * Tenant for public floor pages and their `/api/public/floor/*` APIs.
+ * Requires a registered device; before the kiosk_token migration exists the
+ * old no-token floor keeps working so stations are not locked out.
  */
 export async function resolveFloorTenant() {
   const kiosk = await resolveFloorScanKiosk();
@@ -81,7 +71,15 @@ export async function resolveFloorTenant() {
       token: kiosk.token,
     };
   }
+  if (await kioskTokensAvailable()) return null;
+  return resolveDefaultFloorTenant();
+}
 
+/**
+ * The Bazaar workspace (or the only tenant). No device check: for read-only
+ * lookups that are scoped some other way, e.g. Pulse CRM order artwork.
+ */
+export async function resolveDefaultFloorTenant() {
   const supabase = createAdminClient();
   const { data: tenants } = await supabase
     .from("tenants")

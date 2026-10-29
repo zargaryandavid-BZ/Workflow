@@ -1,6 +1,8 @@
 import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity, resolveColumnForNewJobByProduct } from "@/lib/automation";
+import { isCrmCancelledOrder } from "@/lib/webhook-cancel-order";
+import { titleMatchIsSameOrder } from "@/lib/webhook-title-match";
 import {
   pickColumnByName,
   pickMissingInfoColumn,
@@ -2872,6 +2874,65 @@ export interface WebhookMultiOrderResult {
 
 export type WebhookCreateResult = WebhookOrderResult | WebhookMultiOrderResult;
 
+/**
+ * CRM line indexes that have no card yet. Cards removed by staff still count
+ * as covered so a re-fire never brings a deleted line back. Returns [] when
+ * any live card can't be tied to a line (no crm_line_id / item index).
+ */
+async function missingCrmLineIndexes(
+  client: Client,
+  tenantId: string,
+  webhookOrderNumber: string,
+  existing: { id: string; specs: Record<string, unknown> }[],
+  items: WebhookItem[]
+): Promise<number[]> {
+  const lineIdOf = (specs: Record<string, unknown> | null | undefined) =>
+    typeof specs?.crm_line_id === "string" ? specs.crm_line_id.trim() : "";
+  const indexOf = (specs: Record<string, unknown> | null | undefined) => {
+    const raw = specs?.webhook_item_index;
+    const n = typeof raw === "number" ? raw : Number.parseInt(String(raw ?? ""), 10);
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  };
+  if (existing.some((o) => !lineIdOf(o.specs) && indexOf(o.specs) == null)) {
+    return [];
+  }
+
+  const { data: allCards, error } = await client
+    .from("orders")
+    .select("specs")
+    .eq("tenant_id", tenantId)
+    .filter("specs->>webhook_order_number", "eq", webhookOrderNumber);
+  if (error) throw new Error(error.message);
+  const cards = [
+    ...existing.map((o) => o.specs),
+    ...((allCards ?? []) as { specs: Record<string, unknown> | null }[]).map(
+      (row) => row.specs ?? {}
+    ),
+  ];
+  const coveredLineIds = new Set(cards.map(lineIdOf).filter(Boolean));
+  const coveredIndexes = new Set(
+    cards.map(indexOf).filter((n): n is number => n != null)
+  );
+  // Cards made before line ids were stored are only known by index.
+  const coveredIndexesWithoutLineId = new Set(
+    cards
+      .filter((specs) => !lineIdOf(specs))
+      .map(indexOf)
+      .filter((n): n is number => n != null)
+  );
+
+  const missing: number[] = [];
+  items.forEach((item, i) => {
+    const lid =
+      typeof item.crm_line_id === "string" ? item.crm_line_id.trim() : "";
+    const covered = lid
+      ? coveredLineIds.has(lid) || coveredIndexesWithoutLineId.has(i)
+      : coveredIndexes.has(i);
+    if (!covered) missing.push(i);
+  });
+  return missing;
+}
+
 async function findExistingWebhookOrders(
   client: Client,
   tenantId: string,
@@ -2894,7 +2955,7 @@ async function findExistingWebhookOrders(
       .filter("specs->>webhook_order_number", "eq", webhookOrderNumber),
     client
       .from("orders")
-      .select("id, title, specs")
+      .select("id, title, specs, created_at")
       .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .in("title", titles),
@@ -2918,6 +2979,21 @@ async function findExistingWebhookOrders(
   }
 
   const results = await Promise.all(lookups);
+  // Title-only matches ("0486-1") are ambiguous across years and sources:
+  // ORD-2027-0486 must not adopt last year's ORD-2026-0486 card.
+  const TITLE_ONLY_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+  results[1] = {
+    ...results[1],
+    data: (results[1].data ?? []).filter((row) =>
+      titleMatchIsSameOrder(
+        (row.specs as Record<string, unknown> | null) ?? {},
+        (row as { created_at?: string | null }).created_at ?? null,
+        webhookOrderNumber,
+        trimmedCrmId,
+        TITLE_ONLY_MAX_AGE_MS
+      )
+    ),
+  } as (typeof results)[number];
 
   const byId = new Map<
     string,
@@ -4390,6 +4466,7 @@ export async function createOrderFromWebhook(
     (typeof body.description === "string" ? body.description.trim() : null);
 
   return withWebhookOrderIngestLock(client, tenantId, baseOrderNumber, async () => {
+  let crmMissingIndexes: number[] = [];
   // Idempotent due-date / CRM re-fire: update existing cards when found.
   const existingOrders = await findExistingWebhookOrders(
     client,
@@ -4399,6 +4476,21 @@ export async function createOrderFromWebhook(
     items.length,
     crmOrderId
   );
+  // A CRM-cancelled order stays cancelled: a later re-fire must not put its
+  // cards back on the board.
+  if (
+    existingOrders.length === 0 &&
+    (await isCrmCancelledOrder(client, tenantId, baseOrderNumber))
+  ) {
+    return {
+      isMultiItem: true,
+      orderNumber: baseOrderNumber,
+      jobs: [],
+      ownerId: null,
+      ownerName: null,
+      warning: "Order was cancelled in the CRM; not re-created.",
+    };
+  }
   if (existingOrders.length > 0) {
     await updateExistingOrdersDue(
       client,
@@ -4533,8 +4625,26 @@ export async function createOrderFromWebhook(
 
     const needsExtraPortalLines =
       webhookSource === "portal" && items.length > existingOrders.length;
+    // CRM: create only lines with no card yet (a create that failed part-way,
+    // or a line added in the CRM later). Matched by crm_line_id, else index.
+    if (!needsExtraPortalLines && webhookSource !== "portal") {
+      try {
+        crmMissingIndexes = await missingCrmLineIndexes(
+          client,
+          tenantId,
+          baseOrderNumber,
+          existingOrders,
+          items
+        );
+      } catch (err) {
+        console.error(
+          "[webhook/orders] missing CRM line check failed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
 
-    if (!needsExtraPortalLines) {
+    if (!needsExtraPortalLines && crmMissingIndexes.length === 0) {
       const sorted = [...existingOrders].sort((a, b) =>
         a.title.localeCompare(b.title, undefined, { numeric: true })
       );
@@ -4604,8 +4714,18 @@ export async function createOrderFromWebhook(
     existingOrders.length > 0 && webhookSource === "portal"
       ? existingOrders.length
       : 0;
+  const createIndexes =
+    crmMissingIndexes.length > 0
+      ? crmMissingIndexes
+      : Array.from(
+          { length: Math.max(0, items.length - startCreateIndex) },
+          (_, k) => startCreateIndex + k
+        );
+  /** Adding line cards next to cards that already exist (portal or CRM). */
+  const appendingToExisting =
+    startCreateIndex > 0 || crmMissingIndexes.length > 0;
   const refreshedExistingJobs: WebhookCreatedJob[] =
-    startCreateIndex > 0
+    appendingToExisting
       ? [...existingOrders]
           .sort((a, b) =>
             a.title.localeCompare(b.title, undefined, { numeric: true })
@@ -4629,8 +4749,8 @@ export async function createOrderFromWebhook(
   let columnName =
     (firstCol as { id: string; name: string } | null)?.name ?? null;
 
-  // Portal append: place new line cards with their siblings, not column 1.
-  if (startCreateIndex > 0 && existingOrders[0]?.id) {
+  // Append: place new line cards with their siblings, not column 1.
+  if (appendingToExisting && existingOrders[0]?.id) {
     const { data: sibling } = await client
       .from("orders")
       .select("column_id")
@@ -4745,7 +4865,7 @@ export async function createOrderFromWebhook(
       : null;
 
   // When appending portal lines on re-fire, treat as multi-item for titles.
-  const createAsMultiItem = isMultiItem || startCreateIndex > 0;
+  const createAsMultiItem = isMultiItem || appendingToExisting;
   // Reorder → original order lookups (read-only; cached across lines).
   const reorderRefForLookup =
     body.is_reorder === true ? cleanReorderRef(body.reorder_of_order_number) : "";
@@ -4778,7 +4898,7 @@ export async function createOrderFromWebhook(
     return autoAssignDesignerId;
   }
 
-  for (let i = startCreateIndex; i < items.length; i++) {
+  for (const i of createIndexes) {
     const rawItem = items[i];
     const merged = mergeItemWithOrder(body, rawItem);
     const jobTitle = resolveItemTitle(merged, itemParentLabel, i, items.length);
@@ -5002,7 +5122,7 @@ export async function createOrderFromWebhook(
       portalBrokerId,
       portalCompanyName,
       bazaarOrderNumber: bazaarOrderNumberFromWebhook(body, item),
-      skipProductRouting: startCreateIndex > 0,
+      skipProductRouting: appendingToExisting,
       designSource:
         typeof body.design_source === "string" ? body.design_source.trim() : null,
       designReference:
@@ -5033,9 +5153,9 @@ export async function createOrderFromWebhook(
     }
   }
 
-  if (startCreateIndex > 0) {
+  if (appendingToExisting) {
     allWarnings.unshift(
-      `Updated existing portal order(s); created ${createdJobs.length} new line card(s).`
+      `Updated existing ${webhookSource === "portal" ? "portal " : ""}order(s); created ${createdJobs.length} new line card(s).`
     );
   }
 

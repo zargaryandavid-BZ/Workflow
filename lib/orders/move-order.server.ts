@@ -5,6 +5,7 @@ import { getMissingFields } from "@/lib/orders/validate-ready-to-move";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { resequenceDesignerQueue } from "@/lib/designer-queue.server";
 import { canMove } from "@/lib/permissions";
+import { isFollowUpBypassTarget } from "@/lib/follow-up-bypass";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
@@ -108,8 +109,11 @@ export async function performOrderMove(
     return { status: 404, body: { error: "Column not found" } };
   }
 
+  // The bypass is for the approval / missing-info follow-up buttons only:
+  // never let a request body skip permissions into any other column.
+  const bypass = Boolean(bypassDropRoles) && isFollowUpBypassTarget(typedColumn);
   if (
-    !bypassDropRoles &&
+    !bypass &&
     (!actorRole || !canMove(actorRole, typedFromColumn, typedColumn))
   ) {
     return { status: 403, body: { error: "You don't have permission to move this order here." } };

@@ -178,7 +178,7 @@ export async function POST(
 
     try {
       const session = await retrieveCheckoutSession(settings, checkoutSessionId);
-      if (session.metadata?.token && session.metadata.token !== token) {
+      if (session.metadata?.token !== token) {
         return NextResponse.json({ error: "Invalid payment session" }, { status: 400 });
       }
       if (!checkoutSessionPaid(session)) {
@@ -187,6 +187,19 @@ export async function POST(
           { status: 402 }
         );
       }
+      // Book exactly what was paid for: the server-priced selection stored on
+      // the session at checkout, never the one in this request body.
+      const paidSelection = session.metadata?.fedexSelection
+        ? (JSON.parse(session.metadata.fedexSelection) as FedExRateOption)
+        : null;
+      if (
+        !paidSelection?.serviceType ||
+        paidSelection.totalCharge == null ||
+        dollarsToCents(paidSelection.totalCharge) !== session.amount_total
+      ) {
+        return NextResponse.json({ error: "Invalid payment session" }, { status: 400 });
+      }
+      body.fedexSelection = paidSelection;
       paymentIntentId =
         typeof session.payment_intent === "string"
           ? session.payment_intent

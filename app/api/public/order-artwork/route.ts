@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeSkus } from "@/lib/skus";
+import { resolveDefaultFloorTenant } from "@/lib/kiosk-token";
 
 const BUCKET = "order-assets";
 const SIGNED_URL_TTL_SEC = 60 * 60 * 24 * 7;
+/** Order numbers only: letters, digits, dashes. Blocks LIKE wildcards and PostgREST filter syntax. */
+const ORDER_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/;
+const MAX_ORDERS = 20;
 const PULSE_ORIGIN = "https://pulse-crm-git-pulsedavit-bazaardavit.vercel.app";
 const PULSE_ORIGINS = new Set([
   PULSE_ORIGIN,
@@ -70,10 +74,20 @@ export async function GET(request: NextRequest) {
   if (!orderRef) {
     return jsonWithCors(request, { error: "order_ref is required" }, { status: 400 });
   }
+  if (!ORDER_REF_PATTERN.test(orderRef)) {
+    return jsonWithCors(request, { error: "Invalid order_ref" }, { status: 400 });
+  }
 
   let admin;
+  let tenantId: string;
   try {
     admin = createAdminClient();
+    // Pulse CRM is the Bazaar workspace's CRM: never search other tenants.
+    const floor = await resolveDefaultFloorTenant();
+    if (!floor) {
+      return jsonWithCors(request, { error: "Order not found" }, { status: 404 });
+    }
+    tenantId = floor.tenantId;
   } catch {
     return jsonWithCors(request, { error: "Server error" }, { status: 500 });
   }
@@ -82,7 +96,10 @@ export async function GET(request: NextRequest) {
   const { data: orders, error: orderError } = await admin
     .from("orders")
     .select("id, title, specs")
-    .or(`title.eq.${orderRef},title.like.${orderRef}-%`);
+    .eq("tenant_id", tenantId)
+    .is("removed_at", null)
+    .or(`title.eq.${orderRef},title.like.${orderRef}-%`)
+    .limit(MAX_ORDERS);
 
   if (orderError) {
     return jsonWithCors(request, { error: "Failed to fetch order" }, { status: 500 });

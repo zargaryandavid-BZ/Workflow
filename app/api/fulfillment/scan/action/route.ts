@@ -99,18 +99,34 @@ export async function POST(request: Request) {
   }
 
   // Move order, updating last_moved_at so board sort stays consistent
-  const { error: updateError } = await supabase
+  // A repeat scan must not re-send the column's customer SMS/emails.
+  const alreadyThere = NextResponse.json({
+    success: true,
+    already: true,
+    order_id: body.order_id,
+    button_id: button.id,
+    action: button.id,
+    column_id: (column as BoardColumn).id,
+    column_name: (column as BoardColumn).name,
+  });
+  if (order.column_id === targetColumnId) return alreadyThere;
+
+  // Only move from the column we read, so two scans at once fire hooks once.
+  const { data: movedRows, error: updateError } = await supabase
     .from("orders")
     .update({
       column_id: targetColumnId,
       last_moved_at: new Date().toISOString(),
     })
     .eq("id", body.order_id)
-    .eq("tenant_id", ctx.tenant.id);
+    .eq("tenant_id", ctx.tenant.id)
+    .filter("column_id", order.column_id == null ? "is" : "eq", order.column_id ?? null)
+    .select("id");
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+  if (!movedRows?.length) return alreadyThere;
 
   // After-approval jobs scanned past approval start their deadline clock now.
   await materializeDueOnProductionMove(supabase, {
