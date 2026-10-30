@@ -7,7 +7,7 @@ import { resequenceDesignerQueue } from "@/lib/designer-queue.server";
 import { canMove } from "@/lib/permissions";
 import { isFollowUpBypassTarget } from "@/lib/follow-up-bypass";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
-import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
+import { isFulfilledStage, isInvoiceTriggerStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import {
@@ -387,7 +387,7 @@ export async function performOrderMove(
       // Net-terms: on entering a Fulfilled stage, have the CRM issue the invoice
       // and start the Net-N clock from today. No-op for non-net orders (CRM decides).
       try {
-        if (isFulfilledStage(typedColumn.name)) {
+        if (isInvoiceTriggerStage(typedColumn.name)) {
           await notifyCrmOrderFulfilled(movedOrder, typedColumn.name);
         }
       } catch (err: unknown) {

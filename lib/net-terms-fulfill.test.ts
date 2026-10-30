@@ -5,6 +5,7 @@ import {
   finishedCustomerSmsKind,
   isFinishedNoReviewStage,
   isFulfilledStage,
+  isInvoiceTriggerStage,
   preserveFinishedCustomerSms,
   reviewStateFromStage,
 } from "./net-terms-fulfill.ts";
@@ -98,5 +99,27 @@ describe("preserveFinishedCustomerSms", () => {
     };
     const next = preserveFinishedCustomerSms(saved, { skus: [] });
     assert.deepEqual(next.finished_customer_sms, saved.finished_customer_sms);
+  });
+});
+
+describe("isInvoiceTriggerStage", () => {
+  it("fires on every Finished / Fulfilled column", () => {
+    assert.equal(isInvoiceTriggerStage("Finished: No Review Request"), true);
+    assert.equal(isInvoiceTriggerStage("Finished: Review Request"), true);
+    assert.equal(isInvoiceTriggerStage("Fulfilled"), true);
+  });
+  it("fires on Shipped Customer", () => {
+    assert.equal(isInvoiceTriggerStage("Shipped Customer"), true);
+    assert.equal(isInvoiceTriggerStage("Shipped to Customer"), true);
+  });
+  it("does not fire on other columns", () => {
+    assert.equal(isInvoiceTriggerStage("Shipped Boyd"), false);
+    assert.equal(isInvoiceTriggerStage("🫡 Ready to Ship"), false);
+    assert.equal(isInvoiceTriggerStage("To be Shipped"), false);
+    assert.equal(isInvoiceTriggerStage("Design Finished"), false);
+    assert.equal(isInvoiceTriggerStage(null), false);
+  });
+  it("Shipped Customer stays out of the finished/review SMS", () => {
+    assert.equal(isFulfilledStage("Shipped Customer"), false);
   });
 });

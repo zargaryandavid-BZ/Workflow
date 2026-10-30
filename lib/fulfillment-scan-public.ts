@@ -10,6 +10,7 @@ import { maybeStopPrepressTimersOnColumnLeave } from "@/lib/stop-order-timers";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import {
   isFulfilledStage,
+  isInvoiceTriggerStage,
   notifyCrmOrderFulfilled,
 } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
@@ -408,7 +409,7 @@ export async function applyFulfillmentScanAction(input: {
       console.error(`[${via}] fireNotificationRules failed:`, err);
     }
     try {
-      if (isFulfilledStage(typedColumn.name)) {
+      if (isInvoiceTriggerStage(typedColumn.name)) {
         await notifyCrmOrderFulfilled(movedOrder, typedColumn.name);
       }
     } catch (err) {
