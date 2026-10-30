@@ -24,6 +24,17 @@ export function isFulfilledStage(columnName: string | null | undefined): boolean
   return /fulfil/i.test(columnName) || /^\s*finished\b/i.test(columnName);
 }
 
+/**
+ * True for any column that should issue a Net-terms invoice: every Finished /
+ * Fulfilled column plus "Shipped Customer" (orders that ship straight to the
+ * customer often never pass through a Finished column). Invoice-only — the
+ * finished/review SMS still keys off isFulfilledStage.
+ */
+export function isInvoiceTriggerStage(columnName: string | null | undefined): boolean {
+  if (!columnName) return false;
+  return isFulfilledStage(columnName) || /^\s*shipped\s+(to\s+)?customer\b/i.test(columnName);
+}
+
 /** Which review variant of the fulfilled stage, if the name says so. */
 export function reviewStateFromStage(
   columnName: string

@@ -3,7 +3,7 @@ import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
-import { isFulfilledStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
+import { isInvoiceTriggerStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import type { Order } from "@/lib/types";
 import {
@@ -188,7 +188,7 @@ export async function POST(
       });
       // Net-terms invoice on ship — a button move into a Fulfilled/Finished
       // column must fire the CRM fulfill ping too (not only drag via /api/orders/move).
-      if (isFulfilledStage(col.name as string)) {
+      if (isInvoiceTriggerStage(col.name as string)) {
         try {
           await notifyCrmOrderFulfilled(fullOrder as unknown as Order, col.name as string);
         } catch (e) {

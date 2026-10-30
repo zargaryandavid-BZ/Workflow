@@ -7,6 +7,8 @@ import { stopOpenTimersForOrder } from "@/lib/stop-order-timers";
 import {
   finishedCustomerSmsKind,
   isFinishedNoReviewStage,
+  isInvoiceTriggerStage,
+  notifyCrmOrderFulfilled,
   FINISHED_CUSTOMER_SMS_SPEC_KEY,
 } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
@@ -167,6 +169,19 @@ export async function POST(request: Request) {
       );
     } catch (err) {
       console.error("[move-group] finished notify failed", err);
+    }
+  }
+
+  // Net-terms invoice: the per-card move path pings the CRM on Finished /
+  // Shipped Customer; a whole-order move must too (once — the CRM dedupes).
+  if (isInvoiceTriggerStage(toColumnName)) {
+    try {
+      await notifyCrmOrderFulfilled(
+        { ...(order as Record<string, unknown>), tenant_id: tenantId } as Order,
+        toColumnName
+      );
+    } catch (err) {
+      console.error("[move-group] net-terms-fulfill:", err instanceof Error ? err.message : err);
     }
   }
 
