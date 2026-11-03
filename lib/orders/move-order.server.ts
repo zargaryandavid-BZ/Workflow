@@ -32,8 +32,13 @@ export type OrderMoveParams = {
   orderId: string;
   toColumnId: string;
   position?: number;
-  /** When true, any role may move (staff follow-up buttons, integrations). */
+  /** When true, any role may move (staff follow-up buttons) — only into follow-up target columns. */
   bypassDropRoles?: boolean;
+  /**
+   * Integrations (POST /api/export/move-card) have no staff role. The caller must already have
+   * restricted which move is allowed; this only skips the board's drop-role check.
+   */
+  skipDropPermission?: boolean;
 };
 
 export type OrderMoveResult = { status: number; body: Record<string, unknown> };
@@ -49,7 +54,7 @@ export async function performOrderMove(
   supabase: SupabaseClient<any, any, any>,
   params: OrderMoveParams
 ): Promise<OrderMoveResult> {
-  const { tenantId, tenantName, actorUserId, actorRole, orderId, toColumnId, position, bypassDropRoles } = params;
+  const { tenantId, tenantName, actorUserId, actorRole, orderId, toColumnId, position, bypassDropRoles, skipDropPermission } = params;
 
 
   // Fetch order and both columns in parallel — saves 2 sequential round-trips.
@@ -114,6 +119,7 @@ export async function performOrderMove(
   const bypass = Boolean(bypassDropRoles) && isFollowUpBypassTarget(typedColumn);
   if (
     !bypass &&
+    !skipDropPermission &&
     (!actorRole || !canMove(actorRole, typedFromColumn, typedColumn))
   ) {
     return { status: 403, body: { error: "You don't have permission to move this order here." } };
