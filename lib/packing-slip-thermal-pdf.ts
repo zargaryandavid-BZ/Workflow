@@ -42,7 +42,19 @@ export type ThermalSlipSku = {
 
 const THERMAL_W = 288;
 const THERMAL_H = 432;
-const THERMAL_ROWS = 6;
+/** Max SKUs listed on one box slip; an 11th starts the next slip. */
+export const THERMAL_ROWS = 10;
+/** Up to this many SKUs keep the roomy rows (big thumbnails). */
+const THERMAL_ROOMY_ROWS = 6;
+const THERMAL_ROWS_TOP = 94;
+
+/** Row geometry for a box slip with `count` SKUs (all fit above y=426). */
+export function thermalRowLayout(count: number) {
+  if (count <= THERMAL_ROOMY_ROWS) {
+    return { pitch: 54, rowH: 50, img: 40, nameFont: 9, nameH: 18, qtyFont: 8, qtyY: 26, oneLine: false };
+  }
+  return { pitch: 33, rowH: 30, img: 24, nameFont: 8, nameH: 12, qtyFont: 7.5, qtyY: 17, oneLine: true };
+}
 
 function fmtQty(n: number | null | undefined): string {
   if (n == null) return "—";
@@ -224,9 +236,9 @@ function drawThermalIdentity(
     .stroke();
 }
 
-/** Default for the "Pallet slip" checkbox: on when the order ships in 2+ boxes. */
-export function defaultPalletSlip(boxCount: number): boolean {
-  return boxCount > 1;
+/** Default for the "Pallet slip" checkbox: off until the user checks it. */
+export function defaultPalletSlip(_boxCount: number): boolean {
+  return false;
 }
 
 export type PalletSlipRow = {
@@ -590,41 +602,49 @@ export async function generateThermalBoxSlipPdf(input: {
             });
           return;
         }
-        pageLines.forEach((line, row) => {
+        const row = thermalRowLayout(pageLines.length);
+        const imgPad = (row.rowH - row.img) / 2;
+        const textX = 12 + row.img + 6;
+        pageLines.forEach((line, index) => {
           const item = resolved(line);
-          const y = 94 + row * 54;
+          const y = THERMAL_ROWS_TOP + index * row.pitch;
           doc
-            .rect(8, y, THERMAL_W - 16, 50)
+            .rect(8, y, THERMAL_W - 16, row.rowH)
             .strokeColor("#e5e7eb")
             .lineWidth(0.6)
             .stroke();
           if (item.image) {
             try {
-              doc.image(item.image, 12, y + 5, {
-                fit: [40, 40],
+              doc.image(item.image, 12, y + imgPad, {
+                fit: [row.img, row.img],
                 align: "center",
                 valign: "center",
               });
             } catch {
-              drawDashedPlaceholder(doc, 12, y + 5, 40, 40);
+              drawDashedPlaceholder(doc, 12, y + imgPad, row.img, row.img);
             }
           } else {
-            drawDashedPlaceholder(doc, 12, y + 5, 40, 40);
+            drawDashedPlaceholder(doc, 12, y + imgPad, row.img, row.img);
           }
           doc
             .fillColor("#111827")
             .font("Helvetica-Bold")
-            .fontSize(9)
-            .text(pdfWinAnsiText(item.name), 58, y + 6, {
-              width: THERMAL_W - 74,
-              height: 18,
+            .fontSize(row.nameFont)
+            .text(pdfWinAnsiText(item.name), textX, y + (row.oneLine ? 4 : 6), {
+              width: THERMAL_W - textX - 16,
+              height: row.nameH,
+              ...(row.oneLine ? { lineBreak: false } : {}),
               ellipsis: true,
             });
-          doc.font("Helvetica").fontSize(8).text(item.qtyLabel, 58, y + 26, {
-            width: THERMAL_W - 74,
-            height: 18,
-            ellipsis: true,
-          });
+          doc
+            .font("Helvetica")
+            .fontSize(row.qtyFont)
+            .text(item.qtyLabel, textX, y + row.qtyY, {
+              width: THERMAL_W - textX - 16,
+              height: row.oneLine ? row.qtyFont + 4 : 18,
+              ...(row.oneLine ? { lineBreak: false } : {}),
+              ellipsis: true,
+            });
         });
       });
     }

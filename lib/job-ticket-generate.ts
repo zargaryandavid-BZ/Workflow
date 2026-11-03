@@ -30,29 +30,49 @@ async function loadLayerPreviewImages(
     const { generateApprovalLayerPreviewsForOrder } = await import(
       "@/lib/approval-layer-previews"
     );
-    const adminForGen = createAdminClient();
-    const { data: order } = await adminForGen
-      .from("orders")
-      .select("id, title, tenant_id, specs")
-      .eq("id", orderId)
-      .maybeSingle();
-    if (order?.tenant_id) {
-      await generateApprovalLayerPreviewsForOrder({
-        id: order.id as string,
-        title: String(order.title ?? ""),
-        tenant_id: order.tenant_id as string,
-        specs: (order.specs ?? {}) as never,
-      }).catch((err) =>
-        console.warn(
-          "[job-ticket] generate layer previews failed:",
-          err instanceof Error ? err.message : err
-        )
-      );
-    }
-    const proof = await loadRespondCustomerProofForOrderId(
+    let proof = await loadRespondCustomerProofForOrderId(
       orderId,
       skus as never
     );
+    const adminForGen = createAdminClient();
+    if (Object.keys(proof.layerPreviews).length === 0) {
+      const { data: order } = await adminForGen
+        .from("orders")
+        .select("id, title, tenant_id, specs")
+        .eq("id", orderId)
+        .maybeSingle();
+      if (order?.tenant_id) {
+        const generation = generateApprovalLayerPreviewsForOrder({
+          id: order.id as string,
+          title: String(order.title ?? ""),
+          tenant_id: order.tenant_id as string,
+          specs: (order.specs ?? {}) as never,
+        });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            generation,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("layer preview generation timed out")),
+                25_000
+              );
+            }),
+          ]);
+        } catch (err) {
+          console.warn(
+            "[job-ticket] generate layer previews failed:",
+            err instanceof Error ? err.message : err
+          );
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+        proof = await loadRespondCustomerProofForOrderId(
+          orderId,
+          skus as never
+        );
+      }
+    }
     const previews = proof.layerPreviews as Record<string, RespondLayerPreview>;
     if (Object.keys(previews).length === 0) return out;
 
@@ -110,7 +130,8 @@ export async function generateJobTicketPdfBuffer(
   supabase: SupabaseClient,
   orderId: string,
   tenantId: string,
-  tenantName: string
+  tenantName: string,
+  options?: { includeArtwork?: boolean }
 ): Promise<{ buffer: Buffer; orderNumber: string } | { error: string; status: number }> {
   const exportData = await loadOrderExportData(
     supabase,
@@ -123,7 +144,10 @@ export async function generateJobTicketPdfBuffer(
   }
 
   try {
-    const layerImages = await loadLayerPreviewImages(orderId, exportData.skus);
+    const layerImages =
+      options?.includeArtwork === false
+        ? new Map<string, { name: string; buffer: Buffer }[]>()
+        : await loadLayerPreviewImages(orderId, exportData.skus);
     const skuRows: OrderExportSkuRow[] = exportData.skuRows.map((row) => {
       const layers = layerImages.get(row.id);
       if (layers && layers.length > 0) {

@@ -40,6 +40,8 @@ interface ActionButtonProps {
   customerEmail?: string | null;
   customerPhone?: string | null;
   productLabel?: string | null;
+  /** Skip artwork lookup when Final Production is known to have no PDF. */
+  includeArtwork?: boolean;
   /** Opens the same approval request popup as dropping into Waiting Approval. */
   onRequestApproval?: () => void;
   onComplete: (result: ActionButtonResult) => void;
@@ -59,6 +61,7 @@ export function ActionButton({
   customerEmail,
   customerPhone,
   productLabel,
+  includeArtwork,
   onRequestApproval,
   onComplete,
   onError,
@@ -167,7 +170,10 @@ export function ActionButton({
         const res = await fetch(`/api/orders/${orderId}/actions/generate-pdf`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ button_id: button.id }),
+          body: JSON.stringify({
+            button_id: button.id,
+            include_artwork: includeArtwork !== false,
+          }),
           signal: AbortSignal.timeout(170_000),
         });
         await downloadPdfBlob(

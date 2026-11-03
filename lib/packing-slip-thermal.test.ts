@@ -12,6 +12,8 @@ import {
   thermalBoxBannerLabel,
   thermalBoxDetailLabels,
   thermalInBoxQtyLabel,
+  thermalRowLayout,
+  THERMAL_ROWS,
 } from "./packing-slip-thermal-pdf.ts";
 
 function pageCount(pdf: Buffer): number {
@@ -70,7 +72,7 @@ describe("generateThermalBoxSlipPdf", () => {
     });
   });
 
-  it("prints one 4x6 page per box and continues a full box", async () => {
+  it("prints one 4x6 page per box", async () => {
     const pdf = await generateThermalBoxSlipPdf({
       orderLabel: "15319-1 (2)",
       customerName: "Up Top Holding",
@@ -89,8 +91,8 @@ describe("generateThermalBoxSlipPdf", () => {
     });
     assert.equal(pdf.subarray(0, 5).toString("utf8"), "%PDF-");
     assert.match(pdf.toString("latin1"), /MediaBox \[0 0 288 432\]/);
-    // 2 box slip pages for box 1, 1 for box 2, + 1 pallet slip.
-    assert.equal(pageCount(pdf), 4);
+    // Box 1's 8 SKUs fit on one slip (up to 10), 1 for box 2. Pallet slip stays off unless asked.
+    assert.equal(pageCount(pdf), 2);
   });
 
   it("prints one 4x6 page per SKU placement", async () => {
@@ -134,7 +136,7 @@ describe("generateThermalBoxSlipPdf", () => {
     assert.equal(pageCount(pdf), 1);
   });
 
-  it("adds the pallet slip only when asked (default: 2+ boxes)", async () => {
+  it("adds the pallet slip only when asked", async () => {
     const oneBox = [{ boxNumber: 1, lines: [{ skuId: "sku-1", qty: 5 }] }];
     const twoBoxes = [
       ...oneBox,
@@ -146,10 +148,10 @@ describe("generateThermalBoxSlipPdf", () => {
       pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: oneBox, palletSlip: true })),
       2
     );
-    assert.equal(pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: twoBoxes })), 3);
+    assert.equal(pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: twoBoxes })), 2);
     assert.equal(
-      pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: twoBoxes, palletSlip: false })),
-      2
+      pageCount(await generateThermalBoxSlipPdf({ ...base, boxes: twoBoxes, palletSlip: true })),
+      3
     );
   });
 
@@ -178,5 +180,51 @@ describe("generateThermalBoxSlipPdf", () => {
         [1, 7, 2],
       ]
     );
+  });
+});
+
+describe("box slip SKU rows", () => {
+  const skus = Array.from({ length: 11 }, (_, i) => ({
+    id: `sku-${i + 1}`,
+    name: `Design ${i + 1}`,
+    imageUrl: null,
+  }));
+  const boxWith = (count: number) => [
+    {
+      boxNumber: 1,
+      lines: skus.slice(0, count).map((sku) => ({ skuId: sku.id, qty: 65 })),
+    },
+  ];
+
+  it("fits up to 10 SKUs on one slip", async () => {
+    assert.equal(THERMAL_ROWS, 10);
+    const pdf = await generateThermalBoxSlipPdf({
+      orderLabel: "BZ-481",
+      customerName: "Test",
+      skus,
+      boxes: boxWith(10),
+      layout: "multiple",
+      palletSlip: false,
+    });
+    assert.equal(pageCount(pdf), 1);
+  });
+
+  it("starts a second slip at the 11th SKU", async () => {
+    const pdf = await generateThermalBoxSlipPdf({
+      orderLabel: "BZ-481",
+      customerName: "Test",
+      skus,
+      boxes: boxWith(11),
+      layout: "multiple",
+      palletSlip: false,
+    });
+    assert.equal(pageCount(pdf), 2);
+  });
+
+  it("keeps every row on the 4x6 label", () => {
+    for (const count of [1, 6, 7, 10]) {
+      const row = thermalRowLayout(count);
+      assert.ok(94 + (count - 1) * row.pitch + row.rowH <= 426, `count ${count}`);
+    }
   });
 });

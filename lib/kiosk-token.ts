@@ -33,14 +33,17 @@ async function floorDeviceToken(): Promise<string> {
   return (await cookies()).get(FLOOR_DEVICE_COOKIE)?.value?.trim() ?? "";
 }
 
+let warnedKioskTokenMissing = false;
+
 /** False until the kiosk_token migration is applied (no tokens to check). */
 async function kioskTokensAvailable(): Promise<boolean> {
   const { error } = await createAdminClient()
     .from("fulfillment_settings")
     .select("kiosk_token")
     .limit(1);
-  if (error) {
-    console.error(
+  if (error && !warnedKioskTokenMissing) {
+    warnedKioskTokenMissing = true;
+    console.warn(
       "[kiosk] kiosk_token unavailable; floor pages open without a device token:",
       error.message
     );

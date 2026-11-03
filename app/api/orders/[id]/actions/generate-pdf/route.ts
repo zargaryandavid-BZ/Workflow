@@ -17,6 +17,7 @@ export async function POST(
 
   const body = (await request.json().catch(() => ({}))) as {
     button_id?: string;
+    include_artwork?: boolean;
   };
   if (!body.button_id) {
     return NextResponse.json({ error: "button_id required" }, { status: 422 });
@@ -48,7 +49,8 @@ export async function POST(
     supabase,
     orderId,
     ctx.tenant.id,
-    ctx.tenant.name
+    ctx.tenant.name,
+    { includeArtwork: body.include_artwork !== false }
   );
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: result.status });

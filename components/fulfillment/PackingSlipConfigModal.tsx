@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Box, Copy, LayoutGrid, Loader2, Package, Printer, Settings, Square, Trash2, X } from "lucide-react";
+import { Box, Check, Copy, LayoutGrid, Loader2, Package, Printer, Settings, Square, Trash2, X } from "lucide-react";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 import {
   CUSTOM_BOX_SIZE_VALUE,
@@ -498,8 +498,7 @@ function SenderPackingSlipWizard({
   const [boxCountKeypadOpen, setBoxCountKeypadOpen] = useState(false);
   const replaceBoxCountRef = useRef(true);
   const [boxes, setBoxes] = useState<SlipLine[][]>([]);
-  // Pallet slip: checked by default for 2+ boxes, unchecked for 1. Picking a
-  // new box qty resets the user's manual choice back to that default.
+  // Pallet slip starts unchecked. Picking a new box qty clears a manual choice.
   const [palletOverride, setPalletOverride] = useState<boolean | null>(null);
   const [palletForCount, setPalletForCount] = useState(boxCount);
   if (palletForCount !== boxCount) {
@@ -532,9 +531,13 @@ function SenderPackingSlipWizard({
     skuId: string;
     fromBox: number | null;
     key?: string;
+    /** Several ticked SKUs: drop all of them, each with its remaining qty. */
+    skuIds?: string[];
     x: number;
     y: number;
   } | null>(null);
+  /** SKUs ticked for a one-step "drop all into one box". */
+  const [selectedSkuIds, setSelectedSkuIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -597,14 +600,47 @@ function SenderPackingSlipWizard({
     setBoxDetails((prev) => prev.filter((_, i) => i !== boxIndex));
   }
 
+  function toggleSelectedSku(skuId: string) {
+    setSelectedSkuIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(skuId)) next.delete(skuId);
+      else next.add(skuId);
+      return next;
+    });
+  }
+
+  /** Bulk drop: every SKU goes in with what is left, no qty popup. */
+  function placeManyFromPool(boxIndex: number, skuIds: string[]) {
+    setBoxes((prev) => {
+      const next = prev.map((lines) => lines.map((line) => ({ ...line })));
+      for (const skuId of skuIds) {
+        const left = remaining(skuId, next);
+        if (left <= 0) continue;
+        const existing = next[boxIndex]?.find((line) => line.skuId === skuId);
+        if (existing) existing.qty += left;
+        else next[boxIndex] = [...(next[boxIndex] ?? []), newLine(skuId, left)];
+      }
+      return next;
+    });
+    setSelectedSkuIds(new Set());
+  }
+
   function chooseBox(boxIndex: number) {
     if (!boxMenu) return;
-    if (boxMenu.fromBox == null) openDropQty(boxIndex, boxMenu.skuId, null);
+    if (boxMenu.skuIds?.length) placeManyFromPool(boxIndex, boxMenu.skuIds);
+    else if (boxMenu.fromBox == null) openDropQty(boxIndex, boxMenu.skuId, null);
     else if (boxMenu.key) moveLine(boxMenu.fromBox, boxMenu.key, boxIndex);
     setBoxMenu(null);
   }
 
   const skuById = new Map(skus.map((sku) => [sku.skuId, sku]));
+
+  /** Box numbers (1-based) that hold some of this SKU. */
+  function boxesHolding(skuId: string): number[] {
+    return boxes.flatMap((lines, index) =>
+      lines.some((line) => line.skuId === skuId && line.qty > 0) ? [index + 1] : []
+    );
+  }
 
   function allocated(skuId: string, source = boxes) {
     return source
@@ -690,10 +726,19 @@ function SenderPackingSlipWizard({
   }
 
   function onBoxDrop(boxIndex: number, raw: string) {
-    let payload: { skuId?: string; fromBox?: number | null; key?: string } = {};
+    let payload: {
+      skuId?: string;
+      skuIds?: string[];
+      fromBox?: number | null;
+      key?: string;
+    } = {};
     try {
       payload = JSON.parse(raw) as typeof payload;
     } catch {
+      return;
+    }
+    if (payload.skuIds?.length) {
+      placeManyFromPool(boxIndex, payload.skuIds);
       return;
     }
     if (!payload.skuId) return;
@@ -730,9 +775,7 @@ function SenderPackingSlipWizard({
       issues.push(`Box ${index + 1} is empty`);
     }
   });
-  const palletBoxCount =
-    step === 2 ? boxes.length : Math.max(1, Math.floor(Number(boxCount)) || 1);
-  const palletSlip = palletOverride ?? palletBoxCount > 1;
+  const palletSlip = palletOverride ?? false;
   const palletCheckbox = (
     <label className="flex cursor-pointer items-center gap-2.5 text-[14px] text-slate-700">
       <input
@@ -957,19 +1000,77 @@ function SenderPackingSlipWizard({
           <div className="flex min-h-0 flex-1 overflow-hidden">
             {/* Left: SKU list */}
             <div className="panel-scroll w-[40%] shrink-0 border-r border-slate-100 px-3 py-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              SKUs
-            </p>
+            {(() => {
+              const open = skus.filter((sku) => remaining(sku.skuId) > 0);
+              const allTicked =
+                open.length > 0 && open.every((sku) => selectedSkuIds.has(sku.skuId));
+              const ticked = [...selectedSkuIds];
+              return (
+                <div className="mb-2 flex min-h-9 flex-wrap items-center justify-between gap-2">
+                  <label className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    <input
+                      type="checkbox"
+                      checked={allTicked}
+                      disabled={open.length === 0}
+                      onChange={() =>
+                        setSelectedSkuIds(
+                          allTicked ? new Set() : new Set(open.map((sku) => sku.skuId))
+                        )
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                      aria-label="Select all SKUs with quantity left"
+                    />
+                    SKUs
+                  </label>
+                  {ticked.length > 0 ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSkuIds(new Set())}
+                        className="h-8 rounded-lg px-2 text-[12px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) =>
+                          setBoxMenu({
+                            skuId: ticked[0]!,
+                            skuIds: ticked,
+                            fromBox: null,
+                            x: e.clientX,
+                            y: e.clientY,
+                          })
+                        }
+                        className="h-8 rounded-lg bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700"
+                      >
+                        Add {ticked.length} to box
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
             <div className="flex flex-col gap-2">
               {skus.map((sku) => {
                 const left = remaining(sku.skuId);
+                const inBoxes = boxesHolding(sku.skuId);
+                const ticked = selectedSkuIds.has(sku.skuId);
                 return (
-                  <button
+                  <div
                     key={sku.skuId}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     draggable
                     onDragStart={(e) => {
-                      const payload = JSON.stringify({ skuId: sku.skuId, fromBox: null });
+                      // Dragging a ticked SKU carries every ticked SKU along.
+                      const many =
+                        ticked && selectedSkuIds.size > 1 ? [...selectedSkuIds] : null;
+                      const payload = JSON.stringify(
+                        many
+                          ? { skuId: sku.skuId, skuIds: many, fromBox: null }
+                          : { skuId: sku.skuId, fromBox: null }
+                      );
                       e.dataTransfer.setData("text/plain", payload);
                       e.dataTransfer.setData("application/json", payload);
                       e.dataTransfer.effectAllowed = "copy";
@@ -982,13 +1083,51 @@ function SenderPackingSlipWizard({
                         y: e.clientY,
                       });
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setBoxMenu({
+                        skuId: sku.skuId,
+                        fromBox: null,
+                        x: rect.left + rect.width / 2,
+                        y: rect.bottom,
+                      });
+                    }}
                     className={cn(
-                      "flex min-h-14 min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left",
-                      left <= 0
-                        ? "border-emerald-400 bg-emerald-50"
-                        : "border-slate-200 bg-white"
+                      "flex min-h-14 min-w-0 cursor-pointer items-center gap-2 rounded-xl border px-2.5 py-2 text-left",
+                      ticked
+                        ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900"
+                        : left <= 0
+                          ? "border-emerald-400 bg-emerald-50"
+                          : "border-slate-200 bg-white"
                     )}
                   >
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={ticked}
+                      aria-label={`Select ${sku.skuName || "SKU"}`}
+                      disabled={left <= 0 && !ticked}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSelectedSku(sku.skuId);
+                      }}
+                      className={cn(
+                        "-m-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg disabled:opacity-30"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex h-5 w-5 items-center justify-center rounded border",
+                          ticked
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-300 bg-white"
+                        )}
+                      >
+                        {ticked ? <Check className="h-3.5 w-3.5" /> : null}
+                      </span>
+                    </button>
                     {sku.artworkUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -1002,19 +1141,31 @@ function SenderPackingSlipWizard({
                     <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-800">
                       {sku.skuName || "SKU"}
                     </span>
-                    <span
-                      className={cn(
-                        "shrink-0 text-[13px] font-semibold",
-                        left <= 0 ? "text-emerald-600" : "text-amber-700"
-                      )}
-                    >
-                      {left < 0
-                        ? `+${Math.abs(left).toLocaleString("en-US")} extra`
-                        : left === 0
-                          ? "Assigned"
-                          : `${left.toLocaleString("en-US")} left`}
+                    <span className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+                      {left !== 0 ? (
+                        <span
+                          className={cn(
+                            "text-[13px] font-semibold",
+                            left < 0 ? "text-emerald-600" : "text-amber-700"
+                          )}
+                        >
+                          {left < 0
+                            ? `+${Math.abs(left).toLocaleString("en-US")} extra`
+                            : `${left.toLocaleString("en-US")} left`}
+                        </span>
+                      ) : null}
+                      {inBoxes.length > 0 ? (
+                        <span
+                          className={cn(
+                            "rounded-md bg-emerald-100 px-1.5 py-0.5 font-semibold text-emerald-700",
+                            left === 0 ? "text-[13px]" : "text-[11px]"
+                          )}
+                        >
+                          {inBoxes.length === 1 ? "Box" : "Boxes"} {inBoxes.join(", ")}
+                        </span>
+                      ) : null}
                     </span>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -1170,7 +1321,11 @@ function SenderPackingSlipWizard({
               onClick={(event) => event.stopPropagation()}
             >
               <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                {boxMenu.fromBox == null ? "Add to box" : "Move to"}
+                {boxMenu.skuIds?.length
+                  ? `Add ${boxMenu.skuIds.length} SKUs to box`
+                  : boxMenu.fromBox == null
+                    ? "Add to box"
+                    : "Move to"}
               </p>
               {boxes.map((boxLines, index) => {
                 const summary = boxLines

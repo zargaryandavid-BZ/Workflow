@@ -2484,6 +2484,7 @@ export function CardDetailModal({
               customerEmail={orderContact.email}
               customerPhone={orderContact.phone}
               productLabel={productFromOrder(fieldValues, modalCustomFields)}
+              includeArtwork={!loaded || hasFinalPdf}
               onRequestApproval={
                 onNotifyColumn
                   ? () => {
