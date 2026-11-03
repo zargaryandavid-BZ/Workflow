@@ -22,18 +22,18 @@ function readSecret(request: NextRequest): string | null {
 /**
  * Card move for integrations — POST /api/export/move-card
  *
- * Used by Pulse "Approve to Production": once prepress approves a job there, its Workflow card
- * moves Prepress → In Production. Same checks and side effects as dragging the card on the board
+ * Used by Pulse: "Approve to Production" moves the card Prepress → In Production, and
+ * "Bring back to Prepress" moves it In Production → Prepress. Same checks and side effects as dragging the card on the board
  * (required fields, lock, activity log, column automations, notifications, portal status).
  *
  * Auth: header `x-webhook-secret: wh_live_…` (same secret as the other /api/export routes).
- * Body: { "order_id": "<card uuid>", "to_column": "In Production" }
+ * Body: { "order_id": "<card uuid>", "to_column": "In Production" | "Prepress" }
  *
- * Only Prepress → In Production is accepted. Responses:
+ * Only Prepress ⇄ In Production is accepted. Responses:
  *   200 { ok: true, moved: true }                      — moved
- *   200 { ok: true, moved: false, already: true }      — card already in In Production
+ *   200 { ok: true, moved: false, already: true }      — card already in the target column
  *   422 { ok: false, error, missing_fields: [...] }    — card is missing required fields
- *   409 / 403 / 404 / 423                               — not in Prepress / wrong target / unknown card / locked
+ *   409 / 403 / 404 / 423                               — wrong source column / wrong target / unknown card / locked
  */
 export async function POST(request: NextRequest) {
   const secret = readSecret(request);
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
     actorRole: null,
     orderId,
     toColumnId: target.id,
-    // The route already restricted this to Prepress → In Production, so the board's drop-role check is skipped.
+    // The route already restricted this to Prepress ⇄ In Production, so the board's drop-role check is skipped.
     skipDropPermission: true,
   });
 

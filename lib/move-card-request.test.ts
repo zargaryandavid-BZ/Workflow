@@ -31,12 +31,16 @@ test("column names compare ignoring case and spacing", () => {
   assert.equal(findColumnByName(cols, ""), null);
 });
 
-test("only Prepress → In Production is allowed", () => {
+test("only moves between Prepress and In Production are allowed", () => {
   assert.deepEqual(decideIntegrationMove("Prepress", "In Production"), { allowed: true, already: false });
+  assert.deepEqual(decideIntegrationMove("In Production", "Prepress"), { allowed: true, already: false });
   assert.deepEqual(decideIntegrationMove("In Production", "in production"), { allowed: true, already: true });
+  assert.deepEqual(decideIntegrationMove("Prepress", "prepress"), { allowed: true, already: true });
   const hold = decideIntegrationMove("Hold", "In Production");
   assert.equal(hold.allowed, false);
   assert.equal(hold.allowed === false && hold.status, 409);
+  const shipped = decideIntegrationMove("Shipped Customer", "Prepress");
+  assert.equal(shipped.allowed === false && shipped.status, 409);
   const elsewhere = decideIntegrationMove("Prepress", "Shipped Customer");
   assert.equal(elsewhere.allowed === false && elsewhere.status, 403);
 });

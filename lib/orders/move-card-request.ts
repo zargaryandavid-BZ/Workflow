@@ -1,5 +1,5 @@
 /**
- * Pure helpers for POST /api/export/move-card (Pulse "Approve to Production").
+ * Pure helpers for POST /api/export/move-card (Pulse "Approve to Production" / "Bring back to Prepress").
  * Kept free of I/O so the rules are unit-testable.
  */
 
@@ -48,7 +48,8 @@ export type IntegrationMoveDecision =
   | { allowed: false; status: number; error: string };
 
 /**
- * The integration may only release a card from Prepress to In Production — the one move Pulse makes.
+ * The integration may only move a card between Prepress and In Production — the two moves Pulse makes:
+ * "Approve to Production" (Prepress → In Production) and "Bring back to Prepress" (In Production → Prepress).
  * (The tenant secret can already read the whole board; it must not be able to shuffle cards anywhere.)
  */
 export function decideIntegrationMove(
@@ -57,19 +58,23 @@ export function decideIntegrationMove(
 ): IntegrationMoveDecision {
   const from = normalizeColumnName(fromName);
   const to = normalizeColumnName(toName);
-  if (to !== normalizeColumnName(MOVE_CARD_TO_COLUMN)) {
+  const prepress = normalizeColumnName(MOVE_CARD_FROM_COLUMN);
+  const production = normalizeColumnName(MOVE_CARD_TO_COLUMN);
+  if (to !== production && to !== prepress) {
     return {
       allowed: false,
       status: 403,
-      error: `Only moves to "${MOVE_CARD_TO_COLUMN}" are allowed for this integration`,
+      error: `Only moves between "${MOVE_CARD_FROM_COLUMN}" and "${MOVE_CARD_TO_COLUMN}" are allowed for this integration`,
     };
   }
   if (from === to) return { allowed: true, already: true };
-  if (from !== normalizeColumnName(MOVE_CARD_FROM_COLUMN)) {
+  const expectedFrom = to === production ? prepress : production;
+  if (from !== expectedFrom) {
+    const expectedName = to === production ? MOVE_CARD_FROM_COLUMN : MOVE_CARD_TO_COLUMN;
     return {
       allowed: false,
       status: 409,
-      error: `Card is in "${fromName}" — only cards in "${MOVE_CARD_FROM_COLUMN}" can be released to "${MOVE_CARD_TO_COLUMN}"`,
+      error: `Card is in "${fromName}" — only cards in "${expectedName}" can be moved to "${toName}"`,
     };
   }
   return { allowed: true, already: false };
