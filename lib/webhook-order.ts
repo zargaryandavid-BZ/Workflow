@@ -2874,6 +2874,9 @@ export interface WebhookMultiOrderResult {
 
 export type WebhookCreateResult = WebhookOrderResult | WebhookMultiOrderResult;
 
+/** Cards created from this day on use crm_line_id to find lines added later. */
+const LINE_ID_APPEND_CUTOFF = "2026-11-04T00:00:00";
+
 /**
  * CRM line indexes that have no card yet. Cards removed by staff still count
  * as covered so a re-fire never brings a deleted line back. Returns [] when
@@ -2899,10 +2902,28 @@ async function missingCrmLineIndexes(
 
   const { data: allCards, error } = await client
     .from("orders")
-    .select("id, specs")
+    .select("id, specs, created_at")
     .eq("tenant_id", tenantId)
     .filter("specs->>webhook_order_number", "eq", webhookOrderNumber);
   if (error) throw new Error(error.message);
+  // Orders carded before this fix keep the old index-only rule exactly, so a
+  // CRM re-fire can never add cards to an older order by surprise.
+  const isLegacyOrder = ((allCards ?? []) as { created_at?: string | null }[]).every(
+    (row) => !row.created_at || row.created_at < LINE_ID_APPEND_CUTOFF
+  );
+  if (isLegacyOrder) {
+    const legacyCovered = new Set(
+      [
+        ...existing.map((o) => o.specs),
+        ...((allCards ?? []) as { specs: Record<string, unknown> | null }[]).map(
+          (row) => row.specs ?? {}
+        ),
+      ]
+        .map(indexOf)
+        .filter((n): n is number => n != null)
+    );
+    return items.flatMap((_, i) => (legacyCovered.has(i) ? [] : [i]));
+  }
   // Prefer the fresh row: the CRM refresh just above may have stamped
   // crm_line_id / a new webhook_item_index on these cards. The stale `existing`
   // copy would otherwise keep claiming the old index and hide a line added in
