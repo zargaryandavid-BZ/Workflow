@@ -2046,6 +2046,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
               open={historyOpen}
               onClose={() => setHistoryOpen(false)}
               apiUrl={`${scanBase}/history`}
+              jobTicketUrl={`${scanBase}/job-ticket`}
+              shareUrl={`${scanBase}/history/share`}
             />
             <div className="flex flex-col gap-2">
               <button

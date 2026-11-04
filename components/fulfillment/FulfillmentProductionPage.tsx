@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Download,
   EllipsisVertical,
-  FileText,
   Loader2,
   Package,
   Printer,
@@ -49,7 +48,7 @@ export function FulfillmentProductionPage({
   const [query, setQuery] = useState("");
   const [printing, setPrinting] = useState<{
     id: string;
-    kind: "ticket_download" | "ticket_print" | "slip_print";
+    kind: "ticket_download" | "ticket_print";
   } | null>(null);
   const [actionMenuOrderId, setActionMenuOrderId] = useState<string | null>(
     null
@@ -117,7 +116,7 @@ export function FulfillmentProductionPage({
 
   async function runPdfAction(
     order: ProductionOrder,
-    kind: "ticket_download" | "ticket_print" | "slip_print"
+    kind: "ticket_download" | "ticket_print"
   ) {
     setPrinting({ id: order.id, kind });
     setRowError((prev) => {
@@ -125,11 +124,8 @@ export function FulfillmentProductionPage({
       delete next[order.id];
       return next;
     });
-    const isTicket = kind !== "slip_print";
-    const path = isTicket ? "job-ticket" : "packing-slip";
-    const label = isTicket ? "job ticket" : "packing slip";
     try {
-      const res = await fetch(`${apiBase}/${order.id}/${path}`, {
+      const res = await fetch(`${apiBase}/${order.id}/job-ticket`, {
         method: "POST",
         signal: AbortSignal.timeout(170_000),
       });
@@ -138,7 +134,7 @@ export function FulfillmentProductionPage({
         const json = (await res.json().catch(() => ({}))) as {
           error?: string;
         };
-        throw new Error(json.error ?? `Failed to generate ${label}`);
+        throw new Error(json.error ?? "Failed to generate job ticket");
       }
       const blob = await res.blob();
       if (
@@ -167,7 +163,7 @@ export function FulfillmentProductionPage({
       setRowError((prev) => ({
         ...prev,
         [order.id]: timedOut
-          ? `${isTicket ? "Job ticket" : "Packing slip"} took too long. Try again.`
+          ? "Job ticket took too long. Try again."
           : err instanceof Error
             ? err.message
             : "Print failed",
@@ -361,17 +357,6 @@ export function FulfillmentProductionPage({
                         >
                           <Printer className="h-4 w-4 shrink-0" />
                           Print job ticket
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActionMenuOrderId(null);
-                            void runPdfAction(order, "slip_print");
-                          }}
-                          className="flex w-full items-center gap-3 bg-white px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                        >
-                          <FileText className="h-4 w-4 shrink-0" />
-                          Print packing slip
                         </button>
                       </div>
                     ) : null}

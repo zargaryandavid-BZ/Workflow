@@ -14,6 +14,7 @@ export const PUBLIC_PATHS = [
   "/fulfillment/scan",
   "/fulfillment/production",
   "/fulfillment/multiitem-box",
+  "/share",
 ];
 
 /** Still refresh/clear cookies here so a dead refresh token doesn't overlay login. */

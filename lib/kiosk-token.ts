@@ -94,3 +94,12 @@ export async function resolveDefaultFloorTenant() {
   const picked = bazaar ?? rows[0];
   return { supabase, tenantId: picked.id, token: "" };
 }
+
+/**
+ * `/fulfillment/production` with no login: open on any device (no kiosk
+ * registration), so the shop can view the list and print job tickets anywhere.
+ * A registered device still resolves to its own tenant first.
+ */
+export async function resolveProductionFloorTenant() {
+  return (await resolveFloorTenant()) ?? resolveDefaultFloorTenant();
+}

@@ -569,6 +569,8 @@ function drawSpecs(
     .filter(
       (row) => !jobTicketHiddenSpecLabels.has(row.label.trim().toLowerCase())
     )
+    // A "No" answer (Die Cut: No, Perforation: No…) is noise on the ticket.
+    .filter((row) => yesNo(row.value) !== "No")
     .map((row) => {
       const value = pdfWinAnsiText(yesNo(row.value));
       const imagePath = isRollDirectionFieldName(row.label)
@@ -580,22 +582,6 @@ function drawSpecs(
         imagePath,
       };
     });
-
-  if (data.designTask) {
-    specRows.push({
-      label: "Designer files",
-      value: "Link",
-      link: data.designTask,
-    });
-  }
-
-  if (data.artworkLink) {
-    specRows.push({
-      label: "Prod ready files",
-      value: "Link",
-      link: data.artworkLink,
-    });
-  }
 
   // No spec table to draw, but notes must still print.
   if (!specRows.length) return drawAttentionBlocks(doc, data, startY, pageCtx);
@@ -1002,16 +988,7 @@ function drawPage1(
   drawHeader(doc, data.tenantName, data.orderNumberDisplay, qrPng);
 
   let y = HEADER_H + 12;
-  const w = PAGE_WIDTH - MARGIN * 2 - 12;
   let contentPages = 1;
-
-  const ensureSkuSpace = (needed: number) => {
-    if (y + needed <= CONTENT_BOTTOM) return;
-    doc.addPage();
-    contentPages += 1;
-    drawHeader(doc, data.tenantName, data.orderNumberDisplay, qrPng);
-    y = HEADER_H + 12;
-  };
 
   y = drawSectionTitle(doc, "ORDER", y);
   const x = MARGIN + 6;
@@ -1074,36 +1051,9 @@ function drawPage1(
       contentPages += 1;
     },
   };
-  y = drawSpecs(doc, data, y, pageCtx);
-
-  // If specs/notes pushed past the page, continue SKUs on a fresh page
-  // (notes overflow already continues onto new pages with headers above).
-  if (y > CONTENT_BOTTOM - 40) {
-    doc.addPage();
-    contentPages += 1;
-    drawHeader(doc, data.tenantName, data.orderNumberDisplay, qrPng);
-    y = HEADER_H + 12;
-  }
-
-  const skuCount = data.skuRows.length;
-  const skuHeader = `SKUs — ${skuCount} SKU${skuCount !== 1 ? "s" : ""} · ${fmtQty(data.totalQty)} pcs`;
-  ensureSkuSpace(24);
-  y = drawSectionTitle(doc, skuHeader, y);
-
-  for (const sku of data.skuRows) {
-    ensureSkuSpace(18);
-    const rowX = MARGIN + 6;
-    doc.fontSize(10).font("Helvetica-Bold").fillColor("#9ca3af");
-    textAt(doc, `${sku.index}`, rowX, y, { width: 20 });
-    doc.fontSize(10).font("Helvetica").fillColor("#111827");
-    textAt(doc, sku.name, rowX + 24, y, { width: w - 90 });
-    doc.fontSize(10).font("Helvetica-Bold").fillColor("#374151");
-    textAt(doc, fmtQty(sku.qty), rowX + w - 60, y, {
-      width: 60,
-      align: "right",
-    });
-    y += 18;
-  }
+  // SKUs are listed in the spec table ("SKU Qty", "SKU 1 … · Qty N"), so no
+  // separate SKU list is printed below it.
+  drawSpecs(doc, data, y, pageCtx);
 
   doc.fillColor("#000000").font("Helvetica");
   return contentPages;

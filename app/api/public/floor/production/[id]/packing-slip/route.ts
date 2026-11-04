@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveFloorTenant } from "@/lib/kiosk-token";
+import { resolveProductionFloorTenant } from "@/lib/kiosk-token";
 import { generatePackingSlipPdfBuffer } from "@/lib/packing-slip-generate";
 import { orderIsInActiveProduction } from "@/lib/fulfillment-production";
 
@@ -12,7 +12,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: orderId } = await params;
-  const floor = await resolveFloorTenant();
+  const floor = await resolveProductionFloorTenant();
   if (!floor) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

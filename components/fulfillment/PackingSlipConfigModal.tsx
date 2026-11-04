@@ -468,7 +468,7 @@ function SenderPackingSlipWizard({
     totalQty,
     qtyPerSku,
   });
-  const skus: SkuSlipConfig[] =
+  const allSkus: SkuSlipConfig[] =
     skuList.length > 0
       ? skuList.map((img, index) => {
           const qty = lineQtys[index] ?? null;
@@ -491,6 +491,13 @@ function SenderPackingSlipWizard({
             enabled: true,
           },
         ];
+
+  // Step 1: which SKUs go on this slip. All are ticked by default.
+  const [excludedSkuIds, setExcludedSkuIds] = useState<Set<string>>(new Set());
+  const skus = allSkus.filter((sku) => !excludedSkuIds.has(sku.skuId));
+  /** Printed "SKU N" stays the order's own SKU number when some are unticked. */
+  const skuNumber = (skuId: string) =>
+    allSkus.findIndex((sku) => sku.skuId === skuId) + 1;
 
   const [step, setStep] = useState<1 | 2>(1);
   const [layout, setLayout] = useState<PackingSlipLayout>("multiple");
@@ -705,6 +712,15 @@ function SenderPackingSlipWizard({
       }
       return next;
     });
+  }
+
+  /** Take a SKU line out of a box; its qty goes back to "left". */
+  function removeLine(boxIndex: number, key: string) {
+    setBoxes((prev) =>
+      prev.map((lines, index) =>
+        index === boxIndex ? lines.filter((line) => line.key !== key) : lines
+      )
+    );
   }
 
   function moveLine(fromBox: number, key: string, toBox: number) {
@@ -965,15 +981,58 @@ function SenderPackingSlipWizard({
               />
             </label>
             <div className="mt-4">{palletCheckbox}</div>
-            <p className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              SKUs
-            </p>
+            <label className="mb-2 mt-5 flex w-fit cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <input
+                type="checkbox"
+                checked={excludedSkuIds.size === 0}
+                ref={(el) => {
+                  if (el) {
+                    el.indeterminate =
+                      excludedSkuIds.size > 0 && excludedSkuIds.size < allSkus.length;
+                  }
+                }}
+                onChange={() =>
+                  setExcludedSkuIds(
+                    excludedSkuIds.size === 0
+                      ? new Set(allSkus.map((sku) => sku.skuId))
+                      : new Set()
+                  )
+                }
+                className="h-5 w-5 rounded border-slate-300 accent-slate-900 text-slate-900 focus:ring-slate-400"
+                aria-label="All SKUs"
+              />
+              All SKUs
+              <span className="font-medium normal-case tracking-normal text-slate-400">
+                ({skus.length} of {allSkus.length})
+              </span>
+            </label>
             <div className="grid grid-cols-2 gap-2">
-              {skus.map((sku) => (
-                <div
+              {allSkus.map((sku) => {
+                const included = !excludedSkuIds.has(sku.skuId);
+                return (
+                <label
                   key={sku.skuId}
-                  className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 px-2.5 py-2"
+                  className={cn(
+                    "flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border px-2.5 py-2",
+                    included
+                      ? "border-slate-200 bg-white"
+                      : "border-slate-200 bg-slate-50 opacity-60"
+                  )}
                 >
+                  <input
+                    type="checkbox"
+                    checked={included}
+                    onChange={() =>
+                      setExcludedSkuIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(sku.skuId)) next.delete(sku.skuId);
+                        else next.add(sku.skuId);
+                        return next;
+                      })
+                    }
+                    className="h-5 w-5 shrink-0 rounded border-slate-300 accent-slate-900 text-slate-900 focus:ring-slate-400"
+                    aria-label={`Include ${sku.skuName || "SKU"}`}
+                  />
                   {sku.artworkUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -992,8 +1051,9 @@ function SenderPackingSlipWizard({
                   <span className="shrink-0 text-[14px] font-semibold text-slate-700">
                     {requiredSkuQty(sku).toLocaleString("en-US")}
                   </span>
-                </div>
-              ))}
+                </label>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -1271,7 +1331,7 @@ function SenderPackingSlipWizard({
                           >
                             <span className="min-w-0 flex-1 text-[13px] font-medium text-slate-800">
                               <span className="font-semibold text-slate-400">
-                                SKU {skus.findIndex((s) => s.skuId === line.skuId) + 1}:
+                                SKU {skuNumber(line.skuId)}:
                               </span>{" "}
                               {sku?.skuName || "SKU"}
                             </span>
@@ -1288,6 +1348,18 @@ function SenderPackingSlipWizard({
                               }}
                               className="h-10 w-24 cursor-pointer rounded-lg border border-slate-200 text-center text-[14px] font-semibold"
                             />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeLine(boxIndex, line.key);
+                              }}
+                              title="Remove from box"
+                              aria-label={`Remove ${sku?.skuName || "SKU"} from Box ${boxIndex + 1}`}
+                              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
                           </div>
                         );
                       })}
@@ -1396,9 +1468,10 @@ function SenderPackingSlipWizard({
               <button
                 type="button"
                 onClick={openBoxes}
-                className="flex flex-[2] items-center justify-center rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700"
+                disabled={skus.length === 0}
+                className="flex flex-[2] items-center justify-center rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                Next
+                {skus.length === 0 ? "Tick at least one SKU" : "Next"}
               </button>
             ) : (
               <button
