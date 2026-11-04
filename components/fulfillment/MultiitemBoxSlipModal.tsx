@@ -3255,6 +3255,7 @@ export function MultiitemBoxSlipModal({
     </div>
     {scanKeypadOpen && !readOnly ? (
       <ScanNumberKeypad
+        title="Order number"
         value={scan}
         onInsert={(character) => {
           if (replaceNextScan.current) {

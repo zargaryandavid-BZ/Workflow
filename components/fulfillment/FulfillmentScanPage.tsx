@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
+  Check,
   CheckCircle2,
   ChevronRight,
   CircleCheck,
@@ -1396,6 +1397,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         setActionFeedback({ phase: "error", message });
       } else {
         const column = json.column_name ?? "";
+        markOrderColumn(json.column_id, column);
         setActionResult({
           label: button.label,
           column,
@@ -1501,6 +1503,16 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     : [];
   const artworkImages = (order?.sku_images ?? []).filter((sku) => sku.url);
 
+  /** After a move, the loaded order is in the new column (its button greys out). */
+  function markOrderColumn(columnId: string | undefined, columnName: string) {
+    if (!columnId) return;
+    setOrder((prev) =>
+      prev
+        ? { ...prev, column_id: columnId, column_name: columnName || prev.column_name }
+        : prev
+    );
+  }
+
   async function completeReadyToShipAction() {
     const popup = readyToShipPopup;
     const current = order;
@@ -1525,6 +1537,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
       });
       const json = await res.json().catch(() => ({})) as {
         error?: string;
+        column_id?: string;
         column_name?: string;
       };
       if (!res.ok) {
@@ -1534,6 +1547,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         return;
       }
       const column = json.column_name ?? "";
+      markOrderColumn(json.column_id, column);
       setActionResult({ label: popup.label, column });
       setActionFeedback({
         phase: "ok",
@@ -1861,23 +1875,25 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                 {/* Row 1: order # / customer / artwork + X close */}
                 <div className="grid min-w-0 divide-x divide-slate-100" style={{ gridTemplateColumns: (order.thumbnail_url || order.sku_images?.length) ? "1fr 1fr auto" : "1fr 1fr" }}>
                   {/* Order # + stage + due + close */}
-                  <div className="relative flex min-w-0 flex-col gap-1 px-3 py-3 pr-9">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] md:text-[13px] font-bold text-blue-700">
+                  <div className="relative flex min-w-0 flex-col justify-center gap-2 px-3 py-3 pr-9">
+                    {/* #order | due, then the board column as the headline */}
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] md:text-[14px]">
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 font-bold text-blue-700">
                         #{order.title}
                       </span>
-                      {order.column_name && (
-                        <span className={cn("max-w-full rounded-full border px-2 py-0.5 text-[11px] md:text-[13px] leading-snug",
-                          isFinishedReviewRequestColumn(order.column_name)
-                            ? "whitespace-normal border-red-600 bg-red-600 font-semibold text-white"
-                            : "truncate border-blue-600 bg-blue-600 font-semibold text-white")}>
-                          {order.column_name}
-                        </span>
-                      )}
+                      <span aria-hidden className="text-slate-300">|</span>
+                      <span className={cn("whitespace-nowrap font-medium", late ? "text-red-600" : "text-slate-500")}>
+                        Due {dueLabel}{late && " · Late"}
+                      </span>
                     </div>
-                    <span className={cn("whitespace-nowrap text-[11px] md:text-[13px] font-medium", late ? "text-red-600" : "text-slate-400")}>
-                      Due {dueLabel}{late && " · Late"}
-                    </span>
+                    {order.column_name && (
+                      <span className={cn("w-fit max-w-full break-words rounded-lg px-3 py-1.5 text-[15px] md:text-[18px] font-bold leading-tight text-white",
+                        isFinishedReviewRequestColumn(order.column_name)
+                          ? "bg-red-600"
+                          : "bg-blue-600")}>
+                        {order.column_name}
+                      </span>
+                    )}
                     <button
                       type="button"
                       aria-label="Close order"
@@ -1981,7 +1997,6 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     skuImages={order.sku_images}
                     totalQty={order.qty}
                     qtyPerSku={order.qty_per_sku}
-                    sender={scanStation === "sender"}
                     scanApiBase={scanApiBase}
                   />
                 ) : (
@@ -2081,6 +2096,10 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                 const configured = !!button.columnId;
                 const columnName =
                   columns.find((c) => c.id === button.columnId)?.name ?? null;
+                // The order is already in this button's column: nothing to move.
+                const isCurrent =
+                  !!order && configured && button.columnId === order.column_id;
+                const active = !!order && configured && !isCurrent;
                 return (
                   <button
                     key={button.id}
@@ -2088,14 +2107,13 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     onClick={() => void handleAction(button)}
                     onMouseDown={(e) => { if (!("ontouchstart" in window)) e.preventDefault(); }}
                     disabled={
-                      !order ||
-                      !configured ||
+                      !active ||
                       actingOn !== null ||
                       actionFeedback?.phase === "loading"
                     }
                     className={cn(
                       "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-[13px] md:text-[15px] font-medium transition-colors min-h-[4rem]",
-                      order && configured
+                      active
                         ? "border-slate-200 bg-white hover:bg-slate-50 text-slate-800"
                         : "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed"
                     )}
@@ -2103,7 +2121,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     <span
                       className={cn(
                         "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                        order && configured
+                        active
                           ? ACTION_ICON_COLORS[index % ACTION_ICON_COLORS.length]
                           : "bg-slate-100 text-slate-400"
                       )}
@@ -2113,13 +2131,17 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                     <span className="flex-1">
                       <span className="block">{button.label}</span>
                       <span className="block text-[11px] md:text-[13px] font-normal text-slate-500">
-                        {configured
-                          ? `Move to ${columnName ?? "column"}`
-                          : "Not configured — set column in Configure columns"}
+                        {!configured
+                          ? "Not configured — set column in Configure columns"
+                          : isCurrent
+                            ? `Already in ${columnName ?? "this column"}`
+                            : `Move to ${columnName ?? "column"}`}
                       </span>
                     </span>
                     {actingOn === button.id ? (
                       <span className="text-[11px] md:text-[13px] text-slate-400">…</span>
+                    ) : isCurrent ? (
+                      <Check className="h-5 w-5 shrink-0 text-slate-400" />
                     ) : (
                       <ChevronRight className="h-5 w-5 shrink-0 text-slate-300" />
                     )}

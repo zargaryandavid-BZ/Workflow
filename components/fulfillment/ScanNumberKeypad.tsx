@@ -82,6 +82,7 @@ export function ScanNumberKeypad({
   extraKeys = [],
   variant = "scan",
   zIndex = 50,
+  title,
 }: {
   value: string;
   onInsert: (ch: string) => void;
@@ -91,7 +92,10 @@ export function ScanNumberKeypad({
   extraKeys?: string[];
   variant?: "scan" | "decimal" | "integer";
   zIndex?: number;
+  /** What is being entered, e.g. "Box 1 · Length (in)". */
+  title?: string;
 }) {
+  const heading = title?.trim() || "Number pad";
   const keys =
     variant === "decimal" ? DECIMAL_KEYS : variant === "integer" ? INTEGER_KEYS : KEYS;
   return (
@@ -106,13 +110,19 @@ export function ScanNumberKeypad({
       />
       <div
         role="dialog"
-        aria-label="Number pad"
+        aria-label={heading}
         className="relative z-10 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl md:max-w-lg md:p-6 landscape:max-w-xl"
         onPointerDown={(e) => e.preventDefault()}
       >
         <div className="mb-3 flex items-center justify-between gap-2 md:mb-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:text-xs">
-            Number pad
+          <p
+            className={
+              title
+                ? "min-w-0 truncate text-base font-semibold text-slate-900 md:text-lg"
+                : "text-[11px] font-semibold uppercase tracking-wide text-slate-400 md:text-xs"
+            }
+          >
+            {heading}
           </p>
           <button
             type="button"

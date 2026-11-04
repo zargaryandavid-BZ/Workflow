@@ -20,7 +20,6 @@ export function ScanShippingSlipButtons({
   skuImages,
   totalQty,
   qtyPerSku,
-  sender = false,
   scanApiBase,
 }: {
   orderId: string;
@@ -35,7 +34,6 @@ export function ScanShippingSlipButtons({
   }[];
   totalQty?: number | null;
   qtyPerSku?: number | null;
-  sender?: boolean;
   scanApiBase?: string;
 }) {
   const [showModal, setShowModal] = useState(false);
@@ -51,7 +49,6 @@ export function ScanShippingSlipButtons({
             skuImages={skuImages}
             totalQty={totalQty}
             qtyPerSku={qtyPerSku}
-            sender={sender}
             scanApiBase={scanApiBase}
             onClose={() => setShowModal(false)}
           />
@@ -80,7 +77,6 @@ export function ScanShippingSlipButtons({
           skuImages={skuImages}
           totalQty={totalQty}
           qtyPerSku={qtyPerSku}
-          sender={sender}
           scanApiBase={scanApiBase}
           onClose={() => setShowModal(false)}
         />

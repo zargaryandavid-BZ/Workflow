@@ -224,6 +224,7 @@ export function FulfillmentNav() {
     </header>
       {isScan && keypadOpen ? (
         <ScanNumberKeypad
+          title="Order number"
           value={navQuery}
           onInsert={(ch) => {
             if (replaceNextInput.current) {

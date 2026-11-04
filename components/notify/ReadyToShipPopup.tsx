@@ -34,6 +34,7 @@ import {
   resizeBoxDrafts,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
+import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 import { validateSmsRecipient } from "@/lib/sms";
 import { cn } from "@/lib/utils";
 import {
@@ -172,6 +173,24 @@ export function ReadyToShipPopup({
   );
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
+  // Tablets/phones: numeric fields open the on-screen keypad instead of the
+  // system keyboard. Mouse + keyboard (board on a computer) keeps typing.
+  const [touch, setTouch] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(pointer: coarse)");
+    const update = () => setTouch(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const [keypad, setKeypad] = useState<
+    | { target: "count" }
+    | { target: "box"; index: number; field: keyof BoxDraft }
+    | null
+  >(null);
+  const [keypadValue, setKeypadValue] = useState("");
+  /** First key replaces the current value (like selecting it). */
+  const [keypadFresh, setKeypadFresh] = useState(true);
   const [sizePreset, setSizePreset] = useState("");
   // Units are fixed (shown inside each input) to keep the form short on phones.
   const dimUnit: ShippingDimUnit = "in";
@@ -282,18 +301,6 @@ export function ReadyToShipPopup({
 
   const waitingForGroup = notAllReady && !allowPartial && channel !== "manual";
 
-  const alreadySent = Boolean(checkResult?.previousNotificationDate);
-  const alreadySentDate = checkResult?.previousNotificationDate
-    ? new Date(checkResult.previousNotificationDate).toLocaleDateString(
-        undefined,
-        {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }
-      )
-    : null;
-
   const allBoxesFilled = boxes.every(isBoxComplete);
   const missingBoxesMessage = boxesRequired
     ? missingBoxFieldsMessage(boxes)
@@ -330,6 +337,43 @@ export function ReadyToShipPopup({
     ) {
       setSizePreset(CUSTOM_BOX_SIZE_VALUE);
     }
+  }
+
+  const BOX_FIELDS: (keyof BoxDraft)[] = ["length", "width", "height", "weight"];
+
+  function openKeypad(
+    next: { target: "count" } | { target: "box"; index: number; field: keyof BoxDraft }
+  ) {
+    setKeypad(next);
+    setKeypadValue(
+      next.target === "count" ? String(boxCount) : boxes[next.index]?.[next.field] ?? ""
+    );
+    setKeypadFresh(true);
+  }
+
+  /** Done: save, then move to the next field (Length → … → Weight → next box). */
+  function submitKeypad() {
+    if (!keypad) return;
+    if (keypad.target === "count") {
+      updateBoxCount(Number(keypadValue) || 1);
+      setKeypad(null);
+      return;
+    }
+    updateBox(keypad.index, keypad.field, keypadValue);
+    const fieldIndex = BOX_FIELDS.indexOf(keypad.field);
+    const next =
+      fieldIndex < BOX_FIELDS.length - 1
+        ? { index: keypad.index, field: BOX_FIELDS[fieldIndex + 1]! }
+        : keypad.index < boxes.length - 1
+          ? { index: keypad.index + 1, field: BOX_FIELDS[0]! }
+          : null;
+    if (!next) {
+      setKeypad(null);
+      return;
+    }
+    setKeypad({ target: "box", ...next });
+    setKeypadValue(boxes[next.index]?.[next.field] ?? "");
+    setKeypadFresh(true);
   }
 
   function duplicateBox(index: number) {
@@ -597,24 +641,13 @@ export function ReadyToShipPopup({
             </div>
           ) : null}
 
-          {alreadySent ? (
-            <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-800">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-              <span>
-                A ready notification was already sent on{" "}
-                <strong>{alreadySentDate}</strong>. Sending again creates a new
-                link and notifies the customer again.
-              </span>
-            </div>
-          ) : null}
-
-          <fieldset className="space-y-2">
-            <legend className="text-sm font-medium text-slate-800">
+          <fieldset className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <legend className="mb-1.5 text-sm font-medium text-slate-800">
               How is this order going out?
             </legend>
             <label
               className={cn(
-                "flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm",
+                "flex h-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-1.5 text-sm",
                 fulfillment === "choose"
                   ? "border-emerald-500 bg-emerald-50"
                   : "border-slate-200 hover:border-slate-300"
@@ -627,17 +660,17 @@ export function ReadyToShipPopup({
                 onChange={() => setFulfillment("choose")}
               />
               <span>
-                <span className="block font-medium text-slate-800">
+                <span className="block font-medium leading-tight text-slate-800">
                   Let the customer choose
                 </span>
-                <span className="block text-xs text-slate-500">
-                  Sends a link to view the order and pick pickup or delivery.
+                <span className="line-clamp-2 block text-xs leading-snug text-slate-500">
+                  Sends a link to pick pickup or delivery.
                 </span>
               </span>
             </label>
             <label
               className={cn(
-                "flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm",
+                "flex h-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-1.5 text-sm",
                 fulfillment === "pickup"
                   ? "border-emerald-500 bg-emerald-50"
                   : "border-slate-200 hover:border-slate-300"
@@ -650,12 +683,11 @@ export function ReadyToShipPopup({
                 onChange={() => setFulfillment("pickup")}
               />
               <span>
-                <span className="block font-medium text-slate-800">
+                <span className="block font-medium leading-tight text-slate-800">
                   Pickup — notify it&apos;s ready
                 </span>
-                <span className="block text-xs text-slate-500">
-                  Tells the customer the order is ready for pickup. No choice
-                  needed.
+                <span className="line-clamp-2 block text-xs leading-snug text-slate-500">
+                  Tells the customer it&apos;s ready for pickup.
                 </span>
               </span>
             </label>
@@ -704,6 +736,8 @@ export function ReadyToShipPopup({
                     max={20}
                     value={boxCount}
                     onChange={(e) => updateBoxCount(Number(e.target.value))}
+                    readOnly={touch}
+                    onClick={touch ? () => openKeypad({ target: "count" }) : undefined}
                     aria-label="How many boxes"
                     className="mt-1 block h-11 w-full rounded-md border border-slate-300 bg-white px-2 text-center text-sm"
                   />
@@ -767,16 +801,29 @@ export function ReadyToShipPopup({
                         <span className="relative mt-1 block">
                           <input
                             type="number"
-                            inputMode="decimal"
+                            inputMode={touch ? "none" : "decimal"}
                             min={0}
                             step="any"
                             data-enter-focus-next
                             value={box[field]}
+                            readOnly={touch}
+                            onClick={
+                              touch
+                                ? () => openKeypad({ target: "box", index, field })
+                                : undefined
+                            }
                             onChange={(e) =>
                               updateBox(index, field, e.target.value)
                             }
                             onKeyDown={focusNextInputOnEnter}
-                            className="h-11 w-full rounded-md border border-slate-300 py-1.5 pl-2 pr-9 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className={cn(
+                              "h-11 w-full rounded-md border border-slate-300 py-1.5 pl-2 pr-9 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+                              touch && "cursor-pointer",
+                              keypad?.target === "box" &&
+                                keypad.index === index &&
+                                keypad.field === field &&
+                                "border-blue-500 ring-2 ring-blue-200"
+                            )}
                           />
                           <span
                             aria-hidden="true"
@@ -1018,6 +1065,34 @@ export function ReadyToShipPopup({
           </Button>
         </div>
       </div>
+      {keypad ? (
+        <ScanNumberKeypad
+          variant={keypad.target === "count" ? "integer" : "decimal"}
+          zIndex={130}
+          title={
+            keypad.target === "count"
+              ? "How many boxes"
+              : `Box ${keypad.index + 1} · ${
+                  { length: "Length", width: "Width", height: "Height", weight: "Weight" }[
+                    keypad.field
+                  ]
+                } (${keypad.field === "weight" ? weightUnit : dimUnit})`
+          }
+          value={keypadValue}
+          onInsert={(ch) => {
+            const base = keypadFresh ? "" : keypadValue;
+            setKeypadFresh(false);
+            if (ch === "." && base.includes(".")) return;
+            setKeypadValue(base + ch);
+          }}
+          onBackspace={() => {
+            setKeypadFresh(false);
+            setKeypadValue((prev) => (keypadFresh ? "" : prev.slice(0, -1)));
+          }}
+          onSubmit={submitKeypad}
+          onClose={() => setKeypad(null)}
+        />
+      ) : null}
     </div>
   );
   return createPortal(content, document.body);

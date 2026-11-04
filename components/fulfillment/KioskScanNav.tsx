@@ -141,6 +141,7 @@ export function KioskScanNav({ tenantName }: Props) {
       </header>
       {keypadOpen ? (
         <ScanNumberKeypad
+          title="Order number"
           value={query}
           onInsert={(ch) => {
             if (replaceNextInput.current) {

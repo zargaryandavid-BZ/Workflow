@@ -42,394 +42,15 @@ interface Props {
   }[];
   totalQty?: number | null;
   qtyPerSku?: number | null;
-  /** Sender station uses the box-assignment wizard and 4×6 labels. */
-  sender?: boolean;
   /** Set on the no-login scan page so print does not use the staff API. */
   scanApiBase?: string;
   onClose: () => void;
 }
 
-function deriveQty(
-  totalQty: number | null | undefined,
-  qtyPerSku: number | null | undefined,
-  skuCount: number
-): number | null {
-  if (qtyPerSku && qtyPerSku > 0) return qtyPerSku;
-  if (totalQty && totalQty > 0 && skuCount > 0) {
-    return Math.round(totalQty / skuCount);
-  }
-  return null;
-}
-
-function PackingSlipConfigForm({
-  orderId,
-  orderNumber,
-  groupSize,
-  skuImages,
-  totalQty,
-  qtyPerSku,
-  onClose,
-}: Props) {
-  const skuList = skuImages ?? [];
-  // Fallback qty used only when a specific SKU doesn't carry its own qty.
-  const perQty = deriveQty(totalQty, qtyPerSku, skuList.length);
-
-  const [skus, setSkus] = useState<SkuSlipConfig[]>(() =>
-    skuList.length > 0
-      ? skuList.map((img) => {
-          // Prefer the per-SKU qty from specs; fall back to the even-split only
-          // when the SKU doesn't have its own quantity defined.
-          const skuQty =
-            img.qty != null && img.qty > 0 ? img.qty : perQty;
-          return {
-            skuId: img.sku_id,
-            skuName: img.sku_name,
-            artworkUrl: img.url,
-            qty: skuQty,
-            copyQty: skuQty,
-            enabled: true,
-          };
-        })
-      : [
-          {
-            skuId: "__all__",
-            skuName: "All items",
-            artworkUrl: null,
-            qty: totalQty ?? null,
-            copyQty: totalQty ?? null,
-            enabled: true,
-          },
-        ]
-  );
-  const [layout, setLayout] = useState<PackingSlipLayout>("multiple");
-  const [boxCount, setBoxCount] = useState<string>("1");
-  const [boxCountKeypadOpen, setBoxCountKeypadOpen] = useState(false);
-  const replaceBoxCountRef = useRef(true);
-  const [copyQtyKeypadId, setCopyQtyKeypadId] = useState<string | null>(null);
-  const [copyQtyKeypadStr, setCopyQtyKeypadStr] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  function toggleSku(id: string) {
-    setSkus((prev) =>
-      prev.map((s) => (s.skuId === id ? { ...s, enabled: !s.enabled } : s))
-    );
-  }
-
-  function updateCopyQty(id: string, raw: string) {
-    const n = raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0);
-    setSkus((prev) =>
-      prev.map((s) => (s.skuId === id ? { ...s, copyQty: raw === "" ? null : n } : s))
-    );
-  }
-
-  const enabledSkus = skus.filter((s) => s.enabled);
-
-  function partFromOrderNumber(on: string): number {
-    const m = on.trim().match(/-(\d+)$/);
-    if (!m) return 1;
-    const n = parseInt(m[1], 10);
-    return Number.isFinite(n) && n >= 1 ? n : 1;
-  }
-
-  async function handlePrint() {
-    if (enabledSkus.length === 0) {
-      setError("Select at least one SKU to print.");
-      return;
-    }
-    setError("");
-    setBusy(true);
-    try {
-      const totalParts = Math.max(1, groupSize);
-      const part = Math.min(partFromOrderNumber(orderNumber), totalParts);
-
-      const selectedSkuIds =
-        skus[0]?.skuId === "__all__" ? null : enabledSkus.map((s) => s.skuId);
-
-      const copyQties: Record<string, number> = {};
-      for (const s of enabledSkus) {
-        if (s.copyQty != null && s.skuId !== "__all__") {
-          copyQties[s.skuId] = s.copyQty;
-        }
-      }
-
-      const boxNum = boxCount.trim() ? parseInt(boxCount, 10) : null;
-
-      const res = await fetch(
-        `/api/orders/${orderId}/actions/generate-packing-slip?part=${part}&totalParts=${totalParts}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            part,
-            totalParts,
-            selectedSkuIds,
-            copyQties: Object.keys(copyQties).length > 0 ? copyQties : undefined,
-            layout,
-            boxCount: boxNum,
-          }),
-          signal: AbortSignal.timeout(170_000),
-        }
-      );
-
-      if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(json.error ?? "Failed to generate packing slip");
-      }
-
-      const blob = await res.blob();
-      if (!blob.size) throw new Error("Packing slip was empty");
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `packing-slip-${orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-
-      // Also open print dialog
-      const w = window.open(url);
-      w?.addEventListener("load", () => w.print());
-
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate slip");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
-    >
-      <div
-        className="flex max-h-[92dvh] w-full max-w-xl flex-col rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Printer className="h-4 w-4 text-slate-500" />
-            <h2 className="text-[15px] font-semibold text-slate-900">
-              Print Packing Slip
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {/* Layout + Box Count — compact single row at the top */}
-          <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-3">
-            {/* Layout toggle */}
-            <div className="flex flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <button
-                type="button"
-                onClick={() => setLayout("multiple")}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-[13px] font-medium transition-colors",
-                  layout === "multiple"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                )}
-              >
-                <span className="text-sm leading-none">⊞</span>
-                Multi-SKU
-              </button>
-              <button
-                type="button"
-                onClick={() => setLayout("one_per_slip")}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 border-l border-slate-200 px-3 py-2.5 text-[13px] font-medium transition-colors",
-                  layout === "one_per_slip"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                )}
-              >
-                <span className="text-sm leading-none">☐</span>
-                1 per slip
-              </button>
-            </div>
-
-            {/* Box count */}
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="whitespace-nowrap text-[12px] text-slate-400">Boxes</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                readOnly
-                value={boxCount}
-                placeholder="—"
-                onClick={() => {
-                  replaceBoxCountRef.current = true;
-                  setBoxCountKeypadOpen(true);
-                }}
-                className="h-10 w-20 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-center text-[14px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300"
-              />
-            </div>
-          </div>
-
-          {/* SKU list */}
-          <div className="px-5 pt-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              SKU Selection
-            </p>
-            <div className="overflow-hidden rounded-xl border border-slate-200">
-              {/* Column headers */}
-              <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                <div className="w-5 shrink-0" />
-                <div className="flex-1">SKU / Part</div>
-                <div className="w-14 shrink-0 text-right">QTY</div>
-                <div className="w-20 shrink-0 text-right">Copy QTY</div>
-              </div>
-
-              {skus.map((sku) => (
-                <div
-                  key={sku.skuId}
-                  onClick={() => toggleSku(sku.skuId)}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2 border-t border-slate-100 px-3 py-2 transition-colors first:border-t-0 hover:bg-slate-50",
-                    !sku.enabled && "opacity-40"
-                  )}
-                >
-                  {/* Checkbox */}
-                  <input
-                    type="checkbox"
-                    checked={sku.enabled}
-                    onChange={(e) => { e.stopPropagation(); toggleSku(sku.skuId); }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-5 w-5 shrink-0 cursor-pointer rounded border-slate-300 accent-slate-900"
-                  />
-
-                  {/* Artwork + SKU name */}
-                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                    {sku.artworkUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={sku.artworkUrl}
-                        alt={sku.skuName}
-                        className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 bg-slate-50 object-contain p-0.5"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
-                        <Package className="h-4 w-4 text-slate-300" />
-                      </div>
-                    )}
-                    <span className="min-w-0 truncate text-[13px] font-medium text-slate-800">
-                      {sku.skuName || "—"}
-                    </span>
-                  </div>
-
-                  {/* QTY (read-only) */}
-                  <div className="w-14 shrink-0 text-right text-[13px] text-slate-400">
-                    {sku.qty != null ? sku.qty.toLocaleString("en-US") : "—"}
-                  </div>
-
-                  {/* Copy QTY (tap to open keypad) */}
-                  <div className="w-20 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      readOnly
-                      value={sku.copyQty != null ? sku.copyQty.toLocaleString("en-US") : ""}
-                      disabled={!sku.enabled}
-                      placeholder="—"
-                      onClick={() => {
-                        if (!sku.enabled) return;
-                        setCopyQtyKeypadId(sku.skuId);
-                        setCopyQtyKeypadStr(sku.copyQty?.toString() ?? "");
-                      }}
-                      className="h-9 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-right text-[13px] font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:cursor-default disabled:bg-slate-50 disabled:text-slate-300"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="pb-4" />
-        </div>
-
-        {/* Footer */}
-        <div className="shrink-0 border-t border-slate-100 px-5 py-4">
-          {error && (
-            <p className="mb-3 text-[13px] text-red-600">{error}</p>
-          )}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              className="flex-1 rounded-xl border border-slate-200 py-3 text-[14px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePrint()}
-              disabled={busy || enabledSkus.length === 0}
-              className="flex flex-[2] items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-              ) : (
-                <Printer className="h-4 w-4 shrink-0" />
-              )}
-              {busy ? "Generating…" : "Print"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-    {boxCountKeypadOpen ? (
-      <ScanNumberKeypad
-        variant="integer"
-        value={boxCount}
-        onInsert={(ch) => {
-          setBoxCount((prev) => (replaceBoxCountRef.current ? ch : prev + ch));
-          replaceBoxCountRef.current = false;
-        }}
-        onBackspace={() => {
-          if (replaceBoxCountRef.current) {
-            replaceBoxCountRef.current = false;
-            setBoxCount("");
-            return;
-          }
-          setBoxCount((prev) => prev.slice(0, -1) || "");
-        }}
-        onSubmit={() => setBoxCountKeypadOpen(false)}
-        onClose={() => setBoxCountKeypadOpen(false)}
-      />
-    ) : null}
-    {copyQtyKeypadId ? (
-      <ScanNumberKeypad
-        variant="integer"
-        value={copyQtyKeypadStr}
-        onInsert={(ch) => setCopyQtyKeypadStr((prev) => prev + ch)}
-        onBackspace={() => setCopyQtyKeypadStr((prev) => prev.slice(0, -1))}
-        onSubmit={() => {
-          if (copyQtyKeypadId) updateCopyQty(copyQtyKeypadId, copyQtyKeypadStr);
-          setCopyQtyKeypadId(null);
-        }}
-        onClose={() => setCopyQtyKeypadId(null)}
-      />
-    ) : null}
-    </>
-  );
-}
-
 type SlipLine = { key: string; skuId: string; qty: number };
+
+/** Most used box sizes, offered as one-tap buttons next to the size list. */
+const QUICK_BOX_SIZES = ["18×12×12 in", "10×10×10 in"] as const;
 type SlipBoxDetails = {
   sizeLabel: string;
   sizeL: string;
@@ -452,7 +73,7 @@ function newLine(skuId: string, qty: number): SlipLine {
   return { key, skuId, qty };
 }
 
-function SenderPackingSlipWizard({
+function PackingSlipWizard({
   orderId,
   orderNumber,
   groupSize,
@@ -499,7 +120,8 @@ function SenderPackingSlipWizard({
   const skuNumber = (skuId: string) =>
     allSkus.findIndex((sku) => sku.skuId === skuId) + 1;
 
-  const [step, setStep] = useState<1 | 2>(1);
+  /** 1 SKUs & box count → 2 box size/weight → 3 SKU distribution per box. */
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [layout, setLayout] = useState<PackingSlipLayout>("multiple");
   const [boxCount, setBoxCount] = useState("1");
   const [boxCountKeypadOpen, setBoxCountKeypadOpen] = useState(false);
@@ -683,7 +305,17 @@ function SenderPackingSlipWizard({
     );
     setBoxMenu(null);
     setError("");
+    setSettingsApplyTo("all");
+    setSettingsDraft({ sizeLabel: "", sizeL: "", sizeW: "", sizeH: "", weightLbs: "" });
     setStep(2);
+  }
+
+  /** Step 2 → 3: keep what is in the form for the chosen boxes. */
+  function finishBoxSettings() {
+    if (!Array.isArray(settingsApplyTo) || settingsApplyTo.length > 0) {
+      applyBoxSettings();
+    }
+    setStep(3);
   }
 
   function updateBoxDetails(
@@ -907,21 +539,163 @@ function SenderPackingSlipWizard({
     }
   }
 
+  // Same fields in step 2 and in the per-box gear popup on step 3.
+  const boxSettingsFields = (
+    <>
+          {/* Apply to */}
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            Apply to
+          </p>
+          <div className="mb-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSettingsApplyTo("all")}
+              className={cn(
+                "h-11 flex-1 rounded-lg border text-[13px] font-medium",
+                settingsApplyTo === "all"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              All boxes
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setSettingsApplyTo((prev) => (prev === "all" ? [] : prev))
+              }
+              className={cn(
+                "h-11 flex-1 rounded-lg border text-[13px] font-medium",
+                Array.isArray(settingsApplyTo)
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              Select boxes
+            </button>
+          </div>
+          {Array.isArray(settingsApplyTo) ? (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {boxes.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => toggleSettingsBox(i)}
+                  className={cn(
+                    "h-11 rounded-lg border px-4 text-[13px] font-medium",
+                    settingsApplyTo.includes(i)
+                      ? "border-blue-500 bg-blue-50 text-blue-700"
+                      : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                  )}
+                >
+                  Box {i + 1}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Box size | Weight (lbs) on one row */}
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            {/* Box Size */}
+            <label className="block min-w-[10rem] flex-[1.6]">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Box size
+              </span>
+              <select
+                value={settingsDraft.sizeLabel}
+                onChange={(e) =>
+                  setSettingsDraft((d) => ({ ...d, sizeLabel: e.target.value, sizeL: "", sizeW: "", sizeH: "" }))
+                }
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] font-medium text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">Select size</option>
+                {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+                <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
+              </select>
+            </label>
+            {/* Most used sizes: one tap */}
+            <div className="flex shrink-0 gap-2" role="group" aria-label="Most used box sizes">
+              {QUICK_BOX_SIZES.map((size) => {
+                const on = settingsDraft.sizeLabel === size;
+                return (
+                  <button
+                    key={size}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      setSettingsDraft((d) => ({ ...d, sizeLabel: size, sizeL: "", sizeW: "", sizeH: "" }))
+                    }
+                    className={cn(
+                      "h-11 rounded-lg border px-3 text-[13px] font-semibold tabular-nums",
+                      on
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    )}
+                  >
+                    {size.replace(" in", "")}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Weight */}
+            <label className="block min-w-[7rem] flex-1">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Weight (lbs)
+              </span>
+              <input
+                type="text"
+                readOnly
+                value={settingsDraft.weightLbs}
+                placeholder="Tap to enter"
+                onClick={() => setSettingsWeightKeypad(true)}
+                className="h-11 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-center text-[14px] font-semibold text-slate-800 placeholder:font-normal placeholder:text-slate-400"
+              />
+            </label>
+          </div>
+
+          {settingsDraft.sizeLabel === CUSTOM_BOX_SIZE_VALUE ? (
+            <div className="mb-5 grid grid-cols-3 gap-2">
+              {(["sizeL", "sizeW", "sizeH"] as const).map((field, idx) => (
+                <label key={field} className="min-w-0">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {["Length", "Width", "Height"][idx]} (in)
+                  </span>
+                  <input
+                    type="text"
+                    readOnly
+                    value={settingsDraft[field]}
+                    placeholder="Tap"
+                    onClick={() => setSettingsDimKeypad(field)}
+                    className="h-11 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-center text-[13px] font-semibold text-slate-800 placeholder:font-normal placeholder:text-slate-400"
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
+          {settingsDraft.sizeLabel === CUSTOM_BOX_SIZE_VALUE ? null : <div className="mb-2" />}
+    </>
+  );
+
   return (
     <>
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
     >
       <div
-        className="flex max-h-[92dvh] w-full max-w-3xl flex-col rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
+        className="flex max-h-[92dvh] w-full max-w-2xl flex-col rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-2">
             <Printer className="h-4 w-4 text-slate-500" />
             <h2 className="text-[15px] font-semibold text-slate-900">
-              Print Packing Slip
+              {step === 2 ? "Box Settings" : "Print Packing Slip"}
             </h2>
+            <span className="text-[12px] font-medium text-slate-400">
+              Step {step} of 3
+            </span>
           </div>
           <button
             type="button"
@@ -1055,6 +829,45 @@ function SenderPackingSlipWizard({
                 );
               })}
             </div>
+          </div>
+        ) : step === 2 ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+            <p className="mb-4 text-[13px] text-slate-500">
+              Set the size and weight printed on each box slip. You can change
+              a single box later with its gear icon.
+            </p>
+            {boxSettingsFields}
+            {Array.isArray(settingsApplyTo) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  applyBoxSettings();
+                  setSettingsApplyTo([]);
+                }}
+                disabled={settingsApplyTo.length === 0}
+                className="mb-4 h-11 w-full rounded-lg border border-slate-900 text-[14px] font-semibold text-slate-900 hover:bg-slate-50 disabled:opacity-40"
+              >
+                Apply to selected boxes
+              </button>
+            ) : null}
+            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+              {boxDetails.map((details, i) => {
+                const size =
+                  details.sizeLabel === CUSTOM_BOX_SIZE_VALUE
+                    ? formatCustomBoxSize(details.sizeL, details.sizeW, details.sizeH)
+                    : details.sizeLabel;
+                return (
+                  <li key={i} className="flex h-11 items-center justify-between gap-3 px-3 text-[13px]">
+                    <span className="font-medium text-slate-800">Box {i + 1}</span>
+                    <span className={size || details.weightLbs ? "text-slate-700" : "text-slate-400"}>
+                      {[size, details.weightLbs ? `${details.weightLbs} lbs` : ""]
+                        .filter(Boolean)
+                        .join(" · ") || "No size / weight yet"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -1198,7 +1011,10 @@ function SenderPackingSlipWizard({
                     ) : (
                       <Package className="h-6 w-6 shrink-0 text-slate-300" />
                     )}
-                    <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-800">
+                    <span
+                      className="line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-slate-800"
+                      title={sku.skuName || "SKU"}
+                    >
                       {sku.skuName || "SKU"}
                     </span>
                     <span className="flex shrink-0 flex-col items-end gap-0.5 text-right">
@@ -1437,8 +1253,8 @@ function SenderPackingSlipWizard({
         ) : null}
 
         <div className="shrink-0 border-t border-slate-100 px-5 py-4">
-          {step === 2 ? <div className="mb-3">{palletCheckbox}</div> : null}
-          {!error && step === 2 && issues.length > 0 ? (
+          {step === 3 ? <div className="mb-3">{palletCheckbox}</div> : null}
+          {!error && step === 3 && issues.length > 0 ? (
             <p className="mb-3 text-[12px] text-slate-500">
               Heads up: {issues[0]}
               {issues.length > 1 ? ` (+${issues.length - 1} more)` : ""} — you
@@ -1452,33 +1268,41 @@ function SenderPackingSlipWizard({
             <button
               type="button"
               onClick={() => {
-                if (step === 2) {
-                  setStep(1);
+                if (step > 1) {
+                  setStep(step === 3 ? 2 : 1);
                   setError("");
                   return;
                 }
                 onClose();
               }}
               disabled={busy}
-              className="flex-1 rounded-xl border border-slate-200 py-3 text-[14px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="h-11 flex-1 rounded-xl border border-slate-200 text-[14px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
-              {step === 2 ? "Back" : "Cancel"}
+              {step > 1 ? "Back" : "Cancel"}
             </button>
             {step === 1 ? (
               <button
                 type="button"
                 onClick={openBoxes}
                 disabled={skus.length === 0}
-                className="flex flex-[2] items-center justify-center rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="flex h-11 flex-[2] items-center justify-center rounded-xl bg-slate-900 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {skus.length === 0 ? "Tick at least one SKU" : "Next"}
+              </button>
+            ) : step === 2 ? (
+              <button
+                type="button"
+                onClick={finishBoxSettings}
+                className="flex h-11 flex-[2] items-center justify-center rounded-xl bg-slate-900 text-[14px] font-semibold text-white hover:bg-slate-700"
+              >
+                Next
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => void handlePrint()}
                 disabled={busy}
-                className="flex flex-[2] items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
+                className="flex h-11 flex-[2] items-center justify-center gap-2 rounded-xl bg-slate-900 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
               >
                 {busy ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
@@ -1495,6 +1319,7 @@ function SenderPackingSlipWizard({
     {boxCountKeypadOpen ? (
       <ScanNumberKeypad
         variant="integer"
+        title="How many boxes"
         value={boxCount}
         onInsert={(ch) => {
           const replace = replaceBoxCountRef.current;
@@ -1516,6 +1341,13 @@ function SenderPackingSlipWizard({
     {lineQtyKeypad ? (
       <ScanNumberKeypad
         variant="integer"
+        title={(() => {
+          const line = boxes[lineQtyKeypad.boxIndex]?.find(
+            (item) => item.key === lineQtyKeypad.key
+          );
+          const name = line ? skuById.get(line.skuId)?.skuName || "SKU" : "SKU";
+          return `${name} · qty in Box ${lineQtyKeypad.boxIndex + 1}`;
+        })()}
         value={lineQtyKeypadStr}
         onInsert={(ch) => {
           if (lineQtyIsDefault) {
@@ -1545,6 +1377,9 @@ function SenderPackingSlipWizard({
     {dropQtyPending ? (
       <ScanNumberKeypad
         variant="integer"
+        title={`${skuById.get(dropQtyPending.skuId)?.skuName || "SKU"} · qty in Box ${
+          dropQtyPending.boxIndex + 1
+        }`}
         value={dropQtyStr}
         onInsert={(ch) => {
           if (dropQtyIsDefault) {
@@ -1588,118 +1423,13 @@ function SenderPackingSlipWizard({
             </button>
           </div>
 
-          {/* Apply to */}
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            Apply to
-          </p>
-          <div className="mb-3 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setSettingsApplyTo("all")}
-              className={cn(
-                "flex-1 rounded-lg border py-2 text-[13px] font-medium",
-                settingsApplyTo === "all"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
-              )}
-            >
-              All boxes
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setSettingsApplyTo((prev) => (prev === "all" ? [] : prev))
-              }
-              className={cn(
-                "flex-1 rounded-lg border py-2 text-[13px] font-medium",
-                Array.isArray(settingsApplyTo)
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
-              )}
-            >
-              Select boxes
-            </button>
-          </div>
-          {Array.isArray(settingsApplyTo) ? (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {boxes.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => toggleSettingsBox(i)}
-                  className={cn(
-                    "rounded-lg border px-3 py-1.5 text-[13px] font-medium",
-                    settingsApplyTo.includes(i)
-                      ? "border-blue-500 bg-blue-50 text-blue-700"
-                      : "border-slate-200 text-slate-700 hover:bg-slate-50"
-                  )}
-                >
-                  Box {i + 1}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {/* Box Size */}
-          <label className="mb-3 block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Box size
-            </span>
-            <select
-              value={settingsDraft.sizeLabel}
-              onChange={(e) =>
-                setSettingsDraft((d) => ({ ...d, sizeLabel: e.target.value, sizeL: "", sizeW: "", sizeH: "" }))
-              }
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] font-medium text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-            >
-              <option value="">Select size</option>
-              {FULFILLMENT_BOX_SIZE_PRESETS.map((size) => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-              <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
-            </select>
-          </label>
-
-          {settingsDraft.sizeLabel === CUSTOM_BOX_SIZE_VALUE ? (
-            <div className="mb-3 grid grid-cols-3 gap-2">
-              {(["sizeL", "sizeW", "sizeH"] as const).map((field, idx) => (
-                <label key={field} className="min-w-0">
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    {["Length", "Width", "Height"][idx]} (in)
-                  </span>
-                  <input
-                    type="text"
-                    readOnly
-                    value={settingsDraft[field]}
-                    placeholder="Tap"
-                    onClick={() => setSettingsDimKeypad(field)}
-                    className="h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 text-center text-[13px] font-semibold text-slate-800 placeholder:font-normal placeholder:text-slate-400"
-                  />
-                </label>
-              ))}
-            </div>
-          ) : null}
-
-          {/* Weight */}
-          <label className="mb-5 block">
-            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Weight (lbs)
-            </span>
-            <input
-              type="text"
-              readOnly
-              value={settingsDraft.weightLbs}
-              placeholder="Tap to enter"
-              onClick={() => setSettingsWeightKeypad(true)}
-              className="h-11 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-center text-[14px] font-semibold text-slate-800 placeholder:font-normal placeholder:text-slate-400"
-            />
-          </label>
+          {boxSettingsFields}
 
           <button
             type="button"
             onClick={applyBoxSettings}
             disabled={Array.isArray(settingsApplyTo) && settingsApplyTo.length === 0}
-            className="w-full rounded-xl bg-slate-900 py-3 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+            className="h-11 w-full rounded-lg bg-slate-900 text-[14px] font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
           >
             Apply
           </button>
@@ -1711,6 +1441,7 @@ function SenderPackingSlipWizard({
       <ScanNumberKeypad
         variant="decimal"
         zIndex={70}
+        title="Weight (lbs)"
         value={settingsDraft.weightLbs}
         onInsert={(ch) =>
           setSettingsDraft((d) => {
@@ -1729,6 +1460,7 @@ function SenderPackingSlipWizard({
       <ScanNumberKeypad
         variant="decimal"
         zIndex={70}
+        title={`${{ sizeL: "Length", sizeW: "Width", sizeH: "Height" }[settingsDimKeypad]} (in)`}
         value={settingsDraft[settingsDimKeypad]}
         onInsert={(ch) =>
           setSettingsDraft((d) => {
@@ -1751,7 +1483,7 @@ function SenderPackingSlipWizard({
   );
 }
 
+/** Receiver and Sender share one flow: boxes → assign SKUs → 4×6 box slips. */
 export function PackingSlipConfigModal(props: Props) {
-  if (props.sender) return <SenderPackingSlipWizard {...props} />;
-  return <PackingSlipConfigForm {...props} />;
+  return <PackingSlipWizard {...props} />;
 }
