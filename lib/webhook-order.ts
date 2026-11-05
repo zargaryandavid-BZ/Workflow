@@ -2874,6 +2874,9 @@ export interface WebhookMultiOrderResult {
 
 export type WebhookCreateResult = WebhookOrderResult | WebhookMultiOrderResult;
 
+/** Cards created from this day on use crm_line_id to find lines added later. */
+const LINE_ID_APPEND_CUTOFF = "2026-11-04T00:00:00";
+
 /**
  * CRM line indexes that have no card yet. Cards removed by staff still count
  * as covered so a re-fire never brings a deleted line back. Returns [] when
@@ -2899,15 +2902,41 @@ async function missingCrmLineIndexes(
 
   const { data: allCards, error } = await client
     .from("orders")
-    .select("specs")
+    .select("id, specs, created_at")
     .eq("tenant_id", tenantId)
     .filter("specs->>webhook_order_number", "eq", webhookOrderNumber);
   if (error) throw new Error(error.message);
+  // Orders carded before this fix keep the old index-only rule exactly, so a
+  // CRM re-fire can never add cards to an older order by surprise.
+  const isLegacyOrder = ((allCards ?? []) as { created_at?: string | null }[]).every(
+    (row) => !row.created_at || row.created_at < LINE_ID_APPEND_CUTOFF
+  );
+  if (isLegacyOrder) {
+    const legacyCovered = new Set(
+      [
+        ...existing.map((o) => o.specs),
+        ...((allCards ?? []) as { specs: Record<string, unknown> | null }[]).map(
+          (row) => row.specs ?? {}
+        ),
+      ]
+        .map(indexOf)
+        .filter((n): n is number => n != null)
+    );
+    return items.flatMap((_, i) => (legacyCovered.has(i) ? [] : [i]));
+  }
+  // Prefer the fresh row: the CRM refresh just above may have stamped
+  // crm_line_id / a new webhook_item_index on these cards. The stale `existing`
+  // copy would otherwise keep claiming the old index and hide a line added in
+  // the CRM after conversion (ORD-2026-15626: new line landed on index 2,
+  // which the old 15626-3 card still "covered").
+  const freshRows = (allCards ?? []) as {
+    id: string;
+    specs: Record<string, unknown> | null;
+  }[];
+  const freshIds = new Set(freshRows.map((row) => row.id));
   const cards = [
-    ...existing.map((o) => o.specs),
-    ...((allCards ?? []) as { specs: Record<string, unknown> | null }[]).map(
-      (row) => row.specs ?? {}
-    ),
+    ...existing.filter((o) => !freshIds.has(o.id)).map((o) => o.specs),
+    ...freshRows.map((row) => row.specs ?? {}),
   ];
   const coveredLineIds = new Set(cards.map(lineIdOf).filter(Boolean));
   const coveredIndexes = new Set(
@@ -4866,6 +4895,18 @@ export async function createOrderFromWebhook(
 
   // When appending portal lines on re-fire, treat as multi-item for titles.
   const createAsMultiItem = isMultiItem || appendingToExisting;
+  // Titles already used by this order's cards (removed ones included).
+  const takenTitles = new Set<string>(existingOrders.map((o) => o.title));
+  if (appendingToExisting) {
+    const { data: titleRows } = await client
+      .from("orders")
+      .select("title")
+      .eq("tenant_id", tenantId)
+      .filter("specs->>webhook_order_number", "eq", baseOrderNumber);
+    for (const row of (titleRows ?? []) as { title: string | null }[]) {
+      if (row.title) takenTitles.add(row.title);
+    }
+  }
   // Reorder → original order lookups (read-only; cached across lines).
   const reorderRefForLookup =
     body.is_reorder === true ? cleanReorderRef(body.reorder_of_order_number) : "";
@@ -4909,9 +4950,18 @@ export async function createOrderFromWebhook(
         totalItems: items.length,
       }),
     };
-    const cardTitle = createAsMultiItem
+    let cardTitle = createAsMultiItem
       ? `${shortBaseOrderNumber}-${i + 1}`
       : shortBaseOrderNumber;
+    // A line added in the CRM later can land on a position whose title is
+    // already used (or was used by a card staff removed) — take the next free
+    // part number instead of making a second 15626-3.
+    if (appendingToExisting && takenTitles.has(cardTitle)) {
+      let part = i + 2;
+      while (takenTitles.has(`${shortBaseOrderNumber}-${part}`)) part++;
+      cardTitle = `${shortBaseOrderNumber}-${part}`;
+    }
+    takenTitles.add(cardTitle);
 
     const itemTagName = item.category ?? item.category_name;
     let tagId = itemTagName
