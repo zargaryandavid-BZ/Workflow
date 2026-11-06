@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Mail, Pencil, Phone, Trash2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import type { DieManufacturer } from "@/lib/die-manufacturers";
@@ -12,6 +12,9 @@ type Draft = {
   contact_name: string;
   email: string;
   phone: string;
+  contact_name_2: string;
+  email_2: string;
+  phone_2: string;
 };
 
 const EMPTY: Draft = {
@@ -19,24 +22,92 @@ const EMPTY: Draft = {
   contact_name: "",
   email: "",
   phone: "",
+  contact_name_2: "",
+  email_2: "",
+  phone_2: "",
 };
 
+function ContactLine({
+  name,
+  email,
+  phone,
+}: {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+}) {
+  if (!name && !email && !phone) return null;
+  return (
+    <p className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-600">
+      {name ? (
+        <span className="inline-flex items-center gap-1">
+          <User className="h-3 w-3 text-slate-400" /> {name}
+        </span>
+      ) : null}
+      {email ? (
+        <a href={`mailto:${email}`} className="inline-flex items-center gap-1 hover:text-blue-700">
+          <Mail className="h-3 w-3 text-slate-400" /> {email}
+        </a>
+      ) : null}
+      {phone ? (
+        <a href={`tel:${phone}`} className="inline-flex items-center gap-1 hover:text-blue-700">
+          <Phone className="h-3 w-3 text-slate-400" /> {formatPhoneDisplay(phone)}
+        </a>
+      ) : null}
+    </p>
+  );
+}
+
+/**
+ * Die manufacturers: the shops that get die orders. Every contact here
+ * (main + second) is emailed / texted when an order goes out.
+ */
 export function DieManufacturersManager({
   initial,
   migrationRequired,
+  onChanged,
+  search = "",
 }: {
   initial: DieManufacturer[];
+  /** Filter the list (company, contact, email, phone). */
+  search?: string;
   migrationRequired?: boolean;
+  /** The list changed (refresh other places that pick a manufacturer). */
+  onChanged?: () => void;
 }) {
   const [rows, setRows] = useState(initial);
   const [editingId, setEditingId] = useState<string | "new">("new");
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [showSecond, setShowSecond] = useState(false);
 
   useEffect(() => setRows(initial), [initial]);
 
   const isEditing = editingId !== "new";
+  const q = search.trim().toLowerCase();
+  const shown = q
+    ? rows.filter((row) =>
+        [
+          row.full_name,
+          row.contact_name,
+          row.email,
+          row.phone,
+          row.contact_name_2,
+          row.email_2,
+          row.phone_2,
+        ].some((v) => v?.toLowerCase().includes(q))
+      )
+    : rows;
+
+  function field(key: keyof Draft) {
+    return {
+      value: draft[key],
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+        setDraft((d) => ({ ...d, [key]: e.target.value })),
+    };
+  }
 
   function startEdit(row: DieManufacturer) {
     setEditingId(row.id);
@@ -45,8 +116,13 @@ export function DieManufacturersManager({
       contact_name: row.contact_name ?? "",
       email: row.email,
       phone: row.phone ?? "",
+      contact_name_2: row.contact_name_2 ?? "",
+      email_2: row.email_2 ?? "",
+      phone_2: row.phone_2 ?? "",
     });
+    setShowSecond(Boolean(row.contact_name_2 || row.email_2 || row.phone_2));
     setError(null);
+    setNotice(null);
   }
 
   function cancel() {
@@ -59,6 +135,7 @@ export function DieManufacturersManager({
     e?.preventDefault();
     setSaving(true);
     setError(null);
+    setNotice(null);
     try {
       const isNew = editingId === "new";
       const url = isNew
@@ -71,21 +148,23 @@ export function DieManufacturersManager({
       });
       const json = (await res.json()) as {
         error?: string;
+        warning?: string | null;
         manufacturer?: DieManufacturer;
       };
       if (!res.ok) throw new Error(json.error ?? "Failed to save");
       if (!json.manufacturer) throw new Error("Failed to save");
       setRows((prev) => {
-        if (isNew) {
-          return [...prev, json.manufacturer!].sort((a, b) =>
-            a.full_name.localeCompare(b.full_name)
-          );
-        }
-        return prev
-          .map((r) => (r.id === json.manufacturer!.id ? json.manufacturer! : r))
-          .sort((a, b) => a.full_name.localeCompare(b.full_name));
+        const next = isNew
+          ? [...prev, json.manufacturer!]
+          : prev.map((r) => (r.id === json.manufacturer!.id ? json.manufacturer! : r));
+        return next.sort((a, b) => a.full_name.localeCompare(b.full_name));
       });
+      setNotice(
+        json.warning ??
+          (isNew ? `Added ${json.manufacturer.full_name}.` : `Saved ${json.manufacturer.full_name}.`)
+      );
       cancel();
+      onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -93,10 +172,11 @@ export function DieManufacturersManager({
     }
   }
 
-  async function remove(id: string) {
-    if (!window.confirm("Remove this die manufacturer?")) return;
+  async function remove(row: DieManufacturer) {
+    if (!window.confirm(`Remove ${row.full_name}? Requests already sent to them are kept.`)) return;
     setError(null);
-    const res = await fetch(`/api/settings/die-manufacturers/${id}`, {
+    setNotice(null);
+    const res = await fetch(`/api/settings/die-manufacturers/${row.id}`, {
       method: "DELETE",
     });
     const json = (await res.json().catch(() => ({}))) as { error?: string };
@@ -104,121 +184,108 @@ export function DieManufacturersManager({
       setError(json.error ?? "Failed to delete");
       return;
     }
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    if (editingId === id) cancel();
+    setRows((prev) => prev.filter((r) => r.id !== row.id));
+    if (editingId === row.id) cancel();
+    setNotice(`Removed ${row.full_name}.`);
+    onChanged?.();
   }
 
   if (migrationRequired) {
     return (
-      <p className="text-sm text-red-600">
+      <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         Run migration 0085_die_manufacturers.sql in Supabase, then reload.
       </p>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <form
         onSubmit={(e) => void save(e)}
         className="space-y-3 rounded-lg border border-slate-200 bg-white p-4"
       >
-        <p className="text-sm font-semibold text-slate-800">
-          {isEditing ? "Edit manufacturer" : "Add manufacturer"}
-        </p>
-        <div className="flex min-w-0 items-end gap-2">
-          <div className="min-w-[7rem] flex-1">
-            <Label htmlFor="die-mfg-name">Company name</Label>
-            <Input
-              id="die-mfg-name"
-              className="mt-1.5"
-              value={draft.full_name}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, full_name: e.target.value }))
-              }
-              placeholder="Company name"
-              autoComplete="organization"
-            />
+        {/* One line: company · contact · email · phone · button. */}
+        <div className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1.3fr_1fr_auto]">
+          <div>
+            <Label htmlFor="die-mfg-name">{isEditing ? "Company name * (editing)" : "Company name *"}</Label>
+            <Input id="die-mfg-name" className="mt-1" placeholder="Company name" autoComplete="organization" {...field("full_name")} />
           </div>
-          <div className="min-w-[7rem] flex-1">
+          <div>
             <Label htmlFor="die-mfg-contact">Contact name</Label>
-            <Input
-              id="die-mfg-contact"
-              className="mt-1.5"
-              value={draft.contact_name}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, contact_name: e.target.value }))
-              }
-              placeholder="Contact name"
-              autoComplete="name"
-            />
+            <Input id="die-mfg-contact" className="mt-1" placeholder="Contact name" autoComplete="name" {...field("contact_name")} />
           </div>
-          <div className="min-w-[9rem] flex-1">
-            <Label htmlFor="die-mfg-email">Email</Label>
-            <Input
-              id="die-mfg-email"
-              className="mt-1.5"
-              type="email"
-              value={draft.email}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, email: e.target.value }))
-              }
-              placeholder="email@company.com"
-            />
+          <div>
+            <Label htmlFor="die-mfg-email">Email *</Label>
+            <Input id="die-mfg-email" className="mt-1" type="email" placeholder="email@company.com" {...field("email")} />
           </div>
-          <div className="min-w-[9rem] flex-1">
+          <div>
             <Label htmlFor="die-mfg-phone">Phone</Label>
-            <Input
-              id="die-mfg-phone"
-              className="mt-1.5"
-              value={draft.phone}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, phone: e.target.value }))
-              }
-              placeholder="Phone"
-            />
+            <Input id="die-mfg-phone" className="mt-1" type="tel" placeholder="Phone" {...field("phone")} />
           </div>
-          <Button
-            type="submit"
-            disabled={saving}
-            className="shrink-0 whitespace-nowrap"
-          >
-            {saving ? "Saving…" : isEditing ? "Save" : "Add"}
-          </Button>
-          {isEditing ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={cancel}
-              className="shrink-0"
-            >
-              Cancel
+          <div className="flex gap-2">
+            {isEditing ? (
+              <Button type="button" variant="secondary" onClick={cancel}>
+                Cancel
+              </Button>
+            ) : null}
+            <Button type="submit" disabled={saving} className="whitespace-nowrap">
+              {saving ? "Saving…" : isEditing ? "Save" : "Add manufacturer"}
             </Button>
-          ) : null}
+          </div>
         </div>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {showSecond ? (
+          <div className="grid items-end gap-2 sm:grid-cols-3 lg:grid-cols-[1.2fr_1fr_1.3fr_1fr_auto]">
+            <p className="self-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Second contact
+            </p>
+            <Input aria-label="Second contact name" placeholder="Contact name" {...field("contact_name_2")} />
+            <Input aria-label="Second contact email" type="email" placeholder="email@company.com" {...field("email_2")} />
+            <Input aria-label="Second contact phone" type="tel" placeholder="Phone" {...field("phone_2")} />
+            <span className="hidden lg:block lg:w-[9.5rem]" />
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSecond((v) => !v)}
+            className="text-xs font-semibold text-blue-700 hover:underline"
+          >
+            {showSecond ? "− Hide second contact" : "+ Second contact"}
+          </button>
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          <p className="text-xs text-slate-500">Every contact gets the die order email and text.</p>
+        </div>
       </form>
+
+      {notice ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          {notice}
+        </p>
+      ) : null}
 
       {rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-          No die manufacturers yet. Add a company, contact, email, and phone
-          above — Die Order will let you pick them when sending a request.
+          No die manufacturers yet. Add a company above, then pick it when you order a die.
+        </p>
+      ) : shown.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+          No manufacturers match “{search.trim()}”.
         </p>
       ) : (
         <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          {rows.map((row) => (
+          {shown.map((row) => (
             <li
               key={row.id}
-              className="flex items-center justify-between gap-3 px-4 py-3"
+              className={
+                editingId === row.id
+                  ? "flex items-start justify-between gap-3 bg-blue-50/50 px-4 py-3"
+                  : "flex items-start justify-between gap-3 px-4 py-3"
+              }
             >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-800">
-                  {row.full_name}
-                </p>
-                <p className="truncate text-xs text-slate-500">
-                  {[row.contact_name, row.email, formatPhoneDisplay(row.phone)]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
+              <div className="min-w-0 space-y-1">
+                <p className="truncate text-sm font-semibold text-slate-800">{row.full_name}</p>
+                <ContactLine name={row.contact_name} email={row.email} phone={row.phone} />
+                <ContactLine name={row.contact_name_2} email={row.email_2} phone={row.phone_2} />
               </div>
               <div className="flex shrink-0 gap-1">
                 <button
@@ -232,7 +299,7 @@ export function DieManufacturersManager({
                 <button
                   type="button"
                   className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                  onClick={() => void remove(row.id)}
+                  onClick={() => void remove(row)}
                   aria-label={`Delete ${row.full_name}`}
                 >
                   <Trash2 className="h-4 w-4" />

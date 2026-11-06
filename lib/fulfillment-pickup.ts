@@ -1,19 +1,55 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { ORDER_ASSETS_BUCKET } from "./order-assets.ts";
+import { normalizePickupCode } from "./pickup-code.ts";
 
 export type PickupConfirmationInput = {
   orderId: string;
   firstName: string;
   lastName: string;
   signatureDataUrl: string;
+  /** 8-digit code from the "Ready for pickup" message. */
+  pickupCode?: string;
+  /** Staff saw "already picked up" and chose to sign again. */
+  confirmAgain?: boolean;
 };
 
+/** Saved on each order as `specs.pickup_confirmation`. */
 export type PickupConfirmation = {
   first_name: string;
   last_name: string;
   picked_up_at: string;
   signature_path: string;
+  /** The code that was checked (kept so it is never handed out again). */
+  code?: string | null;
+  /** Small PDF with name, date and signature, listed in the order's files. */
+  receipt_path?: string | null;
+  receipt_asset_id?: string | null;
+  /** Every order part this one signature covered. */
+  order_ids?: string[];
 };
+
+export type PickupCodeCheck = "ok" | "not_required" | "missing" | "wrong";
+
+/** Compare the typed code with the one sent to the customer. */
+export function checkPickupCode(
+  expected: string | null,
+  typed: unknown
+): PickupCodeCheck {
+  if (!expected) return "not_required";
+  const given = normalizePickupCode(typed);
+  if (!given) return "missing";
+  return given === expected ? "ok" : "wrong";
+}
+
+export function pickupConfirmationFromSpecs(
+  specs: Record<string, unknown> | null | undefined
+): PickupConfirmation | null {
+  const raw = specs?.pickup_confirmation;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const c = raw as Partial<PickupConfirmation>;
+  if (typeof c.first_name !== "string" || typeof c.picked_up_at !== "string") {
+    return null;
+  }
+  return c as PickupConfirmation;
+}
 
 const MAX_SIGNATURE_BYTES = 750_000;
 
@@ -44,82 +80,4 @@ export function decodePickupSignaturePng(dataUrl: string): Buffer | null {
     return null;
   }
   return bytes;
-}
-
-export async function savePickupConfirmation(args: {
-  supabase: SupabaseClient;
-  tenantId: string;
-  input: PickupConfirmationInput;
-}): Promise<
-  { confirmation: PickupConfirmation } | { error: string; status: number }
-> {
-  const orderId = args.input.orderId.trim();
-  const firstName = args.input.firstName.trim().slice(0, 100);
-  const lastName = args.input.lastName.trim().slice(0, 100);
-  if (!orderId || !firstName || !lastName) {
-    return {
-      error: "Order, first name, and last name are required",
-      status: 400,
-    };
-  }
-
-  const signature = decodePickupSignaturePng(args.input.signatureDataUrl);
-  if (!signature) {
-    return { error: "A valid signature is required", status: 400 };
-  }
-
-  const { data: order, error: orderError } = await args.supabase
-    .from("orders")
-    .select("id, specs")
-    .eq("id", orderId)
-    .eq("tenant_id", args.tenantId)
-    .is("removed_at", null)
-    .maybeSingle();
-  if (orderError || !order) {
-    return { error: "Order not found", status: 404 };
-  }
-
-  const pickedUpAt = new Date().toISOString();
-  const signaturePath = `${args.tenantId}/${orderId}/pickup/${pickedUpAt.replace(
-    /[:.]/g,
-    "-"
-  )}.png`;
-  const { error: uploadError } = await args.supabase.storage
-    .from(ORDER_ASSETS_BUCKET)
-    .upload(signaturePath, signature, {
-      contentType: "image/png",
-      upsert: false,
-    });
-  if (uploadError) {
-    return { error: uploadError.message, status: 500 };
-  }
-
-  const confirmation: PickupConfirmation = {
-    first_name: firstName,
-    last_name: lastName,
-    picked_up_at: pickedUpAt,
-    signature_path: signaturePath,
-  };
-  const specs =
-    order.specs && typeof order.specs === "object" && !Array.isArray(order.specs)
-      ? (order.specs as Record<string, unknown>)
-      : {};
-  const { error: updateError } = await args.supabase
-    .from("orders")
-    .update({
-      specs: {
-        ...specs,
-        pickup_confirmation: confirmation,
-      },
-    })
-    .eq("id", orderId)
-    .eq("tenant_id", args.tenantId);
-  if (updateError) {
-    await args.supabase.storage
-      .from(ORDER_ASSETS_BUCKET)
-      .remove([signaturePath]);
-    return { error: updateError.message, status: 500 };
-  }
-
-  return { confirmation };
 }

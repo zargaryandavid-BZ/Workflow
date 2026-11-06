@@ -9,7 +9,7 @@ import {
   orderMatchesNumberSearch,
 } from "@/lib/board-order-filters";
 import { dieOrderAutofill } from "@/lib/die-order-autofill";
-import { canViewDieOrder } from "@/lib/permissions";
+import { scanQtyFromSpecs } from "@/lib/fulfillment-scan-order";
 import { createClient } from "@/lib/supabase/server";
 import type { CustomField } from "@/lib/types";
 
@@ -35,9 +35,7 @@ export async function GET(req: NextRequest) {
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!canViewDieOrder(ctx.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  // Any signed-in staff member: "Use die" asks which order the die is for.
 
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim().replace(/^#/, "");
   if (!q) {
@@ -158,10 +156,17 @@ export async function GET(req: NextRequest) {
       crmSnapshot: row.crm_snapshot,
       userOverrides: row.user_overrides,
     });
+    // Same total qty the scan page shows (Order Qty field, webhook qty, SKU sum).
+    const named: Record<string, unknown> = {};
+    for (const field of customFields) {
+      const value = fieldValuesByOrder[row.id]?.[field.id];
+      if (value != null) named[field.name.trim().toLowerCase()] = value;
+    }
     return {
       id: row.id,
       title: row.title,
       orderNumber: formatShortOrderNumber(row.title),
+      totalQty: scanQtyFromSpecs(row.specs, named),
       dueDate: row.due_date,
       customerName: customer?.name?.trim() || null,
       email: customer?.email?.trim() || null,

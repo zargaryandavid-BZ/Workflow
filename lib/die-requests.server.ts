@@ -2,7 +2,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  parseDieRequestStatus,
   dieRequestAlert,
+  diePortalFiles,
   parseDieRequestFiles,
   pickDieBoardStatus,
   worstDieAlert,
@@ -17,14 +19,24 @@ export async function listDieRequests(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<DieRequest[]> {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("die_requests")
     .select(
-      "*, order:orders(title, due_date, customer:customers(name)), manufacturer:die_manufacturers(full_name)"
+      "*, order:orders(title, due_date, customer:customers(name)), manufacturer:die_manufacturers(full_name), die:dies(pdf_path, pdf_name)"
     )
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false })
     .limit(200);
+  if (error && /pdf_path|pdf_name/i.test(error.message)) {
+    ({ data, error } = await supabase
+      .from("die_requests")
+      .select(
+        "*, order:orders(title, due_date, customer:customers(name)), manufacturer:die_manufacturers(full_name)"
+      )
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(200));
+  }
 
   if (error) {
     const msg = error.message.toLowerCase();
@@ -74,6 +86,7 @@ function mapDieRequestRow(row: Record<string, unknown>): DieRequest {
     id: String(row.id),
     tenant_id: String(row.tenant_id),
     order_id: String(row.order_id),
+    die_id: row.die_id ? String(row.die_id) : null,
     token: String(row.token),
     width: row.width == null ? null : Number(row.width),
     height: row.height == null ? null : Number(row.height),
@@ -89,12 +102,7 @@ function mapDieRequestRow(row: Record<string, unknown>): DieRequest {
     file_path: row.file_path ? String(row.file_path) : null,
     file_name: row.file_name ? String(row.file_name) : null,
     file_mime: row.file_mime ? String(row.file_mime) : null,
-    status:
-      row.status === "ordered"
-        ? "ordered"
-        : row.status === "quoted"
-          ? "quoted"
-          : "sent",
+    status: parseDieRequestStatus(row.status),
     quoted_price:
       row.quoted_price == null ? null : Number(row.quoted_price),
     time_estimate: row.time_estimate ? String(row.time_estimate) : null,
@@ -104,7 +112,10 @@ function mapDieRequestRow(row: Record<string, unknown>): DieRequest {
     client_note: row.client_note ? String(row.client_note) : null,
     sent_at: String(row.sent_at),
     quoted_at: row.quoted_at ? String(row.quoted_at) : null,
+    reminder_count: Number(row.reminder_count ?? 0) || 0,
+    last_reminder_at: row.last_reminder_at ? String(row.last_reminder_at) : null,
     ordered_at: row.ordered_at ? String(row.ordered_at) : null,
+    received_at: row.received_at ? String(row.received_at) : null,
     created_at: String(row.created_at),
     order_title: order?.title ?? null,
     order_due_date: order?.due_date ? String(order.due_date).slice(0, 10) : null,
@@ -123,10 +134,19 @@ export async function dieBoardStateByOrder(
   const dieStatusByOrder: Record<string, DieBoardStatus> = {};
   if (orderIds.length === 0) return { dieAlertByOrder, dieStatusByOrder };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("die_requests")
-    .select("order_id, status, required_date, confirmed_due_date, created_at")
+    .select("order_id, status, required_date, confirmed_due_date, created_at, received_at")
     .in("order_id", orderIds);
+  if (error && /received_at/i.test(error.message)) {
+    // Before migration 0092.
+    const fallback = await supabase
+      .from("die_requests")
+      .select("order_id, status, required_date, confirmed_due_date, created_at")
+      .in("order_id", orderIds);
+    data = fallback.data as typeof data;
+    error = fallback.error;
+  }
 
   if (error) return { dieAlertByOrder, dieStatusByOrder };
 
@@ -135,6 +155,7 @@ export async function dieBoardStateByOrder(
     Array<{
       status: DieRequestStatus;
       confirmed_due_date: string | null;
+      received_at: string | null;
       created_at: string;
     }>
   >();
@@ -142,18 +163,14 @@ export async function dieBoardStateByOrder(
 
   for (const row of data ?? []) {
     const orderId = String(row.order_id);
-    const status: DieRequestStatus =
-      row.status === "ordered"
-        ? "ordered"
-        : row.status === "quoted"
-          ? "quoted"
-          : "sent";
+    const status = parseDieRequestStatus(row.status);
     const list = statusRows.get(orderId) ?? [];
     list.push({
       status,
       confirmed_due_date: row.confirmed_due_date
         ? String(row.confirmed_due_date).slice(0, 10)
         : null,
+      received_at: (row as { received_at?: string | null }).received_at ?? null,
       created_at: String(row.created_at ?? ""),
     });
     statusRows.set(orderId, list);
@@ -194,15 +211,18 @@ export async function dieAlertsByOrder(
 
 function dieFilesFromRow(row: Record<string, unknown>): DieRequestFile[] {
   const fromJson = parseDieRequestFiles(row.files);
-  if (fromJson.length > 0) return fromJson;
-  if (row.file_path) {
-    return [
-      {
-        path: String(row.file_path),
-        name: row.file_name ? String(row.file_name) : "file",
-        mime: row.file_mime ? String(row.file_mime) : null,
-      },
-    ];
-  }
-  return [];
+  const dieRelation = row.die as
+    | { pdf_path?: string | null; pdf_name?: string | null }
+    | { pdf_path?: string | null; pdf_name?: string | null }[]
+    | null;
+  const die = Array.isArray(dieRelation) ? dieRelation[0] ?? null : dieRelation;
+  return diePortalFiles(
+    {
+      files: fromJson,
+      file_path: row.file_path ? String(row.file_path) : null,
+      file_name: row.file_name ? String(row.file_name) : null,
+      file_mime: row.file_mime ? String(row.file_mime) : null,
+    },
+    die
+  );
 }

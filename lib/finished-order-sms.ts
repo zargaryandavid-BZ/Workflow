@@ -69,6 +69,10 @@ export async function notifyCustomerOrderFinished(
 
   const specs = (order.specs ?? {}) as Record<string, unknown>;
   if (alreadySent(specs)) return;
+  // A signed pickup already texted "picked up by …" — a plain "your order is
+  // finished" right after is a duplicate. The Review column still sends its
+  // review link (that message asks for something new).
+  if (kind === "no_review" && specs.pickup_confirmation) return;
 
   const admin = createAdminClient();
   const { data: tenant } = await admin

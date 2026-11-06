@@ -13,6 +13,7 @@ import {
   PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
 } from "@/lib/portal-branding";
+import { formatPickupCode } from "@/lib/pickup-code";
 import { appOrigin, isPublicAppUrl } from "@/lib/app-url";
 import type { CustomField, OrderWithRelations } from "@/lib/types";
 
@@ -980,6 +981,25 @@ export function buildShippingPortalSmsBody(params: {
   });
 }
 
+/** "12345678" → "1234 5678"; the preview placeholder passes through. */
+function pickupCodeVar(code: string | null | undefined): string {
+  const value = code?.trim() ?? "";
+  return /^\d{8}$/.test(value) ? formatPickupCode(value) : value;
+}
+
+/** Saved templates written before {{pickup_code}} existed still get the code. */
+function withPickupCode(
+  text: string,
+  code: string | null | undefined,
+  separator: "\n\n" | " "
+): string {
+  const value = code?.trim() ?? "";
+  if (!value) return text;
+  const shown = pickupCodeVar(value);
+  if (text.includes(shown) || text.includes(value)) return text;
+  return `${text.trimEnd()}${separator}Pickup code: ${shown}`;
+}
+
 export type PickupReadySubjectVars = {
   customer_name?: string;
   portal_url?: string;
@@ -1012,17 +1032,21 @@ export function buildPickupReadyEmailBody(params: {
   pickupLocation: string;
   pickupHours: string;
   teamName?: string;
+  /** 8-digit pickup code (or the preview placeholder). */
+  pickupCode?: string | null;
   templates?: MessageTemplateMap | null;
 }) {
   const map = templatesOrDefault(params.templates);
-  return renderMessageTemplate(map.pickup_ready_email_body, {
+  const text = renderMessageTemplate(map.pickup_ready_email_body, {
     customer_name: params.customerName,
     order_number: params.orderNumber,
     portal_url: params.portalUrl,
     pickup_location: params.pickupLocation,
     pickup_hours: params.pickupHours,
+    pickup_code: pickupCodeVar(params.pickupCode),
     team_name: params.teamName ?? "BazaarPrinting Team",
   });
+  return withPickupCode(text, params.pickupCode, "\n\n");
 }
 
 /** HTML "ready for pickup" email. */
@@ -1033,6 +1057,8 @@ export function buildPickupReadyEmailHtml(params: {
   pickupLocation: string;
   pickupHours: string;
   teamName?: string;
+  /** 8-digit pickup code (or the preview placeholder). */
+  pickupCode?: string | null;
   templates?: MessageTemplateMap | null;
 }) {
   const text = buildPickupReadyEmailBody(params);
@@ -1056,16 +1082,20 @@ export function buildPickupReadySmsBody(params: {
   portalUrl: string;
   pickupLocation: string;
   pickupHours: string;
+  /** 8-digit pickup code (or the preview placeholder). */
+  pickupCode?: string | null;
   templates?: MessageTemplateMap | null;
 }) {
   const map = templatesOrDefault(params.templates);
-  return renderMessageTemplate(map.pickup_ready_sms, {
+  const text = renderMessageTemplate(map.pickup_ready_sms, {
     customer_name: params.customerName?.trim() || "there",
     order_number: params.orderNumber,
     portal_url: params.portalUrl,
     pickup_location: params.pickupLocation,
     pickup_hours: params.pickupHours,
+    pickup_code: pickupCodeVar(params.pickupCode),
   });
+  return withPickupCode(text, params.pickupCode, " ");
 }
 
 export function fedexTrackingEmailSubject(

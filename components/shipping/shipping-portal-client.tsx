@@ -34,6 +34,7 @@ import {
 } from "@/lib/fedex-service-display";
 import { defaultResidentialFlag } from "@/lib/shipping-address";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
+import { formatPickupCode } from "@/lib/pickup-code";
 
 export interface ShippingPortalData {
   token: string;
@@ -52,6 +53,8 @@ export interface ShippingPortalData {
   expiredWarning: boolean;
   paymentEnabled: boolean;
   pickupLines: string[];
+  /** 8-digit code the customer shows at pickup. */
+  pickupCode?: string | null;
   offerPickup: boolean;
   offerFedex: boolean;
   offerUber: boolean;
@@ -1339,6 +1342,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               {pickupLines.map((line) => (
                 <p key={line}>{line}</p>
               ))}
+              {data.pickupCode ? <PickupCodeBadge code={data.pickupCode} /> : null}
             </div>
           ) : doneChoice === "uber" ? (
             <div className="mt-3 space-y-1 text-sm text-emerald-800">
@@ -1414,6 +1418,21 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** The code the customer shows (or reads out) when picking up. */
+function PickupCodeBadge({ code }: { code: string }) {
+  return (
+    <div className="mx-auto mt-4 w-fit rounded-xl border border-emerald-300 bg-white px-5 py-3 text-center">
+      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+        Your pickup code
+      </p>
+      <p className="mt-1 font-mono text-2xl font-bold tracking-[0.2em] text-slate-900">
+        {formatPickupCode(code)}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">Show this code when you pick up.</p>
     </div>
   );
 }

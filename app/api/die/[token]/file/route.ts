@@ -5,7 +5,7 @@ import {
   ORDER_ASSET_SIGNED_URL_TTL_SEC,
 } from "@/lib/order-assets";
 import {
-  dieRequestFiles,
+  diePortalFiles,
   parseDieRequestFiles,
   type DieRequestFile,
 } from "@/lib/die-request";
@@ -19,22 +19,40 @@ export async function GET(
   const preview = url.searchParams.get("preview") === "1";
   const index = Math.max(0, Number(url.searchParams.get("i") ?? "0") || 0);
   const admin = createAdminClient();
-  const { data } = await admin
+  let result = await admin
     .from("die_requests")
-    .select("file_path, file_name, file_mime, files")
+    .select(
+      "file_path, file_name, file_mime, files, die:dies(pdf_path, pdf_name)"
+    )
     .eq("token", token)
     .maybeSingle();
+  if (result.error && /die_id|dies|relationship/i.test(result.error.message)) {
+    result = await admin
+      .from("die_requests")
+      .select("file_path, file_name, file_mime, files")
+      .eq("token", token)
+      .maybeSingle();
+  }
+  const data = result.data as Record<string, unknown> | null;
 
   if (!data) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  const files: DieRequestFile[] = dieRequestFiles({
-    files: parseDieRequestFiles((data as { files?: unknown }).files),
-    file_path: data.file_path ? String(data.file_path) : null,
-    file_name: data.file_name ? String(data.file_name) : null,
-    file_mime: data.file_mime ? String(data.file_mime) : null,
-  });
+  const dieRelation = data.die as
+    | { pdf_path?: string | null; pdf_name?: string | null }
+    | { pdf_path?: string | null; pdf_name?: string | null }[]
+    | null;
+  const die = Array.isArray(dieRelation) ? dieRelation[0] ?? null : dieRelation;
+  const files: DieRequestFile[] = diePortalFiles(
+    {
+      files: parseDieRequestFiles(data.files),
+      file_path: data.file_path ? String(data.file_path) : null,
+      file_name: data.file_name ? String(data.file_name) : null,
+      file_mime: data.file_mime ? String(data.file_mime) : null,
+    },
+    die
+  );
   const file = files[index];
   if (!file?.path) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });

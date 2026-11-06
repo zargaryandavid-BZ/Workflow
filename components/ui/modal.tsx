@@ -16,6 +16,11 @@ interface ModalProps {
   footer?: React.ReactNode;
   /** Rendered in the title bar, immediately to the left of the × close button. */
   headerAction?: React.ReactNode;
+  /**
+   * Keep the popup inside the screen: title bar and footer stay put and only
+   * the middle scrolls. Menus inside must float (portal / fixed) or they clip.
+   */
+  fitViewport?: boolean;
 }
 
 export function Modal({
@@ -27,6 +32,7 @@ export function Modal({
   overlayClassName,
   footer,
   headerAction,
+  fitViewport = false,
 }: ModalProps) {
   const [mounted, setMounted] = React.useState(false);
 
@@ -56,6 +62,7 @@ export function Modal({
       <div
         className={cn(
           "relative my-auto w-full min-w-0 max-w-lg rounded-xl bg-white shadow-2xl",
+          fitViewport && "flex max-h-[calc(100dvh-2rem)] flex-col sm:max-h-[calc(100dvh-4rem)]",
           className
         )}
         onMouseDown={(e) => e.stopPropagation()}
@@ -75,7 +82,14 @@ export function Modal({
             </button>
           </div>
         </div>
-        <div className="min-w-0 px-5 py-2">{children}</div>
+        <div
+          className={cn(
+            "min-w-0 px-5 py-2",
+            fitViewport && "min-h-0 flex-1 overflow-y-auto"
+          )}
+        >
+          {children}
+        </div>
         {footer ? (
           <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 border-t border-slate-200 px-4 py-3">
             {footer}

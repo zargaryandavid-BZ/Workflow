@@ -160,6 +160,7 @@ export const MESSAGE_TEMPLATE_SECTIONS: Array<{
       "{{order_number}}",
       "{{pickup_location}}",
       "{{pickup_hours}}",
+      "{{pickup_code}}",
       "{{portal_url}}",
       "{{team_name}}",
     ],
@@ -337,13 +338,16 @@ Pickup location:
 {{pickup_location}}
 {{pickup_hours}}
 
+Your pickup code: {{pickup_code}}
+Please show this code when you pick up your order.
+
 View your order details here:
 {{portal_url}}
 
 Thank you,
 {{team_name}}`,
   pickup_ready_sms:
-    "Hi, this is Bazaar Printing. Your order {{order_number}} is ready for pickup at {{pickup_location}}. {{pickup_hours}} View order: {{portal_url}}",
+    "Hi, this is Bazaar Printing. Your order {{order_number}} is ready for pickup at {{pickup_location}}. {{pickup_hours}} Pickup code: {{pickup_code}}. View order: {{portal_url}}",
 
   fedex_tracking_email_subject:
     "Your order {{order_number}} has shipped — FedEx {{tracking_number}}",

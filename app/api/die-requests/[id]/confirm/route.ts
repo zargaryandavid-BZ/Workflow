@@ -14,7 +14,7 @@ import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { formatDate } from "@/lib/utils";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getTenantContext();
@@ -28,7 +28,7 @@ export async function POST(
   const { id } = await params;
   const supabase = await createClient();
   const withDepth =
-    "id, tenant_id, order_id, token, status, width, height, depth, product_name, comment, quoted_price, time_estimate, confirmed_due_date, manufacturer_id, to_email, order:orders(title)";
+    "id, tenant_id, order_id, token, status, width, height, depth, product_name, comment, quoted_price, time_estimate, confirmed_due_date, quoted_at, manufacturer_id, to_email, order:orders(title)";
   const withoutDepth =
     "id, tenant_id, order_id, token, status, width, height, comment, quoted_price, time_estimate, confirmed_due_date, manufacturer_id, to_email, order:orders(title)";
   let req: Record<string, unknown> | null = null;
@@ -53,7 +53,7 @@ export async function POST(
   if (findError || !req || req.tenant_id !== ctx.tenant.id) {
     return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
-  if (req.status === "ordered") {
+  if (req.status === "ordered" || req.status === "received") {
     return NextResponse.json(
       { error: "Final request was already sent." },
       { status: 409 }
@@ -118,14 +118,32 @@ export async function POST(
     };
   }
 
-  const { error: updateError } = await supabase
+  // The quote the staff member was looking at. If the manufacturer re-quoted
+  // since (new price / date), stop and show them the new one first.
+  const seen = (await request.json().catch(() => ({}))) as { quoted_at?: string | null };
+  if (
+    seen.quoted_at &&
+    req.quoted_at &&
+    Date.parse(String(seen.quoted_at)) !== Date.parse(String(req.quoted_at))
+  ) {
+    return NextResponse.json(
+      { error: "The manufacturer changed their quote. Check the new price and date, then confirm again." },
+      { status: 409 }
+    );
+  }
+
+  // Only one confirm wins (double click / two people): the update only
+  // matches while the request is still "quoted".
+  const { data: claimed, error: updateError } = await supabase
     .from("die_requests")
     .update({
       status: "ordered",
       ordered_at: new Date().toISOString(),
     })
     .eq("id", id)
-    .eq("tenant_id", ctx.tenant.id);
+    .eq("tenant_id", ctx.tenant.id)
+    .eq("status", "quoted")
+    .select("id");
 
   if (updateError) {
     return NextResponse.json(
@@ -136,6 +154,9 @@ export async function POST(
       },
       { status: 400 }
     );
+  }
+  if (!claimed?.length) {
+    return NextResponse.json({ error: "Final request was already sent." }, { status: 409 });
   }
 
   const notify = await notifyDieManufacturer({

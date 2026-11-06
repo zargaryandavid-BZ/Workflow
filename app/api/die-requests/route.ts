@@ -12,7 +12,15 @@ import { createClient } from "@/lib/supabase/server";
 import { ensureShortCustomerUrl } from "@/lib/short-link";
 import { formatDate } from "@/lib/utils";
 import { isValidEmail, mapDieManufacturerRow } from "@/lib/die-manufacturers";
-import { collectDieUploadFiles, formatDieSize, parseOptionalDieDim } from "@/lib/die-request";
+import {
+  DIE_MAX_FILES,
+  DIE_PAST_DATE_ERROR,
+  isDieDatePast,
+  collectDieUploadFiles,
+  formatDieSize,
+  parseOptionalDieDim,
+} from "@/lib/die-request";
+import { diePdfRef, markDieOnOrder } from "@/lib/dies.server";
 import {
   primaryDieFileFields,
   storeDieRequestFiles,
@@ -29,6 +37,7 @@ export async function POST(request: Request) {
 
   const form = await request.formData();
   const orderId = String(form.get("orderId") ?? "").trim();
+  const dieId = String(form.get("dieId") ?? "").trim() || null;
   const manufacturerId = String(form.get("manufacturerId") ?? "").trim();
   const comment = String(form.get("comment") ?? "").trim() || null;
   const productName = String(form.get("productName") ?? "").trim() || null;
@@ -52,6 +61,12 @@ export async function POST(request: Request) {
       { status: 422 }
     );
   }
+  if (isDieDatePast(requiredDate)) {
+    return NextResponse.json(
+      { error: `Required date is in the past. ${DIE_PAST_DATE_ERROR}` },
+      { status: 422 }
+    );
+  }
 
   const widthParsed = parseOptionalDieDim(widthRaw);
   const heightParsed = parseOptionalDieDim(heightRaw);
@@ -67,6 +82,20 @@ export async function POST(request: Request) {
   const depth = depthParsed.value;
 
   const supabase = await createClient();
+  if (dieId) {
+    const { data: die, error: dieError } = await supabase
+      .from("dies")
+      .select("id, deleted_at")
+      .eq("id", dieId)
+      .eq("tenant_id", ctx.tenant.id)
+      .maybeSingle();
+    if (!dieError && !die) {
+      return NextResponse.json({ error: "Die not found." }, { status: 404 });
+    }
+    if ((die as { deleted_at?: string | null } | null)?.deleted_at) {
+      return NextResponse.json({ error: "This die was deleted." }, { status: 409 });
+    }
+  }
   const { data: order } = await supabase
     .from("orders")
     .select("id, title, tenant_id")
@@ -112,6 +141,16 @@ export async function POST(request: Request) {
   if ("error" in stored) {
     return NextResponse.json({ error: stored.error }, { status: 422 });
   }
+  // A request for a die always carries the die's PDF (same stored file).
+  if (dieId) {
+    const pdf = await diePdfRef(supabase, ctx.tenant.id, dieId);
+    if (pdf && !stored.files.some((f) => f.path === pdf.path)) {
+      stored.files = [
+        { path: pdf.path, name: pdf.name, mime: "application/pdf" },
+        ...stored.files,
+      ].slice(0, DIE_MAX_FILES);
+    }
+  }
   const primary = primaryDieFileFields(stored.files);
 
   const insertRow: Record<string, unknown> = {
@@ -132,6 +171,7 @@ export async function POST(request: Request) {
       file_mime: primary.file_mime,
       status: "sent",
       created_by: ctx.userId,
+      ...(dieId ? { die_id: dieId } : {}),
     };
 
   let { data: inserted, error: insertError } = await supabase
@@ -140,6 +180,17 @@ export async function POST(request: Request) {
     .select("id, token")
     .single();
 
+  if (insertError && dieId && /die_id/i.test(insertError.message)) {
+    // Before migration 0093: send the request without the die link.
+    delete insertRow.die_id;
+    const retry = await supabase
+      .from("die_requests")
+      .insert(insertRow)
+      .select("id, token")
+      .single();
+    inserted = retry.data;
+    insertError = retry.error;
+  }
   if (
     insertError &&
     /depth|product_name/i.test(insertError.message)
@@ -218,6 +269,19 @@ export async function POST(request: Request) {
       quoteUrl,
     }),
   });
+
+  // History + "on order": a die ordered as a new die stays off the Dies tab
+  // until this request is marked received.
+  if (dieId) {
+    await markDieOnOrder(supabase, {
+      tenantId: ctx.tenant.id,
+      dieId,
+      actor: { id: ctx.userId, name: ctx.fullName || ctx.email },
+      manufacturerName:
+        String((manufacturer as { full_name?: string }).full_name ?? "").trim() || null,
+      newDie: form.get("newDieOrder") === "true",
+    });
+  }
 
   return NextResponse.json({
     ok: true,

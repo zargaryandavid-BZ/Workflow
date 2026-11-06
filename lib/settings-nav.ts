@@ -85,17 +85,6 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
     ],
   },
   {
-    id: "die",
-    label: "Die manufacturers",
-    items: [
-      {
-        href: "/settings/die-manufacturers",
-        label: "Die manufacturers",
-        description: "Shops that receive die quote requests",
-      },
-    ],
-  },
-  {
     id: "records",
     label: "Records",
     items: [

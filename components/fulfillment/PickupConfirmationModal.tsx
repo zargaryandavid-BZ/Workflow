@@ -6,7 +6,41 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Loader2, PenLine, X } from "lucide-react";
+import { AlertTriangle, KeyRound, Loader2, PenLine, X } from "lucide-react";
+import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
+import { formatPickupCode, PICKUP_CODE_LENGTH } from "@/lib/pickup-code";
+
+export type PickupWindowStatus = {
+  codeRequired: boolean;
+  alreadyPickedUp: { pickedUpBy: string; pickedUpAt: string } | null;
+  pickupsColumnName: string | null;
+  partCount: number;
+};
+
+export type PickupSaveInput = {
+  firstName: string;
+  lastName: string;
+  signatureDataUrl: string;
+  pickupCode: string;
+  confirmAgain: boolean;
+};
+
+export type PickupSaveOutcome = {
+  message: string;
+  movedTo: string | null;
+  orderNumbers: string[];
+  pickedUpAt: string | null;
+};
+
+/** Thrown by onSave when the order was already signed for. */
+export class PickupAlreadyDoneError extends Error {
+  constructor(
+    message: string,
+    readonly alreadyPickedUp: { pickedUpBy: string; pickedUpAt: string }
+  ) {
+    super(message);
+  }
+}
 
 export type PickupFinishedChoice = {
   kind: "review" | "no_review";
@@ -17,17 +51,15 @@ export type PickupFinishedChoice = {
 export function PickupConfirmationModal({
   orderNumber,
   choices,
+  loadStatus,
   onSave,
   onChoose,
   onClose,
 }: {
   orderNumber: string;
   choices: PickupFinishedChoice[];
-  onSave: (input: {
-    firstName: string;
-    lastName: string;
-    signatureDataUrl: string;
-  }) => Promise<{ message: string }>;
+  loadStatus: () => Promise<PickupWindowStatus>;
+  onSave: (input: PickupSaveInput) => Promise<PickupSaveOutcome>;
   onChoose: (choice: PickupFinishedChoice) => Promise<void>;
   onClose: () => void;
 }) {
@@ -40,6 +72,46 @@ export function PickupConfirmationModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [customerNotice, setCustomerNotice] = useState("");
+  const [outcome, setOutcome] = useState<PickupSaveOutcome | null>(null);
+  const [status, setStatus] = useState<PickupWindowStatus | null>(null);
+  const [statusError, setStatusError] = useState("");
+  const [code, setCode] = useState("");
+  const [confirmAgain, setConfirmAgain] = useState(false);
+  const [keypadOpen, setKeypadOpen] = useState(false);
+  const [touch, setTouch] = useState(false);
+
+  useEffect(() => {
+    try {
+      setTouch(window.matchMedia("(pointer: coarse)").matches);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadStatus()
+      .then((next) => {
+        if (!cancelled) setStatus(next);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setStatusError(
+            err instanceof Error ? err.message : "Could not load this order"
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Load once per window.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const codeRequired = status?.codeRequired ?? false;
+  const codeComplete = !codeRequired || code.length === PICKUP_CODE_LENGTH;
+  const already = status?.alreadyPickedUp ?? null;
+  const needsConfirmAgain = Boolean(already) && !confirmAgain;
   const pickupDate = useRef(
     new Date().toLocaleString(undefined, {
       year: "numeric",
@@ -113,6 +185,15 @@ export function PickupConfirmationModal({
   }
 
   async function confirmPickup() {
+    if (!status) return;
+    if (codeRequired && code.length !== PICKUP_CODE_LENGTH) {
+      setError("Enter the 8-digit pickup code from the customer's message.");
+      return;
+    }
+    if (needsConfirmAgain) {
+      setError("This order was already picked up. Tick “Sign again” to replace it.");
+      return;
+    }
     if (!firstName.trim()) {
       setError("First name is required.");
       return;
@@ -132,10 +213,18 @@ export function PickupConfirmationModal({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         signatureDataUrl: canvasRef.current.toDataURL("image/png"),
+        pickupCode: code,
+        confirmAgain,
       });
       setCustomerNotice(saved.message);
+      setOutcome(saved);
       setConfirmed(true);
     } catch (err) {
+      if (err instanceof PickupAlreadyDoneError) {
+        setStatus((prev) =>
+          prev ? { ...prev, alreadyPickedUp: err.alreadyPickedUp } : prev
+        );
+      }
       setError(
         err instanceof Error ? err.message : "Failed to confirm pickup"
       );
@@ -176,6 +265,75 @@ export function PickupConfirmationModal({
         {!confirmed ? (
           <>
             <div className="space-y-4 px-5 py-5">
+              {statusError ? (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {statusError}
+                </p>
+              ) : !status ? (
+                <p className="flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Checking this order…
+                </p>
+              ) : (
+                <>
+                  {already ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                      <p className="flex items-start gap-2 font-medium">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        Already picked up by {already.pickedUpBy} on{" "}
+                        {already.pickedUpAt}.
+                      </p>
+                      <label className="mt-2 flex cursor-pointer items-center gap-2 pl-6">
+                        <input
+                          type="checkbox"
+                          checked={confirmAgain}
+                          onChange={(event) => setConfirmAgain(event.target.checked)}
+                          className="h-4 w-4 rounded border-amber-400"
+                        />
+                        Sign again (replaces the old signature and PDF)
+                      </label>
+                    </div>
+                  ) : null}
+                  {codeRequired ? (
+                    <label className="block text-sm font-medium text-slate-700">
+                      <span className="inline-flex items-center gap-1.5">
+                        <KeyRound className="h-4 w-4" />
+                        Pickup code <span className="text-red-500">*</span>
+                      </span>
+                      <input
+                        value={formatPickupCode(code)}
+                        readOnly={touch}
+                        onClick={() => {
+                          if (touch) setKeypadOpen(true);
+                        }}
+                        onChange={(event) =>
+                          setCode(
+                            event.target.value
+                              .replace(/\D/g, "")
+                              .slice(0, PICKUP_CODE_LENGTH)
+                          )
+                        }
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        placeholder="0000 0000"
+                        aria-required="true"
+                        className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 font-mono text-lg tracking-[0.25em] text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      />
+                      <span className="mt-1 block text-xs font-normal text-slate-500">
+                        The 8-digit code from the customer&apos;s “ready for pickup”
+                        message.
+                        {status.partCount > 1
+                          ? ` It covers all ${status.partCount} parts of this order.`
+                          : ""}
+                      </span>
+                    </label>
+                  ) : (
+                    <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                      No pickup code was sent for this order, so none is needed.
+                    </p>
+                  )}
+                </>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <label className="text-sm font-medium text-slate-700">
                   First name <span className="text-red-500">*</span>
@@ -255,6 +413,9 @@ export function PickupConfirmationModal({
                 onClick={() => void confirmPickup()}
                 disabled={
                   busy ||
+                  !status ||
+                  !codeComplete ||
+                  needsConfirmAgain ||
                   !firstName.trim() ||
                   !lastName.trim() ||
                   !hasSignature
@@ -268,11 +429,26 @@ export function PickupConfirmationModal({
           </>
         ) : (
           <div className="space-y-4 px-5 py-5">
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Pickup confirmed for {firstName.trim()} {lastName.trim()}.
-              {customerNotice ? ` ${customerNotice}` : ""} Choose the finished
-              column.
+            <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <p className="font-semibold">
+                Pickup confirmed for {firstName.trim()} {lastName.trim()}
+                {outcome?.pickedUpAt ? ` · ${outcome.pickedUpAt}` : ""}.
+              </p>
+              <p>
+                {outcome?.movedTo
+                  ? `${
+                      (outcome.orderNumbers.length || 1) > 1
+                        ? `All ${outcome.orderNumbers.length} parts`
+                        : "The order"
+                    } moved to “${outcome.movedTo}”. `
+                  : "No Pickups column on the board, so the order stayed where it was. "}
+                The signature PDF is saved in the order&apos;s Files.
+              </p>
+              {customerNotice ? <p>{customerNotice}</p> : null}
             </div>
+            <p className="text-sm text-slate-600">
+              Move it to a Finished column now, or leave it in Pickups.
+            </p>
             <div className="space-y-3">
               {choices.map((choice) => (
                 <button
@@ -314,12 +490,28 @@ export function PickupConfirmationModal({
                 disabled={busy}
                 className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
-                Cancel
+                {outcome?.movedTo ? `Leave in ${outcome.movedTo}` : "Done"}
               </button>
             </div>
           </div>
         )}
       </div>
+      {keypadOpen ? (
+        <ScanNumberKeypad
+          variant="integer"
+          zIndex={130}
+          title="Pickup code (8 digits)"
+          value={formatPickupCode(code)}
+          onInsert={(ch) =>
+            setCode((prev) =>
+              `${prev}${ch}`.replace(/\D/g, "").slice(0, PICKUP_CODE_LENGTH)
+            )
+          }
+          onBackspace={() => setCode((prev) => prev.slice(0, -1))}
+          onSubmit={() => setKeypadOpen(false)}
+          onClose={() => setKeypadOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

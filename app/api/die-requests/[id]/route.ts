@@ -4,6 +4,8 @@ import { canViewDieOrder } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { isValidEmail } from "@/lib/die-manufacturers";
 import {
+  DIE_PAST_DATE_ERROR,
+  isDieDatePast,
   collectDieUploadFiles,
   parseDieRequestFiles,
   parseOptionalDieDim,
@@ -13,6 +15,7 @@ import {
   primaryDieFileFields,
   storeDieRequestFiles,
 } from "@/lib/die-request-upload";
+import { sendDieQuoteRequest } from "@/lib/die-request-send.server";
 
 export async function PATCH(
   request: Request,
@@ -68,22 +71,33 @@ export async function PATCH(
   const supabase = await createClient();
   const { data: existing } = await supabase
     .from("die_requests")
-    .select("id, tenant_id, order_id, status, file_path, file_name, file_mime, files")
+    .select("id, tenant_id, order_id, status, required_date, manufacturer_id, file_path, file_name, file_mime, files, order:orders(title)")
     .eq("id", id)
     .maybeSingle();
   if (!existing || existing.tenant_id !== ctx.tenant.id) {
     return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
-  if (existing.status === "ordered") {
+  if (existing.status === "ordered" || existing.status === "received") {
     return NextResponse.json(
       { error: "This die is already ordered and cannot be edited." },
       { status: 409 }
     );
+  }  // Only a changed date must be today or later, so an older request can
+  // still be edited (files, comment) without moving its date.
+  if (
+    requiredDate !== String(existing.required_date ?? "").slice(0, 10) &&
+    isDieDatePast(requiredDate)
+  ) {
+    return NextResponse.json(
+      { error: `Required date is in the past. ${DIE_PAST_DATE_ERROR}` },
+      { status: 422 }
+    );
   }
+
 
   const { data: manufacturer } = await supabase
     .from("die_manufacturers")
-    .select("id, email")
+    .select("*")
     .eq("id", manufacturerId)
     .eq("tenant_id", ctx.tenant.id)
     .maybeSingle();
@@ -117,6 +131,13 @@ export async function PATCH(
     });
   }
 
+  // Moved to a different manufacturer: the new one must get the link, and
+  // the old one's link / quote no longer counts (new token, back to Waiting).
+  const manufacturerChanged =
+    String((existing as { manufacturer_id?: string | null }).manufacturer_id ?? "") !==
+    manufacturerId;
+  const newToken = manufacturerChanged ? crypto.randomUUID() : null;
+
   const patch: Record<string, unknown> = {
     width,
     height,
@@ -147,11 +168,25 @@ export async function PATCH(
     patch.file_mime = primary.file_mime;
   }
 
+  if (newToken) {
+    Object.assign(patch, {
+      token: newToken,
+      status: "sent",
+      quoted_price: null,
+      time_estimate: null,
+      confirmed_due_date: null,
+      client_note: null,
+      quoted_at: null,
+      sent_at: new Date().toISOString(),
+    });
+  }
+
   const { error } = await supabase
     .from("die_requests")
     .update(patch)
     .eq("id", id)
-    .eq("tenant_id", ctx.tenant.id);
+    .eq("tenant_id", ctx.tenant.id)
+    .in("status", ["sent", "quoted"]);
 
   if (error) {
     return NextResponse.json(
@@ -166,6 +201,28 @@ export async function PATCH(
       },
       { status: 400 }
     );
+  }
+
+  if (newToken) {
+    const order = (existing as { order?: { title?: string } | { title?: string }[] | null }).order;
+    const orderTitle = (Array.isArray(order) ? order[0]?.title : order?.title) ?? "Order";
+    const notify = await sendDieQuoteRequest(supabase, {
+      tenantId: ctx.tenant.id,
+      token: newToken,
+      orderTitle,
+      manufacturer: manufacturer as Record<string, unknown>,
+      productName,
+      width,
+      height,
+      depth,
+      requiredDate,
+      comment,
+    });
+    return NextResponse.json({
+      ok: true,
+      resent: true,
+      warning: notify.warning,
+    });
   }
 
   return NextResponse.json({ ok: true });

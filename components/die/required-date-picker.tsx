@@ -44,6 +44,7 @@ export function RequiredDatePicker({
   onOpenChange,
   dueLabel = "Requested",
   selectedLabel = "Your offer",
+  minDate,
 }: {
   id?: string;
   value: string;
@@ -52,6 +53,8 @@ export function RequiredDatePicker({
   onOpenChange?: (open: boolean) => void;
   dueLabel?: string;
   selectedLabel?: string;
+  /** YYYY-MM-DD; earlier days are greyed out and can't be picked. */
+  minDate?: string;
 }) {
   const due = dueDate?.slice(0, 10) || null;
   const selected = parseYmd(value);
@@ -81,7 +84,13 @@ export function RequiredDatePicker({
       const r = el.getBoundingClientRect();
       const width = 17 * 16;
       const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
-      setPos({ top: r.bottom + 4, left });
+      // Open upward when there's no room below (e.g. near the bottom of a popup).
+      const height = popoverRef.current?.offsetHeight ?? 340;
+      const below = r.bottom + 4;
+      const above = r.top - 4 - height;
+      const top =
+        below + height > window.innerHeight - 8 && above >= 8 ? above : below;
+      setPos({ top, left });
     }
     place();
     window.addEventListener("scroll", place, true);
@@ -101,14 +110,18 @@ export function RequiredDatePicker({
       }
       setOpen(false);
     }
+    // Escape closes only the calendar, not a popup it sits in.
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
@@ -175,10 +188,12 @@ export function RequiredDatePicker({
               const isSelected = ymd === value;
               const isDue = due === ymd;
               const isToday = ymd === today;
+              const isBlocked = Boolean(minDate && ymd < minDate);
               return (
                 <div key={ymd} className="flex h-8 items-center justify-center">
                   <button
                     type="button"
+                    disabled={isBlocked}
                     onClick={() => {
                       onChange(ymd);
                       setOpen(false);
@@ -196,7 +211,9 @@ export function RequiredDatePicker({
                       "flex h-7 w-7 items-center justify-center rounded-full text-sm",
                       isSelected
                         ? "bg-[var(--primary)] font-semibold text-white"
-                        : "text-slate-800 hover:bg-slate-100",
+                        : isBlocked
+                          ? "cursor-not-allowed text-slate-300 line-through decoration-slate-300"
+                          : "text-slate-800 hover:bg-slate-100",
                       isToday && !isSelected
                         ? "ring-1 ring-inset ring-slate-800"
                         : null,
@@ -251,6 +268,7 @@ export function RequiredDatePicker({
         <input
           id={id}
           type="date"
+          min={minDate}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="flex h-10 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 tabular-nums focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"

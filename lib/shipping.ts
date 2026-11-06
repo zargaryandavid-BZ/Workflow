@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { onShippingOptSelected } from "@/lib/automation";
+import { ensurePickupCodeInMessage } from "@/lib/pickup-code";
 import {
   buildPickupReadyEmailBody,
   buildPickupReadyEmailHtml,
@@ -320,6 +321,8 @@ export async function sendPickupReadyNotifications(args: {
   portalUrl: string;
   pickupLocation: string;
   pickupHours: string;
+  /** 8-digit pickup code; always included in the message when set. */
+  pickupCode?: string | null;
   tenantName: string;
   templates?: MessageTemplateMap | null;
   /** Staff-edited subject from Ready-to-Ship popup (email only). */
@@ -341,7 +344,10 @@ export async function sendPickupReadyNotifications(args: {
     let subject: string;
 
     if (customBody) {
-      text = ensureShippingPortalLink(customBody, args.portalUrl);
+      text = ensurePickupCodeInMessage(
+        ensureShippingPortalLink(customBody, args.portalUrl),
+        args.pickupCode ?? null
+      );
       html = messageToEmailHtml(text);
       subject =
         customSubject ||
@@ -359,6 +365,7 @@ export async function sendPickupReadyNotifications(args: {
         portalUrl: args.portalUrl,
         pickupLocation: args.pickupLocation,
         pickupHours: args.pickupHours,
+        pickupCode: args.pickupCode ?? null,
         teamName,
         templates,
       });
@@ -368,6 +375,7 @@ export async function sendPickupReadyNotifications(args: {
         portalUrl: args.portalUrl,
         pickupLocation: args.pickupLocation,
         pickupHours: args.pickupHours,
+        pickupCode: args.pickupCode ?? null,
         teamName,
         templates,
       });
@@ -393,14 +401,19 @@ export async function sendPickupReadyNotifications(args: {
   }
 
   if (args.phone?.trim()) {
-    const body = buildPickupReadySmsBody({
-      customerName: args.customerName,
-      orderNumber: args.orderNumber,
-      portalUrl: args.portalUrl,
-      pickupLocation: args.pickupLocation,
-      pickupHours: args.pickupHours,
-      templates,
-    });
+    const body = ensurePickupCodeInMessage(
+      buildPickupReadySmsBody({
+        customerName: args.customerName,
+        orderNumber: args.orderNumber,
+        portalUrl: args.portalUrl,
+        pickupLocation: args.pickupLocation,
+        pickupHours: args.pickupHours,
+        pickupCode: args.pickupCode ?? null,
+        templates,
+      }),
+      args.pickupCode ?? null,
+      " "
+    );
     const result = await sendSms({ to: args.phone.trim(), body });
     smsSent = result.sent;
     if (!result.sent && result.error) errors.push(result.error);

@@ -5,11 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { RequiredDatePicker } from "@/components/die/required-date-picker";
 import {
+  DIE_PAST_DATE_ERROR,
+  dieTodayYmd,
+  isDieDatePast,
   dieDaysToDeliver,
   formatDieDaysToDeliver,
   formatDieQuotedPrice,
   formatDieSize,
 } from "@/lib/die-request";
+import { DIE_SHAPE_LABEL, DIE_TYPE_LABEL } from "@/lib/dies";
 import { formatDate } from "@/lib/utils";
 
 export type DiePortalData = {
@@ -21,6 +25,14 @@ export type DiePortalData = {
   height: number | null;
   depth: number | null;
   productName: string | null;
+  dieName: string | null;
+  dieType: string | null;
+  templateCode: string | null;
+  shape: string | null;
+  roundedCorner: boolean | null;
+  perforation: boolean | null;
+  pacdoraTemplateName: string | null;
+  pacdoraLink: string | null;
   requiredDate: string;
   fileName: string | null;
   files: { name: string; index: number; isImage: boolean }[];
@@ -50,9 +62,10 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
   const [noteLocked, setNoteLocked] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(data.status === "ordered");
+  const [done, setDone] = useState(
+    data.status === "ordered" || data.status === "received"
+  );
 
-  const size = formatDieSize(data.width, data.height, data.depth);
   const matchingRequired = !offerOwnDate;
   const daysTarget = matchingRequired
     ? data.requiredDate
@@ -77,6 +90,15 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
     setError(null);
     if (!matchingRequired && !confirmedDueDate) {
       setError("Confirm due date is required.");
+      return;
+    }
+    const dueToSend = matchingRequired ? data.requiredDate : confirmedDueDate;
+    if (dueToSend && isDieDatePast(dueToSend)) {
+      setError(
+        matchingRequired
+          ? "The requested date has already passed. Please contact the shop for a new date."
+          : `That due date is in the past. ${DIE_PAST_DATE_ERROR}`
+      );
       return;
     }
     const priceNum = parseFloat(price);
@@ -112,6 +134,20 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (data.status === "received") {
+    return (
+      <div className="space-y-5">
+        <div className="rounded-lg bg-emerald-50 p-5 text-center text-emerald-900">
+          <h2 className="text-lg font-semibold">Die received</h2>
+          <p className="mt-2 text-sm">
+            We received the die for {data.orderTitle}. Thank you.
+          </p>
+        </div>
+        <DiePortalJobDetails data={data} />
+      </div>
+    );
   }
 
   if (data.status === "ordered") {
@@ -151,45 +187,12 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
 
       <DiePortalJobDetails data={data} quoteMode />
 
-      <dl className="grid grid-cols-3 gap-2">
-        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white px-3 py-2">
-          <dt className="text-[10px] font-semibold uppercase tracking-wide text-black">
-            Size (X × Y × Z)
-          </dt>
-          <dd className="mt-0.5 break-words text-sm font-medium text-black">
-            {size}
-          </dd>
-        </div>
-        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white px-3 py-2">
-          <dt className="text-[10px] font-semibold uppercase tracking-wide text-black">
-            Required date
-          </dt>
-          <dd className="mt-0.5 break-words text-sm font-medium text-black">
-            {formatDate(data.requiredDate) ?? data.requiredDate}
-          </dd>
-          <dd className="mt-0.5 text-[11px] text-black">Fixed</dd>
-        </div>
-        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white px-3 py-2">
-          <dt className="text-[10px] font-semibold uppercase tracking-wide text-black">
-            Days to deliver
-          </dt>
-          <dd className="mt-0.5 text-sm font-medium tabular-nums text-black">
-            {daysSpan.calendar === 0
-              ? "Today"
-              : `${Math.abs(daysSpan.working)}/${Math.abs(daysSpan.calendar)}`}
-          </dd>
-          {daysSpan.calendar !== 0 ? (
-            <dd className="mt-0.5 break-words text-[11px] leading-tight text-black">
-              {daysSpan.calendar < 0
-                ? "working / calendar · overdue"
-                : "working / calendar"}
-            </dd>
-          ) : null}
-        </div>
-      </dl>
-
-      <div className={data.allowOwnDate ? "grid grid-cols-2 gap-2" : ""}>
-        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3">
+      <div
+        className={`grid items-stretch gap-2 ${
+          data.allowOwnDate ? "grid-cols-3" : "grid-cols-2"
+        }`}
+      >
+        <label className="flex h-full cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3">
           <input
             type="checkbox"
             className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
@@ -206,7 +209,7 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
           </span>
         </label>
         {data.allowOwnDate ? (
-        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3">
+        <label className="flex h-full cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3">
           <input
             type="checkbox"
             className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
@@ -220,6 +223,7 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
             {offerOwnDate ? (
               <div className="mt-1">
                 <RequiredDatePicker
+                  minDate={dieTodayYmd()}
                   id="die-confirm"
                   value={confirmedDueDate}
                   dueDate={data.requiredDate}
@@ -236,32 +240,31 @@ export function DieQuoteForm({ data }: { data: DiePortalData }) {
           </span>
         </label>
         ) : null}
-      </div>
-
-      <div className="mx-auto w-[10.5rem] text-center">
-        <Label htmlFor="die-price">Price</Label>
-        <div className="relative mt-1.5">
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-2xl font-semibold text-slate-400">
-            $
-          </span>
-          <Input
-            id="die-price"
-            className="h-14 pl-8 pr-2 text-center text-2xl font-semibold tabular-nums"
-            type="text"
-            inputMode="decimal"
-            maxLength={8}
-            value={price}
-            onChange={(e) => {
-              const next = e.target.value.trim().replace(/^\$/, "");
-              if (next === "") {
-                setPrice("");
-                return;
-              }
-              if (!/^\d{0,5}(\.\d{0,2})?$/.test(next)) return;
-              setPrice(next);
-            }}
-            placeholder="0.00"
-          />
+        <div className="h-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-center">
+          <Label htmlFor="die-price">Price</Label>
+          <div className="relative mt-1">
+            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xl font-semibold text-slate-400">
+              $
+            </span>
+            <Input
+              id="die-price"
+              className="h-10 pl-8 pr-2 text-center text-xl font-semibold tabular-nums"
+              type="text"
+              inputMode="decimal"
+              maxLength={8}
+              value={price}
+              onChange={(e) => {
+                const next = e.target.value.trim().replace(/^\$/, "");
+                if (next === "") {
+                  setPrice("");
+                  return;
+                }
+                if (!/^\d{0,5}(\.\d{0,2})?$/.test(next)) return;
+                setPrice(next);
+              }}
+              placeholder="0.00"
+            />
+          </div>
         </div>
       </div>
 
@@ -314,7 +317,6 @@ function DiePortalJobDetails({
   data: DiePortalData;
   quoteMode?: boolean;
 }) {
-  const files = data.files ?? [];
   const size = formatDieSize(data.width, data.height, data.depth);
   const due =
     data.confirmedDueDate ?? data.requiredDate;
@@ -322,70 +324,7 @@ function DiePortalJobDetails({
 
   return (
     <>
-      {files.length > 0 ? (
-        <div className="space-y-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            Files
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {files.map((file) =>
-              file.isImage ? (
-                <a
-                  key={file.index}
-                  href={`/api/die/${data.token}/file?i=${file.index}&preview=1`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`/api/die/${data.token}/file?i=${file.index}&preview=1`}
-                    alt={file.name}
-                    className="h-20 w-20 rounded-md border border-slate-200 object-cover"
-                  />
-                </a>
-              ) : (
-                <a
-                  key={file.index}
-                  href={`/api/die/${data.token}/file?i=${file.index}`}
-                  className="block truncate text-sm font-medium text-blue-600 underline"
-                >
-                  {file.name}
-                </a>
-              )
-            )}
-          </div>
-        </div>
-      ) : data.fileName ? (
-        <a
-          href={`/api/die/${data.token}/file`}
-          className="block truncate text-sm font-medium text-blue-600 underline"
-        >
-          Download file: {data.fileName}
-        </a>
-      ) : null}
-
-      {data.productName ? (
-        <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-black">
-            Product
-          </p>
-          <p className="mt-1 text-sm font-medium text-black">
-            {data.productName}
-          </p>
-        </div>
-      ) : null}
-
-      {data.comment ? (
-        <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-black">
-            Comment
-          </p>
-          <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-black">
-            {data.comment}
-          </p>
-        </div>
-      ) : null}
+      <DieRequestDetailsTable data={data} />
 
       {quoteMode ? null : (
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -429,6 +368,155 @@ function DiePortalJobDetails({
         </dl>
       )}
     </>
+  );
+}
+
+function DieRequestDetailsTable({ data }: { data: DiePortalData }) {
+  const dieType =
+    data.dieType && data.dieType in DIE_TYPE_LABEL
+      ? DIE_TYPE_LABEL[data.dieType as keyof typeof DIE_TYPE_LABEL]
+      : data.dieType || "—";
+  const shape =
+    data.shape && data.shape in DIE_SHAPE_LABEL
+      ? DIE_SHAPE_LABEL[data.shape as keyof typeof DIE_SHAPE_LABEL]
+      : data.shape || "—";
+  const files = data.files ?? [];
+  const requestedDays = dieDaysToDeliver(data.requiredDate);
+  const requestedDaysLabel =
+    requestedDays.calendar === 0
+      ? "Today"
+      : `${Math.abs(requestedDays.working)}/${Math.abs(
+          requestedDays.calendar
+        )} working/calendar${
+          requestedDays.calendar < 0 ? " · overdue" : ""
+        }`;
+  const repeatedDieName =
+    data.dieName?.trim().toLowerCase() ===
+    data.productName?.trim().toLowerCase();
+  const rows: Array<{ label: string; value: React.ReactNode }> = [
+    { label: "Product", value: data.productName || "—" },
+    ...(repeatedDieName
+      ? []
+      : [{ label: "Die name", value: data.dieName || "—" }]),
+    { label: "Template ID", value: data.templateCode || "—" },
+    { label: "Die type", value: dieType },
+    {
+      label: "Size (X × Y × Z)",
+      value: formatDieSize(data.width, data.height, data.depth),
+    },
+    { label: "Shape", value: shape },
+    {
+      label: "Rounded corner",
+      value: data.roundedCorner == null ? "—" : data.roundedCorner ? "Yes" : "No",
+    },
+    {
+      label: "Perforation",
+      value: data.perforation == null ? "—" : data.perforation ? "Yes" : "No",
+    },
+    {
+      label: "Pacdora template",
+      value: data.pacdoraTemplateName || "—",
+    },
+    {
+      label: "Pacdora link",
+      value: data.pacdoraLink ? (
+        <a
+          href={data.pacdoraLink}
+          target="_blank"
+          rel="noreferrer"
+          className="text-blue-700 underline underline-offset-2"
+        >
+          Open template
+        </a>
+      ) : (
+        "—"
+      ),
+    },
+    {
+      label: "Required date",
+      value: formatDate(data.requiredDate) ?? data.requiredDate,
+    },
+    { label: "Days to deliver", value: requestedDaysLabel },
+    {
+      label: "Manufacturer may offer new date",
+      value: data.allowOwnDate ? "Yes" : "No",
+    },
+    {
+      label: "Comment",
+      value: data.comment ? (
+        <span className="whitespace-pre-wrap">{data.comment}</span>
+      ) : (
+        "—"
+      ),
+    },
+    {
+      label: "PDF / files",
+      value:
+        files.length > 0 ? (
+          <span className="flex flex-wrap gap-x-3 gap-y-1">
+            {files.map((file) => (
+              <a
+                key={file.index}
+                href={`/api/die/${data.token}/file?i=${file.index}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-blue-700 underline underline-offset-2"
+              >
+                {file.name}
+              </a>
+            ))}
+          </span>
+        ) : (
+          "—"
+        ),
+    },
+  ];
+  // Only real information: no empty cells, "—" or "No".
+  const shown = rows.filter(
+    (row) => row.value != null && row.value !== "" && row.value !== "—" && row.value !== "No"
+  );
+  const tableRows = Array.from(
+    { length: Math.ceil(shown.length / 3) },
+    (_, index) => shown.slice(index * 3, index * 3 + 3)
+  );
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <table className="w-full table-fixed text-sm">
+        <caption className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-slate-700">
+          Requested die information
+        </caption>
+        <tbody className="divide-y divide-slate-100">
+          {tableRows.map((tableRow, rowIndex) => (
+            <tr key={rowIndex}>
+              {tableRow.map((row, columnIndex) => {
+                // A short last row stretches its last cell: no empty boxes.
+                const span =
+                  columnIndex === tableRow.length - 1 ? 3 - tableRow.length + 1 : 1;
+                return (
+                  <td
+                    key={row.label}
+                    colSpan={span}
+                    className="border-r border-slate-100 px-3 py-2.5 align-top last:border-r-0"
+                  >
+                    {row ? (
+                      <>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          {row.label}
+                        </p>
+                        <div className="mt-1 break-words font-medium text-slate-900">
+                          {row.value}
+                        </div>
+                      </>
+                    ) : null}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

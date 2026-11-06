@@ -15,6 +15,7 @@ import {
   shippingPortalPublicUrl,
 } from "@/lib/shipping";
 import { getMessageTemplates } from "@/lib/message-templates.server";
+import { assignPickupCode } from "@/lib/pickup-code.server";
 import { resolvePickupNotifyFields } from "@/lib/shipping-settings";
 import {
   formatReadyToShipNotifyLabel,
@@ -150,6 +151,41 @@ export async function POST(
     // keep single-order label
   }
 
+  // Parts this message covers share one 8-digit pickup code.
+  const siblings = await fetchOrderGroupSiblings(
+    supabase,
+    ctx.tenant.id,
+    exportData.order
+  );
+  const columnId = exportData.order.column_id;
+  const siblingsInColumn = siblings.filter((s) => s.column_id === columnId);
+  const allReady =
+    siblings.length >= 2 && siblingsInColumn.length === siblings.length;
+  let tagTargets: { id: string; specs: unknown }[] = allReady
+    ? siblingsInColumn
+    : [{ id: orderId, specs: exportData.order.specs }];
+
+  let pickupCode: string | null = null;
+  try {
+    const assigned = await assignPickupCode(
+      supabase,
+      ctx.tenant.id,
+      tagTargets.map((t) => t.id)
+    );
+    pickupCode = assigned.code;
+    tagTargets = tagTargets.map((t) => ({
+      id: t.id,
+      specs: assigned.specsById.get(t.id) ?? t.specs,
+    }));
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not create a pickup code";
+    console.error("[ready-to-ship] pickup code failed", orderId, message);
+    if (pickupOnly) {
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   let emailSent = false;
   let smsSent = false;
 
@@ -178,6 +214,7 @@ export async function POST(
             portalUrl,
             pickupLocation,
             pickupHours,
+            pickupCode,
             tenantName: ctx.tenant.name,
             templates,
             ...emailOverrides,
@@ -222,19 +259,6 @@ export async function POST(
     staff_note: `portal:${shippingReq.token}`,
   });
 
-  const siblings = await fetchOrderGroupSiblings(
-    supabase,
-    ctx.tenant.id,
-    exportData.order
-  );
-  const columnId = exportData.order.column_id;
-  const siblingsInColumn = siblings.filter((s) => s.column_id === columnId);
-  const allReady =
-    siblings.length >= 2 && siblingsInColumn.length === siblings.length;
-  const tagTargets = allReady
-    ? siblingsInColumn
-    : [{ id: orderId, specs: exportData.order.specs }];
-
   for (const target of tagTargets) {
     await addOrderTag(
       supabase,
@@ -262,6 +286,7 @@ export async function POST(
       boxCount: parsedBoxes.boxes.length,
       taggedOrderIds: tagTargets.map((t) => t.id),
       reused,
+      pickupCode,
     },
   });
 
@@ -274,5 +299,6 @@ export async function POST(
     fulfillment: pickupOnly ? "pickup" : "choose",
     taggedCount: tagTargets.length,
     reused,
+    pickupCode,
   });
 }

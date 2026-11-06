@@ -35,6 +35,7 @@ import {
 } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
 import { loadOrderWithRelations } from "@/lib/orders/load-with-relations";
+import { assignPickupCode } from "@/lib/pickup-code.server";
 import type {
   NotificationChannel,
   Order,
@@ -346,6 +347,40 @@ export async function readyToShipSend(
     // keep single-order label
   }
 
+  // Parts this message covers: the whole split order when every part is in
+  // this column, else just this card. They share one pickup code.
+  const siblings = await fetchOrderGroupSiblings(supabase, tenantId, exportData.order);
+  const columnId = exportData.order.column_id;
+  const siblingsInColumn = siblings.filter((s) => s.column_id === columnId);
+  const allReady =
+    siblings.length >= 2 && siblingsInColumn.length === siblings.length;
+  let tagTargets: { id: string; specs: unknown }[] = allReady
+    ? siblingsInColumn
+    : [{ id: orderId, specs: exportData.order.specs }];
+
+  // 8-digit pickup code: shown in the pickup message (and on the portal once
+  // the customer picks pickup); the Pickup window asks for it.
+  let pickupCode: string | null = null;
+  try {
+    const assigned = await assignPickupCode(
+      supabase,
+      tenantId,
+      tagTargets.map((t) => t.id)
+    );
+    pickupCode = assigned.code;
+    tagTargets = tagTargets.map((t) => ({
+      id: t.id,
+      specs: assigned.specsById.get(t.id) ?? t.specs,
+    }));
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not create a pickup code";
+    console.error("[ready-to-ship] pickup code failed", orderId, message);
+    if (pickupOnly) {
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   let emailSent = false;
   let smsSent = false;
 
@@ -373,6 +408,7 @@ export async function readyToShipSend(
             portalUrl,
             pickupLocation,
             pickupHours,
+            pickupCode,
             tenantName,
             templates,
             ...emailOverrides,
@@ -417,15 +453,6 @@ export async function readyToShipSend(
     staff_note: `portal:${shippingReq.token}`,
   });
 
-  const siblings = await fetchOrderGroupSiblings(supabase, tenantId, exportData.order);
-  const columnId = exportData.order.column_id;
-  const siblingsInColumn = siblings.filter((s) => s.column_id === columnId);
-  const allReady =
-    siblings.length >= 2 && siblingsInColumn.length === siblings.length;
-  const tagTargets = allReady
-    ? siblingsInColumn
-    : [{ id: orderId, specs: exportData.order.specs }];
-
   for (const target of tagTargets) {
     await addOrderTag(
       supabase,
@@ -453,6 +480,7 @@ export async function readyToShipSend(
       boxCount: parsedBoxes.boxes.length,
       taggedOrderIds: tagTargets.map((t) => t.id),
       reused,
+      pickupCode,
     },
   });
 
@@ -465,6 +493,7 @@ export async function readyToShipSend(
     fulfillment: pickupOnly ? "pickup" : "choose",
     taggedCount: tagTargets.length,
     reused,
+    pickupCode,
   });
 }
 

@@ -16,6 +16,7 @@ import {
   shippingPortalPublicUrl,
 } from "@/lib/shipping";
 import { getMessageTemplates } from "@/lib/message-templates.server";
+import { assignPickupCode } from "@/lib/pickup-code.server";
 import {
   resolvePickupNotifyFields,
 } from "@/lib/shipping-settings";
@@ -115,6 +116,41 @@ export async function POST(
   const templates = await getMessageTemplates(supabase, ctx.tenant.id);
   const orderNumber = exportData.orderNumberDisplay || exportData.orderNumber;
 
+  // Parts this message covers share one 8-digit pickup code.
+  const siblings = await fetchOrderGroupSiblings(
+    supabase,
+    ctx.tenant.id,
+    exportData.order
+  );
+  const columnId = exportData.order.column_id;
+  const siblingsInColumn = siblings.filter((s) => s.column_id === columnId);
+  const allReady =
+    siblings.length >= 2 && siblingsInColumn.length === siblings.length;
+  let tagTargets: { id: string; specs: unknown }[] = allReady
+    ? siblingsInColumn
+    : [{ id: orderId, specs: exportData.order.specs }];
+
+  let pickupCode: string | null = null;
+  try {
+    const assigned = await assignPickupCode(
+      supabase,
+      ctx.tenant.id,
+      tagTargets.map((t) => t.id)
+    );
+    pickupCode = assigned.code;
+    tagTargets = tagTargets.map((t) => ({
+      id: t.id,
+      specs: assigned.specsById.get(t.id) ?? t.specs,
+    }));
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not create a pickup code";
+    console.error("[ship] pickup code failed", orderId, message);
+    if (pickupOnly) {
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   const notify = pickupOnly
     ? await (async () => {
         const { pickupLocation, pickupHours } = await resolvePickupNotifyFields(
@@ -130,6 +166,7 @@ export async function POST(
           portalUrl,
           pickupLocation,
           pickupHours,
+          pickupCode,
           tenantName: ctx.tenant.name,
           templates,
         });
@@ -158,19 +195,6 @@ export async function POST(
   }
 
   // Same Texted tagging as send-sms when all parts share this column.
-  const siblings = await fetchOrderGroupSiblings(
-    supabase,
-    ctx.tenant.id,
-    exportData.order
-  );
-  const columnId = exportData.order.column_id;
-  const siblingsInColumn = siblings.filter((s) => s.column_id === columnId);
-  const allReady =
-    siblings.length >= 2 && siblingsInColumn.length === siblings.length;
-  const tagTargets = allReady
-    ? siblingsInColumn
-    : [{ id: orderId, specs: exportData.order.specs }];
-
   for (const target of tagTargets) {
     await addOrderTag(
       supabase,

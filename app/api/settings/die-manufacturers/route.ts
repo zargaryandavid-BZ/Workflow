@@ -5,6 +5,7 @@ import {
   mapDieManufacturerRow,
   parseDieManufacturerBody,
 } from "@/lib/die-manufacturers";
+import { canViewDieOrder } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ function tableMissing(message: string): boolean {
 export async function GET() {
   const ctx = await getTenantContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (ctx.role !== "admin") {
+  if (!canViewDieOrder(ctx.role)) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 
@@ -43,7 +44,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const ctx = await getTenantContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (ctx.role !== "admin") {
+  if (!canViewDieOrder(ctx.role)) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 
@@ -53,17 +54,31 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const base = {
+    tenant_id: ctx.tenant.id,
+    full_name: parsed.full_name,
+    contact_name: parsed.contact_name,
+    email: parsed.email,
+    phone: parsed.phone,
+  };
+  const second = {
+    contact_name_2: parsed.contact_name_2,
+    email_2: parsed.email_2,
+    phone_2: parsed.phone_2,
+  };
+  let warning: string | null = null;
+  let { data, error } = await supabase
     .from("die_manufacturers")
-    .insert({
-      tenant_id: ctx.tenant.id,
-      full_name: parsed.full_name,
-      contact_name: parsed.contact_name,
-      email: parsed.email,
-      phone: parsed.phone,
-    })
+    .insert({ ...base, ...second })
     .select("*")
     .single();
+  // Before migration 0088 there is no second contact: save the rest.
+  if (error && /contact_name_2|email_2|phone_2/i.test(error.message)) {
+    ({ data, error } = await supabase.from("die_manufacturers").insert(base).select("*").single());
+    if (!error && (second.contact_name_2 || second.email_2 || second.phone_2)) {
+      warning = "Saved, but the second contact needs migration 0088_die_manufacturer_contact_2.sql in Supabase.";
+    }
+  }
 
   if (error || !data) {
     if (error && tableMissing(error.message)) {
@@ -84,5 +99,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     manufacturer: mapDieManufacturerRow(data as Record<string, unknown>),
+    warning,
   });
 }

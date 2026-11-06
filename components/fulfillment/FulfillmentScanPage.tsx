@@ -58,8 +58,12 @@ import {
 import { ReadyToShipPopup } from "@/components/notify/ReadyToShipPopup";
 import { ScanDeliveryHistory } from "@/components/fulfillment/ScanDeliveryHistory";
 import {
+  PickupAlreadyDoneError,
   PickupConfirmationModal,
   type PickupFinishedChoice,
+  type PickupSaveInput,
+  type PickupSaveOutcome,
+  type PickupWindowStatus,
 } from "@/components/fulfillment/PickupConfirmationModal";
 import {
   SCAN_SHIPPING_ACTION_BTN,
@@ -1418,31 +1422,78 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
     }
   }
 
-  async function savePickupConfirmation(input: {
-    firstName: string;
-    lastName: string;
-    signatureDataUrl: string;
-  }) {
+  async function loadPickupStatus(): Promise<PickupWindowStatus> {
+    if (!order) throw new Error("Scan an order first.");
+    const response = await fetch(
+      `${scanBase}/pickup?order_id=${encodeURIComponent(order.id)}`,
+      { cache: "no-store" }
+    );
+    const json = (await response.json().catch(() => ({}))) as Partial<
+      PickupWindowStatus
+    > & { error?: string };
+    if (!response.ok) {
+      throw new Error(json.error ?? "Could not load this order");
+    }
+    return {
+      codeRequired: json.codeRequired === true,
+      alreadyPickedUp: json.alreadyPickedUp ?? null,
+      pickupsColumnName: json.pickupsColumnName ?? null,
+      partCount: json.partCount ?? 1,
+    };
+  }
+
+  async function savePickupConfirmation(
+    input: PickupSaveInput
+  ): Promise<PickupSaveOutcome> {
     if (!order) throw new Error("Scan an order first.");
     const response = await fetch(`${scanBase}/pickup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         order_id: order.id,
-        ...input,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        signatureDataUrl: input.signatureDataUrl,
+        pickup_code: input.pickupCode,
+        confirm_again: input.confirmAgain,
       }),
     });
     const json = (await response.json().catch(() => ({}))) as {
       error?: string;
+      alreadyPickedUp?: { pickedUpBy: string; pickedUpAt: string } | null;
       customerNotified?: { message?: string };
+      movedTo?: string | null;
+      movedToColumnId?: string | null;
+      orderNumbers?: string[];
+      confirmation?: { picked_up_at?: string };
     };
     if (!response.ok) {
+      if (response.status === 409 && json.alreadyPickedUp) {
+        throw new PickupAlreadyDoneError(
+          json.error ?? "Already picked up",
+          json.alreadyPickedUp
+        );
+      }
       throw new Error(json.error ?? "Failed to confirm pickup");
     }
+    if (json.movedTo && json.movedToColumnId) {
+      markOrderColumn(json.movedToColumnId, json.movedTo);
+    }
+    const at = json.confirmation?.picked_up_at;
     return {
       message:
         json.customerNotified?.message ??
         "The customer was notified that the order was picked up.",
+      movedTo: json.movedTo ?? null,
+      orderNumbers: json.orderNumbers ?? [],
+      pickedUpAt: at
+        ? new Date(at).toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : null,
     };
   }
 
@@ -1634,6 +1685,7 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         <PickupConfirmationModal
           orderNumber={order.title}
           choices={pickupFinishedChoices}
+          loadStatus={loadPickupStatus}
           onSave={savePickupConfirmation}
           onChoose={finishPickup}
           onClose={() => setPickupOpen(false)}

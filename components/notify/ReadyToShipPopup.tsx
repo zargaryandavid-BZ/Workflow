@@ -15,6 +15,7 @@ import {
   shippingPortalSubject,
   buildShippingPortalEmailBody,
 } from "@/lib/notification-messages";
+import { formatPickupCode, PICKUP_CODE_PREVIEW } from "@/lib/pickup-code";
 import {
   destinationForChannel,
   resolvePreferredNotifyChannel,
@@ -269,6 +270,7 @@ export function ReadyToShipPopup({
           portalUrl: "[link added on send]",
           pickupLocation: pickupLocationPreview,
           pickupHours: pickupHoursPreview,
+          pickupCode: PICKUP_CODE_PREVIEW,
           teamName,
         })
       );
@@ -452,6 +454,7 @@ export function ReadyToShipPopup({
       const { ok, data } = await postJsonWithTimeout<{
         error?: string;
         portalUrl?: string;
+        pickupCode?: string | null;
       }>(apiBase ? `${apiBase}/send` : `/api/orders/${order.id}/actions/ready-to-ship`, {
         orderId: order.id,
         channel,
@@ -491,8 +494,15 @@ export function ReadyToShipPopup({
         return;
       }
 
+      // Staff can read the code out on a manual follow-up.
+      const codeNote =
+        fulfillment === "pickup" && data.pickupCode
+          ? ` · Pickup code ${formatPickupCode(data.pickupCode)}`
+          : "";
+      const sentNote = (text: string) => onSent(`${text}${codeNote}`);
+
       if (channel === "manual") {
-        onSent(
+        sentNote(
           data.portalUrl
             ? fulfillment === "pickup"
               ? "Saved — pickup confirmed for manual follow-up"
@@ -500,19 +510,19 @@ export function ReadyToShipPopup({
             : "Saved — manual follow-up"
         );
       } else if (channel === "email") {
-        onSent(
+        sentNote(
           fulfillment === "pickup"
             ? `Pickup-ready notice sent to ${customerName}`
             : `Notification sent to ${customerName}`
         );
       } else if (channel === "both") {
-        onSent(
+        sentNote(
           fulfillment === "pickup"
             ? `Pickup-ready notice sent to ${customerName} by email + SMS`
             : `Notification sent to ${customerName} by email + SMS`
         );
       } else {
-        onSent(
+        sentNote(
           fulfillment === "pickup"
             ? `Pickup-ready SMS sent to ${to.trim()}`
             : `SMS sent to ${to.trim()}`
@@ -1014,6 +1024,7 @@ export function ReadyToShipPopup({
                           portalUrl: "[link added on send]",
                           pickupLocation: pickupLocationPreview,
                           pickupHours: pickupHoursPreview,
+                          pickupCode: PICKUP_CODE_PREVIEW,
                         })
                       : buildShippingPortalSmsBody({
                           customerName,

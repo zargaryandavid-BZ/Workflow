@@ -27,6 +27,7 @@ import type {
   ShippingClientChoice,
   ShippingDeliveryAddress,
 } from "@/lib/types";
+import { pickupCodeFromSpecs } from "@/lib/pickup-code";
 
 interface ShippingRpcRow {
   shipping_request_id: string;
@@ -80,12 +81,13 @@ function pickupLinesFromRow(row: ShippingRpcRow): string[] {
 async function artworkForOrder(orderId: string): Promise<{
   skuPictures: SkuMainPicture[];
   mainImageUrl: string | null;
+  pickupCode: string | null;
 }> {
   let admin;
   try {
     admin = createAdminClient();
   } catch {
-    return { skuPictures: [], mainImageUrl: null };
+    return { skuPictures: [], mainImageUrl: null, pickupCode: null };
   }
 
   const [skuImagesRes, assetsRes, orderRes] = await Promise.all([
@@ -172,6 +174,9 @@ async function artworkForOrder(orderId: string): Promise<{
   return {
     skuPictures,
     mainImageUrl: skuPictures[0]?.url ?? preferred[0]?.url ?? null,
+    pickupCode: pickupCodeFromSpecs(
+      orderRes.data?.specs as Record<string, unknown> | null | undefined
+    ),
   };
 }
 
@@ -329,6 +334,8 @@ export default async function ShippingPortalPage({
     expiredWarning,
     paymentEnabled: Boolean(row.payment_enabled),
     pickupLines: pickupLinesFromRow(row),
+    // Shown once the customer picks pickup; staff ask for it in the Pickup window.
+    pickupCode: artwork.pickupCode ?? null,
     offerPickup: row.offer_pickup !== false,
     offerFedex: row.offer_fedex !== false,
     offerUber: row.offer_uber !== false,

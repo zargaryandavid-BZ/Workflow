@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DIE_PAST_DATE_ERROR, isDieDatePast } from "@/lib/die-request";
 
 export async function POST(
   request: Request,
@@ -43,6 +44,12 @@ export async function POST(
       { status: 422 }
     );
   }
+  if (isDieDatePast(confirmedDueDate)) {
+    return NextResponse.json(
+      { error: `That due date is in the past. ${DIE_PAST_DATE_ERROR}` },
+      { status: 422 }
+    );
+  }
 
   const admin = createAdminClient();
   let existing:
@@ -76,7 +83,7 @@ export async function POST(
     existing = withFlag.data;
   }
 
-  if (existing.status === "ordered") {
+  if (existing.status === "ordered" || existing.status === "received") {
     return NextResponse.json(
       { error: "This die was already ordered." },
       { status: 409 }
@@ -92,7 +99,9 @@ export async function POST(
     );
   }
 
-  const { error: updateError } = await admin
+  // Only while the shop hasn't confirmed the order yet (sent / quoted), so a
+  // late re-quote can't undo a confirmed order.
+  const { data: saved, error: updateError } = await admin
     .from("die_requests")
     .update({
       status: "quoted",
@@ -102,11 +111,18 @@ export async function POST(
       client_note: note,
       quoted_at: new Date().toISOString(),
     })
-    .eq("id", existing.id);
+    .eq("id", existing.id)
+    .in("status", ["sent", "quoted"])
+    .select("id");
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });
   }
-
+  if (!saved?.length) {
+    return NextResponse.json(
+      { error: "This die was already ordered. Contact the shop to change it." },
+      { status: 409 }
+    );
+  }
   return NextResponse.json({ ok: true });
 }

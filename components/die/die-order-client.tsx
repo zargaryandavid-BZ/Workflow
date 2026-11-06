@@ -1,169 +1,85 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Paperclip } from "lucide-react";
+import { AlertTriangle, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
+import { type DieManufacturer } from "@/lib/die-manufacturers";
+import { dieRequestAlert, type DieRequest } from "@/lib/die-request";
 import {
-  dieManufacturerLabel,
-  type DieManufacturer,
-} from "@/lib/die-manufacturers";
-import {
-  DIE_MAX_FILES,
-  dieRequestAlert,
-  type DieRequest,
-} from "@/lib/die-request";
+  DIES_MIGRATION_HINT,
+  DIE_SHAPES,
+  DIE_SHAPE_LABEL,
+  DIE_SHOP_STATUSES,
+  DIE_SHOP_STATUS_LABEL,
+  DIE_TYPES,
+  DIE_TYPE_LABEL,
+  dieQrPath,
+  dieShowsInLibrary,
+  parseDieCodeInput,
+  type DieShape,
+  type DieShopStatus,
+  type DieType,
+  type Die,
+} from "@/lib/dies";
 import { cn, formatDate } from "@/lib/utils";
-import { RequiredDatePicker } from "@/components/die/required-date-picker";
 import { DieRequestCard } from "@/components/die/die-request-card";
-import { formatShortOrderNumber } from "@/lib/board-order-filters";
+import { DieFormModal } from "@/components/die/die-form-modal";
+import { DieLibraryTable } from "@/components/die/die-library-table";
+import { DieRequestModal } from "@/components/die/die-request-modal";
+import { DieManufacturersManager } from "@/components/die/die-manufacturers-manager";
 
-type OrderHit = {
-  id: string;
-  title: string;
-  orderNumber: string;
-  dueDate: string | null;
-  customerName: string | null;
-  email: string | null;
-  productName: string | null;
-  width: string | null;
-  height: string | null;
-  depth: string | null;
-};
+type DieOrderTab = "dies" | "requests" | "manufacturers";
 
 export function DieOrderClient({
   requests,
   manufacturers,
+  dies,
+  diesMigrationMissing,
+  manufacturersMigrationMissing = false,
 }: {
   requests: DieRequest[];
   manufacturers: DieManufacturer[];
+  dies: Die[];
+  diesMigrationMissing: boolean;
+  manufacturersMigrationMissing?: boolean;
 }) {
   const router = useRouter();
-  const [orderQuery, setOrderQuery] = useState("");
-  const [hits, setHits] = useState<OrderHit[]>([]);
-  const [orderPickerOpen, setOrderPickerOpen] = useState(false);
-  const [order, setOrder] = useState<OrderHit | null>(null);
-  const [productName, setProductName] = useState("");
-  const [width, setWidth] = useState("");
-  const [height, setHeight] = useState("");
-  const [depth, setDepth] = useState("");
-  const [requiredDate, setRequiredDate] = useState("");
-  const [manufacturerId, setManufacturerId] = useState(
-    manufacturers[0]?.id ?? ""
-  );
-  const [comment, setComment] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [allowOwnDate, setAllowOwnDate] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 256 });
-  const orderInputRef = useRef<HTMLInputElement>(null);
-  const orderMenuRef = useRef<HTMLUListElement>(null);
+  const [formDie, setFormDie] = useState<Die | "new" | null>(null);
+  const [formRequest, setFormRequest] = useState<DieRequest | null>(null);
+  const [search, setSearch] = useState("");
+  const [reorderDie, setReorderDie] = useState<Die | null>(null);
+  const [statusFilter, setStatusFilter] = useState<DieShopStatus | "">("");
+  const [typeFilter, setTypeFilter] = useState<DieType | "">("");
+  const [shapeFilter, setShapeFilter] = useState<DieShape | "">("");
+  const [tab, setTabState] = useState<DieOrderTab>("dies");
 
+  // Remember the last tab on this device.
   useEffect(() => {
-    if (!manufacturerId && manufacturers[0]?.id) {
-      setManufacturerId(manufacturers[0].id);
+    try {
+      // ?tab=manufacturers (old Settings link) wins over the remembered tab.
+      const fromUrl = new URLSearchParams(window.location.search).get("tab");
+      const saved = fromUrl ?? localStorage.getItem("die-order-tab");
+      if (saved === "requests" || saved === "manufacturers") setTabState(saved);
+    } catch {
+      /* ignore */
     }
-  }, [manufacturers, manufacturerId]);
-
-  useEffect(() => {
-    if (!orderPickerOpen) {
-      setHits([]);
-      setSearching(false);
-      return;
+  }, []);
+  function setTab(next: DieOrderTab) {
+    setTabState(next);
+    // Drop ?tab= so a refresh reopens the tab you chose.
+    if (window.location.search.includes("tab=")) {
+      window.history.replaceState(null, "", window.location.pathname);
     }
-    const q = orderQuery.trim().replace(/^#/, "");
-    if (!q) {
-      setHits([]);
-      setSearching(false);
-      return;
-    }
-    const ac = new AbortController();
-    const t = window.setTimeout(() => {
-      setSearching(true);
-      void fetch(`/api/die-requests/orders?q=${encodeURIComponent(q)}`, {
-        signal: ac.signal,
-      })
-        .then((res) => res.json())
-        .then((json: { orders?: OrderHit[] }) => {
-          setHits(
-            (json.orders ?? []).map((hit) => ({
-              ...hit,
-              orderNumber:
-                hit.orderNumber || formatShortOrderNumber(hit.title),
-            }))
-          );
-        })
-        .catch((err: unknown) => {
-          if (err instanceof DOMException && err.name === "AbortError") return;
-          setHits([]);
-        })
-        .finally(() => setSearching(false));
-    }, q.length === 1 ? 0 : 160);
-    return () => {
-      window.clearTimeout(t);
-      ac.abort();
-    };
-  }, [orderQuery, orderPickerOpen]);
-
-  useLayoutEffect(() => {
-    if (!orderPickerOpen) return;
-    function place() {
-      const el = orderInputRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const width = Math.max(r.width, 18 * 16);
-      const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
-      setMenuPos({ top: r.bottom + 4, left, width });
-    }
-    place();
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("scroll", place, true);
-      window.removeEventListener("resize", place);
-    };
-  }, [orderPickerOpen, hits.length]);
-
-  useEffect(() => {
-    if (!orderPickerOpen) return;
-    function onDoc(e: MouseEvent) {
-      const t = e.target as Node;
-      if (orderInputRef.current?.contains(t) || orderMenuRef.current?.contains(t)) {
-        return;
-      }
-      setOrderPickerOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOrderPickerOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [orderPickerOpen]);
-
-  function pickOrder(hit: OrderHit) {
-    const orderNumber = hit.orderNumber || formatShortOrderNumber(hit.title);
-    setOrder({ ...hit, orderNumber });
-    setOrderQuery(orderNumber);
-    setHits([]);
-    setOrderPickerOpen(false);
-    setProductName(hit.productName ?? "");
-    setWidth(hit.width ?? "");
-    setHeight(hit.height ?? "");
-    setDepth(hit.depth ?? "");
-    setFiles([]);
-    if (hit.dueDate && !requiredDate) {
-      setRequiredDate(hit.dueDate.slice(0, 10));
+    try {
+      localStorage.setItem("die-order-tab", next);
+    } catch {
+      /* ignore */
     }
   }
+  const waitingCount = requests.filter((r) => r.status === "quoted").length;
 
   const alarms = useMemo(
     () =>
@@ -176,63 +92,63 @@ export function DieOrderClient({
     [requests]
   );
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setNotice(null);
-    if (!order) {
-      setError("Pick an order number from the board.");
-      return;
+  const requestCountByDie = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const req of requests) {
+      if (req.die_id) out[req.die_id] = (out[req.die_id] ?? 0) + 1;
     }
-    if (!requiredDate) {
-      setError("Pick a required date.");
-      return;
-    }
-    if (!manufacturerId) {
-      setError("Select a die manufacturer in Settings first.");
-      return;
-    }
-    setSending(true);
-    try {
-      const form = new FormData();
-      form.set("orderId", order.id);
-      form.set("manufacturerId", manufacturerId);
-      form.set("productName", productName);
-      form.set("width", width);
-      form.set("height", height);
-      form.set("depth", depth);
-      form.set("requiredDate", requiredDate);
-      form.set("allowOwnDate", allowOwnDate ? "true" : "false");
-      form.set("comment", comment);
-      for (const f of files) form.append("files", f);
-      const res = await fetch("/api/die-requests", { method: "POST", body: form });
-      const json = (await res.json()) as { error?: string; warning?: string | null };
-      if (!res.ok) throw new Error(json.error ?? "Failed to send");
-      setNotice(
-        json.warning
-          ? `Request saved, but email did not send: ${json.warning}`
-          : "Die request emailed to the manufacturer."
-      );
-      setOrder(null);
-      setOrderQuery("");
-      setProductName("");
-      setWidth("");
-      setHeight("");
-      setDepth("");
-      setRequiredDate("");
-      setComment("");
-      setFiles([]);
-      setAllowOwnDate(false);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send");
-    } finally {
-      setSending(false);
-    }
-  }
+    return out;
+  }, [requests]);
+
+  const dieCodeById = useMemo(
+    () => Object.fromEntries(dies.map((d) => [d.id, d.template_code])),
+    [dies]
+  );
+  const dieById = useMemo(
+    () => new Map(dies.map((die) => [die.id, die])),
+    [dies]
+  );
+
+  // Dies ordered from a manufacturer show here once their request is received.
+  const libraryDies = useMemo(() => dies.filter((d) => dieShowsInLibrary(d)), [dies]);
+
+  const shownDies = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return libraryDies.filter((d) => {
+      if (statusFilter && d.shop_status !== statusFilter) return false;
+      if (typeFilter && d.die_type !== typeFilter) return false;
+      if (shapeFilter && d.shape !== shapeFilter) return false;
+      if (!q) return true;
+      return [
+        d.name,
+        d.template_code,
+        d.order_title,
+        d.customer_name,
+        d.manufacturer_name,
+        d.location,
+        d.pacdora_template_name,
+        DIE_TYPE_LABEL[d.die_type],
+      ].some((v) => v?.toLowerCase().includes(q));
+    });
+  }, [libraryDies, search, shapeFilter, statusFilter, typeFilter]);
+
+  const shownRequests = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return requests;
+    return requests.filter((request) => {
+      const die = request.die_id ? dieById.get(request.die_id) : null;
+      return [
+        request.order_title,
+        request.customer_name,
+        request.product_name,
+        die?.name,
+        die?.template_code,
+      ].some((value) => value?.toLowerCase().includes(q));
+    });
+  }, [dieById, requests, search]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       {alarms.length > 0 ? (
         <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <p className="flex items-center gap-2 text-sm font-semibold text-red-800">
@@ -250,284 +166,208 @@ export function DieOrderClient({
         </div>
       ) : null}
 
-      <form
-        onSubmit={(e) => void submit(e)}
-        className={cn(
-          "relative space-y-3",
-          orderPickerOpen ? "z-30" : "z-0"
-        )}
-      >
-        <h2 className="text-sm font-semibold text-slate-800">New die request</h2>
-        <div className="flex min-w-0 flex-nowrap items-end gap-1.5 overflow-x-auto overflow-y-hidden">
-          <div className="relative z-40 w-[8.5rem] shrink-0">
-            <Label htmlFor="die-order" className="mb-0 whitespace-nowrap text-[11px]">
-              Order number
-            </Label>
-            <Input
-              ref={orderInputRef}
-              id="die-order"
-              className="mt-1 px-2"
-              value={orderQuery}
-              onChange={(e) => {
-                setOrder(null);
-                setProductName("");
-                setWidth("");
-                setHeight("");
-                setDepth("");
-                setOrderQuery(e.target.value);
-                setOrderPickerOpen(true);
-              }}
-              onFocus={() => setOrderPickerOpen(true)}
-              placeholder="Type digits…"
-              autoComplete="off"
-              role="combobox"
-              aria-expanded={orderPickerOpen}
-              aria-controls="die-order-hits"
-            />
-            {orderPickerOpen && typeof document !== "undefined"
-              ? createPortal(
-                  <ul
-                    ref={orderMenuRef}
-                    id="die-order-hits"
-                    role="listbox"
-                    className="fixed z-[200] max-h-64 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
-                    style={{
-                      top: menuPos.top,
-                      left: menuPos.left,
-                      width: menuPos.width,
-                    }}
-                  >
-                    {searching && hits.length === 0 ? (
-                      <li className="px-3 py-2 text-sm text-slate-500">
-                        Matching board cards…
-                      </li>
-                    ) : hits.length === 0 ? (
-                      <li className="px-3 py-2 text-sm text-slate-500">
-                        {orderQuery.trim()
-                          ? "No matching board orders"
-                          : "Type the order number from the card"}
-                      </li>
-                    ) : (
-                      hits.map((hit) => {
-                        const number =
-                          hit.orderNumber || formatShortOrderNumber(hit.title);
-                        return (
-                          <li key={hit.id} role="option">
-                            <button
-                              type="button"
-                              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
-                              onClick={() => pickOrder(hit)}
-                            >
-                              <span className="font-medium tabular-nums">
-                                {number}
-                              </span>
-                              {hit.productName ? (
-                                <span className="text-slate-500">
-                                  {" "}
-                                  · {hit.productName}
-                                </span>
-                              ) : hit.customerName ? (
-                                <span className="text-slate-500">
-                                  {" "}
-                                  · {hit.customerName}
-                                </span>
-                              ) : null}
-                            </button>
-                          </li>
-                        );
-                      })
-                    )}
-                  </ul>,
-                  document.body
-                )
-              : null}
-          </div>
-          <div className="w-[8rem] shrink-0">
-            <Label htmlFor="die-product" className="mb-0 whitespace-nowrap text-[11px]">
-              Product
-            </Label>
-            <Input
-              id="die-product"
-              className="mt-1 px-2"
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              placeholder="From order"
-            />
-          </div>
-          <div className="w-[4.5rem] shrink-0">
-            <Label htmlFor="die-x" className="mb-0 whitespace-nowrap text-[11px]">
-              Width (X)
-            </Label>
-            <Input
-              id="die-x"
-              className="mt-1 px-1.5"
-              type="number"
-              min="0"
-              step="0.001"
-              value={width}
-              onChange={(e) => setWidth(e.target.value)}
-            />
-          </div>
-          <div className="w-[4.5rem] shrink-0">
-            <Label htmlFor="die-y" className="mb-0 whitespace-nowrap text-[11px]">
-              Height (Y)
-            </Label>
-            <Input
-              id="die-y"
-              className="mt-1 px-1.5"
-              type="number"
-              min="0"
-              step="0.001"
-              value={height}
-              onChange={(e) => setHeight(e.target.value)}
-            />
-          </div>
-          <div className="w-[4.5rem] shrink-0">
-            <Label htmlFor="die-z" className="mb-0 whitespace-nowrap text-[11px]">
-              Depth (Z)
-            </Label>
-            <Input
-              id="die-z"
-              className="mt-1 px-1.5"
-              type="number"
-              min="0"
-              step="0.001"
-              value={depth}
-              onChange={(e) => setDepth(e.target.value)}
-            />
-          </div>
-          <div className="relative z-40 w-[10.5rem] shrink-0">
-            <Label htmlFor="die-required" className="mb-0 whitespace-nowrap text-[11px]">
-              Required date
-            </Label>
-            <RequiredDatePicker
-              id="die-required"
-              value={requiredDate}
-              dueDate={order?.dueDate ? order.dueDate.slice(0, 10) : null}
-              dueLabel="Order due"
-              selectedLabel="Required date"
-              onChange={setRequiredDate}
-            />
-          </div>
-          <div className="w-[5.25rem] shrink-0">
-            <Label htmlFor="die-own-date" className="mb-0 whitespace-nowrap text-[11px]">
-              Own date
-            </Label>
-            <label
-              htmlFor="die-own-date"
-              className="mt-1 flex h-10 cursor-pointer items-center gap-1.5 rounded-md border border-slate-300 bg-white px-1.5 text-xs text-slate-700"
-              title="Allow the manufacturer to offer their own due date"
-            >
-              <input
-                id="die-own-date"
-                type="checkbox"
-                className="h-4 w-4 accent-blue-600"
-                checked={allowOwnDate}
-                onChange={(e) => setAllowOwnDate(e.target.checked)}
-              />
-              Allow
-            </label>
-          </div>
-          <div className="w-[11.5rem] shrink-0">
-            <Label htmlFor="die-manufacturer" className="mb-0 whitespace-nowrap text-[11px]">
-              Die manufacturer
-            </Label>
-            {manufacturers.length === 0 ? (
-              <p className="mt-1 truncate text-xs text-slate-500">
-                Add in Settings first.
-              </p>
-            ) : (
-              <Select
-                id="die-manufacturer"
-                className="mt-1 px-2"
-                value={manufacturerId}
-                onChange={(e) => setManufacturerId(e.target.value)}
-                required
-              >
-                {manufacturers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {dieManufacturerLabel(m)}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </div>
-          <div className="min-w-[5rem] flex-1">
-            <Label htmlFor="die-comment" className="mb-0 whitespace-nowrap text-[11px]">
-              Comment
-            </Label>
-            <Input
-              id="die-comment"
-              className="mt-1 px-2"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Optional"
-            />
-          </div>
-          <div className="w-[7rem] shrink-0">
-            <Label htmlFor="die-file" className="mb-0 whitespace-nowrap text-[11px]">
-              Files (up to {DIE_MAX_FILES})
-            </Label>
-            <label
-              htmlFor="die-file"
-              className="mt-1 flex h-10 cursor-pointer items-center truncate rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
-              title={
-                files.length
-                  ? files.map((f) => f.name).join(", ")
-                  : "Attach up to 5 pictures or files"
+      {notice ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          {notice}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <label className="relative min-w-64 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            aria-label="Search dies and requests"
+            className="h-11 w-full pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // Scanning a die QR (or typing DIE-00007) + Enter opens that die.
+              if (e.key !== "Enter") return;
+              const code = parseDieCodeInput(search);
+              if (!code) return;
+              e.preventDefault();
+              router.push(dieQrPath(code));
+            }}
+            placeholder="Search customer, die name, order number or Die QR / Template ID"
+          />
+        </label>
+        {tab === "dies" ? (
+          <>
+            <Select
+              aria-label="Filter by status"
+              className="h-11 w-40"
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(e.target.value as DieShopStatus | "")
               }
             >
-              <Paperclip className="mr-1 h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">
-                {files.length
-                  ? `${files.length} file${files.length === 1 ? "" : "s"}`
-                  : "Attach"}
-              </span>
-            </label>
-            <input
-              id="die-file"
-              className="sr-only"
-              type="file"
-              multiple
-              onChange={(e) => {
-                const next = [
-                  ...files,
-                  ...Array.from(e.target.files ?? []),
-                ].slice(0, DIE_MAX_FILES);
-                setFiles(next);
-                e.target.value = "";
-              }}
-            />
-          </div>
-          <Button
-            type="submit"
-            disabled={sending || manufacturers.length === 0}
-            className="shrink-0 whitespace-nowrap"
-          >
-            {sending ? "Sending…" : "Send"}
-          </Button>
-        </div>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        {notice ? (
-          <p className="text-sm text-emerald-700">{notice}</p>
+              <option value="">All statuses</option>
+              {DIE_SHOP_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {DIE_SHOP_STATUS_LABEL[status]}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Filter by die type"
+              className="h-11 w-40"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value as DieType | "")}
+            >
+              <option value="">All die types</option>
+              {DIE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {DIE_TYPE_LABEL[type]}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Filter by shape"
+              className="h-11 w-40"
+              value={shapeFilter}
+              onChange={(e) => setShapeFilter(e.target.value as DieShape | "")}
+            >
+              <option value="">All shapes</option>
+              {DIE_SHAPES.map((shape) => (
+                <option key={shape} value={shape}>
+                  {DIE_SHAPE_LABEL[shape]}
+                </option>
+              ))}
+            </Select>
+          </>
         ) : null}
-      </form>
+      </div>
 
-      <div>
-        <h2 className="mb-3 text-sm font-semibold text-slate-800">
-          Requests
-        </h2>
+      <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-slate-200">
+      <div role="tablist" aria-label="Die Order" className="flex gap-1">
+        {(
+          [
+            ["dies", "Dies", libraryDies.length, null],
+            ["requests", "Requests", requests.length, waitingCount],
+            ["manufacturers", "Manufacturers", manufacturers.length, null],
+          ] as const
+        ).map(([key, label, count, attention]) => {
+          const on = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`die-tab-${key}`}
+              aria-selected={on}
+              aria-controls={`die-panel-${key}`}
+              onClick={() => setTab(key)}
+              className={cn(
+                "-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors",
+                on
+                  ? "border-blue-600 text-blue-700"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              )}
+            >
+              {label}
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
+                  on ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
+                )}
+              >
+                {count}
+              </span>
+              {attention ? (
+                <span
+                  className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800"
+                  title="Quotes waiting for you to confirm"
+                >
+                  {attention} quoted
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      {tab === "dies" ? (
+        <div className="pb-2">
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                setFormRequest(null);
+                setFormDie("new");
+              }}
+              disabled={diesMigrationMissing}
+              className="inline-flex items-center gap-1.5"
+            >
+              <Plus className="h-4 w-4" />
+              Add Die
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      </div>
+
+      {tab === "dies" ? (
+      <section role="tabpanel" id="die-panel-dies" aria-labelledby="die-tab-dies">
+        {diesMigrationMissing ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            The die list isn&apos;t set up yet. {DIES_MIGRATION_HINT}
+          </p>
+        ) : libraryDies.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+            No dies yet. A die shows here when you add it with{" "}
+            <span className="font-semibold">+ Add Die</span>, or when a die you
+            ordered is marked received.
+          </p>
+        ) : shownDies.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            No dies match the selected filters.
+          </p>
+        ) : (
+          <DieLibraryTable
+            dies={shownDies}
+            onEdit={(die) => {
+              setFormRequest(null);
+              setFormDie(die);
+            }}
+            onReorder={(die) => setReorderDie(die)}
+            onUpdated={() => router.refresh()}
+          />
+        )}
+      </section>
+      ) : tab === "manufacturers" ? (
+      <section role="tabpanel" id="die-panel-manufacturers" aria-labelledby="die-tab-manufacturers">
+        <DieManufacturersManager
+          initial={manufacturers}
+          migrationRequired={manufacturersMigrationMissing}
+          onChanged={() => router.refresh()}
+          search={search}
+        />
+      </section>
+      ) : (
+      <section role="tabpanel" id="die-panel-requests" aria-labelledby="die-tab-requests">
         {requests.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            No die requests yet.
+            No die requests yet. Use <span className="font-semibold">Request quote</span> on a die.
+          </p>
+        ) : shownRequests.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+            No requests match “{search.trim()}”.
           </p>
         ) : (
           <ul className="space-y-3">
-            {requests.map((req) => (
+            {shownRequests.map((req) => (
               <DieRequestCard
                 key={req.id}
                 req={req}
+                dieCode={req.die_id ? dieCodeById[req.die_id] ?? null : null}
                 manufacturers={manufacturers}
+                onEditDie={
+                  req.die_id && dieById.has(req.die_id)
+                    ? () => {
+                        setFormRequest(req);
+                        setFormDie(dieById.get(req.die_id!)!);
+                      }
+                    : undefined
+                }
                 onSaved={(msg) => {
                   if (msg) setNotice(msg);
                   router.refresh();
@@ -536,7 +376,55 @@ export function DieOrderClient({
             ))}
           </ul>
         )}
-      </div>
+      </section>
+      )}
+
+      {formDie ? (
+        <DieFormModal
+          die={formDie === "new" ? null : formDie}
+          historyRequest={formRequest}
+          onClose={() => {
+            setFormDie(null);
+            setFormRequest(null);
+          }}
+          requestCount={
+            formDie === "new" ? 0 : requestCountByDie[formDie.id] ?? 0
+          }
+          onDeleted={(die) => {
+            setFormDie(null);
+            setFormRequest(null);
+            setNotice(`Die “${die.name}” (${die.template_code}) deleted.`);
+            router.refresh();
+          }}
+          manufacturers={manufacturers}
+          onSaved={(die, created, result) => {
+            setFormDie(null);
+            setFormRequest(null);
+            const base = result?.sent
+              ? `Order for ${die.template_code} “${die.name}” sent to the manufacturer. It's on the Requests tab until you mark it received.`
+              : created
+                ? `Added ${die.template_code} “${die.name}”.`
+                : `Die “${die.name}” saved.`;
+            setNotice(result?.warning ? `${base} But ${result.warning}.` : base);
+            if (result?.sent) setTab("requests");
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {reorderDie ? (
+        <DieRequestModal
+          die={reorderDie}
+          manufacturers={manufacturers}
+          onClose={() => setReorderDie(null)}
+          onSent={(msg) => {
+            setReorderDie(null);
+            setNotice(msg);
+            setTab("requests");
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

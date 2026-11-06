@@ -1,4 +1,11 @@
-export type DieRequestStatus = "sent" | "quoted" | "ordered";
+export type DieRequestStatus = "sent" | "quoted" | "ordered" | "received";
+
+/** Unknown / legacy values read as "sent". */
+export function parseDieRequestStatus(raw: unknown): DieRequestStatus {
+  return raw === "received" || raw === "ordered" || raw === "quoted"
+    ? raw
+    : "sent";
+}
 
 export type DieAlertLevel =
   | "overdue"
@@ -24,6 +31,8 @@ export interface DieRequest {
   id: string;
   tenant_id: string;
   order_id: string;
+  /** Die library row this request is for (migration 0093). */
+  die_id: string | null;
   token: string;
   width: number | null;
   height: number | null;
@@ -46,7 +55,12 @@ export interface DieRequest {
   client_note: string | null;
   sent_at: string;
   quoted_at: string | null;
+  /** Manufacturer reminders sent so far (migration 0098). */
+  reminder_count: number;
+  last_reminder_at: string | null;
   ordered_at: string | null;
+  /** Staff marked the die as arrived at the shop. */
+  received_at: string | null;
   created_at: string;
   order_title: string | null;
   order_due_date: string | null;
@@ -67,6 +81,27 @@ export function ymdDate(value: string | Date): string {
   const d = String(value.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+
+/** Shop time zone for "today" checks on die dates (server and browser agree). */
+export const DIE_SHOP_TIME_ZONE = "America/Los_Angeles";
+
+/** Today as YYYY-MM-DD in the shop's time zone. */
+export function dieTodayYmd(now: Date = new Date()): string {
+  // en-CA formats as YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DIE_SHOP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+/** True when `ymd` is before today (shop time). Malformed dates count as not past. */
+export function isDieDatePast(ymd: string, today: string = dieTodayYmd()): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) && ymd < today;
+}
+
+export const DIE_PAST_DATE_ERROR = "Pick today or a later date.";
 
 function parseYmdLocal(ymd: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim().slice(0, 10));
@@ -169,7 +204,7 @@ export function dieAlertLabel(level: DieAlertLevel): string {
   }
 }
 
-/** Alarm when the client-confirmed die due date is late, today, past required, or within 2 days. */
+/** Alarm when the client-confirmed die due date is late, today, past required, or within 2 days. A received die never alarms. */
 export function dieRequestAlert(
   req: Pick<
     DieRequest,
@@ -212,7 +247,9 @@ export type DieBoardStatus = {
   label: string;
 };
 
+/** Board shows the most advanced die still in progress; "received" only once every die arrived. */
 const DIE_STATUS_RANK: Record<DieRequestStatus, number> = {
+  received: 0,
   sent: 1,
   quoted: 2,
   ordered: 3,
@@ -226,8 +263,13 @@ export function formatDieDayMonth(ymd: string | null | undefined): string | null
 }
 
 export function dieBoardStatusLabel(
-  req: Pick<DieRequest, "status" | "confirmed_due_date">
+  req: Pick<DieRequest, "status" | "confirmed_due_date"> &
+    Partial<Pick<DieRequest, "received_at">>
 ): string {
+  if (req.status === "received") {
+    const day = formatDieDayMonth(req.received_at);
+    return day ? `Die received - ${day}` : "Die received";
+  }
   if (req.status === "ordered") {
     const day = formatDieDayMonth(req.confirmed_due_date);
     return day ? `Die ordered - ${day}` : "Die ordered";
@@ -237,7 +279,10 @@ export function dieBoardStatusLabel(
 }
 
 export function pickDieBoardStatus(
-  rows: Array<Pick<DieRequest, "status" | "confirmed_due_date" | "created_at">>
+  rows: Array<
+    Pick<DieRequest, "status" | "confirmed_due_date" | "created_at"> &
+      Partial<Pick<DieRequest, "received_at">>
+  >
 ): DieBoardStatus | null {
   if (rows.length === 0) return null;
   const best = [...rows].sort((a, b) => {
@@ -252,6 +297,7 @@ export const DIE_BOARD_STATUS_CLASS: Record<DieRequestStatus, string> = {
   sent: "bg-amber-100 text-amber-800",
   quoted: "bg-sky-100 text-sky-800",
   ordered: "bg-blue-100 text-blue-800",
+  received: "bg-emerald-100 text-emerald-800",
 };
 
 export const DIE_ALERT_CLASS: Record<DieAlertLevel, string> = {
@@ -296,6 +342,27 @@ export function dieRequestFiles(
   return [];
 }
 
+/** Public quote-page files, including the linked die PDF for older requests. */
+export function diePortalFiles(
+  req: Pick<DieRequest, "files" | "file_path" | "file_name" | "file_mime">,
+  die?: {
+    pdf_path?: string | null;
+    pdf_name?: string | null;
+  } | null
+): DieRequestFile[] {
+  const files = dieRequestFiles(req);
+  const pdfPath = die?.pdf_path?.trim();
+  if (!pdfPath || files.some((file) => file.path === pdfPath)) return files;
+  return [
+    {
+      path: pdfPath,
+      name: die?.pdf_name?.trim() || "Die PDF",
+      mime: "application/pdf",
+    },
+    ...files,
+  ].slice(0, DIE_MAX_FILES);
+}
+
 export function collectDieUploadFiles(form: FormData): File[] {
   const out: File[] = [];
   const seen = new Set<File>();
@@ -321,4 +388,37 @@ export function isDieAttachmentImage(
   req: Pick<DieRequest, "file_mime" | "file_name" | "file_path" | "files">
 ): boolean {
   return dieRequestFiles(req).some(isDieFileImage);
+}
+
+/** Manufacturer reminder rule: first nudge after 2 days, then every 2 days, 3 at most. */
+export const DIE_REMINDER = { afterDays: 2, everyDays: 2, max: 3 } as const;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * True when a request is still waiting for the manufacturer's price and the
+ * next reminder is due. Only "sent" requests (no quote yet) get reminders.
+ */
+export function dieReminderDue(
+  req: Pick<DieRequest, "status" | "sent_at" | "reminder_count" | "last_reminder_at">,
+  now: Date = new Date(),
+  rule: { afterDays: number; everyDays: number; max: number } = DIE_REMINDER
+): boolean {
+  if (req.status !== "sent") return false;
+  if ((req.reminder_count ?? 0) >= rule.max) return false;
+  const last = req.last_reminder_at ? Date.parse(req.last_reminder_at) : null;
+  const sent = Date.parse(req.sent_at);
+  if (!Number.isFinite(sent)) return false;
+  const since = last ?? sent;
+  const wait = (last ? rule.everyDays : rule.afterDays) * DAY_MS;
+  return now.getTime() - since >= wait;
+}
+
+/** "Reminded 2× · last Nov 7" style label, or null. */
+export function dieReminderLabel(
+  req: Pick<DieRequest, "reminder_count" | "last_reminder_at">
+): string | null {
+  const n = req.reminder_count ?? 0;
+  if (n <= 0) return null;
+  return n === 1 ? "Reminded once" : `Reminded ${n}×`;
 }
