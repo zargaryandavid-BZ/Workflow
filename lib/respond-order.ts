@@ -97,7 +97,15 @@ const FINISH_LABELS = new Set(["finishing", "lamination"]);
 /** "Sides: 1 Side · Finishing: Gloss · Size: 8x3" lines written by the CRM. */
 function crmProductionNoteSpecs(specs: Record<string, unknown>): Map<string, string> {
   const out = new Map<string, string>();
-  const raw = specs.production_notes;
+  let raw: unknown = specs.production_notes;
+  // Stored as a JSON string of note entries on most cards.
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = [];
+    }
+  }
   const texts: string[] = [];
   if (Array.isArray(raw)) {
     for (const n of raw) {
