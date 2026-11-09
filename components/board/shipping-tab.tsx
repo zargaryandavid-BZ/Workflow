@@ -565,15 +565,30 @@ export function ShippingTab({
               Customer sent their own shipping label
             </p>
             <p className="text-slate-600">
-              Print it from the order&apos;s Files and stick it on the box. Do
-              not buy a FedEx label.
+              Print the customer&apos;s label and stick it on the box. Do not
+              buy a FedEx label. (Also saved in the order&apos;s Files.)
             </p>
             {(rate?.ownLabelFiles ?? []).length > 0 ? (
-              <ul className="space-y-0.5 text-slate-800">
-                {(rate?.ownLabelFiles ?? []).map((file) => (
-                  <li key={file.path || file.name}>• {file.name}</li>
-                ))}
-              </ul>
+              <div className="flex flex-wrap gap-2">
+                {(rate?.ownLabelFiles ?? []).map((file) =>
+                  file.assetId ? (
+                    <a
+                      key={file.assetId}
+                      href={`/api/assets/${file.assetId}?inline=1`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      {file.name}
+                    </a>
+                  ) : (
+                    <span key={file.path || file.name} className="text-slate-800">
+                      {file.name}
+                    </span>
+                  )
+                )}
+              </div>
             ) : null}
             {rate?.ownLabelNote ? (
               <p className="text-slate-600">Note: {rate.ownLabelNote}</p>
