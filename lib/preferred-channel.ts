@@ -146,6 +146,25 @@ export function isExplicitPreferredChannel(
 }
 
 /**
+ * The default to pre-select / use for a customer send. A customer who never
+ * chose a default (DB default 'sms' with no preferred_channel_set_at) gets
+ * Email + SMS, so the link reaches both when both contacts are on file
+ * (Hayk 2026-11-08, item 37). A saved choice always wins.
+ */
+export function effectivePreferredChannel(
+  customer:
+    | {
+        preferred_channel?: string | null;
+        preferred_channel_set_at?: string | null;
+      }
+    | null
+    | undefined
+): PreferredChannel {
+  if (!customer || !isExplicitPreferredChannel(customer)) return "both";
+  return normalizePreferredChannel(customer.preferred_channel);
+}
+
+/**
  * Which channels an automatic (no-popup) customer message should use.
  * Automatic shipped / picked-up / stage messages historically went to every
  * contact on file — keep that when the customer never chose a default, and
@@ -201,10 +220,9 @@ export function rerequestChannel(args: {
     args.previous === "sms" || args.previous === "both"
       ? args.previous
       : "email";
-  if (!args.explicit) return prev;
   const resolved = resolvePreferredNotifyChannel(
     { email: args.email ?? null, phone: args.phone ?? null },
-    args.preferred,
+    args.explicit ? args.preferred : "both",
     args.smsConfigured ?? true
   );
   return resolved === "manual" ? prev : resolved;

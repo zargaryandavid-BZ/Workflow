@@ -318,13 +318,13 @@ Thank you,
     "Your order {{order_number}} is ready — choose delivery or pickup",
   shipping_portal_email_body: `Hi {{customer_name}},
 
-Your order {{order_number}} is ready!
+Good news: your order {{order_number}} is finished and ready to go.
 
-Please open this link to view your order and choose self pickup or delivery:
-
+Tap below to choose how you want it: pick it up at our shop, or have it delivered.
 {{portal_url}}
 
-— {{team_name}}`,
+Thank you for printing with us!
+{{team_name}}`,
   shipping_portal_sms:
     "Hi, this is Bazaar Printing. Your order {{order_number}} is ready. View order and choose pickup or delivery: {{portal_url}}",
 
@@ -350,16 +350,15 @@ Thank you,
     "Hi, this is Bazaar Printing. Your order {{order_number}} is ready for pickup at {{pickup_location}}. {{pickup_hours}} Pickup code: {{pickup_code}}. View order: {{portal_url}}",
 
   fedex_tracking_email_subject:
-    "Your order {{order_number}} has shipped — FedEx {{tracking_number}}",
+    "Your order {{order_number}} has shipped",
   fedex_tracking_email_body: `Hi {{customer_name}},
 
-Your order {{order_number}} has shipped with FedEx.
+Your order {{order_number}} is on its way with FedEx.
 
 Tracking number: {{tracking_number}}
-Track your shipment:
 {{tracking_url}}
 
-Thank you,
+Thank you for printing with us!
 {{team_name}}`,
   fedex_tracking_sms:
     "Hi {{customer_name}}, this is Bazaar Printing. Your order {{order_number}} has shipped. Tracking number: {{tracking_number}} {{tracking_url}}",

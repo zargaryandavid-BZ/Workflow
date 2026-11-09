@@ -19,6 +19,7 @@ import { formatPickupCode, PICKUP_CODE_PREVIEW } from "@/lib/pickup-code";
 import {
   destinationForChannel,
   resolvePreferredNotifyChannel,
+  effectivePreferredChannel,
 } from "@/lib/preferred-channel";
 import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
 import {
@@ -133,14 +134,14 @@ export function ReadyToShipPopup({
   const [channel, setChannel] = useState<Channel>(() =>
     resolvePreferredNotifyChannel(
       contact,
-      order.customer?.preferred_channel,
+      effectivePreferredChannel(order.customer),
       smsConfigured
     )
   );
   const [to, setTo] = useState(() => {
     const initial = resolvePreferredNotifyChannel(
       contact,
-      order.customer?.preferred_channel,
+      effectivePreferredChannel(order.customer),
       smsConfigured
     );
     if (initial === "manual") return "";

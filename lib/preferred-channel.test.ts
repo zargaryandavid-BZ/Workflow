@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   automaticNotifyChannels,
   defaultSendChannels,
+  effectivePreferredChannel,
   isExplicitPreferredChannel,
   normalizePreferredChannel,
   preferredChannelFallbackNote,
@@ -153,10 +154,10 @@ describe("rerequestChannel (batch re-request of stale requests)", () => {
     );
   });
 
-  it("keeps the last channel when the customer never chose", () => {
+  it("sends Email + SMS when the customer never chose and has both", () => {
     assert.equal(
       rerequestChannel({
-        previous: "both",
+        previous: "sms",
         email: "a@b.com",
         phone: "+15551212",
         preferred: "sms",
@@ -215,6 +216,30 @@ describe("preferredChannelFallbackNote", () => {
     assert.equal(
       preferredChannelFallbackNote({ email: null, phone: null }, "email"),
       null
+    );
+  });
+});
+
+describe("effectivePreferredChannel (item 37: both by default)", () => {
+  it("defaults a never-chosen customer to Email + SMS", () => {
+    assert.equal(effectivePreferredChannel({ preferred_channel: "sms" }), "both");
+    assert.equal(effectivePreferredChannel(null), "both");
+    assert.deepEqual(
+      defaultSendChannels(both, effectivePreferredChannel({ preferred_channel: "sms" }), true),
+      ["email", "sms"]
+    );
+  });
+  it("keeps a saved SMS-only or Email-only choice", () => {
+    assert.equal(
+      effectivePreferredChannel({ preferred_channel: "sms", preferred_channel_set_at: "2026-10-20T00:00:00Z" }),
+      "sms"
+    );
+    assert.equal(effectivePreferredChannel({ preferred_channel: "email" }), "email");
+  });
+  it("falls back to the one contact on file", () => {
+    assert.deepEqual(
+      defaultSendChannels({ email: "a@b.com", phone: null }, effectivePreferredChannel(null), true),
+      ["email"]
     );
   });
 });
