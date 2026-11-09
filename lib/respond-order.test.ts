@@ -113,3 +113,17 @@ test("no duplicate Finishing/Size when the fields are already filled", () => {
   assert.equal(rows.filter((r) => r.label === "Finishing").length, 1);
   assert.ok(!rows.some((r) => r.label === "Size"));
 });
+
+test("reads CRM spec line when production_notes is stored as a JSON string (live W519-1 shape)", () => {
+  const rows = buildRespondOrderRows(
+    null,
+    { Product: "Premium Trading Cards", Width: "2.5", Height: "3.5" },
+    {
+      production_notes: JSON.stringify([
+        { author: "CRM", text: "Sides: 2 Sides · Finishing: Holo · Special effects: Royal Blue Foil, Cast and Cure · Size: 2.5x3.5" },
+      ]),
+    }
+  );
+  assert.equal(rows.find((r) => r.label === "Finishing")?.value, "Holo");
+  assert.ok(!rows.some((r) => r.label === "Size"));
+});
