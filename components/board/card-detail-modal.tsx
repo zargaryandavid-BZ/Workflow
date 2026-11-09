@@ -1,5 +1,6 @@
 "use client";
 
+import { PurchaseOrderPanel } from "@/components/outsource/purchase-order-panel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -164,7 +165,7 @@ interface CardDetailModalProps {
   notifyColumns?: NotifyColumnConfig[];
   webhookSourceStyles?: WebhookSourceStyles;
   /** Open this tab as soon as the modal loads (e.g. chat icon → Com. History). */
-  initialTab?: "details" | "missing-info" | "approval" | "shipping" | "history";
+  initialTab?: "details" | "missing-info" | "approval" | "shipping" | "purchase-order" | "history";
   /** Called when a Fast Action Button moves to a column that has an active automation. */
   onNotifyColumn?: (
     order: OrderWithRelations,
@@ -394,7 +395,7 @@ export function CardDetailModal({
   const [skus, setSkus] = useState<SkuItem[]>([]);
   const [designerId, setDesignerId] = useState("");
   const [designTask, setDesignTask] = useState("");
-  const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "history">(
+  const [tab, setTab] = useState<"details" | "missing-info" | "approval" | "shipping" | "purchase-order" | "history">(
     "details"
   );
   const { hasFinalPdf, loaded, finalUrl, designerUrl } =
@@ -1506,6 +1507,8 @@ export function CardDetailModal({
     ? columns.find((c) => c.id === data.order.column_id)
     : undefined;
   const isInExceptionColumn = orderColumn?.kind === "exception";
+  const isOutsourceColumn =
+    (orderColumn?.name ?? "").trim().toLowerCase() === "outsource";
   const hasMissingInfoNotes =
     (data?.missingInfo.length ?? 0) > 0 ||
     Boolean(data?.tabHints?.hasMissingInfo);
@@ -2432,6 +2435,20 @@ export function CardDetailModal({
                   />
                 </button>
               ) : null}
+              {isOutsourceColumn ? (
+                <button
+                  type="button"
+                  onClick={() => setTab("purchase-order")}
+                  className={cn(
+                    "flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                    tab === "purchase-order"
+                      ? "border-[var(--primary)] text-[var(--primary)]"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  Purchase order
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setTab("history")}
@@ -2663,6 +2680,8 @@ export function CardDetailModal({
                 . Do not bill shop FedEx.
               </p>
             </section>
+          ) : tab === "purchase-order" && isOutsourceColumn ? (
+            <PurchaseOrderPanel orderId={data.order.id} />
           ) : tab === "history" ? (
             data.timelinePending && data.activity.length === 0 ? (
               <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
