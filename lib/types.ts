@@ -277,6 +277,10 @@ export interface OrderSpecs {
   warehouse_stock_confirmed_by?: string | null;
   warehouse_stock_sms_sent_at?: string | null;
   warehouse_stock_confirm_secret?: string | null;
+  /** CRM order number (e.g. "ORD-2026-15643") — shown as "CRM …" on portal/website cards. */
+  crm_order_number?: string | null;
+  /** Portal/website order number (e.g. "BZ-529") — shown as "Portal …" on CRM cards. */
+  portal_order_number?: string | null;
   /** Webhook billing / payment info shown on the card globe popover. */
   billing?: {
     source_url?: string | null;

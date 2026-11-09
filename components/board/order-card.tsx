@@ -147,6 +147,7 @@ import { isApplicationEnabled } from "@/lib/order-application";
 import { isRushOrder } from "@/lib/order-rush";
 import type { TimeChip } from "@/lib/time-chips";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
+import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
 
 interface ColumnOption {
   id: string;
@@ -1576,6 +1577,7 @@ export function OrderCard({
                   </span>
                 ) : null}
               </span>
+              <LinkedOrderNumbers title={order.title} specs={order.specs} />
               </div>
               {cardTitle ? (
                 <span className="min-w-0 w-full whitespace-normal break-words text-left text-[15px] font-bold leading-snug text-slate-900">
