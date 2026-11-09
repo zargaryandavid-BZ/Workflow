@@ -60,6 +60,11 @@ export function orderNumberSearchHaystack(order: {
       ? specs.webhook_item_title.trim()
       : "";
   if (itemTitle) parts.push(itemTitle);
+  // Same order's number in the other system (CRM ORD-… / portal BZ-…).
+  for (const key of ["crm_order_number", "portal_order_number"] as const) {
+    const linked = typeof specs?.[key] === "string" ? specs[key].trim() : "";
+    if (linked) parts.push(linked);
+  }
   return parts.join(" ").toLowerCase();
 }
 

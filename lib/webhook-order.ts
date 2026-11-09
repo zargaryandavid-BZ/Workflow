@@ -83,6 +83,11 @@ import {
   type OrderBillingInfo,
 } from "@/lib/order-billing";
 import {
+  applyLinkedOrderNumbers,
+  linkedOrderNumbersFromWebhook,
+  type LinkedOrderNumbers,
+} from "@/lib/order-linked-numbers";
+import {
   applyReorderFinalArtworkLink,
   attachGdriveFoldersToOrders,
   linkExistingDriveFolderToOrder,
@@ -360,6 +365,10 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
   /** Stable CRM line id (ticket_line_items.id). Stored on the card so a later CRM
    *  edit re-syncs to the SAME card by id instead of by position. */
   crm_line_id?: string;
+  /** Per-line override of the order-level `crm_order_number` (→ specs.crm_order_number). */
+  crm_order_number?: string;
+  /** Per-line override of the order-level `portal_order_number` (→ specs.portal_order_number). */
+  portal_order_number?: string;
   title?: string;
   product?: string;
   /**
@@ -547,6 +556,16 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   crm_customer_id?: string;
   /** CRM order id — stored on the card for idempotent re-sync. */
   crm_order_id?: string;
+  /**
+   * Human CRM order number (e.g. "ORD-2026-15643") → specs.crm_order_number.
+   * Shown as a small "CRM …" label on portal/website cards. Additive only.
+   */
+  crm_order_number?: string;
+  /**
+   * Portal/website order number (e.g. "BZ-529") → specs.portal_order_number.
+   * Shown as a small "Portal …" label on CRM cards. Additive only.
+   */
+  portal_order_number?: string;
   /** CRM starred / key account (customers.priority_stars >= 1). */
   is_key_account?: boolean;
   /**
@@ -3254,7 +3273,9 @@ async function updateExistingOrdersDue(
   dueDate: string | null,
   dueSpecs: OrderDueSpecs,
   rush?: boolean,
-  sourceLabel?: string | null
+  sourceLabel?: string | null,
+  /** Order-level CRM/portal numbers — set when sent, never cleared. */
+  linkedNumbers: LinkedOrderNumbers = {}
 ): Promise<void> {
   await Promise.all(
     existing.map(async (order) => {
@@ -3340,6 +3361,7 @@ async function updateExistingOrdersDue(
       }
       if (rush === true) nextSpecs.rush = true;
       else if (rush === false) nextSpecs.rush = false;
+      applyLinkedOrderNumbers(nextSpecs, linkedNumbers);
 
       const { error } = await client
         .from("orders")
@@ -3542,6 +3564,14 @@ async function refreshPortalOrdersFromWebhook(params: {
     const stampedBz = bazaarOrderNumberFromWebhook(body, item);
     if (stampedBz) nextSpecs.bazaar_order_number = stampedBz;
     if (items.length > 1) nextSpecs.webhook_item_index = i;
+    // CRM ORD-… / portal BZ-… numbers: set when sent (line overrides order), never cleared.
+    applyLinkedOrderNumbers(
+      nextSpecs,
+      linkedOrderNumbersFromWebhook(
+        body as unknown as Record<string, unknown>,
+        ir
+      )
+    );
 
     const sourceChannelClean = normalizeSourceChannel(body.source_channel);
     if (sourceChannelClean) nextSpecs.source_channel = sourceChannelClean;
@@ -3762,6 +3792,8 @@ interface CreateSingleJobParams {
   webhookSource: string;
   /** Payment / source link info → specs.billing (globe popover on card). */
   billing: OrderBillingInfo | null;
+  /** Cross-system numbers (CRM ORD-… / portal BZ-…) → specs, additive only. */
+  linkedOrderNumbers?: LinkedOrderNumbers;
   /** Company default board priority (1–5) when set on the customer. */
   customerPriorityScore?: number | null;
   /** When set, do not re-route by product (keep siblings together on portal append). */
@@ -3897,6 +3929,7 @@ async function createSingleWebhookJob(
     corrections,
     webhookSource,
     billing,
+    linkedOrderNumbers = {},
     customerPriorityScore = null,
     portalBrokerId = null,
     portalCompanyName = null,
@@ -4134,6 +4167,7 @@ async function createSingleWebhookJob(
   if (productionNotesText) specs.production_notes = productionNotesText;
   if (customerFacingNoteText) specs.customer_facing_note = customerFacingNoteText;
   if (billing) specs.billing = billing;
+  applyLinkedOrderNumbers(specs, linkedOrderNumbers);
   // CRM design capture — its own card slot (flag + frozen Design reference).
   if (designSourceClean) {
     specs.design_source = designSourceClean;
@@ -4528,7 +4562,8 @@ export async function createOrderFromWebhook(
       dueDate,
       dueSpecs,
       webhookRushFromPayload(body as Record<string, unknown>),
-      webhookSource
+      webhookSource,
+      linkedOrderNumbersFromWebhook(body as unknown as Record<string, unknown>)
     );
     // CRM is the source of truth for contact info. Previously a CRM re-fire only
     // refreshed the due date on an existing card — so a phone/email added in the CRM
@@ -5165,6 +5200,10 @@ export async function createOrderFromWebhook(
       corrections: allCorrections,
       webhookSource,
       billing,
+      linkedOrderNumbers: linkedOrderNumbersFromWebhook(
+        body as unknown as Record<string, unknown>,
+        item as unknown as Record<string, unknown>
+      ),
       customerPriorityScore: newWebhookOrderPriorityScore(
         customerPriorityScore,
         isWebsiteWebhookSource(webhookSource)

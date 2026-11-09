@@ -20,6 +20,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
 import {
   cardOrderQty,
   cardSkuCount,
@@ -612,6 +613,7 @@ export function BoardTable({
                             }
                           />
                         </span>
+                        <LinkedOrderNumbers title={order.title} specs={order.specs} />
                         {cardTitle ? (
                           <span
                             className="min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-slate-700"
