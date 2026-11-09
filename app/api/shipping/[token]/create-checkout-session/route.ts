@@ -4,6 +4,7 @@ import { dollarsToCents } from "@/lib/shipping-markup";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { serverPricedSelection } from "@/lib/shipping-quote.server";
 import { isClientFedExSelection } from "@/lib/client-fedex";
+import { orderHasFreeGround } from "@/lib/free-ground";
 import {
   isShippingChoiceOffered,
   isStripeConfiguredFromSettings,
@@ -125,6 +126,7 @@ export async function POST(
       boxes: (shipReq.boxes ?? []) as ShippingBox[],
       deliveryAddress: normalizeDeliveryAddress(deliveryAddress),
       settings,
+      freeGround: await orderHasFreeGround(admin, shipReq.order_id),
     });
   } catch (err) {
     console.error(
@@ -143,6 +145,13 @@ export async function POST(
           "That shipping option is no longer available. Refresh the rates and pick again.",
       },
       { status: 409 }
+    );
+  }
+
+  if (fedexSelection.freeShipping) {
+    return NextResponse.json(
+      { error: "Ground shipping is free on this order — no payment needed." },
+      { status: 422 }
     );
   }
 

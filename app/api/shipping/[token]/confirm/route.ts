@@ -6,6 +6,7 @@ import {
   isClientFedExSelection,
 } from "@/lib/client-fedex";
 import { completeShippingResponse } from "@/lib/shipping-confirm";
+import { isFreeGroundEligibleRate, orderHasFreeGround } from "@/lib/free-ground";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { dollarsToCents } from "@/lib/shipping-markup";
 import {
@@ -57,7 +58,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: shipReq, error: findError } = await admin
     .from("shipping_requests")
-    .select("id, status, tenant_id")
+    .select("id, status, tenant_id, order_id")
     .eq("token", token)
     .maybeSingle();
 
@@ -72,7 +73,17 @@ export async function POST(
       { status: 403 }
     );
   }
+  // Free Ground (website order over $500): verified here from the order card,
+  // never trusted from the browser. Ground then books at $0 with no payment.
+  const freeGround =
+    body.choice === "delivery" &&
+    isFreeGroundEligibleRate(body.fedexSelection) &&
+    (await orderHasFreeGround(admin, shipReq.order_id));
+  if (freeGround && body.fedexSelection) {
+    body.fedexSelection = { ...body.fedexSelection, totalCharge: 0, freeShipping: true };
+  }
   const paymentRequired =
+    !freeGround &&
     (body.choice === "delivery" || body.choice === "curri") &&
     Boolean(body.fedexSelection?.serviceType) &&
     !isClientFedExSelection(body.fedexSelection) &&

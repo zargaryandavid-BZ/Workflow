@@ -806,6 +806,8 @@ export interface FedExRateOption {
   priority?: string;
   /** Customer-owned FedEx account when they chose “FedEx with my account”. */
   clientAccountNumber?: string | null;
+  /** Free Ground on a website order over $500 — shown as FREE, no payment. */
+  freeShipping?: boolean;
   /** FedEx service to print when charges are billed to the customer account. */
   clientServiceType?: string | null;
   feeComparison?: {
