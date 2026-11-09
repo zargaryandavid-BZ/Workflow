@@ -23,6 +23,10 @@ import { isHoldColumn } from "@/lib/hold-column";
 import { notifyHoldWatchers } from "@/lib/user-notifications";
 import { resolveShippingChoiceColumnId } from "@/lib/shipping-opt-column";
 import type { CustomerReferenceFile } from "@/lib/customer-references";
+import {
+  isOutsourceAfterApprovalProduct,
+  isOutsourceColumnName,
+} from "@/lib/outsource-after-approval";
 
 type Client = SupabaseClient;
 
@@ -209,6 +213,47 @@ export async function getEnabledNotifyRule(
 }
 
 /**
+ * #28 — gift bags / wrapping paper / gift wrap rolls are bought from a vendor.
+ * On approval they go to the tenant's "Outsource" column. Returns null (normal
+ * routing) when the product doesn't match or the tenant has no such column.
+ */
+async function outsourceColumnForApprovedOrder(
+  client: Client,
+  order: Order
+): Promise<string | null> {
+  const specs = (order.specs ?? {}) as Record<string, unknown>;
+  const texts: Array<string | null | undefined> = [
+    order.title,
+    typeof specs.webhook_item_title === "string" ? specs.webhook_item_title : null,
+  ];
+  const { data: values } = await client
+    .from("custom_field_values")
+    .select("value, custom_fields!inner(name)")
+    .eq("order_id", order.id);
+  for (const row of (values ?? []) as Array<{
+    value: unknown;
+    custom_fields: { name?: string } | { name?: string }[] | null;
+  }>) {
+    const cf = Array.isArray(row.custom_fields)
+      ? row.custom_fields[0]
+      : row.custom_fields;
+    const name = (cf?.name ?? "").trim().toLowerCase();
+    if (name !== "product" && name !== "category") continue;
+    if (row.value != null) texts.push(String(row.value));
+  }
+  if (!isOutsourceAfterApprovalProduct(texts)) return null;
+
+  const { data: columns } = await client
+    .from("board_columns")
+    .select("id, name")
+    .eq("tenant_id", order.tenant_id);
+  const col = (columns ?? []).find((c) =>
+    isOutsourceColumnName(c.name as string | null)
+  );
+  return (col?.id as string | undefined) ?? null;
+}
+
+/**
  * Resolves where an order should move after a customer approval decision.
  * Prefers the per-column notify rule (Settings → Automations → Customer
  * notifications), then falls back to global on_approval_result rules.
@@ -218,6 +263,13 @@ export async function approvalTargetColumn(
   order: Order,
   result: ApprovalStatus
 ): Promise<string | null> {
+  if (result === "approved") {
+    const outsource = await outsourceColumnForApprovedOrder(client, order).catch(
+      () => null
+    );
+    if (outsource) return outsource;
+  }
+
   const { data: notifyRules } = await client
     .from("automation_rules")
     .select("*")

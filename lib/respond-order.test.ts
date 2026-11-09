@@ -71,3 +71,45 @@ test("appends leftover filled fields and non-duplicate spec_display rows", () =>
   assert.equal(rows.filter((r) => r.label === "Product").length, 1);
   assert.ok(rows.some((r) => r.label === "Foil" && r.value === "Gold"));
 });
+
+test("wrap roll size from SET_SIZE shows on the proof; zero Width/Height hidden (W507-1)", () => {
+  const rows = buildRespondOrderRows(
+    null,
+    { Product: "Custom Wrapping Paper Rolls", Sides: "Single-sided", Quantity: 5, Width: 0, Height: 0 },
+    {
+      spec_selections: { SET_SIZE: '10.5 ft (29" wide)', bazaar_item_id: 209 },
+      production_notes: [{ author: "CRM", text: 'Sides: 1 Side · Size: 10.5 ft (29" wide)' }],
+    }
+  );
+  assert.equal(rows.find((r) => r.label === "Size")?.value, '10.5 ft (29" wide)');
+  assert.ok(!rows.some((r) => r.label === "Width" || r.label === "Height"));
+});
+
+test("finishing from the CRM spec line when the Finishing field is blank (W519-1)", () => {
+  const rows = buildRespondOrderRows(
+    null,
+    { Product: "Premium Trading Cards", Materials: "18pt White" },
+    {
+      spec_selections: { SET_SIZE: "2.5x3.5" },
+      production_notes: [
+        { author: "CRM", text: "Sides: 2 Sides · Finishing: Holo · Special effects: Royal Blue Foil · Size: 2.5x3.5" },
+        { author: "Manny", text: "Finishing: ignore staff notes" },
+      ],
+    }
+  );
+  assert.equal(rows.find((r) => r.label === "Finishing")?.value, "Holo");
+  assert.equal(rows.find((r) => r.label === "Size")?.value, "2.5x3.5");
+});
+
+test("no duplicate Finishing/Size when the fields are already filled", () => {
+  const rows = buildRespondOrderRows(
+    null,
+    { Product: "Roll Labels", Finishing: "Matte Lamination", Width: "1", Height: "1" },
+    {
+      spec_selections: { SET_SIZE: "1x1" },
+      production_notes: [{ author: "CRM", text: "Sides: 1 Side · Finishing: Matte · Size: 1x1" }],
+    }
+  );
+  assert.equal(rows.filter((r) => r.label === "Finishing").length, 1);
+  assert.ok(!rows.some((r) => r.label === "Size"));
+});
