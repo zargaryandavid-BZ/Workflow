@@ -22,7 +22,10 @@ const resultCache = new Map<string, PdfCheckResult>();
 const inFlight = new Map<string, Promise<PdfCheckResult>>();
 const listeners = new Map<string, Set<() => void>>();
 
-const MAX_CONCURRENT = 2;
+// Was 2: ten cards' checks ran in five back-to-back waves, so the last
+// warning badge showed ~13s after the board opened (measured 2026-11-08).
+// Each check is a small Drive folder listing; 6 at once is still light.
+const MAX_CONCURRENT = 6;
 let activeChecks = 0;
 const waitQueue: Array<() => void> = [];
 
