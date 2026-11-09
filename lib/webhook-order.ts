@@ -80,6 +80,7 @@ import {
 import {
   hasBillingInfo,
   parseWebhookBilling,
+  refreshedBillingFromWebhook,
   type OrderBillingInfo,
 } from "@/lib/order-billing";
 import {
@@ -3564,6 +3565,15 @@ async function refreshPortalOrdersFromWebhook(params: {
     const stampedBz = bazaarOrderNumberFromWebhook(body, item);
     if (stampedBz) nextSpecs.bazaar_order_number = stampedBz;
     if (items.length > 1) nextSpecs.webhook_item_index = i;
+    // Billing globe: a re-fire carries the sender's CURRENT payment status / deposit /
+    // balance — refresh it so the card never keeps the amount from creation day.
+    // Untouched when the payload has no billing fields.
+    const refreshedBilling = refreshedBillingFromWebhook(
+      nextSpecs.billing,
+      body as unknown as Record<string, unknown>,
+      item as unknown as Record<string, unknown>
+    );
+    if (refreshedBilling) nextSpecs.billing = refreshedBilling;
     // CRM ORD-… / portal BZ-… numbers: set when sent (line overrides order), never cleared.
     applyLinkedOrderNumbers(
       nextSpecs,
