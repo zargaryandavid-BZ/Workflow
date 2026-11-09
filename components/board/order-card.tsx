@@ -2314,6 +2314,7 @@ export function OrderCard({
                     <MoveMenuSections
                       columns={availableColumns}
                       scrollToColumnId={nextMoveColumnId}
+                      fromColumnName={columnName}
                       onSelect={(col) => {
                         if (moveWholeOrder && onMoveGroupToColumn) {
                           onMoveGroupToColumn(order, col.id);

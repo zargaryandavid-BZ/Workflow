@@ -598,6 +598,7 @@ export function Column({
                     designers={designers}
                     availableColumns={availableColumns}
                     nextMoveColumnId={nextMoveColumnId}
+                    columnName={column.name}
                     onAssignDesigner={
                       role && canAssignDesignerOnBoard(role)
                         ? onGroupAssignDesigner
