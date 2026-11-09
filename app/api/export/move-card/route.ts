@@ -127,10 +127,7 @@ export async function POST(request: NextRequest) {
         author: parsed.value.note.author,
         text: `Sent back from Prepress: ${parsed.value.note.text}`,
         date: parsed.value.note.date,
-        activity: {
-          action: "hold_reason",
-          metadata: { reason: parsed.value.note.text, columnName: target.name, source: "pulse" },
-        },
+        // Internal notes only: no activity-log copy of the reason (the board export reads hold reasons from there).
       });
       noteSaved = note.ok;
       if (!note.ok) console.error("[move-card] hold note failed:", note.error);
