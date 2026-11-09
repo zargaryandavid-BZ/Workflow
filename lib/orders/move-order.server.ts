@@ -39,6 +39,8 @@ export type OrderMoveParams = {
    * restricted which move is allowed; this only skips the board's drop-role check.
    */
   skipDropPermission?: boolean;
+  /** Parking a card (Hold) must not be blocked by missing fields — only the integration route sets this. */
+  skipRequiredFields?: boolean;
 };
 
 export type OrderMoveResult = { status: number; body: Record<string, unknown> };
@@ -54,7 +56,7 @@ export async function performOrderMove(
   supabase: SupabaseClient<any, any, any>,
   params: OrderMoveParams
 ): Promise<OrderMoveResult> {
-  const { tenantId, tenantName, actorUserId, actorRole, orderId, toColumnId, position, bypassDropRoles, skipDropPermission } = params;
+  const { tenantId, tenantName, actorUserId, actorRole, orderId, toColumnId, position, bypassDropRoles, skipDropPermission, skipRequiredFields } = params;
 
 
   // Fetch order and both columns in parallel — saves 2 sequential round-trips.
@@ -126,7 +128,7 @@ export async function performOrderMove(
   }
 
   // Incomplete cards may still enter Missing Info (exception) columns.
-  if (fromColumnId !== toColumnId && typedColumn.kind !== "exception") {
+  if (fromColumnId !== toColumnId && typedColumn.kind !== "exception" && !skipRequiredFields) {
     // Fetch customer, fields, and values in parallel — saves 2 more round-trips.
     const [customerRes, customFieldsRes, customFieldValuesRes] = await Promise.all([
       typedOrder.customer_id

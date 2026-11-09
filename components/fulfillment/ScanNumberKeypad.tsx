@@ -24,7 +24,11 @@ const KEYS: { label: string; value: string }[][] = [
     { label: "0", value: "0" },
     { label: ")", value: ")" },
   ],
-  [{ label: "W", value: "W" }],
+  // W = wholesale orders, BZ = Bazaar partner portal orders (BZ-437).
+  [
+    { label: "W", value: "W" },
+    { label: "BZ", value: "BZ-" },
+  ],
 ];
 
 const DECIMAL_KEYS: { label: string; value: string }[][] = [
@@ -143,7 +147,13 @@ export function ScanNumberKeypad({
         </div>
         <div className="grid gap-2 md:gap-2.5">
           {keys.map((row, i) => (
-            <div key={i} className="grid grid-cols-3 gap-2 md:gap-2.5">
+            <div
+              key={i}
+              className={cn(
+                "grid gap-2 md:gap-2.5",
+                row.length === 2 ? "grid-cols-2" : "grid-cols-3"
+              )}
+            >
               {row.map((key) => (
                 <button
                   key={key.value}
