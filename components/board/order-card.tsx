@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import Image from "next/image";
+import { BoardThumbImage } from "./board-thumb-image";
 import {
   AlertTriangle,
   Boxes,
@@ -1349,14 +1349,7 @@ export function OrderCard({
                 className="h-28 w-28 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
                 aria-label={`View pictures for ${order.title}`}
               >
-                <Image
-                  src={displayThumbs[0].url}
-                  alt=""
-                  width={112}
-                  height={112}
-                  className="h-28 w-28 object-cover"
-                  unoptimized
-                />
+                <BoardThumbImage url={displayThumbs[0].url} size={112} className="h-28 w-28 object-cover" />
               </button>
             ) : (
               <button
@@ -2487,3 +2480,4 @@ export function OrderCard({
     </div>
   );
 }
+

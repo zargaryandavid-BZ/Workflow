@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { BoardThumbImage } from "./board-thumb-image";
 import {
   Clock,
   CreditCard,
@@ -584,13 +584,10 @@ export function BoardTable({
                 >
                   <div className="flex items-start gap-2">
                     {thumbnail ? (
-                      <Image
-                        src={thumbnail}
-                        alt=""
-                        width={32}
-                        height={32}
+                      <BoardThumbImage
+                        url={thumbnail}
+                        size={32}
                         className="h-8 w-8 shrink-0 rounded object-cover"
-                        unoptimized
                       />
                     ) : null}
 
