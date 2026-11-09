@@ -62,6 +62,8 @@ interface GroupedOrderCardProps {
   availableColumns?: ColumnOption[];
   /** Next board column after this group — Move to list opens centered on it. */
   nextMoveColumnId?: string | null;
+  /** Name of the column the group is in (Move to "Likely next"). */
+  columnName?: string | null;
   onAssignDesigner?: (
     orders: OrderWithRelations[],
     designer: { id: string | null; name: string | null }
@@ -102,6 +104,7 @@ export function GroupedOrderCard({
   designers = [],
   availableColumns = [],
   nextMoveColumnId = null,
+  columnName = null,
   onAssignDesigner,
   onSetDueDates,
   onMoveGroup,
@@ -596,6 +599,7 @@ export function GroupedOrderCard({
                       <MoveMenuSections
                         columns={availableColumns}
                         scrollToColumnId={nextMoveColumnId}
+                        fromColumnName={columnName}
                         onSelect={(col) => {
                           onMoveGroup(orders, col.id);
                           closeMenu();

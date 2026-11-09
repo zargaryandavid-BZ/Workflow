@@ -237,3 +237,48 @@ export function groupStageColumns<T extends { id: string; name: string }>(
     columns: buckets[id],
   })).filter((section) => section.columns.length > 0);
 }
+
+/**
+ * Likely next stages from a given stage (by normalized name). Used to put the
+ * 2–5 usual destinations at the top of the "Move to" menu so moving many
+ * cards doesn't mean scrolling the whole list. Display-only.
+ */
+const LIKELY_NEXT: Record<string, string[]> = Object.fromEntries(
+  (
+    [
+      [["Start (Create Order)", "Start"], ["Missing Info / Changes", "Waiting Approval", "Hold", "In Progress"]],
+      [["In Progress"], ["Waiting Approval", "Missing Info / Changes", "Done (Ready for Prod)", "Hold"]],
+      [["Missing Info / Changes"], ["Customer Replied", "Waiting Approval", "In Progress", "Hold"]],
+      [["Customer Replied"], ["In Progress", "Waiting Approval", "Missing Info / Changes", "Done (Ready for Prod)"]],
+      [["Waiting Approval"], ["Done (Ready for Prod)", "Missing Info / Changes", "Customer Replied", "Hold"]],
+      [["Hold"], ["In Progress", "Waiting Approval", "Missing Info / Changes", "Done (Ready for Prod)"]],
+      [["Done (Ready for Prod)"], ["Arsen", "Hrach", "In Production", "Apparel", "Outsource"]],
+      [["Arsen", "Hrach", "In Production", "Outsource"], ["Production Completed", "Hold"]],
+      [["Apparel", "Apparel In Production"], ["Apparel Prod. Completed", "Hold"]],
+      [["Production Completed", "Apparel Prod. Completed"], ["(Boyd Only) Ready to Ship", "Shipping", "Shipped Boyd"]],
+      [["Shipped Boyd"], ["Boyd Received"]],
+      [["Boyd Received"], ["(Boyd Only) Ready to Ship", "Shipping", "In the application"]],
+      [["(Boyd Only) Ready to Ship"], ["Shipping", "Shipped Customer"]],
+      [["Shipping"], ["Shipped Customer"]],
+    ] as [string[], string[]][]
+  ).flatMap(([froms, tos]) => froms.map((f) => [stageKey(f), tos.map(stageKey)]))
+);
+
+export function likelyNextColumns<T extends { id: string; name: string }>(
+  fromName: string | null | undefined,
+  columns: T[],
+  nextColumnId?: string | null
+): T[] {
+  const out: T[] = [];
+  const seen = new Set<string>();
+  const add = (c: T | undefined) => {
+    if (c && !seen.has(c.id)) {
+      seen.add(c.id);
+      out.push(c);
+    }
+  };
+  const wanted = fromName ? LIKELY_NEXT[stageKey(fromName)] ?? [] : [];
+  for (const key of wanted) add(columns.find((c) => stageKey(c.name) === key));
+  if (nextColumnId) add(columns.find((c) => c.id === nextColumnId));
+  return out;
+}

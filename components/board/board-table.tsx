@@ -1097,6 +1097,9 @@ export function BoardTable({
                       <MoveMenuSections
                         columns={moveable}
                         scrollToColumnId={nextMoveColumnId}
+                        fromColumnName={
+                          columns.find((c) => c.id === menuState.order.column_id)?.name ?? null
+                        }
                         onSelect={(col) => {
                           onMoveToColumn(menuState.order, col.id);
                           setMenuState(null);
