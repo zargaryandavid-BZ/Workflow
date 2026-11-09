@@ -808,6 +808,10 @@ export interface FedExRateOption {
   clientAccountNumber?: string | null;
   /** FedEx service to print when charges are billed to the customer account. */
   clientServiceType?: string | null;
+  /** Customer sends their own shipping label (see lib/customer-own-label.ts). */
+  ownLabel?: boolean;
+  ownLabelFiles?: { name: string; path: string; assetId?: string | null }[];
+  ownLabelNote?: string | null;
   feeComparison?: {
     rush?: number;
     sameday?: number;

@@ -22,6 +22,7 @@ import {
   maskFedExAccountNumber,
 } from "@/lib/client-fedex";
 import { fedexTrackingUrl } from "@/lib/fedex-tracking";
+import { isCustomerOwnLabelSelection } from "@/lib/customer-own-label";
 
 interface ShippingTabProps {
   shippingRequest: ShippingRequest;
@@ -211,8 +212,11 @@ export function ShippingTab({
   const isClientFedex =
     shippingRequest.client_choice === "delivery" &&
     isClientFedExSelection(shippingRequest.fedex_selection);
+  const isOwnLabel =
+    shippingRequest.client_choice === "delivery" &&
+    isCustomerOwnLabelSelection(shippingRequest.fedex_selection);
   const isDelivery =
-    shippingRequest.client_choice === "delivery" && !isCurri;
+    shippingRequest.client_choice === "delivery" && !isCurri && !isOwnLabel;
   const rate = shippingRequest.fedex_selection;
   const clientAccountOnResponse =
     clientFedExAccountFromSelection(rate) ?? clientFedexAccount ?? null;
@@ -547,6 +551,32 @@ export function ShippingTab({
                   {shippingRequest.delivery_notes}
                 </p>
               </div>
+            ) : null}
+            {shippingRequest.responded_at ? (
+              <p className="text-slate-500">
+                Confirmed {formatDateTime(shippingRequest.responded_at)}
+              </p>
+            ) : null}
+          </div>
+        ) : isOwnLabel ? (
+          <div className="space-y-2 text-sm text-slate-700">
+            <p className="flex items-center gap-2 font-medium text-slate-900">
+              <Truck className="h-4 w-4 text-slate-500" />
+              Customer sent their own shipping label
+            </p>
+            <p className="text-slate-600">
+              Print it from the order&apos;s Files and stick it on the box. Do
+              not buy a FedEx label.
+            </p>
+            {(rate?.ownLabelFiles ?? []).length > 0 ? (
+              <ul className="space-y-0.5 text-slate-800">
+                {(rate?.ownLabelFiles ?? []).map((file) => (
+                  <li key={file.path || file.name}>• {file.name}</li>
+                ))}
+              </ul>
+            ) : null}
+            {rate?.ownLabelNote ? (
+              <p className="text-slate-600">Note: {rate.ownLabelNote}</p>
             ) : null}
             {shippingRequest.responded_at ? (
               <p className="text-slate-500">
