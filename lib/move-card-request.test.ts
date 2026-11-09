@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  parseMoveCardNote,
   decideIntegrationMove,
   findColumnByName,
   normalizeColumnName,
@@ -43,4 +44,32 @@ test("only moves between Prepress and In Production are allowed", () => {
   assert.equal(shipped.allowed === false && shipped.status, 409);
   const elsewhere = decideIntegrationMove("Prepress", "Shipped Customer");
   assert.equal(elsewhere.allowed === false && elsewhere.status, 403);
+});
+
+test("Prepress → Hold is allowed, from anywhere else it is not", () => {
+  assert.deepEqual(decideIntegrationMove("Prepress", "Hold"), { allowed: true, already: false });
+  assert.deepEqual(decideIntegrationMove("Prepress", "On Hold"), { allowed: true, already: false });
+  assert.deepEqual(decideIntegrationMove("Hold", "hold"), { allowed: true, already: true });
+  const fromProd = decideIntegrationMove("In Production", "Hold");
+  assert.equal(fromProd.allowed === false && fromProd.status, 409);
+  const missingInfo = decideIntegrationMove("Prepress", "Missing Info / Changes");
+  assert.equal(missingInfo.allowed === false && missingInfo.status, 403);
+});
+
+test("parseMoveCardNote keeps text, author and a valid date; drops empty notes", () => {
+  assert.equal(parseMoveCardNote(null), null);
+  assert.equal(parseMoveCardNote({ text: "   " }), null);
+  assert.deepEqual(parseMoveCardNote({ text: " File is low-res ", author: "Davit Z", date: "2026-11-09T18:00:00Z" }), {
+    text: "File is low-res",
+    author: "Davit Z",
+    date: "2026-11-09T18:00:00.000Z",
+  });
+  assert.deepEqual(parseMoveCardNote({ text: "x", date: "not a date" }), { text: "x", author: "Pulse" });
+});
+
+test("parseMoveCardBody carries the optional note", () => {
+  const r = parseMoveCardBody({ order_id: ID, to_column: "Hold", note: { text: "Wrong die", author: "A B" } });
+  assert.equal(r.ok && r.value.note?.text, "Wrong die");
+  const none = parseMoveCardBody({ order_id: ID, to_column: "Hold" });
+  assert.equal(none.ok && none.value.note, undefined);
 });
