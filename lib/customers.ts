@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { customerSearchOrFilter } from "@/lib/customer-search-filter";
 import {
   CUSTOMER_CONTACT_FIELD_NAME,
   CUSTOMER_NAME_FIELD_NAME,
@@ -1099,15 +1100,36 @@ export async function getCustomerDefaultPriorityScore(
 
 export const CUSTOMERS_PAGE_SIZE = 50;
 
-function ilikeContains(raw: string): string | null {
-  const q = raw
-    .trim()
-    .replace(/[,()"\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!q) return null;
-  const escaped = q.replace(/[%_]/g, (ch) => `\\${ch}`);
-  return `%${escaped}%`;
+/**
+ * Customer ids whose extra contacts (company reps) match the search — so
+ * typing a rep's email/name/phone finds the company. Best-effort: [] on error
+ * (e.g. a DB without the customer_contacts table).
+ */
+export async function customerIdsMatchingContacts(
+  client: Client,
+  tenantId: string,
+  raw: string
+): Promise<string[]> {
+  const filter = customerSearchOrFilter(raw, { company: "name" });
+  if (!filter) return [];
+  try {
+    const { data, error } = await client
+      .from("customer_contacts")
+      .select("customer_id")
+      .eq("tenant_id", tenantId)
+      .or(filter)
+      .limit(200);
+    if (error) return [];
+    return [
+      ...new Set(
+        ((data ?? []) as { customer_id: string | null }[])
+          .map((r) => r.customer_id)
+          .filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id))
+      ),
+    ];
+  } catch {
+    return [];
+  }
 }
 
 async function orderStatsForCustomers(
@@ -1170,16 +1192,21 @@ export async function listCustomersPage(
   );
   const page = Math.max(1, options?.page ?? 1);
   const from = (page - 1) * limit;
-  const pattern = ilikeContains(options?.q ?? "");
+  const filter = customerSearchOrFilter(options?.q ?? "");
 
   let query = client
     .from("customers")
     .select(CUSTOMER_SELECT, { count: "exact" })
     .eq("tenant_id", tenantId);
 
-  if (pattern) {
+  if (filter) {
+    const viaContacts = await customerIdsMatchingContacts(
+      client,
+      tenantId,
+      options?.q ?? ""
+    );
     query = query.or(
-      `name.ilike."${pattern}",email.ilike."${pattern}",phone.ilike."${pattern}",company.ilike."${pattern}"`
+      viaContacts.length > 0 ? `${filter},id.in.(${viaContacts.join(",")})` : filter
     );
   }
 
