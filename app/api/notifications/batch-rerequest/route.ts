@@ -173,7 +173,15 @@ export async function POST(request: Request) {
     columnId?: string;
     staleDays?: number;
     notificationType?: "customer_approval" | "missing_info";
+    /**
+     * Optional: only these orders (the ones ticked in the popup). Omitted =
+     * every eligible order in the column (previous behavior).
+     */
+    orderIds?: string[];
   };
+  const pickedIds = Array.isArray(body.orderIds)
+    ? new Set(body.orderIds.filter((id): id is string => typeof id === "string"))
+    : null;
 
   if (!body.columnId) {
     return NextResponse.json({ error: "columnId is required" }, { status: 400 });
@@ -206,6 +214,10 @@ export async function POST(request: Request) {
       .eq("tenant_id", ctx.tenant.id)
       .eq("column_id", body.columnId)
       .is("removed_at", null));
+  }
+
+  if (pickedIds) {
+    orders = (orders ?? []).filter((o) => pickedIds.has(o.id));
   }
 
   if (!orders || orders.length === 0) {
