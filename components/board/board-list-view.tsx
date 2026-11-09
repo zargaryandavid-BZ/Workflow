@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import Image from "next/image";
+import { BoardThumbImage } from "./board-thumb-image";
 import { cn } from "@/lib/utils";
 import type { BoardColumn, CustomField, OrderWithRelations } from "@/lib/types";
 import {
@@ -234,12 +234,9 @@ export function BoardListView({
               </span>
             ) : null}
             {r.thumb ? (
-              <Image
-                src={r.thumb}
-                alt=""
-                width={24}
-                height={24}
-                unoptimized
+              <BoardThumbImage
+                url={r.thumb}
+                size={24}
                 className="h-6 w-6 shrink-0 rounded object-cover"
               />
             ) : null}
