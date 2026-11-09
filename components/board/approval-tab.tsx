@@ -20,6 +20,7 @@ import {
   defaultSendChannels,
   channelFromSelection,
   toggleSendChannelSelection,
+  effectivePreferredChannel,
 } from "@/lib/preferred-channel";
 import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
 import { NotificationSendLog } from "./notification-send-log";
@@ -146,7 +147,7 @@ function NotifyRow({
         email: contactEmail ?? customer?.email ?? null,
         phone: contactPhone ?? customer?.phone ?? null,
       },
-      customer?.preferred_channel
+      effectivePreferredChannel(customer)
     )
   );
   const [email, setEmail] = useState(
@@ -176,7 +177,7 @@ function NotifyRow({
           email: contactEmail ?? customer?.email ?? null,
           phone: contactPhone ?? customer?.phone ?? null,
         },
-        customer?.preferred_channel
+        effectivePreferredChannel(customer)
       )
     );
   }, [

@@ -3,6 +3,7 @@ import {
   isExplicitPreferredChannel,
   rerequestChannel,
   resolvePreferredNotifyChannel,
+  effectivePreferredChannel,
 } from "@/lib/preferred-channel";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
@@ -320,7 +321,7 @@ export async function POST(request: Request) {
         // "both" when both contacts existed).
         const resolved = resolvePreferredNotifyChannel(
           { email: toEmail, phone: toPhone },
-          customer?.preferred_channel,
+          effectivePreferredChannel(customer),
           true
         );
         const channel: "email" | "sms" | "both" =
