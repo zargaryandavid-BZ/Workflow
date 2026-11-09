@@ -78,6 +78,7 @@ import { isHoldColumn } from "@/lib/hold-column";
 import {
   finishedCompletionSmsSent,
   isFinishedNoReviewStage,
+  isFulfilledStage,
 } from "@/lib/net-terms-fulfill";
 import {
   getGroupKey,
@@ -424,6 +425,13 @@ export function Board({
   } | null>(null);
   const [finishedSmsPrompt, setFinishedSmsPrompt] = useState<{
     orders: { id: string; title: string }[];
+  } | null>(null);
+  // One line of a multi-line order moved to Finished → offer to move the rest.
+  const [finishAllPrompt, setFinishAllPrompt] = useState<{
+    orderTitle: string;
+    siblings: OrderWithRelations[];
+    toColumnId: string;
+    toColumnName: string;
   } | null>(null);
 
   // Drop a due chip filter if settings hide that chip.
@@ -2132,10 +2140,36 @@ export function Board({
       : "Combo stock isn't confirmed yet — waiting on the warehouse. A manager can override.";
   }
 
+  function offerFinishSiblingLines(
+    moved: OrderWithRelations[],
+    columnName: string
+  ) {
+    if (moved.length !== 1 || !isFulfilledStage(columnName)) return;
+    const order = moved[0]!;
+    const key = getGroupKey(order);
+    if (!key) return;
+    const toCol = columns.find((c) => c.name === columnName);
+    if (!toCol) return;
+    const siblings = boardOrdersRef.current.filter((o) => {
+      if (o.id === order.id || getGroupKey(o) !== key) return false;
+      if (o.column_id === toCol.id) return false;
+      // Already finished (review or no review) — leave it where it is.
+      return !isFulfilledStage(columnsById.get(o.column_id)?.name ?? "");
+    });
+    if (siblings.length === 0) return;
+    setFinishAllPrompt({
+      orderTitle: order.title,
+      siblings,
+      toColumnId: toCol.id,
+      toColumnName: toCol.name,
+    });
+  }
+
   function offerFinishedCompletionSms(
     moved: OrderWithRelations[],
     columnName: string
   ) {
+    offerFinishSiblingLines(moved, columnName);
     if (!isFinishedNoReviewStage(columnName)) return;
     const pending = moved.filter((o) => !finishedCompletionSmsSent(o.specs));
     if (pending.length === 0) return;
@@ -4741,6 +4775,63 @@ export function Board({
                 className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
               >
                 Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {finishAllPrompt ? (
+        <div className="fixed inset-0 z-[61] flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-labelledby="finish-all-title"
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl"
+          >
+            <h2 id="finish-all-title" className="text-base font-semibold text-slate-800">
+              Move the other {finishAllPrompt.siblings.length} line
+              {finishAllPrompt.siblings.length === 1 ? "" : "s"} too?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              This order has more lines that aren&apos;t finished. Move them all to{" "}
+              <span className="font-medium">{finishAllPrompt.toColumnName}</span>?
+            </p>
+            <ul className="mt-2 max-h-32 overflow-y-auto text-xs text-slate-500">
+              {finishAllPrompt.siblings.map((o) => (
+                <li key={o.id} className="truncate">
+                  • {o.title} — {columnsById.get(o.column_id)?.name ?? ""}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setFinishAllPrompt(null)}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Just this one
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  const p = finishAllPrompt;
+                  setFinishAllPrompt(null);
+                  // handleGroupMove expects one source column — move each
+                  // column's lines as its own batch.
+                  const byColumn = new Map<string, OrderWithRelations[]>();
+                  for (const o of p.siblings) {
+                    byColumn.set(o.column_id, [...(byColumn.get(o.column_id) ?? []), o]);
+                  }
+                  void (async () => {
+                    for (const batch of byColumn.values()) {
+                      await handleGroupMove(batch, p.toColumnId);
+                    }
+                  })();
+                }}
+                className="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900"
+              >
+                Move all {finishAllPrompt.siblings.length + 1}
               </button>
             </div>
           </div>
