@@ -107,6 +107,24 @@ export function SourceChannelChip({
   );
 }
 
+/** "Pixel Press" badge — order came from pixelpressprint.com (call back from
+ *  the Pixel Press line). Reads specs.brand stamped by the website webhook. */
+export function BrandChip({ specs, className }: { specs: unknown; className?: string }) {
+  const s = (specs ?? {}) as { brand?: unknown };
+  if (typeof s.brand !== "string" || s.brand.toUpperCase() !== "PIXELPRESS") return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border border-fuchsia-300 bg-fuchsia-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-fuchsia-700",
+        className
+      )}
+      title="Order placed on pixelpressprint.com — call back from the Pixel Press line"
+    >
+      Pixel Press
+    </span>
+  );
+}
+
 /** Frozen "Design reference" block for the open card — what the designer reads first. */
 export function DesignReferenceBlock({ specs }: { specs: unknown }) {
   const { source, reference, ready, skuCount } = readDesign(specs);

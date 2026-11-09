@@ -480,6 +480,10 @@ export interface WebhookItem extends WebhookDesignerInput, WebhookOwnerInput {
 }
 
 export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerInput {
+  /** Storefront brand from the Bazaar website ("PIXELPRESS" for pixelpressprint.com).
+   *  Stored as specs.brand so the card shows a Pixel Press badge (staff call back
+   *  from the Pixel Press line). Absent = Bazaar Printing. Additive. */
+  brand?: string;
   /**
    * Integration source key (e.g. "crm"). Matched against Settings → Integrations
    * source styles for the board label color. Unknown/missing uses the "other" style.
@@ -1306,6 +1310,12 @@ async function notifyWhenBazaarOrderNumberFirstStamped(args: {
       err instanceof Error ? err.message : err
     );
   }
+}
+
+/** Normalized storefront brand from the website webhook ("PIXELPRESS" only). */
+function webhookBrand(body: WebhookOrderPayload): string | null {
+  const raw = typeof body.brand === "string" ? body.brand.trim().toUpperCase() : "";
+  return raw === "PIXELPRESS" ? "PIXELPRESS" : null;
 }
 
 function bazaarOrderNumberFromWebhook(
@@ -3770,6 +3780,8 @@ interface CreateSingleJobParams {
   portalBrokerId?: string | null;
   /** Portal-intake `BZ-…` (not the CRM `ORD-…` title). */
   bazaarOrderNumber?: string | null;
+  /** Website storefront brand ("PIXELPRESS") → specs.brand. */
+  brand?: string | null;
   /** Partner/broker display name for Portal | Name label. */
   portalCompanyName?: string | null;
   /** CRM design capture — who provides artwork: has_files | files_coming | needs_design. */
@@ -3901,6 +3913,7 @@ async function createSingleWebhookJob(
     portalBrokerId = null,
     portalCompanyName = null,
     bazaarOrderNumber = null,
+    brand = null,
     skipProductRouting = false,
     designSource = null,
     designReference = null,
@@ -4231,6 +4244,7 @@ async function createSingleWebhookJob(
   // notifyBazaarPortalStatus can pick that row's osk_. Staff BZ Quote omits it.
   if (portalBrokerId) specs.bazaar_broker_id = portalBrokerId;
   if (bazaarOrderNumber) specs.bazaar_order_number = bazaarOrderNumber;
+  if (brand) specs.brand = brand;
   if (webhookSource.trim().toLowerCase() === "portal") {
     if (portalCompanyName) specs.company_name = portalCompanyName;
   }
@@ -5172,6 +5186,7 @@ export async function createOrderFromWebhook(
       portalBrokerId,
       portalCompanyName,
       bazaarOrderNumber: bazaarOrderNumberFromWebhook(body, item),
+      brand: webhookBrand(body),
       skipProductRouting: appendingToExisting,
       designSource:
         typeof body.design_source === "string" ? body.design_source.trim() : null,
