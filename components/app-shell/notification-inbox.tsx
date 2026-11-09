@@ -109,15 +109,31 @@ export function NotificationInbox({
     };
   }, [userId, tenantId, isAdmin, load]);
 
+  // Badge = MY unread only. Admins see the team's notifications in the list,
+  // but teammates' unread items no longer keep the top-right badge lit.
+  const isMine = useCallback((n: UserNotification) => n.user_id === userId, [userId]);
   const unreadCount = useMemo(
-    () => items.filter((n) => !n.read_at).length,
-    [items]
+    () => items.filter((n) => isMine(n) && !n.read_at).length,
+    [items, isMine]
   );
   const preview = useMemo(
-    () => items.find((n) => !n.read_at) ?? items[0] ?? null,
-    [items]
+    () =>
+      items.find((n) => isMine(n) && !n.read_at) ??
+      items.find((n) => isMine(n)) ??
+      items[0] ??
+      null,
+    [items, isMine]
   );
   const previewStamp = preview ? formatStamp(preview.created_at) : null;
+
+  async function markUnread(id: string) {
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read_at: null } : n)));
+    await fetchRetryingStale404(`/api/user-notifications/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unread: true }),
+    }).catch(() => undefined);
+  }
 
   async function markRead(id: string) {
     setItems((prev) =>
@@ -132,14 +148,16 @@ export function NotificationInbox({
 
   async function markAllRead() {
     const now = new Date().toISOString();
-    setItems((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? now })));
+    setItems((prev) =>
+      prev.map((n) => (isMine(n) ? { ...n, read_at: n.read_at ?? now } : n))
+    );
     await fetchRetryingStale404("/api/user-notifications", {
       method: "PATCH",
     }).catch(() => undefined);
   }
 
   function openItem(n: UserNotification) {
-    void markRead(n.id);
+    if (isMine(n)) void markRead(n.id);
     setOpen(false);
     if (n.order_id) {
       router.push(`/board?order=${encodeURIComponent(n.order_id)}`);
@@ -222,14 +240,29 @@ export function NotificationInbox({
                 {items.map((n) => {
                   const stamp = formatStamp(n.created_at);
                   return (
-                    <li key={n.id}>
+                    <li
+                      key={n.id}
+                      className={cn(
+                        "group relative",
+                        !n.read_at && isMine(n) ? "bg-amber-50/70" : ""
+                      )}
+                    >
+                      {isMine(n) ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void (n.read_at ? markUnread(n.id) : markRead(n.id))
+                          }
+                          className="absolute right-2 top-2 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-500 opacity-70 hover:bg-white hover:text-slate-800 hover:opacity-100 group-hover:opacity-100"
+                          title={n.read_at ? "Mark as unread" : "Mark as read"}
+                        >
+                          {n.read_at ? "Mark unread" : "Mark read"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => openItem(n)}
-                        className={cn(
-                          "flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-slate-50",
-                          !n.read_at ? "bg-amber-50/70" : ""
-                        )}
+                        className="flex w-full flex-col gap-0.5 px-3 py-2 pr-20 text-left hover:bg-slate-50/80"
                       >
                         <span className="text-[11px] text-slate-500">
                           {stamp.time}

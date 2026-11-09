@@ -82,17 +82,15 @@ export async function PATCH() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const isAdmin = ctx.role === "admin";
-  const supabase = isAdmin ? createAdminClient() : await createClient();
-  let query = supabase
+  // "Mark all read" clears only the caller's own notifications — an admin
+  // clicking it used to mark every teammate's notifications read too.
+  const supabase = await createClient();
+  const query = supabase
     .from("user_notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("tenant_id", ctx.tenant.id)
+    .eq("user_id", ctx.userId)
     .is("read_at", null);
-
-  if (!isAdmin) {
-    query = query.eq("user_id", ctx.userId);
-  }
 
   const { error } = await query;
 

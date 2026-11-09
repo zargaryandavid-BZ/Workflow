@@ -28,7 +28,30 @@ function asNotification(row: Record<string, unknown>): UserNotification | null {
   };
 }
 
-const RECENT_MS = 10 * 60 * 1000;
+// On page load, pop any unread @mention from the last day (was 10 minutes, so
+// someone away from the desk never saw the pop-up). "Keep unread" skips it for
+// the rest of this browser session without marking it read.
+const RECENT_MS = 24 * 60 * 60 * 1000;
+const SKIP_KEY = "wf:mention-popup-skipped";
+
+function readSkipped(): Set<string> {
+  try {
+    const raw = window.sessionStorage.getItem(SKIP_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function addSkipped(id: string) {
+  try {
+    const s = readSkipped();
+    s.add(id);
+    window.sessionStorage.setItem(SKIP_KEY, JSON.stringify([...s].slice(-200)));
+  } catch {
+    // storage unavailable — skip just won't persist across reloads
+  }
+}
 
 export function MentionNotificationPopup({
   userId,
@@ -45,6 +68,8 @@ export function MentionNotificationPopup({
       if (n.type !== "note_mention") return;
       if (n.user_id !== userId) return;
       if (n.actor_id && n.actor_id === userId) return;
+      if (n.read_at) return;
+      if (typeof window !== "undefined" && readSkipped().has(n.id)) return;
       setQueue((prev) =>
         prev.some((x) => x.id === n.id) ? prev : [...prev, n]
       );
@@ -119,6 +144,12 @@ export function MentionNotificationPopup({
     }
   }
 
+  function keepUnread() {
+    const id = current?.id;
+    setQueue((prev) => prev.slice(1));
+    if (id) addSkipped(id);
+  }
+
   function openJob() {
     const orderId = current?.order_id;
     dismiss();
@@ -167,14 +198,26 @@ export function MentionNotificationPopup({
             {current.title}
           </p>
         )}
-        <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={dismiss}
-            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-          >
-            Dismiss
-          </button>
+        <div className="mt-5 flex items-center justify-between gap-2">
+          <span className="text-xs text-slate-400">
+            {queue.length > 1 ? `1 of ${queue.length}` : ""}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={keepUnread}
+              className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+            >
+              Keep unread
+            </button>
+            <button
+              type="button"
+              onClick={dismiss}
+              className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Mark read
+            </button>
+          </div>
         </div>
       </div>
     </div>,

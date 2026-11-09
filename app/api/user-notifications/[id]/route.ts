@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { getTenantContext } from "@/lib/auth";
 
 function tableMissing(error: { message?: string; code?: string } | null): boolean {
@@ -13,7 +12,7 @@ function tableMissing(error: { message?: string; code?: string } | null): boolea
 }
 
 export async function PATCH(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const ctx = await getTenantContext();
@@ -22,17 +21,18 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const isAdmin = ctx.role === "admin";
-  const supabase = isAdmin ? createAdminClient() : await createClient();
-  let query = supabase
+  const body = (await request.json().catch(() => ({}))) as { unread?: unknown };
+  const markUnread = body.unread === true;
+  // Read / unread is per person: everyone (admins too) only changes their OWN
+  // notifications. Admins can still SEE the team's notifications in the inbox,
+  // but opening one no longer clears it for the teammate it was meant for.
+  const supabase = await createClient();
+  const query = supabase
     .from("user_notifications")
-    .update({ read_at: new Date().toISOString() })
+    .update({ read_at: markUnread ? null : new Date().toISOString() })
     .eq("id", id)
-    .eq("tenant_id", ctx.tenant.id);
-
-  if (!isAdmin) {
-    query = query.eq("user_id", ctx.userId);
-  }
+    .eq("tenant_id", ctx.tenant.id)
+    .eq("user_id", ctx.userId);
 
   const { error } = await query;
 
