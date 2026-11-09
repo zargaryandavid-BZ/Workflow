@@ -20,6 +20,8 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
   const [eligible, setEligible] = useState<BatchRerequestOrder[] | null>(null);
   const [sentResult, setSentResult] = useState<{ sent: number; failed: number; skipped: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Orders the user un-ticked (everything is ticked by default).
+  const [unpicked, setUnpicked] = useState<Set<string>>(() => new Set());
   const backdropRef = useRef<HTMLDivElement>(null);
 
   const fetchEligible = useCallback(async (days: number) => {
@@ -32,12 +34,13 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
       const json = (await res.json()) as { eligible?: BatchRerequestOrder[]; error?: string };
       if (!res.ok || json.error) throw new Error(json.error ?? "Failed to load");
       setEligible(json.eligible ?? []);
+      setUnpicked(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load orders");
     } finally {
       setLoading(false);
     }
-  }, [columnId]);
+  }, [columnId, notificationType]);
 
   useEffect(() => { void fetchEligible(staleDays); }, [fetchEligible, staleDays]);
 
@@ -46,15 +49,32 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
     setStaleDays(next);
   };
 
+  const picked = (eligible ?? []).filter((o) => !unpicked.has(o.orderId));
+  const allPicked = !!eligible && eligible.length > 0 && picked.length === eligible.length;
+  const togglePick = (orderId: string) =>
+    setUnpicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  const toggleAll = () =>
+    setUnpicked(allPicked ? new Set((eligible ?? []).map((o) => o.orderId)) : new Set());
+
   const handleSendAll = async () => {
-    if (!eligible || eligible.length === 0) return;
+    if (picked.length === 0) return;
     setSending(true);
     setError(null);
     try {
       const res = await fetch("/api/notifications/batch-rerequest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ columnId, staleDays, notificationType }),
+        body: JSON.stringify({
+          columnId,
+          staleDays,
+          notificationType,
+          orderIds: picked.map((o) => o.orderId),
+        }),
       });
       const json = (await res.json()) as { ok?: boolean; sent?: number; failed?: number; skipped?: number; error?: string };
       if (!res.ok || json.error) throw new Error(json.error ?? "Failed to send");
@@ -162,6 +182,18 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
             </div>
           ) : (
             <div className="divide-y divide-slate-50">
+              <label className="flex cursor-pointer items-center gap-3 px-5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  checked={allPicked}
+                  ref={(el) => {
+                    if (el) el.indeterminate = picked.length > 0 && !allPicked;
+                  }}
+                  onChange={toggleAll}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Select all ({picked.length} of {eligible?.length ?? 0} selected)
+              </label>
               {/* Stale orders */}
               {stale.length > 0 && (
                 <>
@@ -171,7 +203,13 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
                     </p>
                   </div>
                   {stale.map((order) => (
-                    <OrderRow key={order.orderId} order={order} formatAgo={formatAgo} />
+                    <OrderRow
+                      key={order.orderId}
+                      order={order}
+                      formatAgo={formatAgo}
+                      checked={!unpicked.has(order.orderId)}
+                      onToggle={() => togglePick(order.orderId)}
+                    />
                   ))}
                 </>
               )}
@@ -184,7 +222,13 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
                     </p>
                   </div>
                   {neverSent.map((order) => (
-                    <OrderRow key={order.orderId} order={order} formatAgo={formatAgo} />
+                    <OrderRow
+                      key={order.orderId}
+                      order={order}
+                      formatAgo={formatAgo}
+                      checked={!unpicked.has(order.orderId)}
+                      onToggle={() => togglePick(order.orderId)}
+                    />
                   ))}
                 </>
               )}
@@ -199,7 +243,7 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
               {loading
                 ? "Loading…"
                 : eligible
-                  ? `${eligible.length} order${eligible.length !== 1 ? "s" : ""} to send`
+                  ? `${picked.length} of ${eligible.length} selected`
                   : ""}
             </p>
             <div className="flex gap-2">
@@ -211,7 +255,7 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
               </button>
               <button
                 onClick={() => void handleSendAll()}
-                disabled={loading || sending || !eligible || eligible.length === 0}
+                disabled={loading || sending || picked.length === 0}
                 className={cn(
                   "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-semibold text-white transition-colors",
                   "bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -222,7 +266,7 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
                 ) : (
                   <Send className="h-3.5 w-3.5" />
                 )}
-                {sending ? "Sending…" : `Send All (${eligible?.length ?? 0})`}
+                {sending ? "Sending…" : `Send (${picked.length})`}
               </button>
             </div>
           </div>
@@ -235,12 +279,22 @@ export function BatchRerequestPopup({ columnId, columnName, notificationType = "
 function OrderRow({
   order,
   formatAgo,
+  checked,
+  onToggle,
 }: {
   order: BatchRerequestOrder;
   formatAgo: (iso: string) => string;
+  checked: boolean;
+  onToggle: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-2.5">
+    <label className="flex cursor-pointer items-center gap-3 px-5 py-2.5 hover:bg-slate-50">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="h-4 w-4 shrink-0 rounded border-slate-300"
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium text-slate-800">
           #{order.title}
@@ -262,6 +316,6 @@ function OrderRow({
           </span>
         )}
       </div>
-    </div>
+    </label>
   );
 }
