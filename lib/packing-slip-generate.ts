@@ -10,7 +10,10 @@ import {
   packingSlipOrderLabel,
   type ThermalSlipBox,
 } from "@/lib/packing-slip-pdf";
+import { generateSummaryPackingSlipPdf } from "@/lib/packing-slip-summary-pdf";
+import { defaultDeliveryAddress } from "@/lib/shipping-address";
 import type { SkuItem } from "@/lib/skus";
+import type { FedExRateOption, ShippingDeliveryAddress } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const BUCKET = "order-assets";
@@ -60,6 +63,59 @@ export function normalizeSlipBoxes(
     }))
     .filter((box) => box.boxNumber > 0);
   return boxes.length > 0 ? boxes : undefined;
+}
+
+export type PackingSlipPageSize = "letter" | "4x6" | "summary";
+
+/** Body value → page size. "summary" = letter packing slip built from the boxes. */
+export function parsePackingSlipPageSize(raw: unknown): PackingSlipPageSize {
+  return raw === "4x6" || raw === "summary" ? raw : "letter";
+}
+
+/** Ship-to + ship-via for the summary slip: latest shipping request, else order fields. */
+async function loadSummaryShipping(exportData: OrderExportData): Promise<{
+  shipTo: ShippingDeliveryAddress | null;
+  shipVia: string | null;
+  tracking: string[];
+}> {
+  const orderFields: Record<string, unknown> = {};
+  for (const field of exportData.customFields) {
+    const value = exportData.fieldValues[field.id];
+    if (value != null && value !== "") orderFields[field.name] = value;
+  }
+  let saved: ShippingDeliveryAddress | null = null;
+  let shipVia: string | null = null;
+  const tracking: string[] = [];
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin
+      .from("shipping_requests")
+      .select("client_choice, fedex_selection, delivery_address, fedex_tracking_number")
+      .eq("order_id", exportData.order.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const row = data as {
+      client_choice: string | null;
+      fedex_selection: FedExRateOption | null;
+      delivery_address: ShippingDeliveryAddress | null;
+      fedex_tracking_number: string | null;
+    } | null;
+    if (row) {
+      saved = row.delivery_address ?? null;
+      if (row.client_choice === "pickup") shipVia = "Customer pickup";
+      else if (row.client_choice === "uber") shipVia = "Uber";
+      else if (row.fedex_selection?.serviceName) shipVia = row.fedex_selection.serviceName;
+      if (row.fedex_tracking_number) tracking.push(row.fedex_tracking_number);
+    }
+  } catch (err) {
+    console.error("[packing-slip summary] shipping request", err);
+  }
+  const addr = defaultDeliveryAddress(orderFields, saved, {
+    name: exportData.customerName !== "—" ? exportData.customerName : null,
+  });
+  const hasAddress = Boolean(addr.street || addr.city);
+  return { shipTo: hasAddress ? addr : null, shipVia, tracking };
 }
 
 export function packingSlipPartFromOrderNumber(orderNumber: string): number {
@@ -184,8 +240,8 @@ export async function generatePackingSlipPdfFromExport(
     layout?: "multiple" | "one_per_slip";
     /** Total boxes — pre-fills the BOX section on the slip. */
     boxCount?: number;
-    /** Sender thermal labels. Letter size stays the default. */
-    pageSize?: "letter" | "4x6";
+    /** Sender thermal labels; "summary" = letter packing slip from the boxes. */
+    pageSize?: PackingSlipPageSize;
     boxes?: ThermalSlipBox[];
     /** 4×6 only: add the Packing Pallet Slip as the last page. */
     palletSlip?: boolean;
@@ -298,6 +354,50 @@ export async function generatePackingSlipPdfFromExport(
     pdfData = { ...pdfData, totalQty: newTotal };
   }
 
+  if (opts.pageSize === "summary" && opts.boxes && opts.boxes.length > 0) {
+    const orderLabel = opts.blind
+      ? (opts.poNumber?.trim() || "Order")
+      : packingSlipOrderLabel(
+          pdfData.orderNumberDisplay || pdfData.orderNumber,
+          pdfData.orderNumber,
+          opts.totalParts
+        );
+    const customerName =
+      pdfData.customerName && pdfData.customerName !== "—" ? pdfData.customerName : "";
+    const shipping = await loadSummaryShipping(pdfData);
+    const buffer = await generateSummaryPackingSlipPdf({
+      orderLabel,
+      customerName,
+      poNumber: opts.blind ? null : opts.poNumber ?? null,
+      blind: Boolean(opts.blind),
+      shipTo: shipping.shipTo
+        ? {
+            company: customerName || null,
+            name:
+              shipping.shipTo.name && shipping.shipTo.name !== customerName
+                ? shipping.shipTo.name
+                : null,
+            lines: [
+              shipping.shipTo.street,
+              [shipping.shipTo.city, [shipping.shipTo.state, shipping.shipTo.zip].filter(Boolean).join(" ")]
+                .filter(Boolean)
+                .join(", "),
+              shipping.shipTo.phone ?? "",
+            ],
+          }
+        : { company: customerName || "Customer", lines: [] },
+      shipVia: shipping.shipVia,
+      trackingNumbers: shipping.tracking,
+      skus: pdfData.skuRows.flatMap((row, index) => {
+        const sku = { id: row.id, name: row.name, number: index + 1 };
+        const pageId = `__pdf_page_${index + 1}__`;
+        return row.id === pageId ? [sku] : [sku, { ...sku, id: pageId }];
+      }),
+      boxes: opts.boxes,
+    });
+    return { buffer };
+  }
+
   if (opts.pageSize === "4x6" && opts.boxes && opts.boxes.length > 0) {
     const orderLabel = opts.blind
       ? (opts.poNumber?.trim() || "Order")
@@ -405,7 +505,7 @@ export async function generateFloorPackingSlip(
     part?: number;
     totalParts?: number;
     layout?: "multiple" | "one_per_slip";
-    pageSize?: "letter" | "4x6";
+    pageSize?: PackingSlipPageSize;
     boxes?: PackingSlipBoxInput[];
     palletSlip?: boolean;
   }
@@ -449,7 +549,7 @@ export async function generateFloorPackingSlip(
       part,
       totalParts,
       layout: body.layout === "one_per_slip" ? "one_per_slip" : "multiple",
-      pageSize: body.pageSize === "4x6" ? "4x6" : "letter",
+      pageSize: parsePackingSlipPageSize(body.pageSize),
       boxes: normalizeSlipBoxes(body.boxes),
       palletSlip:
         typeof body.palletSlip === "boolean" ? body.palletSlip : undefined,

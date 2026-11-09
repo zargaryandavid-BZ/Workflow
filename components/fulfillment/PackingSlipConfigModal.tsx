@@ -452,7 +452,8 @@ function PackingSlipWizard({
     return Number.isFinite(n) && n >= 1 ? n : 1;
   }
 
-  async function handlePrint() {
+  /** "4x6" = box labels (thermal); "summary" = one letter packing slip for the customer. */
+  async function handlePrint(pageSize: "4x6" | "summary" = "4x6") {
     setError("");
     setBusy(true);
     try {
@@ -463,8 +464,8 @@ function PackingSlipWizard({
         part,
         totalParts,
         layout,
-        pageSize: "4x6" as const,
-        palletSlip,
+        pageSize,
+        palletSlip: pageSize === "4x6" ? palletSlip : false,
         boxes: boxes.map((lines, index) => ({
           boxNumber: index + 1,
           sizeLabel:
@@ -510,7 +511,7 @@ function PackingSlipWizard({
       // 1. Download the PDF
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = `packing-slip-${orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
+      a.download = `${pageSize === "summary" ? "packing-slip" : "box-labels"}-${orderNumber.replace(/[^a-zA-Z0-9._-]/g, "_")}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1298,6 +1299,17 @@ function PackingSlipWizard({
                 Next
               </button>
             ) : (
+              <>
+              <button
+                type="button"
+                onClick={() => void handlePrint("summary")}
+                disabled={busy}
+                title="Letter-size packing slip: ordered vs shipped, and what is in each box"
+                className="flex h-11 flex-[2] items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-[14px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Printer className="h-4 w-4 shrink-0" />
+                Packing slip
+              </button>
               <button
                 type="button"
                 onClick={() => void handlePrint()}
@@ -1309,8 +1321,9 @@ function PackingSlipWizard({
                 ) : (
                   <Printer className="h-4 w-4 shrink-0" />
                 )}
-                {busy ? "Generating…" : "Print"}
+                {busy ? "Generating…" : "Box labels"}
               </button>
+              </>
             )}
           </div>
         </div>
