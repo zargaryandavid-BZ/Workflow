@@ -116,3 +116,46 @@ export function paymentStatusLabel(status: PaymentStatus | null | undefined): st
   if (status === "partial") return "Partial";
   return "Unpaid";
 }
+
+/**
+ * Billing from a webhook RE-FIRE for an existing card (item-level fields override
+ * order-level). Returns the next `specs.billing`, or null when the payload carries
+ * no billing at all (then the card's billing is left untouched).
+ *
+ * Latest payload wins for payment_status / deposit / balance (the sender's current
+ * truth — a CRM price edit or a portal payment must reach the card's globe). A
+ * value the payload omits keeps the card's previous value; nothing is ever cleared.
+ */
+export function refreshedBillingFromWebhook(
+  current: unknown,
+  order: Record<string, unknown>,
+  item?: Record<string, unknown> | null
+): OrderBillingInfo | null {
+  const pick = (src: Record<string, unknown> | null | undefined) =>
+    src
+      ? parseWebhookBilling({
+          source_url: src.source_url,
+          source_link: src.source_link,
+          order_url: src.order_url,
+          payment_status: src.payment_status,
+          payment: src.payment,
+          deposit: src.deposit,
+          balance: src.balance,
+        })
+      : null;
+  const orderLevel = pick(order);
+  const itemLevel = pick(item ?? null);
+  if (!orderLevel && !itemLevel) return null;
+  const prev =
+    current && typeof current === "object" && !Array.isArray(current)
+      ? (billingFromSpecs({ billing: current }) ?? {})
+      : {};
+  const next: OrderBillingInfo = {
+    source_url: itemLevel?.source_url ?? orderLevel?.source_url ?? prev.source_url ?? null,
+    payment_status:
+      itemLevel?.payment_status ?? orderLevel?.payment_status ?? prev.payment_status ?? null,
+    deposit: itemLevel?.deposit ?? orderLevel?.deposit ?? prev.deposit ?? null,
+    balance: itemLevel?.balance ?? orderLevel?.balance ?? prev.balance ?? null,
+  };
+  return hasBillingInfo(next) ? next : null;
+}
