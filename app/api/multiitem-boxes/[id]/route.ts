@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
+import { logActivity } from "@/lib/automation";
+import { multiitemBoxNameFromIsoDate, shopDayKey } from "@/lib/fulfillment-day";
 
 export async function PATCH(
   request: Request,
@@ -16,6 +18,10 @@ export async function PATCH(
     weight_lbs?: number | string | null;
     status?: "open" | "saved";
     customer_order_id?: string;
+    carrier?: string | null;
+    tracking_number?: string | null;
+    /** true = mark shipped now, false = not shipped. */
+    shipped?: boolean;
   };
 
   const patch: Record<string, unknown> = {};
@@ -36,11 +42,38 @@ export async function PATCH(
   }
   if (body.status === "saved") {
     patch.status = "saved";
-    patch.saved_at = new Date().toISOString();
+    // A box is dated the day it's FIRST saved (shop time), so its name matches
+    // the day tab it's listed under even if it stayed open for days. Editing
+    // and re-saving an old box keeps that first date (reopen keeps saved_at).
+    const savedDay = shopDayKey();
+    const { data: current } = await supabase
+      .from("multiitem_boxes")
+      .select("box_number, saved_at")
+      .eq("id", id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    const firstSavedAt = (current as { saved_at?: string | null } | null)?.saved_at;
+    if (!firstSavedAt) patch.saved_at = new Date().toISOString();
+    if (current && !firstSavedAt) {
+      patch.box_date = savedDay;
+      patch.box_name = multiitemBoxNameFromIsoDate(
+        Number((current as { box_number: number }).box_number),
+        savedDay
+      );
+    }
   } else if (body.status === "open") {
+    // saved_at stays: it's the box's first save day (see above).
     patch.status = "open";
-    patch.saved_at = null;
   }
+  if (body.carrier !== undefined) {
+    patch.carrier = body.carrier?.trim().slice(0, 60) || null;
+  }
+  if (body.tracking_number !== undefined) {
+    patch.tracking_number = body.tracking_number?.trim().slice(0, 120) || null;
+  }
+  if (body.shipped === true) patch.shipped_at = new Date().toISOString();
+  if (body.shipped === false) patch.shipped_at = null;
+
   if (body.customer_order_id !== undefined) {
     const orderId = body.customer_order_id.trim();
     if (!orderId) {
@@ -95,19 +128,55 @@ export async function PATCH(
     .update(patch)
     .eq("id", id)
     .eq("tenant_id", tenantId)
-    .select(
-      "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at"
-    )
+    .select("*, multiitem_box_orders(order_id)")
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: /carrier|tracking_number|shipped_at/i.test(error.message)
+          ? "Run migration 20261110000000_multiitem_box_shipping.sql in Supabase, then try again."
+          : error.message,
+      },
+      { status: 500 }
+    );
   }
   if (!data) {
     return NextResponse.json({ error: "Box not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ box: data });
+  // Each order in the box gets a history line: packed (on save) / shipped.
+  const row = data as {
+    box_name: string;
+    carrier?: string | null;
+    tracking_number?: string | null;
+    multiitem_box_orders?: { order_id: string }[] | null;
+  };
+  const orderIds = [...new Set((row.multiitem_box_orders ?? []).map((o) => o.order_id))];
+  const action =
+    body.status === "saved" ? "packed_in_box" : body.shipped === true ? "box_shipped" : null;
+  if (action && orderIds.length) {
+    await Promise.all(
+      orderIds.map((orderId) =>
+        logActivity(supabase, {
+          tenantId,
+          orderId,
+          actor: access.userId,
+          action,
+          metadata: {
+            boxId: id,
+            boxName: row.box_name,
+            carrier: row.carrier ?? null,
+            trackingNumber: row.tracking_number ?? null,
+          },
+        }).catch((err) => console.error("[multiitem-box] history failed", err))
+      )
+    );
+  }
+
+  const { multiitem_box_orders: _orders, ...box } = data as Record<string, unknown>;
+  void _orders;
+  return NextResponse.json({ box });
 }
 
 export async function DELETE(

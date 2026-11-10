@@ -25,6 +25,10 @@ export type MultiitemBoxRow = {
   status: string;
   created_at: string;
   saved_at: string | null;
+  /** Shipping (migration 20261110000000). */
+  carrier?: string | null;
+  tracking_number?: string | null;
+  shipped_at?: string | null;
   multiitem_box_orders?: MultiitemBoxOrderRow[] | null;
 };
 

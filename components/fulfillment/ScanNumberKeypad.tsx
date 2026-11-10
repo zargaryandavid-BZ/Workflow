@@ -87,6 +87,7 @@ export function ScanNumberKeypad({
   variant = "scan",
   zIndex = 50,
   title,
+  submitLabel,
 }: {
   value: string;
   onInsert: (ch: string) => void;
@@ -98,6 +99,8 @@ export function ScanNumberKeypad({
   zIndex?: number;
   /** What is being entered, e.g. "Box 1 · Length (in)". */
   title?: string;
+  /** Text on the submit key (default Scan / Done), e.g. "Next". */
+  submitLabel?: string;
 }) {
   const heading = title?.trim() || "Number pad";
   const keys =
@@ -224,7 +227,7 @@ export function ScanNumberKeypad({
                 "bg-slate-900 text-base font-semibold text-white active:bg-slate-700 md:text-lg"
               )}
             >
-              {variant === "scan" ? "Scan" : "Done"}
+              {submitLabel ?? (variant === "scan" ? "Scan" : "Done")}
             </button>
           </div>
         </div>
