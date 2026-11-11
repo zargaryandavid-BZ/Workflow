@@ -1,5 +1,6 @@
 import "server-only";
 
+import { shippingEmailTo } from "@/lib/crm-notify-contacts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity } from "@/lib/automation";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
@@ -110,7 +111,8 @@ export async function notifyFedexTrackingCreated(
       team_name: teamName,
     });
     const result = await sendTransactionalEmail({
-      to: email,
+      // + the company Shipping emails saved in the CRM (item 17).
+      to: await shippingEmailTo(email, phone),
       subject,
       html: buildFedexTrackingEmailHtml({
         customerName,

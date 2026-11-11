@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { extraNotifyRecipients, fetchCrmNotifyContacts } from "@/lib/crm-notify-contacts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isCustomerEmailConfigured,
@@ -441,7 +442,22 @@ async function deliverNotification(
           : params.notification.type === "ready_to_ship" && params.messageBody
             ? ensureReadyToShipOrderLink(params.messageBody, actionUrl)
             : undefined;
-      const emailRecipients = mergeEmailLists([customerEmail], ccList);
+      // Company contacts saved in the CRM (item 17): approval emails (+ the
+      // rep when "Copy rep on approvals" is on) or shipping emails.
+      const crmKind =
+        params.notification.type === "customer_approval"
+          ? ("approval" as const)
+          : params.notification.type === "ready_to_ship"
+            ? ("shipping" as const)
+            : null;
+      const crmExtra = crmKind
+        ? extraNotifyRecipients(
+            await fetchCrmNotifyContacts({ email: customerEmail, phone: customerPhone }),
+            crmKind,
+            customerEmail
+          )
+        : [];
+      const emailRecipients = mergeEmailLists([customerEmail], ccList, crmExtra);
       const emailResult = await sendNotificationEmail({
         to: emailRecipients.join(","),
         type: params.notification.type,
