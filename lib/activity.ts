@@ -577,6 +577,21 @@ export function describeActivity(log: ActivityLog): string {
         ? `FedEx tracking sent (${trackingNumber})`
         : "FedEx tracking sent";
     }
+    case "packed_in_box": {
+      const boxName = meta.boxName as string | undefined;
+      return boxName ? `Packed in ${boxName}` : "Packed in a multi-item box";
+    }
+    case "box_shipped": {
+      const boxName = meta.boxName as string | undefined;
+      const tracking = meta.trackingNumber as string | undefined;
+      const carrier = meta.carrier as string | undefined;
+      return [
+        boxName ? `${boxName} shipped` : "Box shipped",
+        [carrier, tracking].filter(Boolean).join(" "),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
     case "order_picked_up_sent": {
       const pickedUpBy = meta.pickedUpBy as string | undefined;
       return pickedUpBy

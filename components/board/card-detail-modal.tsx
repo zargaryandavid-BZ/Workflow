@@ -118,6 +118,7 @@ import {
   parseNoteHistory,
   serializeNoteHistory,
 } from "@/lib/note-history";
+import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
 
 /** "Acme Acme" / "Safe Care Packaging Safe Care Packaging" → one copy. */
 function collapseDuplicatedLabel(value: string): string {
@@ -1828,6 +1829,11 @@ export function CardDetailModal({
                   {groupSize != null && groupSize >= 2 && (
                     <span className="font-normal text-slate-400"> ({groupSize})</span>
                   )}
+                  <LinkedOrderNumbers
+                    title={displayOrderNumber}
+                    specs={data?.order.specs}
+                    className="ml-1"
+                  />
                 </>
               : loading ? "…" : "Order Details"}
             {displayOrderNumber ? (

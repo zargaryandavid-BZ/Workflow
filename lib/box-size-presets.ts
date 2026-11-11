@@ -15,6 +15,7 @@ export const FULFILLMENT_BOX_SIZE_PRESETS = [
 export const READY_TO_SHIP_BOX_SIZE_PRESETS = [
   "18×12×12 in",
   "6×6×6 in",
+  "8×8×8 in",
   "10×10×10 in",
   "14×14×14 in",
   "16×16×16 in",

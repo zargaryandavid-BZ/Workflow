@@ -3,13 +3,18 @@
  * Kept free of I/O so the rules are unit-testable.
  */
 
+import { isHoldColumn } from "../hold-column.ts";
+
 export const MOVE_CARD_FROM_COLUMN = "Prepress";
 export const MOVE_CARD_TO_COLUMN = "In Production";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type MoveCardRequest = { orderId: string; toColumn: string };
+/** Optional note posted to the card's Internal notes when it is parked on Hold (Pulse "Send Back"). */
+export type MoveCardNote = { text: string; author: string; date?: string };
+
+export type MoveCardRequest = { orderId: string; toColumn: string; note?: MoveCardNote };
 
 export type ParsedMoveCardBody =
   | { ok: true; value: MoveCardRequest }
@@ -30,7 +35,22 @@ export function parseMoveCardBody(body: unknown): ParsedMoveCardBody {
   if (!UUID_RE.test(orderId)) {
     return { ok: false, error: "order_id must be the Workflow card id (uuid)" };
   }
-  return { ok: true, value: { orderId, toColumn } };
+  const note = parseMoveCardNote(b.note);
+  return { ok: true, value: { orderId, toColumn, ...(note ? { note } : {}) } };
+}
+
+/** Text is capped; an unparseable date is dropped so the note is stamped "now". */
+export function parseMoveCardNote(raw: unknown): MoveCardNote | null {
+  if (!raw || typeof raw !== "object") return null;
+  const n = raw as Record<string, unknown>;
+  const text = typeof n.text === "string" ? n.text.trim().slice(0, 1000) : "";
+  if (!text) return null;
+  const author = typeof n.author === "string" ? n.author.trim().slice(0, 120) : "";
+  const parsedDate =
+    typeof n.date === "string" && !Number.isNaN(Date.parse(n.date))
+      ? new Date(n.date).toISOString()
+      : undefined;
+  return { text, author: author || "Pulse", ...(parsedDate ? { date: parsedDate } : {}) };
 }
 
 export function findColumnByName<T extends { name: string }>(
@@ -48,8 +68,10 @@ export type IntegrationMoveDecision =
   | { allowed: false; status: number; error: string };
 
 /**
- * The integration may only move a card between Prepress and In Production — the two moves Pulse makes:
- * "Approve to Production" (Prepress → In Production) and "Bring back to Prepress" (In Production → Prepress).
+ * The integration may only make the moves Pulse makes:
+ *   - "Approve to Production":     Prepress → In Production
+ *   - "Bring back to Prepress":    In Production → Prepress
+ *   - "Send Back" (with a reason): Prepress → Hold
  * (The tenant secret can already read the whole board; it must not be able to shuffle cards anywhere.)
  */
 export function decideIntegrationMove(
@@ -60,17 +82,18 @@ export function decideIntegrationMove(
   const to = normalizeColumnName(toName);
   const prepress = normalizeColumnName(MOVE_CARD_FROM_COLUMN);
   const production = normalizeColumnName(MOVE_CARD_TO_COLUMN);
-  if (to !== production && to !== prepress) {
+  const toHold = isHoldColumn({ name: toName });
+  if (to !== production && to !== prepress && !toHold) {
     return {
       allowed: false,
       status: 403,
-      error: `Only moves between "${MOVE_CARD_FROM_COLUMN}" and "${MOVE_CARD_TO_COLUMN}" are allowed for this integration`,
+      error: `Only moves between "${MOVE_CARD_FROM_COLUMN}", "${MOVE_CARD_TO_COLUMN}" and Hold are allowed for this integration`,
     };
   }
   if (from === to) return { allowed: true, already: true };
-  const expectedFrom = to === production ? prepress : production;
+  const expectedFrom = to === production || toHold ? prepress : production;
   if (from !== expectedFrom) {
-    const expectedName = to === production ? MOVE_CARD_FROM_COLUMN : MOVE_CARD_TO_COLUMN;
+    const expectedName = expectedFrom === prepress ? MOVE_CARD_FROM_COLUMN : MOVE_CARD_TO_COLUMN;
     return {
       allowed: false,
       status: 409,

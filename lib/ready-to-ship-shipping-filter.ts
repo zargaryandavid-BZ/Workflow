@@ -89,6 +89,7 @@ export function shouldAutoMoveReadyToShipSign(
     sign.kind === "delivery" ||
     sign.kind === "label_ready" ||
     sign.kind === "client_fedex" ||
+    sign.kind === "own_label" ||
     sign.kind === "uber" ||
     sign.kind === "curri"
   );

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveMultiitemAccess } from "@/lib/multiitem-box-access";
 import {
-  clampBoxLineToTicket,
   multiitemBoxSkuLinesFromOrderSpecs,
   normalizeMultiitemBoxSkuLines,
   overPackedSkuError,
@@ -62,6 +61,9 @@ export async function PATCH(
     const message = err instanceof Error ? err.message : "Lookup failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+  // Packers may box more than the job ticket (overs): save it, but warn.
+  const quantity = requested;
+  let warning: string | null = null;
   if (hasSkuLines) {
     try {
       const packedByPage = await packedSkuQuantitiesForOrder(
@@ -79,23 +81,14 @@ export async function PATCH(
         ),
         packedByPage
       );
-      if (overPacked) {
-        return NextResponse.json({ error: overPacked }, { status: 409 });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Lookup failed";
-      return NextResponse.json({ error: message }, { status: 500 });
+      if (overPacked) warning = `Over the job ticket: ${overPacked}`;
+    } catch {
+      // The warning is a nicety; never block the save on it.
     }
   }
-  const clamped = clampBoxLineToTicket({
-    requested,
-    ticketQty,
-    packedElsewhere,
-  });
-  if ("error" in clamped) {
-    return NextResponse.json({ error: clamped.error }, { status: 409 });
+  if (!warning && ticketQty > 0 && packedElsewhere + requested > ticketQty) {
+    warning = `Over the job ticket: ${(packedElsewhere + requested).toLocaleString("en-US")} boxed of ${ticketQty.toLocaleString("en-US")}`;
   }
-  const quantity = clamped.quantity;
 
   let { data, error } = await supabase
     .from("multiitem_box_orders")
@@ -132,7 +125,7 @@ export async function PATCH(
   if (!data) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
-  return NextResponse.json({ order: data });
+  return NextResponse.json({ order: data, warning });
 }
 
 export async function DELETE(

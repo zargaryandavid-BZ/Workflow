@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     part?: number;
     totalParts?: number;
     layout?: "multiple" | "one_per_slip";
-    pageSize?: "letter" | "4x6";
+    pageSize?: "letter" | "4x6" | "summary";
     boxes?: PackingSlipBoxInput[];
     palletSlip?: boolean;
   };

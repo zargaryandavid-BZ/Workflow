@@ -8,6 +8,7 @@ import {
 import {
   generatePackingSlipPdfFromExport,
   normalizeSlipBoxes,
+  parsePackingSlipPageSize,
   type PackingSlipBoxInput,
 } from "@/lib/packing-slip-generate";
 
@@ -49,7 +50,7 @@ export async function POST(
     layout?: "multiple" | "one_per_slip";
     /** Total number of boxes — printed in the BOX section of the slip. */
     boxCount?: number | null;
-    pageSize?: "letter" | "4x6";
+    pageSize?: "letter" | "4x6" | "summary";
     boxes?: PackingSlipBoxInput[];
     /** 4×6 only: add the Packing Pallet Slip as the last page. */
     palletSlip?: boolean;
@@ -133,7 +134,7 @@ export async function POST(
       copyQties: body.copyQties && typeof body.copyQties === "object" ? body.copyQties : undefined,
       layout: body.layout === "one_per_slip" ? "one_per_slip" : "multiple",
       boxCount: typeof body.boxCount === "number" && body.boxCount > 0 ? Math.floor(body.boxCount) : undefined,
-      pageSize: body.pageSize === "4x6" ? "4x6" : "letter",
+      pageSize: parsePackingSlipPageSize(body.pageSize),
       boxes: normalizeSlipBoxes(body.boxes),
       palletSlip:
         typeof body.palletSlip === "boolean" ? body.palletSlip : undefined,

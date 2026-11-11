@@ -432,6 +432,8 @@ Multi-item orders suffix each card: \`ORD-001-1\`, \`ORD-001-2\`. Single-item / 
 | \`payment_status\` | No | string | \`partial\` or \`full\` (also \`paid\` / \`complete\` → full). Alias: \`payment\` |
 | \`deposit\` | No | number \\| string | Deposit amount stored in \`specs.billing\` |
 | \`balance\` | No | number \\| string | Remaining balance stored in \`specs.billing\` |
+| \`crm_order_number\` | No | string | CRM order number (e.g. \`ORD-2026-15643\`) → \`specs.crm_order_number\`; shown as a small **CRM …** label on the card. Letters/digits/dashes, max 40. Per-item override allowed. Never cleared on update |
+| \`portal_order_number\` | No | string | Portal/website order number (e.g. \`BZ-529\`) → \`specs.portal_order_number\`; shown as a small **Portal …** label on CRM cards. Same rules as \`crm_order_number\` |
 | \`items\` | No | array | Omit for legacy single-item flat format |
 
 ---

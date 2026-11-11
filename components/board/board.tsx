@@ -46,6 +46,7 @@ import { Input, Select } from "@/components/ui/input";
 import { type NotifyColumnConfig } from "@/lib/board-notify";
 import { NotificationPopup } from "@/components/automation/notification-popup";
 import { BatchRerequestPopup } from "@/components/board/BatchRerequestPopup";
+import { BulkReadyToShipPopup } from "@/components/board/BulkReadyToShipPopup";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -728,6 +729,10 @@ export function Board({
     columnId: string;
     columnName: string;
     notificationType: "customer_approval" | "missing_info";
+  } | null>(null);
+  const [bulkReadyToShipColumn, setBulkReadyToShipColumn] = useState<{
+    columnId: string;
+    columnName: string;
   } | null>(null);
   const [holdReasonPopup, setHoldReasonPopup] = useState<{
     orderId: string;
@@ -4302,7 +4307,12 @@ export function Board({
                         columnName: column.name,
                         notificationType: column.kind === "approval" ? "customer_approval" : "missing_info",
                       })
-                    : undefined
+                    : column.kind === "ready_to_ship" || /ready\s*to\s*ship/i.test(column.name)
+                      ? () => setBulkReadyToShipColumn({
+                          columnId: column.id,
+                          columnName: column.name,
+                        })
+                      : undefined
                 }
                 designers={designersWithLoad}
                 onGroupAssignDesigner={handleGroupAssignDesigner}
@@ -4615,6 +4625,17 @@ export function Board({
         />
       ) : null}
 
+      {bulkReadyToShipColumn ? (
+        <BulkReadyToShipPopup
+          columnId={bulkReadyToShipColumn.columnId}
+          columnName={bulkReadyToShipColumn.columnName}
+          orders={orders}
+          customFields={customFields}
+          fieldValuesByOrder={fieldValuesByOrder}
+          onClose={() => setBulkReadyToShipColumn(null)}
+          onSent={() => scheduleRefresh()}
+        />
+      ) : null}
       {batchRerequestColumn ? (
         <BatchRerequestPopup
           columnId={batchRerequestColumn.columnId}
