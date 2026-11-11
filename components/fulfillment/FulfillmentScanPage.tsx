@@ -1047,6 +1047,35 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<OrderResult | null>(null);
+  // Multi-item boxes this order is packed in (badge under the column).
+  const [orderBoxes, setOrderBoxes] = useState<
+    {
+      id: string;
+      name: string;
+      status: string;
+      quantity: number;
+      carrier: string | null;
+      trackingNumber: string | null;
+      shippedAt: string | null;
+    }[]
+  >([]);
+  const orderIdForBoxes = order?.id ?? null;
+  useEffect(() => {
+    setOrderBoxes([]);
+    if (!orderIdForBoxes) return;
+    let cancelled = false;
+    fetch(`/api/multiitem-boxes/by-order?order_id=${encodeURIComponent(orderIdForBoxes)}`, {
+      cache: "no-store",
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { boxes?: typeof orderBoxes } | null) => {
+        if (!cancelled && json?.boxes) setOrderBoxes(json.boxes);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [orderIdForBoxes]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraInline, setCameraInline] = useState(false);
   const [cameraSession, setCameraSession] = useState(0);
@@ -1946,6 +1975,30 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
                         {order.column_name}
                       </span>
                     )}
+                    {orderBoxes.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {orderBoxes.map((box) => (
+                          <a
+                            key={box.id}
+                            href="/fulfillment/multiitem-box"
+                            className={cn(
+                              "inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] font-semibold md:text-[13px]",
+                              box.shippedAt
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                : "border-amber-200 bg-amber-50 text-amber-900"
+                            )}
+                            title={box.trackingNumber ? `Tracking ${box.trackingNumber}` : undefined}
+                          >
+                            <Package className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">
+                              {box.shippedAt
+                                ? `Shipped in ${box.name}${box.carrier ? ` · ${box.carrier}` : ""}${box.trackingNumber ? ` ${box.trackingNumber}` : ""}`
+                                : `${box.status === "saved" ? "Packed in" : "Packing in"} ${box.name} · qty ${box.quantity}`}
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
                     <button
                       type="button"
                       aria-label="Close order"

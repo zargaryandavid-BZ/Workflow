@@ -9,10 +9,13 @@ import {
 import { cacheGet, cacheSet } from "@/lib/cache";
 
 // Each card with a Final PDF re-ran this check (~2-3s: Drive folder listing)
-// on every board load. Real results are remembered 2 minutes per order; a
+// on every board load. Real results are remembered 10 minutes per order; a
 // manual Drive refresh (gdrive-status?refresh=1) clears it. Unchecked/failed
 // results are never cached.
-const PDF_CHECK_TTL_SECONDS = 120;
+// 10 min (was 2): with 2 min almost every board visit re-listed Drive for
+// every card (~1.5s each). Same window as the card-picture answer; a Drive
+// refresh still clears it at once.
+const PDF_CHECK_TTL_SECONDS = 10 * 60;
 
 /**
  * GET — inspect the newest Final-folder PDF for Acrobat layers + Fast Web View.

@@ -22,6 +22,7 @@ import {
   maskFedExAccountNumber,
 } from "@/lib/client-fedex";
 import { fedexTrackingUrl } from "@/lib/fedex-tracking";
+import { isCustomerOwnLabelSelection } from "@/lib/customer-own-label";
 
 interface ShippingTabProps {
   shippingRequest: ShippingRequest;
@@ -211,8 +212,11 @@ export function ShippingTab({
   const isClientFedex =
     shippingRequest.client_choice === "delivery" &&
     isClientFedExSelection(shippingRequest.fedex_selection);
+  const isOwnLabel =
+    shippingRequest.client_choice === "delivery" &&
+    isCustomerOwnLabelSelection(shippingRequest.fedex_selection);
   const isDelivery =
-    shippingRequest.client_choice === "delivery" && !isCurri;
+    shippingRequest.client_choice === "delivery" && !isCurri && !isOwnLabel;
   const rate = shippingRequest.fedex_selection;
   const clientAccountOnResponse =
     clientFedExAccountFromSelection(rate) ?? clientFedexAccount ?? null;
@@ -547,6 +551,47 @@ export function ShippingTab({
                   {shippingRequest.delivery_notes}
                 </p>
               </div>
+            ) : null}
+            {shippingRequest.responded_at ? (
+              <p className="text-slate-500">
+                Confirmed {formatDateTime(shippingRequest.responded_at)}
+              </p>
+            ) : null}
+          </div>
+        ) : isOwnLabel ? (
+          <div className="space-y-2 text-sm text-slate-700">
+            <p className="flex items-center gap-2 font-medium text-slate-900">
+              <Truck className="h-4 w-4 text-slate-500" />
+              Customer sent their own shipping label
+            </p>
+            <p className="text-slate-600">
+              Print the customer&apos;s label and stick it on the box. Do not
+              buy a FedEx label. (Also saved in the order&apos;s Files.)
+            </p>
+            {(rate?.ownLabelFiles ?? []).length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {(rate?.ownLabelFiles ?? []).map((file) =>
+                  file.assetId ? (
+                    <a
+                      key={file.assetId}
+                      href={`/api/assets/${file.assetId}?inline=1`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      {file.name}
+                    </a>
+                  ) : (
+                    <span key={file.path || file.name} className="text-slate-800">
+                      {file.name}
+                    </span>
+                  )
+                )}
+              </div>
+            ) : null}
+            {rate?.ownLabelNote ? (
+              <p className="text-slate-600">Note: {rate.ownLabelNote}</p>
             ) : null}
             {shippingRequest.responded_at ? (
               <p className="text-slate-500">

@@ -8,7 +8,10 @@ import {
   NOTIFICATION_SEND_TIMEOUT_MS,
   postJsonWithTimeout,
 } from "@/lib/fetch-with-timeout";
-import { resolvePreferredNotifyChannel } from "@/lib/preferred-channel";
+import {
+  effectivePreferredChannel,
+  resolvePreferredNotifyChannel,
+} from "@/lib/preferred-channel";
 import type {
   CustomField,
   NotificationChannel,
@@ -116,7 +119,7 @@ export async function runColumnNotify(params: {
   const channel: NotificationChannel = params.notifyColumn.automation_enabled
     ? resolvePreferredNotifyChannel(
         contact,
-        params.order.customer?.preferred_channel,
+        effectivePreferredChannel(params.order.customer),
         params.smsConfigured
       )
     : "manual";

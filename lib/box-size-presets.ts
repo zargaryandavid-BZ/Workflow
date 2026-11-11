@@ -15,6 +15,7 @@ export const FULFILLMENT_BOX_SIZE_PRESETS = [
 export const READY_TO_SHIP_BOX_SIZE_PRESETS = [
   "18×12×12 in",
   "6×6×6 in",
+  "8×8×8 in",
   "10×10×10 in",
   "14×14×14 in",
   "16×16×16 in",
@@ -138,4 +139,32 @@ export function missingBoxFieldsMessage(boxes: SizedBox[]): string | null {
 function joinWords(words: string[]): string {
   if (words.length <= 1) return words.join("");
   return `${words.slice(0, -1).join(", ")} & ${words[words.length - 1]}`;
+}
+
+/** Most boxes one shipping request can carry (FedEx multi-piece shipment). */
+export const MAX_SHIP_BOXES = 50;
+
+/** A row of identical boxes: "12 boxes, 12×10×8 in, 22 lbs each". */
+export type BoxGroupDraft = SizedBox & { qty: string };
+
+export function boxGroupQty(group: { qty: string }): number {
+  const n = Math.floor(Number.parseFloat(group.qty));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function totalBoxCount(groups: { qty: string }[]): number {
+  return groups.reduce((sum, g) => sum + boxGroupQty(g), 0);
+}
+
+/**
+ * Expand box groups into the one-row-per-box list the server and FedEx use,
+ * so rates and labels see every physical box with its own weight.
+ */
+export function expandBoxGroups(groups: BoxGroupDraft[]): SizedBox[] {
+  const out: SizedBox[] = [];
+  for (const g of groups) {
+    const { length, width, height, weight } = g;
+    for (let i = 0; i < boxGroupQty(g); i++) out.push({ length, width, height, weight });
+  }
+  return out;
 }

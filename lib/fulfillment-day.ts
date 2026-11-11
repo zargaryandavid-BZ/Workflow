@@ -55,6 +55,16 @@ export function multiitemBoxName(
   return `BZ BOX ${boxNumber} · ${mm}/${dd}/${yy}`;
 }
 
+/** Today as `YYYY-MM-DD` in the shop's time zone (America/Los_Angeles). */
+export function shopDayKey(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
 /** UTC calendar date `YYYY-MM-DD` for multi-item box daily counters. */
 export function utcBoxDate(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);

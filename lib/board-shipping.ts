@@ -1,4 +1,5 @@
 import { isClientFedExSelection } from "@/lib/client-fedex";
+import { isCustomerOwnLabelSelection } from "@/lib/customer-own-label";
 import type {
   FedExRateOption,
   ShippingClientChoice,
@@ -12,6 +13,7 @@ export type BoardShippingKind =
   | "delivery"
   | "label_ready"
   | "client_fedex"
+  | "own_label"
   | "uber"
   | "curri";
 
@@ -169,6 +171,16 @@ export function boardShippingSignFromRequest(row: {
         title: `Client chose Curri · ${name}`,
       };
     }
+    if (isCustomerOwnLabelSelection(row.fedex_selection)) {
+      const count = row.fedex_selection?.ownLabelFiles?.length ?? 0;
+      const note = row.fedex_selection?.ownLabelNote?.trim();
+      return {
+        kind: "own_label",
+        choice: "delivery",
+        label: "Own label",
+        title: `Client sent their own shipping label${count > 1 ? ` (${count} files)` : ""} — in Files${note ? ` · ${note}` : ""}`,
+      };
+    }
     if (isClientFedExSelection(row.fedex_selection)) {
       return {
         kind: "client_fedex",
@@ -215,6 +227,7 @@ export function isConfirmedShippingChoiceSign(
     sign.kind === "delivery" ||
     sign.kind === "label_ready" ||
     sign.kind === "client_fedex" ||
+    sign.kind === "own_label" ||
     sign.kind === "uber" ||
     sign.kind === "curri"
   );
@@ -236,6 +249,7 @@ export function shippingCardBorderColor(
   if (sign.kind === "pickup") return "#34d399"; // emerald-400
   if (sign.kind === "label_ready") return "#34d399"; // emerald-400 — label printed
   if (sign.kind === "client_fedex") return "#c084fc"; // purple-400
+  if (sign.kind === "own_label") return "#fbbf24"; // amber-400
   if (sign.kind === "uber") return "#a78bfa"; // violet-400
   if (sign.kind === "curri") return "#fb923c"; // orange-400
   return "#38bdf8"; // sky-400 — FedEx delivery
@@ -252,6 +266,7 @@ export function shippingTagClass(
   if (sign.kind === "pickup") return "bg-emerald-50 text-emerald-700";
   if (sign.kind === "label_ready") return "bg-emerald-50 text-emerald-700";
   if (sign.kind === "client_fedex") return "bg-purple-50 text-purple-800";
+  if (sign.kind === "own_label") return "bg-amber-100 text-amber-900";
   if (sign.kind === "uber") return "bg-violet-50 text-violet-700";
   if (sign.kind === "curri") return "bg-orange-50 text-orange-700";
   if (isOvernightShippingSign(sign)) return "bg-red-50 text-red-700";

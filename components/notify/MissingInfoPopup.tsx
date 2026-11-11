@@ -17,6 +17,7 @@ import {
   channelFromSelection,
   defaultSendChannels,
   toggleSendChannelSelection,
+  effectivePreferredChannel,
 } from "@/lib/preferred-channel";
 import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
 import {
@@ -75,7 +76,7 @@ export function MissingInfoPopup({
   const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
     defaultSendChannels(
       contact,
-      order.customer?.preferred_channel,
+      effectivePreferredChannel(order.customer),
       smsConfigured
     )
   );

@@ -630,8 +630,9 @@ export function RespondForm({
       for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
         const files = filesBySlot[slotIndex] ?? [];
         const { skuKey } = slots[slotIndex];
+        const slotToken = slots[slotIndex].token || token;
         for (const file of files) {
-          await uploadNotificationFile(token, file, skuKey || null);
+          await uploadNotificationFile(slotToken, file, skuKey || null);
         }
       }
 
@@ -663,6 +664,30 @@ export function RespondForm({
       const json = await res.json();
       if (!res.ok) {
         throw new Error(json.error ?? "Something went wrong");
+      }
+      // Same reply for the other parts this page collected files for.
+      if (type === "missing_info") {
+        const siblingTokens = Array.from(
+          new Set(
+            slots
+              .map((slot) => slot.token)
+              .filter((t): t is string => Boolean(t) && t !== token)
+          )
+        );
+        for (const siblingToken of siblingTokens) {
+          const siblingRes = await fetch("/api/notifications/respond", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              token: siblingToken,
+              response,
+              note: (noteOverride ?? note).trim() || undefined,
+            }),
+          });
+          if (!siblingRes.ok) {
+            console.error("[respond] sibling part reply failed", siblingRes.status);
+          }
+        }
       }
       setDone(true);
       if (response === "changes_requested") {

@@ -289,11 +289,27 @@ async function deliverNotification(
 
   // Each order line item is its own part/card — name it so the customer knows
   // exactly which item we need files for.
-  const itemTitle = itemTitleFromSpecs(
+  let itemTitle = itemTitleFromSpecs(
     params.order.specs,
     productFromOrder(params.order),
     params.order.title
   );
+  // One Missing Info link covers every part in the same column — say so.
+  if (params.notification.type === "missing_info") {
+    try {
+      const members = await listOrderGroupMembers(
+        client,
+        params.order.tenant_id,
+        params.order
+      );
+      const sameColumn = members.filter(
+        (m) => m.column_id && m.column_id === params.order.column_id
+      ).length;
+      if (sameColumn > 1) itemTitle = `all ${sameColumn} items`;
+    } catch (err) {
+      console.error("[missing-info-group] count failed:", err);
+    }
+  }
 
   // Only touch the customer's saved contact when staff explicitly confirmed
   // it (saveContact: true). A one-off toEmail/toPhone override used only to
@@ -964,6 +980,51 @@ export async function createNotification(
 
   const extraNotificationIds: string[] = [];
   const timerOrderIds = [params.order.id];
+  // Missing Info on a multi-part order: one link covers every part that is in
+  // the same column (one upload page with a slot per line / SKU) instead of
+  // a separate message per card (Hayk 2026-11-08 item 36). Sibling rows are
+  // created here but only this card's row is delivered.
+  if (params.type === "missing_info") {
+    try {
+      const members = await listOrderGroupMembers(
+        client,
+        params.order.tenant_id,
+        params.order
+      );
+      for (const member of members) {
+        if (
+          member.id === params.order.id ||
+          !member.column_id ||
+          member.column_id !== params.order.column_id
+        ) {
+          continue;
+        }
+        const { data: extra, error: extraErr } = await client
+          .from("job_notifications")
+          .insert({
+            tenant_id: params.order.tenant_id,
+            order_id: member.id,
+            type: params.type,
+            channel: params.channel,
+            token_expires_at: expiresAt,
+            staff_note: params.staffNote ?? null,
+            status: "pending",
+            created_by: params.createdBy ?? null,
+          })
+          .select("id")
+          .single();
+        if (extraErr) {
+          console.error("[missing-info-group] sibling row failed:", extraErr.message);
+          continue;
+        }
+        extraNotificationIds.push(extra.id as string);
+        timerOrderIds.push(member.id);
+      }
+    } catch (err) {
+      console.error("[missing-info-group] failed to load same-column siblings:", err);
+    }
+  }
+
   if (params.type === "customer_approval") {
     const extraIds = new Set<string>(
       (params.groupOrderIds ?? []).filter(

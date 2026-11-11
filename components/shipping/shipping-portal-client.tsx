@@ -6,6 +6,7 @@ import {
   Car,
   ChevronDown,
   Download,
+  FileUp,
   IdCard,
   Loader2,
   MapPin,
@@ -35,6 +36,12 @@ import {
 import { defaultResidentialFlag } from "@/lib/shipping-address";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { formatPickupCode } from "@/lib/pickup-code";
+import {
+  OWN_LABEL_ACCEPT,
+  OWN_LABEL_MAX_FILES,
+  customerOwnLabelSelection,
+  isCustomerOwnLabelSelection,
+} from "@/lib/customer-own-label";
 
 export interface ShippingPortalData {
   token: string;
@@ -275,8 +282,10 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   // FedEx / Curri need box sizes — hide that option entirely when qty is 0.
   const offerDelivery = hasBoxes && (data.offerFedex || data.offerCurri);
   const offerClientFedex = data.offerFedex;
+  // Customer sends their own carrier label (any carrier) — same gate as delivery.
+  const offerOwnLabel = data.offerFedex || data.offerCurri;
   const [step, setStep] = useState<
-    "choose" | "pickup" | "delivery" | "client_fedex" | "uber" | "done"
+    "choose" | "pickup" | "delivery" | "client_fedex" | "own_label" | "uber" | "done"
   >(
     data.status === "client_responded" || data.paymentReturnSessionId
       ? data.status === "client_responded"
@@ -318,9 +327,11 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
   const [doneNotes, setDoneNotes] = useState(data.deliveryNotes ?? "");
   // Highlight Self Pickup by default so customers notice the recommended option.
   const [selectedChoice, setSelectedChoice] = useState<
-    "pickup" | "delivery" | "client_fedex" | "uber"
+    "pickup" | "delivery" | "client_fedex" | "own_label" | "uber"
   >(data.offerPickup ? "pickup" : offerDelivery ? "delivery" : offerClientFedex ? "client_fedex" : "uber");
   const [clientAccount, setClientAccount] = useState("");
+  const [ownLabelFiles, setOwnLabelFiles] = useState<File[]>([]);
+  const [ownLabelNote, setOwnLabelNote] = useState("");
   const [clientServiceType, setClientServiceType] = useState(
     data.fedexSelection?.clientServiceType ?? DEFAULT_CLIENT_FEDEX_SERVICE
   );
@@ -433,6 +444,42 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       setDoneChoice(choice);
       setDoneRate(rate);
       setDoneAddress(data.deliveryAddress ?? address);
+      setStep("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to confirm");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  async function confirmOwnLabel() {
+    if (ownLabelFiles.length === 0) {
+      setError("Upload your shipping label.");
+      return;
+    }
+    setConfirming(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      for (const file of ownLabelFiles) form.append("files", file);
+      if (ownLabelNote.trim()) form.append("note", ownLabelNote.trim());
+      const res = await fetch(`/api/shipping/${data.token}/own-label`, {
+        method: "POST",
+        body: form,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to upload your label.");
+      }
+      const names: string[] = Array.isArray(json.files) ? json.files : [];
+      setDoneChoice("delivery");
+      setDoneRate(
+        customerOwnLabelSelection(
+          names.map((name) => ({ name, path: "" })),
+          ownLabelNote
+        )
+      );
+      setDoneAddress(null);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to confirm");
@@ -1049,8 +1096,50 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                 </p>
               </button>
             ) : null}
+            {offerOwnLabel ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedChoice("own_label");
+                  setStep("own_label");
+                  setError(null);
+                }}
+                className={cn(
+                  "rounded-xl border-2 border-solid p-4 text-left transition active:scale-[0.99]",
+                  selectedChoice === "own_label"
+                    ? "border-black bg-amber-50 shadow-md ring-2 ring-black/15"
+                    : "border-amber-200 bg-amber-50 shadow-sm hover:border-amber-400 hover:bg-amber-100 hover:shadow-md"
+                )}
+              >
+                <FileUp
+                  className={cn(
+                    "mb-2 h-5 w-5",
+                    selectedChoice === "own_label" ? "text-black" : "text-amber-700"
+                  )}
+                />
+                <p className="font-semibold text-slate-900">
+                  I&apos;ll send my own label
+                </p>
+                {selectedChoice === "own_label" ? (
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-black">
+                    Selected
+                  </p>
+                ) : null}
+                <p className="mt-1 text-sm text-slate-500">
+                  Upload a prepaid label (UPS, FedEx, USPS…) and we ship with it
+                </p>
+                <p
+                  className={cn(
+                    "mt-3 text-xs font-semibold uppercase tracking-wide",
+                    selectedChoice === "own_label" ? "text-black" : "text-amber-700"
+                  )}
+                >
+                  Tap to select →
+                </p>
+              </button>
+            ) : null}
           </div>
-          {!data.offerPickup && !offerDelivery && !offerClientFedex && !data.offerUber ? (
+          {!data.offerPickup && !offerDelivery && !offerClientFedex && !offerOwnLabel && !data.offerUber ? (
             <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
               No shipping options are available right now. Please contact the
               shop.
@@ -1163,6 +1252,67 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : null}
             Confirm and Generate Label
+          </button>
+        </div>
+      ) : null}
+
+      {step === "own_label" ? (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => {
+              setStep("choose");
+              setError(null);
+            }}
+            className="text-sm font-bold text-black hover:text-slate-800"
+          >
+            ← Back
+          </button>
+
+          <p className="text-sm font-medium text-slate-800">
+            Upload your prepaid shipping label. Send one label per box
+            {data.boxes.length > 1 ? ` (${data.boxes.length} boxes)` : ""}.
+          </p>
+
+          <label className="block text-sm font-semibold text-slate-800">
+            Label file(s) — PDF, PNG or JPG
+            <input
+              type="file"
+              multiple
+              accept={OWN_LABEL_ACCEPT}
+              onChange={(e) => {
+                const picked = Array.from(e.target.files ?? []).slice(0, OWN_LABEL_MAX_FILES);
+                setOwnLabelFiles(picked);
+                setError(null);
+              }}
+              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-white"
+            />
+          </label>
+          {ownLabelFiles.length > 0 ? (
+            <ul className="space-y-1 text-sm text-slate-600">
+              {ownLabelFiles.map((file) => (
+                <li key={`${file.name}-${file.size}`}>• {file.name}</li>
+              ))}
+            </ul>
+          ) : null}
+          <label className="block text-sm font-semibold text-slate-800">
+            Carrier / note (optional)
+            <input
+              value={ownLabelNote}
+              onChange={(e) => setOwnLabelNote(e.target.value)}
+              placeholder="e.g. UPS Ground, pickup scheduled Friday"
+              maxLength={500}
+              className={addressInputClass}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={confirming || ownLabelFiles.length === 0}
+            onClick={() => void confirmOwnLabel()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1a1f2e] px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          >
+            {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Upload label and confirm
           </button>
         </div>
       ) : null}
@@ -1343,7 +1493,9 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               ? "Self pickup confirmed"
               : doneChoice === "uber"
                 ? "Uber delivery confirmed"
-                : doneRate?.provider === "curri"
+                : isCustomerOwnLabelSelection(doneRate)
+                  ? "Your shipping label was received"
+                  : doneRate?.provider === "curri"
                   ? "Curri delivery confirmed"
                   : isClientFedExSelection(doneRate)
                     ? "FedEx with your account confirmed"
@@ -1370,6 +1522,16 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               ) : null}
               {doneNotes ? (
                 <p className="text-emerald-700/90">Note: {doneNotes}</p>
+              ) : null}
+            </div>
+          ) : doneRate && isCustomerOwnLabelSelection(doneRate) ? (
+            <div className="mt-3 space-y-1 text-sm text-emerald-800">
+              <p>We&apos;ll ship your order using the label you sent.</p>
+              {(doneRate.ownLabelFiles ?? []).map((file) => (
+                <p key={file.name}>{file.name}</p>
+              ))}
+              {doneRate.ownLabelNote ? (
+                <p className="text-emerald-700/90">Note: {doneRate.ownLabelNote}</p>
               ) : null}
             </div>
           ) : doneRate ? (

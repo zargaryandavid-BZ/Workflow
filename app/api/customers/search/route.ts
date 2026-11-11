@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { customerSearchOrFilter } from "@/lib/customer-search-filter";
+import { customerIdsMatchingContacts } from "@/lib/customers";
 
 export interface CustomerSearchResult {
   id: string;
@@ -52,11 +54,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ customers: [] });
   }
 
+  // Name, company, email or phone (any phone format), plus company reps.
+  const filter = customerSearchOrFilter(q);
+  if (!filter) return NextResponse.json({ customers: [] });
+  const viaContacts = await customerIdsMatchingContacts(supabase, ctx.tenant.id, q);
   const { data, error } = await supabase
     .from("customers")
     .select("id, name, email, phone, company")
     .eq("tenant_id", ctx.tenant.id)
-    .ilike("name", `%${q}%`)
+    .or(viaContacts.length > 0 ? `${filter},id.in.(${viaContacts.join(",")})` : filter)
     .order("name", { ascending: true })
     .limit(8);
 

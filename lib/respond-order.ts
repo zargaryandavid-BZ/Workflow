@@ -84,6 +84,86 @@ export function partitionRespondOrderRows(rows: RespondOrderRow[]): {
   return { before, size, after };
 }
 
+/** Width/Height/Depth of 0 is "not set" (website flat items send 0). */
+function isZeroSizeDimension(name: string, raw: unknown): boolean {
+  if (!isOrderSizeDimensionField(name)) return false;
+  const n = Number(String(raw).trim());
+  return String(raw).trim() !== "" && Number.isFinite(n) && n === 0;
+}
+
+const SIZE_LABELS = new Set(["size", "finished size", "width", "height"]);
+const FINISH_LABELS = new Set(["finishing", "lamination"]);
+
+/** "Sides: 1 Side · Finishing: Gloss · Size: 8x3" lines written by the CRM. */
+function crmProductionNoteSpecs(specs: Record<string, unknown>): Map<string, string> {
+  const out = new Map<string, string>();
+  let raw: unknown = specs.production_notes;
+  // Stored as a JSON string of note entries on most cards.
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = [];
+    }
+  }
+  const texts: string[] = [];
+  if (Array.isArray(raw)) {
+    for (const n of raw) {
+      if (n && typeof n === "object") {
+        const rec = n as Record<string, unknown>;
+        if (rec.author === "CRM" && typeof rec.text === "string") texts.push(rec.text);
+      }
+    }
+  }
+  for (const text of texts) {
+    if (!text.includes(" · ") && !/^\s*(Finishing|Size):/m.test(text)) continue;
+    for (const part of text.split(/ · |\n/)) {
+      const m = /^\s*([A-Za-z ]{2,30}):\s*(.+?)\s*$/.exec(part);
+      if (!m) continue;
+      const key = m[1]!.trim().toLowerCase();
+      if (!out.has(key)) out.set(key, m[2]!);
+    }
+  }
+  return out;
+}
+
+/**
+ * Specs the customer must see on the proof that only live in
+ * `spec_selections` / the CRM spec line (Hayk #39 wrap roll size, #45 finishing):
+ * Size from SET_SIZE, Finishing from the CRM line when the dropdown was blank.
+ */
+export function fallbackSpecRows(
+  specs: Record<string, unknown>,
+  usedLabels: Set<string>
+): RespondOrderRow[] {
+  const rows: RespondOrderRow[] = [];
+  const has = (set: Set<string>) => [...set].some((l) => usedLabels.has(l));
+  const sel =
+    specs.spec_selections && typeof specs.spec_selections === "object" && !Array.isArray(specs.spec_selections)
+      ? (specs.spec_selections as Record<string, unknown>)
+      : {};
+  const notes = crmProductionNoteSpecs(specs);
+
+  if (!has(SIZE_LABELS)) {
+    let size = "";
+    for (const [k, v] of Object.entries(sel)) {
+      if (!/^SET_SIZE(_\d+)?$/i.test(k)) continue;
+      const t = typeof v === "string" ? v.trim() : "";
+      if (t && t.toLowerCase() !== "custom") {
+        size = t;
+        break;
+      }
+    }
+    if (!size) size = notes.get("size") ?? "";
+    if (size) rows.push({ label: "Size", value: size });
+  }
+  if (!has(FINISH_LABELS)) {
+    const fin = notes.get("finishing") ?? "";
+    if (fin) rows.push({ label: "Finishing", value: fin });
+  }
+  return rows;
+}
+
 /** Build labeled order rows mirroring the staff order detail form. */
 export function buildRespondOrderRows(
   description: string | null,
@@ -106,7 +186,7 @@ export function buildRespondOrderRows(
     if (name.toLowerCase() === DESIGNER_FIELD_NAME.toLowerCase()) continue;
     if (shouldSkipDieCut(name, dieValue)) continue;
     const value = pickFieldInsensitive(fields, name);
-    if (value) pushRow(name, value);
+    if (value && !isZeroSizeDimension(name, value)) pushRow(name, value);
   }
 
   for (const [name, raw] of Object.entries(fields)) {
@@ -124,6 +204,7 @@ export function buildRespondOrderRows(
       continue;
     }
     if (isEmptyFieldValue(raw)) continue;
+    if (isZeroSizeDimension(name, raw)) continue;
     pushRow(name, formatFieldDisplayValue(raw));
   }
 
@@ -140,6 +221,11 @@ export function buildRespondOrderRows(
     });
     usedLabels.add(labelKey);
     if (nameKey) usedKeys.add(nameKey);
+  }
+
+  for (const extra of fallbackSpecRows(specs, usedLabels)) {
+    rows.push(extra);
+    usedLabels.add(extra.label.trim().toLowerCase());
   }
 
   const designerName =

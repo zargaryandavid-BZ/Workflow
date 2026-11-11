@@ -17,6 +17,7 @@ import {
   defaultSendChannels,
   toggleSendChannelSelection,
   resolvePreferredNotifyChannel,
+  effectivePreferredChannel,
 } from "@/lib/preferred-channel";
 import { SaveChannelAsDefault } from "@/components/notify/customer-notify-default";
 import {
@@ -78,7 +79,7 @@ export function ApprovalPopup({
 
   const initialResolved = resolvePreferredNotifyChannel(
     contact,
-    order.customer?.preferred_channel,
+    effectivePreferredChannel(order.customer),
     smsConfigured
   );
 
@@ -87,10 +88,10 @@ export function ApprovalPopup({
   );
   const [selected, setSelected] = useState<Array<"email" | "sms">>(() =>
     initialResolved === "manual"
-      ? defaultSendChannels(contact, order.customer?.preferred_channel, smsConfigured)
+      ? defaultSendChannels(contact, effectivePreferredChannel(order.customer), smsConfigured)
       : defaultSendChannels(
           contact,
-          order.customer?.preferred_channel,
+          effectivePreferredChannel(order.customer),
           smsConfigured
         )
   );

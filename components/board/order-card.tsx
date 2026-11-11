@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import Image from "next/image";
+import { BoardThumbImage } from "./board-thumb-image";
 import {
   AlertTriangle,
   Boxes,
@@ -147,6 +147,7 @@ import { isApplicationEnabled } from "@/lib/order-application";
 import { isRushOrder } from "@/lib/order-rush";
 import type { TimeChip } from "@/lib/time-chips";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
+import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
 
 interface ColumnOption {
   id: string;
@@ -1349,14 +1350,7 @@ export function OrderCard({
                 className="h-28 w-28 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
                 aria-label={`View pictures for ${order.title}`}
               >
-                <Image
-                  src={displayThumbs[0].url}
-                  alt=""
-                  width={112}
-                  height={112}
-                  className="h-28 w-28 object-cover"
-                  unoptimized
-                />
+                <BoardThumbImage url={displayThumbs[0].url} size={112} className="h-28 w-28 object-cover" />
               </button>
             ) : (
               <button
@@ -1583,6 +1577,7 @@ export function OrderCard({
                   </span>
                 ) : null}
               </span>
+              <LinkedOrderNumbers title={order.title} specs={order.specs} />
               </div>
               {cardTitle ? (
                 <span className="min-w-0 w-full whitespace-normal break-words text-left text-[15px] font-bold leading-snug text-slate-900">
@@ -2321,6 +2316,7 @@ export function OrderCard({
                     <MoveMenuSections
                       columns={availableColumns}
                       scrollToColumnId={nextMoveColumnId}
+                      fromColumnName={columnName}
                       onSelect={(col) => {
                         if (moveWholeOrder && onMoveGroupToColumn) {
                           onMoveGroupToColumn(order, col.id);
@@ -2487,3 +2483,4 @@ export function OrderCard({
     </div>
   );
 }
+

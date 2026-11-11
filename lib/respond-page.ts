@@ -11,6 +11,12 @@ export interface OrderMetaChip {
 export interface UploadSlot {
   skuKey: string | null;
   label: string;
+  /**
+   * Another part's missing-info token when one page collects files for every
+   * line of a multi-part order (Hayk 2026-11-08 item 36). Null/absent = this
+   * page's own token.
+   */
+  token?: string | null;
 }
 
 function pickField(

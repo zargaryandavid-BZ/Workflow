@@ -19,7 +19,9 @@ import {
   PackagePlus,
   Plus,
   Printer,
+  Search,
   Trash2,
+  Truck,
   X,
 } from "lucide-react";
 import QRCode from "qrcode";
@@ -115,6 +117,11 @@ interface BoxState {
   status: "open" | "saved";
   savedAt: string | null;
   boxDate: string;
+  /** When the box was opened; the header's date never changes after that. */
+  createdAt: string | null;
+  carrier: string;
+  trackingNumber: string;
+  shippedAt: string | null;
 }
 
 type ScanSkuPreviewLine = MultiitemBoxSkuLine & {
@@ -124,11 +131,6 @@ type ScanSkuPreviewLine = MultiitemBoxSkuLine & {
   /** Still to pack (ticket minus other boxes); the most this box can take. */
   left: number;
 };
-
-interface ScanSkuPreview {
-  query: string;
-  lines: ScanSkuPreviewLine[];
-}
 
 /** Per-SKU quantities of an order already packed in other boxes. */
 async function fetchPackedByPage(
@@ -160,6 +162,15 @@ function previewLinesLeft(
     checked: (left[index]?.quantity ?? line.quantity) > 0,
   }));
 }
+
+type SizePadField = "sizeL" | "sizeW" | "sizeH" | "weight";
+
+const SIZE_PAD_LABEL: Record<SizePadField, string> = {
+  sizeL: "Length (in)",
+  sizeW: "Width (in)",
+  sizeH: "Height (in)",
+  weight: "Weight (lbs)",
+};
 
 interface BoxDragPayload {
   fromBoxId: string;
@@ -319,8 +330,14 @@ function HistoryBoxCard({
   onTogglePrintSelection,
   onDragItem,
   onChooseMove,
+  onShip,
 }: {
   box: BoxState;
+  /** Save carrier + tracking; shipped=true stamps it shipped, false clears it. */
+  onShip?: (
+    boxId: string,
+    fields: { carrier: string; tracking_number: string; shipped: boolean }
+  ) => Promise<string | null>;
   onPrint: (boxId: string) => void;
   onRemove: (boxId: string) => void;
   onSelect?: (boxId: string) => void;
@@ -542,7 +559,103 @@ function HistoryBoxCard({
           </div>
         ))}
       </div>
+      {onShip ? <BoxShippingRow box={box} onShip={onShip} /> : null}
     </article>
+  );
+}
+
+/** Carrier / tracking / shipped, at the bottom of a saved box card. */
+function BoxShippingRow({
+  box,
+  onShip,
+}: {
+  box: BoxState;
+  onShip: NonNullable<Parameters<typeof HistoryBoxCard>[0]["onShip"]>;
+}) {
+  const [carrier, setCarrier] = useState(box.carrier);
+  const [tracking, setTracking] = useState(box.trackingNumber);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setCarrier(box.carrier);
+    setTracking(box.trackingNumber);
+  }, [box.carrier, box.trackingNumber]);
+
+  async function submit(shipped: boolean) {
+    setBusy(true);
+    setError(null);
+    const failed = await onShip(box.id, {
+      carrier: carrier.trim(),
+      tracking_number: tracking.trim(),
+      shipped,
+    });
+    setBusy(false);
+    if (failed) setError(failed);
+  }
+
+  if (box.shippedAt) {
+    return (
+      <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+        <Truck className="h-4 w-4 shrink-0" />
+        <span className="font-semibold">
+          Shipped{" "}
+          {new Date(box.shippedAt).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          })}
+        </span>
+        {box.carrier ? <span>· {box.carrier}</span> : null}
+        {box.trackingNumber ? (
+          <span className="break-all font-mono">· {box.trackingNumber}</span>
+        ) : null}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void submit(false)}
+          className="ml-auto rounded px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+        >
+          Undo
+        </button>
+        {error ? <p className="w-full text-red-600">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="mt-auto border-t border-slate-200 px-3 py-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit(true);
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={carrier}
+          onChange={(e) => setCarrier(e.target.value)}
+          list="multiitem-box-carriers"
+          placeholder="Carrier"
+          aria-label={`Carrier for ${box.name}`}
+          className="h-9 w-28 min-w-0 rounded-md border border-slate-300 px-2 text-xs"
+        />
+        <input
+          value={tracking}
+          onChange={(e) => setTracking(e.target.value)}
+          placeholder="Tracking #"
+          aria-label={`Tracking number for ${box.name}`}
+          className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 font-mono text-xs"
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="inline-flex h-9 items-center gap-1 rounded-md bg-[#1a1f2e] px-3 text-xs font-semibold text-white hover:bg-[#2d3550] disabled:opacity-50"
+        >
+          <Truck className="h-3.5 w-3.5" />
+          {busy ? "Saving…" : "Mark shipped"}
+        </button>
+      </div>
+      {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
+    </form>
   );
 }
 
@@ -568,6 +681,10 @@ function boxFromApi(row: MultiitemBoxRow): BoxState {
     status: row.status === "saved" ? "saved" : "open",
     savedAt: row.saved_at ?? null,
     boxDate: row.box_date,
+    createdAt: row.created_at ?? null,
+    carrier: row.carrier ?? "",
+    trackingNumber: row.tracking_number ?? "",
+    shippedAt: row.shipped_at ?? null,
   };
 }
 
@@ -587,15 +704,13 @@ export function MultiitemBoxSlipModal({
   const [boxes, setBoxes] = useState<BoxState[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedSavedDay, setSelectedSavedDay] = useState<string | null>(null);
+  /** Search saved boxes (any day) by box #, PO, customer, order # or title. */
+  const [boxSearch, setBoxSearch] = useState("");
   const [scan, setScan] = useState("");
   const [hint, setHint] = useState<{ kind: "error" | "amber"; text: string } | null>(
     null
   );
   const [shake, setShake] = useState(false);
-  const [scanSkuPreview, setScanSkuPreview] = useState<ScanSkuPreview | null>(
-    null
-  );
-  const [scanPreviewLoading, setScanPreviewLoading] = useState(false);
   const [zeroError, setZeroError] = useState(false);
   const [headerActionsEl, setHeaderActionsEl] = useState<HTMLElement | null>(
     null
@@ -626,6 +741,14 @@ export function MultiitemBoxSlipModal({
   );
   const [dragOverBoxId, setDragOverBoxId] = useState<string | null>(null);
   const [movePicker, setMovePicker] = useState<BoxDragPayload | null>(null);
+  // Order from a different customer than the box: ask before adding.
+  const [customerConflict, setCustomerConflict] = useState<{
+    box: BoxState;
+    args: Parameters<typeof addOrderToBox>[1];
+    orderTitle: string;
+    boxCustomer: string;
+    orderCustomer: string;
+  } | null>(null);
   const [scanKeypadOpen, setScanKeypadOpen] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -636,6 +759,16 @@ export function MultiitemBoxSlipModal({
   const scanRef = useRef<HTMLInputElement>(null);
   const replaceNextScan = useRef(false);
   const customLengthRef = useRef<HTMLInputElement>(null);
+  const customWidthRef = useRef<HTMLInputElement>(null);
+  const customHeightRef = useRef<HTMLInputElement>(null);
+  /** Number pad for Custom size: Length → Width → Height → Weight → done. */
+  const [sizePad, setSizePad] = useState<SizePadField | null>(null);
+  /** Box whose custom Length/Width/Height row is open for editing. */
+  const [editingCustomSizeId, setEditingCustomSizeId] = useState<string | null>(null);
+  const sizePadRef = useRef<SizePadField | null>(null);
+  sizePadRef.current = sizePad;
+  /** First pad key replaces the field's value (like a selected input). */
+  const sizePadFresh = useRef(false);
   const weightRef = useRef<HTMLInputElement>(null);
   const pendingCustomFocus = useRef(false);
   const hintTimer = useRef<number | null>(null);
@@ -651,6 +784,40 @@ export function MultiitemBoxSlipModal({
     () => boxesForSavedMultiitemDay(boxes, selectedSavedDay),
     [boxes, selectedSavedDay]
   );
+  const searchedBoxes = useMemo(() => {
+    const q = boxSearch.trim().toLowerCase();
+    if (!q) return null;
+    const digits = q.replace(/\D/g, "");
+    return boxes
+      .filter((box) => box.status === "saved")
+      .filter((box) => {
+        // "box 3" → BZ BOX 3 on any day (not BOX 31).
+        const askedBox = /^(?:bz\s*)?box\s*#?\s*(\d+)$/.exec(q)?.[1];
+        if (askedBox) return /box\s*(\d+)/i.exec(box.name)?.[1] === askedBox;
+        const fields = [
+          box.name,
+          box.poNumber,
+          box.customer,
+          box.trackingNumber,
+          box.carrier,
+          ...box.items.flatMap((it) => [
+            it.orderTitle,
+            formatShortOrderNumber(it.orderTitle),
+            it.itemTitle,
+            it.customerName,
+          ]),
+        ];
+        if (fields.some((f) => f?.toLowerCase().includes(q))) return true;
+        // Bare digits also match order numbers ("15433" → W-15433-2).
+        // Only for number-like queries ("15433", "W-15433"), 3+ digits.
+        return (
+          digits.length >= 3 &&
+          /^[a-z]{0,2}[\s#-]*[\d\s-]+$/.test(q) &&
+          box.items.some((it) => it.orderTitle.replace(/\D/g, "").includes(digits))
+        );
+      })
+      .sort((a, b) => (b.savedAt ?? "").localeCompare(a.savedAt ?? ""));
+  }, [boxSearch, boxes]);
   const selectedPrintBoxes = useMemo(
     () => viewBoxes.filter((box) => selectedPrintBoxIds.has(box.id)),
     [selectedPrintBoxIds, viewBoxes]
@@ -684,16 +851,26 @@ export function MultiitemBoxSlipModal({
     }));
   }, [configuredPalletCount, printSetup, printSetupBoxes]);
   const active = viewBoxes.find((b) => b.id === activeId) ?? viewBoxes[0] ?? null;
-  // Read by the scan preview so it can skip this box when counting what's left.
-  const activeBoxIdRef = useRef<string | null>(null);
-  activeBoxIdRef.current = active?.id ?? null;
   const activeIndex = active
     ? viewBoxes.findIndex((box) => box.id === active.id)
     : -1;
   const viewingHistory = Boolean(selectedSavedDay);
   const readOnly = viewingHistory || active?.status === "saved";
-  const sizeValue = active ? sizeSelectValue(active) : "";
-  const isCustom = Boolean(active?.sizeCustom) || sizeValue === CUSTOM_SIZE;
+  // A finished custom size (all 3 sides) sits in the dropdown as its own
+  // option; the Length/Width/Height row only shows while it's being edited.
+  const customDone = Boolean(
+    active?.sizeCustom &&
+      active.sizeLabel &&
+      editingCustomSizeId !== active.id
+  );
+  const sizeValue = active
+    ? customDone
+      ? active.sizeLabel
+      : sizeSelectValue(active)
+    : "";
+  const isCustom =
+    !customDone &&
+    (Boolean(active?.sizeCustom) || sizeValue === CUSTOM_SIZE);
 
   useEffect(() => {
     setSelectedPrintBoxIds(new Set());
@@ -774,7 +951,6 @@ export function MultiitemBoxSlipModal({
   }, [cameraOpen]);
 
   function applyScanField(next: string) {
-    setScanSkuPreview(null);
     if (replaceNextScan.current) {
       replaceNextScan.current = false;
       const prev = scan;
@@ -784,69 +960,6 @@ export function MultiitemBoxSlipModal({
     setScan(next);
   }
 
-  useEffect(() => {
-    const query = scan.trim();
-    if (!query || readOnly) {
-      setScanPreviewLoading(false);
-      setScanSkuPreview(null);
-      return;
-    }
-    const ac = new AbortController();
-    const timer = window.setTimeout(() => {
-      setScanPreviewLoading(true);
-      void fetch(`/api/fulfillment/scan?q=${encodeURIComponent(query)}`, {
-        signal: ac.signal,
-      })
-        .then(async (res) => {
-          if (!res.ok) return null;
-          return (await res.json()) as {
-            id?: string;
-            title?: string;
-            qty?: number | null;
-            final_artwork_sku_count?: number | null;
-            qty_per_sku?: number | null;
-            sku_images?: {
-              sku_name?: string | null;
-              qty?: number | null;
-            }[];
-          };
-        })
-        .then(async (json) => {
-          if (!json?.id) return;
-          const totalQty =
-            json.qty != null && Number.isFinite(Number(json.qty))
-              ? Math.floor(Number(json.qty))
-              : null;
-          const ticket = multiitemBoxSkuLinesFromTicket({
-            skus: (json.sku_images ?? []).map((sku) => ({
-              name: sku.sku_name,
-              qty: sku.qty,
-            })),
-            totalQty,
-            qtyPerSku: json.qty_per_sku,
-            skuCount: json.final_artwork_sku_count,
-          });
-          const packed = await fetchPackedByPage(
-            json.id,
-            activeBoxIdRef.current,
-            ac.signal
-          );
-          setScanSkuPreview({ query, lines: previewLinesLeft(ticket, packed) });
-        })
-        .catch((err: unknown) => {
-          if (!(err instanceof Error) || err.name !== "AbortError") {
-            setScanSkuPreview(null);
-          }
-        })
-        .finally(() => {
-          if (!ac.signal.aborted) setScanPreviewLoading(false);
-        });
-    }, 300);
-    return () => {
-      window.clearTimeout(timer);
-      ac.abort();
-    };
-  }, [readOnly, scan]);
 
   useEffect(() => {
     if (open && active?.id && !readOnly) focusScan();
@@ -978,7 +1091,6 @@ export function MultiitemBoxSlipModal({
       setBoxes((prev) => [...prev, created]);
       setSelectedSavedDay(null);
       setActiveId(created.id);
-      setScanSkuPreview(null);
       setScan("");
       focusScan();
     } catch (err) {
@@ -990,6 +1102,36 @@ export function MultiitemBoxSlipModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function shipBox(
+    boxId: string,
+    fields: { carrier: string; tracking_number: string; shipped: boolean }
+  ): Promise<string | null> {
+    const res = await fetch(`/api/multiitem-boxes/${boxId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      box?: { carrier?: string | null; tracking_number?: string | null; shipped_at?: string | null };
+    };
+    if (!res.ok || !json.box) return json.error ?? "Could not save shipping";
+    const saved = json.box;
+    setBoxes((current) =>
+      current.map((box) =>
+        box.id === boxId
+          ? {
+              ...box,
+              carrier: saved.carrier ?? "",
+              trackingNumber: saved.tracking_number ?? "",
+              shippedAt: saved.shipped_at ?? null,
+            }
+          : box
+      )
+    );
+    return null;
   }
 
   async function reopenSavedBox(boxId: string) {
@@ -1010,7 +1152,7 @@ export function MultiitemBoxSlipModal({
       setBoxes((current) =>
         current.map((box) =>
           box.id === boxId
-            ? { ...box, status: "open", savedAt: null }
+            ? { ...box, status: "open" }
             : box
         )
       );
@@ -1113,12 +1255,55 @@ export function MultiitemBoxSlipModal({
     });
   }
 
-  async function saveBoxFields(id: string, patch: Record<string, unknown>) {
-    await fetch(`/api/multiitem-boxes/${id}`, {
+  function sizePadValue(field: SizePadField): string {
+    if (!active) return "";
+    return field === "weight" ? active.weightLbs : active[field];
+  }
+
+  function setSizePadValue(field: SizePadField, value: string) {
+    if (!active) return;
+    if (field === "weight") patchBoxLocal(active.id, { weightLbs: value });
+    else patchCustomDim(active.id, field, value);
+  }
+
+  function finishSizePad() {
+    setSizePad(null);
+    setEditingCustomSizeId(null);
+    if (!active) return;
+    void saveBoxFields(active.id, { weight_lbs: weightRef.current?.value ?? active.weightLbs });
+    weightRef.current?.blur();
+    focusScan();
+  }
+
+  /** Enter / Done on the pad: next field, or finish after Weight. */
+  function advanceSizePad(field: SizePadField) {
+    const next =
+      field === "sizeL"
+        ? customWidthRef.current
+        : field === "sizeW"
+          ? customHeightRef.current
+          : field === "sizeH"
+            ? weightRef.current
+            : null;
+    if (!next) return finishSizePad();
+    // Moving focus blurs (and saves) the current field.
+    next.focus();
+    next.select();
+  }
+
+  async function saveBoxFields(
+    id: string,
+    patch: Record<string, unknown>
+  ): Promise<{ box_name?: string; box_date?: string; saved_at?: string | null } | null> {
+    const res = await fetch(`/api/multiitem-boxes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
+    const json = (await res.json().catch(() => ({}))) as {
+      box?: { box_name?: string; box_date?: string; saved_at?: string | null };
+    };
+    return res.ok ? json.box ?? null : null;
   }
 
   async function addOrderToBox(box: BoxState, args: {
@@ -1182,7 +1367,6 @@ export function MultiitemBoxSlipModal({
     setZeroError(false);
     replaceNextScan.current = false;
     setScan("");
-    setScanSkuPreview(null);
     const ticketQty = json.ticket_qty ?? 0;
     const packedElsewhere = json.packed_elsewhere ?? 0;
     if (ticketQty > 0 && packedElsewhere > 0) {
@@ -1199,25 +1383,6 @@ export function MultiitemBoxSlipModal({
     const q = scan.trim();
     if (!q || active?.status === "saved") return;
     let targetBox = active;
-    const matchingPreview =
-      scanSkuPreview?.query === q ? scanSkuPreview : null;
-    const selectedSkuLines = matchingPreview?.lines
-      .filter((line) => line.checked && line.quantity > 0)
-      .map(({ page, label, quantity }) => ({ page, label, quantity }));
-    if (
-      matchingPreview &&
-      matchingPreview.lines.length > 0 &&
-      selectedSkuLines?.length === 0
-    ) {
-      showHint(
-        "error",
-        matchingPreview.lines.every((line) => line.left === 0)
-          ? "This order is already fully boxed"
-          : "Select at least one SKU with a quantity",
-        2000
-      );
-      return;
-    }
     replaceNextScan.current = true;
     if (
       targetBox?.items.some(
@@ -1264,10 +1429,9 @@ export function MultiitemBoxSlipModal({
       focusScan();
       return;
     }
-    // No preview yet (fast wedge scan): offer what other boxes left over.
-    const lookupSkuLines =
-      selectedSkuLines ??
-      previewLinesLeft(
+    // A scan goes straight into the selected box with whatever other boxes
+    // left over; SKU quantities stay editable on the box line.
+    const lookupSkuLines = previewLinesLeft(
         multiitemBoxSkuLinesFromTicket({
           skus: (json.sku_images ?? []).map((sku) => ({
             name: sku.sku_name,
@@ -1304,13 +1468,30 @@ export function MultiitemBoxSlipModal({
         setBusy(false);
       }
     }
-    // Orders from any customer can share a box; the box keeps its first
-    // customer for the slip header.
-    await addOrderToBox(targetBox, {
+    const addArgs = {
       orderId: json.id,
       query: q,
       skuLines: lookupSkuLines.length > 0 ? lookupSkuLines : undefined,
-    });
+    };
+    // A box keeps its first customer for the slip header. A different
+    // customer's order can still go in, but only after the packer confirms.
+    const boxCustomer = targetBox.items.length > 0 ? targetBox.customer?.trim() : "";
+    const orderCustomer = json.customer?.name?.trim() ?? "";
+    if (
+      boxCustomer &&
+      orderCustomer &&
+      boxCustomer.toLowerCase() !== orderCustomer.toLowerCase()
+    ) {
+      setCustomerConflict({
+        box: targetBox,
+        args: addArgs,
+        orderTitle: json.title ?? q,
+        boxCustomer,
+        orderCustomer,
+      });
+      return;
+    }
+    await addOrderToBox(targetBox, addArgs);
   }
 
   async function removeItem(orderId: string) {
@@ -1350,6 +1531,10 @@ export function MultiitemBoxSlipModal({
         body: JSON.stringify({ quantity: qty }),
       }
     );
+    if (res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { warning?: string | null };
+      if (json.warning) showHint("amber", json.warning, 2600);
+    }
     if (!res.ok) {
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       showHint("error", json.error ?? "Could not save qty", 2200);
@@ -1397,6 +1582,10 @@ export function MultiitemBoxSlipModal({
         body: JSON.stringify({ sku_lines: skuLines }),
       }
     );
+    if (res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { warning?: string | null };
+      if (json.warning) showHint("amber", json.warning, 2600);
+    }
     if (!res.ok) {
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       showHint("error", json.error ?? "Could not save SKU quantities", 2200);
@@ -1589,6 +1778,11 @@ export function MultiitemBoxSlipModal({
 
   async function savePrintedBoxes(boxesToSave: BoxState[]) {
     const savedAt = new Date().toISOString();
+    // First save dates each box today (new name); re-saves keep their day.
+    const renamed = new Map<
+      string,
+      { box_name?: string; box_date?: string; saved_at?: string | null }
+    >();
     await Promise.all(
       boxesToSave.map(async (box) => {
         const res = await fetch(`/api/multiitem-boxes/${box.id}`, {
@@ -1603,12 +1797,14 @@ export function MultiitemBoxSlipModal({
             status: "saved",
           }),
         });
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          box?: { box_name?: string; box_date?: string; saved_at?: string | null };
+        };
         if (!res.ok) {
-          const json = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
           throw new Error(json.error ?? `Failed to save ${box.name}`);
         }
+        if (json.box) renamed.set(box.id, json.box);
       })
     );
 
@@ -1616,7 +1812,13 @@ export function MultiitemBoxSlipModal({
     setBoxes((prev) =>
       prev.map((box) =>
         savedIds.has(box.id)
-          ? { ...box, status: "saved" as const, savedAt }
+          ? {
+              ...box,
+              status: "saved" as const,
+              savedAt: renamed.get(box.id)?.saved_at ?? savedAt,
+              name: renamed.get(box.id)?.box_name ?? box.name,
+              boxDate: renamed.get(box.id)?.box_date ?? box.boxDate,
+            }
           : box
       )
     );
@@ -1830,7 +2032,7 @@ export function MultiitemBoxSlipModal({
     }
     setBusy(true);
     try {
-      await saveBoxFields(active.id, {
+      const savedRow = await saveBoxFields(active.id, {
         po_number: active.poNumber,
         size_label: active.sizeCustom
           ? formatCustomBoxSize(active.sizeL, active.sizeW, active.sizeH) || null
@@ -1838,8 +2040,14 @@ export function MultiitemBoxSlipModal({
         weight_lbs: active.weightLbs,
         status: "saved",
       });
-      const savedAt = new Date().toISOString();
-      patchBoxLocal(active.id, { status: "saved", savedAt });
+      // First save dates the box today (new name); a re-save keeps its day.
+      const savedAt = savedRow?.saved_at ?? new Date().toISOString();
+      patchBoxLocal(active.id, {
+        status: "saved",
+        savedAt,
+        ...(savedRow?.box_name ? { name: savedRow.box_name } : {}),
+        ...(savedRow?.box_date ? { boxDate: savedRow.box_date } : {}),
+      });
       const created = await createBox();
       if (created) {
         setBoxes((prev) => {
@@ -1988,6 +2196,54 @@ export function MultiitemBoxSlipModal({
 
   return (
     <>
+    {customerConflict ? (
+      <div
+        className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="customer-conflict-title"
+      >
+        <div className="w-full max-w-md rounded-xl border-2 border-amber-300 bg-amber-50 p-5 shadow-2xl">
+          <h2 id="customer-conflict-title" className="text-lg font-semibold text-slate-900">
+            Different customer
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-700">
+            Order <span className="font-semibold">{customerConflict.orderTitle}</span> is for{" "}
+            <span className="font-semibold">{customerConflict.orderCustomer}</span>, but{" "}
+            {customerConflict.box.name} is for{" "}
+            <span className="font-semibold">{customerConflict.boxCustomer}</span>.
+          </p>
+          <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950">
+            The slip header keeps {customerConflict.boxCustomer}. Add this order to the same box anyway?
+          </p>
+          <div className="mt-5 flex justify-end gap-3">
+            <button
+              type="button"
+              autoFocus
+              onClick={() => {
+                setCustomerConflict(null);
+                replaceNextScan.current = true;
+                focusScan();
+              }}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const conflict = customerConflict;
+                setCustomerConflict(null);
+                void addOrderToBox(conflict.box, conflict.args);
+              }}
+              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+            >
+              Add anyway
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
     {printWarning ? (
       <div
         className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
@@ -2314,11 +2570,63 @@ export function MultiitemBoxSlipModal({
               {localDayLabel(key)}
             </button>
           ))}
+          <label className="relative mb-1 ml-auto flex w-full items-center sm:w-64">
+            <Search className="pointer-events-none absolute left-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="search"
+              value={boxSearch}
+              onChange={(e) => setBoxSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && boxSearch) {
+                  e.stopPropagation();
+                  setBoxSearch("");
+                }
+              }}
+              placeholder="Find box: order, PO, customer, box #"
+              aria-label="Search saved boxes"
+              className="h-9 w-full rounded-md border border-slate-300 bg-white pl-8 pr-2 text-sm focus:border-[#1a1f2e] focus:outline-none focus:ring-2 focus:ring-[#1a1f2e]/20"
+            />
+          </label>
         </div>
+        <datalist id="multiitem-box-carriers">
+          {["UPS", "FedEx", "USPS", "DHL", "Freight", "Courier"].map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
 
         <div className="mt-[10px]">
 
-        {viewingHistory ? (
+        {searchedBoxes ? (
+          searchedBoxes.length > 0 ? (
+            <>
+              <p className="mb-3 text-sm text-slate-600">
+                {searchedBoxes.length === 1
+                  ? "1 saved box matches"
+                  : `${searchedBoxes.length} saved boxes match`}{" "}
+                “{boxSearch.trim()}”
+              </p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {searchedBoxes.map((box) => (
+                  <HistoryBoxCard
+                    key={box.id}
+                    box={box}
+                    onPrint={(boxId) => void printSlip(boxId)}
+                    onRemove={(boxId) => void confirmAndRemoveBox(boxId)}
+                    onSelect={(boxId) => {
+                      setBoxSearch("");
+                      void reopenSavedBox(boxId);
+                    }}
+                    onShip={shipBox}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400">
+              No saved box matches “{boxSearch.trim()}”.
+            </div>
+          )
+        ) : viewingHistory ? (
           viewBoxes.length > 0 ? (
             <>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
@@ -2355,6 +2663,7 @@ export function MultiitemBoxSlipModal({
                     onPrint={(boxId) => void printSlip(boxId)}
                     onRemove={(boxId) => void confirmAndRemoveBox(boxId)}
                     onSelect={(boxId) => void reopenSavedBox(boxId)}
+                    onShip={shipBox}
                     selectedForPrint={selectedPrintBoxIds.has(box.id)}
                     onTogglePrintSelection={(boxId) =>
                       setSelectedPrintBoxIds((current) => {
@@ -2505,7 +2814,11 @@ export function MultiitemBoxSlipModal({
                           {active.name || "Unnamed box"}
                         </p>
                         <p className="shrink-0 text-sm font-medium tabular-nums text-slate-500">
-                          {boxCreationDateLabel(active.boxDate)}
+                          {boxCreationDateLabel(
+                            active.createdAt
+                              ? localDayKey(active.createdAt) || active.boxDate
+                              : active.boxDate
+                          )}
                         </p>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3">
@@ -2537,8 +2850,12 @@ export function MultiitemBoxSlipModal({
                               value={sizeValue}
                               onChange={(e) => {
                                 const v = e.target.value;
+                                if (v === active.sizeLabel && active.sizeCustom) return;
                                 if (v === CUSTOM_SIZE) {
                                   pendingCustomFocus.current = true;
+                                  setEditingCustomSizeId(active.id);
+                                  // Already custom: reopen with its sides to edit.
+                                  if (active.sizeCustom && active.sizeLabel) return;
                                   patchBoxLocal(active.id, {
                                     sizeCustom: true,
                                     sizeLabel: "",
@@ -2551,6 +2868,7 @@ export function MultiitemBoxSlipModal({
                                   });
                                   return;
                                 }
+                                setEditingCustomSizeId(null);
                                 patchBoxLocal(active.id, {
                                   sizeCustom: false,
                                   sizeLabel: v,
@@ -2574,7 +2892,14 @@ export function MultiitemBoxSlipModal({
                                   {p}
                                 </option>
                               ))}
-                              <option value={CUSTOM_SIZE}>Custom…</option>
+                              {customDone && active.sizeLabel ? (
+                                <option value={active.sizeLabel}>
+                                  {active.sizeLabel}
+                                </option>
+                              ) : null}
+                              <option value={CUSTOM_SIZE}>
+                                {customDone ? "Custom… (edit)" : "Custom…"}
+                              </option>
                             </select>
                           </label>
                           <label className="block min-w-0 @3xs:col-span-2 @xs:col-span-1">
@@ -2602,6 +2927,18 @@ export function MultiitemBoxSlipModal({
                               <input
                                 ref={weightRef}
                                 inputMode="decimal"
+                                onFocus={() => {
+                                  // Part of the Custom size sequence: keep the pad up.
+                                  if (sizePadRef.current) {
+                                    sizePadFresh.current = true;
+                                    setSizePad("weight");
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key !== "Enter") return;
+                                  e.preventDefault();
+                                  finishSizePad();
+                                }}
                                 value={active.weightLbs}
                                 onChange={(e) =>
                                   patchBoxLocal(active.id, {
@@ -2656,7 +2993,18 @@ export function MultiitemBoxSlipModal({
                               <label key={key} className="block">
                                 <span className={fieldLabel}>{label}</span>
                                 <input
-                                  ref={key === "sizeL" ? customLengthRef : undefined}
+                                  ref={
+                                    key === "sizeL"
+                                      ? customLengthRef
+                                      : key === "sizeW"
+                                        ? customWidthRef
+                                        : customHeightRef
+                                  }
+                                  onFocus={(e) => {
+                                    e.currentTarget.select();
+                                    sizePadFresh.current = true;
+                                    setSizePad(key);
+                                  }}
                                   inputMode="decimal"
                                   placeholder="0"
                                   data-enter-focus-next
@@ -2777,140 +3125,6 @@ export function MultiitemBoxSlipModal({
                     </div>
                   ) : null}
                 </div>
-
-                {scanPreviewLoading ? (
-                  <p className="px-3 py-2 text-sm text-slate-500">Reading Final Production artwork…</p>
-                ) : scanSkuPreview && scanSkuPreview.lines.length > 0 ? (
-                  <div className="border-b border-slate-200 px-3 py-3">
-                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm font-semibold text-slate-800">
-                      <span>
-                        Total QTY{" "}
-                        <span className="tabular-nums">
-                          {scanSkuPreview.lines
-                            .filter((line) => line.checked)
-                            .reduce((sum, line) => sum + line.quantity, 0)
-                            .toLocaleString()}
-                        </span>
-                      </span>
-                      <span>
-                        SKU QTY{" "}
-                        <span className="tabular-nums">
-                          {scanSkuPreview.lines.filter((line) => line.checked).length}
-                        </span>
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Set how many of each SKU go in this box. The rest stays
-                      available for the next box.
-                    </p>
-                    <div className="mt-2 flex max-h-72 flex-col gap-1 overflow-y-auto">
-                      {scanSkuPreview.lines.map((line, lineIndex) => {
-                        const fullyBoxed = line.left === 0;
-                        const setLine = (patch: Partial<ScanSkuPreviewLine>) =>
-                          setScanSkuPreview((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  lines: current.lines.map((row) =>
-                                    row.page === line.page
-                                      ? { ...row, ...patch }
-                                      : row
-                                  ),
-                                }
-                              : current
-                          );
-                        return (
-                          // Same row layout as the SKU lines inside a box.
-                          <div
-                            key={line.page}
-                            className={cn(
-                              "flex items-center gap-3 rounded px-2 py-1 text-sm text-slate-700",
-                              fullyBoxed
-                                ? "bg-slate-50 text-slate-400"
-                                : line.checked
-                                  ? "bg-blue-50/70"
-                                  : "bg-slate-50"
-                            )}
-                          >
-                            <span className="w-5 shrink-0 font-semibold tabular-nums text-slate-500">
-                              {lineIndex + 1}.
-                            </span>
-                            <span
-                              className="min-w-0 flex-1 break-words font-medium"
-                              title={line.label}
-                            >
-                              {line.label}
-                            </span>
-                            {fullyBoxed || line.left < line.ticketQty ? (
-                              <span className="shrink-0 text-xs text-slate-500">
-                                {fullyBoxed
-                                  ? `All ${line.ticketQty.toLocaleString()} boxed`
-                                  : `${line.left.toLocaleString()} left of ${line.ticketQty.toLocaleString()}`}
-                              </span>
-                            ) : null}
-                            <span className="shrink-0 text-[10px] font-semibold uppercase text-slate-500">
-                              Qty
-                            </span>
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min={0}
-                              max={line.left}
-                              value={fullyBoxed ? 0 : line.quantity}
-                              onFocus={(e) => e.currentTarget.select()}
-                              disabled={fullyBoxed}
-                              onChange={(e) => {
-                                const quantity = Math.min(
-                                  line.left,
-                                  Math.max(0, Math.floor(Number(e.target.value)) || 0)
-                                );
-                                setLine({ quantity, checked: quantity > 0 });
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  void handleScanSubmit();
-                                }
-                              }}
-                              aria-label={`${line.label} quantity for this box`}
-                              className="h-10 w-20 shrink-0 rounded border border-slate-300 bg-white px-2 text-right text-base tabular-nums focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
-                            />
-                            <input
-                              type="checkbox"
-                              checked={line.checked && !fullyBoxed}
-                              disabled={fullyBoxed}
-                              onChange={() =>
-                                setLine({
-                                  checked: !line.checked,
-                                  quantity:
-                                    !line.checked && line.quantity < 1
-                                      ? line.left
-                                      : line.quantity,
-                                })
-                              }
-                              aria-label={`Include ${line.label}`}
-                              className="h-5 w-5 shrink-0 rounded border-slate-300 text-slate-900"
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="mt-2 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => void handleScanSubmit()}
-                        disabled={
-                          !scanSkuPreview.lines.some(
-                            (line) => line.checked && line.quantity > 0
-                          )
-                        }
-                        className="inline-flex h-10 items-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
-                      >
-                        Add to box
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
 
                 <div className="flex items-center gap-3 border-b border-slate-200 px-3 py-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -3253,6 +3467,39 @@ export function MultiitemBoxSlipModal({
         </div>
       </div>
     </div>
+    {sizePad && active && !readOnly ? (
+      <ScanNumberKeypad
+        variant="decimal"
+        zIndex={60}
+        title={`${active.name} · ${SIZE_PAD_LABEL[sizePad]}`}
+        submitLabel={sizePad === "weight" ? "Done" : "Next"}
+        value={sizePadValue(sizePad)}
+        onInsert={(character) => {
+          const current = sizePadFresh.current ? "" : sizePadValue(sizePad);
+          sizePadFresh.current = false;
+          if (character === "." && current.includes(".")) return;
+          setSizePadValue(sizePad, current + character);
+        }}
+        onBackspace={() => {
+          sizePadFresh.current = false;
+          setSizePadValue(sizePad, sizePadValue(sizePad).slice(0, -1));
+        }}
+        onSubmit={() => advanceSizePad(sizePad)}
+        onClose={() => {
+          setSizePad(null);
+          setEditingCustomSizeId(null);
+          const el =
+            sizePad === "weight"
+              ? weightRef.current
+              : sizePad === "sizeL"
+                ? customLengthRef.current
+                : sizePad === "sizeW"
+                  ? customWidthRef.current
+                  : customHeightRef.current;
+          el?.blur();
+        }}
+      />
+    ) : null}
     {scanKeypadOpen && !readOnly ? (
       <ScanNumberKeypad
         title="Order number"

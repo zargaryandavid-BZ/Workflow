@@ -283,7 +283,7 @@ export default async function RespondPage({
   // with no SKUs (legacy) we fall back to a single item-titled slot.
   const notifSkus = skusForRespond(notification.order_specs ?? {});
   let approvalSkus = notifSkus;
-  const uploadSlots: UploadSlot[] =
+  let uploadSlots: UploadSlot[] =
     notification.type === "missing_info"
       ? notifSkus.length > 0
         ? notifSkus.map((sku, index) => ({
@@ -297,6 +297,90 @@ export default async function RespondPage({
           }))
         : [{ skuKey: null, label: itemTitle }]
       : [];
+
+  // Multi-part order: one Missing Info page collects files for every part
+  // that also has an open Missing Info request (one link instead of one per
+  // line, Hayk 2026-11-08 item 36). Each extra slot uploads to that part.
+  if (
+    notification.type === "missing_info" &&
+    notification.status !== "responded"
+  ) {
+    try {
+      const admin = createAdminClient();
+      const { data: primaryOrder } = await admin
+        .from("orders")
+        .select("id, title, tenant_id, column_id, description, specs")
+        .eq("id", notification.order_id)
+        .maybeSingle();
+      const members = primaryOrder
+        ? await listOrderGroupMembers(admin, primaryOrder.tenant_id as string, {
+            id: primaryOrder.id as string,
+            title: primaryOrder.title as string,
+            column_id: primaryOrder.column_id as string | null,
+            description: primaryOrder.description as string | null,
+            specs: (primaryOrder.specs ?? {}) as Record<string, unknown>,
+          })
+        : [];
+      const siblings = members.filter((m) => m.id !== notification.order_id);
+      if (siblings.length > 0) {
+        const nowIso = new Date().toISOString();
+        const { data: openRows } = await admin
+          .from("job_notifications")
+          .select("order_id, token, created_at")
+          .in(
+            "order_id",
+            siblings.map((m) => m.id)
+          )
+          .eq("type", "missing_info")
+          .in("status", ["pending", "sent"])
+          .gt("token_expires_at", nowIso)
+          .order("created_at", { ascending: false });
+        const tokenByOrder = new Map<string, string>();
+        for (const row of (openRows ?? []) as {
+          order_id: string;
+          token: string;
+        }[]) {
+          if (!tokenByOrder.has(row.order_id)) {
+            tokenByOrder.set(row.order_id, row.token);
+          }
+        }
+        const extraSlots: UploadSlot[] = [];
+        for (const member of siblings) {
+          const siblingToken = tokenByOrder.get(member.id);
+          if (!siblingToken) continue;
+          const specs = (member.specs ?? {}) as OrderSpecs;
+          const partTitle = itemTitleFromSpecs(specs, productLabel, member.title);
+          const skus = skusForRespond(specs);
+          if (skus.length === 0) {
+            extraSlots.push({ skuKey: null, label: partTitle, token: siblingToken });
+          } else {
+            skus.forEach((sku, index) => {
+              extraSlots.push({
+                skuKey: sku.id,
+                label:
+                  skus.length === 1
+                    ? partTitle
+                    : `${partTitle} — SKU ${index + 1}${sku.name.trim() ? ` — ${sku.name.trim()}` : ""}`,
+                token: siblingToken,
+              });
+            });
+          }
+        }
+        if (extraSlots.length > 0) {
+          uploadSlots = [
+            ...uploadSlots.map((slot) =>
+              slot.label === itemTitle || !slot.skuKey
+                ? slot
+                : { ...slot, label: `${itemTitle} — ${slot.label}` }
+            ),
+            ...extraSlots,
+          ];
+        }
+      }
+    } catch (err) {
+      console.error("[respond] missing-info group slots failed:", err);
+    }
+  }
 
   let headerTitle = notification.order_title;
   let orderReview: React.ReactNode = null;

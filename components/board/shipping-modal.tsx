@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, Loader2, Mail, Package, Phone } from "lucide-react";
+import { Loader2, Mail, Package, Phone, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import {
   PickupLocationPicker,
@@ -9,19 +9,18 @@ import {
 } from "@/components/shipping/pickup-location-picker";
 import {
   applyPresetDimensions,
+  boxGroupQty,
   CUSTOM_BOX_SIZE_VALUE,
+  expandBoxGroups,
+  MAX_SHIP_BOXES,
   READY_TO_SHIP_BOX_SIZE_PRESETS,
-  resizeBoxDrafts,
+  totalBoxCount,
+  type BoxGroupDraft,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
 import type { ShippingDimUnit, ShippingWeightUnit } from "@/lib/types";
 
-interface BoxDraft {
-  length: string;
-  width: string;
-  height: string;
-  weight: string;
-}
+type BoxDraft = BoxGroupDraft;
 
 interface ShippingModalProps {
   open: boolean;
@@ -36,8 +35,8 @@ interface ShippingModalProps {
   onError: (message: string) => void;
 }
 
-function emptyBox(): BoxDraft {
-  return { length: "", width: "", height: "", weight: "" };
+function emptyBox(qty = "1"): BoxDraft {
+  return { qty, length: "", width: "", height: "", weight: "" };
 }
 
 function isPositiveNumber(value: string): boolean {
@@ -47,6 +46,7 @@ function isPositiveNumber(value: string): boolean {
 
 function isBoxComplete(box: BoxDraft): boolean {
   return (
+    boxGroupQty(box) > 0 &&
     isPositiveNumber(box.length) &&
     isPositiveNumber(box.width) &&
     isPositiveNumber(box.height) &&
@@ -66,7 +66,7 @@ export function ShippingModal({
   onSent,
   onError,
 }: ShippingModalProps) {
-  const [boxCount, setBoxCount] = useState(1);
+  // Each row is a group of identical boxes (count + size + weight per box).
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
   const [sizePreset, setSizePreset] = useState("");
   const [dimUnit, setDimUnit] = useState<ShippingDimUnit>("in");
@@ -81,7 +81,9 @@ export function ShippingModal({
   } = useStaffPickupLocations();
 
   const boxesRequired = fulfillment === "choose";
-  const allBoxesFilled = boxes.every(isBoxComplete);
+  const boxTotal = totalBoxCount(boxes);
+  const allBoxesFilled =
+    boxes.every(isBoxComplete) && boxTotal > 0 && boxTotal <= MAX_SHIP_BOXES;
   const hasContact = Boolean(customerEmail || customerPhone);
   const canSend =
     hasContact &&
@@ -91,7 +93,6 @@ export function ShippingModal({
 
   useEffect(() => {
     if (!open) return;
-    setBoxCount(1);
     setBoxes([emptyBox()]);
     setSizePreset("");
     setDimUnit("in");
@@ -100,12 +101,6 @@ export function ShippingModal({
     setSending(false);
     setLocalError(null);
   }, [open, orderId]);
-
-  function updateBoxCount(next: number) {
-    const safe = Math.min(20, Math.max(1, Math.floor(next) || 1));
-    setBoxCount(safe);
-    setBoxes((prev) => resizeBoxDrafts(prev, safe, sizePreset));
-  }
 
   function applySizePreset(label: string) {
     setSizePreset(label);
@@ -122,6 +117,7 @@ export function ShippingModal({
     );
     if (
       field !== "weight" &&
+      field !== "qty" &&
       sizePreset &&
       sizePreset !== CUSTOM_BOX_SIZE_VALUE
     ) {
@@ -129,14 +125,13 @@ export function ShippingModal({
     }
   }
 
-  function duplicateBox(index: number) {
-    if (boxes.length >= 20) return;
-    setBoxes((prev) => [
-      ...prev.slice(0, index + 1),
-      { ...prev[index] },
-      ...prev.slice(index + 1),
-    ]);
-    setBoxCount(boxes.length + 1);
+  function addGroup() {
+    if (boxTotal >= MAX_SHIP_BOXES) return;
+    setBoxes((prev) => [...prev, emptyBox()]);
+  }
+
+  function removeGroup(index: number) {
+    setBoxes((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   }
 
   async function handleSend() {
@@ -147,12 +142,16 @@ export function ShippingModal({
         const nums = [b.length, b.width, b.height, b.weight].map((v) =>
           Number.parseFloat(v)
         );
-        if (!nums.every((n) => Number.isFinite(n) && n > 0)) {
+        if (boxGroupQty(b) < 1 || !nums.every((n) => Number.isFinite(n) && n > 0)) {
           setLocalError(
-            `Box ${i + 1}: enter length, width, height, and weight greater than 0.`
+            `Row ${i + 1}: enter how many boxes, length, width, height, and weight greater than 0.`
           );
           return;
         }
+      }
+      if (boxTotal > MAX_SHIP_BOXES) {
+        setLocalError(`Up to ${MAX_SHIP_BOXES} boxes per shipment (you have ${boxTotal}).`);
+        return;
       }
     }
     if (!customerEmail && !customerPhone) {
@@ -172,7 +171,8 @@ export function ShippingModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           button_id: buttonId,
-          boxes: boxesRequired ? boxes : [],
+          // One row per physical box — FedEx rates/labels see every box.
+          boxes: boxesRequired ? expandBoxGroups(boxes) : [],
           dimUnit,
           weightUnit,
           fulfillment,
@@ -336,17 +336,6 @@ export function ShippingModal({
                 <option value={CUSTOM_BOX_SIZE_VALUE}>Custom…</option>
               </select>
             </label>
-            <label className="block text-sm text-slate-700">
-              How many boxes?
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={boxCount}
-                onChange={(e) => updateBoxCount(Number(e.target.value))}
-                className="ml-3 w-16 rounded-md border border-slate-300 px-2 py-1 text-sm"
-              />
-            </label>
 
             <div className="space-y-3" data-enter-focus-sequence>
               {boxes.map((box, index) => (
@@ -355,23 +344,32 @@ export function ShippingModal({
                   className="rounded-lg border border-slate-200 bg-slate-50 p-3"
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-slate-800">
-                      Box {index + 1}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => duplicateBox(index)}
-                      disabled={boxes.length >= 20}
-                      title={
-                        boxes.length >= 20
-                          ? "Maximum 20 boxes"
-                          : `Duplicate Box ${index + 1}`
-                      }
-                      aria-label={`Duplicate Box ${index + 1}`}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                    </button>
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAX_SHIP_BOXES}
+                        step={1}
+                        required
+                        data-enter-focus-next
+                        value={box.qty}
+                        onChange={(e) => updateBox(index, "qty", e.target.value)}
+                        onKeyDown={focusNextInputOnEnter}
+                        aria-label={`How many boxes in row ${index + 1}`}
+                        className="w-16 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                      />
+                      {boxGroupQty(box) === 1 ? "box" : "boxes"} this size &amp; weight
+                    </label>
+                    {boxes.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeGroup(index)}
+                        aria-label={`Remove row ${index + 1}`}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-white hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ) : null}
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {(
@@ -402,7 +400,7 @@ export function ShippingModal({
                       </label>
                     ))}
                     <label className="block text-xs text-slate-500">
-                      Weight ({weightUnit}) *
+                      Weight each ({weightUnit}) *
                       <input
                         type="number"
                         min={0.01}
@@ -420,6 +418,20 @@ export function ShippingModal({
                   </div>
                 </div>
               ))}
+              <div className="flex items-center justify-between text-sm">
+                <button
+                  type="button"
+                  onClick={addGroup}
+                  disabled={boxTotal >= MAX_SHIP_BOXES}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-[var(--primary)] hover:bg-slate-50 disabled:opacity-40"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add a different size or weight
+                </button>
+                <span className={boxTotal > MAX_SHIP_BOXES ? "text-red-600" : "text-slate-500"}>
+                  {boxTotal} {boxTotal === 1 ? "box" : "boxes"} total
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-6 text-sm text-slate-700">

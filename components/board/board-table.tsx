@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { BoardThumbImage } from "./board-thumb-image";
 import {
   Clock,
   CreditCard,
@@ -20,6 +20,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
 import {
   cardOrderQty,
   cardSkuCount,
@@ -584,13 +585,10 @@ export function BoardTable({
                 >
                   <div className="flex items-start gap-2">
                     {thumbnail ? (
-                      <Image
-                        src={thumbnail}
-                        alt=""
-                        width={32}
-                        height={32}
+                      <BoardThumbImage
+                        url={thumbnail}
+                        size={32}
                         className="h-8 w-8 shrink-0 rounded object-cover"
-                        unoptimized
                       />
                     ) : null}
 
@@ -615,6 +613,7 @@ export function BoardTable({
                             }
                           />
                         </span>
+                        <LinkedOrderNumbers title={order.title} specs={order.specs} />
                         {cardTitle ? (
                           <span
                             className="min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-slate-700"
@@ -1100,6 +1099,9 @@ export function BoardTable({
                       <MoveMenuSections
                         columns={moveable}
                         scrollToColumnId={nextMoveColumnId}
+                        fromColumnName={
+                          columns.find((c) => c.id === menuState.order.column_id)?.name ?? null
+                        }
                         onSelect={(col) => {
                           onMoveToColumn(menuState.order, col.id);
                           setMenuState(null);

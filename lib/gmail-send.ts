@@ -23,6 +23,18 @@ export function gmailFromAddress(): string {
   ).toLowerCase();
 }
 
+/**
+ * Where customer replies go. Without this header a reply goes to the sending
+ * mailbox (noreply@ / whatever GMAIL_FROM_EMAIL is), which is how replies were
+ * ending up in the wrong inbox (Hayk 2026-11-08, item 20). Override with
+ * CUSTOMER_REPLY_TO_EMAIL; set it to "none" to omit the header.
+ */
+export function customerReplyToAddress(): string | null {
+  const raw = process.env.CUSTOMER_REPLY_TO_EMAIL?.trim();
+  if (raw?.toLowerCase() === "none") return null;
+  return (raw || "info@bazaarprinting.com").toLowerCase();
+}
+
 export function gmailFromHeader(): string {
   const email = gmailFromAddress();
   const name = process.env.GMAIL_FROM_NAME?.trim() || "Bazaar Printing";
@@ -58,7 +70,9 @@ function encodeSubject(subject: string): string {
 }
 
 /** RFC 2822 message for Gmail `users.messages.send`. */
-export function encodeGmailRawMessage(params: GmailSendParams & { from: string }): string {
+export function encodeGmailRawMessage(
+  params: GmailSendParams & { from: string; replyTo?: string | null }
+): string {
   const boundary = `wf_${Date.now().toString(36)}`;
   const textBody = params.text?.trim()
     ? params.text
@@ -66,6 +80,7 @@ export function encodeGmailRawMessage(params: GmailSendParams & { from: string }
   const raw = [
     `From: ${params.from}`,
     `To: ${params.to}`,
+    ...(params.replyTo ? [`Reply-To: ${params.replyTo}`] : []),
     `Subject: ${encodeSubject(params.subject)}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
@@ -133,6 +148,7 @@ export async function sendViaGmailApi(
         raw: encodeGmailRawMessage({
           ...params,
           from: gmailFromHeader(),
+          replyTo: customerReplyToAddress(),
         }),
       },
     });

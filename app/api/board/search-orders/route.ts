@@ -227,6 +227,9 @@ export async function GET(req: NextRequest) {
         // Renamed card titles still match via CRM order number in specs.
         orParts.push(`specs->>webhook_order_number.ilike.${termPattern}`);
         orParts.push(`specs->>webhook_item_title.ilike.${termPattern}`);
+        // Same order's number in the other system (CRM ORD-… / portal BZ-…).
+        orParts.push(`specs->>crm_order_number.ilike.${termPattern}`);
+        orParts.push(`specs->>portal_order_number.ilike.${termPattern}`);
       }
       if (matchedCustomerIds.length > 0) {
         orParts.push(`customer_id.in.(${matchedCustomerIds.join(",")})`);

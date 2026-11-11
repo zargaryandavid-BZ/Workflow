@@ -74,7 +74,8 @@ export async function lookupFulfillmentScan(
       .eq("tenant_id", tenantId)
       .is("removed_at", null)
       .or(
-        `title.ilike.%${lookupToken}%,specs->>webhook_order_number.ilike.%${lookupToken}%`
+        // Also the same order's number in the other system (portal BZ-… / CRM ORD-…).
+        `title.ilike.%${lookupToken}%,specs->>webhook_order_number.ilike.%${lookupToken}%,specs->>portal_order_number.ilike.%${lookupToken}%,specs->>crm_order_number.ilike.%${lookupToken}%`
       )
       .limit(40);
 

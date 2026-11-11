@@ -26,9 +26,8 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("multiitem_boxes")
-    .select(
-      "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_id, customer_name, customer_email, customer_phone, status, created_at, saved_at, multiitem_box_orders(*)"
-    )
+    // `*` so shipping columns come through, and nothing breaks before their migration.
+    .select("*, multiitem_box_orders(*)")
     .eq("tenant_id", tenantId)
     .eq("status", status)
     .order(status === "saved" ? "saved_at" : "created_at", {

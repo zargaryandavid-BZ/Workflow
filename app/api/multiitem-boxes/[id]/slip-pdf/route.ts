@@ -4,7 +4,7 @@ import { generateMultiitemBoxSlipPdf } from "@/lib/multiitem-box-slip-pdf";
 import { loadFinalArtworkSkuCount } from "@/lib/final-artwork-sku-count";
 import { scanQtyPerSkuFromSpecs } from "@/lib/fulfillment-scan-order";
 import { normalizeMultiitemBoxSkuLines } from "@/lib/multiitem-box-lookup";
-import { multiitemBoxNameFromIsoDate } from "@/lib/fulfillment-day";
+import { multiitemBoxNameFromIsoDate, shopDayKey } from "@/lib/fulfillment-day";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -33,7 +33,7 @@ export async function POST(
   const { data: box, error: boxError } = await supabase
     .from("multiitem_boxes")
     .select(
-      "id, box_name, box_number, box_date, po_number, size_label, weight_lbs, customer_name, customer_email, customer_phone, multiitem_box_orders(*)"
+      "id, box_name, box_number, box_date, status, saved_at, po_number, size_label, weight_lbs, customer_name, customer_email, customer_phone, multiitem_box_orders(*)"
     )
     .eq("id", boxId)
     .eq("tenant_id", tenantId)
@@ -78,7 +78,17 @@ export async function POST(
   const multipleCustomers = distinctCustomers.length > 1;
 
   const pdf = await generateMultiitemBoxSlipPdf({
-    boxName: multiitemBoxNameFromIsoDate(box.box_number, box.box_date),
+    // An open box is about to be saved today: print today's date on its label
+    // (saving sets the same date). A saved box keeps its saved date.
+    boxName: multiitemBoxNameFromIsoDate(
+      box.box_number,
+      // A never-saved open box will be dated the day it's saved (today); a
+      // reopened box keeps its first save day.
+      (box as { status?: string; saved_at?: string | null }).status === "open" &&
+      !(box as { saved_at?: string | null }).saved_at
+        ? shopDayKey()
+        : box.box_date
+    ),
     poNumber: box.po_number,
     sizeLabel: box.size_label,
     weightLbs:

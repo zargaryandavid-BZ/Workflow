@@ -6,6 +6,8 @@ import {
 } from "@/lib/webhook-config";
 import { secretsMatch } from "@/lib/webhook-order";
 import { performOrderMove } from "@/lib/orders/move-order.server";
+import { appendInternalNote } from "@/lib/orders/internal-note.server";
+import { isHoldColumn } from "@/lib/hold-column";
 import {
   decideIntegrationMove,
   findColumnByName,
@@ -27,9 +29,11 @@ function readSecret(request: NextRequest): string | null {
  * (required fields, lock, activity log, column automations, notifications, portal status).
  *
  * Auth: header `x-webhook-secret: wh_live_…` (same secret as the other /api/export routes).
- * Body: { "order_id": "<card uuid>", "to_column": "In Production" | "Prepress" }
+ * Body: { "order_id": "<card uuid>", "to_column": "In Production" | "Prepress" | "Hold",
+ *          "note": { "text": "…", "author": "Pulse user", "date": "<ISO>" }   // optional, Hold only }
  *
- * Only Prepress ⇄ In Production is accepted. Responses:
+ * Only Prepress ⇄ In Production and Prepress → Hold are accepted. A Hold note is added to the card's
+ * Internal notes (author + time) like the board's Hold-reason popup. Responses:
  *   200 { ok: true, moved: true }                      — moved
  *   200 { ok: true, moved: false, already: true }      — card already in the target column
  *   422 { ok: false, error, missing_fields: [...] }    — card is missing required fields
@@ -109,10 +113,26 @@ export async function POST(request: NextRequest) {
     toColumnId: target.id,
     // The route already restricted this to Prepress ⇄ In Production, so the board's drop-role check is skipped.
     skipDropPermission: true,
+    // Parking a card on Hold must not be blocked by missing fields.
+    skipRequiredFields: isHoldColumn(target),
   });
 
   if (result.status >= 200 && result.status < 300) {
-    return NextResponse.json({ ok: true, moved: true });
+    let noteSaved: boolean | undefined;
+    if (parsed.value.note && isHoldColumn(target)) {
+      const note = await appendInternalNote(adminClient, {
+        tenantId,
+        orderId,
+        actorUserId: null,
+        author: parsed.value.note.author,
+        text: `Sent back from Prepress: ${parsed.value.note.text}`,
+        date: parsed.value.note.date,
+        // Internal notes only: no activity-log copy of the reason (the board export reads hold reasons from there).
+      });
+      noteSaved = note.ok;
+      if (!note.ok) console.error("[move-card] hold note failed:", note.error);
+    }
+    return NextResponse.json({ ok: true, moved: true, ...(noteSaved === undefined ? {} : { note_saved: noteSaved }) });
   }
   return NextResponse.json({ ok: false, ...result.body }, { status: result.status });
 }

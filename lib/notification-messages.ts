@@ -159,15 +159,19 @@ export function buildBrandedEmailLayout(params: {
   emailTitle?: string;
   /** Customer portal-style expiry footer. Default true; off for invite/reset. */
   showPortalFooter?: boolean;
+  /** Shop name in the header (e.g. "Bazaar Printing"). Default: software name. */
+  brandName?: string;
+  /** Footer line override (customer emails: "Questions? Just reply…"). */
+  footerText?: string;
 }): string {
   const contextLabel = escapeHtml(params.contextLabel);
   const title = escapeHtml(params.emailTitle ?? PORTAL_PRODUCT_NAME);
-  const brand = escapeHtml(PORTAL_PRODUCT_NAME);
+  const brand = escapeHtml(params.brandName?.trim() || PORTAL_PRODUCT_NAME);
   const showFooter = params.showPortalFooter !== false;
   const footerRow = showFooter
     ? `<tr>
             <td style="margin:0;padding:10px 16px 14px;background:#ffffff;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:11px;line-height:1.4;text-align:center;">
-              ${escapeHtml(PORTAL_FOOTER)}
+              ${escapeHtml(params.footerText ?? PORTAL_FOOTER)}
             </td>
           </tr>`
     : "";
@@ -437,6 +441,53 @@ function plainTextToEmailParagraphs(text: string): string {
     .split(/\n{2,}/)
     .filter(Boolean)
     .map((block) => emailParagraph(linkifyEscapedPlainText(block)))
+    .join("");
+}
+
+/** "Bazaar Printing Team" → "Bazaar Printing" for the email header. */
+export function customerEmailBrand(teamName?: string | null): string {
+  const name = (teamName ?? "").replace(/\s+team$/i, "").trim();
+  return name || "Bazaar Printing";
+}
+
+export const CUSTOMER_EMAIL_FOOTER =
+  "Questions about your order? Just reply to this email.";
+
+function emailButton(label: string, href: string): string {
+  const url = escapeHtml(href);
+  return `<div style="margin:4px 0 16px;"><a href="${url}" style="display:inline-block;background:#2563EB;color:#ffffff;font-size:15px;font-weight:600;line-height:1;text-decoration:none;padding:13px 22px;border-radius:8px;">${escapeHtml(label)}</a></div>`;
+}
+
+/**
+ * Like plainTextToEmailParagraphs, but the line that is just `url` becomes a
+ * big button instead of a long raw link (shipping / pickup / tracking emails,
+ * Hayk 2026-11-08 item 12). Custom templates without that line render as-is.
+ */
+export function plainTextToEmailWithButton(
+  text: string,
+  url: string,
+  label: string
+): string {
+  const target = url.trim();
+  let used = false;
+  return text
+    .trim()
+    .split(/\n{2,}/)
+    .filter(Boolean)
+    .map((block) => {
+      if (!target || used) return emailParagraph(linkifyEscapedPlainText(block));
+      const lines = block.split("\n");
+      const idx = lines.findIndex((l) => l.trim() === target);
+      if (idx === -1) return emailParagraph(linkifyEscapedPlainText(block));
+      used = true;
+      const before = lines.slice(0, idx).join("\n").trim();
+      const after = lines.slice(idx + 1).join("\n").trim();
+      return [
+        before ? emailParagraph(linkifyEscapedPlainText(before)) : "",
+        emailButton(label, target),
+        after ? emailParagraph(linkifyEscapedPlainText(after)) : "",
+      ].join("");
+    })
     .join("");
 }
 
@@ -874,7 +925,9 @@ export function buildReadyToShipEmailHtml(params: {
   const text = buildReadyToShipEmailBody(params);
   return buildBrandedEmailLayout({
     contextLabel: `Order #${params.orderNumber}`,
-    bodyHtml: plainTextToEmailParagraphs(text),
+    bodyHtml: plainTextToEmailWithButton(text, params.orderLink, "Choose pickup or delivery"),
+    brandName: customerEmailBrand(params.teamName),
+    footerText: CUSTOMER_EMAIL_FOOTER,
     emailTitle: readyToShipSubject(params.orderNumber, params.templates, {
       customer_name: params.customerName,
       order_link: params.orderLink,
@@ -957,7 +1010,9 @@ export function buildShippingPortalEmailHtml(params: {
   const text = buildShippingPortalEmailBody(params);
   return buildBrandedEmailLayout({
     contextLabel: `Order #${params.orderNumber}`,
-    bodyHtml: plainTextToEmailParagraphs(text),
+    bodyHtml: plainTextToEmailWithButton(text, params.portalUrl, "Choose pickup or delivery"),
+    brandName: customerEmailBrand(params.teamName),
+    footerText: CUSTOMER_EMAIL_FOOTER,
     emailTitle: shippingPortalSubject(params.orderNumber, params.templates, {
       customer_name: params.customerName,
       portal_url: params.portalUrl,
@@ -1064,7 +1119,9 @@ export function buildPickupReadyEmailHtml(params: {
   const text = buildPickupReadyEmailBody(params);
   return buildBrandedEmailLayout({
     contextLabel: `Order #${params.orderNumber}`,
-    bodyHtml: plainTextToEmailParagraphs(text),
+    bodyHtml: plainTextToEmailWithButton(text, params.portalUrl, "View your order"),
+    brandName: customerEmailBrand(params.teamName),
+    footerText: CUSTOMER_EMAIL_FOOTER,
     emailTitle: pickupReadySubject(params.orderNumber, params.templates, {
       customer_name: params.customerName,
       portal_url: params.portalUrl,
@@ -1148,7 +1205,9 @@ export function buildFedexTrackingEmailHtml(params: {
   const text = buildFedexTrackingEmailBody(params);
   return buildBrandedEmailLayout({
     contextLabel: `Order #${params.orderNumber}`,
-    bodyHtml: plainTextToEmailParagraphs(text),
+    bodyHtml: plainTextToEmailWithButton(text, params.trackingUrl, "Track your package"),
+    brandName: customerEmailBrand(params.teamName),
+    footerText: CUSTOMER_EMAIL_FOOTER,
     emailTitle: fedexTrackingEmailSubject(params.orderNumber, params.templates, {
       customer_name: params.customerName,
       tracking_number: params.trackingNumber,

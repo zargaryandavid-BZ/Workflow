@@ -24,7 +24,11 @@ const KEYS: { label: string; value: string }[][] = [
     { label: "0", value: "0" },
     { label: ")", value: ")" },
   ],
-  [{ label: "W", value: "W" }],
+  // W = wholesale orders, BZ = Bazaar partner portal orders (BZ-437).
+  [
+    { label: "W", value: "W" },
+    { label: "BZ", value: "BZ-" },
+  ],
 ];
 
 const DECIMAL_KEYS: { label: string; value: string }[][] = [
@@ -83,6 +87,7 @@ export function ScanNumberKeypad({
   variant = "scan",
   zIndex = 50,
   title,
+  submitLabel,
 }: {
   value: string;
   onInsert: (ch: string) => void;
@@ -94,6 +99,8 @@ export function ScanNumberKeypad({
   zIndex?: number;
   /** What is being entered, e.g. "Box 1 · Length (in)". */
   title?: string;
+  /** Text on the submit key (default Scan / Done), e.g. "Next". */
+  submitLabel?: string;
 }) {
   const heading = title?.trim() || "Number pad";
   const keys =
@@ -143,7 +150,13 @@ export function ScanNumberKeypad({
         </div>
         <div className="grid gap-2 md:gap-2.5">
           {keys.map((row, i) => (
-            <div key={i} className="grid grid-cols-3 gap-2 md:gap-2.5">
+            <div
+              key={i}
+              className={cn(
+                "grid gap-2 md:gap-2.5",
+                row.length === 2 ? "grid-cols-2" : "grid-cols-3"
+              )}
+            >
               {row.map((key) => (
                 <button
                   key={key.value}
@@ -214,7 +227,7 @@ export function ScanNumberKeypad({
                 "bg-slate-900 text-base font-semibold text-white active:bg-slate-700 md:text-lg"
               )}
             >
-              {variant === "scan" ? "Scan" : "Done"}
+              {submitLabel ?? (variant === "scan" ? "Scan" : "Done")}
             </button>
           </div>
         </div>
