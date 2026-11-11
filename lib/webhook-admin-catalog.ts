@@ -123,6 +123,9 @@ export function resolveKnownSelectAlias(
       "rainbow holographic bopp": "Holo BOPP",
       "holographic label": "Holo BOPP",
       "holo bopp": "Holo BOPP",
+      // Holo card stock — older website names (Nov 10) → Workflow option.
+      "16pt holographic": "16pt Holo 1-Side",
+      "18pt holographic": "18pt Holo 1-Side",
       "white bopp (aggressive glue)": "White BOPP",
       "white bopp (regular glue)": "White BOPP",
       "clear bopp (aggressive glue)": "Clear BOPP",
