@@ -8,7 +8,15 @@ import type { CustomField } from "@/lib/types";
 /** Seed catalog for Product → Materials (intersected with field options). */
 const PRODUCT_MATERIALS: Record<string, string[]> = {
   "Roll Labels": ["White BOPP", "Clear BOPP", "Silver BOPP", "Holo BOPP"],
-  "Business Cards": ["14pt C1S", "16pt C1S", "18pt C1S"],
+  "Business Cards": [
+    "14pt C1S",
+    "16pt C1S",
+    "18pt C1S",
+    "16pt Holo 1-Side",
+    "16pt Holo 2-Side",
+    "18pt Holo 1-Side",
+    "18pt Holo 2-Side",
+  ],
   "Vinyl Banners": [
     "13oz Vinyl Banner (Gloss)",
     "13oz Vinyl Banner (Matte)",

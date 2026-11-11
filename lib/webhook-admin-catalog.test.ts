@@ -331,3 +331,9 @@ describe("Q5 other selects stay on alias/fuzzy for Admin lines", () => {
     );
   });
 });
+
+it("holo card stock: exact names match, older website name maps to 1-Side", () => {
+  const options = ["16pt C1S", "16pt Holo 1-Side", "16pt Holo 2-Side", "18pt Holo 1-Side", "18pt Holo 2-Side"];
+  assert.equal(mapWebhookSelectValue({ field: "Materials", value: "18pt Holo 2-Side", options }), "18pt Holo 2-Side");
+  assert.equal(mapWebhookSelectValue({ field: "Materials", value: "16pt Holographic", options }), "16pt Holo 1-Side");
+});

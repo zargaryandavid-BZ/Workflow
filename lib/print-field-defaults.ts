@@ -65,6 +65,11 @@ export const DEFAULT_PRINT_FIELDS: DefaultFieldDef[] = [
       "18pt Silver",
       "24pt C1S",
       "24pt C2S",
+      // Holo card stock (holo foil laminated in-house, Hayk 2026-11-11)
+      "16pt Holo 1-Side",
+      "16pt Holo 2-Side",
+      "18pt Holo 1-Side",
+      "18pt Holo 2-Side",
       // Cardstock / Sheet (Boyd)
       "16pt (Boyd)",
       "18pt (Boyd)",
