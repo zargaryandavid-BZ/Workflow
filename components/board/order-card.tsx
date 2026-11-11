@@ -997,6 +997,28 @@ export function OrderCard({
     };
   }, [menuOpen, designerMenuOpen, dueMenuOpen]);
 
+  // Viewport height in px (Safari: 100dvh on a fixed element is unreliable) and
+  // a tick bumped whenever the open menu changes size (sections expanding after
+  // mount, submenus, async lists) so the clamp below re-runs.
+  const [menuViewportH, setMenuViewportH] = useState(0);
+  const [menuSizeTick, setMenuSizeTick] = useState(0);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onResize = () => setMenuViewportH(window.innerHeight);
+    onResize();
+    window.addEventListener("resize", onResize);
+    const el = menuRef.current;
+    const ro =
+      el && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => setMenuSizeTick((t) => t + 1))
+        : null;
+    if (el && ro) ro.observe(el);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      ro?.disconnect();
+    };
+  }, [menuOpen]);
+
   // Keep menus fully on-screen (flip up / shift left when near edges).
   useLayoutEffect(() => {
     if (!menuOpen || !menuRef.current) return;
@@ -1018,6 +1040,8 @@ export function OrderCard({
     menuOpen,
     menuPos.x,
     menuPos.y,
+    menuSizeTick,
+    menuViewportH,
     hasActionMenu,
     hasMoveMenu,
     canAssignDesigner,
@@ -1871,9 +1895,11 @@ export function OrderCard({
               style={{
                 top: menuPos.y,
                 left: menuPos.x,
-                maxHeight: "calc(100dvh - 16px)",
+                maxHeight: menuViewportH
+                  ? menuViewportH - 16
+                  : "calc(100vh - 16px)",
               }}
-              className="fixed z-[80] flex min-w-[12rem] max-w-[min(18rem,calc(100vw-16px))] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+              className="fixed z-[80] flex min-w-[12rem] max-w-[min(18rem,calc(100vw-16px))] flex-col overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white shadow-xl"
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
               onContextMenu={(e) => e.preventDefault()}
@@ -2313,7 +2339,7 @@ export function OrderCard({
                       Move all {groupSize} parts of this order
                     </label>
                   ) : null}
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-1">
+                  <div className="flex min-h-[9rem] flex-1 flex-col overflow-hidden py-1">
                     <MoveMenuSections
                       columns={availableColumns}
                       scrollToColumnId={nextMoveColumnId}
