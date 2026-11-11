@@ -26,7 +26,8 @@ export async function GET(request: Request) {
   if (
     timerKind === "prepress" &&
     ctx.role !== "admin" &&
-    ctx.role !== "preprod_owner"
+    ctx.role !== "preprod_owner" &&
+    ctx.role !== "prepress"
   ) {
     return NextResponse.json({ totals: {} });
   }
@@ -41,7 +42,10 @@ export async function GET(request: Request) {
       ? query.eq("activity_type", "Prepress")
       : query.neq("activity_type", "Prepress");
 
-  if (ctx.role === "preprod_owner" && timerKind !== "prepress") {
+  if (
+    (ctx.role === "preprod_owner" || ctx.role === "prepress") &&
+    timerKind !== "prepress"
+  ) {
     query = query.eq("user_id", ctx.userId);
   }
 

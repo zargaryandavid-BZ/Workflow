@@ -770,6 +770,7 @@ export function OrderCard({
   const canEditPrepressQueue =
     role === "admin" ||
     role === "preprod_owner" ||
+    role === "prepress" ||
     role === "account_manager";
 
   const isOwnerUnassigned = !order.created_by;
@@ -1204,7 +1205,8 @@ export function OrderCard({
     kind: columnKind,
     name: columnName,
   });
-  const canStartDesignerTimer = role !== "preprod_owner";
+  const canStartDesignerTimer =
+    role !== "preprod_owner" && role !== "prepress";
   const timerRunning =
     (!timersOff || showPrepressTimer) &&
     ((orderTimer?.running ?? false) || (otherWorker?.running ?? false));

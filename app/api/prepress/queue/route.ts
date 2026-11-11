@@ -6,7 +6,12 @@ import { isPrepressColumnName, rankPrepressQueue } from "@/lib/prepress-queue";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MANAGER_ROLES = new Set(["admin", "preprod_owner", "account_manager"]);
+const MANAGER_ROLES = new Set([
+  "admin",
+  "preprod_owner",
+  "prepress",
+  "account_manager",
+]);
 
 /**
  * Pre-press column queue.

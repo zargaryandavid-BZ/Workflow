@@ -48,6 +48,7 @@ export const FAST_ACTION_DOT_CLASSES: Record<FastActionButtonColor, string> = {
 export const FAST_ACTION_ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "admin", label: "Admin" },
   { value: "preprod_owner", label: "Pre-Production Owner" },
+  { value: "prepress", label: "Pre-press" },
   { value: "designer", label: "Designer" },
   { value: "account_manager", label: "Account Manager" },
 ];

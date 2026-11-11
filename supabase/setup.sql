@@ -588,6 +588,7 @@ create policy "column_images_member_delete" on storage.objects
 alter type public.member_role add value if not exists 'preprod_owner';
 alter type public.member_role add value if not exists 'designer';
 alter type public.member_role add value if not exists 'account_manager';
+alter type public.member_role add value if not exists 'prepress';
 
 -- Per-column drop permissions.
 --   NULL            => unrestricted (any team member may move the order)

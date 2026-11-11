@@ -28,7 +28,7 @@ import QRCode from "qrcode";
 import { ScanNumberKeypad } from "@/components/fulfillment/ScanNumberKeypad";
 import {
   CUSTOM_BOX_SIZE_VALUE,
-  READY_TO_SHIP_BOX_SIZE_PRESETS,
+  MULTIITEM_BOX_SIZE_PRESETS,
   formatCustomBoxSize,
 } from "@/lib/box-size-presets";
 import { focusNextInputOnEnter } from "@/lib/focus-next-input";
@@ -73,7 +73,7 @@ function ItemQrCode({ value, size = 48 }: { value: string; size?: number }) {
 }
 
 // Same sizes as the Ready to Ship popup so packers and customers see one list.
-const SIZE_PRESETS = READY_TO_SHIP_BOX_SIZE_PRESETS;
+const SIZE_PRESETS = MULTIITEM_BOX_SIZE_PRESETS;
 
 const CUSTOM_SIZE = CUSTOM_BOX_SIZE_VALUE;
 

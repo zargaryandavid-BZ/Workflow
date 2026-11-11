@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { TimePageClient } from "@/components/time/TimePageClient";
+import { canControlPrepressTimer } from "@/lib/permissions";
 
 export default async function TimePage() {
   const ctx = await getTenantContext();
@@ -11,7 +12,7 @@ export default async function TimePage() {
   const teamMembers: {
     id: string;
     name: string;
-    role: "designer" | "preprod_owner";
+    role: "designer" | "preprod_owner" | "prepress";
   }[] = [];
   if (ctx.role === "admin") {
     const supabase = await createClient();
@@ -27,10 +28,11 @@ export default async function TimePage() {
         membership
       ): membership is {
         user_id: string;
-        role: "designer" | "preprod_owner";
+        role: "designer" | "preprod_owner" | "prepress";
       } =>
         membership.role === "designer" ||
-        membership.role === "preprod_owner"
+        membership.role === "preprod_owner" ||
+        membership.role === "prepress"
     );
     const memberIds = [...new Set(trackedMemberships.map((m) => m.user_id))];
 
@@ -64,9 +66,7 @@ export default async function TimePage() {
       <TimePageClient
         isAdmin={ctx.role === "admin"}
         role={ctx.role}
-        canStartPrepress={
-          ctx.role === "admin" || ctx.role === "preprod_owner"
-        }
+        canStartPrepress={canControlPrepressTimer(ctx.role)}
         teamMembers={teamMembers}
       />
     </Suspense>

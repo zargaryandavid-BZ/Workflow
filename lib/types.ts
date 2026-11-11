@@ -12,6 +12,7 @@ export type { EmergencyBalanceConfig } from "@/lib/emergency-balance";
 export type Role =
   | "admin"
   | "preprod_owner"
+  | "prepress"
   | "designer"
   | "account_manager"
   | "member";

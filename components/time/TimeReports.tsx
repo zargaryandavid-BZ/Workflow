@@ -17,7 +17,7 @@ import {
 interface TeamMemberOption {
   id: string;
   name: string;
-  role: "designer" | "preprod_owner";
+  role: "designer" | "preprod_owner" | "prepress";
 }
 interface TimeReportsProps {
   isAdmin: boolean;
@@ -553,7 +553,7 @@ export function TimeReports({
 
   const teamForKind = teamMembers.filter((member) =>
     kind === "prepress"
-      ? member.role === "preprod_owner"
+      ? member.role === "preprod_owner" || member.role === "prepress"
       : member.role === "designer"
   );
 

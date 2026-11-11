@@ -178,7 +178,7 @@ const TABS: { id: Tab; label: string }[] = [
 interface TeamMemberOption {
   id: string;
   name: string;
-  role: "designer" | "preprod_owner";
+  role: "designer" | "preprod_owner" | "prepress";
 }
 
 interface TimePageClientProps {
@@ -380,16 +380,18 @@ export function TimePageClient({
                 Start Prepress Timer
               </Button>
             ) : null}
-            <Button
-              type="button"
-              onClick={() => {
-                setModalTimerKind("designer");
-                setModalOpen(true);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              Start Timer
-            </Button>
+            {role !== "prepress" ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  setModalTimerKind("designer");
+                  setModalOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                Start Timer
+              </Button>
+            ) : null}
           </div>
         </div>
 

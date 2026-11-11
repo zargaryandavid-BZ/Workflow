@@ -51,7 +51,7 @@ export async function GET() {
   }>).filter((row) => {
     const kind = timerKindFromActivity(row.activity_type);
     if (ctx.role === "admin") return true;
-    if (ctx.role === "preprod_owner") {
+    if (ctx.role === "preprod_owner" || ctx.role === "prepress") {
       return kind === "prepress" || row.user_id === ctx.userId;
     }
     return kind === "designer";

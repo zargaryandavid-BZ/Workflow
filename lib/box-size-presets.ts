@@ -1,14 +1,20 @@
+/** Package that isn't a box (no L×W×H). Label-only lists offer it. */
+export const BAG_SIZE_LABEL = "Bag";
+
 export const FULFILLMENT_BOX_SIZE_PRESETS = [
   "6×6×6 in",
   "8×6×4 in",
+  "8×8×8 in",
   "10×8×6 in",
   "10×10×10 in",
   "12×10×8 in",
   "12×12×12 in",
+  "14×14×14 in",
   "16×12×10 in",
   "18×12×12 in",
   "20×16×12 in",
   "24×18×12 in",
+  BAG_SIZE_LABEL,
 ] as const;
 
 /** Sizes offered when telling a customer the order is ready. */
@@ -20,6 +26,12 @@ export const READY_TO_SHIP_BOX_SIZE_PRESETS = [
   "14×14×14 in",
   "16×16×16 in",
   "18×18×18 in",
+] as const;
+
+/** Multi-item box sizes: the ready-to-ship boxes plus Bag (label only). */
+export const MULTIITEM_BOX_SIZE_PRESETS = [
+  ...READY_TO_SHIP_BOX_SIZE_PRESETS,
+  BAG_SIZE_LABEL,
 ] as const;
 
 export const CUSTOM_BOX_SIZE_VALUE = "__custom__";

@@ -14,9 +14,9 @@ function dropOutRoles(column: DropColumn): Role[] | null {
   return effectiveDropRoles(parseDropRoles(column.drop_out_roles));
 }
 
-/** Prepress work timer controls are limited to pre-production and admins. */
+/** Prepress work timer controls are limited to pre-production, pre-press and admins. */
 export function canControlPrepressTimer(role: Role): boolean {
-  return role === "admin" || role === "preprod_owner";
+  return role === "admin" || role === "preprod_owner" || role === "prepress";
 }
 
 /** Whether `role` may move an order INTO `column`. */
@@ -85,12 +85,13 @@ export function canViewAnalytics(role: Role): boolean {
   return role === "admin" || role === "account_manager";
 }
 
-/** Die Order page (admin, account manager, pre-production). */
+/** Die Order page (admin, account manager, pre-production, pre-press). */
 export function canViewDieOrder(role: Role): boolean {
   return (
     role === "admin" ||
     role === "account_manager" ||
-    role === "preprod_owner"
+    role === "preprod_owner" ||
+    role === "prepress"
   );
 }
 
@@ -104,13 +105,14 @@ export function isManualCreatedOrder(order: {
 
 /**
  * Who may edit order tickets (Manual + CRM): Admin, Sales (Account Manager),
- * Pre-prod, Designer. CRM order numbers (title) stay locked — see canEditOrderTitle.
+ * Pre-prod, Pre-press, Designer. CRM order numbers (title) stay locked — see canEditOrderTitle.
  */
 export function canEditManualOrders(role: Role): boolean {
   return (
     role === "admin" ||
     role === "account_manager" ||
     role === "preprod_owner" ||
+    role === "prepress" ||
     role === "designer"
   );
 }

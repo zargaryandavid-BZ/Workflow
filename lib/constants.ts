@@ -6,6 +6,7 @@ export const TENANT_COOKIE = "ppm_tenant";
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Admin",
   preprod_owner: "Pre-Production Owner",
+  prepress: "Pre-press",
   designer: "Designer",
   account_manager: "Account Manager",
   member: "Member",
@@ -15,6 +16,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 export const ROLE_ABBR: Record<Role, string> = {
   admin: "Adm",
   preprod_owner: "P",
+  prepress: "Pp",
   designer: "D",
   account_manager: "A",
   member: "Mbr",
@@ -24,6 +26,7 @@ export const ROLE_ABBR: Record<Role, string> = {
 export const ASSIGNABLE_ROLES: Role[] = [
   "admin",
   "preprod_owner",
+  "prepress",
   "designer",
   "account_manager",
 ];
@@ -31,6 +34,7 @@ export const ASSIGNABLE_ROLES: Role[] = [
 /** Non-admin roles configurable for per-column drop permissions. */
 export const BOARD_ROLES: Role[] = [
   "preprod_owner",
+  "prepress",
   "designer",
   "account_manager",
 ];

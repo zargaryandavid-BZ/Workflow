@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export interface TeamMember {
   id: string;
   name: string;
-  role: "admin" | "designer" | "account_manager" | "pre_production_owner" | "preprod_owner" | "member";
+  role: "admin" | "designer" | "account_manager" | "pre_production_owner" | "preprod_owner" | "prepress" | "member";
   avatar_url?: string | null;
 }
 
@@ -28,6 +28,7 @@ const ROLES = [
   { key: "designer",             label: "Designer" },
   { key: "account_manager",      label: "Account Manager" },
   { key: "pre_production_owner", label: "Pre-Production Owner" },
+  { key: "prepress",             label: "Pre-press" },
 ] as const;
 
 type RoleKey = (typeof ROLES)[number]["key"];
@@ -186,7 +187,8 @@ export function RoleOrIndividualPicker({
     account_manager: 2,
     pre_production_owner: 3,
     preprod_owner: 3,
-    member: 4,
+    prepress: 4,
+    member: 5,
   };
   const sorted = [...members].sort((a, b) => {
     const rd = (roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9);

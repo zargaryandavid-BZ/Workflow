@@ -58,7 +58,7 @@ function matchesJobQuery(entry: TimeEntry, q: string): boolean {
 interface TeamMemberOption {
   id: string;
   name: string;
-  role: "designer" | "preprod_owner";
+  role: "designer" | "preprod_owner" | "prepress";
 }
 
 interface TimeLogProps {
@@ -238,7 +238,7 @@ export function TimeLog({
   const designerOptions = useMemo(() => {
     const byId = new Map<
       string,
-      { name: string; role: "designer" | "preprod_owner" }
+      { name: string; role: "designer" | "preprod_owner" | "prepress" }
     >();
     for (const member of teamMembers) {
       const name = member.name.trim();
@@ -420,7 +420,9 @@ export function TimeLog({
                 {d.name}:{" "}
                 {d.role === "preprod_owner"
                   ? "Pre-production"
-                  : "Designer"}
+                  : d.role === "prepress"
+                    ? "Pre-press"
+                    : "Designer"}
               </option>
             ))}
           </Select>
