@@ -4979,13 +4979,26 @@ export async function createOrderFromWebhook(
   const reorderFinalLinks: { orderId: string; finalUrl: string }[] = [];
 
   // Auto-assign the least-busy pool designer to brand-new orders that arrive
-  // with no designer (Settings → Designers). Computed once per webhook and only
-  // on CREATE (no existing cards), so edits/re-syncs never reassign.
+  // with no designer (Settings → Designers). Computed once per webhook so every
+  // line of one order gets the SAME designer (never split an order). When lines
+  // are appended to an order that already has cards, the new cards take the
+  // designer already on that order instead (existing cards are never touched).
   let autoAssignDesignerId: string | null | undefined = undefined;
   async function resolveAutoAssignDesigner(): Promise<string | null> {
     if (autoAssignDesignerId !== undefined) return autoAssignDesignerId;
     autoAssignDesignerId = null;
-    if (existingOrders.length > 0) return null;
+    if (existingOrders.length > 0) {
+      const settings = await getDesignerAssignmentSettings(client, tenantId).catch(
+        () => null
+      );
+      if (!settings?.enabled) return null;
+      const sibling = existingOrders.find(
+        (o) => typeof o.specs?.designer_id === "string" && o.specs.designer_id
+      );
+      autoAssignDesignerId =
+        (sibling?.specs.designer_id as string | undefined) ?? null;
+      return autoAssignDesignerId;
+    }
     try {
       const settings = await getDesignerAssignmentSettings(client, tenantId);
       if (!settings.enabled || settings.pool.length === 0) return null;
