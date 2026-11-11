@@ -37,7 +37,7 @@ import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { ConnectedSpecsSection } from "./connected-specs-section";
-import { DesignReferenceBlock, SourceChannelChip } from "./design-reference";
+import { BrandChip, DesignReferenceBlock, SourceChannelChip } from "./design-reference";
 import { ReorderLinksBlock } from "./reorder-links";
 import { isConnectedOrder } from "@/lib/connected-specs";
 import { NudgeButton } from "./nudge-button";
@@ -1883,7 +1883,10 @@ export function CardDetailModal({
           </>
         ) : null}
         {data?.order ? (
-          <SourceChannelChip specs={data.order.specs} className="ml-1" />
+          <>
+            <BrandChip specs={data.order.specs} className="ml-1" />
+            <SourceChannelChip specs={data.order.specs} className="ml-1" />
+          </>
         ) : null}
         {/* Customer name — dropdown with copy */}
         {customerLabel ? (

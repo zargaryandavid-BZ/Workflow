@@ -84,7 +84,7 @@ import {
 } from "./order-number-label";
 import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
-import { DesignFlagChip, SourceChannelChip } from "./design-reference";
+import { BrandChip, DesignFlagChip, SourceChannelChip } from "./design-reference";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
 import { canControlPrepressTimer } from "@/lib/permissions";
@@ -1426,6 +1426,7 @@ export function OrderCard({
                   />
                 ) : null}
                 <DesignFlagChip specs={order.specs} />
+                <BrandChip specs={order.specs} />
                 <SourceChannelChip specs={order.specs} />
                 {brokerInfo.isBroker ? (
                   <span

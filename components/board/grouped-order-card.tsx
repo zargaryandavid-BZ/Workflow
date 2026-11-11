@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandChip } from "./design-reference";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
@@ -304,6 +305,7 @@ export function GroupedOrderCard({
               sourceStyles={webhookSourceStyles}
               orderTitle={sharedOrderTitle(rep)}
             />
+            <BrandChip specs={rep.specs} className="mb-0.5" />
             <div className="flex items-center gap-2">
               <Layers
                 className={cn(
