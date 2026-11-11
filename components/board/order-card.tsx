@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useResizeTick } from "@/lib/use-resize-tick";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -998,6 +999,8 @@ export function OrderCard({
   }, [menuOpen, designerMenuOpen, dueMenuOpen]);
 
   // Keep menus fully on-screen (flip up / shift left when near edges).
+  // menuResizeTick re-runs this when the menu grows (a Move-to group opened).
+  const menuResizeTick = useResizeTick(menuRef, menuOpen);
   useLayoutEffect(() => {
     if (!menuOpen || !menuRef.current) return;
     const el = menuRef.current;
@@ -1016,6 +1019,7 @@ export function OrderCard({
     }
   }, [
     menuOpen,
+    menuResizeTick,
     menuPos.x,
     menuPos.y,
     hasActionMenu,
@@ -1873,7 +1877,7 @@ export function OrderCard({
                 left: menuPos.x,
                 maxHeight: "calc(100dvh - 16px)",
               }}
-              className="fixed z-[80] flex min-w-[12rem] max-w-[min(18rem,calc(100vw-16px))] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+              className="fixed z-[80] flex min-w-[12rem] max-w-[min(18rem,calc(100vw-16px))] flex-col overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white shadow-xl"
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
               onContextMenu={(e) => e.preventDefault()}
@@ -2313,7 +2317,7 @@ export function OrderCard({
                       Move all {groupSize} parts of this order
                     </label>
                   ) : null}
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-1">
+                  <div className="flex min-h-[9rem] flex-1 flex-col overflow-hidden py-1">
                     <MoveMenuSections
                       columns={availableColumns}
                       scrollToColumnId={nextMoveColumnId}

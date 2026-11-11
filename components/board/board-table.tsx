@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useResizeTick } from "@/lib/use-resize-tick";
 import { BoardThumbImage } from "./board-thumb-image";
 import {
   Clock,
@@ -328,6 +329,7 @@ export function BoardTable({
     : 0;
 
   // Keep the menu fully on-screen (flip up / shift left when near edges).
+  const menuResizeTick = useResizeTick(menuRef, Boolean(menuState));
   useLayoutEffect(() => {
     if (!menuState || !menuRef.current) return;
     const el = menuRef.current;
@@ -346,6 +348,7 @@ export function BoardTable({
     }
   }, [
     menuState,
+    menuResizeTick,
     menuActionCount,
     menuMoveCount,
     canSetTag,
@@ -846,7 +849,7 @@ export function BoardTable({
             left: menuState.x,
             maxHeight: "calc(100dvh - 16px)",
           }}
-          className="fixed z-50 flex min-w-[11rem] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+          className="fixed z-50 flex min-w-[11rem] flex-col overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white shadow-xl"
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
