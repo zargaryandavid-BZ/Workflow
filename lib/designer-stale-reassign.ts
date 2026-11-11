@@ -82,23 +82,37 @@ export async function runDesignerStaleReassignForTenant(
     .limit(5000);
 
   const pool = new Set(settings.pool);
+  // Never split one order between designers: when a card goes stale, every
+  // queued card of the same order that sits with the same designer moves with
+  // it, to the same new designer. Group key = webhook order number (falls back
+  // to the card id for manual cards with no order number).
+  const orderKey = (specs: Record<string, unknown>, id: string) =>
+    typeof specs.webhook_order_number === "string" && specs.webhook_order_number
+      ? `o:${specs.webhook_order_number}`
+      : `c:${id}`;
+  const handledGroups = new Set<string>();
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
   let checked = 0;
   let moved = 0;
 
-  for (const row of (rows ?? []) as {
+  type QueueRow = {
     id: string;
     title: string;
     specs: Record<string, unknown> | null;
     last_moved_at: string | null;
     created_at: string | null;
     column_id: string | null;
-  }[]) {
+  };
+  const allRows = (rows ?? []) as QueueRow[];
+
+  for (const row of allRows) {
     const specs = (row.specs ?? {}) as Record<string, unknown>;
     const designerId =
       typeof specs.designer_id === "string" ? specs.designer_id : "";
     if (!designerId || !pool.has(designerId)) continue;
+    const groupKey = `${orderKey(specs, row.id)}|${designerId}`;
+    if (handledGroups.has(groupKey)) continue;
     checked++;
 
     const anchorStr =
@@ -117,44 +131,55 @@ export async function runDesignerStaleReassignForTenant(
       excludeId: designerId,
     });
     if (!next || next === designerId) continue;
+    handledGroups.add(groupKey);
 
-    // Land at the END of the new designer's queue (real #N slot).
-    const queuePos = await appendDesignerQueuePos(admin, tenantId, next);
+    // This card plus its queued siblings (same order, same designer).
+    const groupRows = allRows.filter((r) => {
+      const sp = (r.specs ?? {}) as Record<string, unknown>;
+      return sp.designer_id === designerId && orderKey(sp, r.id) === orderKey(specs, row.id);
+    });
 
-    const { error: upErr } = await admin
-      .from("orders")
-      .update({
-        specs: {
-          ...specs,
-          designer_id: next,
-          designer_assigned_at: nowIso,
-          ...(queuePos != null ? { designer_queue_pos: queuePos } : {}),
-        },
-        updated_at: nowIso,
-      })
-      .eq("id", row.id)
-      .eq("tenant_id", tenantId);
-    if (upErr) continue;
+    for (const g of groupRows) {
+      const gSpecs = (g.specs ?? {}) as Record<string, unknown>;
+      // Land at the END of the new designer's queue (real #N slot).
+      const queuePos = await appendDesignerQueuePos(admin, tenantId, next);
 
-    moved++;
-    // Close the gap the card left in the previous designer's queue.
-    await resequenceDesignerQueue(admin, tenantId, designerId).catch(() => {});
-    try {
-      await logActivity(admin, {
-        tenantId,
-        orderId: row.id,
-        actor: null,
-        action: "designer_reassigned",
-        metadata: {
-          via: "stale_auto_transfer",
-          from_designer: designerId,
-          to_designer: next,
-          stale_hours: Math.round(hours),
-        },
-      });
-    } catch {
-      /* non-critical */
+      const { error: upErr } = await admin
+        .from("orders")
+        .update({
+          specs: {
+            ...gSpecs,
+            designer_id: next,
+            designer_assigned_at: nowIso,
+            ...(queuePos != null ? { designer_queue_pos: queuePos } : {}),
+          },
+          updated_at: nowIso,
+        })
+        .eq("id", g.id)
+        .eq("tenant_id", tenantId);
+      if (upErr) continue;
+
+      moved++;
+      try {
+        await logActivity(admin, {
+          tenantId,
+          orderId: g.id,
+          actor: null,
+          action: "designer_reassigned",
+          metadata: {
+            via: "stale_auto_transfer",
+            from_designer: designerId,
+            to_designer: next,
+            stale_hours: Math.round(hours),
+            ...(g.id !== row.id ? { with_order_card: row.id } : {}),
+          },
+        });
+      } catch {
+        /* non-critical */
+      }
     }
+    // Close the gap the cards left in the previous designer's queue.
+    await resequenceDesignerQueue(admin, tenantId, designerId).catch(() => {});
   }
 
   return { tenantId, checked, moved };
