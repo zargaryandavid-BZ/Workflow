@@ -1,5 +1,6 @@
 import "server-only";
 
+import { shippingEmailTo } from "@/lib/crm-notify-contacts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { onShippingOptSelected } from "@/lib/automation";
 import { ensurePickupCodeInMessage } from "@/lib/pickup-code";
@@ -285,7 +286,8 @@ export async function sendShippingPortalNotifications(args: {
     }
 
     const result = await sendTransactionalEmail({
-      to: args.email.trim(),
+      // + the company Shipping emails saved in the CRM (item 17).
+      to: await shippingEmailTo(args.email.trim(), args.phone),
       subject,
       html,
       text,
@@ -391,7 +393,8 @@ export async function sendPickupReadyNotifications(args: {
     }
 
     const result = await sendTransactionalEmail({
-      to: args.email.trim(),
+      // + the company Shipping emails saved in the CRM (item 17).
+      to: await shippingEmailTo(args.email.trim(), args.phone),
       subject,
       html,
       text,
