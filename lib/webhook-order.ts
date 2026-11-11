@@ -569,6 +569,8 @@ export interface WebhookOrderPayload extends WebhookDesignerInput, WebhookOwnerI
   portal_order_number?: string;
   /** CRM starred / key account (customers.priority_stars >= 1). */
   is_key_account?: boolean;
+  /** Bazaar website order over $500 — FedEx Ground is free on the shipping link (Hayk 2026-11-08). */
+  free_ground_shipping?: boolean;
   /**
    * Rush / attention job. When true, the card shows the rush (attention)
    * triangle and the Rush Order tag is applied if no other tag is set.
@@ -3747,6 +3749,8 @@ interface CreateSingleJobParams {
   orderContact: string;
   /** CRM starred / key account — stored in specs so the board can flag it. */
   isKeyAccount?: boolean;
+  /** Website order over $500: Ground shipping is free (shipping link shows $0). */
+  freeGroundShipping?: boolean;
   /** CRM rush / attention job — triangle icon + Rush Order tag. */
   isRush?: boolean;
   /**
@@ -3918,6 +3922,7 @@ async function createSingleWebhookJob(
     tagId,
     ownerId,
     isKeyAccount,
+    freeGroundShipping,
     isRush,
     isReorder = false,
     reorderOfOrderNumber = null,
@@ -4202,6 +4207,7 @@ async function createSingleWebhookJob(
     specs.webhook_order_title = sharedTitle;
   }
   if (isKeyAccount) specs.is_key_account = true;
+  if (freeGroundShipping) specs.free_ground_shipping = true;
   if (isRush) specs.rush = true;
   if (typeof crmCustomerId === "string" && crmCustomerId.trim()) {
     specs.crm_customer_id = crmCustomerId.trim();
@@ -5173,6 +5179,7 @@ export async function createOrderFromWebhook(
       customerName: customerInfo.customerName,
       orderContact: customerInfo.orderContact,
       isKeyAccount: body.is_key_account === true,
+      freeGroundShipping: body.free_ground_shipping === true,
       crmCustomerId: crmCustomerId ?? "",
       crmOrderId: crmOrderId ?? "",
       isRush,

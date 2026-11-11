@@ -682,7 +682,8 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
       const paymentEnabled = results.some((r) => r.paymentEnabled);
       setRates(nextRates);
       setPaymentRequired(paymentEnabled);
-      setSelectedRate(nextRates[0] ?? null);
+      // Free Ground (website order over $500) is pre-selected when offered.
+      setSelectedRate(nextRates.find((r) => r.freeShipping) ?? nextRates[0] ?? null);
       if (nextRates.length === 0) {
         setError(
           "No shipping options are available for this address. Please check the address and try again."
@@ -750,7 +751,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
     const choice: ShippingClientChoice =
       selectedRate.provider === "curri" ? "curri" : "delivery";
     try {
-      if (paymentRequired) {
+      if (paymentRequired && !selectedRate.freeShipping) {
         const res = await fetch(
           `/api/shipping/${data.token}/create-checkout-session`,
           {
@@ -1403,6 +1404,11 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
               ref={ratesPanelRef}
               className="space-y-2 rounded-xl border border-slate-200 p-3"
             >
+              {rates.some((r) => r.freeShipping) ? (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+                  FedEx Ground is free on this order (website orders over $500).
+                </p>
+              ) : null}
               {groupRatesForPriceChart(rates).map((group) => (
                 <div key={group.key} className="space-y-2">
                   <p className="pt-1 text-sm font-semibold text-slate-800 first:pt-0">
@@ -1436,10 +1442,16 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                               {formatTransit(rate)}
                             </span>
                             <span className="shrink-0 text-right">
-                              <span className="font-semibold text-slate-900">
-                                {formatMoney(rate.totalCharge, rate.currency)}
-                              </span>
-                              {showFees ? (
+                              {rate.freeShipping ? (
+                                <span className="font-semibold text-emerald-700">
+                                  FREE
+                                </span>
+                              ) : (
+                                <span className="font-semibold text-slate-900">
+                                  {formatMoney(rate.totalCharge, rate.currency)}
+                                </span>
+                              )}
+                              {showFees && !rate.freeShipping ? (
                                 <span className="ml-1 text-xs font-normal text-slate-400">
                                   incl. fees
                                 </span>
@@ -1530,7 +1542,9 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
                   : doneRate.serviceName}
                 {!isClientFedExSelection(doneRate) &&
                 doneRate.totalCharge != null
-                  ? ` · ${formatMoney(doneRate.totalCharge, doneRate.currency)}`
+                  ? doneRate.freeShipping
+                    ? " · FREE"
+                    : ` · ${formatMoney(doneRate.totalCharge, doneRate.currency)}`
                   : null}
               </p>
               {doneAddress ? (

@@ -4,6 +4,7 @@ import { friendlyFedExCustomerError } from "@/lib/fedex";
 import { quoteFedExCustomerRates } from "@/lib/shipping-quote.server";
 import { normalizeDeliveryAddress } from "@/lib/shipping-address";
 import { loadShippingSettings } from "@/lib/shipping-settings";
+import { orderHasFreeGround } from "@/lib/free-ground";
 import type {
   ShippingBox,
   ShippingDeliveryAddress,
@@ -38,7 +39,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: shipReq, error } = await admin
     .from("shipping_requests")
-    .select("id, status, boxes, tenant_id, expires_at")
+    .select("id, status, boxes, tenant_id, expires_at, order_id")
     .eq("token", token)
     .maybeSingle();
 
@@ -69,16 +70,19 @@ export async function POST(
   const deliveryAddress = normalizeDeliveryAddress(addr);
 
   try {
+    const freeGround = await orderHasFreeGround(admin, shipReq.order_id);
     const rates = await quoteFedExCustomerRates({
       boxes,
       deliveryAddress,
       settings,
+      freeGround,
     });
     const paymentEnabled = settings?.payment_enabled ?? false;
 
     return NextResponse.json({
       rates,
       paymentEnabled,
+      freeGround,
     });
   } catch (err) {
     const message =

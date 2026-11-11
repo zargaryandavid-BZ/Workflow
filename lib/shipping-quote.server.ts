@@ -3,6 +3,7 @@ import "server-only";
 import { fetchCurriRates } from "@/lib/curri";
 import { fetchFedExRates } from "@/lib/fedex";
 import { applyShippingMarkup } from "@/lib/shipping-markup";
+import { applyFreeGround } from "@/lib/free-ground";
 import {
   loadShippingSettings,
   resolveFedExConfig,
@@ -47,12 +48,17 @@ export async function quoteFedExCustomerRates(args: {
   boxes: ShippingBox[];
   deliveryAddress: ShippingDeliveryAddress;
   settings: Settings;
+  /** Website order over $500 — FedEx Ground shows FREE (lib/free-ground). */
+  freeGround?: boolean;
 }): Promise<FedExRateOption[]> {
   const baseRates = await fetchFedExRates(args);
   // Customer price uses FedEx ACCOUNT rates (see pickRatedDetail).
-  return withCustomerMarkup(
-    baseRates.map((rate) => ({ ...rate, provider: "fedex" as const })),
-    args.settings
+  return applyFreeGround(
+    withCustomerMarkup(
+      baseRates.map((rate) => ({ ...rate, provider: "fedex" as const })),
+      args.settings
+    ),
+    args.freeGround === true
   );
 }
 
@@ -86,6 +92,7 @@ export async function serverPricedSelection(args: {
   boxes: ShippingBox[];
   deliveryAddress: ShippingDeliveryAddress;
   settings: Settings;
+  freeGround?: boolean;
 }): Promise<FedExRateOption | null> {
   const isCurri = args.selection.provider === "curri";
   const rates = isCurri
