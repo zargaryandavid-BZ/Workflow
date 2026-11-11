@@ -482,12 +482,12 @@ export function Column({
                 </select>
               </>
             ) : null}
-            {(column.kind === "approval" || column.kind === "exception") && onBatchRerequest ? (
+            {(column.kind === "approval" || column.kind === "exception" || column.kind === "ready_to_ship" || /ready\s*to\s*ship/i.test(column.name)) && onBatchRerequest ? (
               <button
                 onClick={onBatchRerequest}
                 className="flex items-center justify-center rounded border border-blue-500 bg-blue-500 p-1 text-white hover:bg-blue-600 hover:border-blue-600"
-                aria-label={column.kind === "approval" ? "Re-request approvals" : "Re-request missing info"}
-                title={column.kind === "approval" ? "Re-request approvals" : "Re-request missing info"}
+                aria-label={column.kind === "approval" ? "Re-request approvals" : column.kind !== "exception" ? "Notify ready to ship (bulk)" : "Re-request missing info"}
+                title={column.kind === "approval" ? "Re-request approvals" : column.kind !== "exception" ? "Notify ready to ship (bulk)" : "Re-request missing info"}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
