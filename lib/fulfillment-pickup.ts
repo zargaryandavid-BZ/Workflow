@@ -9,6 +9,12 @@ export type PickupConfirmationInput = {
   pickupCode?: string;
   /** Staff saw "already picked up" and chose to sign again. */
   confirmAgain?: boolean;
+  /** Staff chose to release without the code (customer doesn't have it). */
+  skipCode?: boolean;
+  /** Who skipped the code — typed on the pickup screen (required to skip). */
+  skippedBy?: string;
+  /** Logged-in user who skipped, when the pickup screen is signed in. */
+  skippedByUserId?: string | null;
 };
 
 /** Saved on each order as `specs.pickup_confirmation`. */
@@ -24,6 +30,10 @@ export type PickupConfirmation = {
   receipt_asset_id?: string | null;
   /** Every order part this one signature covered. */
   order_ids?: string[];
+  /** Staff released the order without checking the code. */
+  code_skipped?: boolean;
+  code_skipped_by?: string | null;
+  code_skipped_by_user_id?: string | null;
 };
 
 export type PickupCodeCheck = "ok" | "not_required" | "missing" | "wrong";
@@ -37,6 +47,25 @@ export function checkPickupCode(
   const given = normalizePickupCode(typed);
   if (!given) return "missing";
   return given === expected ? "ok" : "wrong";
+}
+
+export type PickupCodeGate = PickupCodeCheck | "skipped" | "skip_needs_name";
+
+/**
+ * Code check with the staff "skip" option: a skip only counts when the staff
+ * member typed their name, so every skip is on record. Skipping an order that
+ * has no code is just "not_required".
+ */
+export function pickupCodeGate(
+  expected: string | null,
+  typed: unknown,
+  skip?: { skip?: boolean; by?: string | null }
+): PickupCodeGate {
+  if (!expected) return "not_required";
+  if (skip?.skip) {
+    return skip.by?.trim() ? "skipped" : "skip_needs_name";
+  }
+  return checkPickupCode(expected, typed);
 }
 
 export function pickupConfirmationFromSpecs(

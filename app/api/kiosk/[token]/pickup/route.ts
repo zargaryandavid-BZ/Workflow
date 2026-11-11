@@ -41,7 +41,7 @@ export async function POST(
 
   const body = (await request.json().catch(() => ({}))) as Partial<
     PickupConfirmationInput
-  > & { order_id?: string; pickup_code?: string; confirm_again?: boolean };
+  > & { order_id?: string; pickup_code?: string; confirm_again?: boolean; skip_code?: boolean; skipped_by?: string };
   const result = await savePickupAndNotifyCustomer({
     supabase: kiosk.supabase,
     tenantId: kiosk.tenantId,
@@ -52,6 +52,8 @@ export async function POST(
       signatureDataUrl: body.signatureDataUrl ?? "",
       pickupCode: body.pickup_code ?? body.pickupCode ?? "",
       confirmAgain: body.confirm_again === true || body.confirmAgain === true,
+      skipCode: body.skip_code === true || body.skipCode === true,
+      skippedBy: (body.skipped_by ?? body.skippedBy ?? "").trim(),
     },
   });
   if ("error" in result) {

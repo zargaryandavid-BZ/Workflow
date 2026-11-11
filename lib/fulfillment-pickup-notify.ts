@@ -18,7 +18,7 @@ import type { BoardColumn, Order } from "@/lib/types";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
 import { sendTransactionalEmail } from "@/lib/email";
 import {
-  checkPickupCode,
+  pickupCodeGate,
   decodePickupSignaturePng,
   formatPickupDateTime,
   pickupConfirmationFromSpecs,
@@ -483,7 +483,15 @@ export async function savePickupAndNotifyCustomer(args: {
   if (!order) return { error: "Order not found", status: 404 };
 
   const code = pickupCodeFromSpecs(order.specs);
-  const codeCheck = checkPickupCode(code, input.pickupCode);
+  const skippedBy = input.skipCode ? (input.skippedBy ?? "").trim().slice(0, 100) : "";
+  const codeCheck = pickupCodeGate(code, input.pickupCode, {
+    skip: input.skipCode,
+    by: skippedBy,
+  });
+  const codeSkipped = codeCheck === "skipped";
+  if (codeCheck === "skip_needs_name") {
+    return { error: "Type your name to skip the pickup code.", status: 400 };
+  }
   if (codeCheck === "missing") {
     return { error: "Enter the 8-digit pickup code from the customer's message.", status: 400 };
   }
@@ -523,6 +531,7 @@ export async function savePickupAndNotifyCustomer(args: {
     pickedUpBy,
     pickedUpAt: formatPickupDateTime(pickedUpAt),
     codeLast4: code ? code.slice(-4) : null,
+    codeSkippedBy: codeSkipped ? skippedBy : null,
     signaturePng: signature,
   });
 
@@ -595,6 +604,13 @@ export async function savePickupAndNotifyCustomer(args: {
       receipt_path: receiptPath,
       receipt_asset_id: (asset as { id: string }).id,
       order_ids: parts.map((p) => p.id),
+      ...(codeSkipped
+        ? {
+            code_skipped: true,
+            code_skipped_by: skippedBy,
+            code_skipped_by_user_id: input.skippedByUserId ?? null,
+          }
+        : {}),
     };
     // Re-read so a write between the scan and now (tags, notes) isn't lost.
     const fresh = await loadPickupOrder(supabase, tenantId, part.id);
@@ -618,6 +634,21 @@ export async function savePickupAndNotifyCustomer(args: {
   const staleFiles = [...new Set(oldFiles)].filter((path) => !uploaded.includes(path));
   if (staleFiles.length) {
     await supabase.storage.from(ORDER_ASSETS_BUCKET).remove(staleFiles);
+  }
+
+  // Record every skipped code on the order's activity (who + when).
+  if (codeSkipped) {
+    await logActivity(supabase, {
+      tenantId,
+      orderId,
+      actor: input.skippedByUserId ?? null,
+      action: "pickup_code_skipped",
+      metadata: {
+        skippedBy,
+        pickedUpBy,
+        orderIds: parts.map((p) => p.id),
+      },
+    }).catch((err: unknown) => console.error("[pickup] log skip", err));
   }
 
   // Signed → Pickups column.

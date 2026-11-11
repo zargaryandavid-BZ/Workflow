@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as Partial<
     PickupConfirmationInput
-  > & { order_id?: string; pickup_code?: string; confirm_again?: boolean };
+  > & { order_id?: string; pickup_code?: string; confirm_again?: boolean; skip_code?: boolean; skipped_by?: string };
   const result = await savePickupAndNotifyCustomer({
     supabase: createAdminClient(),
     tenantId: auth.ctx.tenant.id,
@@ -42,6 +42,9 @@ export async function POST(request: Request) {
       signatureDataUrl: body.signatureDataUrl ?? "",
       pickupCode: body.pickup_code ?? body.pickupCode ?? "",
       confirmAgain: body.confirm_again === true || body.confirmAgain === true,
+      skipCode: body.skip_code === true || body.skipCode === true,
+      skippedBy: (body.skipped_by ?? body.skippedBy ?? "").trim() || auth.ctx.fullName || auth.ctx.email || "",
+      skippedByUserId: auth.ctx.userId,
     },
   });
   if ("error" in result) {

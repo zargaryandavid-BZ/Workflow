@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { sendPickupCodeAfterPortalChoice } from "@/lib/pickup-code-portal-notify";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureFedExLabel } from "@/lib/fedex-label";
 import {
@@ -259,6 +260,14 @@ export async function POST(
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  // Self pickup: text + email the pickup code so the customer has it at the
+  // counter (staff ask for it in the Pickup window).
+  if (body.choice === "pickup") {
+    after(async () => {
+      await sendPickupCodeAfterPortalChoice(admin, token);
+    });
   }
 
   const isFedExDelivery =
