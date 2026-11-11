@@ -1,6 +1,7 @@
 "use client";
 
 import { BrandChip } from "./design-reference";
+import { useResizeTick } from "@/lib/use-resize-tick";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
@@ -245,6 +246,7 @@ export function GroupedOrderCard({
   }
 
   // Keep the menu fully on-screen after it mounts / expands.
+  const menuResizeTick = useResizeTick(menuRef, menuOpen);
   useLayoutEffect(() => {
     if (!menuOpen || !menuRef.current) return;
     const el = menuRef.current;
@@ -261,7 +263,7 @@ export function GroupedOrderCard({
     if (x !== menuPos.x || y !== menuPos.y) {
       setMenuPos({ x, y });
     }
-  }, [menuOpen, designerSubOpen, moveSubOpen, menuPos.x, menuPos.y]);
+  }, [menuOpen, designerSubOpen, moveSubOpen, menuPos.x, menuPos.y, menuResizeTick]);
 
   function closeMenu() {
     setMenuOpen(false);
@@ -497,8 +499,8 @@ export function GroupedOrderCard({
         ? createPortal(
             <div
               ref={menuRef}
-              style={{ top: menuPos.y, left: menuPos.x }}
-              className="fixed z-[80] w-max min-w-[13.5rem] max-w-[min(18rem,calc(100vw-16px))] rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+              style={{ top: menuPos.y, left: menuPos.x, maxHeight: "calc(100dvh - 16px)" }}
+              className="fixed z-[80] w-max min-w-[13.5rem] max-w-[min(18rem,calc(100vw-16px))] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
               onContextMenu={(e) => e.preventDefault()}
