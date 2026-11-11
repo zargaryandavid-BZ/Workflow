@@ -19,6 +19,8 @@ export type PickupReceiptInput = {
   pickedUpAt: string;
   /** Last 4 digits only, so the PDF never carries the whole code. */
   codeLast4: string | null;
+  /** Staff name when the code was skipped at pickup. */
+  codeSkippedBy?: string | null;
   signaturePng: Buffer;
 };
 
@@ -69,7 +71,11 @@ export async function generatePickupReceiptPdf(
   row("Date and time", pdfWinAnsiText(input.pickedUpAt));
   row(
     "Pickup code",
-    input.codeLast4 ? `Verified (ends in ${input.codeLast4})` : "No code was sent for this order"
+    input.codeSkippedBy
+      ? pdfWinAnsiText(`Not checked - skipped by ${input.codeSkippedBy}`)
+      : input.codeLast4
+        ? `Verified (ends in ${input.codeLast4})`
+        : "No code was sent for this order"
   );
 
   doc.font("Helvetica").fontSize(9).fillColor("#64748b");

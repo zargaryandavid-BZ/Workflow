@@ -40,3 +40,13 @@ test("pickup notice names who signed and when", () => {
     `Hi Diana, this is Bazaar Printing. Order 15472-1 was picked up by Dana Smith on ${when}.`
   );
 });
+
+test("pickupCodeGate: skip needs a staff name, no code = not required", async () => {
+  const { pickupCodeGate } = await import("./fulfillment-pickup.ts");
+  assert.equal(pickupCodeGate("12345678", "1234 5678"), "ok");
+  assert.equal(pickupCodeGate("12345678", "11111111"), "wrong");
+  assert.equal(pickupCodeGate("12345678", ""), "missing");
+  assert.equal(pickupCodeGate("12345678", "", { skip: true, by: "  " }), "skip_needs_name");
+  assert.equal(pickupCodeGate("12345678", "", { skip: true, by: "Ana" }), "skipped");
+  assert.equal(pickupCodeGate(null, "", { skip: true, by: "Ana" }), "not_required");
+});

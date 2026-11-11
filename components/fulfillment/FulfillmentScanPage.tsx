@@ -1485,6 +1485,8 @@ export function FulfillmentScanPage({ columns, initialButtons, tenantName, custo
         signatureDataUrl: input.signatureDataUrl,
         pickup_code: input.pickupCode,
         confirm_again: input.confirmAgain,
+        skip_code: input.skipCode,
+        skipped_by: input.skippedBy,
       }),
     });
     const json = (await response.json().catch(() => ({}))) as {

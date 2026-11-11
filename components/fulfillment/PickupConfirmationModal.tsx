@@ -23,6 +23,9 @@ export type PickupSaveInput = {
   signatureDataUrl: string;
   pickupCode: string;
   confirmAgain: boolean;
+  /** Release without the code; `skippedBy` = staff member's name (logged). */
+  skipCode: boolean;
+  skippedBy: string;
 };
 
 export type PickupSaveOutcome = {
@@ -76,6 +79,8 @@ export function PickupConfirmationModal({
   const [status, setStatus] = useState<PickupWindowStatus | null>(null);
   const [statusError, setStatusError] = useState("");
   const [code, setCode] = useState("");
+  const [skipCode, setSkipCode] = useState(false);
+  const [skippedBy, setSkippedBy] = useState("");
   const [confirmAgain, setConfirmAgain] = useState(false);
   const [keypadOpen, setKeypadOpen] = useState(false);
   const [touch, setTouch] = useState(false);
@@ -109,7 +114,9 @@ export function PickupConfirmationModal({
   }, []);
 
   const codeRequired = status?.codeRequired ?? false;
-  const codeComplete = !codeRequired || code.length === PICKUP_CODE_LENGTH;
+  const codeComplete =
+    !codeRequired ||
+    (skipCode ? skippedBy.trim().length > 0 : code.length === PICKUP_CODE_LENGTH);
   const already = status?.alreadyPickedUp ?? null;
   const needsConfirmAgain = Boolean(already) && !confirmAgain;
   const pickupDate = useRef(
@@ -186,7 +193,11 @@ export function PickupConfirmationModal({
 
   async function confirmPickup() {
     if (!status) return;
-    if (codeRequired && code.length !== PICKUP_CODE_LENGTH) {
+    if (codeRequired && skipCode && !skippedBy.trim()) {
+      setError("Type your name to skip the pickup code.");
+      return;
+    }
+    if (codeRequired && !skipCode && code.length !== PICKUP_CODE_LENGTH) {
       setError("Enter the 8-digit pickup code from the customer's message.");
       return;
     }
@@ -213,8 +224,10 @@ export function PickupConfirmationModal({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         signatureDataUrl: canvasRef.current.toDataURL("image/png"),
-        pickupCode: code,
+        pickupCode: skipCode ? "" : code,
         confirmAgain,
+        skipCode: codeRequired && skipCode,
+        skippedBy: skippedBy.trim(),
       });
       setCustomerNotice(saved.message);
       setOutcome(saved);
@@ -294,7 +307,35 @@ export function PickupConfirmationModal({
                       </label>
                     </div>
                   ) : null}
-                  {codeRequired ? (
+                  {codeRequired && skipCode ? (
+                    <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-sm font-medium text-amber-900">
+                        Releasing without the pickup code. Your name is saved on
+                        the order.
+                      </p>
+                      <label className="block text-sm font-medium text-slate-700">
+                        Your name (staff) <span className="text-red-500">*</span>
+                        <input
+                          value={skippedBy}
+                          onChange={(event) => setSkippedBy(event.target.value)}
+                          autoComplete="off"
+                          maxLength={100}
+                          aria-required="true"
+                          className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSkipCode(false);
+                          setError("");
+                        }}
+                        className="text-xs font-semibold text-slate-700 underline"
+                      >
+                        Use the code instead
+                      </button>
+                    </div>
+                  ) : codeRequired ? (
                     <label className="block text-sm font-medium text-slate-700">
                       <span className="inline-flex items-center gap-1.5">
                         <KeyRound className="h-4 w-4" />
@@ -326,6 +367,18 @@ export function PickupConfirmationModal({
                           ? ` It covers all ${status.partCount} parts of this order.`
                           : ""}
                       </span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setSkipCode(true);
+                          setCode("");
+                          setError("");
+                        }}
+                        className="mt-1 text-xs font-semibold text-amber-800 underline"
+                      >
+                        Customer doesn&apos;t have the code? Skip it
+                      </button>
                     </label>
                   ) : (
                     <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
