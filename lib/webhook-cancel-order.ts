@@ -48,31 +48,71 @@ async function cancelOrdersLocked(
   }[];
   if (live.length === 0) return { cancelled: 0, orderIds: [] };
 
-  const removedAt = new Date().toISOString();
+  // Hayk 2026-11-13: a voided / cancelled order should show as CANCELED on the
+  // board. When the tenant has a "Canceled"/"Cancelled" column, move the cards
+  // there (still visible, clearly marked). Otherwise keep the old behaviour:
+  // soft-remove them from the board.
+  const canceledColumn = await resolveCanceledColumn(client, tenantId);
+  const stampedAt = new Date().toISOString();
   for (const row of live) {
+    const specs = { ...(row.specs ?? {}), [CRM_CANCELLED_AT_SPEC]: stampedAt };
+    const patch = canceledColumn
+      ? { column_id: canceledColumn.id, last_moved_at: stampedAt, specs }
+      : { removed_at: stampedAt, specs };
     const { error: updateError } = await client
       .from("orders")
-      .update({
-        removed_at: removedAt,
-        specs: { ...(row.specs ?? {}), [CRM_CANCELLED_AT_SPEC]: removedAt },
-      })
+      .update(patch)
       .eq("id", row.id)
       .eq("tenant_id", tenantId);
     if (updateError) throw new Error(updateError.message);
   }
 
   const orderIds = live.map((r) => r.id);
-  for (const orderId of orderIds) {
+  for (const row of live) {
+    if (canceledColumn) {
+      await logActivity(client, {
+        tenantId,
+        orderId: row.id,
+        actor,
+        action: "moved",
+        metadata: {
+          to: canceledColumn.id,
+          toName: canceledColumn.name,
+          via: "order_canceled",
+          webhook_order_number: webhookOrderNumber,
+        },
+      });
+    }
     await logActivity(client, {
       tenantId,
-      orderId,
+      orderId: row.id,
       actor,
-      action: "Order cancelled in CRM — removed from board",
-      metadata: { webhook_order_number: webhookOrderNumber },
+      action: "hold_reason",
+      metadata: {
+        reason: "Order was voided / cancelled at the source (website, portal or CRM).",
+        columnName: canceledColumn?.name ?? "Canceled",
+        auto: true,
+        via: "order_canceled",
+        webhook_order_number: webhookOrderNumber,
+      },
     });
   }
 
   return { cancelled: orderIds.length, orderIds };
+}
+
+/** The tenant's Canceled / Cancelled column, if it has one. */
+async function resolveCanceledColumn(
+  client: SupabaseClient,
+  tenantId: string,
+): Promise<{ id: string; name: string } | null> {
+  const { data } = await client
+    .from("board_columns")
+    .select("id, name")
+    .eq("tenant_id", tenantId);
+  const cols = (data ?? []) as { id: string; name: string | null }[];
+  const hit = cols.find((c) => /\bcancell?ed\b/i.test(c.name ?? ""));
+  return hit ? { id: hit.id, name: hit.name ?? "Canceled" } : null;
 }
 
 /** True when this CRM order was cancelled and all its cards removed. */
@@ -85,7 +125,6 @@ export async function isCrmCancelledOrder(
     .from("orders")
     .select("id")
     .eq("tenant_id", tenantId)
-    .not("removed_at", "is", null)
     .filter("specs->>webhook_order_number", "eq", webhookOrderNumber)
     .not(`specs->>${CRM_CANCELLED_AT_SPEC}`, "is", null)
     .limit(1);
