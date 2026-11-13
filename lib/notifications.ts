@@ -1246,6 +1246,44 @@ export async function createNotification(
     scheduleBazaarApprovalLinkNotify(params.order.tenant_id, timerOrderIds);
   }
 
+  // Missing info: our note ("what's missing") becomes the card's reason, so the
+  // partner portal shows it ("We need: …") and the card shows who asked and why
+  // (Hayk 2026-11-13). Same path as a reason typed when moving into Hold.
+  const missingNote =
+    params.type === "missing_info" && typeof params.staffNote === "string"
+      ? params.staffNote.replace(/\s+/g, " ").trim().slice(0, 500)
+      : "";
+  if (missingNote && params.channel !== "none") {
+    for (const orderId of timerOrderIds) {
+      try {
+        await logActivity(client, {
+          tenantId: params.order.tenant_id,
+          orderId,
+          actor: params.createdBy ?? null,
+          action: "hold_reason",
+          metadata: {
+            reason: missingNote,
+            columnName: "Missing Info",
+            via: "missing_info_request",
+            notificationId: notification.id,
+          },
+        });
+      } catch (err) {
+        console.error("[notifications] missing-info reason log failed", err);
+      }
+    }
+    try {
+      const { scheduleBazaarPortalCurrentColumn } = await import("@/lib/bazaar-portal-sync");
+      scheduleBazaarPortalCurrentColumn({
+        tenantId: params.order.tenant_id,
+        orderIds: timerOrderIds,
+        holdReason: missingNote,
+      });
+    } catch (err) {
+      console.error("[notifications] bazaar-portal-sync (missing info)", err);
+    }
+  }
+
   return { notification, actionUrl, warning };
 }
 

@@ -49,7 +49,7 @@ const CUSTOMER_ACTIONS = new Set([
   "combo_stock_reply",
 ]);
 
-const COLUMN_MOVE_ACTIONS = new Set(["moved", "idle_auto_moved"]);
+const COLUMN_MOVE_ACTIONS = new Set(["moved", "idle_auto_moved", "column_moved"]);
 
 const MESSAGE_ACTIONS = new Set([
   "emailed",
@@ -473,11 +473,31 @@ export function describeActivity(log: ActivityLog): string {
   const meta = log.metadata ?? {};
 
   switch (log.action) {
-    case "created":
-      return "Order created";
+    case "created": {
+      const col = meta.column as string | undefined;
+      const src = meta.webhook_source as string | undefined;
+      const from = src ? ` from ${src === "crm" ? "CRM" : src === "portal" ? "the portal" : src === "web" || src === "website" ? "the website" : src}` : "";
+      return col ? `Order created${from} in ${col}` : `Order created${from}`;
+    }
     case "hold_reason": {
       const reason = meta.reason as string | undefined;
-      return reason ? `On hold: ${reason}` : "Put on hold";
+      const col = (meta.columnName as string | undefined) ?? "";
+      const where = /missing\s*info/i.test(col) ? "Missing info" : "On hold";
+      const auto = meta.auto === true ? " (automatic)" : "";
+      return reason ? `${where}${auto}: ${reason}` : `${where}${auto}`;
+    }
+    case "column_moved": {
+      const trigger = (meta.trigger as string | undefined) ?? "";
+      const label =
+        trigger === "on_shipping_opt_selected"
+          ? "customer picked shipping"
+          : trigger
+            ? trigger.replace(/^on_/, "").replace(/_/g, " ")
+            : "automation";
+      const toName = meta.toName as string | undefined;
+      return toName
+        ? `Moved automatically to ${toName} (${label})`
+        : `Moved automatically (${label})`;
     }
     case "moved":
     case "idle_auto_moved": {
