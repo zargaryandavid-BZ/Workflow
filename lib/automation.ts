@@ -618,6 +618,8 @@ export async function onShippingOptSelected(
       trigger: "on_shipping_opt_selected",
       from: order.column_id,
       to: toColumnId,
+      fromName: moveNameById.get(order.column_id) ?? undefined,
+      toName: moveNameById.get(toColumnId) ?? undefined,
     },
   });
 

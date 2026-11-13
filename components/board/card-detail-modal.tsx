@@ -3261,6 +3261,24 @@ export function CardDetailModal({
                       .filter((l) => isColumnMoveActivity(l))
                       .slice()
                       .reverse();
+                    // WHO/WHY (Hayk 2026-11-13): where the card first landed, and
+                    // the reason recorded right after a move into Hold / Missing Info.
+                    const createdLog = data.activity.find((l) => l.action === "created");
+                    const createdColumn = createdLog
+                      ? ((createdLog.metadata ?? {}).column as string | undefined)
+                      : undefined;
+                    const holdReasons = data.activity
+                      .filter((l) => l.action === "hold_reason")
+                      .map((l) => ({
+                        at: new Date(l.created_at).getTime(),
+                        reason: ((l.metadata ?? {}).reason as string | undefined) ?? "",
+                        by: l.actor_name,
+                      }))
+                      .filter((r) => r.reason);
+                    const reasonAfter = (fromMs: number, untilMs: number) =>
+                      holdReasons
+                        .filter((r) => r.at >= fromMs - 60_000 && r.at < untilMs)
+                        .sort((a, b) => a.at - b.at)[0] ?? null;
                     const createdAt = data.order.created_at;
                     const lastMove = moveEvents[moveEvents.length - 1];
                     const lastTo =
@@ -3272,8 +3290,44 @@ export function CardDetailModal({
                       : Date.now() - new Date(createdAt).getTime();
                     return (
                       <ul className="space-y-0 border-t border-slate-100 px-3 py-2">
+                        {createdLog ? (
+                          (() => {
+                            const firstMoveMs = moveEvents[0]
+                              ? new Date(moveEvents[0].created_at).getTime()
+                              : Number.POSITIVE_INFINITY;
+                            const why = reasonAfter(
+                              new Date(createdLog.created_at).getTime(),
+                              firstMoveMs
+                            );
+                            return (
+                              <li className="flex gap-2 pb-3">
+                                <div className="flex flex-col items-center">
+                                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                                  <span className="mt-0.5 w-px flex-1 bg-slate-200" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-slate-700">
+                                    {describeActivity(createdLog)}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400">
+                                    {formatDateTime(createdLog.created_at)}
+                                    {` · ${createdLog.actor_name}`}
+                                  </p>
+                                  {why ? (
+                                    <p className="text-[11px] text-amber-700">
+                                      Why: {why.reason}
+                                      <span className="text-slate-400"> · {why.by}</span>
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </li>
+                            );
+                          })()
+                        ) : null}
                         {moveEvents.length === 0 ? (
-                          <li className="text-xs text-slate-400">No column moves yet.</li>
+                          <li className="text-xs text-slate-400">
+                            {createdColumn ? `No moves since it arrived in ${createdColumn}.` : "No column moves yet."}
+                          </li>
                         ) : (
                           <>
                           {moveEvents.map((log, idx) => {
@@ -3301,6 +3355,21 @@ export function CardDetailModal({
                                     {formatDateTime(log.created_at)}
                                     {` · ${log.actor_name}`}
                                   </p>
+                                  {(() => {
+                                    const startMs = new Date(log.created_at).getTime();
+                                    const nextMs = moveEvents[idx + 1]
+                                      ? new Date(moveEvents[idx + 1].created_at).getTime()
+                                      : Number.POSITIVE_INFINITY;
+                                    const why = /hold|missing/i.test(to)
+                                      ? reasonAfter(startMs, nextMs)
+                                      : null;
+                                    return why ? (
+                                      <p className="text-[11px] text-amber-700">
+                                        Why: {why.reason}
+                                        <span className="text-slate-400"> · {why.by}</span>
+                                      </p>
+                                    ) : null;
+                                  })()}
                                   <p className="text-[11px] text-slate-500">
                                     Stayed{" "}
                                     <span className="font-medium text-slate-700">

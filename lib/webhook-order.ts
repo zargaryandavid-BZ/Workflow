@@ -4491,6 +4491,39 @@ async function createSingleWebhookJob(
     warnings.push(message);
   }
 
+  // Card landed straight in Missing Info (order arrived without print files) →
+  // record WHY on the card (activity "hold_reason", by the system) so staff can
+  // see who/why, and the partner portal shows "We need: …" (board export +
+  // portal status carry the newest hold_reason). Hayk 2026-11-13: BZ-566/569.
+  if (/missing\s*info/i.test(effectiveColumnName ?? "")) {
+    const filesMissing =
+      needsCustomerFiles ||
+      (designSourceClean ?? "").toLowerCase().includes("files coming");
+    const reason = filesMissing
+      ? "Print-ready artwork files — none were uploaded with this order. Please upload your files."
+      : "Order details to confirm before we can start.";
+    try {
+      await logActivity(client, {
+        tenantId,
+        orderId,
+        actor: null,
+        action: "hold_reason",
+        metadata: {
+          reason,
+          columnName: effectiveColumnName,
+          auto: true,
+          via: filesMissing ? "order_arrived_without_files" : "order_initial_column",
+          webhook_source: webhookSource || null,
+        },
+      });
+    } catch (err) {
+      console.error(
+        "[webhook/orders] auto hold_reason log failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   return {
     orderId,
     title: cardTitle,
