@@ -3992,6 +3992,19 @@ async function createSingleWebhookJob(
   } = normalizeWebhookSkus(item.skus);
   const skus = prepareSkusForSave(rawSkus);
 
+  // Files that came WITH the order (line artwork_url / artwork_files, or per-SKU
+  // artwork). When present, never land the card in Missing Info asking for files,
+  // even if the sender flagged needs_customer_files (website orders #572-574,
+  // Nov 2026: files were uploaded but the flag said none).
+  const incomingHasArtwork =
+    (typeof item.artwork_url === "string" && /^https?:\/\//i.test(item.artwork_url.trim())) ||
+    (Array.isArray(item.artwork_files) &&
+      item.artwork_files.some(
+        (f) => !!f && ((typeof f.url === "string" && f.url.trim() !== "") || (typeof f.name === "string" && f.name.trim() !== ""))
+      )) ||
+    [...artworkBySkuId.values()].some((refs) => refs.length > 0);
+  const needsFilesEffective = needsCustomerFiles && !incomingHasArtwork;
+
   const specFields = normalizeSpecFields(item);
   if (designNotes) {
     specFields.designer_information = designNotes;
@@ -4052,7 +4065,7 @@ async function createSingleWebhookJob(
   // doesn't match any column, keep the default so an order is never dropped.
   if (initialColumnClean) {
     const named = await resolveColumnByName(client, tenantId, initialColumnClean);
-    if (named) {
+    if (named && !(incomingHasArtwork && /missing\s*info/i.test(named.name ?? ""))) {
       effectiveColumnId = named.id;
       effectiveColumnName = named.name ?? effectiveColumnName;
       const { data: lastInNamed } = await client
@@ -4073,10 +4086,11 @@ async function createSingleWebhookJob(
   // Fallback for CRM payloads sent before `initial_column` existed. Skipped when
   // the CRM named a column (even if it didn't match — that falls back to start).
   if (
+    !incomingHasArtwork &&
     shouldApplyMissingInfoFallback({
       initialColumn: initialColumnClean,
       designSource: designSourceClean,
-      needsCustomerFiles,
+      needsCustomerFiles: needsFilesEffective,
     })
   ) {
     const missingCol = await resolveMissingInfoColumn(client, tenantId);
@@ -4497,7 +4511,7 @@ async function createSingleWebhookJob(
   // portal status carry the newest hold_reason). Hayk 2026-11-13: BZ-566/569.
   if (/missing\s*info/i.test(effectiveColumnName ?? "")) {
     const filesMissing =
-      needsCustomerFiles ||
+      needsFilesEffective ||
       (designSourceClean ?? "").toLowerCase().includes("files coming");
     const reason = filesMissing
       ? "Print-ready artwork files — none were uploaded with this order. Please upload your files."
