@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity, resolveColumnForNewJobByProduct } from "@/lib/automation";
 import { isCrmCancelledOrder } from "@/lib/webhook-cancel-order";
+import { dimensionsFromFinishedSize } from "@/lib/finished-size-dimensions";
 import { titleMatchIsSameOrder } from "@/lib/webhook-title-match";
 import {
   pickColumnByName,
@@ -1861,8 +1862,12 @@ function mergeDesignerInput(
 }
 
 function normalizeSpecFields(item: WebhookItem): WebhookSpecFields {
-  const width = formatDimension(item.width);
-  const height = formatDimension(item.height);
+  const fromFinished =
+    !formatDimension(item.width) && !formatDimension(item.height)
+      ? dimensionsFromFinishedSize(item.finished_size)
+      : null;
+  const width = formatDimension(item.width) ?? fromFinished?.width ?? null;
+  const height = formatDimension(item.height) ?? fromFinished?.height ?? null;
   const die = firstNonEmpty(item.die);
   return {
     product: item.product,
