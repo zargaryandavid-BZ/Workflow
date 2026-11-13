@@ -166,6 +166,14 @@ type Client = SupabaseClient;
 
 const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 
+/**
+ * Automatic "no files → start the card in Missing Info" is OFF (Hayk 2026-11-13:
+ * customers were being asked for files they had already uploaded, over and
+ * over). New orders always start in the normal start column; staff move a card
+ * to Missing Info by hand when something is really missing.
+ */
+const AUTO_MISSING_INFO_ENABLED = false;
+
 const SELECT_WEBHOOK_KEYS = new Set([
   "product",
   "product_category",
@@ -4070,7 +4078,13 @@ async function createSingleWebhookJob(
   // doesn't match any column, keep the default so an order is never dropped.
   if (initialColumnClean) {
     const named = await resolveColumnByName(client, tenantId, initialColumnClean);
-    if (named && !(incomingHasArtwork && /missing\s*info/i.test(named.name ?? ""))) {
+    if (
+      named &&
+      !(
+        (!AUTO_MISSING_INFO_ENABLED || incomingHasArtwork) &&
+        /missing\s*info/i.test(named.name ?? "")
+      )
+    ) {
       effectiveColumnId = named.id;
       effectiveColumnName = named.name ?? effectiveColumnName;
       const { data: lastInNamed } = await client
@@ -4091,6 +4105,7 @@ async function createSingleWebhookJob(
   // Fallback for CRM payloads sent before `initial_column` existed. Skipped when
   // the CRM named a column (even if it didn't match — that falls back to start).
   if (
+    AUTO_MISSING_INFO_ENABLED &&
     !incomingHasArtwork &&
     shouldApplyMissingInfoFallback({
       initialColumn: initialColumnClean,
