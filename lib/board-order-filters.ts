@@ -128,6 +128,14 @@ export function isOrderDueToday(
   return dueDate.slice(0, 10) === today;
 }
 
+/** True when `q` appears in the haystack bounded by non-digits on both sides. */
+export function wholeOrderNumberMatch(haystack: string, q: string): boolean {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return false;
+  const esc = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^0-9])${esc}([^0-9]|$)`).test(haystack.toLowerCase());
+}
+
 export function orderMatchesBoardFilters(
   order: OrderWithRelations,
   fieldValues: Record<string, unknown>,
@@ -138,7 +146,10 @@ export function orderMatchesBoardFilters(
   const q = filters.q.trim().replace(/^#/, "").toLowerCase();
   if (q) {
     if (isOrderNumberQuery(q)) {
-      if (!orderNumberSearchHaystack(order).includes(q)) return false;
+      // Whole-number match: "567" finds BZ-567 / W567-1 / 567-2, NOT
+      // CRM ORD-2026-15672 (Hayk 2026-11-13: searching 567 pulled in every
+      // Mile High Cure card because "567" sits inside their CRM numbers).
+      if (!wholeOrderNumberMatch(orderNumberSearchHaystack(order), q)) return false;
     } else {
       const customerName = customerNameFromOrder(
         order,
