@@ -270,11 +270,29 @@ export async function POST(request: Request) {
     const result = await createOrderFromWebhook(adminClient, activeConfig, body);
     await touchWebhookLastUsed(adminClient, activeConfig.id);
 
+    // Tell the sender (Bazaar website) each card's Drive job folder so it can drop
+    // the customer's checkout artwork there. Additive response fields only.
+    const folderLinks = await jobDriveFolderLinks(
+      adminClient,
+      result.isMultiItem ? result.jobs.map((j) => j.order_id) : [result.orderId]
+    );
+
     if (result.isMultiItem) {
+      const jobsWithFolders = result.jobs.map((j) =>
+        folderLinks.get(j.order_id)
+          ? { ...j, gdrive_folder_url: folderLinks.get(j.order_id) }
+          : j
+      );
+      const firstFolder = jobsWithFolders.find(
+        (j) => "gdrive_folder_url" in j
+      ) as { gdrive_folder_url?: string } | undefined;
       const response = {
         success: true,
         order_number: result.orderNumber,
-        jobs: result.jobs,
+        jobs: jobsWithFolders,
+        ...(firstFolder?.gdrive_folder_url
+          ? { gdriveFolderUrl: firstFolder.gdrive_folder_url }
+          : {}),
         ...(result.ownerId ? { owner_id: result.ownerId } : {}),
         ...(result.ownerName ? { owner_name: result.ownerName } : {}),
         ...(result.warning ? { warning: result.warning } : {}),
@@ -290,10 +308,12 @@ export async function POST(request: Request) {
       return NextResponse.json(response);
     }
 
+    const singleFolder = folderLinks.get(result.orderId);
     const response = {
       success: true,
       order_id: result.orderId,
       order_number: result.orderNumber,
+      ...(singleFolder ? { gdriveFolderUrl: singleFolder } : {}),
       ...(result.ownerId ? { owner_id: result.ownerId } : {}),
       ...(result.ownerName ? { owner_name: result.ownerName } : {}),
       ...(result.warning ? { warning: result.warning } : {}),
@@ -339,4 +359,30 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Each card's Drive job folder (set by attachGdriveFoldersToOrders as
+ * specs.gdrive_item_folder_url / specs.design_task). Read-only; never throws.
+ */
+async function jobDriveFolderLinks(
+  client: ReturnType<typeof createAdminClient>,
+  orderIds: string[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = orderIds.filter(Boolean);
+  if (ids.length === 0) return out;
+  try {
+    const { data } = await client.from("orders").select("id, specs").in("id", ids);
+    for (const row of (data ?? []) as Array<{ id: string; specs?: Record<string, unknown> | null }>) {
+      const specs = row.specs ?? {};
+      const url = [specs.gdrive_item_folder_url, specs.design_task].find(
+        (v): v is string => typeof v === "string" && /^https?:\/\//i.test(v.trim())
+      );
+      if (url) out.set(row.id, url.trim());
+    }
+  } catch (err) {
+    console.error("[webhook/orders] folder link read failed:", err);
+  }
+  return out;
 }
