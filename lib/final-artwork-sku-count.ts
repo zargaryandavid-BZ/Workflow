@@ -115,16 +115,26 @@ export async function loadFinalArtworkSummary(
   if (!index) return { count: null, artworkUrls: [] };
 
   const admin = createAdminClient();
+  // The picture kind is chosen from page 1, but not every page has an "artwork" layer picture. A page missing it
+  // falls back to its full-page picture (composite.jpg — written for every page), instead of coming back empty:
+  // empty links were hidden by the scan screen, so an 8-SKU order showed only page 1's artwork.
   const previewKind = await usablePreviewKind(index);
-  const paths = index.pages.map((page) =>
-    layerPreviewObjectPath(index.fileId, index.rev, page, previewKind)
-  );
-  const { data } = await admin.storage
-    .from(ORDER_ASSETS_BUCKET)
-    .createSignedUrls(paths, 3600);
-  const artworkUrls = paths.map((_, index) => {
-    const row = data?.[index];
-    return row && !row.error && row.signedUrl ? row.signedUrl : "";
-  });
+  const signed = async (kind: string) => {
+    const paths = index.pages.map((page) =>
+      layerPreviewObjectPath(index.fileId, index.rev, page, kind)
+    );
+    const { data } = await admin.storage
+      .from(ORDER_ASSETS_BUCKET)
+      .createSignedUrls(paths, 3600);
+    return paths.map((_, i) => {
+      const row = data?.[i];
+      return row && !row.error && row.signedUrl ? row.signedUrl : "";
+    });
+  };
+  const [preferred, composite] = await Promise.all([
+    signed(previewKind),
+    previewKind === "composite" ? Promise.resolve([] as string[]) : signed("composite"),
+  ]);
+  const artworkUrls = index.pages.map((_, i) => preferred[i] || composite[i] || "");
   return { count: index.pages.length, artworkUrls };
 }

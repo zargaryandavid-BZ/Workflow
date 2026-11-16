@@ -34,28 +34,36 @@ export async function loadScanFinalArtworkPictures(
     // Normal scan path: use the previews already generated when the Final PDF
     // was sent/updated. This avoids a Drive lookup and rebuilding every page.
     const cached = await loadFinalArtworkSummary(order.id);
-    if (cached.count && cached.artworkUrls.some(Boolean)) {
-      return {
-        pictures: cached.artworkUrls.map((url, index) => {
-          const page = index + 1;
-          const ticketSku = ticketSkus[index];
-          return {
-            sku_id: ticketSku?.id ?? `__pdf_page_${page}__`,
-            sku_name: ticketSku?.name.trim() || `SKU ${page}`,
-            url,
-            qty: specSkuQty(ticketSku),
-          };
-        }),
-        pageCount: cached.count,
-      };
-    }
+    const fromCache = () => ({
+      pictures: cached.artworkUrls.map((url, index) => {
+        const page = index + 1;
+        const ticketSku = ticketSkus[index];
+        return {
+          sku_id: ticketSku?.id ?? `__pdf_page_${page}__`,
+          sku_name: ticketSku?.name.trim() || `SKU ${page}`,
+          url,
+          qty: specSkuQty(ticketSku),
+        };
+      }),
+      pageCount: cached.count ?? cached.artworkUrls.length,
+    });
+    const cachedUsable = !!cached.count && cached.artworkUrls.some(Boolean);
+    // Use the saved pictures as they are only when EVERY page has one. A page without a picture used to be dropped
+    // silently (only the recovery below can make it), so the scan screen showed fewer SKUs than the Final PDF has.
+    if (cachedUsable && cached.artworkUrls.every(Boolean)) return fromCache();
 
-    // Recovery path only: generate previews when an order has no usable cache.
-    const previews = await generateApprovalLayerPreviewsForOrder(order);
+    // Recovery: build the pictures from the Final PDF. If that fails, keep whatever saved pictures exist.
+    let previews: Awaited<ReturnType<typeof generateApprovalLayerPreviewsForOrder>>;
+    try {
+      previews = await generateApprovalLayerPreviewsForOrder(order);
+    } catch (error) {
+      if (cachedUsable) return fromCache();
+      throw error;
+    }
     const ordered = Object.entries(previews).sort(
       ([, a], [, b]) => a.page - b.page
     );
-    if (ordered.length === 0) return { pictures: [], pageCount: 0 };
+    if (ordered.length === 0) return cachedUsable ? fromCache() : { pictures: [], pageCount: 0 };
 
     const admin = createAdminClient();
     const rows: {
@@ -80,7 +88,7 @@ export async function loadScanFinalArtworkPictures(
     }
 
     if (rows.length === 0) {
-      return { pictures: [], pageCount: ordered.length };
+      return cachedUsable ? fromCache() : { pictures: [], pageCount: ordered.length };
     }
 
     const { data: signed } = await admin.storage
