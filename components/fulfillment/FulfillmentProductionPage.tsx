@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Check,
+  Copy,
   Download,
   EllipsisVertical,
   Loader2,
@@ -265,6 +267,7 @@ export function FulfillmentProductionPage({
                         <span className="shrink-0 tabular-nums">
                           {order.order_number}
                         </span>
+                        <CopyOrderNumberButton orderNumber={order.order_number} />
                         <span className="text-slate-300">|</span>
                         <span className="truncate text-sm text-slate-700">
                           {order.product_type}
@@ -483,5 +486,52 @@ export function FulfillmentProductionPage({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Copy text; falls back to a hidden textarea where the Clipboard API is blocked. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  }
+}
+
+/** Small copy icon next to an order number; shows a check for a moment once copied. */
+function CopyOrderNumberButton({ orderNumber }: { orderNumber: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      onClick={async (event) => {
+        event.stopPropagation();
+        if (await copyText(orderNumber)) setCopied(true);
+      }}
+      className="-mx-1 shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      title={copied ? "Copied" : `Copy ${orderNumber}`}
+      aria-label={copied ? `Copied ${orderNumber}` : `Copy order number ${orderNumber}`}
+    >
+      {copied ? (
+        <Check className="h-4 w-4 text-green-600" />
+      ) : (
+        <Copy className="h-4 w-4" />
+      )}
+    </button>
   );
 }
