@@ -567,6 +567,46 @@ export async function onShippingOptSelected(
 
   if (!order || order.column_id === toColumnId) return;
 
+  // Never pull a card BACK once it has moved past the shipping-choice columns
+  // (Shipped Customer, Finished, …). A customer re-opening / re-submitting the
+  // shipping link (or a Stripe retry) used to drag shipped cards back into
+  // "To be Shipped" (W446-1 bounced 5 times, Nov 2026).
+  {
+    const [pickupColId, deliveryColId] = await Promise.all([
+      resolveShippingChoiceColumnId(client, tenantId, "pickup"),
+      resolveShippingChoiceColumnId(client, tenantId, "delivery"),
+    ]);
+    const ids = [
+      ...new Set(
+        [order.column_id, toColumnId, pickupColId, deliveryColId].filter(
+          (x): x is string => typeof x === "string" && x !== ""
+        )
+      ),
+    ];
+    const { data: posRows } = await client
+      .from("board_columns")
+      .select("id, position")
+      .in("id", ids);
+    const posById = new Map(
+      ((posRows ?? []) as { id: string; position: number | null }[]).map((c) => [
+        c.id,
+        Number(c.position),
+      ])
+    );
+    const curPos = posById.get(order.column_id as string);
+    const shipPositions = [toColumnId, pickupColId, deliveryColId]
+      .map((id) => (id ? posById.get(id) : undefined))
+      .filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+    if (
+      typeof curPos === "number" &&
+      Number.isFinite(curPos) &&
+      shipPositions.length > 0 &&
+      curPos > Math.max(...shipPositions)
+    ) {
+      return;
+    }
+  }
+
   const { data: moveColumns } = await client
     .from("board_columns")
     .select("id, name")
