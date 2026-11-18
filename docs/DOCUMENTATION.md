@@ -161,6 +161,7 @@ See the [Database](#database) section below for full schema.
 
 - Every business row has `tenant_id`.
 - Users join tenants via `memberships` with a `role` (`admin`, `preprod_owner`, `designer`, `account_manager`, `member` — extended roles may require `setup.sql`; see [Known issues](#known-issues)).
+- **Designers** see only cards assigned to them (`specs.designer_id`, enforced in `GET /api/board/column-orders` and `GET /api/board/search-orders` plus the board's `displayOrders`). Exception: a board search that is an **order number** (`isOrderNumberQuery`, e.g. `15622`, `15622-1`, `W510`, `#509`) returns that order whatever designer it is assigned to, so designers can look up each other's jobs. Name / customer searches stay limited to their own. Columns hidden from the designer (Settings → Columns) still don't show.
 - **Pre-press** (`prepress`, migration `20261111100000_prepress_member_role.sql`): assignable in Settings → Team. Runs the Pre-press timer (not the Designer timer), sees and reorders the Pre-press Queue, opens Die Order (and purchase orders, same gate), and edits orders like a Designer. No tag / priority score and no priority-list reorder. Sees Pre-press timers on the board like a Pre-Production Owner. Column visibility and ↓/↑ move rights are set per column in Settings → Columns (abbr **Pp**); it is also a chip in fast-action button visibility. Time page lists Pre-press people under the Prepress report.
 - **RLS** on all tables uses `is_tenant_member(tenant_id)` / `is_tenant_admin(tenant_id)`.
 - Active tenant selected by cookie **`ppm_tenant`** (`lib/constants.ts` → `TENANT_COOKIE`).
@@ -1380,6 +1381,8 @@ Delete button.
 ### `POST /api/fast-action-buttons/[id]/trigger`
 
 Trigger a button action on a given order.
+
+Job-ticket headers show `pulseprintautomation.com WF` at the far top-left.
 
 **`generate_pdf`:** Job ticket page 1 is order/specs/SKUs. The dark header keeps a **QR code** of the printed order number in its own column on the far right (generated at print time, `lib/order-qr.ts`; not stored). Tenant name, JOB TICKET, order number, and date stay left of that column so they do not overlap the QR. SKU pages print **every visual plate** in a 2-up grid (`[Layer 1] [Layer 2]` / `[Layer 3] [Layer 4]`); extra plates continue on the next page, and each SKU starts a new page (`layerPicsForJobTicket`, bytes from storage — not the Drive thumbnail). Product specifications mirror every filled cardboard field (Width / Height / Depth remain separate), retain differing card and catalog values with the same label, and append calculated Quantity, SKU Qty, per-SKU name/qty, plus webhook `spec_selections` / `product_options` / leftover spec keys / `spec_display` (`buildJobTicketSpecRows`). Production notes use a prominent 14 pt body font and continue onto another ticket page when needed. The route allows 180s so Vercel does not kill the download.
 

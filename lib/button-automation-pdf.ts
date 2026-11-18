@@ -43,6 +43,7 @@ const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
 const HEADER_H = 72;
 const HEADER_QR_SIZE = 48;
+const JOB_TICKET_SOURCE_LABEL = "pulseprintautomation.com WF";
 const COL_WIDTH = (PAGE_WIDTH - MARGIN * 2) / 2;
 /** Leave room for footer; never let PDFKit auto-paginate absolute text. */
 const CONTENT_BOTTOM = PAGE_HEIGHT - 32;
@@ -135,6 +136,10 @@ function drawHeader(
     .strokeColor("#1a1a2e")
     .lineWidth(2.5)
     .stroke();
+
+  // Workflow source marker, fixed to the far top-left of every ticket page.
+  doc.fillColor("#9aa4b5").fontSize(7).font("Helvetica");
+  textAt(doc, JOB_TICKET_SOURCE_LABEL, 8, 2);
 
   // Build label: "JOB TICKET · Sep 29, 2026"
   const dateStr = new Date().toLocaleDateString("en-US", {
@@ -1096,6 +1101,8 @@ function drawArtworkPage(
   const textW = qrX - qrGap - MARGIN;
 
   doc.rect(0, 0, PAGE_WIDTH, artHeaderH).fill("#1a1a2e");
+  doc.fillColor("#d1d5db").fontSize(7).font("Helvetica");
+  textAt(doc, JOB_TICKET_SOURCE_LABEL, 8, 2);
   doc
     .fillColor("#ffffff")
     .fontSize(11)

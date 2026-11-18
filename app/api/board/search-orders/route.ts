@@ -72,10 +72,13 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const q = (searchParams.get("q") ?? "").trim().replace(/^#/, "");
-  // Designers are locked to their own assignments (ignore client designerId).
+  // Designers are locked to their own assignments (ignore client designerId),
+  // except an order-number search, which finds any designer's job.
   const designerId =
     ctx.role === "designer"
-      ? ctx.userId
+      ? q && isOrderNumberQuery(q)
+        ? ""
+        : ctx.userId
       : (searchParams.get("designerId") ?? "");
   const ownerId = searchParams.get("ownerId") ?? "";
   const webhookSource = (searchParams.get("webhookSource") ?? "").trim();

@@ -3251,6 +3251,15 @@ export function Board({
       )
     );
     if (!isDesignerRole) return base;
+    // Designers see only their own cards, except when searching an order
+    // number: then the server's results include other designers' jobs too.
+    if (
+      filtersActive &&
+      searchResults &&
+      isOrderNumberQuery(orderQuery.trim().replace(/^#/, ""))
+    ) {
+      return base;
+    }
     return base.filter(
       (order) =>
         String(order.specs?.designer_id ?? "") === currentUserId
@@ -3263,6 +3272,7 @@ export function Board({
     archivedOnly,
     isDesignerRole,
     currentUserId,
+    orderQuery,
   ]);
 
   const archivedCount = useMemo(
