@@ -8,6 +8,7 @@ import {
   parseSetSizeValue,
   productCatalogAliases,
   lookupCatalogMap,
+  catalogOptionsForField,
   preferLinkedCatalogName,
   findMatchingSetSizeOption,
   specKeyCoveredByCustomFields,
@@ -367,5 +368,54 @@ describe("spec_display", () => {
       )?.map((r) => r.value),
       ["2x3"]
     );
+  });
+});
+
+describe("catalogOptionsForField", () => {
+  const catalog = {
+    finishingByProduct: {
+      "Premium Trading Cards": ["Matte Lamination", "Gloss Lamination"],
+      "Roll Labels": ["Matte Lamination"],
+    },
+    specialEffectsByProduct: {
+      "Premium Trading Cards": ["Gold Foil", "Scodix Raised UV — 50 Microns"],
+      "Standard Trading Cards": [],
+      "Roll Labels": ["1-pass raised UV", "3-pass raised UV"],
+    },
+  };
+
+  it("returns the product's own special effects (no label UV on trading cards)", () => {
+    const opts = catalogOptionsForField("Special effects", "Premium Trading Cards", catalog);
+    assert.deepEqual(opts, ["Gold Foil", "Scodix Raised UV — 50 Microns"]);
+    assert.equal(opts?.includes("1-pass raised UV"), false);
+  });
+
+  it("returns the product's finishing list", () => {
+    assert.deepEqual(catalogOptionsForField("Finishing", "Roll Labels", catalog), ["Matte Lamination"]);
+  });
+
+  it("matches product names loosely (case / spacing)", () => {
+    assert.deepEqual(
+      catalogOptionsForField("special  effects", "premium trading cards", catalog),
+      ["Gold Foil", "Scodix Raised UV — 50 Microns"]
+    );
+  });
+
+  it("empty list means the product has none", () => {
+    assert.deepEqual(catalogOptionsForField("Special effects", "Standard Trading Cards", catalog), []);
+  });
+
+  it("falls back (null) for unknown products, other fields, or no catalog", () => {
+    assert.equal(catalogOptionsForField("Special effects", "Mystery Product", catalog), null);
+    assert.equal(catalogOptionsForField("Materials", "Roll Labels", catalog), null);
+    assert.equal(catalogOptionsForField("Finishing", "", catalog), null);
+    assert.equal(catalogOptionsForField("Finishing", "Roll Labels", null), null);
+    assert.equal(catalogOptionsForField("Finishing", "Roll Labels", {}), null);
+  });
+
+  it("returns a copy so callers cannot mutate the cached catalog", () => {
+    const a = catalogOptionsForField("Finishing", "Roll Labels", catalog)!;
+    a.push("x");
+    assert.deepEqual(catalog.finishingByProduct["Roll Labels"], ["Matte Lamination"]);
   });
 });
