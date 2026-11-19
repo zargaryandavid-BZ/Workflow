@@ -1,4 +1,5 @@
 import { Printer } from "lucide-react";
+import { PoweredByFooter } from "@/components/portal/powered-by-footer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { OrderReview } from "@/components/respond/order-review";
 import { fetchRespondArtworkPack } from "@/lib/respond-final-pdf";
@@ -158,6 +159,7 @@ export default async function ApprovalPage({
             </>
           )}
         </div>
+        <PoweredByFooter />
       </div>
     </div>
   );

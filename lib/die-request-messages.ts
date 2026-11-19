@@ -1,5 +1,5 @@
 import { buildBrandedEmailLayout } from "@/lib/notification-messages";
-import { PORTAL_PRODUCT_NAME } from "@/lib/portal-branding";
+import { PORTAL_PRODUCT_NAME, POWERED_BY_LINE } from "@/lib/portal-branding";
 
 export function dieQuoteSubject(orderNumber: string): string {
   return `Die quote request — Order ${orderNumber}`;
@@ -31,7 +31,8 @@ export function buildDieQuoteEmailBody(params: {
   lines.push(
     `Open this link to send price, time estimate, and confirm the due date:`,
     params.quoteUrl,
-    `— ${PORTAL_PRODUCT_NAME}`
+    `— ${PORTAL_PRODUCT_NAME}`,
+    POWERED_BY_LINE
   );
   return lines.filter((line): line is string => Boolean(line)).join("\n\n");
 }
@@ -71,7 +72,8 @@ export function buildDieOrderConfirmEmailBody(params: {
     `Open this link for files and what to manufacture:`,
     params.orderUrl,
     `This is the final order confirmation.`,
-    `— ${PORTAL_PRODUCT_NAME}`
+    `— ${PORTAL_PRODUCT_NAME}`,
+    POWERED_BY_LINE
   );
   return lines.filter((line): line is string => Boolean(line)).join("\n\n");
 }

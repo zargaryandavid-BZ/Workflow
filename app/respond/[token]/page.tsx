@@ -1,4 +1,8 @@
 import { Suspense } from "react";
+import {
+  PortalFooterText,
+  PoweredByFooter,
+} from "@/components/portal/powered-by-footer";
 import { Printer } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -34,7 +38,6 @@ import {
 import { ensureApprovalGroupPortal } from "@/lib/approval-group";
 import { RespondForm } from "./respond-form";
 import {
-  PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
 } from "@/lib/portal-branding";
 import type {
@@ -210,6 +213,7 @@ function RespondCard({
           </div>
         ) : null}
       </div>
+      {footer ? null : <PoweredByFooter />}
     </div>
   );
 }
@@ -226,7 +230,7 @@ export default async function RespondPage({
   });
 
   const notification = (data as NotificationRow[] | null)?.[0] ?? null;
-  const footer = notification ? <>{PORTAL_FOOTER}</> : null;
+  const footer = notification ? <PortalFooterText /> : null;
 
   if (!notification) {
     return (

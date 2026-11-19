@@ -10,6 +10,7 @@ import {
   type MessageTemplateMap,
 } from "@/lib/message-templates";
 import {
+  footerHtmlWithPoweredByLink,
   PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
 } from "@/lib/portal-branding";
@@ -171,7 +172,7 @@ export function buildBrandedEmailLayout(params: {
   const footerRow = showFooter
     ? `<tr>
             <td style="margin:0;padding:10px 16px 14px;background:#ffffff;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:11px;line-height:1.4;text-align:center;">
-              ${escapeHtml(params.footerText ?? PORTAL_FOOTER)}
+              ${footerHtmlWithPoweredByLink(params.footerText ?? PORTAL_FOOTER, escapeHtml)}
             </td>
           </tr>`
     : "";
@@ -294,7 +295,7 @@ export function buildGoogleReviewFeedbackEmailHtml(
     `We'd love your feedback on Order #${orderNumber} | ${PORTAL_PRODUCT_NAME}`
   );
   const brand = escapeHtml(PORTAL_PRODUCT_NAME);
-  const footer = escapeHtml(PORTAL_FOOTER);
+  const footer = footerHtmlWithPoweredByLink(PORTAL_FOOTER, escapeHtml);
 
   const html = `<!DOCTYPE html>
 <html style="margin:0;padding:0;">

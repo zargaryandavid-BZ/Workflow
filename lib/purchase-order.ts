@@ -4,6 +4,7 @@
  */
 import { buildRespondOrderRows } from "./respond-order.ts";
 import { normalizeSkus } from "./skus.ts";
+import { footerHtmlWithPoweredByLink, POWERED_BY_LINE } from "./portal-branding.ts";
 
 export const BAZAAR_SHIP_TO = "Bazaar Printing\n306 Boyd St\nLos Angeles, CA 90013";
 
@@ -162,6 +163,9 @@ export type PoEmailInput = {
   fromName: string;
 };
 
+/** Small centered "Powered by" footer for PO emails, domain linked. */
+const POWERED_BY_HTML = `<p style="margin-top:24px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8">${footerHtmlWithPoweredByLink(POWERED_BY_LINE, esc)}</p>`;
+
 export function poEmailSubject(poNumber: string): string {
   return `Purchase Order ${poNumber} — Bazaar Printing`;
 }
@@ -192,6 +196,8 @@ export function buildPoEmailText(p: PoEmailInput): string {
     `Confirm the order and post updates here: ${p.vendorUrl}`,
     "",
     `Thank you,\n${p.fromName}\nBazaar Printing`,
+    "",
+    POWERED_BY_LINE,
   ];
   return lines.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
 }
@@ -224,6 +230,7 @@ ${p.notes ? `<p><b>Notes:</b> ${esc(p.notes)}</p>` : ""}
 ${p.folderUrl ? `<p><b>Print files:</b> <a href="${esc(p.folderUrl)}">Open file folder</a></p>` : ""}
 <p><a href="${esc(p.vendorUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Confirm order &amp; post updates</a></p>
 <p>Thank you,<br>${esc(p.fromName)}<br>Bazaar Printing</p>
+${POWERED_BY_HTML}
 </div>`;
 }
 
@@ -243,6 +250,8 @@ export function buildPoUpdateText(p: {
     `Post the update (status, ship date, tracking) here: ${p.vendorUrl}`,
     "",
     `Thank you,\n${p.fromName}\nBazaar Printing`,
+    "",
+    POWERED_BY_LINE,
   ].join("\n");
 }
 
@@ -259,5 +268,6 @@ export function buildPoUpdateHtml(p: {
 ${p.message ? `<p>${esc(p.message)}</p>` : ""}
 <p><a href="${esc(p.vendorUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Post an update</a></p>
 <p>Thank you,<br>${esc(p.fromName)}<br>Bazaar Printing</p>
+${POWERED_BY_HTML}
 </div>`;
 }

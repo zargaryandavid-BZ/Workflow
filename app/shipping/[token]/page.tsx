@@ -1,5 +1,9 @@
 import { Package } from "lucide-react";
 import {
+  PortalFooterText,
+  PoweredByFooter,
+} from "@/components/portal/powered-by-footer";
+import {
   boardThumbnailsByOrder,
   type OrderAssetPreviewRow,
 } from "@/lib/board-card-previews";
@@ -18,7 +22,6 @@ import {
   type ShippingPortalData,
 } from "@/components/shipping/shipping-portal-client";
 import {
-  PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
 } from "@/lib/portal-branding";
 import type {
@@ -256,6 +259,7 @@ function PortalShell({
           </div>
         ) : null}
       </div>
+      {footer ? null : <PoweredByFooter />}
     </div>
   );
 }
@@ -350,7 +354,7 @@ export default async function ShippingPortalPage({
   return (
     <PortalShell
       orderTitle={row.order_title}
-      footer={<>{PORTAL_FOOTER}</>}
+      footer={<PortalFooterText />}
     >
       <ShippingPortalClient data={portalData} />
     </PortalShell>

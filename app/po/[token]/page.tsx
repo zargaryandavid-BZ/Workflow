@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { formatDate } from "@/lib/utils";
 import { PO_STATUS_LABEL, poTotal, sanitizePoItems } from "@/lib/purchase-order";
 import { PoVendorUpdateForm } from "@/components/outsource/po-vendor-update-form";
+import { PoweredByFooter } from "@/components/portal/powered-by-footer";
 
 export const metadata = { title: "Purchase order" };
 export const dynamic = "force-dynamic";
@@ -15,6 +16,9 @@ function Shell({ children }: { children: React.ReactNode }) {
         </p>
       </header>
       <main className="mx-auto w-full max-w-3xl px-4 py-6">{children}</main>
+      <footer className="px-4 pb-6">
+        <PoweredByFooter className="mt-0" />
+      </footer>
     </div>
   );
 }

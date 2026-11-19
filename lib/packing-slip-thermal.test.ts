@@ -221,10 +221,10 @@ describe("box slip SKU rows", () => {
     assert.equal(pageCount(pdf), 2);
   });
 
-  it("keeps every row on the 4x6 label", () => {
+  it("keeps every row on the 4x6 label, clear of the Powered-by footer", () => {
     for (const count of [1, 6, 7, 10]) {
       const row = thermalRowLayout(count);
-      assert.ok(94 + (count - 1) * row.pitch + row.rowH <= 426, `count ${count}`);
+      assert.ok(94 + (count - 1) * row.pitch + row.rowH <= 406, `count ${count}`);
     }
   });
 });

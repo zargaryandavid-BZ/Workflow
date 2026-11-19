@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { PortalFooterText } from "@/components/portal/powered-by-footer";
 import { RespondForm } from "@/app/respond/[token]/respond-form";
 import { OrderReview } from "@/components/respond/order-review";
 import {
-  PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
 } from "@/lib/portal-branding";
 import type {
@@ -323,7 +323,7 @@ export function ApprovalGroupView({
         </div>
 
         <div className="rounded-b-xl border-t border-slate-100 px-6 py-4 text-center text-xs text-slate-400">
-          {PORTAL_FOOTER}
+          <PortalFooterText />
         </div>
       </div>
     </div>

@@ -1,9 +1,9 @@
 import { Printer } from "lucide-react";
+import { PortalFooterText } from "@/components/portal/powered-by-footer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DieQuoteForm } from "@/components/die/die-quote-form";
 import { diePortalFiles, parseDieRequestFiles } from "@/lib/die-request";
 import {
-  PORTAL_FOOTER,
   PORTAL_PRODUCT_NAME,
 } from "@/lib/portal-branding";
 
@@ -35,7 +35,7 @@ function Shell({
       </header>
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">{children}</main>
       <footer className="px-4 py-4 text-center text-[11px] text-slate-400">
-        {PORTAL_FOOTER}
+        <PortalFooterText />
       </footer>
     </div>
   );
