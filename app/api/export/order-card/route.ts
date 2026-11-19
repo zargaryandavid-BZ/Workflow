@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   findWebhookConfigBySecret,
@@ -7,6 +7,7 @@ import {
 import { secretsMatch } from "@/lib/webhook-order";
 import { loadOrderExportData } from "@/lib/button-automation-order-data";
 import { orderCardExport, type OrderCardExport } from "@/lib/order-card-export";
+import { loadSkuPageImageLinks } from "@/lib/order-card-sku-pages";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,7 @@ export async function GET(request: NextRequest) {
 
   const cards: OrderCardExport[] = [];
   const missing: string[] = [];
+  const missingPages: Parameters<typeof loadSkuPageImageLinks>[1][] = [];
 
   for (let i = 0; i < ids.length; i += CONCURRENCY) {
     const batch = ids.slice(i, i + CONCURRENCY);
@@ -102,7 +104,39 @@ export async function GET(request: NextRequest) {
         try {
           // loadOrderExportData is tenant-scoped: a foreign id returns null.
           const data = await loadOrderExportData(admin, id, tenantId, tenantName);
-          return { id, card: data ? orderCardExport(data) : null };
+          if (!data) return { id, card: null };
+          // Each SKU gets the picture of ITS page of the Final PDF (page 1 =
+          // SKU 1 …) instead of the single card thumbnail on SKU 1.
+          const order = {
+            id,
+            title: String(data.order.title ?? ""),
+            tenant_id: tenantId,
+            specs: data.order.specs ?? {},
+          } as Parameters<typeof loadSkuPageImageLinks>[1];
+          try {
+            const pages = await loadSkuPageImageLinks(admin, order, data.skus);
+            if (pages.links.size > 0) {
+              data.skuRows = data.skuRows.map((row) => {
+                const urls = pages.links.get(row.id);
+                return urls ? { ...row, imageLinks: urls } : row;
+              });
+            } else if (
+              pages.missing &&
+              // Only cards that already have a Final PDF (its card picture exists).
+              data.skuRows.some((r) =>
+                r.imageFiles.some((f) => /^final-production\.(png|jpe?g)$/i.test(f.name))
+              )
+            ) {
+              missingPages.push(order);
+            }
+          } catch (err) {
+            console.warn(
+              "[export/order-card] SKU page pictures failed:",
+              id,
+              err instanceof Error ? err.message : err
+            );
+          }
+          return { id, card: orderCardExport(data) };
         } catch (err) {
           console.error(
             "[export/order-card] load failed:",
@@ -117,6 +151,24 @@ export async function GET(request: NextRequest) {
       if (r.card) cards.push(r.card);
       else missing.push(r.id);
     }
+  }
+
+  // Render missing page pictures after responding, so the next sync has them.
+  if (missingPages.length > 0) {
+    after(async () => {
+      const { generateApprovalLayerPreviewsForOrder } = await import(
+        "@/lib/approval-layer-previews"
+      );
+      for (const order of missingPages) {
+        await generateApprovalLayerPreviewsForOrder(order).catch((err) =>
+          console.warn(
+            "[export/order-card] page picture render failed:",
+            order.id,
+            err instanceof Error ? err.message : err
+          )
+        );
+      }
+    });
   }
 
   void touchWebhookLastUsed(admin, webhookConfig.id);
