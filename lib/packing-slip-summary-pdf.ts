@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { orderNumberQrPng } from "./order-qr.ts";
 import { pdfWinAnsiText } from "./pdf-winansi-text.ts";
+import { stampPoweredByFooter } from "./pdf-powered-by-footer.ts";
 import type { ThermalSlipBox, ThermalSlipSku } from "./packing-slip-thermal-pdf.ts";
 
 const require = createRequire(import.meta.url);
@@ -186,7 +187,11 @@ export async function generateSummaryPackingSlipPdf(input: SummarySlipInput): Pr
   const shippedAt = input.shippedAt ?? new Date();
   const qr = input.orderLabel ? await orderNumberQrPng(input.orderLabel) : null;
 
-  const doc = new PDFDocument({ size: "LETTER", margins: { top: M, bottom: M, left: M, right: M } });
+  const doc = new PDFDocument({
+    size: "LETTER",
+    margins: { top: M, bottom: M, left: M, right: M },
+    bufferPages: true,
+  });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((res, rej) => {
@@ -194,7 +199,7 @@ export async function generateSummaryPackingSlipPdf(input: SummarySlipInput): Pr
     doc.on("error", rej);
   });
 
-  const bottom = PAGE_H - M - 70; // keep room for the sign-off block
+  const bottom = PAGE_H - M - 88; // keep room for the sign-off block + footer
   const ensure = (y: number, need: number): number => {
     if (y + need <= bottom) return y;
     doc.addPage();
@@ -316,7 +321,7 @@ export async function generateSummaryPackingSlipPdf(input: SummarySlipInput): Pr
   }
 
   // ── Sign-off (last page) ─────────────────────────────────
-  const sy = PAGE_H - M - 54;
+  const sy = PAGE_H - M - 72;
   doc.font("Helvetica").fontSize(8.5).fillColor("#374151");
   const fields = ["Packed by", "Checked by", "Received by (print & sign)"];
   const fw = (W - 40) / 3;
@@ -330,6 +335,7 @@ export async function generateSummaryPackingSlipPdf(input: SummarySlipInput): Pr
     M, sy + 44, { width: W, align: "center" }
   );
 
+  stampPoweredByFooter(doc);
   doc.end();
   return done;
 }

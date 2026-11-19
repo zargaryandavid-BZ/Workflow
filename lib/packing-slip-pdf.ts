@@ -13,6 +13,7 @@ import {
 import type { OrderExportData, OrderExportSkuRow } from "@/lib/button-automation-order-data";
 import { orderNumberQrPng } from "@/lib/order-qr";
 import { pdfWinAnsiText } from "@/lib/pdf-winansi-text";
+import { stampPoweredByFooter } from "@/lib/pdf-powered-by-footer";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -605,7 +606,8 @@ function drawItemsGrid(
     return slots;
   }
 
-  const availableH = PAGE_H - MARGIN - y;
+  // Leave room above the Powered-by footer (see stampPoweredByFooter).
+  const availableH = PAGE_H - MARGIN - 18 - y;
   const cols = n === 1 ? 1 : COLS;
   const rows = Math.max(1, Math.ceil(n / cols));
   const cellH = Math.max(
@@ -741,6 +743,7 @@ export async function generatePackingSlipPdf(
         )
       );
     }
+    stampPoweredByFooter(doc);
     doc.end();
   } catch (err) {
     try {

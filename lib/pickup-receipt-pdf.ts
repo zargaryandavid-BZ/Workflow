@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { pdfWinAnsiText } from "./pdf-winansi-text.ts";
+import { stampPoweredByFooter } from "./pdf-powered-by-footer.ts";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -37,6 +38,7 @@ export async function generatePickupReceiptPdf(
   const doc = new PDFDocument({
     size: [PAGE_W, PAGE_H],
     margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+    bufferPages: true,
     info: { Title: "Pickup confirmation" },
   });
   const chunks: Buffer[] = [];
@@ -97,6 +99,7 @@ export async function generatePickupReceiptPdf(
     { width: CONTENT_W }
   );
 
+  stampPoweredByFooter(doc, { fontSize: 7, bottomOffset: 30 });
   doc.end();
   return done;
 }

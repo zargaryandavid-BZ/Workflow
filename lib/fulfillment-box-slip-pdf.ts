@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { orderNumberQrPng } from "./order-qr.ts";
 import { pdfWinAnsiText } from "./pdf-winansi-text.ts";
+import { stampPoweredByFooter } from "./pdf-powered-by-footer.ts";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -181,11 +182,12 @@ export async function generateFulfillmentBoxSlipPdf(
       .text(
         pages > 1 ? `Page ${pageNum + 1} of ${pages}` : "",
         MARGIN,
-        PAGE_H - 28,
+        PAGE_H - 46,
         { width: CONTENT_W, align: "center" }
       );
   }
 
+  stampPoweredByFooter(doc, { bottomOffset: 34 });
   doc.end();
   return done;
 }

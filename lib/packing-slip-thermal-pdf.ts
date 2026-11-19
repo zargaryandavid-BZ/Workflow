@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { orderNumberQrPng } from "./order-qr.ts";
 import { pdfWinAnsiText } from "./pdf-winansi-text.ts";
+import { stampPoweredByFooter } from "./pdf-powered-by-footer.ts";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -48,12 +49,15 @@ export const THERMAL_ROWS = 10;
 const THERMAL_ROOMY_ROWS = 6;
 const THERMAL_ROWS_TOP = 94;
 
-/** Row geometry for a box slip with `count` SKUs (all fit above y=426). */
+/** Space kept at the bottom of every 4×6 page for the Powered-by footer. */
+const THERMAL_FOOTER_RESERVE = 26;
+
+/** Row geometry for a box slip with `count` SKUs (all fit above y=406, clear of the footer). */
 export function thermalRowLayout(count: number) {
   if (count <= THERMAL_ROOMY_ROWS) {
-    return { pitch: 54, rowH: 50, img: 40, nameFont: 9, nameH: 18, qtyFont: 8, qtyY: 26, oneLine: false };
+    return { pitch: 52, rowH: 48, img: 38, nameFont: 9, nameH: 18, qtyFont: 8, qtyY: 25, oneLine: false };
   }
-  return { pitch: 33, rowH: 30, img: 24, nameFont: 8, nameH: 12, qtyFont: 7.5, qtyY: 17, oneLine: true };
+  return { pitch: 31, rowH: 28, img: 22, nameFont: 8, nameH: 12, qtyFont: 7.5, qtyY: 16, oneLine: true };
 }
 
 function fmtQty(n: number | null | undefined): string {
@@ -321,7 +325,7 @@ function drawPalletSlip(
   const tableTop = 98;
   const headH = 13;
   const footH = 20;
-  const areaH = THERMAL_H - 6 - footH - (tableTop + headH);
+  const areaH = THERMAL_H - THERMAL_FOOTER_RESERVE - footH - (tableTop + headH);
   const layout = palletLayout(rows.length, areaH);
   const pages = thermalChunks(rows, layout.perPage);
   const tableW = THERMAL_W - 16;
@@ -440,7 +444,7 @@ function drawPalletSlip(
 
     // Total on the last page, pinned to the bottom.
     if (pageIndex === pages.length - 1) {
-      const y = THERMAL_H - 6 - footH + 2;
+      const y = THERMAL_H - THERMAL_FOOTER_RESERVE - footH + 2;
       doc.rect(8, y, tableW, footH - 4).fill("#111827");
       doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(9);
       doc.text(
@@ -495,6 +499,7 @@ export async function generateThermalBoxSlipPdf(input: {
     size: [THERMAL_W, THERMAL_H],
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
     autoFirstPage: false,
+    bufferPages: true,
   });
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -657,6 +662,8 @@ export async function generateThermalBoxSlipPdf(input: {
         packedAt: new Date(),
       });
     }
+    // 4×6: rows end by y≈401, the pallet total bar by y≈404.
+    stampPoweredByFooter(doc, { fontSize: 5.5, bottomOffset: 20 });
     doc.end();
   } catch (err) {
     try {

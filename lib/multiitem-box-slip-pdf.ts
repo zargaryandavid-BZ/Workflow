@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { orderNumberQrPng } from "./order-qr.ts";
 import { pdfWinAnsiText } from "./pdf-winansi-text.ts";
+import { stampPoweredByFooter } from "./pdf-powered-by-footer.ts";
 
 const require = createRequire(import.meta.url);
 const PDFDocument = require("pdfkit") as typeof import("pdfkit");
@@ -261,12 +262,13 @@ export async function generateMultiitemBoxSlipPdf(
       .fillColor("#9aa4b5")
       .font("Helvetica")
       .fontSize(8)
-      .text(`Printed ${dateStr}`, MARGIN, PAGE_H - 22, {
+      .text(`Printed ${dateStr}`, MARGIN, PAGE_H - 38, {
         width: CONTENT_W,
         align: "center",
       });
   }
 
+  stampPoweredByFooter(doc, { fontSize: 7, bottomOffset: 26 });
   doc.end();
   return done;
 }
