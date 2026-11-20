@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
+import { logActivity } from "@/lib/automation";
 import { fireNotificationRules } from "@/lib/fire-notification-rules";
 import { isInvoiceTriggerStage, notifyCrmOrderFulfilled } from "@/lib/net-terms-fulfill";
 import { notifyCustomerOrderFinished } from "@/lib/finished-order-sms";
@@ -121,6 +122,30 @@ export async function POST(
   });
 
   after(async () => {
+    // Record the move in the card history like a board drag does — button
+    // moves used to leave no "moved" entry, so a card could sit in Waiting
+    // Approval with no trace of who put it there or when.
+    try {
+      await logActivity(supabase, {
+        tenantId,
+        orderId,
+        actor: ctx.userId,
+        action: "moved",
+        metadata: {
+          from: order.column_id,
+          to: destColumnId,
+          fromName: (sourceCol as { name?: string } | null)?.name ?? null,
+          toName: (destCol as { name?: string } | null)?.name ?? null,
+          via: "fast_action_button",
+          button: button.name,
+        },
+      });
+    } catch (err: unknown) {
+      console.error(
+        "[FastActionBtn] logActivity failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
     try {
       const { data: previewOrder } = await supabase
         .from("orders")
