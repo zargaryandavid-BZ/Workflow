@@ -18,6 +18,7 @@ export const revalidate = 0;
 type CrmMaterial = { name?: string };
 type CrmGroup = { materials?: CrmMaterial[] };
 type CrmToggle = { key?: string; label?: string };
+type CrmNamedOption = { id?: string; name?: string };
 type CrmCategoryRef = { id?: number; name?: string; parent_id?: number | null };
 type CrmProduct = {
   id?: string;
@@ -33,6 +34,8 @@ type CrmProduct = {
     option_toggles?: CrmToggle[];
   };
   option_toggles?: CrmToggle[];
+  finishing_options?: CrmNamedOption[];
+  special_effect_options?: CrmNamedOption[];
 };
 type CrmCategory = {
   id?: number;
@@ -74,6 +77,26 @@ function productMaterials(p: CrmProduct): string[] {
   return mats;
 }
 
+/**
+ * Per-product option names (Finishing / Special effects). Returns null when the
+ * CRM product has no such list at all, so the form keeps its old Workflow list;
+ * an empty array means "this product has none".
+ */
+function productOptionNames(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: string[] = [];
+  for (const o of raw) {
+    const name =
+      typeof o === "string"
+        ? o.trim()
+        : isRecord(o) && typeof o.name === "string"
+          ? o.name.trim()
+          : "";
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
 function productToggles(p: CrmProduct): { key: string; label: string }[] {
   const raw = Array.isArray(p.option_toggles)
     ? p.option_toggles
@@ -108,7 +131,7 @@ export async function GET() {
         : "") ||
       null;
 
-    const sharedKey = `wf:crm-catalog:v1:${ctx?.tenant.id ?? "none"}:${linkedUrl ?? "default"}`;
+    const sharedKey = `wf:crm-catalog:v2:${ctx?.tenant.id ?? "none"}:${linkedUrl ?? "default"}`;
     const cached = await cacheGet<Record<string, unknown>>(sharedKey);
     if (cached) {
       return NextResponse.json(cached, {
@@ -150,6 +173,8 @@ export async function GET() {
     const fieldOptionsByProduct: Record<string, Record<string, unknown>> = {};
     const optionTogglesByProduct: Record<string, { key: string; label: string }[]> =
       {};
+    const finishingByProduct: Record<string, string[]> = {};
+    const specialEffectsByProduct: Record<string, string[]> = {};
 
     for (const p of data.products ?? []) {
       if (!p.name) continue;
@@ -163,6 +188,10 @@ export async function GET() {
       if (fieldOptions) {
         indexByProduct(fieldOptionsByProduct, p, fieldOptions);
       }
+      const finishing = productOptionNames(p.finishing_options);
+      if (finishing) indexByProduct(finishingByProduct, p, finishing);
+      const effects = productOptionNames(p.special_effect_options);
+      if (effects) indexByProduct(specialEffectsByProduct, p, effects);
       const toggles = productToggles(p);
       if (toggles.length) {
         indexByProduct(optionTogglesByProduct, p, toggles);
@@ -179,6 +208,8 @@ export async function GET() {
       materialsByProduct,
       fieldOptionsByProduct,
       optionTogglesByProduct,
+      finishingByProduct,
+      specialEffectsByProduct,
     };
     // Only cache a real catalog (an empty one usually means the fetch failed).
     if (categories.length > 0 || Object.keys(materialsByProduct).length > 0) {
