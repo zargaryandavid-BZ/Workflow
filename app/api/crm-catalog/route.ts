@@ -36,6 +36,9 @@ type CrmProduct = {
   option_toggles?: CrmToggle[];
   finishing_options?: CrmNamedOption[];
   special_effect_options?: CrmNamedOption[];
+  /** Public v1 catalog feed spelling (/api/public/v1/catalog). */
+  finishing?: CrmNamedOption[];
+  special_effects?: CrmNamedOption[];
 };
 type CrmCategory = {
   id?: number;
@@ -131,7 +134,7 @@ export async function GET() {
         : "") ||
       null;
 
-    const sharedKey = `wf:crm-catalog:v2:${ctx?.tenant.id ?? "none"}:${linkedUrl ?? "default"}`;
+    const sharedKey = `wf:crm-catalog:v3:${ctx?.tenant.id ?? "none"}:${linkedUrl ?? "default"}`;
     const cached = await cacheGet<Record<string, unknown>>(sharedKey);
     if (cached) {
       return NextResponse.json(cached, {
@@ -188,9 +191,9 @@ export async function GET() {
       if (fieldOptions) {
         indexByProduct(fieldOptionsByProduct, p, fieldOptions);
       }
-      const finishing = productOptionNames(p.finishing_options);
+      const finishing = productOptionNames(p.finishing_options ?? p.finishing);
       if (finishing) indexByProduct(finishingByProduct, p, finishing);
-      const effects = productOptionNames(p.special_effect_options);
+      const effects = productOptionNames(p.special_effect_options ?? p.special_effects);
       if (effects) indexByProduct(specialEffectsByProduct, p, effects);
       const toggles = productToggles(p);
       if (toggles.length) {
