@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  displayOrderNumber,
+  displayOrderNumberText,
+} from "@/lib/order-display-number";
 import { BrandChip } from "./design-reference";
 import { useResizeTick } from "@/lib/use-resize-tick";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -168,7 +172,11 @@ export function GroupedOrderCard({
   const priority = rep.priority;
   const dueDate = rep.due_date;
 
-  const shortKey = entry.key.replace(/^ORD-\d{4}-/, "");
+  // Portal group key `BZ-667` → CRM number `15844` when the card carries one (UI only).
+  const groupDisplay = displayOrderNumber({ title: entry.key, specs: rep.specs });
+  const shortKey = groupDisplay.portalAsCrm
+    ? groupDisplay.primary
+    : entry.key.replace(/^ORD-\d{4}-/, "");
   const hasRush = orders.some((o) => isRushOrder(o));
   const lockedOrder = orders.find((o) => Boolean((o as { locked_by?: string | null }).locked_by));
   const hasLock = Boolean(lockedOrder);
@@ -323,6 +331,11 @@ export function GroupedOrderCard({
               <span className="shrink-0 text-[15px] font-bold text-slate-400">
                 {shortKey}
               </span>
+              {groupDisplay.secondary ? (
+                <span className="shrink-0 whitespace-nowrap text-[10px] font-medium leading-none tabular-nums text-slate-400">
+                  {groupDisplay.secondary}
+                </span>
+              ) : null}
               <span
                 className={cn(
                   "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold leading-none text-white",
@@ -463,9 +476,7 @@ export function GroupedOrderCard({
                     </div>
                     <div className="flex items-center gap-2 text-[11px] text-slate-400">
                       <span>
-                        {order.title
-                          .replace(/^ORD-\d{4}-/, "")
-                          .replace(/^0+(\d)/, "$1")}
+                        {displayOrderNumberText(order)}
                         <span className="text-slate-300"> ({orders.length})</span>
                       </span>
                       {order.due_date ? (

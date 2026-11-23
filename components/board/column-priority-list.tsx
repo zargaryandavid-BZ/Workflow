@@ -50,7 +50,7 @@ import {
   reorderAfterDrag,
   sortForColumnPriority,
 } from "@/lib/list-column-priority";
-import { formatShortOrderNumber } from "./order-number-label";
+import { displayOrderNumberText } from "@/lib/order-display-number";
 import { OrderCardTimeChips } from "./order-card-time-chips";
 import { ListCardImageFallback } from "./use-list-card-image";
 import type { TimeChip } from "@/lib/time-chips";
@@ -648,7 +648,7 @@ function RowContent({
           ) : null}
         </span>
         <span className="flex min-w-0 flex-col gap-1">
-          <span className="truncate">{formatShortOrderNumber(order.title)}</span>
+          <span className="truncate">{displayOrderNumberText(order)}</span>
           {timing ? (
             <span className="min-w-0 text-[11px] font-normal">{timing}</span>
           ) : null}
