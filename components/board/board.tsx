@@ -4671,6 +4671,20 @@ export function Board({
           smsConfigured={smsConfigured}
           publicAppUrl={publicAppUrl}
           groupOrderIds={notifyPopup.groupOrders?.map((o) => o.id)}
+          onCustomerChannelSaved={(customerId, pref) => {
+            // A saved notify default applies to every card of this customer
+            // right away (no refresh), same as saving it from the card modal.
+            const apply = (o: OrderWithRelations) =>
+              (o.customer?.id ?? o.customer_id) === customerId && o.customer
+                ? { ...o, customer: { ...o.customer, preferred_channel: pref } }
+                : o;
+            setOrders((prev) => {
+              const next = prev.map(apply);
+              boardOrdersRef.current = next;
+              return next;
+            });
+            setSearchResults((prev) => (prev ? prev.map(apply) : prev));
+          }}
           onMovedGroup={() =>
             moveGroupLocally(
               notifyPopup.order,

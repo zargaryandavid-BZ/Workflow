@@ -1,5 +1,6 @@
 "use client";
 
+import type { PreferredChannel } from "@/lib/types";
 import { useMemo, useState } from "react";
 import { Mail, MessageSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,8 @@ interface Props {
   onClose: () => void;
   dismissing?: boolean;
   onSent: (toastMessage: string) => void;
+  /** Customer notify default saved here — lets the board update every card of this customer. */
+  onCustomerChannelSaved?: (customerId: string, pref: PreferredChannel) => void;
 }
 
 export function MissingInfoPopup({
@@ -55,6 +58,7 @@ export function MissingInfoPopup({
   onClose,
   dismissing = false,
   onSent,
+  onCustomerChannelSaved,
 }: Props) {
   const contact = useMemo(
     () => customerContactFromOrder(order, fieldValues, customFields),
@@ -268,6 +272,8 @@ export function MissingInfoPopup({
               selected={selected}
               onSaved={(pref) => {
                 if (order.customer) order.customer.preferred_channel = pref;
+                const cid = order.customer?.id ?? order.customer_id;
+                if (cid) onCustomerChannelSaved?.(cid, pref);
               }}
             />
           </div>
