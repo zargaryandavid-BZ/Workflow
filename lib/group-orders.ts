@@ -1,5 +1,9 @@
 import type { OrderWithRelations } from "./types.ts";
 import {
+  displayOrderNumber,
+  displayOrderNumberText,
+} from "./order-display-number.ts";
+import {
   cardPartNumber,
   parseCrmPoLineNumber,
 } from "./webhook-line-title.ts";
@@ -265,8 +269,16 @@ export function orderGroupSearchSuggestions(
   for (const [key, parts] of byKey) {
     if (parts.length < 2) continue;
     const kl = key.toLowerCase();
-    const titleHit = parts.some((p) => p.title.toLowerCase().includes(ql));
-    const keyHit = kl.includes(ql) || ql.startsWith(kl);
+    // Portal group `BZ-667` is displayed as its CRM number (`15844`) — match that too.
+    const keyDisplay = displayOrderNumber({ title: key, specs: parts[0]?.specs });
+    const dl = keyDisplay.portalAsCrm ? keyDisplay.primary.toLowerCase() : "";
+    const titleHit = parts.some(
+      (p) =>
+        p.title.toLowerCase().includes(ql) ||
+        (dl !== "" && displayOrderNumberText(p).toLowerCase().includes(ql))
+    );
+    const keyHit =
+      kl.includes(ql) || ql.startsWith(kl) || (dl !== "" && dl.includes(ql));
     if (!titleHit && !keyHit) continue;
 
     // User already typed a specific part (XXX-1) and only that title matches — no hint.
@@ -277,7 +289,7 @@ export function orderGroupSearchSuggestions(
 
     out.push({
       key,
-      label: `${key}-(${parts.length})`,
+      label: `${keyDisplay.portalAsCrm ? keyDisplay.primary : key}-(${parts.length})`,
       parts: [...parts].sort((a, b) =>
         a.title.localeCompare(b.title, undefined, { numeric: true })
       ),

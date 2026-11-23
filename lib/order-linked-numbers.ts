@@ -13,6 +13,7 @@
  */
 
 import { compactOrderNumberToken } from "./order-number-tokens.ts";
+import { displayOrderNumber } from "./order-display-number.ts";
 
 export const LINKED_ORDER_NUMBER_MAX_LEN = 40;
 const LINKED_ORDER_NUMBER_RE = /^[A-Za-z0-9-]+$/;
@@ -95,6 +96,10 @@ export function cardLinkedNumberLabels(
   specs: Record<string, unknown> | null | undefined
 ): string[] {
   const cardTitle = (title ?? "").trim();
+  // Portal card shown under its CRM number: the small label is the portal
+  // number instead (`Portal BZ-667`), not the CRM number it already shows.
+  const display = displayOrderNumber({ title: cardTitle, specs });
+  if (display.portalAsCrm && display.secondary) return [display.secondary];
   const labels: string[] = [];
   const crm = specString(specs, "crm_order_number");
   if (crm && !titleIsNumber(cardTitle, crm)) labels.push(`CRM ${crm}`);
