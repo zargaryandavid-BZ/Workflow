@@ -1,4 +1,5 @@
 "use client";
+import type { PreferredChannel } from "@/lib/types";
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -23,6 +24,8 @@ interface Props {
   onSaved: (message: string) => void;
   /** Reflect a "bring all parts here" group move on the board immediately. */
   onMovedGroup?: () => void;
+  /** Saved customer notify default → board updates every card of that customer. */
+  onCustomerChannelSaved?: (customerId: string, pref: PreferredChannel) => void;
 }
 
 export function NotificationPopup({
@@ -38,6 +41,7 @@ export function NotificationPopup({
   onClose,
   onSaved,
   onMovedGroup,
+  onCustomerChannelSaved,
 }: Props) {
   const [dismissing, setDismissing] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -90,6 +94,7 @@ export function NotificationPopup({
         onClose={dismissWithoutSending}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
+        onCustomerChannelSaved={onCustomerChannelSaved}
       />
     ) : type === "ready_to_ship" ? (
       <ReadyToShipPopup
@@ -116,6 +121,7 @@ export function NotificationPopup({
         onClose={dismissWithoutSending}
         dismissing={dismissing}
         onSent={(toastMessage) => onSaved(toastMessage)}
+        onCustomerChannelSaved={onCustomerChannelSaved}
       />
     );
 

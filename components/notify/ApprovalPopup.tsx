@@ -1,5 +1,6 @@
 "use client";
 
+import type { PreferredChannel } from "@/lib/types";
 import { useMemo, useState, useEffect } from "react";
 import { Mail, MessageSquare, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,8 @@ interface Props {
   onClose: () => void;
   dismissing?: boolean;
   onSent: (toastMessage: string) => void;
+  /** Customer notify default saved here — lets the board update every card of this customer. */
+  onCustomerChannelSaved?: (customerId: string, pref: PreferredChannel) => void;
 }
 
 export function ApprovalPopup({
@@ -63,6 +66,7 @@ export function ApprovalPopup({
   onClose,
   dismissing = false,
   onSent,
+  onCustomerChannelSaved,
 }: Props) {
   const contact = useMemo(
     () => customerContactFromOrder(order, fieldValues, customFields),
@@ -393,6 +397,8 @@ export function ApprovalPopup({
                 selected={selected}
                 onSaved={(pref) => {
                   if (order.customer) order.customer.preferred_channel = pref;
+                  const cid = order.customer?.id ?? order.customer_id;
+                  if (cid) onCustomerChannelSaved?.(cid, pref);
                 }}
               />
             ) : null}
