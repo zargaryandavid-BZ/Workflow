@@ -149,6 +149,7 @@ import { isRushOrder } from "@/lib/order-rush";
 import type { TimeChip } from "@/lib/time-chips";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
+import { crmShortNumberBesideTitle } from "@/lib/order-linked-numbers";
 
 interface ColumnOption {
   id: string;
@@ -1379,6 +1380,10 @@ export function OrderCard({
             ) : null}
             <span className="pointer-events-none absolute left-0.5 top-0.5 max-w-[calc(100%-4px)] truncate rounded bg-black/70 px-1 py-px text-[10px] font-bold leading-tight tabular-nums text-white">
               {formatShortOrderNumber(order.title)}
+              {(() => {
+                const crmShort = crmShortNumberBesideTitle(order.title, order.specs);
+                return crmShort ? ` · ${crmShort}` : "";
+              })()}
               {groupSize != null && groupSize >= 2 ? ` (${groupSize})` : ""}
             </span>
             <PdfSpecWarningOverlay

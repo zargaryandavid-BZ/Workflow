@@ -104,3 +104,19 @@ export function cardLinkedNumberLabels(
   if (portal && !titleIsNumber(cardTitle, portal)) labels.push(`Portal ${portal}`);
   return labels;
 }
+
+/**
+ * Short CRM number (`ORD-2026-15673` → `15673`) for a card whose title is NOT
+ * already that CRM number — e.g. portal `BZ-543`. Shown next to the BZ number
+ * (Hayk 2026-11-24: staff + customers quote the CRM number). Display only.
+ */
+export function crmShortNumberBesideTitle(
+  title: string | null | undefined,
+  specs: unknown
+): string | null {
+  const s = specs && typeof specs === "object" ? (specs as Record<string, unknown>) : null;
+  const crm = specString(s, "crm_order_number");
+  if (!crm || titleIsNumber((title ?? "").trim(), crm)) return null;
+  const short = /^(?:ord-\d{4}-)?0*(\d[\w-]*)$/i.exec(crm)?.[1];
+  return short ?? crm;
+}
