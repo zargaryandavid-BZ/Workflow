@@ -121,7 +121,6 @@ import {
   serializeNoteHistory,
 } from "@/lib/note-history";
 import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
-import { displayOrderNumber as resolveDisplayOrderNumber } from "@/lib/order-display-number";
 
 /** "Acme Acme" / "Safe Care Packaging Safe Care Packaging" → one copy. */
 function collapseDuplicatedLabel(value: string): string {
@@ -1595,14 +1594,7 @@ export function CardDetailModal({
   async function copyOrderNumber() {
     if (!displayOrderNumber) return;
     try {
-      // Portal BZ-… cards copy the CRM number staff/partners quote (UI only).
-      const shown = resolveDisplayOrderNumber({
-        title: displayOrderNumber,
-        specs: data?.order.specs,
-      });
-      await navigator.clipboard.writeText(
-        shown.portalAsCrm ? shown.primary : displayOrderNumber
-      );
+      await navigator.clipboard.writeText(displayOrderNumber);
       setOrderNumberCopied(true);
       setTimeout(() => setOrderNumberCopied(false), 1500);
     } catch {
@@ -1837,10 +1829,7 @@ export function CardDetailModal({
           <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">
             {displayOrderNumber
               ? <>
-                  {resolveDisplayOrderNumber({
-                    title: displayOrderNumber,
-                    specs: data?.order.specs,
-                  }).primary}
+                  {displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
                   {groupSize != null && groupSize >= 2 && (
                     <span className="font-normal text-slate-400"> ({groupSize})</span>
                   )}

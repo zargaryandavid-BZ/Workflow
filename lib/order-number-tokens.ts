@@ -65,13 +65,6 @@ export function orderNumberSearchHaystack(order: {
     const linked = typeof specs?.[key] === "string" ? specs[key].trim() : "";
     if (linked) parts.push(linked);
   }
-  // Portal card `BZ-667-2` with CRM `ORD-2026-15844` is displayed as `15844-2`
-  // (see order-display-number.ts) — make that displayed number searchable too.
-  const portalSuffix = /^bz-\d+-(\d+)$/i.exec(order.title.trim())?.[1];
-  const crmLinked =
-    typeof specs?.crm_order_number === "string" ? specs.crm_order_number.trim() : "";
-  const crmBase = /^(?:ord-\d{4}-)?0*(\d+)/i.exec(crmLinked)?.[1];
-  if (portalSuffix && crmBase) parts.push(`${crmBase}-${portalSuffix}`);
   return parts.join(" ").toLowerCase();
 }
 

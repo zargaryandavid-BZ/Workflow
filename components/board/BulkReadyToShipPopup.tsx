@@ -1,6 +1,5 @@
 "use client";
 
-import { displayOrderNumberText } from "@/lib/order-display-number";
 import { useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Package, RefreshCw, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -353,7 +352,7 @@ export function BulkReadyToShipPopup({
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-medium text-slate-800">
-                              #{displayOrderNumberText(r.order)}
+                              #{r.order.title}
                               {r.partCount > 1 ? (
                                 <span className="ml-1 text-xs font-normal text-slate-500">
                                   ({r.partCount} parts)

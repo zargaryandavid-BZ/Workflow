@@ -1,6 +1,5 @@
 "use client";
 
-import { displayOrderNumberText } from "@/lib/order-display-number";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X, RefreshCw, Minus, Plus, Send, AlertCircle, CheckCircle2, Clock, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -298,7 +297,7 @@ function OrderRow({
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium text-slate-800">
-          #{displayOrderNumberText(order)}
+          #{order.title}
         </span>
         {order.customerName && (
           <span className="truncate text-xs text-slate-500">{order.customerName}</span>

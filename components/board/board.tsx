@@ -1,6 +1,5 @@
 "use client";
 
-import { displayOrderNumberText } from "@/lib/order-display-number";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -3792,7 +3791,7 @@ export function Board({
                             setGroupSuggestionsOpen(false);
                           }}
                         >
-                          {displayOrderNumberText(part)}
+                          {part.title}
                         </button>
                       ))}
                     </div>
@@ -4845,7 +4844,7 @@ export function Board({
             <ul className="mt-2 max-h-32 overflow-y-auto text-xs text-slate-500">
               {finishAllPrompt.siblings.map((o) => (
                 <li key={o.id} className="truncate">
-                  • {displayOrderNumberText(o)} — {columnsById.get(o.column_id)?.name ?? ""}
+                  • {o.title} — {columnsById.get(o.column_id)?.name ?? ""}
                 </li>
               ))}
             </ul>

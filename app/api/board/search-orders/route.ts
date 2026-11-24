@@ -233,14 +233,6 @@ export async function GET(req: NextRequest) {
         // Same order's number in the other system (CRM ORD-… / portal BZ-…).
         orParts.push(`specs->>crm_order_number.ilike.${termPattern}`);
         orParts.push(`specs->>portal_order_number.ilike.${termPattern}`);
-        // Portal card `BZ-667-2` is displayed as `15844-2` (CRM base + part):
-        // pre-match the CRM base; the post-filter checks the exact part.
-        const partBase = /^0*(\d+)-\d+$/.exec(term)?.[1];
-        if (partBase) {
-          orParts.push(
-            `specs->>crm_order_number.ilike.%${escapeIlike(partBase)}%`
-          );
-        }
       }
       if (matchedCustomerIds.length > 0) {
         orParts.push(`customer_id.in.(${matchedCustomerIds.join(",")})`);

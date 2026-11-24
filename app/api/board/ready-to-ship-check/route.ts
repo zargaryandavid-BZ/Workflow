@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
-import { displayOrderNumberText } from "@/lib/order-display-number";
 import {
   formatReadyToShipGroupLabel,
   formatReadyToShipNotifyLabel,
@@ -91,8 +90,7 @@ export async function GET(request: Request) {
   );
   const groupParts = members.map((member) => ({
     id: member.id,
-    // Staff display only: portal BZ-… parts show their CRM number.
-    title: displayOrderNumberText(member),
+    title: member.title,
     columnName: member.column_id
       ? (columnNameById.get(member.column_id) ?? "Unknown column")
       : "No column",

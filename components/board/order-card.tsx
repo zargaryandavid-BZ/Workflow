@@ -80,6 +80,9 @@ import {
   DEFAULT_PROCESSING_DAYS,
   type DueDateMode,
 } from "@/lib/due-date";
+import {
+  formatShortOrderNumber,
+} from "./order-number-label";
 import { PriorityScoreBadge } from "./priority-score-badge";
 import { QueueRankBadge } from "./queue-rank-badge";
 import { BrandChip, DesignFlagChip, SourceChannelChip } from "./design-reference";
@@ -146,7 +149,6 @@ import { isRushOrder } from "@/lib/order-rush";
 import type { TimeChip } from "@/lib/time-chips";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
-import { displayOrderNumberText } from "@/lib/order-display-number";
 
 interface ColumnOption {
   id: string;
@@ -1141,7 +1143,7 @@ export function OrderCard({
 
   // The card's own line-item title (falls back to product for untitled parts).
   const cardTitle = partCardTitle(order, productName);
-  const shortOrderNumber = displayOrderNumberText(order);
+  const shortOrderNumber = formatShortOrderNumber(order.title);
   // Drop empty and placeholder ("None"/"N/A") spec values so their separators
   // aren't rendered either.
   const cleanSpec = (value: string | null | undefined): string | null => {
@@ -1376,7 +1378,7 @@ export function OrderCard({
               </span>
             ) : null}
             <span className="pointer-events-none absolute left-0.5 top-0.5 max-w-[calc(100%-4px)] truncate rounded bg-black/70 px-1 py-px text-[10px] font-bold leading-tight tabular-nums text-white">
-              {shortOrderNumber}
+              {formatShortOrderNumber(order.title)}
               {groupSize != null && groupSize >= 2 ? ` (${groupSize})` : ""}
             </span>
             <PdfSpecWarningOverlay

@@ -91,13 +91,13 @@ describe("applyLinkedOrderNumbers (additive)", () => {
 });
 
 describe("cardLinkedNumberLabels", () => {
-  it("BZ card is displayed as its CRM number, so the label is the portal number", () => {
+  it("BZ card shows the CRM number", () => {
     assert.deepEqual(
       cardLinkedNumberLabels("BZ-529", {
         crm_order_number: "ORD-2026-15643",
         portal_order_number: "BZ-529",
       }),
-      ["Portal BZ-529"]
+      ["CRM ORD-2026-15643"]
     );
   });
   it("CRM card shows the portal number, not its own CRM number", () => {
