@@ -60,7 +60,7 @@ function shortStatusLabel(status: ApprovalItemStatus): string {
     case "waiting":
       return "Waiting";
     case "pending":
-      return "Pending";
+      return "Not ready yet";
     case "approved":
       return "Approved";
     case "rejected":
