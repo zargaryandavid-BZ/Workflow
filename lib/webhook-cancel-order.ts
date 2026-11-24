@@ -115,7 +115,7 @@ async function resolveCanceledColumn(
   return hit ? { id: hit.id, name: hit.name ?? "Canceled" } : null;
 }
 
-/** True when this CRM order was cancelled and all its cards removed. */
+/** True when this CRM order was cancelled (cards stamped, or a cancel webhook already received). */
 export async function isCrmCancelledOrder(
   client: SupabaseClient,
   tenantId: string,
@@ -129,5 +129,20 @@ export async function isCrmCancelledOrder(
     .not(`specs->>${CRM_CANCELLED_AT_SPEC}`, "is", null)
     .limit(1);
   if (error) throw new Error(error.message);
-  return (data ?? []).length > 0;
+  if ((data ?? []).length > 0) return true;
+
+  // The CRM can send `order.canceled` BEFORE the order's create webhook
+  // (seen on 15765 / 15773: cancel at 21:18, create at 21:20). That cancel
+  // found no cards to stamp, so the stamp check above misses it. Treat a
+  // successful cancel already logged for this order number as cancelled too.
+  const { data: cancels, error: historyError } = await client
+    .from("webhook_history")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("success", true)
+    .in("request_payload->>event", ["order.canceled", "order.cancelled"])
+    .eq("request_payload->>order_number", webhookOrderNumber)
+    .limit(1);
+  if (historyError) throw new Error(historyError.message);
+  return (cancels ?? []).length > 0;
 }

@@ -8,6 +8,10 @@ export type CrmCatalog = {
   materialsByProduct: Record<string, string[]>;
   fieldOptionsByProduct: Record<string, Record<string, unknown>>;
   optionTogglesByProduct?: Record<string, { key: string; label: string }[]>;
+  /** Per-product Finishing names from the CRM catalog (absent on old caches). */
+  finishingByProduct?: Record<string, string[]>;
+  /** Per-product Special effects names from the CRM catalog. */
+  specialEffectsByProduct?: Record<string, string[]>;
 };
 
 let cached: CrmCatalog | null = null;

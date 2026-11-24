@@ -58,6 +58,7 @@ import {
   findMatchingSetSizeOption,
   isSetSizeKey,
   lookupCatalogMap,
+  catalogOptionsForField,
   normalizeSpecSelectOptions,
   parseSetSizeValue,
   specKeyCoveredByCustomFields,
@@ -696,10 +697,20 @@ export function OrderFormBody({
   );
 
   function renderPrintField(field: CustomField) {
-    const filteredOptions =
+    // Finishing / Special effects follow the chosen product's CRM catalog list
+    // (same source the CRM quote builders use). Unknown product → old list.
+    const productForOptions = productField
+      ? String(fieldValues[productField.id] ?? "").trim()
+      : "";
+    const catalogOptions =
       field.field_type === "select"
+        ? catalogOptionsForField(field.name, productForOptions, crmCatalog)
+        : null;
+    const filteredOptions =
+      catalogOptions ??
+      (field.field_type === "select"
         ? getFilteredOptions(field, fieldValues, fieldLinks)
-        : uniqueOptions(field.options);
+        : uniqueOptions(field.options));
     const current = fieldValues[field.id];
     let optionsWithCurrent = filteredOptions;
     if (field.field_type === "select" && current != null && current !== "") {

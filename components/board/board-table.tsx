@@ -607,6 +607,7 @@ export function BoardTable({
                           <OrderNumberLabel
                             orderId={order.id}
                             title={order.title}
+                            specs={order.specs}
                             groupSize={groupSizeByOrder[order.id]}
                             priorityScore={priorityScoreFromSpecs(order.specs)}
                             artworkUrl={

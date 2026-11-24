@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { useGdriveFolderHasFiles } from "@/lib/use-gdrive-folder-has-files";
 import type { PriorityScore } from "@/lib/order-priority-score";
 import { formatShortOrderNumber } from "@/lib/board-order-filters";
+import { displayOrderNumberText } from "@/lib/order-display-number";
 import { PriorityScoreBadge } from "./priority-score-badge";
 
 export { formatShortOrderNumber };
@@ -11,6 +12,8 @@ export { formatShortOrderNumber };
 interface OrderNumberLabelProps {
   orderId: string;
   title: string;
+  /** Card specs — portal `BZ-…` cards show their CRM number when present. */
+  specs?: unknown;
   groupSize?: number | null;
   artworkUrl?: string | null;
   /** When set, shown as a colored circle left of the order number. */
@@ -23,6 +26,7 @@ interface OrderNumberLabelProps {
 export function OrderNumberLabel({
   orderId,
   title,
+  specs,
   groupSize,
   artworkUrl,
   priorityScore = null,
@@ -47,7 +51,7 @@ export function OrderNumberLabel({
       {priorityScore != null ? (
         <PriorityScoreBadge score={priorityScore} />
       ) : null}
-      {formatShortOrderNumber(title)}
+      {displayOrderNumberText({ title, specs })}
       {groupSize != null && groupSize >= 2 ? (
         <span
           className={cn(

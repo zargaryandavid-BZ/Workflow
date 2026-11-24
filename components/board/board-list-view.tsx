@@ -8,7 +8,7 @@ import {
   customerNameFromOrder,
   productFromOrder,
 } from "@/lib/notification-messages";
-import { formatShortOrderNumber } from "./order-number-label";
+import { displayOrderNumberText } from "@/lib/order-display-number";
 import { partCardTitle } from "@/lib/group-orders";
 import { formatTimeInColumn } from "@/lib/card-warning-rules";
 import { effectiveDaysUntilDue } from "@/lib/board-due-date";
@@ -111,7 +111,7 @@ export function BoardListView({
       });
       return {
         order: o,
-        orderNo: formatShortOrderNumber(o.title),
+        orderNo: displayOrderNumberText(o),
         customer: customerNameFromOrder(o, fv, customFields),
         item: partCardTitle(o, product) || product,
         stage: columnName.get(o.column_id) ?? "",

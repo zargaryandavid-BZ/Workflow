@@ -36,6 +36,7 @@ import { MissingInfoTab } from "./missing-info-tab";
 import { ShippingTab } from "./shipping-tab";
 import { ButtonAutomationBar } from "./button-automation-bar";
 import { FastActionButtonBar } from "./fast-action-button-bar";
+import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
 import { ConnectedSpecsSection } from "./connected-specs-section";
 import { BrandChip, DesignReferenceBlock, SourceChannelChip } from "./design-reference";
@@ -120,6 +121,7 @@ import {
   serializeNoteHistory,
 } from "@/lib/note-history";
 import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
+import { displayOrderNumber as resolveDisplayOrderNumber } from "@/lib/order-display-number";
 
 /** "Acme Acme" / "Safe Care Packaging Safe Care Packaging" → one copy. */
 function collapseDuplicatedLabel(value: string): string {
@@ -1593,7 +1595,14 @@ export function CardDetailModal({
   async function copyOrderNumber() {
     if (!displayOrderNumber) return;
     try {
-      await navigator.clipboard.writeText(displayOrderNumber);
+      // Portal BZ-… cards copy the CRM number staff/partners quote (UI only).
+      const shown = resolveDisplayOrderNumber({
+        title: displayOrderNumber,
+        specs: data?.order.specs,
+      });
+      await navigator.clipboard.writeText(
+        shown.portalAsCrm ? shown.primary : displayOrderNumber
+      );
       setOrderNumberCopied(true);
       setTimeout(() => setOrderNumberCopied(false), 1500);
     } catch {
@@ -1828,7 +1837,10 @@ export function CardDetailModal({
           <span className="flex shrink-0 items-center gap-1 font-semibold text-slate-800">
             {displayOrderNumber
               ? <>
-                  {displayOrderNumber.replace(/^ORD-\d{4}-/, "").replace(/^0+(\d)/, "$1")}
+                  {resolveDisplayOrderNumber({
+                    title: displayOrderNumber,
+                    specs: data?.order.specs,
+                  }).primary}
                   {groupSize != null && groupSize >= 2 && (
                     <span className="font-normal text-slate-400"> ({groupSize})</span>
                   )}
@@ -3137,6 +3149,48 @@ export function CardDetailModal({
                 userId={userId}
                 onSuccess={({ destinationColumnId, destinationName }) => {
                   onLinkCopied?.(`Moved to ${destinationName}`);
+                  // Open the customer send screen FIRST (before the board
+                  // refresh below re-renders the modal) and never skip it for
+                  // Waiting Approval: a button move there used to leave the
+                  // card waiting on an approval nobody sent.
+                  if (data && onNotifyColumn && destinationColumnId) {
+                    const destColumn = columns.find(
+                      (c) => c.id === destinationColumnId
+                    );
+                    const configured = notifyColumns.find(
+                      (c) =>
+                        c.column_id === destinationColumnId &&
+                        c.automation_enabled
+                    );
+                    const notifyCol =
+                      configured ??
+                      (isWaitingApprovalColumn(destColumn)
+                        ? {
+                            column_id: destinationColumnId,
+                            notify_type: "customer_approval" as const,
+                            automation_enabled: true,
+                          }
+                        : null);
+                    if (notifyCol) {
+                      onNotifyColumn(
+                        { ...data.order, column_id: destinationColumnId },
+                        notifyCol,
+                        destColumn?.name ?? destinationName,
+                        data.order.column_id
+                      );
+                    }
+                  } else if (
+                    destinationColumnId &&
+                    isWaitingApprovalColumn(
+                      columns.find((c) => c.id === destinationColumnId)
+                    )
+                  ) {
+                    // Opened outside the board (e.g. Customers page): no send
+                    // screen here, so say plainly that nothing went out.
+                    onLinkCopied?.(
+                      `Moved to ${destinationName} — approval NOT sent yet. Open the card on the board to send it.`
+                    );
+                  }
                   if (destinationColumnId) {
                     setData((prev) =>
                       prev
@@ -3153,24 +3207,6 @@ export function CardDetailModal({
                   } else {
                     void load({ silent: true });
                     onChanged();
-                  }
-                  if (data && onNotifyColumn && destinationColumnId) {
-                    const notifyCol = notifyColumns.find(
-                      (c) =>
-                        c.column_id === destinationColumnId &&
-                        c.automation_enabled
-                    );
-                    if (notifyCol) {
-                      const destColumn = columns.find(
-                        (c) => c.id === destinationColumnId
-                      );
-                      onNotifyColumn(
-                        { ...data.order, column_id: destinationColumnId },
-                        notifyCol,
-                        destColumn?.name ?? destinationName,
-                        data.order.column_id
-                      );
-                    }
                   }
                 }}
                 onError={(msg) => setSaveError(msg)}

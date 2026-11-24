@@ -1,5 +1,6 @@
 "use client";
 
+import { displayOrderNumberText } from "@/lib/order-display-number";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -3791,7 +3792,7 @@ export function Board({
                             setGroupSuggestionsOpen(false);
                           }}
                         >
-                          {part.title}
+                          {displayOrderNumberText(part)}
                         </button>
                       ))}
                     </div>
@@ -4671,6 +4672,20 @@ export function Board({
           smsConfigured={smsConfigured}
           publicAppUrl={publicAppUrl}
           groupOrderIds={notifyPopup.groupOrders?.map((o) => o.id)}
+          onCustomerChannelSaved={(customerId, pref) => {
+            // A saved notify default applies to every card of this customer
+            // right away (no refresh), same as saving it from the card modal.
+            const apply = (o: OrderWithRelations) =>
+              (o.customer?.id ?? o.customer_id) === customerId && o.customer
+                ? { ...o, customer: { ...o.customer, preferred_channel: pref } }
+                : o;
+            setOrders((prev) => {
+              const next = prev.map(apply);
+              boardOrdersRef.current = next;
+              return next;
+            });
+            setSearchResults((prev) => (prev ? prev.map(apply) : prev));
+          }}
           onMovedGroup={() =>
             moveGroupLocally(
               notifyPopup.order,
@@ -4830,7 +4845,7 @@ export function Board({
             <ul className="mt-2 max-h-32 overflow-y-auto text-xs text-slate-500">
               {finishAllPrompt.siblings.map((o) => (
                 <li key={o.id} className="truncate">
-                  • {o.title} — {columnsById.get(o.column_id)?.name ?? ""}
+                  • {displayOrderNumberText(o)} — {columnsById.get(o.column_id)?.name ?? ""}
                 </li>
               ))}
             </ul>

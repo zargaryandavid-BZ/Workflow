@@ -4,6 +4,8 @@ import { findWebhookConfigBySecret } from "@/lib/webhook-config";
 import { secretsMatch } from "@/lib/webhook-order";
 import { findCustomerByContacts } from "@/lib/customers";
 
+type Customer = { id: string; name: string | null; email: string | null; phone: string | null; company: string | null };
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -43,6 +45,7 @@ export async function POST(request: Request) {
     company?: string;
     email?: string;
     phone?: string;
+    crm_customer_id?: string;
   } | null;
   if (!body || body.event !== "customer.contact_updated") {
     return NextResponse.json({ ok: true, skipped: "ignored_event" });
@@ -50,7 +53,24 @@ export async function POST(request: Request) {
 
   const email = (body.email ?? "").trim() || null;
   const phone = (body.phone ?? "").trim() || null;
-  const customer = await findCustomerByContacts(adminClient, tenantId, { email, phone });
+  // Match by the CRM customer id first: when both email AND phone change in the CRM,
+  // the new values match nothing on the board, so contact-only matching silently
+  // skipped the update. Fall back to email/phone for rows not yet linked.
+  const crmCustomerId = (body.crm_customer_id ?? "").trim();
+  let customer: Customer | null = null;
+  if (crmCustomerId) {
+    const { data } = await adminClient
+      .from("customers")
+      .select("id, name, email, phone, company")
+      .eq("tenant_id", tenantId)
+      .eq("crm_customer_id", crmCustomerId)
+      .limit(1)
+      .maybeSingle();
+    customer = (data as Customer | null) ?? null;
+  }
+  if (!customer) {
+    customer = await findCustomerByContacts(adminClient, tenantId, { email, phone });
+  }
   if (!customer) return NextResponse.json({ ok: true, skipped: "no_match" });
 
   const name = [body.first_name, body.last_name]

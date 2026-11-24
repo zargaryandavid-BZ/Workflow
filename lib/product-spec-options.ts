@@ -467,3 +467,42 @@ export function preferLinkedCatalogName(
   if (hits.length === 1) return hits[0]!;
   return findMatchingOption(names, stored) ?? null;
 }
+
+/** Per-product option lists the CRM catalog feed carries for order-form selects. */
+export type CatalogFieldOptionMaps = {
+  finishingByProduct?: Record<string, string[]>;
+  specialEffectsByProduct?: Record<string, string[]>;
+};
+
+function catalogMapForField(
+  fieldName: string,
+  catalog: CatalogFieldOptionMaps
+): Record<string, string[]> | undefined {
+  const n = fieldName.trim().toLowerCase().replace(/\s+/g, " ");
+  if (n === "finishing") return catalog.finishingByProduct;
+  if (n === "special effects" || n === "special effect") {
+    return catalog.specialEffectsByProduct;
+  }
+  return undefined;
+}
+
+/**
+ * Finishing / Special effects options for the chosen product, from the CRM
+ * catalog (the single source of truth the CRM quote builders use).
+ *
+ * Returns null when there is no catalog, no product, the field is not one of
+ * these two, or the product is not in the catalog — the caller then keeps the
+ * old Workflow option list. Stored values on existing orders are never touched;
+ * the form adds the current value back if it is not in this list.
+ */
+export function catalogOptionsForField(
+  fieldName: string,
+  productName: string,
+  catalog: CatalogFieldOptionMaps | null | undefined
+): string[] | null {
+  if (!catalog || !productName.trim()) return null;
+  const map = catalogMapForField(fieldName, catalog);
+  if (!map) return null;
+  const list = lookupCatalogMap(map, productName);
+  return Array.isArray(list) ? [...list] : null;
+}
