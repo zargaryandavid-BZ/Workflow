@@ -8,6 +8,8 @@ export type DieManufacturer = {
   contact_name_2: string | null;
   email_2: string | null;
   phone_2: string | null;
+  /** Internal note about this manufacturer (not sent to them). */
+  comment: string | null;
   created_at: string;
   updated_at?: string;
 };
@@ -71,6 +73,7 @@ export function parseDieManufacturerBody(body: unknown):
       contact_name_2: string | null;
       email_2: string | null;
       phone_2: string | null;
+      comment: string | null;
     }
   | { error: string } {
   const raw = (body ?? {}) as Record<string, unknown>;
@@ -95,6 +98,7 @@ export function parseDieManufacturerBody(body: unknown):
   }
   const email_2 = (email2Parsed as string | null) ?? null;
   const phone_2 = String(raw.phone_2 ?? raw.phone2 ?? "").trim() || null;
+  const comment = String(raw.comment ?? "").trim().slice(0, 2000) || null;
 
   if (!full_name) return { error: "Company name is required." };
   if (!email) return { error: "Email is required for contact 1." };
@@ -107,6 +111,7 @@ export function parseDieManufacturerBody(body: unknown):
     contact_name_2: contact_name_2 || null,
     email_2,
     phone_2,
+    comment,
   };
 }
 
@@ -121,6 +126,7 @@ export function mapDieManufacturerRow(row: Record<string, unknown>): DieManufact
     contact_name_2: row.contact_name_2 ? String(row.contact_name_2) : null,
     email_2: row.email_2 ? String(row.email_2) : null,
     phone_2: row.phone_2 ? String(row.phone_2) : null,
+    comment: row.comment ? String(row.comment) : null,
     created_at: String(row.created_at),
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
   };

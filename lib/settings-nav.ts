@@ -116,7 +116,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       },
       {
         href: "/settings/designers",
-        label: "Designers",
+        label: "Designer Assigning Algorithm",
         description: "Auto-assign new orders and transfer stale jobs",
       },
       {

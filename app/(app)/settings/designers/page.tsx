@@ -41,7 +41,7 @@ export default async function DesignersSettingsPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold text-slate-800">Designers</h1>
+      <h1 className="text-lg font-semibold text-slate-800">Designer Assigning Algorithm</h1>
       <p className="mb-6 text-sm text-slate-500">
         Automatically hand new orders to the least-busy designer, and move a job
         to another designer when it has been sitting too long.

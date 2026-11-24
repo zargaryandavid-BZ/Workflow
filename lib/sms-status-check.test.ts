@@ -10,6 +10,10 @@ import {
   smsCheckPhoneOrdersText,
   smsCheckStateCookie,
   SMS_CHECK_NOT_FOUND_TEXT,
+  SMS_CHECK_NO_PROOF_TEXT,
+  SMS_CHECK_NO_TRACKING_TEXT,
+  smsCheckProofText,
+  smsCheckTrackingText,
   titleMatchesJobNumber,
   twimlMessage,
 } from "./sms-status-check.ts";
@@ -36,7 +40,7 @@ test("menu choices only count while the menu is open", () => {
   assert.deepEqual(parseSmsCheck("2", null), { kind: "none" });
   // Anything else while the menu is open → "Command not found".
   assert.deepEqual(parseSmsCheck("thanks!", "menu"), { kind: "unknown" });
-  assert.deepEqual(parseSmsCheck("3", "menu"), { kind: "unknown" });
+  assert.deepEqual(parseSmsCheck("5", "menu"), { kind: "unknown" });
   // …but a normal text with no menu open is never answered.
   assert.deepEqual(parseSmsCheck("thanks!", null), { kind: "none" });
 });
@@ -131,5 +135,29 @@ test("reply texts", () => {
   assert.equal(
     twimlMessage("a < b & c"),
     '<?xml version="1.0" encoding="UTF-8"?><Response><Message>a &lt; b &amp; c</Message></Response>'
+  );
+});
+
+test("3 = tracking, 4 = proof link (menu or shortcut)", () => {
+  assert.deepEqual(parseSmsCheck("3", "menu"), { kind: "tracking" });
+  assert.deepEqual(parseSmsCheck("4", "menu"), { kind: "proof" });
+  assert.deepEqual(parseSmsCheck("check 3", null), { kind: "tracking" });
+  assert.deepEqual(parseSmsCheck("START 4", null), { kind: "proof" });
+  // Without the menu a bare 3 stays a normal reply (warehouse "3 = can't get").
+  assert.deepEqual(parseSmsCheck("3", null), { kind: "none" });
+});
+
+test("tracking and proof reply texts", () => {
+  assert.equal(smsCheckTrackingText([]), SMS_CHECK_NO_TRACKING_TEXT);
+  assert.equal(
+    smsCheckTrackingText([
+      { number: "15683-2", trackingNumber: "385341627822", url: "https://fedex.test/385341627822" },
+    ]),
+    "Tracking:\n#15683-2 — FedEx 385341627822\nhttps://fedex.test/385341627822"
+  );
+  assert.equal(smsCheckProofText([]), SMS_CHECK_NO_PROOF_TEXT);
+  assert.equal(
+    smsCheckProofText([{ number: "W610-1", url: "https://x.test/l/abc" }]),
+    "Your proof is ready to approve:\n#W610-1: https://x.test/l/abc"
   );
 });

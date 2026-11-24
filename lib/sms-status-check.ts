@@ -8,7 +8,9 @@
  *   client: 2  → "Send us your job ticket number"
  *   client: 15683 → status of that job (any phone may ask)
  *
- * Shortcuts that skip the menu: "CHECK 1", "CHECK 2 15683", "CHECK 15683" (same with START).
+ *   client: 3  → FedEx tracking for orders under this phone
+ *   client: 4  → open proof-approval links for orders under this phone
+ * Shortcuts that skip the menu: "CHECK 1", "CHECK 2 15683", "CHECK 15683", "CHECK 3", "CHECK 4" (same with START).
  * Anything else while the menu is open → "Command not found" (the text still reaches the card).
  * The step the client is on rides in a Twilio SMS cookie (Twilio keeps
  * cookies per phone pair for up to 4 hours), so no table is needed.
@@ -22,10 +24,16 @@ export const SMS_CHECK_STATE_TTL_SECONDS = 15 * 60;
 export const SMS_CHECK_MAX_ORDERS = 5;
 /** A job ticket number can cover several board cards (15683-1, -2, -3…). */
 export const SMS_CHECK_MAX_JOB_PARTS = 10;
+/** Tracking / proof links per reply (links are long — keep the text short). */
+export const SMS_CHECK_MAX_LINKS = 3;
 
 export type SmsCheckAction =
   | { kind: "menu" }
   | { kind: "by_phone" }
+  /** 3 — FedEx tracking for orders under this phone. */
+  | { kind: "tracking" }
+  /** 4 — open proof-approval links for orders under this phone. */
+  | { kind: "proof" }
   | { kind: "ask_job" }
   | { kind: "job"; jobNumber: string }
   | { kind: "bad_job" }
@@ -78,6 +86,8 @@ export function parseSmsCheck(body: string, state: SmsCheckState | null): SmsChe
     const rest = check[1].trim();
     if (!rest) return { kind: "menu" };
     if (/^1$/.test(rest)) return { kind: "by_phone" };
+    if (/^3$/.test(rest)) return { kind: "tracking" };
+    if (/^4$/.test(rest)) return { kind: "proof" };
     const two = /^2\b[\s:.\-#]*(.*)$/.exec(rest);
     if (two) {
       const job = two[1].trim();
@@ -92,6 +102,8 @@ export function parseSmsCheck(body: string, state: SmsCheckState | null): SmsChe
   if (state === "menu") {
     if (/^1\.?$/.test(text)) return { kind: "by_phone" };
     if (/^2\.?$/.test(text)) return { kind: "ask_job" };
+    if (/^3\.?$/.test(text)) return { kind: "tracking" };
+    if (/^4\.?$/.test(text)) return { kind: "proof" };
     return { kind: "unknown" };
   }
   if (state === "job") {
@@ -149,6 +161,8 @@ export const SMS_CHECK_MENU_TEXT = [
   "Order status:",
   "Reply 1 to get the orders under this phone number.",
   "Reply 2 to check by job ticket number.",
+  "Reply 3 for tracking numbers.",
+  "Reply 4 to get your proof approval link.",
 ].join("\n");
 
 export const SMS_CHECK_ASK_JOB_TEXT = "Please send us your job ticket number (for example 15683-2).";
@@ -161,6 +175,29 @@ export const SMS_CHECK_NO_PHONE_ORDERS_TEXT =
 
 function orderLines(lines: SmsCheckOrderLine[]): string {
   return lines.map((l) => `#${l.number} — ${l.status}`).join("\n");
+}
+
+export type SmsCheckTrackingLine = { number: string; trackingNumber: string; url: string };
+export type SmsCheckLinkLine = { number: string; url: string };
+
+export const SMS_CHECK_NO_TRACKING_TEXT =
+  "We have no tracking numbers for orders under this phone number yet. Reply 1 or 2 to check your order status.";
+
+export const SMS_CHECK_NO_PROOF_TEXT =
+  "There are no proofs waiting for your approval under this phone number. Reply 1 or 2 to check your order status.";
+
+export function smsCheckTrackingText(lines: SmsCheckTrackingLine[]): string {
+  if (lines.length === 0) return SMS_CHECK_NO_TRACKING_TEXT;
+  return [
+    "Tracking:",
+    ...lines.map((l) => `#${l.number} — FedEx ${l.trackingNumber}\n${l.url}`),
+  ].join("\n");
+}
+
+export function smsCheckProofText(lines: SmsCheckLinkLine[]): string {
+  if (lines.length === 0) return SMS_CHECK_NO_PROOF_TEXT;
+  const head = lines.length === 1 ? "Your proof is ready to approve:" : "Your proofs are ready to approve:";
+  return [head, ...lines.map((l) => `#${l.number}: ${l.url}`)].join("\n");
 }
 
 export function smsCheckPhoneOrdersText(lines: SmsCheckOrderLine[]): string {

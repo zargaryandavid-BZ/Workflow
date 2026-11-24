@@ -38,6 +38,7 @@ export async function PATCH(
     email_2: parsed.email_2,
     phone_2: parsed.phone_2,
   };
+  const extra = { comment: parsed.comment };
   const run = (patch: Record<string, unknown>) =>
     supabase
       .from("die_manufacturers")
@@ -47,7 +48,14 @@ export async function PATCH(
       .select("*")
       .maybeSingle();
   let warning: string | null = null;
-  let { data, error } = await run({ ...base, ...second });
+  let { data, error } = await run({ ...base, ...second, ...extra });
+  // Before migration 0104 there is no comment: save the rest.
+  if (error && /comment/i.test(error.message)) {
+    ({ data, error } = await run({ ...base, ...second }));
+    if (!error && extra.comment) {
+      warning = "Saved, but the comment needs migration 0104_die_manufacturer_comment.sql in Supabase.";
+    }
+  }
   // Before migration 0088 there is no second contact: save the rest.
   if (error && /contact_name_2|email_2|phone_2/i.test(error.message)) {
     ({ data, error } = await run(base));

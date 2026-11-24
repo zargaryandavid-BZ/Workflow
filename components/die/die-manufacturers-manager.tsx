@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Mail, Pencil, Phone, Trash2, User } from "lucide-react";
+import { Mail, MessageSquare, Pencil, Phone, Trash2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import type { DieManufacturer } from "@/lib/die-manufacturers";
@@ -15,6 +15,7 @@ type Draft = {
   contact_name_2: string;
   email_2: string;
   phone_2: string;
+  comment: string;
 };
 
 const EMPTY: Draft = {
@@ -25,6 +26,7 @@ const EMPTY: Draft = {
   contact_name_2: "",
   email_2: "",
   phone_2: "",
+  comment: "",
 };
 
 function ContactLine({
@@ -97,6 +99,7 @@ export function DieManufacturersManager({
           row.contact_name_2,
           row.email_2,
           row.phone_2,
+          row.comment,
         ].some((v) => v?.toLowerCase().includes(q))
       )
     : rows;
@@ -104,7 +107,7 @@ export function DieManufacturersManager({
   function field(key: keyof Draft) {
     return {
       value: draft[key],
-      onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+      onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
         setDraft((d) => ({ ...d, [key]: e.target.value })),
     };
   }
@@ -119,6 +122,7 @@ export function DieManufacturersManager({
       contact_name_2: row.contact_name_2 ?? "",
       email_2: row.email_2 ?? "",
       phone_2: row.phone_2 ?? "",
+      comment: row.comment ?? "",
     });
     setShowSecond(Boolean(row.contact_name_2 || row.email_2 || row.phone_2));
     setError(null);
@@ -244,6 +248,17 @@ export function DieManufacturersManager({
             <span className="hidden lg:block lg:w-[9.5rem]" />
           </div>
         ) : null}
+        <div>
+          <Label htmlFor="die-mfg-comment">Comment</Label>
+          <textarea
+            id="die-mfg-comment"
+            rows={2}
+            maxLength={2000}
+            placeholder="Notes about this manufacturer (lead time, pricing, who to ask…). Not sent to them."
+            className="mt-1 w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            {...field("comment")}
+          />
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
@@ -286,6 +301,12 @@ export function DieManufacturersManager({
                 <p className="truncate text-sm font-semibold text-slate-800">{row.full_name}</p>
                 <ContactLine name={row.contact_name} email={row.email} phone={row.phone} />
                 <ContactLine name={row.contact_name_2} email={row.email_2} phone={row.phone_2} />
+                {row.comment ? (
+                  <p className="flex items-start gap-1 whitespace-pre-wrap break-words text-xs text-slate-500">
+                    <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-slate-400" />
+                    <span>{row.comment}</span>
+                  </p>
+                ) : null}
               </div>
               <div className="flex shrink-0 gap-1">
                 <button

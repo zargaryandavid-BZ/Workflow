@@ -1,6 +1,6 @@
 import { PdfLayerViewer } from "./pdf-layer-viewer";
 
-export const metadata = { title: "PDF" };
+export const metadata = { title: "PDF checker (designer file)" };
 
 export default function PdfPage() {
   return (

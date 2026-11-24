@@ -23,6 +23,8 @@ import {
   SMS_CHECK_MENU_TEXT,
   smsCheckJobText,
   smsCheckPhoneOrdersText,
+  smsCheckProofText,
+  smsCheckTrackingText,
   smsCheckStateCookie,
   SMS_CHECK_NOT_FOUND_TEXT,
   SMS_CHECK_UNKNOWN_TEXT,
@@ -32,7 +34,9 @@ import {
 import {
   smsCheckOrdersForJob,
   smsCheckOrdersForPhone,
+  smsCheckProofLinksForPhone,
   smsCheckTenantIds,
+  smsCheckTrackingForPhone,
 } from "@/lib/sms-status-check.server";
 
 export const runtime = "nodejs";
@@ -244,6 +248,16 @@ async function handleStatusCheck(
       const lines = await smsCheckOrdersForPhone(admin, from);
       // Nothing under this phone → keep the menu open so "2" still works.
       return twimlReply(smsCheckPhoneOrdersText(lines), lines.length ? null : "menu");
+    }
+    case "tracking": {
+      // Phone on file only — tracking pages show the delivery address.
+      const lines = await smsCheckTrackingForPhone(admin, from);
+      return twimlReply(smsCheckTrackingText(lines), lines.length ? null : "menu");
+    }
+    case "proof": {
+      // Phone on file only — the link lets the client approve the proof.
+      const lines = await smsCheckProofLinksForPhone(admin, from);
+      return twimlReply(smsCheckProofText(lines), lines.length ? null : "menu");
     }
     case "job": {
       const tenantIds = await smsCheckTenantIds(admin, from);

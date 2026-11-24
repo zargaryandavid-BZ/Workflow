@@ -106,7 +106,7 @@ const nav: NavItem[] = [
     visibleTo: ["admin", "account_manager", "preprod_owner", "prepress"],
   },
   { href: "/time", label: "Time (beta)", icon: Clock },
-  { href: "/pdf", label: "PDF", icon: FileText },
+  { href: "/pdf", label: "PDF checker (designer file)", icon: FileText },
   {
     href: "/analytics",
     label: "Analytics",
