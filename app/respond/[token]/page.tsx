@@ -29,13 +29,20 @@ import { SkuDecisionProvider } from "@/components/respond/sku-decision-context";
 import { orderMetaChips, type UploadSlot } from "@/lib/respond-page";
 import { itemTitleFromSpecs } from "@/lib/notification-messages";
 import {
+  formatReadyToShipGroupLabel,
   formatReadyToShipNotifyLabel,
   groupMembersReadyInColumn,
   listOrderGroupMembers,
-  orderGroupKey,
   type GroupOrderMember,
 } from "@/lib/ready-to-ship-group";
-import { ensureApprovalGroupPortal } from "@/lib/approval-group";
+import {
+  buildApprovalGroupItem,
+  listApprovalSiblingMembers,
+  loadOrderFields as loadMemberFields,
+  loadSiblingApprovalSummaries,
+} from "@/lib/approval-group-items";
+import { siblingApprovalState } from "@/lib/approval-siblings";
+import { ApprovalGroupView } from "@/app/respond/g/[token]/approval-group-view";
 import { RespondForm } from "./respond-form";
 import {
   PORTAL_PRODUCT_NAME,
@@ -183,6 +190,94 @@ async function loadFrozenApprovalAssets(
   });
 }
 
+/**
+ * Group layout for a single-card approval link when the card's order has
+ * other line items. Returns null for single-line orders (page unchanged) or
+ * on any lookup error (falls back to the single-card view).
+ */
+async function loadSiblingApprovalView(
+  notification: NotificationRow,
+  token: string
+): Promise<React.ReactElement | null> {
+  try {
+    const admin = createAdminClient();
+    const members = await listApprovalSiblingMembers(
+      admin,
+      notification.order_id
+    );
+    if (members.length < 2) return null;
+
+    const fieldByOrderId = new Map<string, Record<string, unknown>>();
+    await Promise.all(
+      members.map(async (m) => {
+        fieldByOrderId.set(
+          m.id,
+          m.id === notification.order_id
+            ? notification.order_fields ?? {}
+            : await loadMemberFields(admin, m.id)
+        );
+      })
+    );
+
+    const nowMs = Date.now();
+    const summaries = await loadSiblingApprovalSummaries(
+      admin,
+      members,
+      fieldByOrderId,
+      nowMs
+    );
+    // This link's own card: if its latest round isn't usable (e.g. a newer
+    // round expired), fall back to the round this token belongs to.
+    const ownState = siblingApprovalState(
+      {
+        id: notification.notification_id,
+        token,
+        status: notification.status,
+        customer_response: notification.customer_response,
+        token_expires_at: notification.token_expires_at,
+      },
+      nowMs
+    );
+    const items = await Promise.all(
+      summaries.map((summary) => {
+        const member = members.find((m) => m.id === summary.orderId)!;
+        const s =
+          summary.orderId === notification.order_id &&
+          summary.status === "pending" &&
+          ownState.token
+            ? {
+                ...summary,
+                status: ownState.status,
+                notificationToken: ownState.token,
+                staffNote: notification.staff_note,
+                customerNote: notification.customer_note,
+                customerResponse: notification.customer_response,
+                notificationStatus: notification.status,
+                notificationId: notification.notification_id,
+              }
+            : summary;
+        return buildApprovalGroupItem(
+          s,
+          member,
+          fieldByOrderId.get(member.id) ?? {}
+        );
+      })
+    );
+
+    return (
+      <ApprovalGroupView
+        groupLabel={formatReadyToShipGroupLabel(members)}
+        tenantName={notification.tenant_name}
+        items={items}
+        initialItem={notification.order_id}
+      />
+    );
+  } catch (err) {
+    console.error("[respond] sibling approval view failed:", err);
+    return null;
+  }
+}
+
 function RespondCard({
   orderTitle,
   children,
@@ -271,6 +366,14 @@ export default async function RespondPage({
       redirect(`/respond/${live.token}`);
     }
   }
+  // Multi-item order: the single-card link shows every line item of the same
+  // order (same sub-items layout as /respond/g/), defaulting to this card.
+  // Siblings without a live approval request are listed as "Not ready yet".
+  if (notification.type === "customer_approval" && !(expired && !alreadyDone)) {
+    const siblingView = await loadSiblingApprovalView(notification, token);
+    if (siblingView) return siblingView;
+  }
+
   const orderFields = notification.order_fields ?? {};
   const productLabel = productFromFields(orderFields);
   const metaChips = orderMetaChips(orderFields, notification.order_specs ?? {});
@@ -441,48 +544,6 @@ export default async function RespondPage({
           ))}
         </div>
       );
-    }
-  }
-
-  // Multi-item customer approvals use a stable group portal (one SMS link for
-  // the whole order). Old per-item tokens redirect there — skip once the
-  // customer already responded so this page can paint immediately.
-  if (
-    notification.type === "customer_approval" &&
-    notification.status !== "responded"
-  ) {
-    const admin = createAdminClient();
-    const { data: primaryOrder } = await admin
-      .from("orders")
-      .select("id, title, tenant_id, column_id, description, specs")
-      .eq("id", notification.order_id)
-      .maybeSingle();
-    if (primaryOrder) {
-      const members = await listOrderGroupMembers(
-        admin,
-        primaryOrder.tenant_id as string,
-        {
-          id: primaryOrder.id as string,
-          title: primaryOrder.title as string,
-          column_id: primaryOrder.column_id as string | null,
-          description: primaryOrder.description as string | null,
-          specs: (primaryOrder.specs ?? {}) as Record<string, unknown>,
-        }
-      );
-      if (members.length > 1) {
-        const key = orderGroupKey({
-          title: primaryOrder.title as string,
-          specs: (primaryOrder.specs ?? {}) as Record<string, unknown>,
-        });
-        if (key) {
-          const portal = await ensureApprovalGroupPortal(
-            admin,
-            primaryOrder.tenant_id as string,
-            key
-          );
-          redirect(`/respond/g/${portal.token}`);
-        }
-      }
     }
   }
 

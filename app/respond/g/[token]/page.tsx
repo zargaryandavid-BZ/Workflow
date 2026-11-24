@@ -1,122 +1,17 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  loadApprovalGroupItemSummaries,
-  type ApprovalGroupItemSummary,
-} from "@/lib/approval-group";
+import { loadApprovalGroupItemSummaries } from "@/lib/approval-group";
 import {
   formatReadyToShipGroupLabel,
   listOrderGroupMembers,
 } from "@/lib/ready-to-ship-group";
 import {
-  buildRespondOrderRows,
-  respondCustomerNote,
-  skusForRespond,
-} from "@/lib/respond-order";
-import { orderMetaChips } from "@/lib/respond-page";
-import { approvalPdfPageBySku as pagesFromPdfs } from "@/lib/approval-proof-source";
-import type { OrderSpecs } from "@/lib/types";
+  buildApprovalGroupItem,
+  loadOrderFields,
+} from "@/lib/approval-group-items";
 import {
   ApprovalGroupView,
   type ApprovalGroupItemPayload,
-  type ApprovalGroupProof,
 } from "./approval-group-view";
-
-async function loadOrderFields(
-  admin: ReturnType<typeof createAdminClient>,
-  orderId: string
-): Promise<Record<string, unknown>> {
-  const { data } = await admin
-    .from("custom_field_values")
-    .select("value, custom_fields(name)")
-    .eq("order_id", orderId);
-
-  const fields: Record<string, unknown> = {};
-  for (const row of data ?? []) {
-    const cf = row.custom_fields as
-      | { name?: string }
-      | { name?: string }[]
-      | null;
-    const name = Array.isArray(cf) ? cf[0]?.name : cf?.name;
-    if (name) fields[name] = row.value;
-  }
-  return fields;
-}
-
-async function buildItem(
-  _admin: ReturnType<typeof createAdminClient>,
-  summary: ApprovalGroupItemSummary,
-  member: {
-    id: string;
-    title: string;
-    tenant_id: string;
-    description: string | null;
-    specs: Record<string, unknown>;
-  },
-  fields: Record<string, unknown>
-): Promise<{
-  payload: ApprovalGroupItemPayload;
-}> {
-  const specs = (member.specs ?? {}) as OrderSpecs;
-  const rawProduct = fields["Product"] ?? fields["product"];
-  const product = rawProduct ? String(rawProduct) : "order";
-
-  const ticketSkus = skusForRespond(specs);
-  let approvalSkus = ticketSkus;
-  let finalPdfs: Record<string, import("@/lib/respond-order").RespondFinalPdf> =
-    {};
-  let layerPreviews: Record<
-    string,
-    import("@/lib/approval-layer-preview-paths").RespondLayerPreview
-  > = {};
-  if (summary.notificationToken) {
-    try {
-      const { loadRespondCustomerProof } = await import(
-        "@/lib/approval-layer-previews"
-      );
-      const proofPack = await loadRespondCustomerProof(
-        {
-          id: member.id,
-          title: member.title,
-          tenant_id: member.tenant_id,
-          specs,
-        },
-        ticketSkus
-      );
-      approvalSkus = proofPack.skus;
-      finalPdfs = proofPack.finalPdfs;
-      layerPreviews = proofPack.layerPreviews;
-    } catch (err) {
-      console.error("[approval-group] proof load failed:", err);
-    }
-  }
-  const proof: ApprovalGroupProof | null =
-    summary.notificationToken != null
-      ? {
-          token: summary.notificationToken,
-          heading: summary.itemLabel,
-          rows: buildRespondOrderRows(member.description, fields, specs),
-          skus: approvalSkus,
-          assets: [],
-          skuImages: {},
-          orderId: member.id,
-          customerNote: respondCustomerNote(member.description, specs),
-          finalPdfs,
-          layerPreviews,
-        }
-      : null;
-  const payload: ApprovalGroupItemPayload = {
-    summary,
-    metaChips: orderMetaChips(fields, specs),
-    productLabel: product,
-    approvalSkus,
-    approvalAssets: [],
-    approvalSkuGallery: {},
-    approvalPdfPageBySku: pagesFromPdfs(finalPdfs),
-    proof,
-  };
-
-  return { payload };
-}
 
 export default async function ApprovalGroupPage({
   params,
@@ -217,22 +112,16 @@ export default async function ApprovalGroupPage({
     fieldByOrderId
   );
 
-  const payloads: ApprovalGroupItemPayload[] = [];
-
-  const built = await Promise.all(
+  const payloads: ApprovalGroupItemPayload[] = await Promise.all(
     summaries.map((summary) => {
       const member = members.find((m) => m.id === summary.orderId)!;
-      return buildItem(
-        admin,
+      return buildApprovalGroupItem(
         summary,
         member,
         fieldByOrderId.get(member.id) ?? {}
       );
     })
   );
-  for (let i = 0; i < summaries.length; i++) {
-    payloads.push(built[i]!.payload);
-  }
 
   const groupLabel = formatReadyToShipGroupLabel(members);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { BrandChip } from "./design-reference";
+import { LinkedOrderNumbers } from "./linked-order-numbers";
 import { useResizeTick } from "@/lib/use-resize-tick";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -323,6 +324,7 @@ export function GroupedOrderCard({
               <span className="shrink-0 text-[15px] font-bold text-slate-400">
                 {shortKey}
               </span>
+              <LinkedOrderNumbers title={entry.key} specs={rep.specs} />
               <span
                 className={cn(
                   "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold leading-none text-white",
