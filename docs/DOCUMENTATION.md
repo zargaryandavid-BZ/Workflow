@@ -290,6 +290,18 @@ Column `kind` drives popup behavior in `components/board/board.tsx` (`onDragEnd`
 
 `job_notifications` is **not** subscribed; staff see notification state in the order detail modal tabs.
 
+### Client SMS status check ("CHECK")
+
+A client texts **CHECK** to the shop's Twilio number (`POST /api/webhooks/twilio/sms`) and gets an automatic reply:
+
+1. Menu: *Reply 1 to get the orders under this phone number. Reply 2 to check by job ticket number.*
+2. **1** → up to 5 newest **open** orders (not Shipped / Finished) for customers whose phone matches, plus orders we texted that phone about: `#15683-2 — In production`. None → a "could not find" line and the menu stays open.
+3. **2** → *Please send us your job ticket number.* The client sends e.g. `15683` (all parts 15683-1, -2…), `15683-2`, `BZ-623`, or the CRM number. **Any phone** may look up a job number (owner's choice). Not found → *We do not have any jobs with this number. Please send us another code.* and the client can send another one.
+
+Shortcuts: `CHECK 1`, `CHECK 2 15683`, `CHECK 15683`. Statuses are client-friendly, never internal column names (`clientStatusForColumn` in `lib/sms-status-check.ts`): In design · Waiting for information from you · Waiting for your approval · Preparing for production · In production · Ready to ship · Ready for pickup · Shipped · Completed.
+
+The step (menu / waiting for job number) is kept in a Twilio SMS cookie `pp_sms_check` (15 min), so there is no table. A bare `1`/`2` without an open menu is still handled as a normal reply (warehouse combo-stock replies 1/2/3 are unchanged). CHECK messages are not logged on cards as customer replies. Job lookups use the tenant of the texting customer, else `SMS_CHECK_TENANT_ID`, else the tenant that most recently sent SMS. Code: `lib/sms-status-check.ts` (pure, tested), `lib/sms-status-check.server.ts` (lookups).
+
 ### Staff inbox (`user_notifications`)
 
 The top-bar bell lists in-app rows for the current tenant (`designer_note`, `order_hold`, `note_mention`). Admins can see everyone’s inbox. Clicking a row opens `/board?order=…`.

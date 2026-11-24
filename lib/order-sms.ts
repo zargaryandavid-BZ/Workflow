@@ -149,36 +149,19 @@ export async function findPendingComboStockOrderForPhone(
 }
 
 /**
- * Resolve which order an inbound SMS belongs to.
- * Prefer the most recent outbound SMS to that phone, then customer match.
+ * Customers whose saved phone matches an inbound SMS number (any tenant).
+ * Exact E.164 / common variants first, then the last 10 digits.
  */
-export async function findOrderForInboundSms(
+export async function findCustomersForSmsPhone(
   client: Client,
   fromPhone: string
-): Promise<{ tenantId: string; orderId: string } | null> {
+): Promise<{ id: string; tenant_id: string; phone: string | null }[]> {
   const phone = normalizeSmsPhone(fromPhone);
-
-  const { data: recentOut } = await client
-    .from("order_sms_messages")
-    .select("tenant_id, order_id")
-    .eq("direction", "outbound")
-    .eq("phone", phone)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (recentOut) {
-    return {
-      tenantId: (recentOut as { tenant_id: string }).tenant_id,
-      orderId: (recentOut as { order_id: string }).order_id,
-    };
-  }
-
   // Match customers.phone — prefer exact E.164 / common variants, then digit suffix.
   // Do NOT load an arbitrary first-N customers (breaks tenants with >500 customers).
   const digits = phone.replace(/\D/g, "");
   const last10 = digits.slice(-10);
-  if (last10.length < 10) return null;
+  if (last10.length < 10) return [];
 
   const area = last10.slice(0, 3);
   const mid = last10.slice(3, 6);
@@ -217,6 +200,36 @@ export async function findOrderForInboundSms(
     return p.endsWith(last10) || last10.endsWith(p.slice(-10));
   }) as { id: string; tenant_id: string; phone: string | null }[];
 
+  return matched;
+}
+
+/**
+ * Resolve which order an inbound SMS belongs to.
+ * Prefer the most recent outbound SMS to that phone, then customer match.
+ */
+export async function findOrderForInboundSms(
+  client: Client,
+  fromPhone: string
+): Promise<{ tenantId: string; orderId: string } | null> {
+  const phone = normalizeSmsPhone(fromPhone);
+
+  const { data: recentOut } = await client
+    .from("order_sms_messages")
+    .select("tenant_id, order_id")
+    .eq("direction", "outbound")
+    .eq("phone", phone)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (recentOut) {
+    return {
+      tenantId: (recentOut as { tenant_id: string }).tenant_id,
+      orderId: (recentOut as { order_id: string }).order_id,
+    };
+  }
+
+  const matched = await findCustomersForSmsPhone(client, fromPhone);
   if (matched.length === 0) return null;
 
   const customerIds = matched.map((c) => c.id);

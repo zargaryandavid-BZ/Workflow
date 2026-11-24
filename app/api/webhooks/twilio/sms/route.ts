@@ -16,6 +16,23 @@ import {
   withComboStock,
   type ComboStock,
 } from "@/lib/combo-stock";
+import {
+  parseSmsCheck,
+  readSmsCheckState,
+  SMS_CHECK_ASK_JOB_TEXT,
+  SMS_CHECK_MENU_TEXT,
+  smsCheckJobText,
+  smsCheckPhoneOrdersText,
+  smsCheckStateCookie,
+  SMS_CHECK_NOT_FOUND_TEXT,
+  twimlMessage,
+  type SmsCheckState,
+} from "@/lib/sms-status-check";
+import {
+  smsCheckOrdersForJob,
+  smsCheckOrdersForPhone,
+  smsCheckTenantIds,
+} from "@/lib/sms-status-check.server";
 
 export const runtime = "nodejs";
 
@@ -25,6 +42,7 @@ export const runtime = "nodejs";
  *   POST https://your-domain/api/webhooks/twilio/sms
  */
 export async function POST(request: Request) {
+  let clearCheckCookie = false;
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
   if (!authToken) {
     return new NextResponse(
@@ -69,6 +87,24 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
+
+  // Client status line: "CHECK" → menu → 1 (orders under this phone) / 2 (job ticket number).
+  // Runs before the normal reply handling so a menu "1"/"2" is never read as a warehouse stock reply,
+  // and the conversation is not logged on a card as a customer reply.
+  const checkState = readSmsCheckState(request.headers.get("cookie"));
+  const check = parseSmsCheck(body, checkState);
+  if (check.kind !== "none") {
+    try {
+      return await handleStatusCheck(admin, from, check);
+    } catch (error) {
+      console.error("[twilio-sms] status check failed", error);
+      return twimlReply("Sorry, we could not check your order right now. Please try again later.", null);
+    }
+  }
+  if (checkState) {
+    // Client left the CHECK flow — close it and handle this text normally.
+    clearCheckCookie = true;
+  }
   const reply = parseStockReply(body);
   const match = reply
     ? ((await findPendingComboStockOrderForPhone(admin, from)) ??
@@ -76,7 +112,7 @@ export async function POST(request: Request) {
     : await findOrderForInboundSms(admin, from);
   if (!match) {
     console.warn("[twilio-sms] no order for phone", normalizeSmsPhone(from));
-    return twimlOk();
+    return twimlOk(clearCheckCookie);
   }
 
   await insertOrderSmsMessage(admin, {
@@ -147,7 +183,7 @@ export async function POST(request: Request) {
     }
   }
 
-  return twimlOk();
+  return twimlOk(clearCheckCookie);
 }
 
 function twilioWebhookUrls(request: Request): string[] {
@@ -171,12 +207,48 @@ function twilioWebhookUrls(request: Request): string[] {
   return [...urls];
 }
 
-function twimlOk() {
+function twimlOk(clearCheckCookie = false) {
+  const headers: Record<string, string> = { "Content-Type": "text/xml" };
+  if (clearCheckCookie) headers["Set-Cookie"] = smsCheckStateCookie(null);
   return new NextResponse(
     '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-    {
-      status: 200,
-      headers: { "Content-Type": "text/xml" },
-    }
+    { status: 200, headers }
   );
+}
+
+/** TwiML reply to the client, setting (or clearing) the CHECK step cookie Twilio sends back next time. */
+function twimlReply(text: string, nextState: SmsCheckState | null) {
+  return new NextResponse(twimlMessage(text), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/xml",
+      "Set-Cookie": smsCheckStateCookie(nextState),
+    },
+  });
+}
+
+async function handleStatusCheck(
+  admin: ReturnType<typeof createAdminClient>,
+  from: string,
+  check: Exclude<ReturnType<typeof parseSmsCheck>, { kind: "none" }>
+) {
+  switch (check.kind) {
+    case "menu":
+      return twimlReply(SMS_CHECK_MENU_TEXT, "menu");
+    case "ask_job":
+      return twimlReply(SMS_CHECK_ASK_JOB_TEXT, "job");
+    case "bad_job":
+      return twimlReply(SMS_CHECK_NOT_FOUND_TEXT, "job");
+    case "by_phone": {
+      const lines = await smsCheckOrdersForPhone(admin, from);
+      // Nothing under this phone → keep the menu open so "2" still works.
+      return twimlReply(smsCheckPhoneOrdersText(lines), lines.length ? null : "menu");
+    }
+    case "job": {
+      const tenantIds = await smsCheckTenantIds(admin, from);
+      const lines = await smsCheckOrdersForJob(admin, tenantIds, check.jobNumber);
+      // Not found → stay on the job step so the client can send another code.
+      return twimlReply(smsCheckJobText(lines), lines.length ? null : "job");
+    }
+  }
 }
