@@ -25,6 +25,7 @@ import {
   smsCheckPhoneOrdersText,
   smsCheckStateCookie,
   SMS_CHECK_NOT_FOUND_TEXT,
+  SMS_CHECK_UNKNOWN_TEXT,
   twimlMessage,
   type SmsCheckState,
 } from "@/lib/sms-status-check";
@@ -88,12 +89,15 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
-  // Client status line: "CHECK" → menu → 1 (orders under this phone) / 2 (job ticket number).
+  // Client status line: "START" / "CHECK" → menu → 1 (orders under this phone) / 2 (job ticket number).
   // Runs before the normal reply handling so a menu "1"/"2" is never read as a warehouse stock reply,
   // and the conversation is not logged on a card as a customer reply.
   const checkState = readSmsCheckState(request.headers.get("cookie"));
   const check = parseSmsCheck(body, checkState);
-  if (check.kind !== "none") {
+  // Menu open but the text is not 1 / 2: answer "Command not found", close the menu,
+  // and still handle the text as a normal client reply (it may be a real message for staff).
+  const unknownReply = check.kind === "unknown" ? SMS_CHECK_UNKNOWN_TEXT : null;
+  if (check.kind !== "none" && check.kind !== "unknown") {
     try {
       return await handleStatusCheck(admin, from, check);
     } catch (error) {
@@ -112,7 +116,7 @@ export async function POST(request: Request) {
     : await findOrderForInboundSms(admin, from);
   if (!match) {
     console.warn("[twilio-sms] no order for phone", normalizeSmsPhone(from));
-    return twimlOk(clearCheckCookie);
+    return twimlOk(clearCheckCookie, unknownReply);
   }
 
   await insertOrderSmsMessage(admin, {
@@ -183,7 +187,7 @@ export async function POST(request: Request) {
     }
   }
 
-  return twimlOk(clearCheckCookie);
+  return twimlOk(clearCheckCookie, unknownReply);
 }
 
 function twilioWebhookUrls(request: Request): string[] {
@@ -207,13 +211,10 @@ function twilioWebhookUrls(request: Request): string[] {
   return [...urls];
 }
 
-function twimlOk(clearCheckCookie = false) {
+function twimlOk(clearCheckCookie = false, reply: string | null = null) {
   const headers: Record<string, string> = { "Content-Type": "text/xml" };
   if (clearCheckCookie) headers["Set-Cookie"] = smsCheckStateCookie(null);
-  return new NextResponse(
-    '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-    { status: 200, headers }
-  );
+  return new NextResponse(twimlMessage(reply), { status: 200, headers });
 }
 
 /** TwiML reply to the client, setting (or clearing) the CHECK step cookie Twilio sends back next time. */
@@ -230,7 +231,7 @@ function twimlReply(text: string, nextState: SmsCheckState | null) {
 async function handleStatusCheck(
   admin: ReturnType<typeof createAdminClient>,
   from: string,
-  check: Exclude<ReturnType<typeof parseSmsCheck>, { kind: "none" }>
+  check: Exclude<ReturnType<typeof parseSmsCheck>, { kind: "none" } | { kind: "unknown" }>
 ) {
   switch (check.kind) {
     case "menu":

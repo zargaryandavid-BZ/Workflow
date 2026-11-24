@@ -20,13 +20,25 @@ test("CHECK opens the menu, any case, with or without punctuation", () => {
   }
 });
 
+test("START opens the menu too, any case", () => {
+  for (const body of ["START", "start", "Start", "Start."]) {
+    assert.deepEqual(parseSmsCheck(body, null), { kind: "menu" }, body);
+  }
+  assert.deepEqual(parseSmsCheck("start 2 15683", null), { kind: "job", jobNumber: "15683" });
+  assert.deepEqual(parseSmsCheck("starting soon?", null), { kind: "none" });
+});
+
 test("menu choices only count while the menu is open", () => {
   assert.deepEqual(parseSmsCheck("1", "menu"), { kind: "by_phone" });
   assert.deepEqual(parseSmsCheck("2", "menu"), { kind: "ask_job" });
   // Without an open menu, a bare 1/2 stays a normal reply (warehouse stock replies use 1/2/3).
   assert.deepEqual(parseSmsCheck("1", null), { kind: "none" });
   assert.deepEqual(parseSmsCheck("2", null), { kind: "none" });
-  assert.deepEqual(parseSmsCheck("thanks!", "menu"), { kind: "none" });
+  // Anything else while the menu is open → "Command not found".
+  assert.deepEqual(parseSmsCheck("thanks!", "menu"), { kind: "unknown" });
+  assert.deepEqual(parseSmsCheck("3", "menu"), { kind: "unknown" });
+  // …but a normal text with no menu open is never answered.
+  assert.deepEqual(parseSmsCheck("thanks!", null), { kind: "none" });
 });
 
 test("job step takes the number, or asks again", () => {

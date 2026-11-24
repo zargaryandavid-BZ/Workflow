@@ -1,14 +1,15 @@
 /**
- * Client "CHECK" status line over SMS (pure helpers — no I/O).
+ * Client "START" / "CHECK" status line over SMS (pure helpers — no I/O).
  *
  * Conversation:
- *   client: CHECK
+ *   client: START (or CHECK)
  *   us:     menu (1 = orders under this phone number, 2 = by job ticket number)
  *   client: 1  → open orders for the customer with this phone (latest 5)
  *   client: 2  → "Send us your job ticket number"
  *   client: 15683 → status of that job (any phone may ask)
  *
- * Shortcuts that skip the menu: "CHECK 1", "CHECK 2 15683", "CHECK 15683".
+ * Shortcuts that skip the menu: "CHECK 1", "CHECK 2 15683", "CHECK 15683" (same with START).
+ * Anything else while the menu is open → "Command not found" (the text still reaches the card).
  * The step the client is on rides in a Twilio SMS cookie (Twilio keeps
  * cookies per phone pair for up to 4 hours), so no table is needed.
  */
@@ -29,9 +30,12 @@ export type SmsCheckAction =
   | { kind: "job"; jobNumber: string }
   | { kind: "bad_job" }
   /** Not part of the CHECK flow — handle the message as a normal client reply. */
+  /** Inside the menu but not 1 / 2 — reply "Command not found", then treat the text as a normal reply. */
+  | { kind: "unknown" }
   | { kind: "none" };
 
-const CHECK_RE = /^check\b[\s:.\-#]*(.*)$/i;
+/** Words that open the menu. START is also Twilio's re-subscribe keyword (Twilio sends its own reply too). */
+const CHECK_RE = /^(?:check|start)\b[\s:.\-#]*(.*)$/i;
 
 /** Job ticket number as typed by the client → safe lookup token (`#15683-2` → `15683-2`), or null. */
 export function normalizeJobNumber(raw: string): string | null {
@@ -88,7 +92,7 @@ export function parseSmsCheck(body: string, state: SmsCheckState | null): SmsChe
   if (state === "menu") {
     if (/^1\.?$/.test(text)) return { kind: "by_phone" };
     if (/^2\.?$/.test(text)) return { kind: "ask_job" };
-    return { kind: "none" };
+    return { kind: "unknown" };
   }
   if (state === "job") {
     const n = normalizeJobNumber(text);
@@ -137,6 +141,9 @@ export function isClosedClientStatus(status: string): boolean {
 }
 
 export type SmsCheckOrderLine = { number: string; status: string };
+
+export const SMS_CHECK_UNKNOWN_TEXT =
+  "Command not found. Text START or CHECK for the order status menu.";
 
 export const SMS_CHECK_MENU_TEXT = [
   "Order status:",

@@ -290,17 +290,21 @@ Column `kind` drives popup behavior in `components/board/board.tsx` (`onDragEnd`
 
 `job_notifications` is **not** subscribed; staff see notification state in the order detail modal tabs.
 
-### Client SMS status check ("CHECK")
+### Client SMS status check ("START" / "CHECK")
 
-A client texts **CHECK** to the shop's Twilio number (`POST /api/webhooks/twilio/sms`) and gets an automatic reply:
+A client texts **START** or **CHECK** (any capitals) to the shop's Twilio number (`POST /api/webhooks/twilio/sms`) and gets an automatic reply:
 
 1. Menu: *Reply 1 to get the orders under this phone number. Reply 2 to check by job ticket number.*
 2. **1** → up to 5 newest **open** orders (not Shipped / Finished) for customers whose phone matches, plus orders we texted that phone about: `#15683-2 — In production`. None → a "could not find" line and the menu stays open.
 3. **2** → *Please send us your job ticket number.* The client sends e.g. `15683` (all parts 15683-1, -2…), `15683-2`, `BZ-623`, or the CRM number. **Any phone** may look up a job number (owner's choice). Not found → *We do not have any jobs with this number. Please send us another code.* and the client can send another one.
 
-Shortcuts: `CHECK 1`, `CHECK 2 15683`, `CHECK 15683`. Statuses are client-friendly, never internal column names (`clientStatusForColumn` in `lib/sms-status-check.ts`): In design · Waiting for information from you · Waiting for your approval · Preparing for production · In production · Ready to ship · Ready for pickup · Shipped · Completed.
+While the menu is open, anything other than 1 / 2 gets *Command not found. Text START or CHECK for the order status menu.*; the menu closes and the text is still handled as a normal client reply (saved on the card). Texts outside the menu are never answered automatically. **START** is also Twilio's reserved re-subscribe keyword, so Twilio may send its own re-subscribe text as well.
+
+Shortcuts: `CHECK 1`, `CHECK 2 15683`, `CHECK 15683` (same with `START`). Statuses are client-friendly, never internal column names (`clientStatusForColumn` in `lib/sms-status-check.ts`): In design · Waiting for information from you · Waiting for your approval · Preparing for production · In production · Ready to ship · Ready for pickup · Shipped · Completed.
 
 The step (menu / waiting for job number) is kept in a Twilio SMS cookie `pp_sms_check` (15 min), so there is no table. A bare `1`/`2` without an open menu is still handled as a normal reply (warehouse combo-stock replies 1/2/3 are unchanged). CHECK messages are not logged on cards as customer replies. Job lookups use the tenant of the texting customer, else `SMS_CHECK_TENANT_ID`, else the tenant that most recently sent SMS. Code: `lib/sms-status-check.ts` (pure, tested), `lib/sms-status-check.server.ts` (lookups).
+
+**Twilio setup:** the number sits in Messaging Service "Low Volume Mixed A2P", which must be set to **Defer to sender's webhook** (Integration → Incoming Messages). Otherwise Twilio drops every incoming text before it reaches `/api/webhooks/twilio/sms` (fixed 2026-11-24).
 
 ### Staff inbox (`user_notifications`)
 
