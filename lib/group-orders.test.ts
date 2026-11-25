@@ -6,6 +6,7 @@ import {
   uniqueOrdersById,
   partCardTitle,
   sourceLabelOrderTitle,
+  sharedOrderTitle,
 } from "./group-orders.ts";
 import type { OrderWithRelations } from "./types.ts";
 
@@ -93,4 +94,30 @@ test("sourceLabelOrderTitle hides another PO line copied onto order title", () =
     "DIE FOR 2.5INCH SQAURE WITH ROUNDED CORNERS"
   );
   assert.equal(sourceLabelOrderTitle(order, cardTitle), null);
+});
+
+test("portal cards show the partner name plus the order title", () => {
+  const base = { webhook_source: "portal", title: "BZ-685-1" };
+  assert.equal(
+    sharedOrderTitle({ ...base, specs: { company_name: "Safe Care Packaging", webhook_order_title: "Pistil Peaks ROSIN", webhook_item_index: 0 } }),
+    "Safe Care Packaging · Pistil Peaks ROSIN"
+  );
+  assert.equal(
+    sharedOrderTitle({ ...base, specs: { company_name: "Safe Care Packaging", webhook_order_title: "BZ-685" } }),
+    "Safe Care Packaging"
+  );
+  assert.equal(
+    sharedOrderTitle({ ...base, specs: { company_name: "Safe Care Packaging" } }),
+    "Safe Care Packaging"
+  );
+  assert.equal(
+    sharedOrderTitle({ ...base, specs: { company_name: "Acme", webhook_order_title: "acme" } }),
+    "Acme"
+  );
+});
+
+test("single-item portal card does not repeat its title in the label", () => {
+  const order = { webhook_source: "portal", title: "BZ-692", specs: { company_name: "Safe Care Packaging", webhook_order_title: "Ethna Herbs", webhook_item_title: "Ethna Herbs" } };
+  assert.equal(sourceLabelOrderTitle(order, "Ethna Herbs"), "Safe Care Packaging");
+  assert.equal(sourceLabelOrderTitle(order, "Roll Labels"), "Safe Care Packaging · Ethna Herbs");
 });
