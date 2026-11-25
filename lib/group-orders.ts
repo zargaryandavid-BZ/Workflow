@@ -134,18 +134,29 @@ export function sharedOrderTitle(
   }
 ): string | null {
   const specs = order.specs ?? null;
-  // Portal cards: show partner/broker name after "Portal |"
+  const title = cleanOrderLevelTitle(specs?.webhook_order_title);
+  // Portal cards: show partner/broker name after "Portal |" — plus the order's
+  // own title the customer typed in the portal (e.g. "Pistil Peaks ROSIN"),
+  // which otherwise never showed on a portal card (BZ-682 / BZ-685).
   if (
     (order.webhook_source ?? "").trim().toLowerCase() === "portal" ||
     (typeof order.specs?.bazaar_broker_id === "string" &&
       order.specs.bazaar_broker_id.trim())
   ) {
     const company = specs?.company_name;
-    if (typeof company === "string" && company.trim()) return company.trim();
+    if (typeof company === "string" && company.trim()) {
+      const c = company.trim();
+      if (!title || title.toLowerCase() === c.toLowerCase()) return c;
+      return `${c} · ${title}`;
+    }
   }
-  const t = specs?.webhook_order_title;
-  if (typeof t !== "string") return null;
-  const title = t.trim();
+  return title;
+}
+
+/** Order-level title for the source label, minus refs / legacy values. */
+function cleanOrderLevelTitle(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const title = raw.trim();
   if (!title) return null;
   // Legacy backfill stored ORD-YYYY-#### here — hide those from the label.
   if (/^ord-\d{4}-\S+$/i.test(title)) return null;
@@ -173,6 +184,12 @@ export function sourceLabelOrderTitle(
   if (!shared) return null;
   const part = (cardTitle ?? "").trim();
   if (part && shared.toLowerCase() === part.toLowerCase()) return null;
+  // Portal "Partner · Order title" where the card already shows that title →
+  // keep just the partner name (single-item cards; no name shown twice).
+  const dot = shared.lastIndexOf(" · ");
+  if (part && dot > 0 && shared.slice(dot + 3).toLowerCase() === part.toLowerCase()) {
+    return shared.slice(0, dot);
+  }
   // CRM often puts the FIRST line's PO name on order `title`. That string is
   // stored as webhook_order_title and was repeated on every sibling card.
   const parentPo = parseCrmPoLineNumber(shared);
