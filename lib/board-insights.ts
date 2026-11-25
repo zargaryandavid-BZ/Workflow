@@ -72,6 +72,11 @@ export type InsightsInput = {
   timeEntries?: { user_id: string; order_id: string | null; seconds: number; started_at: string }[];
   /** Start of today in shop time (ms); defaults to UTC midnight. */
   todayStartMs?: number;
+  /**
+   * Moves into Ready to Ship (or later) over the last 60 days, for the day / week / month
+   * progress — independent of the selected period. Falls back to `events` when missing.
+   */
+  productionExits?: { order_id: string; created_at: string; from: string | null; to: string | null }[];
   /** Auto-assign pool (Settings → Designer Assigning Algorithm); rebalancing stays inside it when set. */
   designerPool?: string[];
 };
@@ -361,7 +366,18 @@ export type Focus = {
     /** Average jobs leaving production per working day, this period and the one before. */
     leftPerDay: number | null;
     prevLeftPerDay: number | null;
+    /** Jobs leaving production: today, last 7 days, last 30 days — each vs the window before it. */
+    progress: ProductionProgress[];
   };
+};
+
+export type ProductionProgress = {
+  key: "day" | "week" | "month";
+  label: string;
+  cur: number;
+  prev: number;
+  /** What `prev` is, e.g. "Mon by this time", "previous 7 days". */
+  prevLabel: string;
 };
 
 const DAY_MS = 86_400_000;
@@ -377,6 +393,62 @@ function listAnd(items: string[]): string {
 
 function round1(n: number | null): number | null {
   return n == null || !Number.isFinite(n) ? null : Math.round(n * 10) / 10;
+}
+
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Jobs leaving production (first move into Ready to Ship or later) for three windows:
+ * - day: today so far vs the previous working day up to the same time of day (fair early in the morning);
+ * - week: last 7 days vs the 7 days before;
+ * - month: last 30 days vs the 30 days before.
+ */
+export function productionProgress(
+  moves: { order_id: string; created_at: string; from?: string | null; to?: string | null }[],
+  shipCols: Set<string>,
+  nowMs: number,
+  todayStartMs: number
+): ProductionProgress[] {
+  const firstExit = new Map<string, number>();
+  for (const m of moves) {
+    if (!m.to || !shipCols.has(m.to) || (m.from && shipCols.has(m.from))) continue;
+    const t = new Date(m.created_at).getTime();
+    const had = firstExit.get(m.order_id);
+    if (had == null || t < had) firstExit.set(m.order_id, t);
+  }
+  const times = [...firstExit.values()];
+  const count = (from: number, to: number) => times.filter((t) => t >= from && t < to).length;
+
+  // Shop-local weekday of a shop-midnight timestamp (noon of that day in UTC terms is safe for ±12h zones).
+  const weekday = (dayStart: number) => new Date(dayStart + 12 * 3_600_000).getUTCDay();
+  let prevDay = todayStartMs - 86_400_000;
+  while (weekday(prevDay) === 0 || weekday(prevDay) === 6) prevDay -= 86_400_000;
+  const elapsed = Math.max(0, nowMs - todayStartMs);
+
+  const end = nowMs + 1;
+  return [
+    {
+      key: "day",
+      label: "Today",
+      cur: count(todayStartMs, end),
+      prev: count(prevDay, prevDay + elapsed),
+      prevLabel: `${WEEKDAY_SHORT[weekday(prevDay)]} by this time`,
+    },
+    {
+      key: "week",
+      label: "Week",
+      cur: count(nowMs - 7 * 86_400_000, end),
+      prev: count(nowMs - 14 * 86_400_000, nowMs - 7 * 86_400_000),
+      prevLabel: "last 7 days vs the 7 before",
+    },
+    {
+      key: "month",
+      label: "Month",
+      cur: count(nowMs - 30 * 86_400_000, end),
+      prev: count(nowMs - 60 * 86_400_000, nowMs - 30 * 86_400_000),
+      prevLabel: "last 30 days vs the 30 before",
+    },
+  ];
 }
 
 function median(nums: number[]): number | null {
@@ -1164,6 +1236,12 @@ export function buildBoardInsights(input: InsightsInput): BoardInsights {
       bucketDays,
       leftPerDay: round1(completedCur.size / workingDaysInPeriod),
       prevLeftPerDay: round1(completedPrev.size / workingDaysInPeriod),
+      progress: productionProgress(
+        input.productionExits ?? input.events.filter((e) => e.action === "moved"),
+        shipGroupCols,
+        nowMs,
+        input.todayStartMs ?? new Date(input.now.toISOString().slice(0, 10)).getTime()
+      ),
     },
   };
 

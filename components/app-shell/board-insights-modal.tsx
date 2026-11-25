@@ -761,6 +761,31 @@ function LeftProductionChart({
   );
 }
 
+/** Today / Week / Month: jobs that left production, with % change and an arrow vs the window before. */
+function ProductionProgressRow({ items }: { items: BoardInsights["focus"]["production"]["progress"] }) {
+  if (!items?.length) return null;
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {items.map((p) => (
+        <div key={p.key} className="rounded-xl bg-slate-50 px-2.5 py-2" title={`${p.cur} jobs left production — ${p.prevLabel}: ${p.prev}`}>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{p.label}</p>
+          <div className="flex flex-wrap items-baseline gap-x-1.5">
+            <span className="text-lg font-bold tabular-nums leading-tight text-slate-800">{p.cur}</span>
+            {p.prev === 0 ? (
+              <span className="text-[10px] text-slate-400">{p.cur ? "none before" : "—"}</span>
+            ) : (
+              <Growth cur={p.cur} prev={p.prev} />
+            )}
+          </div>
+          <p className="text-[10px] leading-snug text-slate-500">
+            vs {p.prev} {p.key === "day" ? p.prevLabel : p.key === "week" ? "prev. 7 days" : "prev. 30 days"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ProductionPanel({ f, onMore }: { f: BoardInsights["focus"]["production"]; onMore: () => void }) {
   const onTime = Math.max(0, f.openNow - f.late);
   return (
@@ -769,6 +794,7 @@ function ProductionPanel({ f, onMore }: { f: BoardInsights["focus"]["production"
         <Stat value={f.openNow} label="jobs in production" />
         <Stat value={f.daysInProduction == null ? "—" : `${f.daysInProduction}d`} label={`approval → ready to ship (was ${f.prevDaysInProduction ?? "—"}d)`} />
       </div>
+      <ProductionProgressRow items={f.progress} />
       <LeftProductionChart data={f.leftPerBucket} bucketDays={f.bucketDays} perDay={f.leftPerDay} prevPerDay={f.prevLeftPerDay} />
       <div>
         <div className="mb-1 flex justify-between text-[11px] text-slate-500">
