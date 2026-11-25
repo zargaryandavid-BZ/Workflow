@@ -1800,6 +1800,23 @@ All settings live under `app/(app)/settings/` with shared `layout.tsx`. The left
 | `Topbar` | `app-shell/topbar.tsx` | Tenant switcher, user menu |
 | `Providers` | `providers.tsx` | React Query provider |
 
+### Board health dashboard
+
+The heart icon in the top bar (`components/app-shell/board-health-button.tsx`) opens the small Board health popup (score, Late / Due today / Warnings / Stuck, designer load). **Open full dashboard** there opens a large window (`components/app-shell/board-insights-modal.tsx`) with a **7 / 30 / 90 days** switch; growth arrows compare with the same-length period before (green = better, red = worse). Tabs:
+
+- **Overview** — three panels, each red / amber / green with a short note:
+  - **Design** (Hold is ignored) — team designs per day vs new jobs per day, average job duration, SKU qty designed (all with growth); red when more jobs come in than designers finish or a job waits 3+ days in Start; per designer: design/day, average job duration, SKU qty. *Design/day* = jobs the designer sent a proof for (`approval_queued` actor) ÷ working days; *average job duration* = Design timer (`time_entries`, activity "Design", end − start − paused) totalled per job, averaged; *SKU qty* = SKUs in those jobs.
+  - **Waiting on client** — Missing information: % of new orders that got a missing-info request, answered requests % (client used the link, or the card left Missing Info afterwards), average time to reply, waiting longest. Waiting approval: % of new orders that got a proof, approval rate (approved ÷ decisions), average approval time (each proof sent → the client's approve/reject), rejection rate, proof rounds to fix (1 + rejections before approval; jobs rejected 2+ times), waiting 2+ days, waiting longest.
+  - **Production** — jobs in production, approval → ready to ship median days, "Jobs leaving production per day" bar chart (first move into Ready to Ship or later; average per working day with growth), on-time vs late bar, jobs in production longest.
+  - **Where jobs pile up: in vs out per day** — every design → production column except Hold: jobs now (late), in/day, out/day, average wait. "Piling up" = in > out by 10%+ and jobs wait a day or more (design queue excluded; covered by design speed); "Longest wait" = biggest open × wait.
+  - **Action plan** button → Actions tab.
+- **Workload** — designer load per person, open jobs per column, jobs stuck longest in production (click → `/board?order=<id>`).
+- **Designer Quality** — missing-info % and proof rejection % rings, rejection % per designer, jobs rejected several times, clients who send work back most (top 5, Show all), proofs waiting 2+ days.
+- **Actions** — generated fixes (high / medium / low), each with **numbered exact steps**, the jobs involved and an **expected result**: speed up production (late production jobs by due date, piling-up columns, target jobs/day to Ready to Ship), other piling-up columns, design speed (unassigned jobs, Start by due date, extra design hours = (new − designed per day) × average job minutes), late jobs (Hold excluded), proofs waiting 2+ days, repeat-rejection clients. Tick items done (browser `localStorage` `board-insights-done-v1`).
+- **AI coach** — `POST /api/board/health/analyze` with `{ days }` sends the dashboard facts (`insightsForAi`) to OpenAI (`OPENAI_API_KEY`, `OPENAI_MODEL`, default `gpt-4o-mini`) for a plain-English briefing: headline, Top 3 bottlenecks, bullets, Next actions each ending with "Result: …". Without the key (or on error) a stats-only briefing is shown.
+
+Data: `GET /api/board/insights?days=7|30|90` (60 s shared cache, `Server-Timing` header) → `loadBoardInsights` (`lib/board-insights.server.ts`, service client after the tenant check, parallel paging, finished columns skipped) reads open orders, orders created in the last 2× period, `activity_log` (`moved`, `customer_replied`, `column_moved`, `idle_auto_moved` as moves, plus `approved`, `rejected`, `approval_queued`), `job_notifications` (`missing_info`) and Design `time_entries`, then `buildBoardInsights` (`lib/board-insights.ts`, pure, tests in `lib/board-insights.test.ts`). Column stages come from board order: up to Waiting Approval = design (Missing Info / Customer Replied / Waiting Approval = waiting on client), then production until Ready to Ship, then shipping, then Finished. "Reached Ready to Ship" = first move into Ready to Ship or a later column.
+
 ---
 
 ## UI primitives

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
 import { evaluateBoardHealth } from "@/lib/board-health";
 import {
   buildBoardHealthAnalyzePrompt,
@@ -12,6 +11,9 @@ import { loadEnabledCardWarningRules } from "@/lib/card-warning-rules.server";
 import { normalizeWorkingDays } from "@/lib/card-warning-rules";
 import { normalizeEmergencyBalance } from "@/lib/emergency-balance";
 import { openaiChatText, openaiConfigured } from "@/lib/openai";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { insightsForAi } from "@/lib/board-insights";
+import { INSIGHTS_PERIODS, loadBoardInsights } from "@/lib/board-insights.server";
 import type { BoardColumn, CardWarningRule } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -32,11 +34,13 @@ function tagName(
   return tag;
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const ctx = await getTenantContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabase = await createClient();
+  // Membership checked above; every query below filters by tenant_id. The
+  // service client skips per-row RLS checks that made this scan very slow.
+  const supabase = createAdminClient();
   const tenantId = ctx.tenant.id;
 
   const [columnsRes, rules, membershipsRes] = await Promise.all([
@@ -131,7 +135,33 @@ export async function POST() {
     warningWorkingDays,
   });
 
-  const { system, user } = buildBoardHealthAnalyzePrompt(situation);
+  const base = buildBoardHealthAnalyzePrompt(situation);
+  // Richer facts: flow, stage times, rejections, missing info, repeat clients.
+  const body = (await req.json().catch(() => ({}))) as { days?: number };
+  const days = (INSIGHTS_PERIODS as readonly number[]).includes(Number(body.days))
+    ? Number(body.days)
+    : 30;
+  const insights = await loadBoardInsights(createAdminClient(), tenantId, days).catch((err) => {
+    console.error("[board/health/analyze] insights", err);
+    return null;
+  });
+  const system = insights
+    ? [
+        "You are an experienced operations manager coaching a print shop owner about their production board.",
+        "Ignore the Hold column completely. Focus on designer speed (designsPerDay vs newJobsPerDay), production speed (jobsLeavingPerDay), and columns where inPerDay is higher than outPerDay (pilingUp). The goal is fewer late jobs.", "Write in plain, friendly English a shop owner understands. Never show JSON field names (no camelCase like targetOutPerDay, avgDaysHere).",
+        "Use ONLY the numbers in the JSON. Never invent counts, rates, names or job numbers. Round to whole numbers or one decimal.",
+        `'prev' values are the previous ${days} days: say clearly what got better or worse.`,
+        "Format (plain text, no # headings, no bold markers):",
+        "1) One-sentence headline: overall state and the single biggest problem.",
+        "2) 'Top 3 bottlenecks:' on its own line, then '1. …' '2. …' '3. …'. Each: column name — N jobs, about N days there; now about N jobs/day leave, it needs about N/day to clear in a week (use outPerDay and targetOutPerDay).",
+        "3) 3-5 • bullets on: designer load (hold vs to design vs waiting on client), the jobs stuck longest in production (job numbers), stage times vs before, missing info % and proof rejection % vs before, the clients with the most rejections.",
+        "4) 'Next actions:' on its own line, then '1. …' '2. …' '3. …'. Each is ONE full sentence telling who should do what today, naming the column, designer, client or job numbers, followed by ' Result: ' and the concrete expected outcome (e.g. 'Result: Hold drops from 29 to about 19 jobs this week.').",
+        "Under 300 words.",
+      ].join(" ")
+    : base.system;
+  const user = insights
+    ? `Board facts for the last ${days} days:\n\n${JSON.stringify(insightsForAi(insights))}`
+    : base.user;
 
   let commentary: string;
   let source: "openai" | "fallback" = "fallback";
