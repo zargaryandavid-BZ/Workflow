@@ -7,6 +7,7 @@ import { shopDayKey } from "@/lib/fulfillment-day";
 import { getDesignerAssignmentSettings } from "@/lib/designer-assignment-settings";
 import {
   buildBoardInsights,
+  groupColumns,
   type BoardInsights,
   type InsightsColumn,
   type InsightsEvent,
@@ -160,7 +161,27 @@ export async function loadBoardInsights(
       .gte("created_at", since);
   const EVENT_SELECT = "order_id, action, actor, created_at, from:metadata->>from, to:metadata->>to";
 
-  const [slimRows, newRows, eventRows, noteRows, timeRows] = await Promise.all([
+  // Moves into Ready to Ship (or later) over the last 60 days, for the Production day / week / month progress.
+  const shipCols = [...groupColumns(columns)].filter(([, g]) => g === "shipping" || g === "finished").map(([id]) => id);
+  const exitsSince = new Date(now.getTime() - 61 * 86_400_000).toISOString();
+  const exitsQuery = shipCols.length
+    ? all<{ order_id: string | null; created_at: string; from: string | null; to: string | null }>((f, t) =>
+        client
+          .from("activity_log")
+          .select("order_id, created_at, from:metadata->>from, to:metadata->>to")
+          .eq("tenant_id", tenantId)
+          .in("action", MOVE_ACTIONS)
+          .in("metadata->>to", shipCols)
+          .gte("created_at", exitsSince)
+          .order("created_at", { ascending: true })
+          .range(f, t)
+      ).catch((err) => {
+        console.warn("[board/insights] production exits query failed:", err);
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const [slimRows, newRows, eventRows, noteRows, timeRows, exitRows] = await Promise.all([
     allParallel<SlimRow>(
       () => openQuery("id", true),
       (f, t) => openQuery(SLIM_ORDER).order("id").range(f, t)
@@ -197,6 +218,7 @@ export async function loadBoardInsights(
         .gte("started_at", since)
         .range(f, t)
     ).catch(() => []),
+    exitsQuery,
   ]);
 
   lap("main");
@@ -315,6 +337,11 @@ export async function loadBoardInsights(
     designers,
     designerPool: assignment?.pool ?? [],
     todayStartMs: shopTodayStartMs(now),
+    productionExits: exitRows
+      ? exitRows
+          .filter((e) => e.order_id)
+          .map((e) => ({ order_id: e.order_id!, created_at: e.created_at, from: e.from || null, to: e.to || null }))
+      : undefined,
     timeEntries: timeRows.map((t) => ({
       user_id: t.user_id,
       order_id: t.order_id,

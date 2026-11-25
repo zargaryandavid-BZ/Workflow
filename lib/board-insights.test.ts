@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildBoardInsights, groupColumns, type InsightsInput } from "./board-insights.ts";
+import { buildBoardInsights, groupColumns, productionProgress, type InsightsInput } from "./board-insights.ts";
 
 const NOW = new Date("2026-11-24T20:00:00Z");
 const ago = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
@@ -130,4 +130,34 @@ test("bottlenecks skip Boyd; actions have steps and ignore Hold", () => {
   for (const a of r.actions) assert.ok(a.steps.length > 0, a.id);
   // Hold never counts as a growing column.
   assert.ok(!r.focus.growing.includes("hold"));
+});
+
+test("productionProgress: today vs previous working day by the same time, 7 and 30 day windows", () => {
+  // Monday 2026-11-23, shop midnight = 05:00Z; now = Monday 15:00Z (10:00 shop time).
+  const todayStart = Date.parse("2026-11-23T05:00:00Z");
+  const now = Date.parse("2026-11-23T15:00:00Z");
+  const ship = new Set(["ready"]);
+  const mv = (id: string, iso: string, from: string | null = "press") => ({ order_id: id, created_at: iso, from, to: "ready" });
+  const res = productionProgress(
+    [
+      mv("a", "2026-11-23T13:00:00Z"), // today
+      mv("b", "2026-11-23T14:00:00Z"), // today
+      mv("c", "2026-11-20T12:00:00Z"), // Friday before 10:00 shop time -> counts for "Fri by this time"
+      mv("d", "2026-11-20T20:00:00Z"), // Friday afternoon -> not by this time
+      mv("e", "2026-11-14T12:00:00Z"), // 8-14 days ago -> previous week
+      mv("a", "2026-11-23T14:30:00Z"), // second exit of "a" ignored
+      mv("f", "2026-11-23T14:40:00Z", "ready"), // move inside shipping, not an exit
+    ],
+    ship,
+    now,
+    todayStart
+  );
+  const by = Object.fromEntries(res.map((p) => [p.key, p]));
+  assert.equal(by.day.cur, 2);
+  assert.equal(by.day.prev, 1);
+  assert.equal(by.day.prevLabel, "Fri by this time");
+  assert.equal(by.week.cur, 4);
+  assert.equal(by.week.prev, 1);
+  assert.equal(by.month.cur, 5);
+  assert.equal(by.month.prev, 0);
 });
