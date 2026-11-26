@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ACTIVITY_LOG_LIMIT } from "@/lib/constants";
 import { isColumnMoveActivity } from "@/lib/activity";
 import {
-  materializeAfterApprovalDue,
+  anchorDueAtApproval,
   mergeDueSpecsIntoOrderSpecs,
 } from "@/lib/due-date";
 import { materializeDueOnProductionMove } from "@/lib/due-date-on-move.server";
@@ -401,7 +401,8 @@ export async function onApprovalResult(
   }
 
   if (params.result === "approved" && order) {
-    const materialized = materializeAfterApprovalDue(
+    // Clock starts at the customer's approval (Hayk 2026-11-24, order 15815).
+    const materialized = anchorDueAtApproval(
       (order as Order).specs,
       (order as Order).due_date,
       new Date()

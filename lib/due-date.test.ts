@@ -9,6 +9,7 @@ import {
   materializeAfterApprovalDue,
   recomputeDueFromProcessingDays,
   resolveWebhookDue,
+  anchorDueAtApproval,
 } from "./due-date.ts";
 
 describe("addWorkingDays", () => {
@@ -229,3 +230,53 @@ describe("recomputeDueFromProcessingDays", () => {
     assert.equal(r!.specs.due_date_status, "pending_approval");
   });
 });
+
+describe("anchorDueAtApproval (Hayk 2026-11-24, order 15815)", () => {
+  // CRM sent 15815 anchored at order time (Thu Nov 19 → due Thu Nov 26).
+  const crmSpecs = {
+    due_date_mode: "after_approval",
+    due_processing_days: 5,
+    due_anchor_at: "2026-11-19T23:47:20.859Z",
+    due_date_status: "set",
+  };
+  it("restarts the clock at approval: Mon Nov 23 + 5 wd = Mon Nov 30", () => {
+    const r = anchorDueAtApproval(crmSpecs, "2026-11-26", "2026-11-23T20:00:00Z");
+    assert.ok(r);
+    assert.equal(r.dueDate, "2026-11-30");
+    assert.equal(r.specs.due_anchor_source, "approval");
+  });
+  it("uses the Los Angeles business day, not UTC", () => {
+    // 2026-11-24 04:00 UTC = Mon Nov 23 8pm in LA.
+    const r = anchorDueAtApproval(crmSpecs, "2026-11-26", "2026-11-24T04:00:00Z");
+    assert.equal(r?.dueDate, "2026-11-30");
+  });
+  it("does nothing once approval-anchored, for staff dates, or fixed mode", () => {
+    assert.equal(
+      anchorDueAtApproval({ ...crmSpecs, due_anchor_source: "approval" }, "2026-11-26"),
+      null
+    );
+    assert.equal(
+      anchorDueAtApproval({ ...crmSpecs, due_staff_edited_at: "2026-11-20T00:00:00Z" }, "2026-11-26"),
+      null
+    );
+    assert.equal(anchorDueAtApproval({ due_date_mode: "fixed" }, "2026-11-26"), null);
+  });
+  it("never shortens", () => {
+    assert.equal(
+      anchorDueAtApproval(crmSpecs, "2026-12-15", "2026-11-23T20:00:00Z"),
+      null
+    );
+  });
+  it("unapproved cards hold the chip; approved ones show the real date", () => {
+    assert.equal(holdAfterApprovalLateChip("2026-11-23", crmSpecs, true), true);
+    assert.equal(
+      holdAfterApprovalLateChip(
+        "2026-11-30",
+        { ...crmSpecs, due_anchor_source: "approval" },
+        true
+      ),
+      false
+    );
+  });
+});
+

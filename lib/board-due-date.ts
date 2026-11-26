@@ -4,7 +4,7 @@ import {
   holdAfterApprovalLateChip,
   readOrderDueSpecs,
 } from "@/lib/due-date";
-import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
+import { isApprovalClockColumn } from "@/lib/waiting-approval-column";
 
 export type DueDateStatus =
   | { kind: "none"; label: string }
@@ -48,7 +48,7 @@ export function effectiveDaysUntilDue(
   }
 ): number | null {
   const awaiting =
-    opts?.awaitingCustomerApproval ?? isWaitingApprovalColumn(opts?.column);
+    opts?.awaitingCustomerApproval ?? isApprovalClockColumn(opts?.column);
   if (holdAfterApprovalLateChip(dueDate, specs, awaiting)) return null;
   if (!dueDate?.trim()) return null;
   return calendarDaysUntilDue(dueDate, opts?.today);

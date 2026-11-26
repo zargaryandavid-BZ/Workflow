@@ -49,7 +49,11 @@ export function hasStaffDueStamp(specs: Record<string, unknown> | null | undefin
 
 export type DueResyncDecision =
   | { action: "apply"; dueDate: string | null }
-  | { action: "keep"; reason: "inbound_empty" | "staff_set"; dueDate: string };
+  | {
+      action: "keep";
+      reason: "inbound_empty" | "staff_set" | "approval_anchored";
+      dueDate: string;
+    };
 
 /**
  * Decide what a re-sync does to an existing card's due date.
@@ -70,6 +74,11 @@ export function resolveInboundDueResync(params: {
   if (hasStaffDueStamp(params.existingSpecs) || params.legacyStaffSet === true) {
     return { action: "keep", reason: "staff_set", dueDate: existing };
   }
+  // Clock was restarted at the customer's approval in Workflow — a source
+  // re-fire still carries its order-time date; don't roll the card back.
+  if (params.existingSpecs?.due_anchor_source === "approval") {
+    return { action: "keep", reason: "approval_anchored", dueDate: existing };
+  }
   return { action: "apply", dueDate: inbound };
 }
 
@@ -88,7 +97,8 @@ export function needsLegacyStaffCheck(params: {
     !!existing &&
     !!inbound &&
     existing !== inbound &&
-    !hasStaffDueStamp(params.existingSpecs)
+    !hasStaffDueStamp(params.existingSpecs) &&
+    params.existingSpecs?.due_anchor_source !== "approval"
   );
 }
 
