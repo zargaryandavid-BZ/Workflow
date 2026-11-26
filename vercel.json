@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/designer-stale-reassign",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/missing-info-drive",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

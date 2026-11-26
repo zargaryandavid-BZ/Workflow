@@ -1306,6 +1306,17 @@ async function customerRepliedColumnId(
   return (data?.id as string | null) ?? null;
 }
 
+/**
+ * Public wrapper (additive): the column a Missing Info card returns to when the
+ * customer supplies what was asked — same rule the missing-info link uses.
+ */
+export async function missingInfoReturnColumnId(
+  client: Client,
+  order: Order
+): Promise<string | null> {
+  return missingInfoTargetColumn(client, order);
+}
+
 async function missingInfoTargetColumn(
   client: Client,
   order: Order
