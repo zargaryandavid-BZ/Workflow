@@ -98,3 +98,42 @@ export function dieOrderNumberMatchRank(
   }
   return 99;
 }
+
+/**
+ * True when the card's own order number IS the query (not just contains it):
+ * `610` → `0610-1`, `W610-1`; `w610` → only website cards; `610-2` → that part.
+ * Product titles like "PO 261006" or "ORDER # 117610" are not exact hits.
+ */
+export function isExactOrderNumberHit(
+  order: { title: string; specs?: Record<string, unknown> | null },
+  q: string
+): boolean {
+  const raw = q.trim().toLowerCase().replace(/^#/, "");
+  const compactQ = compactOrderNumberToken(raw);
+  if (!compactQ) return false;
+  const wantWeb = /^w/.test(raw);
+  const card = formatShortOrderNumber(order.title);
+  const tokens = [card];
+  const won =
+    typeof order.specs?.webhook_order_number === "string"
+      ? order.specs.webhook_order_number.trim()
+      : "";
+  // Renamed cards (title = product name) keep their number in the webhook field.
+  if (won && !/^w?-?\d/i.test(card)) tokens.push(won);
+  return tokens.some((t) => {
+    if (wantWeb && !/^w/i.test(t)) return false;
+    const c = compactOrderNumberToken(t);
+    return c === compactQ || c.startsWith(`${compactQ}-`);
+  });
+}
+
+/**
+ * Order-number search: when some cards ARE that number, show only those so the
+ * board jumps to the right job instead of a product title containing the digits.
+ */
+export function preferExactOrderNumberHits<
+  T extends { title: string; specs?: Record<string, unknown> | null },
+>(orders: T[], q: string): T[] {
+  const exact = orders.filter((o) => isExactOrderNumberHit(o, q));
+  return exact.length > 0 ? exact : orders;
+}

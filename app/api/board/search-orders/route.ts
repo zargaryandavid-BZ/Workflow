@@ -9,6 +9,7 @@ import {
   nextCalendarDate,
   orderMatchesBoardFilters,
 } from "@/lib/board-order-filters";
+import { preferExactOrderNumberHits } from "@/lib/order-number-tokens";
 import { columnIdsForQuickFilter } from "@/lib/emergency-quick-filters";
 import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import {
@@ -329,7 +330,7 @@ export async function GET(req: NextRequest) {
     waitingApprovalColumnIds,
     activePipelineColumnIds,
   };
-  const orders = allOrders.filter((order) =>
+  const matched = allOrders.filter((order) =>
     orderMatchesBoardFilters(
       order,
       fieldValuesByOrder[order.id] ?? {},
@@ -337,6 +338,10 @@ export async function GET(req: NextRequest) {
       filters
     )
   );
+  // "610" should land on job 610 (0610-1 / W610-1), not on a product titled
+  // "PO 261006" that happens to contain the digits.
+  const orders =
+    q && isOrderNumberQuery(q) ? preferExactOrderNumberHits(matched, q) : matched;
 
   // #N queue badge for every designer card in Start / In Progress (and
   // Prepress) — the filtered view never had ranks before.
