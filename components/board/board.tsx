@@ -198,7 +198,7 @@ import {
   designerLoadColumnIds,
 } from "@/lib/designer-load";
 import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
-import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
+import { isApprovalClockColumn } from "@/lib/waiting-approval-column";
 import {
   chipsToStampOnEnter,
   withTimeChipStamp,
@@ -548,7 +548,7 @@ export function Board({
   const waitingApprovalColumnIds = useMemo(
     () =>
       new Set(
-        columns.filter((c) => isWaitingApprovalColumn(c)).map((c) => c.id)
+        columns.filter((c) => isApprovalClockColumn(c)).map((c) => c.id)
       ),
     [columns]
   );

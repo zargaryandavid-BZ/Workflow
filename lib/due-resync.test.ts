@@ -110,3 +110,19 @@ describe("applyStaffDueEdit / preserveDueSyncKeys", () => {
     assert.deepEqual(preserveDueSyncKeys(stamped, { b: 2 }), { b: 2, ...stamped });
   });
 });
+
+describe("approval-anchored dues (Hayk 2026-11-24)", () => {
+  it("a source re-fire never rolls back a clock restarted at approval", () => {
+    const d = resolveInboundDueResync({
+      existingDueDate: "2026-11-30",
+      existingSpecs: { due_anchor_source: "approval" },
+      inboundDueDate: "2026-11-26",
+    });
+    assert.deepEqual(d, {
+      action: "keep",
+      reason: "approval_anchored",
+      dueDate: "2026-11-30",
+    });
+  });
+});
+

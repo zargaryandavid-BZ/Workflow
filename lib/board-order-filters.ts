@@ -13,6 +13,7 @@ import {
   orderNumberSearchHaystack,
 } from "./order-number-tokens.ts";
 import { holdAfterApprovalLateChip } from "./due-date.ts";
+import { isCancelledOrderSpecs } from "./order-cancelled.ts";
 
 export {
   compactOrderNumberToken,
@@ -163,6 +164,8 @@ export function orderMatchesBoardFilters(
         .filter(Boolean);
 
       const searchable = [
+        // "cancelled" lists cards of orders cancelled at the source.
+        isCancelledOrderSpecs(order.specs) ? "cancelled canceled cancel" : "",
         order.title,
         customerName,
         email ?? "",

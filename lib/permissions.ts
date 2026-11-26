@@ -166,6 +166,7 @@ const OPERATIONAL_SPEC_KEYS = new Set([
   "due_anchor_at",
   "due_date_label",
   "due_date_status",
+  "due_anchor_source",
   "card_image",
   // Server-owned SKU re-sync bookkeeping (lib/sku-resync.ts); client values ignored.
   "skus_staff_edited_at",

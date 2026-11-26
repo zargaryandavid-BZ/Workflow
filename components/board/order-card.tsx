@@ -90,7 +90,10 @@ import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
 import { canControlPrepressTimer } from "@/lib/permissions";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
-import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
+import {
+  isApprovalClockColumn,
+  isWaitingApprovalColumn,
+} from "@/lib/waiting-approval-column";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
 import { BoardWorkerChip } from "./board-worker-chip";
@@ -146,6 +149,7 @@ import { RollDirectionThumb } from "./roll-direction-select";
 import { isRollDirectionField } from "@/lib/roll-direction";
 import { isApplicationEnabled } from "@/lib/order-application";
 import { isRushOrder } from "@/lib/order-rush";
+import { isCancelledOrderSpecs } from "@/lib/order-cancelled";
 import type { TimeChip } from "@/lib/time-chips";
 import { formatDesignerLoadSuffix } from "@/lib/designer-load";
 import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
@@ -1185,7 +1189,11 @@ export function OrderCard({
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: columnKind === "done",
     specs: order.specs,
-    awaitingCustomerApproval,
+    // Design stages before approval too — the clock hasn't started there.
+    awaitingCustomerApproval: isApprovalClockColumn({
+      kind: columnKind,
+      name: columnName,
+    }),
   });
   const dueLabel = order.due_date
     ? formatDateShort(order.due_date)
@@ -1517,6 +1525,14 @@ export function OrderCard({
                     title="Rush order"
                   >
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  </span>
+                ) : null}
+                {isCancelledOrderSpecs(order.specs) ? (
+                  <span
+                    className="shrink-0 rounded bg-red-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-red-700"
+                    title="Order was cancelled (website, portal or CRM)"
+                  >
+                    Cancelled
                   </span>
                 ) : null}
                 {isReprint ? (
