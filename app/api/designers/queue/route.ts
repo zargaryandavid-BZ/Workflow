@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  DESIGNER_QUEUE_MANUAL_KEY,
+  orderDesignerQueue,
+  queueInputFromRow,
+} from "@/lib/designer-queue-rank";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { loadTeamMembers } from "@/lib/team-members";
@@ -69,7 +74,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabase
     .from("orders")
-    .select("id, title, priority, due_date, specs, column_id, customer:customers(name)")
+    .select("id, title, priority, due_date, specs, column_id, last_moved_at, created_at, customer:customers(name)")
     .eq("tenant_id", ctx.tenant.id)
     .eq("specs->>designer_id", designerId)
     .in("column_id", startColumnIds)
@@ -77,21 +82,24 @@ export async function GET(request: Request) {
     .limit(1000);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const orders = (data ?? [])
-    .map((o) => ({
-      id: o.id as string,
+  // Same order as the board (rush → longest in column, manual slots kept).
+  const rows = (data ?? []) as Array<Record<string, unknown> & { id: string }>;
+  const rowById = new Map(rows.map((o) => [o.id, o]));
+  const orders = orderDesignerQueue(
+    rows.map((o) =>
+      queueInputFromRow(o as Parameters<typeof queueInputFromRow>[0])
+    )
+  ).map((c) => {
+    const o = rowById.get(c.id)!;
+    return {
+      id: o.id,
       title: (o.title as string) ?? "",
       priority: (o.priority as string) ?? "normal",
       due_date: (o.due_date as string | null) ?? null,
       queue_pos: queuePos(o.specs),
       customer_name: ((o.customer as { name?: string } | null)?.name) ?? null,
-    }))
-    .sort((a, b) => {
-      if (a.queue_pos !== b.queue_pos) return a.queue_pos - b.queue_pos;
-      const pr = (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2);
-      if (pr !== 0) return pr;
-      return (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999");
-    });
+    };
+  });
 
   return NextResponse.json({ orders });
 }
@@ -125,10 +133,14 @@ export async function PATCH(request: Request) {
     const cur = specsById.get(ids[i]);
     if (!cur) continue;
     // Already at this slot → skip the write (fewer realtime refetches).
-    if (queuePos(cur) === i) continue;
+    // Manager saved this exact order → every card is placed by hand.
+    if (queuePos(cur) === i && cur[DESIGNER_QUEUE_MANUAL_KEY] === true) continue;
     await supabase
       .from("orders")
-      .update({ specs: { ...cur, designer_queue_pos: i }, updated_at: now })
+      .update({
+        specs: { ...cur, designer_queue_pos: i, [DESIGNER_QUEUE_MANUAL_KEY]: true },
+        updated_at: now,
+      })
       .eq("id", ids[i])
       .eq("tenant_id", ctx.tenant.id);
   }

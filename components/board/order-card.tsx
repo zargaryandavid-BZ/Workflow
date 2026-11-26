@@ -765,6 +765,11 @@ export function OrderCard({
       : null;
   const queueRank = (() => {
     if (!queueKind) return null;
+    // Designer queue is auto-ordered (rush → longest in column) — the server
+    // rank is the truth; the stored slot is only a snapshot.
+    if (queueKind === "designer" && typeof order.queue_rank === "number") {
+      return order.queue_rank;
+    }
     const key =
       queueKind === "prepress" ? "prepress_queue_pos" : "designer_queue_pos";
     const v = (order.specs as Record<string, unknown> | null)?.[key];
