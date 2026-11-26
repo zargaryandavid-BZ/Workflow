@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { holdAfterApprovalLateChip } from "@/lib/due-date";
+import { hasStaffDueStamp } from "@/lib/due-resync";
+import { isApprovalClockColumn } from "@/lib/waiting-approval-column";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   findWebhookConfigBySecret,
@@ -78,6 +81,30 @@ function readSecret(request: NextRequest): string | null {
  *   hold_reason (newest Hold / Missing-info reason while the card sits in such a
  *   column, else null — the portal shows it as "We need: …").
  */
+/**
+ * Card due date for the Bazaar portal. Hayk 2026-11-26: the portal must follow
+ * the same rule as the board — "N working days after approval" starts at the
+ * customer's approval. While the card is still before approval and its date is
+ * only the CRM / portal order-time estimate, send null so the portal shows
+ * "N business days after proof approval" instead of a wrong date. A date staff
+ * set by hand, a fixed date, or an approval-anchored date is sent as-is.
+ */
+function exportDueDate(
+  order: { due_date: string | null; specs: Record<string, unknown> | null },
+  col: { name?: string | null; kind?: string | null } | null
+): string | null {
+  const due =
+    typeof order.due_date === "string" && order.due_date
+      ? order.due_date.slice(0, 10)
+      : null;
+  if (!due) return null;
+  if (hasStaffDueStamp(order.specs)) return due;
+  if (holdAfterApprovalLateChip(due, order.specs, isApprovalClockColumn(col))) {
+    return null;
+  }
+  return due;
+}
+
 export async function GET(request: NextRequest) {
   const secret = readSecret(request);
   if (!secret) {
@@ -120,7 +147,7 @@ export async function GET(request: NextRequest) {
         .maybeSingle(),
       adminClient
         .from("board_columns")
-        .select("id, name, position")
+        .select("id, name, position, kind")
         .eq("tenant_id", tenantId)
         .order("position", { ascending: true }),
     ]);
@@ -249,10 +276,7 @@ export async function GET(request: NextRequest) {
       card_position: order.position,
       updated_at: order.updated_at,
       created_at: order.created_at,
-      due_date:
-        typeof order.due_date === "string" && order.due_date
-          ? order.due_date.slice(0, 10)
-          : null,
+      due_date: exportDueDate(order, col ?? null),
       // Why the card is held (Hold / Missing info), or null — the Bazaar portal
       // shows it to the partner as "We need: …".
       hold_reason: holdReasonByOrder.get(order.id) ?? null,
