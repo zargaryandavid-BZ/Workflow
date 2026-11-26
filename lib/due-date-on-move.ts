@@ -15,9 +15,9 @@
  *     column positioned before the gate (Start, In Progress, Hold, Missing
  *     Info, Customer Replied, Waiting Approval…) INTO a column at or after the
  *     gate that is not itself an approval / exception (Missing Info) column.
- *   - Only for `due_date_mode = after_approval` cards whose calendar due is
- *     still empty and whose status is not already "set". An existing due date
- *     is NEVER replaced.
+ *   - Only for `due_date_mode = after_approval` cards not yet anchored at an
+ *     approval. An order-time date from the CRM / portal is re-anchored to the
+ *     move (later only — never shortened); a staff-set date is never replaced.
  *   - Anchor = the time of that move. Same working-day math, label and status
  *     fields as customer approval (materializeAfterApprovalDue).
  *
@@ -25,7 +25,7 @@
  */
 
 import {
-  materializeAfterApprovalDue,
+  anchorDueAtApproval,
   readOrderDueSpecs,
   type MaterializedDue,
 } from "./due-date.ts";
@@ -88,10 +88,10 @@ export function planDueOnMove(args: {
   movedAt?: Date | string;
 }): MaterializedDue | null {
   const { order } = args;
-  if (typeof order.due_date === "string" && order.due_date.trim()) return null;
   const due = readOrderDueSpecs(order.specs);
   if (due.due_date_mode !== "after_approval") return null;
-  if (due.due_date_status === "set") return null;
+  // Already anchored at an approval → leave it (re-proofs don't push it).
+  if (due.due_anchor_source === "approval") return null;
   if (
     !isPastApprovalMove({
       fromColumnId: args.fromColumnId,
@@ -101,5 +101,11 @@ export function planDueOnMove(args: {
   ) {
     return null;
   }
-  return materializeAfterApprovalDue(order.specs, null, args.movedAt ?? new Date());
+  // Moving past approval starts the clock, even when the source already sent
+  // an order-time date (Hayk 2026-11-24). Never shortens; staff dates win.
+  return anchorDueAtApproval(
+    order.specs,
+    order.due_date ?? null,
+    args.movedAt ?? new Date()
+  );
 }

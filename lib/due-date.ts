@@ -26,6 +26,12 @@ export interface OrderDueSpecs {
   due_anchor_at?: string | null;
   due_date_label?: string | null;
   due_date_status?: DueDateStatus | null;
+  /**
+   * "approval" once the after-approval clock was started by the customer's
+   * approval (or a staff move past approval). Until then any calendar date is
+   * the source's estimate from order time and gets re-anchored at approval.
+   */
+  due_anchor_source?: "approval" | null;
 }
 
 export interface ResolvedWebhookDue {
@@ -231,6 +237,7 @@ export function mergeDueSpecsIntoOrderSpecs(
     "due_anchor_at",
     "due_date_label",
     "due_date_status",
+    "due_anchor_source",
   ] as const) {
     const value = dueSpecs[key];
     if (value === null) {
@@ -399,6 +406,80 @@ export function readOrderDueSpecs(specs: unknown): OrderDueSpecs {
     ...(status ? { due_date_status: status } : {}),
     ...(label ? { due_date_label: label } : {}),
     ...(anchor ? { due_anchor_at: anchor } : {}),
+    ...(s.due_anchor_source === "approval"
+      ? { due_anchor_source: "approval" as const }
+      : {}),
+  };
+}
+
+/** True once approval (or a move past approval) started the after-approval clock. */
+export function isApprovalAnchoredDue(specs: unknown): boolean {
+  return readOrderDueSpecs(specs).due_anchor_source === "approval";
+}
+
+/** Bazaar's business calendar day (Los Angeles) for an instant. */
+export function businessYmdFromInstant(at: Date | string = new Date()): string {
+  const date = typeof at === "string" ? new Date(at) : at;
+  if (Number.isNaN(date.getTime())) return localYmdFromInstant(new Date());
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/**
+ * Hayk 2026-11-24 (order 15815): "N working days after approval" must count
+ * from the customer's APPROVAL, not from when the order was placed. The CRM /
+ * portal send a calendar date anchored at order time; at approval we restart
+ * the clock: approval day + N working days.
+ *
+ * Returns null (leave the card alone) when:
+ * - the order is not after-approval mode (fixed dates are never touched),
+ * - the clock was already anchored at an approval (re-proofs don't push it),
+ * - staff set the due date by hand in Workflow (staff value wins),
+ * - the new date would be EARLIER than the current one (never shorten).
+ */
+export function anchorDueAtApproval(
+  specs: unknown,
+  currentDueDate: string | null | undefined,
+  approvedAt: Date | string = new Date()
+): MaterializedDue | null {
+  const due = readOrderDueSpecs(specs);
+  if (due.due_date_mode !== "after_approval") return null;
+  if (due.due_anchor_source === "approval") return null;
+  const raw = (specs ?? {}) as Record<string, unknown>;
+  if (
+    typeof raw.due_staff_edited_at === "string" &&
+    raw.due_staff_edited_at.trim()
+  ) {
+    return null;
+  }
+  const days = due.due_processing_days ?? DEFAULT_PROCESSING_DAYS;
+  if (days < 1) return null;
+
+  const anchorIso =
+    typeof approvedAt === "string" ? approvedAt : approvedAt.toISOString();
+  const dueDate = addWorkingDays(businessYmdFromInstant(approvedAt), days);
+  // A pending preview date is only an estimate — never blocks the anchor.
+  const current =
+    due.due_date_status !== "pending_approval" && currentDueDate?.trim()
+      ? currentDueDate.trim().slice(0, 10)
+      : null;
+  if (current && dueDate < current) return null;
+
+  return {
+    dueDate,
+    specs: {
+      ...due,
+      due_date_mode: "after_approval",
+      due_processing_days: days,
+      due_anchor_at: anchorIso,
+      due_date_status: "set",
+      due_date_label: afterApprovalLabel(days),
+      due_anchor_source: "approval",
+    },
   };
 }
 
@@ -448,7 +529,10 @@ export function holdAfterApprovalLateChip(
 ): boolean {
   return (
     isPendingAfterApprovalDue(dueDate, specs) ||
-    (Boolean(awaitingCustomerApproval) && isAfterApprovalDueMode(specs))
+    (Boolean(awaitingCustomerApproval) &&
+      isAfterApprovalDueMode(specs) &&
+      // Already approved once → the clock is running, show the real date.
+      !isApprovalAnchoredDue(specs))
   );
 }
 

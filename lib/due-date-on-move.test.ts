@@ -110,9 +110,34 @@ describe("planDueOnMove", () => {
     assert.equal(plan.specs.due_date_label, "5 working days after approval");
   });
 
-  it("never replaces an existing due date", () => {
+  // Oct 16 2026 is a Friday → +5 working days = Fri Oct 23.
+  it("re-anchors an order-time date at the move (Hayk 2026-11-24, 15815)", () => {
     const plan = planDueOnMove({
-      order: { due_date: "2026-10-30", specs: pendingSpecs },
+      order: {
+        due_date: "2026-10-20",
+        specs: {
+          ...pendingSpecs,
+          due_date_status: "set",
+          due_anchor_at: "2026-10-13T15:00:00.000Z",
+        },
+      },
+      fromColumnId: "waiting",
+      toColumnId: "prepress",
+      columns: BOARD,
+      movedAt: MOVED_AT,
+    });
+    assert.ok(plan);
+    assert.equal(plan.dueDate, "2026-10-23");
+    assert.equal(plan.specs.due_anchor_source, "approval");
+    assert.equal(plan.specs.due_anchor_at, MOVED_AT);
+  });
+
+  it("never shortens an existing due date", () => {
+    const plan = planDueOnMove({
+      order: {
+        due_date: "2026-10-30",
+        specs: { ...pendingSpecs, due_date_status: "set" },
+      },
       fromColumnId: "waiting",
       toColumnId: "prepress",
       columns: BOARD,
@@ -121,11 +146,33 @@ describe("planDueOnMove", () => {
     assert.equal(plan, null);
   });
 
-  it("skips when the clock already started (status set)", () => {
+  it("skips when the clock was already started by an approval", () => {
     const plan = planDueOnMove({
       order: {
-        due_date: null,
-        specs: { ...pendingSpecs, due_date_status: "set" },
+        due_date: "2026-10-20",
+        specs: {
+          ...pendingSpecs,
+          due_date_status: "set",
+          due_anchor_source: "approval",
+        },
+      },
+      fromColumnId: "waiting",
+      toColumnId: "prepress",
+      columns: BOARD,
+      movedAt: MOVED_AT,
+    });
+    assert.equal(plan, null);
+  });
+
+  it("never replaces a staff-set due date", () => {
+    const plan = planDueOnMove({
+      order: {
+        due_date: "2026-10-20",
+        specs: {
+          ...pendingSpecs,
+          due_date_status: "set",
+          due_staff_edited_at: "2026-10-14T10:00:00.000Z",
+        },
       },
       fromColumnId: "waiting",
       toColumnId: "prepress",

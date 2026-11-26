@@ -90,7 +90,10 @@ import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 import { isPrepressColumnName } from "@/lib/prepress-queue";
 import { canControlPrepressTimer } from "@/lib/permissions";
 import { columnStopsWorkTimer } from "@/lib/timer-stop-columns";
-import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
+import {
+  isApprovalClockColumn,
+  isWaitingApprovalColumn,
+} from "@/lib/waiting-approval-column";
 import { useActiveTimer } from "@/components/time/active-timer-context";
 import { CardTimerControl } from "./card-timer-control";
 import { BoardWorkerChip } from "./board-worker-chip";
@@ -1180,7 +1183,11 @@ export function OrderCard({
   const dueStatus = dueDateStatus(order.due_date, {
     inDoneColumn: columnKind === "done",
     specs: order.specs,
-    awaitingCustomerApproval,
+    // Design stages before approval too — the clock hasn't started there.
+    awaitingCustomerApproval: isApprovalClockColumn({
+      kind: columnKind,
+      name: columnName,
+    }),
   });
   const dueLabel = order.due_date
     ? formatDateShort(order.due_date)

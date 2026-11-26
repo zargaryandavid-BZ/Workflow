@@ -10,9 +10,10 @@ export interface DueOnMoveResult {
 /**
  * Call AFTER a card's column move has been saved. When the move takes an
  * "N working days after approval" card past approval (see due-date-on-move.ts)
- * and it still has no due date, set the deadline anchored at the move.
+ * and its clock has not been started by an approval yet, set the deadline
+ * anchored at the move (an order-time date is pushed later, never earlier).
  *
- * Additive only: the write is guarded by `due_date IS NULL`, re-reads specs
+ * The write is guarded on the due date we read (staff edits win), re-reads specs
  * after the move (so time-chip stamps etc. are kept) and only touches the
  * five due_* keys. Never throws — a failure here must never break a move.
  */
@@ -57,14 +58,16 @@ export async function materializeDueOnProductionMove(
     if (!plan) return null;
 
     const nextSpecs = mergeDueSpecsIntoOrderSpecs(order.specs, plan.specs);
-    const { data, error } = await client
+    // Optimistic guard: only write if the due date is still what we read
+    // (a staff edit in between wins).
+    let update = client
       .from("orders")
       .update({ due_date: plan.dueDate, specs: nextSpecs })
       .eq("id", args.orderId)
-      .eq("tenant_id", args.tenantId)
-      .is("due_date", null)
-      .select("id")
-      .maybeSingle();
+      .eq("tenant_id", args.tenantId);
+    const priorDue = order.due_date?.trim() ? order.due_date.slice(0, 10) : null;
+    update = priorDue ? update.eq("due_date", priorDue) : update.is("due_date", null);
+    const { data, error } = await update.select("id").maybeSingle();
     if (error || !data) return null;
 
     return { dueDate: plan.dueDate, specs: nextSpecs };

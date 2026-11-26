@@ -11,7 +11,7 @@ import {
 } from "@/lib/board-order-filters";
 import { preferExactOrderNumberHits } from "@/lib/order-number-tokens";
 import { columnIdsForQuickFilter } from "@/lib/emergency-quick-filters";
-import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
+import { isApprovalClockColumn } from "@/lib/waiting-approval-column";
 import {
   MANUAL_WEBHOOK_SOURCE_FILTER,
   OTHER_WEBHOOK_SOURCE_FILTER,
@@ -313,7 +313,7 @@ export async function GET(req: NextRequest) {
       columns.filter((c) => c.kind === "done").map((c) => c.id)
     );
     waitingApprovalColumnIds = new Set(
-      columns.filter((c) => isWaitingApprovalColumn(c)).map((c) => c.id)
+      columns.filter((c) => isApprovalClockColumn(c)).map((c) => c.id)
     );
     activePipelineColumnIds = columnIdsForQuickFilter(columns, throughColumnId);
   }
