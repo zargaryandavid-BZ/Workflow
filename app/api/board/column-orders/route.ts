@@ -12,7 +12,7 @@ import type { DieAlert, DieBoardStatus } from "@/lib/die-request";
 import type { BoardThumbnail } from "@/lib/card-image";
 import type { OrderWithRelations } from "@/lib/types";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
-import { rankDesignerQueue } from "@/lib/designer-queue-rank";
+import { queueInputFromRow, rankDesignerQueue } from "@/lib/designer-queue-rank";
 import { isPrepressColumnName, rankPrepressQueue } from "@/lib/prepress-queue";
 import { groupingKeysForSiblingFetch } from "@/lib/group-orders";
 import { onShippingOptSelected } from "@/lib/automation";
@@ -487,7 +487,7 @@ async function attachQueueRanks(
 
   const { data: rows } = await supabase
     .from("orders")
-    .select("id, priority, due_date, specs")
+    .select("id, priority, due_date, specs, last_moved_at, created_at")
     .eq("tenant_id", tenantId)
     .in("column_id", queueColumnIds)
     .in("specs->>designer_id", designerIds)
@@ -495,31 +495,11 @@ async function attachQueueRanks(
     .limit(4000);
 
   const rankByOrder = rankDesignerQueue(
-    (rows ?? []).map(
-      (r: {
-        id: string;
-        priority: string | null;
-        due_date: string | null;
-        specs: unknown;
-      }) => {
-        const specs = (r.specs ?? {}) as Record<string, unknown>;
-        const posRaw = specs.designer_queue_pos;
-        const pos =
-          typeof posRaw === "number"
-            ? posRaw
-            : Number.isFinite(Number(posRaw))
-              ? Number(posRaw)
-              : null;
-        return {
-          id: r.id,
-          designerId: String(specs.designer_id ?? ""),
-          queuePos: pos,
-          priority: r.priority,
-          dueDate: r.due_date,
-        };
-      }
+    (rows ?? []).map((r: Parameters<typeof queueInputFromRow>[0]) =>
+      queueInputFromRow(r)
     )
   );
+
 
   for (const o of orders) {
     o.queue_rank = rankByOrder[o.id] ?? null;

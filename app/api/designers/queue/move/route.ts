@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  DESIGNER_QUEUE_MANUAL_KEY,
+  orderDesignerQueue,
+  queueInputFromRow,
+} from "@/lib/designer-queue-rank";
 import { getTenantContext } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
@@ -91,7 +96,7 @@ export async function PATCH(request: Request) {
   // That designer's open cards in the queue columns, in current order.
   const { data: rows, error } = await supabase
     .from("orders")
-    .select("id, priority, due_date, specs")
+    .select("id, priority, due_date, specs, last_moved_at, created_at")
     .eq("tenant_id", ctx.tenant.id)
     .eq("specs->>designer_id", designerId)
     .in("column_id", queueColumnIds)
@@ -99,21 +104,18 @@ export async function PATCH(request: Request) {
     .limit(2000);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const ordered = (rows ?? [])
-    .map((r) => ({
-      id: r.id as string,
-      specs: (r.specs ?? {}) as Record<string, unknown>,
-      pos: queuePos(r.specs),
-      priority: (r.priority as string) ?? "normal",
-      due: (r.due_date as string | null) ?? "9999",
-    }))
-    .sort((a, b) => {
-      if (a.pos !== b.pos) return a.pos - b.pos;
-      const pr =
-        (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2);
-      if (pr !== 0) return pr;
-      return a.due.localeCompare(b.due);
-    });
+  // Start from the order the board shows (rush → longest in column, manual
+  // slots kept), so "#3" means the third card the manager sees.
+  type Row = Parameters<typeof queueInputFromRow>[0] & {
+    specs: Record<string, unknown> | null;
+  };
+  const rowById = new Map(((rows ?? []) as Row[]).map((r) => [r.id, r]));
+  const ordered = orderDesignerQueue(
+    ((rows ?? []) as Row[]).map((r) => queueInputFromRow(r))
+  ).map((c) => ({
+    id: c.id,
+    specs: (rowById.get(c.id)?.specs ?? {}) as Record<string, unknown>,
+  }));
 
   const from = ordered.findIndex((o) => o.id === orderId);
   if (from === -1) {
@@ -133,11 +135,23 @@ export async function PATCH(request: Request) {
   const posById: Record<string, number> = {};
   for (let i = 0; i < ordered.length; i++) {
     posById[ordered[i].id] = i;
-    if (queuePos(ordered[i].specs) === i) continue;
+    // The moved card is now placed by hand — it keeps this slot; the rest
+    // stay auto-ordered (Hayk 2026-11-26).
+    const pin = ordered[i].id === orderId;
+    if (
+      queuePos(ordered[i].specs) === i &&
+      (!pin || ordered[i].specs[DESIGNER_QUEUE_MANUAL_KEY] === true)
+    ) {
+      continue;
+    }
     await supabase
       .from("orders")
       .update({
-        specs: { ...ordered[i].specs, designer_queue_pos: i },
+        specs: {
+          ...ordered[i].specs,
+          designer_queue_pos: i,
+          ...(pin ? { [DESIGNER_QUEUE_MANUAL_KEY]: true } : {}),
+        },
         updated_at: now,
       })
       .eq("id", ordered[i].id)

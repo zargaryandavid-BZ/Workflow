@@ -1,3 +1,4 @@
+import { orderDesignerQueue, queueInputFromRow } from "@/lib/designer-queue-rank";
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
 
 const PRIORITY_RANK: Record<string, number> = {
@@ -38,34 +39,29 @@ export async function resequenceDesignerQueue(
 
   const { data: rows } = await supabase
     .from("orders")
-    .select("id, priority, due_date, specs")
+    .select("id, priority, due_date, specs, last_moved_at, created_at")
     .eq("tenant_id", tenantId)
     .eq("specs->>designer_id", designerId)
     .in("column_id", queueColumnIds)
     .is("removed_at", null)
     .limit(2000);
 
-  const ordered = ((rows ?? []) as Array<{
+  // Same order the board shows (rankDesignerQueue): stamped pos = shown #N.
+  type Row = {
     id: string;
     priority: string | null;
     due_date: string | null;
+    last_moved_at: string | null;
+    created_at: string | null;
     specs: Record<string, unknown> | null;
-  }>)
-    .map((r) => ({
-      id: r.id,
-      specs: (r.specs ?? {}) as Record<string, unknown>,
-      pos: queuePos(r.specs),
-      priority: r.priority ?? "normal",
-      due: r.due_date ?? "9999",
-    }))
-    .sort((a, b) => {
-      if (a.pos !== b.pos) return a.pos - b.pos;
-      const pr = (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2);
-      if (pr !== 0) return pr;
-      if (a.due !== b.due) return a.due.localeCompare(b.due);
-      // Same tie-break as rankDesignerQueue so stamped order = shown order.
-      return a.id.localeCompare(b.id);
-    });
+  };
+  const rowById = new Map(((rows ?? []) as Row[]).map((r) => [r.id, r]));
+  const ordered = orderDesignerQueue(
+    ((rows ?? []) as Row[]).map((r) => queueInputFromRow(r))
+  ).map((c) => ({
+    id: c.id,
+    specs: (rowById.get(c.id)?.specs ?? {}) as Record<string, unknown>,
+  }));
 
   const now = new Date().toISOString();
   for (let i = 0; i < ordered.length; i++) {

@@ -16,6 +16,7 @@
  */
 
 import { stageKey } from "./stage-groups.ts";
+import { orderDesignerQueue, queueInputFromRow } from "./designer-queue-rank.ts";
 
 export type ColumnPriorityMode =
   | "designer_queue"
@@ -41,6 +42,9 @@ export interface PriorityRowInput {
   priority?: string | null;
   due_date?: string | null;
   specs?: Record<string, unknown> | null;
+  last_moved_at?: string | null;
+  created_at?: string | null;
+  tag?: { name?: string | null } | null;
 }
 
 const PRIORITY_RANK: Record<string, number> = {
@@ -89,8 +93,14 @@ export function sortForColumnPriority<T extends PriorityRowInput>(
       (a, b) => a.position - b.position || a.id.localeCompare(b.id)
     );
   }
-  const posKey =
-    mode === "prepress_queue" ? "prepress_queue_pos" : "designer_queue_pos";
+  if (mode !== "prepress_queue") {
+    // Designer queue: rush → longest in column, manual slots kept (Hayk 2026-11-26).
+    const byId = new Map(list.map((o) => [o.id, o]));
+    return orderDesignerQueue(list.map((o) => queueInputFromRow(o))).map(
+      (c) => byId.get(c.id)!
+    );
+  }
+  const posKey = "prepress_queue_pos";
   return list.sort((a, b) => {
     const ap = numOrNull(a.specs?.[posKey]) ?? Number.POSITIVE_INFINITY;
     const bp = numOrNull(b.specs?.[posKey]) ?? Number.POSITIVE_INFINITY;

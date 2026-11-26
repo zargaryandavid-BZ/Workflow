@@ -44,24 +44,37 @@ describe("sortForColumnPriority", () => {
     specs: pos == null ? { designer_id: "d1" } : { designer_id: "d1", designer_queue_pos: pos },
   });
 
-  it("orders by saved queue pos, unset last (website orders included)", () => {
-    const out = sortForColumnPriority(
-      [o("web", null), o("b", 1), o("a", 0)],
-      "designer_queue"
-    );
-    assert.deepEqual(out.map((r) => r.id), ["a", "b", "web"]);
-  });
-
-  it("unset queue pos falls back to priority then due date", () => {
+  it("designer queue: rush first, then longest in column (Hayk 2026-11-26)", () => {
+    const row = (id: string, enteredAt: string, extra: Record<string, unknown> = {}) => ({
+      ...o(id, 0),
+      last_moved_at: enteredAt,
+      ...extra,
+    });
     const out = sortForColumnPriority(
       [
-        o("late", null, { due_date: "2026-12-01" }),
-        o("urgent", null, { priority: "urgent" }),
-        o("soon", null, { due_date: "2026-10-20" }),
+        row("new", "2026-11-25T10:00:00Z"),
+        row("old", "2026-11-20T10:00:00Z"),
+        row("rush", "2026-11-26T10:00:00Z", { specs: { designer_id: "d1", rush: true } }),
       ],
       "designer_queue"
     );
-    assert.deepEqual(out.map((r) => r.id), ["urgent", "soon", "late"]);
+    assert.deepEqual(out.map((r) => r.id), ["rush", "old", "new"]);
+  });
+
+  it("designer queue: a hand-placed card keeps its slot", () => {
+    const out = sortForColumnPriority(
+      [
+        { ...o("a", 5), last_moved_at: "2026-11-20T10:00:00Z" },
+        { ...o("b", 5), last_moved_at: "2026-11-21T10:00:00Z" },
+        {
+          ...o("pin", 0),
+          specs: { designer_id: "d1", designer_queue_pos: 0, designer_queue_manual: true },
+          last_moved_at: "2026-11-26T10:00:00Z",
+        },
+      ],
+      "designer_queue"
+    );
+    assert.deepEqual(out.map((r) => r.id), ["pin", "a", "b"]);
   });
 
   it("manual_position sorts by position", () => {

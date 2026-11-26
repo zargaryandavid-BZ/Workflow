@@ -1,5 +1,5 @@
 import { isDesignerQueueColumnName } from "@/lib/designer-queue-columns";
-import { rankDesignerQueue } from "@/lib/designer-queue-rank";
+import { queueInputFromRow, rankDesignerQueue } from "@/lib/designer-queue-rank";
 import { isPrepressColumnName, rankPrepressQueue } from "@/lib/prepress-queue";
 import type { OrderWithRelations } from "@/lib/types";
 
@@ -14,6 +14,8 @@ type QueueRow = {
   priority: string | null;
   due_date: string | null;
   specs: unknown;
+  last_moved_at?: string | null;
+  created_at?: string | null;
 };
 
 /**
@@ -64,7 +66,7 @@ export async function attachQueueRanksForOrders(
       designerIds.length > 0 && queueColumnIds.length > 0
         ? supabase
             .from("orders")
-            .select("id, priority, due_date, specs")
+            .select("id, priority, due_date, specs, last_moved_at, created_at")
             .eq("tenant_id", tenantId)
             .in("column_id", queueColumnIds)
             .in("specs->>designer_id", designerIds)
@@ -85,16 +87,7 @@ export async function attachQueueRanksForOrders(
     ]);
 
     const designerRank = rankDesignerQueue(
-      (designerRows as QueueRow[]).map((r) => {
-        const specs = (r.specs ?? {}) as Record<string, unknown>;
-        return {
-          id: r.id,
-          designerId: String(specs.designer_id ?? ""),
-          queuePos: numOrNull(specs.designer_queue_pos),
-          priority: r.priority,
-          dueDate: r.due_date,
-        };
-      })
+      (designerRows as QueueRow[]).map((r) => queueInputFromRow(r))
     );
     const prepressRank = rankPrepressQueue(
       (prepressRows as QueueRow[]).map((r) => {
