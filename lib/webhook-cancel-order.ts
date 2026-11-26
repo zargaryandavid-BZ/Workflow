@@ -1,9 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logActivity } from "@/lib/automation";
 import { withWebhookOrderIngestLock } from "@/lib/webhook-order-lock";
+import {
+  CRM_CANCELLED_AT_SPEC,
+  isCancelledOrderSpecs,
+  pickCanceledColumn,
+} from "@/lib/order-cancelled";
 
-/** Stamped on cards removed by a CRM cancel; blocks re-creating the order. */
-export const CRM_CANCELLED_AT_SPEC = "crm_cancelled_at";
+export { CRM_CANCELLED_AT_SPEC };
 
 /**
  * Cancels every board job that belongs to a CRM order, in response to an
@@ -15,7 +19,9 @@ export const CRM_CANCELLED_AT_SPEC = "crm_cancelled_at";
  * Runs under the same ingest lock as order creation, so a cancel that arrives
  * while the create is still running waits for it and then removes its cards.
  *
- * Idempotent: already-removed jobs are skipped, so a repeated cancel is a no-op.
+ * Cards go to the tenant's Canceled column, else "Finished: No Review Request"
+ * (Hayk 2026-11-26), and are only soft-removed when neither exists.
+ * Idempotent: already-removed or already-stamped jobs are skipped.
  */
 export async function cancelOrdersFromWebhook(
   client: SupabaseClient,
@@ -42,10 +48,14 @@ async function cancelOrdersLocked(
     .filter("specs->>webhook_order_number", "eq", webhookOrderNumber);
   if (findError) throw new Error(findError.message);
 
-  const live = (rows ?? []) as {
-    id: string;
-    specs: Record<string, unknown> | null;
-  }[];
+  // Cards already stamped stay where they are (now parked in Finished rather
+  // than removed) — a repeated cancel must stay a no-op.
+  const live = (
+    (rows ?? []) as {
+      id: string;
+      specs: Record<string, unknown> | null;
+    }[]
+  ).filter((r) => !isCancelledOrderSpecs(r.specs));
   if (live.length === 0) return { cancelled: 0, orderIds: [] };
 
   // Hayk 2026-11-13: a voided / cancelled order should show as CANCELED on the
@@ -101,7 +111,6 @@ async function cancelOrdersLocked(
   return { cancelled: orderIds.length, orderIds };
 }
 
-/** The tenant's Canceled / Cancelled column, if it has one. */
 async function resolveCanceledColumn(
   client: SupabaseClient,
   tenantId: string,
@@ -110,9 +119,7 @@ async function resolveCanceledColumn(
     .from("board_columns")
     .select("id, name")
     .eq("tenant_id", tenantId);
-  const cols = (data ?? []) as { id: string; name: string | null }[];
-  const hit = cols.find((c) => /\bcancell?ed\b/i.test(c.name ?? ""));
-  return hit ? { id: hit.id, name: hit.name ?? "Canceled" } : null;
+  return pickCanceledColumn((data ?? []) as { id: string; name: string | null }[]);
 }
 
 /** True when this CRM order was cancelled (cards stamped, or a cancel webhook already received). */

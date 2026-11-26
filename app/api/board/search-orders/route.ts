@@ -13,6 +13,10 @@ import { preferExactOrderNumberHits } from "@/lib/order-number-tokens";
 import { columnIdsForQuickFilter } from "@/lib/emergency-quick-filters";
 import { isWaitingApprovalColumn } from "@/lib/waiting-approval-column";
 import {
+  CRM_CANCELLED_AT_SPEC,
+  isCancelledSearchTerm,
+} from "@/lib/order-cancelled";
+import {
   MANUAL_WEBHOOK_SOURCE_FILTER,
   OTHER_WEBHOOK_SOURCE_FILTER,
   UNASSIGNED_OWNER_FILTER,
@@ -234,6 +238,9 @@ export async function GET(req: NextRequest) {
         // Same order's number in the other system (CRM ORD-… / portal BZ-…).
         orParts.push(`specs->>crm_order_number.ilike.${termPattern}`);
         orParts.push(`specs->>portal_order_number.ilike.${termPattern}`);
+        if (isCancelledSearchTerm(term)) {
+          orParts.push(`specs->>${CRM_CANCELLED_AT_SPEC}.not.is.null`);
+        }
       }
       if (matchedCustomerIds.length > 0) {
         orParts.push(`customer_id.in.(${matchedCustomerIds.join(",")})`);
