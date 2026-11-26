@@ -277,7 +277,7 @@ export function ProofLayerImages({
       ) : null}
 
       {sideBySide && namedLayers.length > 0 ? (
-        <div className="grid gap-4 p-4 [grid-template-columns:repeat(auto-fill,minmax(20rem,1fr))]">
+        <div className="grid gap-3 p-2 sm:gap-4 sm:p-4 [grid-template-columns:repeat(auto-fill,minmax(min(20rem,100%),1fr))]">
           {pics.map((pic) => (
             <div key={pic.id} className="flex min-w-0 flex-col gap-1">
               <span className="truncate text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
