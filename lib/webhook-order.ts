@@ -161,18 +161,27 @@ import {
   needsLegacyStaffCheck,
   resolveInboundDueResync,
 } from "@/lib/due-resync";
+import {
+  AUTO_MISSING_INFO_SPEC_KEY,
+  autoMissingInfoAllowed,
+  buildAutoMissingInfoMarker,
+  orderArrivedWithoutFiles,
+} from "@/lib/auto-missing-info";
 
 type Client = SupabaseClient;
 
 const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 
 /**
- * Automatic "no files → start the card in Missing Info" is OFF (Hayk 2026-11-13:
- * customers were being asked for files they had already uploaded, over and
- * over). New orders always start in the normal start column; staff move a card
- * to Missing Info by hand when something is really missing.
+ * Automatic "no files → start the card in Missing Info" is back ON (Hayk
+ * 2026-11-26). It was turned off 2026-11-13 because customers were asked for
+ * files they had already uploaded. Since then: files attached to the order
+ * (`incomingHasArtwork`) never land a card in Missing Info, reorders and design
+ * orders are excluded (lib/auto-missing-info.ts), the customer is only asked
+ * after a grace period if the card's Drive folders are still empty, and files
+ * arriving in Drive send the card back (lib/missing-info-drive-sweep.ts).
  */
-const AUTO_MISSING_INFO_ENABLED = false;
+const AUTO_MISSING_INFO_ENABLED = true;
 
 const SELECT_WEBHOOK_KEYS = new Set([
   "product",
@@ -4017,6 +4026,15 @@ async function createSingleWebhookJob(
       )) ||
     [...artworkBySkuId.values()].some((refs) => refs.length > 0);
   const needsFilesEffective = needsCustomerFiles && !incomingHasArtwork;
+  // Reorders reuse approved files and design orders get files from our
+  // designer — neither is ever placed in Missing Info automatically.
+  const autoMissingInfoOk = autoMissingInfoAllowed({
+    enabled: AUTO_MISSING_INFO_ENABLED,
+    incomingHasArtwork,
+    isReorder,
+    designSource: designSourceClean,
+  });
+  let landedInAutoMissingInfo = false;
 
   const specFields = normalizeSpecFields(item);
   if (designNotes) {
@@ -4080,11 +4098,9 @@ async function createSingleWebhookJob(
     const named = await resolveColumnByName(client, tenantId, initialColumnClean);
     if (
       named &&
-      !(
-        (!AUTO_MISSING_INFO_ENABLED || incomingHasArtwork) &&
-        /missing\s*info/i.test(named.name ?? "")
-      )
+      !(!autoMissingInfoOk && /missing\s*info/i.test(named.name ?? ""))
     ) {
+      if (/missing\s*info/i.test(named.name ?? "")) landedInAutoMissingInfo = true;
       effectiveColumnId = named.id;
       effectiveColumnName = named.name ?? effectiveColumnName;
       const { data: lastInNamed } = await client
@@ -4105,8 +4121,7 @@ async function createSingleWebhookJob(
   // Fallback for CRM payloads sent before `initial_column` existed. Skipped when
   // the CRM named a column (even if it didn't match — that falls back to start).
   if (
-    AUTO_MISSING_INFO_ENABLED &&
-    !incomingHasArtwork &&
+    autoMissingInfoOk &&
     shouldApplyMissingInfoFallback({
       initialColumn: initialColumnClean,
       designSource: designSourceClean,
@@ -4115,6 +4130,7 @@ async function createSingleWebhookJob(
   ) {
     const missingCol = await resolveMissingInfoColumn(client, tenantId);
     if (missingCol) {
+      landedInAutoMissingInfo = true;
       effectiveColumnId = missingCol.id;
       effectiveColumnName = missingCol.name ?? effectiveColumnName;
       const { data: lastInMissing } = await client
@@ -4142,6 +4158,7 @@ async function createSingleWebhookJob(
   if (isExactReorder) {
     const prepressCol = await resolvePrepressColumn(client, tenantId);
     if (prepressCol) {
+      landedInAutoMissingInfo = false;
       effectiveColumnId = prepressCol.id;
       effectiveColumnName = prepressCol.name ?? effectiveColumnName;
       const { data: lastInPrepress } = await client
@@ -4184,6 +4201,19 @@ async function createSingleWebhookJob(
     : null;
 
   const specs: Record<string, unknown> = { skus, ...requestOwnerSpecs, ...dueSpecs };
+  // Landed in Missing Info because the order came with no print files → the
+  // Missing Info sweep asks the customer for them after a short grace period
+  // (lib/auto-missing-info.ts). Only on this NEW card; nothing else changes.
+  if (
+    landedInAutoMissingInfo &&
+    orderArrivedWithoutFiles({
+      needsCustomerFiles: needsFilesEffective,
+      designSource: designSourceClean,
+      incomingHasArtwork,
+    })
+  ) {
+    specs[AUTO_MISSING_INFO_SPEC_KEY] = buildAutoMissingInfoMarker();
+  }
   // Remember what the source sent so a later re-fire can tell whether the
   // source changed its SKUs or a staff edit should be kept (lib/sku-resync.ts).
   if (skus.length > 0) {

@@ -479,6 +479,23 @@ export function describeActivity(log: ActivityLog): string {
       const from = src ? ` from ${src === "crm" ? "CRM" : src === "portal" ? "the portal" : src === "web" || src === "website" ? "the website" : src}` : "";
       return col ? `Order created${from} in ${col}` : `Order created${from}`;
     }
+    case "auto_missing_info_notify": {
+      const ch = meta.channel === "both" ? "email + SMS" : meta.channel === "sms" ? "SMS" : "email";
+      switch (meta.outcome) {
+        case "requested":
+          return `Automatic files request sent to the customer (${ch})`;
+        case "failed":
+          return `Automatic files request failed (${ch})${typeof meta.error === "string" && meta.error ? `: ${meta.error}` : ""}`;
+        case "files_found":
+          return "Files found in Drive — automatic files request not needed";
+        case "no_contact":
+          return "No customer email or phone — automatic files request not sent";
+        case "open_request_exists":
+          return "Files request already open for this order — no automatic request sent";
+        default:
+          return "Automatic files request";
+      }
+    }
     case "hold_reason": {
       const reason = meta.reason as string | undefined;
       const col = (meta.columnName as string | undefined) ?? "";
