@@ -61,12 +61,13 @@ test("job ticket mirrors all filled cardboard fields and SKU information", () =>
 
   const pairs = rows.map((row) => `${row.label}:${row.value}`);
   assert.equal(pairs.some((pair) => pair.startsWith("Design List:")), false);
-  assert.ok(pairs.includes("Qty Per Roll:500"));
+  assert.ok(pairs.includes("Labels per roll:500"));
   assert.ok(pairs.includes("Width:2"));
   assert.ok(pairs.includes("Height:4"));
   assert.ok(pairs.includes("Die:HM 2oz Label"));
+  // One row per label: the card's custom field wins over the webhook copy.
   assert.ok(pairs.includes("Zipper:Cr"));
-  assert.ok(pairs.includes("Zipper:Child-Resistant (CR) zipper"));
+  assert.equal(pairs.includes("Zipper:Child-Resistant (CR) zipper"), false);
   assert.ok(pairs.includes("Quantity:1,000"));
   assert.ok(pairs.includes("SKU Qty:1"));
   assert.ok(pairs.includes("SKU 1:Roll Labels · Qty 1,000"));

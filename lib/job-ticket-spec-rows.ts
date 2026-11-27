@@ -12,6 +12,11 @@ import {
   resolveOrderFormFields,
 } from "./order-form.ts";
 import { webhookSpecRowsForJobTicket } from "./product-spec-options.ts";
+import {
+  cleanSpecRow,
+  productFamily,
+  type ProductFamily,
+} from "./spec-row-filter.ts";
 import type { SkuItem } from "./skus.ts";
 import type { CustomField } from "./types.ts";
 
@@ -62,22 +67,39 @@ export function buildJobTicketSpecRows(args: {
   const rows: JobTicketSpecRow[] = [];
   const usedFieldIds = new Set<string>();
 
+  const fieldValueByName = (name: string): unknown => {
+    const field = findOrderFormField(customFields, name);
+    return field ? fieldValues[field.id] : null;
+  };
+  // Product family decides which rows apply (roll direction only on roll
+  // labels, no Sides on tape / gift bags / tissue / wrap…).
+  const family: ProductFamily = productFamily({
+    product:
+      fieldValueByName("Product") ??
+      (typeof specs?.webhook_item_title === "string"
+        ? specs.webhook_item_title
+        : null),
+    category: fieldValueByName("Category"),
+  });
+
   const appendField = (field: CustomField) => {
     if (usedFieldIds.has(field.id) || skip.has(field.name.toLowerCase())) return;
     const raw = fieldValues[field.id];
-    if (
-      field.field_type !== "checkbox" &&
-      (raw === null || raw === undefined || raw === "")
-    ) {
-      return;
-    }
+    if (raw === null || raw === undefined || raw === "") return;
+    // Unchecked checkboxes ("No") are not printed.
     const value = rowValue(field, raw);
-    if (!value && field.field_type !== "checkbox") return;
+    if (!value || value === "No") return;
     const label =
       field.name.toLowerCase() === "die cut" && field.field_type === "text"
         ? "Die"
         : orderFormFieldLabel(field.name);
-    rows.push({ label, value });
+    // Shared display filter: pricing, "None"/0 values, irrelevant rows.
+    const clean = cleanSpecRow(
+      { key: field.name, label, value },
+      { family }
+    );
+    if (!clean) return;
+    rows.push({ label: clean.label, value: clean.value });
     usedFieldIds.add(field.id);
   };
 
@@ -101,7 +123,7 @@ export function buildJobTicketSpecRows(args: {
   const hasCardSize =
     usedLabels.has("finished size") ||
     (usedLabels.has("width") && usedLabels.has("height"));
-  for (const row of webhookSpecRowsForJobTicket(specs)) {
+  for (const row of webhookSpecRowsForJobTicket(specs, { family })) {
     const key = normLabel(row.label);
     if (
       hasCardSize &&

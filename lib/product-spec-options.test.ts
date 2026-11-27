@@ -286,7 +286,7 @@ describe("spec_display", () => {
     );
   });
 
-  it("prints webhook spec_selections, options, and leftover spec_display on the ticket", () => {
+  it("prints labelled spec_display first, then uncovered spec_selections and options", () => {
     const rows = webhookSpecRowsForJobTicket({
       spec_selections: {
         ZIPPER: "Child-Resistant (CR) zipper",
@@ -311,33 +311,26 @@ describe("spec_display", () => {
       rows.map((r) => r.label),
       [
         "Zipper",
+        "Box size",
         "Corners",
         "Gusset size",
         "Finish both sides",
         "Tear notch",
         "Gusset",
-        "Box size",
       ]
     );
-    assert.equal(rows[0]?.value, "Child-Resistant (CR) zipper");
+    // spec_display carries the website's own display text.
+    assert.equal(rows[0]?.value, "Cr");
   });
 
-  it("prints leftover webhook keys stored on the order specs root", () => {
+  it("does not dump raw keys stored on the order specs root", () => {
     const rows = webhookSpecRowsForJobTicket({
       zipper: "Cr",
       corners: "Rounded",
       finish_both_sides: "Yes",
       gusset: true,
     });
-    assert.deepEqual(
-      rows.map((r) => `${r.label}:${r.value}`),
-      [
-        "Zipper:Cr",
-        "Corners:Rounded",
-        "Finish both sides:Yes",
-        "Gusset:Yes",
-      ]
-    );
+    assert.deepEqual(rows, []);
   });
 
   it("appends cardboard spec_display onto job-ticket rows without duplicates", () => {

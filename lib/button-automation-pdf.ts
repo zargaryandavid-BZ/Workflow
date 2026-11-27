@@ -591,7 +591,9 @@ function drawSpecs(
   // No spec table to draw, but notes must still print.
   if (!specRows.length) return drawAttentionBlocks(doc, data, startY, pageCtx);
 
-  const description = data.order.description?.trim() ?? "";
+  // The card's customer note (orders.description — the CRM "For Customer"
+  // text) is not production information, so the job ticket no longer prints
+  // it (Hayk 2026-11-26). Production notes still print in the ATTENTION box.
 
   const headerH = 26;
   const midpoint = Math.ceil(specRows.length / 2);
@@ -626,16 +628,7 @@ function drawSpecs(
   }
   const specsH = rowHeights.reduce((s, h) => s + h, 0);
 
-  // Height for order description block (if present)
-  let descH = 0;
-  if (description) {
-    descH = 10; // top divider spacing
-    doc.fontSize(10).font("Helvetica");
-    const textH = doc.heightOfString(description, { width: innerW - 12 });
-    descH += 18 + textH + 4;
-  }
-
-  const boxH = headerH + specsH + descH + 10;
+  const boxH = headerH + specsH + 10;
 
   // Large values (notably CRM DESIGN_LIST) cannot be drawn in the fixed
   // two-column box: PDFKit auto-creates a page for every subsequent absolute
@@ -643,12 +636,6 @@ function drawSpecs(
   // one-column table instead and preserve every value.
   if (startY + boxH > CONTENT_BOTTOM) {
     const paginatedRows: SpecCell[] = [...specRows];
-    if (description) {
-      paginatedRows.push({
-        label: "Order Description",
-        value: pdfWinAnsiText(description),
-      });
-    }
 
     const tableX = x + 4;
     const tableW = w - 4;
@@ -928,25 +915,6 @@ function drawSpecs(
     drawCell(leftSpecs[i], tableX, rowY);
     drawCell(rightSpecs[i], tableX + halfW, rowY);
     y += rowH;
-  }
-
-  if (description) {
-    doc
-      .moveTo(innerX + 6, y + 2)
-      .lineTo(x + w - 10, y + 2)
-      .strokeColor("#fcd34d")
-      .lineWidth(0.5)
-      .stroke();
-    y += 10;
-    doc.fontSize(9).font("Helvetica-Bold").fillColor("#78350f");
-    textAt(doc, "Order Description", innerX + 6, y);
-    y += 14;
-    doc.fontSize(10).font("Helvetica").fillColor("#111827");
-    doc.text(pdfWinAnsiText(description), innerX + 6, y, {
-      width: innerW - 12,
-      height: Math.max(12, descH - 28),
-      ellipsis: true,
-    });
   }
 
   doc.fillColor("#000000").font("Helvetica");

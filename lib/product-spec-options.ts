@@ -1,4 +1,10 @@
 import { findMatchingOption, normalizeOptionKey } from "./field-links.ts";
+import {
+  cleanSpecRows,
+  compactSpecKey,
+  type SpecRowContext,
+  type SpecRowInput,
+} from "./spec-row-filter.ts";
 
 export type SpecSelectOption = { value: string; label: string };
 
@@ -333,22 +339,27 @@ function displayWebhookSpecValue(raw: unknown): string {
 }
 
 /**
- * Webhook cardboard data for the job ticket: spec_selections, product_options,
- * cutting type, then leftover spec_display rows (no mapper ids).
+ * Webhook cardboard data for the job ticket. Labelled spec_display rows come
+ * first (they carry the website's display text, e.g. "3 · Right of Copy"),
+ * then spec_selections keys spec_display did not cover, then product options
+ * and cutting type. Every row goes through the shared display filter
+ * (lib/spec-row-filter.ts): no pricing, URLs, timestamps, CRM bookkeeping,
+ * empty values, or rows irrelevant for the product family.
  */
 export function webhookSpecRowsForJobTicket(
-  specs: Record<string, unknown> | null | undefined
+  specs: Record<string, unknown> | null | undefined,
+  opts?: SpecRowContext
 ): { label: string; value: string }[] {
   if (!specs) return [];
-  const rows: { label: string; value: string }[] = [];
-  const used = new Set<string>();
-  const push = (label: string, value: string) => {
-    const key = specLabelKey(label);
-    const v = value.trim();
-    if (!key || !v || used.has(key)) return;
-    used.add(key);
-    rows.push({ label, value: v });
-  };
+  const inputs: SpecRowInput[] = [];
+
+  const displayRows = parseSpecDisplay(specs.spec_display);
+  const displayKeys = new Set(
+    displayRows.map((row) => compactSpecKey(row.key)).filter(Boolean)
+  );
+  for (const row of displayRows) {
+    inputs.push({ key: row.key, label: row.label, value: row.value });
+  }
 
   const selRaw = specs.spec_selections;
   const sel =
@@ -359,6 +370,7 @@ export function webhookSpecRowsForJobTicket(
 
   for (const [key, raw] of Object.entries(sel)) {
     if (isHiddenFloorSpecKey(key)) continue;
+    if (displayKeys.has(compactSpecKey(key))) continue;
     const options = normalizeSpecSelectOptions(fieldOptions?.[key]);
     const text = displayWebhookSpecValue(raw);
     if (!text) continue;
@@ -366,7 +378,7 @@ export function webhookSpecRowsForJobTicket(
       (isSetSizeKey(key)
         ? findMatchingSetSizeOption(options, text)
         : options.find((o) => o.value === text || o.label === text)) ?? null;
-    push(sentenceCaseSpecLabel(key), matched?.label ?? text);
+    inputs.push({ key, value: matched?.label ?? text });
   }
 
   const productOptions = [
@@ -379,24 +391,21 @@ export function webhookSpecRowsForJobTicket(
     if (opt.replace(/[\s-]+/g, "_").toUpperCase() === "DESIGN_SERVICE") {
       continue;
     }
-    push(sentenceCaseSpecLabel(opt), "Yes");
+    inputs.push({ key: opt, label: sentenceCaseSpecLabel(opt), value: "Yes" });
   }
 
   const cutting =
     typeof specs.cutting_type === "string" ? specs.cutting_type.trim() : "";
-  if (cutting) push("Cutting", cutting);
+  if (cutting) inputs.push({ key: "CUTTING", value: cutting });
 
   // Raw top-level specs keys (width, height, material, lamination, sku_qty…)
-  // are intentionally NOT dumped here. They duplicate information already
-  // present in spec_selections (above) and — more importantly — in the
-  // custom form fields the staff fill in on the card. The leftover dump was
-  // producing three versions of the same field in the job-ticket spec table.
-  // spec_display rows are still appended because they are explicitly prepared
-  // by the webhook for display and may carry information not in spec_selections.
+  // are intentionally NOT dumped here: they duplicate spec_selections and the
+  // custom form fields the staff fill in on the card.
 
-  return appendUniqueSpecDisplayRows(rows, specs.spec_display).filter(
-    (row) => specLabelKey(row.label) !== "design list"
-  );
+  return cleanSpecRows(inputs, opts).map(({ label, value }) => ({
+    label,
+    value,
+  }));
 }
 
 /** Append cardboard `spec_display` rows that are not already in `rows` (job ticket). */
@@ -415,14 +424,22 @@ export function appendUniqueSpecDisplayRows(
   return extra.length > 0 ? [...rows, ...extra] : rows;
 }
 
-/** Floor rows after Q12: drop Size / Die already on custom fields. */
-export function floorSpecDisplayRows(raw: unknown): SpecDisplayRow[] {
-  return parseSpecDisplay(raw).filter((row) => {
+/**
+ * Floor rows after Q12: drop Size / Die already on custom fields, then the
+ * shared display filter (no pricing / URLs / timestamps / empty values, one
+ * label per fact).
+ */
+export function floorSpecDisplayRows(
+  raw: unknown,
+  opts?: SpecRowContext
+): SpecDisplayRow[] {
+  const rows = parseSpecDisplay(raw).filter((row) => {
     if (row.key && isSpecDisplayCoveredByCustomFields(row.key)) return false;
     const label = row.label.replace(/[\s-]+/g, " ").trim().toLowerCase();
     if (label === "die kind" || label === "die number") return false;
     return true;
   });
+  return cleanSpecRows(rows, opts);
 }
 
 /** "APPAREL_CLIENT_PROVIDED" → "Apparel client provided" (Product-label style). */
