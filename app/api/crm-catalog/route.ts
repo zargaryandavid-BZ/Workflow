@@ -3,6 +3,11 @@ import { getTenantContext } from "@/lib/auth";
 import { fetchCatalogJson } from "@/lib/import-catalog-fetch";
 import { nestedFieldOptions } from "@/lib/product-spec-options";
 import { cacheGet, cacheSet } from "@/lib/cache";
+import {
+  sortCategoriesWebsiteOrder,
+  type CatalogFieldDef,
+  type CatalogProductInfo,
+} from "@/lib/product-field-rules";
 
 // The CRM catalog is fetched page-by-page over HTTP (measured ~5.6s) every time
 // an order card opens. Product/material lists change rarely, so the BUILT
@@ -32,7 +37,18 @@ type CrmProduct = {
   options?: {
     field_options?: Record<string, unknown>;
     option_toggles?: CrmToggle[];
+    /** Typed per-product question list ({key,type}); v1 feed. */
+    fields?: unknown;
+    hidden_fields?: unknown;
+    required_fields?: unknown;
+    field_labels?: unknown;
+    field_order?: unknown;
   };
+  fields?: unknown;
+  hidden_fields?: unknown;
+  required_fields?: unknown;
+  field_labels?: unknown;
+  field_order?: unknown;
   option_toggles?: CrmToggle[];
   finishing_options?: CrmNamedOption[];
   special_effect_options?: CrmNamedOption[];
@@ -111,6 +127,79 @@ function productToggles(p: CrmProduct): { key: string; label: string }[] {
     .map((t) => ({ key: String(t.key), label: String(t.label) }));
 }
 
+function stringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    const s = typeof v === "string" ? v.trim() : "";
+    if (s && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
+function fieldDefs(raw: unknown): CatalogFieldDef[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CatalogFieldDef[] = [];
+  const seen = new Set<string>();
+  for (const f of raw) {
+    // Older feeds send plain string keys; newer ones {key,type}.
+    const key =
+      typeof f === "string"
+        ? f.trim()
+        : isRecord(f) && typeof f.key === "string"
+          ? f.key.trim()
+          : "";
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const type =
+      isRecord(f) && typeof f.type === "string" ? f.type.trim() : "select";
+    out.push({ key, type });
+  }
+  return out;
+}
+
+function stringRecord(raw: unknown): Record<string, string> {
+  if (!isRecord(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === "string" && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
+
+/**
+ * Per-product question rules the CRM quote builder uses (fields, hidden /
+ * required lists, labels, order). Previously discarded here (audit
+ * 2026-11-26 A1-2), so cards could not ask only the product's questions.
+ */
+function productInfo(
+  p: CrmProduct,
+  category: string | undefined,
+  materials: string[],
+  fieldOptions: Record<string, unknown> | null,
+  finishing: string[] | null,
+  effects: string[] | null,
+  toggles: { key: string; label: string }[]
+): CatalogProductInfo {
+  const o = p.options ?? {};
+  return {
+    id: p.id,
+    slug: p.slug,
+    name: p.name ?? "",
+    category: category ?? null,
+    fields: fieldDefs(o.fields ?? p.fields),
+    hiddenFields: stringList(o.hidden_fields ?? p.hidden_fields),
+    requiredFields: stringList(o.required_fields ?? p.required_fields),
+    fieldLabels: stringRecord(o.field_labels ?? p.field_labels),
+    fieldOrder: stringList(o.field_order ?? p.field_order),
+    fieldOptions,
+    toggles,
+    materials,
+    finishing,
+    specialEffects: effects,
+  };
+}
+
 function indexByProduct<T>(
   map: Record<string, T>,
   p: CrmProduct,
@@ -134,7 +223,7 @@ export async function GET() {
         : "") ||
       null;
 
-    const sharedKey = `wf:crm-catalog:v3:${ctx?.tenant.id ?? "none"}:${linkedUrl ?? "default"}`;
+    const sharedKey = `wf:crm-catalog:v4:${ctx?.tenant.id ?? "none"}:${linkedUrl ?? "default"}`;
     const cached = await cacheGet<Record<string, unknown>>(sharedKey);
     if (cached) {
       return NextResponse.json(cached, {
@@ -178,6 +267,7 @@ export async function GET() {
       {};
     const finishingByProduct: Record<string, string[]> = {};
     const specialEffectsByProduct: Record<string, string[]> = {};
+    const products: CatalogProductInfo[] = [];
 
     for (const p of data.products ?? []) {
       if (!p.name) continue;
@@ -186,7 +276,8 @@ export async function GET() {
         (productsByCategory[cat] ??= []).push(p.name);
         if (!categories.includes(cat)) categories.push(cat);
       }
-      indexByProduct(materialsByProduct, p, productMaterials(p));
+      const materials = productMaterials(p);
+      indexByProduct(materialsByProduct, p, materials);
       const fieldOptions = nestedFieldOptions(p as Record<string, unknown>);
       if (fieldOptions) {
         indexByProduct(fieldOptionsByProduct, p, fieldOptions);
@@ -199,20 +290,24 @@ export async function GET() {
       if (toggles.length) {
         indexByProduct(optionTogglesByProduct, p, toggles);
       }
+      products.push(
+        productInfo(p, cat, materials, fieldOptions, finishing, effects, toggles)
+      );
     }
     for (const k of Object.keys(productsByCategory)) {
       productsByCategory[k].sort((a, b) => a.localeCompare(b));
     }
 
     const body = {
-      version: 1,
-      categories,
+      version: 2,
+      categories: sortCategoriesWebsiteOrder(categories),
       productsByCategory,
       materialsByProduct,
       fieldOptionsByProduct,
       optionTogglesByProduct,
       finishingByProduct,
       specialEffectsByProduct,
+      products,
     };
     // Only cache a real catalog (an empty one usually means the fetch failed).
     if (categories.length > 0 || Object.keys(materialsByProduct).length > 0) {

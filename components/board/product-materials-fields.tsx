@@ -60,6 +60,10 @@ interface Props {
    * When set, Category is inferred from this product→category map (CRM catalog).
    */
   productsByCategory?: Record<string, string[]> | null;
+  /** CRM catalog still loading: show only the stored values + "Loading options…". */
+  optionsLoading?: boolean;
+  /** CRM label for the material question ("Label Material", "Film Material"…). */
+  materialsLabel?: string | null;
 }
 
 function asString(value: unknown): string {
@@ -87,6 +91,8 @@ export function ProductMaterialsFields({
   materialOptionsOverride = null,
   categoryOptionsOverride = null,
   productsByCategory = null,
+  optionsLoading = false,
+  materialsLabel = null,
 }: Props) {
   const product = asString(productValue);
   const materials = asString(materialsValue);
@@ -217,7 +223,9 @@ export function ProductMaterialsFields({
   if (!showCategory && !showProduct && !showMaterials) return null;
 
   const needsCategory = Boolean(categoryField) && !storedCategory;
-  const productPlaceholder = needsCategory
+  const productPlaceholder = optionsLoading
+    ? "Loading options…"
+    : needsCategory
     ? "Select category first"
     : productOptions.length === 0
       ? "No products for this category"
@@ -275,7 +283,7 @@ export function ProductMaterialsFields({
       {showMaterials ? (
         <div>
           <Label>
-            {materialsField.name}
+            {materialsLabel || materialsField.name}
             {materialsField.required ? (
               <span className="ml-0.5 text-red-500">*</span>
             ) : null}
@@ -286,7 +294,9 @@ export function ProductMaterialsFields({
             onChange={(e) => onMaterialsChange(e.target.value)}
           >
             <option value="">
-              {!product
+              {optionsLoading
+                ? "Loading options…"
+                : !product
                 ? "Select product first"
                 : materialOptions.length === 0
                   ? "No materials for this product"
