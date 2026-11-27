@@ -688,6 +688,8 @@ export async function applyOrderContactOverride(
     customerId: string;
     email?: string | null;
     phone?: string | null;
+    /** The order being sent from: its card "Customer Contact" is updated too. */
+    orderId?: string | null;
   }
 ): Promise<void> {
   const email = normalizeEmail(params.email);
@@ -711,6 +713,52 @@ export async function applyOrderContactOverride(
       );
     }
     throw new Error(error.message);
+  }
+
+  if (params.orderId) {
+    await updateOrderContactField(client, {
+      tenantId: params.tenantId,
+      orderId: params.orderId,
+      email,
+      phone: params.phone?.trim() || null,
+    });
+  }
+}
+
+/**
+ * The card shows (and sends to) its own "Customer Contact" value before the
+ * customer row, so saving a new default on the customer alone looked like it
+ * "reverted" — the card kept the old address. Swap only a value of the same
+ * kind (email for email, phone for phone); never clear or change anything else.
+ */
+async function updateOrderContactField(
+  client: Client,
+  params: { tenantId: string; orderId: string; email: string | null; phone: string | null }
+): Promise<void> {
+  try {
+    const { contactId } = await resolveCustomerFieldIds(client, params.tenantId);
+    if (!contactId) return;
+    const { data } = await client
+      .from("custom_field_values")
+      .select("value")
+      .eq("order_id", params.orderId)
+      .eq("custom_field_id", contactId)
+      .maybeSingle();
+    const current = String((data as { value: unknown } | null)?.value ?? "").trim();
+    if (!current) return;
+    const currentIsEmail = current.includes("@");
+    const next = currentIsEmail ? params.email : params.phone;
+    if (!next || next === current) return;
+    const { error } = await client
+      .from("custom_field_values")
+      .update({ value: next })
+      .eq("order_id", params.orderId)
+      .eq("custom_field_id", contactId);
+    if (error) {
+      console.error("[contact-override] card contact update failed:", error.message);
+    }
+  } catch (err) {
+    console.error("[contact-override] card contact update failed:", err);
   }
 }
 
