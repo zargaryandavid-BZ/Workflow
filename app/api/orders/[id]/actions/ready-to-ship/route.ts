@@ -208,6 +208,7 @@ export async function POST(
               [orderId]
             );
           return sendPickupReadyNotifications({
+            orderId: orderId,
             email: body.channel === "email" || body.channel === "both" ? email : null,
             phone: body.channel === "sms" || body.channel === "both" ? phone : null,
             customerName: exportData.customerName,
@@ -222,6 +223,7 @@ export async function POST(
           });
         })()
       : await sendShippingPortalNotifications({
+          orderId: orderId,
           email: body.channel === "email" || body.channel === "both" ? email : null,
           phone: body.channel === "sms" || body.channel === "both" ? phone : null,
           customerName: exportData.customerName,

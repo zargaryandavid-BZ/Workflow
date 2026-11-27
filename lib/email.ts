@@ -10,6 +10,12 @@ import {
 } from "@/lib/instantly";
 import { isGmailSendConfigured, sendViaGmailApi } from "@/lib/gmail-send";
 import {
+  brandTenantName,
+  emailBrandForOrder,
+  rebrandText,
+  type EmailBrand,
+} from "@/lib/email-brand";
+import {
   approvalSubject,
   buildApprovalEmailBody,
   buildApprovalEmailHtml,
@@ -42,6 +48,7 @@ interface ApprovalEmailArgs {
   orderTitle: string;
   tenantName: string;
   approvalUrl: string;
+  brand?: EmailBrand;
 }
 
 interface NotificationEmailArgs {
@@ -60,6 +67,7 @@ interface NotificationEmailArgs {
   htmlBody?: string;
   textBody?: string;
   templates?: MessageTemplateMap | null;
+  brand?: EmailBrand;
 }
 
 export type EmailSendResult = { sent: boolean; error?: string };
@@ -103,12 +111,20 @@ async function postInstantlyEmail(
   });
 }
 
-async function sendCustomerEmail(params: {
+async function sendCustomerEmail(input: {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  brand?: EmailBrand;
 }): Promise<EmailSendResult> {
+  // Pixel Press orders: swap any Bazaar name/phone/address/logo for Pixel Press.
+  const params = {
+    ...input,
+    subject: rebrandText(input.subject, input.brand),
+    html: rebrandText(input.html, input.brand),
+    text: rebrandText(input.text, input.brand),
+  };
   if (isGmailSendConfigured()) {
     return sendViaGmailApi(params);
   }
@@ -212,8 +228,9 @@ async function sendCustomerEmail(params: {
 
 /** Sends the customer approval email. When not configured, logs the link. */
 export async function sendApprovalEmail(
-  args: ApprovalEmailArgs
+  input: ApprovalEmailArgs
 ): Promise<EmailSendResult & { url?: string }> {
+  const args = { ...input, tenantName: brandTenantName(input.brand, input.tenantName) };
   const html = buildApprovalEmailHtml({
     customerName: "there",
     productType: "order",
@@ -234,6 +251,7 @@ export async function sendApprovalEmail(
     subject: `Approval needed: ${args.orderTitle}`,
     html,
     text,
+    brand: args.brand,
   });
 
   if (!result.sent) {
@@ -248,8 +266,9 @@ export async function sendApprovalEmail(
 
 /** Sends a customer notification email with a tokenized action link. */
 export async function sendNotificationEmail(
-  args: NotificationEmailArgs
+  input: NotificationEmailArgs
 ): Promise<EmailSendResult & { url?: string }> {
+  const args = { ...input, tenantName: brandTenantName(input.brand, input.tenantName) };
   const isApproval = args.type === "customer_approval";
   const templates = args.templates;
   const subjectVars = {
@@ -352,6 +371,7 @@ export async function sendNotificationEmail(
     subject,
     html,
     text,
+    brand: args.brand,
   });
 
   if (!result.sent) {
@@ -442,6 +462,11 @@ export async function sendTransactionalEmail(params: {
   subject: string;
   html: string;
   text?: string;
+  /** Pixel Press orders send as Pixel Press. Pass brand, or orderId to look it up. */
+  brand?: EmailBrand;
+  orderId?: string | null;
 }): Promise<EmailSendResult> {
-  return sendCustomerEmail(params);
+  const { orderId, ...rest } = params;
+  const brand = rest.brand ?? (orderId ? await emailBrandForOrder(orderId) : undefined);
+  return sendCustomerEmail({ ...rest, brand });
 }

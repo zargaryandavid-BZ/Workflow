@@ -232,6 +232,8 @@ export async function sendShippingPortalNotifications(args: {
   customerName: string;
   orderNumber: string;
   portalUrl: string;
+  /** Order id — Pixel Press orders email as Pixel Press. */
+  orderId?: string | null;
   tenantName: string;
   templates?: MessageTemplateMap | null;
   /** Staff-edited subject from Ready-to-Ship popup (email only). */
@@ -286,6 +288,7 @@ export async function sendShippingPortalNotifications(args: {
     }
 
     const result = await sendTransactionalEmail({
+      orderId: args.orderId,
       // + the company Shipping emails saved in the CRM (item 17).
       to: await shippingEmailTo(args.email.trim(), args.phone),
       subject,
@@ -325,6 +328,8 @@ export async function sendPickupReadyNotifications(args: {
   pickupHours: string;
   /** 8-digit pickup code; always included in the message when set. */
   pickupCode?: string | null;
+  /** Order id — Pixel Press orders email as Pixel Press. */
+  orderId?: string | null;
   tenantName: string;
   templates?: MessageTemplateMap | null;
   /** Staff-edited subject from Ready-to-Ship popup (email only). */
@@ -393,6 +398,7 @@ export async function sendPickupReadyNotifications(args: {
     }
 
     const result = await sendTransactionalEmail({
+      orderId: args.orderId,
       // + the company Shipping emails saved in the CRM (item 17).
       to: await shippingEmailTo(args.email.trim(), args.phone),
       subject,

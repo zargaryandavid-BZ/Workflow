@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { emailBrandFromSpecs } from "@/lib/email-brand";
 import { extraNotifyRecipients, fetchCrmNotifyContacts } from "@/lib/crm-notify-contacts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -469,6 +470,7 @@ async function deliverNotification(
         staffNote,
         customerName,
         productType,
+        brand: emailBrandFromSpecs(params.order.specs),
         subject: resolvedSubject,
         htmlBody,
         textBody,

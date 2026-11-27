@@ -49,6 +49,7 @@ export async function sendPickupCodeAfterPortalChoice(
     ]);
 
     const result = await sendPickupReadyNotifications({
+      orderId: row.order_id,
       email,
       phone,
       customerName: exportData.customerName,
