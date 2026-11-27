@@ -1408,7 +1408,7 @@ export function ShippingPortalClient({ data }: { data: ShippingPortalData }) {
             >
               {rates.some((r) => r.freeShipping) ? (
                 <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
-                  FedEx Ground is free on this order (website orders over $500).
+                  FedEx Ground is free on this order.
                 </p>
               ) : null}
               {groupRatesForPriceChart(rates).map((group) => (
