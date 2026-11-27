@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { logActivity } from "@/lib/automation";
+import { guardNoteHistoryPatch } from "@/lib/note-history";
+import { canManageNoteFlags, type NoteThread } from "@/lib/note-visibility";
 import { ORDER_QTY_FIELD_ALIASES } from "@/lib/constants";
 import { isAccountManagerOwner } from "@/lib/order-owners";
 import { linkCustomerFromOrderFields } from "@/lib/customers";
@@ -526,6 +528,62 @@ export async function PATCH(
     }
   }
 
+  // Notes are append-only for everyone except admins: a PATCH that drops or
+  // rewrites existing entries (stale tab, hand-edited payload) keeps the stored
+  // entries and only appends the new ones. Admin removals are allowed but
+  // written to the activity log with the removed text.
+  const notesAllowEdits = canManageNoteFlags(ctx.role);
+  const removedNotes: {
+    thread: NoteThread;
+    author: string;
+    date: string;
+    text: string;
+  }[] = [];
+  const guardNotes = (
+    thread: NoteThread,
+    prevRaw: unknown,
+    nextRaw: string | null | undefined
+  ): string | null => {
+    const out = guardNoteHistoryPatch(
+      typeof prevRaw === "string" ? prevRaw : null,
+      nextRaw,
+      { allowEdits: notesAllowEdits }
+    );
+    for (const e of out.removed) {
+      removedNotes.push({ thread, author: e.author, date: e.date, text: e.text });
+    }
+    return out.raw;
+  };
+  if (body.internal_note !== undefined) {
+    body.internal_note = guardNotes(
+      "internal",
+      (existingOrder as { internal_note?: unknown }).internal_note,
+      body.internal_note
+    );
+  }
+  if (body.specs !== undefined) {
+    if (typeof body.specs.production_notes === "string" || body.specs.production_notes === null) {
+      body.specs = {
+        ...body.specs,
+        production_notes: guardNotes(
+          "production",
+          existingSpecs.production_notes,
+          body.specs.production_notes as string | null
+        ),
+      };
+    }
+    if (typeof body.specs.designer_notes === "string" || body.specs.designer_notes === null) {
+      body.specs = {
+        ...body.specs,
+        designer_notes: guardNotes(
+          "designer",
+          existingSpecs.designer_notes,
+          body.specs.designer_notes as string | null
+        ),
+      };
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   if (body.title !== undefined) updates.title = body.title;
   if (body.description !== undefined) updates.description = body.description;
@@ -887,6 +945,22 @@ export async function PATCH(
     customFieldValues: body.customFieldValues,
     previousCustomFieldValues,
   }).catch((err) => console.error("[activity-log]", err));
+
+  if (removedNotes.length > 0) {
+    // Admin removed/edited existing note entries — keep the old text on record.
+    void logActivity(supabase, {
+      tenantId,
+      orderId: id,
+      actor: ctx.userId,
+      action: "note_entries_removed",
+      metadata: {
+        entries: removedNotes.map((n) => ({
+          ...n,
+          text: n.text.length > 500 ? `${n.text.slice(0, 497)}...` : n.text,
+        })),
+      },
+    }).catch((err) => console.error("[activity-log]", err));
+  }
 
   // Build a minimal order object from what we already have in memory.
   // The client only reads `error` and `tagNotifyWarning` — it does NOT

@@ -81,6 +81,13 @@ import { cleanSpecRows } from "@/lib/spec-row-filter";
 import { isRollDirectionField } from "@/lib/roll-direction";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { RollDirectionSelect } from "./roll-direction-select";
+import { NoteHistoryList, type NoteFlagControls } from "./note-history-list";
+import { noteEntriesWithIds } from "@/lib/note-history";
+import {
+  EMPTY_NOTE_FLAGS,
+  visibleNoteEntries,
+  type NoteViewer,
+} from "@/lib/note-visibility";
 import { LabelsPerRollSection } from "./labels-per-roll-section";
 import { isRollDisplayRow, isRollLabelCard, isRollSpecKey, type RollKey } from "@/lib/roll-options";
 import type {
@@ -148,6 +155,15 @@ export interface OrderFormBodyProps {
   onDesignerNoteChange?: (value: string) => void;
   /** Show the customer/designer note windows (staff only, not production floor). */
   showAudienceNotes?: boolean;
+  /** Show the Customer note field inside the audience notes box (default true). */
+  showCustomerNote?: boolean;
+  /**
+   * Per-note hide / "for production" flags (card modal). When set, hidden notes
+   * are left out of the lists and admins get Hide / For production buttons.
+   */
+  noteFlagControls?: NoteFlagControls;
+  /** Who is looking + card column — trims notes for the production floor. */
+  noteViewer?: NoteViewer;
   fieldValues: Record<string, unknown>;
   onFieldValueChange: (fieldId: string, value: unknown) => void;
   skus: SkuItem[];
@@ -590,6 +606,9 @@ export function OrderFormBody({
   designerNote = "",
   onDesignerNoteChange,
   showAudienceNotes = false,
+  showCustomerNote = true,
+  noteFlagControls,
+  noteViewer,
   fieldValues,
   onFieldValueChange,
   skus,
@@ -639,6 +658,25 @@ export function OrderFormBody({
   } = useCrmCatalogState();
   const designerFieldReadOnly = designerReadOnly ?? readOnly;
   const [hideEmpty, setHideEmpty] = useState(hideEmptyProp);
+  // Note lists actually shown: ids for every entry, minus admin-hidden ones,
+  // trimmed to production-relevant notes for the production floor.
+  const noteFlags = noteFlagControls?.flags ?? EMPTY_NOTE_FLAGS;
+  const visibleNotes = (
+    entries: NoteEntry[] | undefined,
+    thread: "internal" | "production" | "designer"
+  ) => {
+    const withIds = noteEntriesWithIds(entries ?? []);
+    if (!noteFlagControls && !noteViewer) return withIds;
+    return visibleNoteEntries(
+      withIds,
+      thread,
+      noteFlags,
+      noteViewer ?? { role: null, columnName: null }
+    );
+  };
+  const visibleInternalNotes = visibleNotes(noteHistory, "internal");
+  const visibleProductionNotes = visibleNotes(productionNoteHistory, "production");
+  const visibleDesignerNotes = visibleNotes(designerNoteHistory, "designer");
   const [artworkCopied, setArtworkCopied] = useState(false);
   const [dueDateError, setDueDateError] = useState<string | null>(null);
   const [customerLookupHint, setCustomerLookupHint] = useState<string | null>(
@@ -1665,6 +1703,7 @@ export function OrderFormBody({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
             Notes
           </p>
+          {showCustomerNote ? (
           <div>
             <Label htmlFor={`${idPrefix}-customer-note`}>Customer note</Label>
             <Textarea
@@ -1676,34 +1715,24 @@ export function OrderFormBody({
               className={cn(readOnly ? "bg-slate-50" : "bg-white")}
             />
           </div>
+          ) : null}
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-designer-note`}>Designer note</Label>
-            {designerNoteHistory && designerNoteHistory.length > 0 ? (
+            {visibleDesignerNotes.length > 0 ? (
               <div className="min-w-0 space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-                {designerNoteHistory.map((entry, i) => (
-                  <div key={i} className="min-w-0">
-                    {i > 0 && <hr className="mb-2 border-slate-100" />}
-                    <p className="mb-1 text-[11px] font-semibold text-slate-500">
-                      {entry.author}
-                      <span className="mx-1 font-normal">/</span>
-                      {new Date(entry.date).toLocaleString(undefined, {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
-                    <p className="min-w-0 break-words whitespace-pre-wrap text-sm text-slate-900">
-                      {entry.text}
-                    </p>
-                  </div>
-                ))}
+                <NoteHistoryList
+                  entries={visibleDesignerNotes}
+                  thread="designer"
+                  controls={noteFlagControls}
+                  hrClassName="border-slate-100"
+                  metaClassName="text-slate-500"
+                  textClassName="break-words text-slate-900"
+                />
               </div>
             ) : null}
             {!readOnly ? (
               <div>
-                {designerNoteHistory && designerNoteHistory.length > 0 ? (
+                {visibleDesignerNotes.length > 0 ? (
                   <Label
                     htmlFor={`${idPrefix}-designer-note`}
                     className="mb-1.5 block"
@@ -1729,7 +1758,7 @@ export function OrderFormBody({
       ) : null}
 
       {(!hideEmpty ||
-        (productionNoteHistory && productionNoteHistory.length > 0) ||
+        visibleProductionNotes.length > 0 ||
         productionNotes.trim() ||
         (artworkField && artworkValue) ||
         !readOnly) ? (
@@ -1739,7 +1768,7 @@ export function OrderFormBody({
           </p>
 
           {(!hideEmpty ||
-            (productionNoteHistory && productionNoteHistory.length > 0) ||
+            visibleProductionNotes.length > 0 ||
             productionNotes.trim() ||
             !readOnly) ? (
             <div className="space-y-2">
@@ -1756,34 +1785,21 @@ export function OrderFormBody({
                 </span>
               </div>
 
-              {productionNoteHistory && productionNoteHistory.length > 0 ? (
-                <div className="min-w-0 space-y-2">
-                  {productionNoteHistory.map((entry, i) => (
-                    <div key={i} className="min-w-0">
-                      {i > 0 && <hr className="mb-2 border-blue-200/80" />}
-                      <p className="mb-1 text-[11px] font-semibold text-orange-800/70">
-                        {entry.author}
-                        <span className="mx-1 font-normal">/</span>
-                        {new Date(entry.date).toLocaleString(undefined, {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                      <p className="min-w-0 break-all whitespace-pre-wrap text-sm text-slate-900">
-                        {entry.text}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+              {visibleProductionNotes.length > 0 ? (
+                <NoteHistoryList
+                  entries={visibleProductionNotes}
+                  thread="production"
+                  controls={noteFlagControls}
+                  hrClassName="border-blue-200/80"
+                  metaClassName="text-orange-800/70"
+                  textClassName="break-all text-slate-900"
+                />
               ) : null}
 
               {!readOnly ? (
                 <div>
                   <Label htmlFor={`${idPrefix}-production-notes`}>
-                    {productionNoteHistory && productionNoteHistory.length > 0
+                    {visibleProductionNotes.length > 0
                       ? "Add new note"
                       : "Note for production"}
                   </Label>
@@ -1889,34 +1905,21 @@ export function OrderFormBody({
             </span>
           </div>
 
-          {noteHistory && noteHistory.length > 0 ? (
-            <div className="min-w-0 space-y-2">
-              {noteHistory.map((entry, i) => (
-                <div key={i} className="min-w-0">
-                  {i > 0 && <hr className="mb-2 border-amber-200/80" />}
-                  <p className="mb-1 text-[11px] font-semibold text-amber-800/70">
-                    {entry.author}
-                    <span className="mx-1 font-normal">/</span>
-                    {new Date(entry.date).toLocaleString(undefined, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                  <p className="min-w-0 break-all whitespace-pre-wrap text-sm text-amber-950">
-                    {entry.text}
-                  </p>
-                </div>
-              ))}
-            </div>
+          {visibleInternalNotes.length > 0 ? (
+            <NoteHistoryList
+              entries={visibleInternalNotes}
+              thread="internal"
+              controls={noteFlagControls}
+              hrClassName="border-amber-200/80"
+              metaClassName="text-amber-800/70"
+              textClassName="break-all text-amber-950"
+            />
           ) : null}
 
           {!readOnly ? (
             <div>
               <Label htmlFor={`${idPrefix}-internal-note`}>
-                {noteHistory && noteHistory.length > 0
+                {visibleInternalNotes.length > 0
                   ? "Add new note"
                   : "Note"}
               </Label>

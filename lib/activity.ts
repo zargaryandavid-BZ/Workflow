@@ -479,12 +479,57 @@ export function describeActivity(log: ActivityLog): string {
       const from = src ? ` from ${src === "crm" ? "CRM" : src === "portal" ? "the portal" : src === "web" || src === "website" ? "the website" : src}` : "";
       return col ? `Order created${from} in ${col}` : `Order created${from}`;
     }
+    case "auto_missing_info_notify": {
+      const ch = meta.channel === "both" ? "email + SMS" : meta.channel === "sms" ? "SMS" : "email";
+      switch (meta.outcome) {
+        case "requested":
+          return `Automatic files request sent to the customer (${ch})`;
+        case "failed":
+          return `Automatic files request failed (${ch})${typeof meta.error === "string" && meta.error ? `: ${meta.error}` : ""}`;
+        case "files_found":
+          return "Files found in Drive — automatic files request not needed";
+        case "no_contact":
+          return "No customer email or phone — automatic files request not sent";
+        case "open_request_exists":
+          return "Files request already open for this order — no automatic request sent";
+        default:
+          return "Automatic files request";
+      }
+    }
     case "hold_reason": {
       const reason = meta.reason as string | undefined;
       const col = (meta.columnName as string | undefined) ?? "";
       const where = /missing\s*info/i.test(col) ? "Missing info" : "On hold";
       const auto = meta.auto === true ? " (automatic)" : "";
       return reason ? `${where}${auto}: ${reason}` : `${where}${auto}`;
+    }
+    case "note_hidden":
+    case "note_unhidden":
+    case "note_marked_production":
+    case "note_unmarked_production": {
+      const threadLabel =
+        meta.thread === "production"
+          ? "production note"
+          : meta.thread === "designer"
+            ? "designer note"
+            : "internal note";
+      const verb =
+        log.action === "note_hidden"
+          ? `Hid ${threadLabel}`
+          : log.action === "note_unhidden"
+            ? `Unhid ${threadLabel}`
+            : log.action === "note_marked_production"
+              ? `Marked ${threadLabel} for production`
+              : `Unmarked ${threadLabel} for production`;
+      const text = typeof meta.text === "string" ? meta.text : "";
+      const clip = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+      return clip ? `${verb}: “${clip}”` : verb;
+    }
+    case "note_entries_removed": {
+      const entries = Array.isArray(meta.entries) ? meta.entries : [];
+      return entries.length === 1
+        ? "Admin removed/edited 1 note entry"
+        : `Admin removed/edited ${entries.length} note entries`;
     }
     case "column_moved": {
       const trigger = (meta.trigger as string | undefined) ?? "";
