@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { FedExRateOption } from "./types.ts";
 import {
+  dropSaturdayDuplicates,
   friendlyFedExServiceName,
   fedexCommitmentLabel,
   fedexServiceForAddress,
@@ -132,5 +133,26 @@ describe("isFedExHomeDeliveryRequiredError", () => {
       ),
       true
     );
+  });
+});
+
+describe("Saturday duplicates (Hayk 2026-11-27, W511)", () => {
+  const r = (serviceType: string, deliveryDate: string, totalCharge: number) => ({
+    serviceType, serviceName: serviceType, totalCharge, currency: "USD", deliveryDate, transitDays: null,
+  });
+  it("keeps only the regular delivery when FedEx also offers Saturday", () => {
+    const out = dropSaturdayDuplicates([
+      r("FIRST_OVERNIGHT", "2026-11-28T08:30:00", 247.23),
+      r("FIRST_OVERNIGHT", "2026-11-30T08:30:00", 226.15),
+      r("GROUND_HOME_DELIVERY", "2026-11-28T23:59:00", 31.2),
+    ]);
+    assert.deepEqual(out.map((x) => x.totalCharge), [226.15, 31.2]);
+  });
+  it("business address: no Home Delivery shown", () => {
+    const out = normalizeFedExRatesForAddress(
+      [r("FEDEX_GROUND", "2026-12-01", 20), r("GROUND_HOME_DELIVERY", "2026-12-01", 31.2)],
+      false
+    );
+    assert.deepEqual(out.map((x) => x.serviceType), ["FEDEX_GROUND"]);
   });
 });

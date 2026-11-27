@@ -98,11 +98,14 @@ export async function serverPricedSelection(args: {
   const rates = isCurri
     ? await quoteCurriCustomerRates(args)
     : await quoteFedExCustomerRates(args);
+  const sameService = rates.filter(
+    (rate) =>
+      rate.serviceType === args.selection.serviceType && rate.totalCharge != null
+  );
+  // Prefer the same delivery day the customer picked.
   return (
-    rates.find(
-      (rate) =>
-        rate.serviceType === args.selection.serviceType &&
-        rate.totalCharge != null
-    ) ?? null
+    sameService.find((rate) => rate.deliveryDate === args.selection.deliveryDate) ??
+    sameService[0] ??
+    null
   );
 }

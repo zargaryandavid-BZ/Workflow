@@ -84,13 +84,18 @@ export function streetSuggestsCommercial(street: string): boolean {
   );
 }
 
-/** Home vs business. Suites default to business; the client can still check Residential. */
+/**
+ * Home vs business. Hayk 2026-11-27: default to BUSINESS (FedEx Ground) —
+ * most of our customers ship to a shop / office (306 Boyd St was quoted as a
+ * home and only got Home Delivery). The customer ticks "Residential" for a
+ * home address; a saved choice is kept.
+ */
 export function defaultResidentialFlag(
   street: string,
   saved?: boolean
 ): boolean {
   if (streetSuggestsCommercial(street)) return false;
-  return saved !== false;
+  return saved === true;
 }
 
 /** Trim + normalize a delivery address for API storage / carrier calls. */
