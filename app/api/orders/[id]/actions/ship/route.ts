@@ -156,7 +156,8 @@ export async function POST(
         const { pickupLocation, pickupHours } = await resolvePickupNotifyFields(
           supabase,
           ctx.tenant.id,
-          body.pickup_location_id
+          body.pickup_location_id,
+          [orderId, ...tagTargets.map((t) => t.id)]
         );
         return sendPickupReadyNotifications({
           email,

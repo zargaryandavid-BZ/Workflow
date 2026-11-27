@@ -137,3 +137,30 @@ export function toStaffPickupLocation(
     useForFedex: loc.use_for_fedex,
   };
 }
+
+/** True when a pickup address is the Boyd St shop. */
+export function isBoydPickupLocation(loc: {
+  name?: string | null;
+  street?: string | null;
+  addressLine?: string | null;
+}): boolean {
+  return /\bboyd\b/i.test(
+    [loc.name, loc.street, loc.addressLine].filter(Boolean).join(" ")
+  );
+}
+
+/**
+ * Default pickup address for a "ready for pickup" message (Hayk 2026-11-26):
+ * orders are picked up at the main shop (1025 E 16th St) unless the order was
+ * scanned in at Boyd ("Boyd Received") — then it is waiting at 306 Boyd St.
+ * Tenants with only one address keep that address.
+ */
+export function pickDefaultPickupLocation<
+  T extends { name?: string | null; street?: string | null; addressLine?: string | null },
+>(locations: T[], atBoyd: boolean): T | null {
+  if (locations.length === 0) return null;
+  const boyd = locations.find((l) => isBoydPickupLocation(l)) ?? null;
+  const main = locations.find((l) => !isBoydPickupLocation(l)) ?? null;
+  if (atBoyd) return boyd ?? main ?? locations[0]!;
+  return main ?? boyd ?? locations[0]!;
+}

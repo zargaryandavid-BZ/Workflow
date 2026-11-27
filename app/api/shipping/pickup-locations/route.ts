@@ -5,10 +5,18 @@ import {
   ensureShippingSettings,
   loadPickupLocations,
 } from "@/lib/shipping-settings";
-import { toStaffPickupLocation } from "@/lib/pickup-locations";
+import {
+  pickDefaultPickupLocation,
+  toStaffPickupLocation,
+} from "@/lib/pickup-locations";
+import { ordersScannedAtBoyd } from "@/lib/pickup-boyd";
 
-/** Signed-in staff: pickup addresses for ready-to-ship SMS (no FedEx secrets). */
-export async function GET() {
+/**
+ * Signed-in staff: pickup addresses for ready-to-ship SMS (no FedEx secrets).
+ * `?orderIds=a,b` also returns `defaultId`: 1025 E 16th St unless the order
+ * was scanned in at Boyd ("Boyd Received") — then 306 Boyd St.
+ */
+export async function GET(request: Request) {
   const ctx = await getTenantContext();
   if (!ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,7 +44,13 @@ export async function GET() {
               position: 0,
             }),
           ];
-    return NextResponse.json({ locations });
+    const params = new URL(request.url).searchParams;
+    const orderIds = (params.get("orderIds") ?? params.get("orderId") ?? "")
+      .split(",")
+      .filter(Boolean);
+    const atBoyd = await ordersScannedAtBoyd(supabase, ctx.tenant.id, orderIds);
+    const defaultId = pickDefaultPickupLocation(locations, atBoyd)?.id ?? null;
+    return NextResponse.json({ locations, defaultId, atBoyd });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to load pickup locations";

@@ -4,8 +4,13 @@ import { useEffect, useState } from "react";
 import type { StaffPickupLocation } from "@/lib/pickup-locations";
 
 export function useStaffPickupLocations(
-  url = "/api/shipping/pickup-locations"
+  baseUrl = "/api/shipping/pickup-locations",
+  orderIds: string[] = []
 ) {
+  const idsKey = orderIds.filter(Boolean).join(",");
+  const url = idsKey
+    ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}orderIds=${encodeURIComponent(idsKey)}`
+    : baseUrl;
   const [locations, setLocations] = useState<StaffPickupLocation[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
 
@@ -13,12 +18,16 @@ export function useStaffPickupLocations(
     let cancelled = false;
     fetch(url)
       .then((r) => r.json())
-      .then((json: { locations?: StaffPickupLocation[] }) => {
+      .then((json: { locations?: StaffPickupLocation[]; defaultId?: string | null }) => {
         if (cancelled) return;
         const list = Array.isArray(json.locations) ? json.locations : [];
         setLocations(list);
         setSelectedId((current) => {
           if (current && list.some((l) => l.id === current)) return current;
+          // Server picks 1025 E 16th St, or Boyd when the order was scanned at Boyd.
+          if (json.defaultId && list.some((l) => l.id === json.defaultId)) {
+            return json.defaultId;
+          }
           return list.find((l) => l.useForFedex)?.id ?? list[0]?.id ?? "";
         });
       })

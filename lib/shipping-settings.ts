@@ -2,8 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FedExConfig, ShippingSettings, ShippingSettingsPublic } from "@/lib/types";
+import { ordersScannedAtBoyd } from "@/lib/pickup-boyd";
 import {
   formatPickupNotifyLocation,
+  pickDefaultPickupLocation,
   type ShippingPickupLocation,
   type ShippingPickupLocationDraft,
 } from "@/lib/pickup-locations";
@@ -195,16 +197,19 @@ export async function replacePickupLocations(
 export async function resolvePickupNotifyFields(
   client: Client,
   tenantId: string,
-  pickupLocationId?: string | null
+  pickupLocationId?: string | null,
+  orderIds: string[] = []
 ): Promise<{ pickupLocation: string; pickupHours: string }> {
   const settings = await loadShippingSettings(client, tenantId);
   const locations = await loadPickupLocations(client, tenantId);
   const wanted = pickupLocationId?.trim() || "";
+  const explicit = wanted ? locations.find((l) => l.id === wanted) : null;
   const selected =
-    (wanted ? locations.find((l) => l.id === wanted) : null) ??
-    locations.find((l) => l.use_for_fedex) ??
-    locations[0] ??
-    null;
+    explicit ??
+    pickDefaultPickupLocation(
+      locations,
+      await ordersScannedAtBoyd(client, tenantId, orderIds)
+    );
 
   if (selected) {
     return {
