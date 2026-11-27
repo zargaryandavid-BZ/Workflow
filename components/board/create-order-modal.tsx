@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { OrderFormBody, type OrderOwner } from "./order-form-body";
-import { ConnectedCreateSpecs } from "./connected-create-specs";
+import { CrmCreateSpecs } from "./crm-create-specs";
 import {
   prepareSkusForSave,
   validateSkus,
@@ -25,8 +25,7 @@ import {
   DEFAULT_APPLICATION_DAYS,
   isApplicationCustomFieldOn,
 } from "@/lib/order-application";
-import { buildCrmSnapshot, findCatalogProduct } from "@/lib/crm-catalog-v2";
-import { useCatalogCache } from "@/lib/use-catalog-cache";
+import { buildCrmSnapshot, type CatalogV2Product } from "@/lib/crm-catalog-v2";
 import type { SpecEditValue } from "./connected-spec-inputs";
 import type { BoardColumn, CustomField, Designer, IntegrationMode } from "@/lib/types";
 
@@ -85,7 +84,6 @@ export function CreateOrderModal({
   onCreated,
 }: CreateOrderModalProps) {
   const connected = tenantIntegrationMode === "connected";
-  const catalog = useCatalogCache();
   const [title, setTitle] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [productionNotes, setProductionNotes] = useState("");
@@ -110,7 +108,9 @@ export function CreateOrderModal({
   const [pendingImagesBySkuId, setPendingImagesBySkuId] = useState<
     Record<string, PendingSkuImage[]>
   >({});
-  const [connectedProductId, setConnectedProductId] = useState("");
+  // Picked from the live CRM catalog (/api/crm-catalog), same as the card editor.
+  const [connectedProduct, setConnectedProduct] =
+    useState<CatalogV2Product | null>(null);
   const [connectedSpecValues, setConnectedSpecValues] = useState<
     Record<string, SpecEditValue>
   >({});
@@ -144,7 +144,7 @@ export function CreateOrderModal({
     setFieldValues({});
     setSkus([]);
     setPendingImagesBySkuId({});
-    setConnectedProductId("");
+    setConnectedProduct(null);
     setConnectedSpecValues({});
     setError(null);
   }
@@ -204,9 +204,7 @@ export function CreateOrderModal({
       return;
     }
 
-    const product = connected
-      ? findCatalogProduct(catalog, connectedProductId, null)
-      : null;
+    const product = connected ? connectedProduct : null;
     if (connected && !product) {
       setError("Select a product from the CRM catalog.");
       return;
@@ -380,11 +378,10 @@ export function CreateOrderModal({
           hidePrintCustomFields={connected}
           printFieldsSlot={
             connected ? (
-              <ConnectedCreateSpecs
-                catalog={catalog}
-                productId={connectedProductId}
-                onProductIdChange={(id) => {
-                  setConnectedProductId(id);
+              <CrmCreateSpecs
+                productId={connectedProduct?.id ?? ""}
+                onProductChange={(next) => {
+                  setConnectedProduct(next);
                   setConnectedSpecValues({});
                 }}
                 values={connectedSpecValues}

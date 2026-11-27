@@ -16,7 +16,17 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { NoteMentionTextarea } from "@/components/board/note-mention-textarea";
 import { CustomFieldInput } from "./custom-field-input";
 import { ProductMaterialsFields } from "./product-materials-fields";
-import { useCrmCatalog } from "@/lib/use-crm-catalog";
+import { useCrmCatalogState } from "@/lib/use-crm-catalog";
+import {
+  customFieldDisplay,
+  findCatalogProductInfo,
+  orderedProductQuestions,
+  productFamily,
+  productLineRules,
+  questionHandledByCustomField,
+  questionLabel,
+  type ProductQuestion,
+} from "@/lib/product-field-rules";
 import { SkuEditor, type SkuItem, type PendingSkuImage } from "./sku-editor";
 import { DueDateFields } from "./due-date-fields";
 import { ApplicationFields } from "./application-fields";
@@ -238,8 +248,14 @@ function ProductSpecsSection({
   hideKeysCoveredByCustomFields = false,
   hideEmpty = false,
   hideRollKeys = false,
+  questions = null,
 }: {
   hideRollKeys?: boolean;
+  /**
+   * The product's own CRM questions in CRM order (null = product not in the
+   * catalog → old behaviour: every field_options key).
+   */
+  questions?: ProductQuestion[] | null;
   specs?: Record<string, unknown> | null;
   fieldOptions?: SpecFieldOptions | null;
   toggles?: { key: string; label: string }[] | null;
@@ -258,12 +274,42 @@ function ProductSpecsSection({
       : {};
   const allFoKeys = fieldOptions ? Object.keys(fieldOptions) : [];
   const hideCovered = hideKeysCoveredByCustomFields || hideEmpty;
-  const foKeys = allFoKeys.filter(
-    (k) =>
-      !isHiddenFloorSpecKey(k) &&
-      !(hideRollKeys && isRollSpecKey(k)) &&
-      (!hideCovered || !specKeyCoveredByCustomFields(k, customFieldNames))
-  );
+  const questionKeys = questions ? questions.map((q) => q.key) : null;
+  const questionRank = (k: string) => {
+    if (!questionKeys) return 0;
+    const i = questionKeys.indexOf(k);
+    return i === -1 ? questionKeys.length : i;
+  };
+  const storedSel = (k: string) =>
+    sel[k] != null && String(sel[k]).trim() !== "";
+  const foKeys = allFoKeys
+    .filter(
+      (k) =>
+        !isHiddenFloorSpecKey(k) &&
+        !(hideRollKeys && isRollSpecKey(k)) &&
+        (!hideCovered || !specKeyCoveredByCustomFields(k, customFieldNames)) &&
+        // Only the product's own questions (CRM builder: product.fields), but
+        // never drop a key the card already holds a value for.
+        (!questionKeys || questionKeys.includes(k) || storedSel(k)) &&
+        !(questionKeys && k.toUpperCase() === "QUANTITY")
+    )
+    .sort((a, b) => questionRank(a) - questionRank(b));
+  const labelFor = (k: string) =>
+    questions?.find((q) => q.key === k)?.label ?? sentenceCaseSpecLabel(k);
+  // Product questions with no option list (number / text / yes-no) that no
+  // Workflow custom field or catalog toggle already asks.
+  const toggleKeys = new Set((toggles ?? []).map((t) => t.key.toUpperCase()));
+  const freeQuestions = (questions ?? []).filter((q) => {
+    const k = q.key;
+    if (allFoKeys.includes(k)) return false;
+    if (toggleKeys.has(k.toUpperCase())) return false;
+    if (isHiddenFloorSpecKey(k)) return false;
+    if (hideRollKeys && isRollSpecKey(k)) return false;
+    if (/^(SET_SIZE|CUSTOM_SIZE)(_3)?$/i.test(k) && !/_3$/.test(k)) return false;
+    if (questionHandledByCustomField(k, customFieldNames)) return false;
+    if (hideEmpty && !storedSel(k)) return false;
+    return true;
+  });
   // Roll keys are edited in the "Labels per roll" section when it is shown.
   const specDisplay = floorSpecDisplayRows(s.spec_display).filter(
     (row) => !hideRollKeys || !isRollDisplayRow(row)
@@ -304,6 +350,7 @@ function ProductSpecsSection({
         if (isHiddenFloorSpecKey(k)) return false;
         if (hideRollKeys && isRollSpecKey(k)) return false;
         if (allFoKeys.includes(k)) return false;
+        if (freeQuestions.some((q) => q.key === k)) return false;
         if (
           hideCovered &&
           specKeyCoveredByCustomFields(k, customFieldNames)
@@ -314,6 +361,7 @@ function ProductSpecsSection({
       }).map(([key, value]) => ({ key, value })));
   if (
     visibleFoKeys.length === 0 &&
+    freeQuestions.length === 0 &&
     toggleList.length === 0 &&
     readonlyRows.length === 0 &&
     specDisplay.length === 0 &&
@@ -350,7 +398,7 @@ function ProductSpecsSection({
               return (
                 <RollDirectionSelect
                   key={k}
-                  label={sentenceCaseSpecLabel(k)}
+                  label={labelFor(k)}
                   value={current}
                   onChange={(v) => onChange?.(k, v ?? "")}
                   readOnly={!onChange}
@@ -360,7 +408,7 @@ function ProductSpecsSection({
             return (
               <label key={k} className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">
-                  {sentenceCaseSpecLabel(k)}
+                  {labelFor(k)}
                 </span>
                 <Select
                   value={current}
@@ -382,6 +430,50 @@ function ProductSpecsSection({
                   ))}
                 </Select>
               </label>
+            );
+          })}
+        </div>
+      ) : null}
+      {freeQuestions.length > 0 ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {freeQuestions.map((q) => {
+            const current = sel[q.key] != null ? String(sel[q.key]) : "";
+            if (q.type === "boolean") {
+              const yes = /^(yes|true|1|on)$/i.test(current.trim());
+              const no = /^(no|false|0|off)$/i.test(current.trim());
+              return (
+                <label key={q.key} className="block">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">
+                    {q.label}
+                  </span>
+                  <Select
+                    value={yes ? "Yes" : no ? "No" : current}
+                    onChange={(e) => onChange?.(q.key, e.target.value)}
+                    disabled={!onChange}
+                  >
+                    <option value="">—</option>
+                    {!yes && !no && current ? (
+                      <option value={current}>{current}</option>
+                    ) : null}
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </Select>
+                </label>
+              );
+            }
+            return (
+              <div key={q.key}>
+                <Label>{q.label}</Label>
+                <Input
+                  type={q.type === "number" ? "number" : "text"}
+                  value={current}
+                  readOnly={!onChange}
+                  placeholder={
+                    q.type === "dimensions" ? "e.g. 4 x 2 x 6" : undefined
+                  }
+                  onChange={(e) => onChange?.(q.key, e.target.value)}
+                />
+              </div>
             );
           })}
         </div>
@@ -558,7 +650,12 @@ export function OrderFormBody({
 }: OrderFormBodyProps) {
   const resolved = resolveOrderFormFields(customFields);
   const { artworkField, orderQtyField, printFields } = resolved;
-  const crmCatalog = useCrmCatalog();
+  const {
+    catalog: crmCatalog,
+    status: catalogStatus,
+    error: catalogError,
+    retry: retryCatalog,
+  } = useCrmCatalogState();
   const designerFieldReadOnly = designerReadOnly ?? readOnly;
   const [hideEmpty, setHideEmpty] = useState(hideEmptyProp);
   // Note lists actually shown: ids for every entry, minus admin-hidden ones,
@@ -709,11 +806,58 @@ export function OrderFormBody({
         : null,
     });
 
+  // The card's product → its CRM question rules (same as the quote builder).
+  const currentProductName = productField
+    ? String(fieldValues[productField.id] ?? "").trim()
+    : "";
+  const currentCategoryName = categoryField
+    ? String(fieldValues[categoryField.id] ?? "").trim()
+    : "";
+  const catalogProduct =
+    findCatalogProductInfo(crmCatalog?.products, currentProductName) ??
+    // Alias match ("Labels (Roll)" ↔ "Roll Labels"), same as the option maps.
+    (currentProductName
+      ? (crmCatalog?.products ?? []).find((p) =>
+          Boolean(lookupCatalogMap({ [p.name]: true }, currentProductName))
+        ) ?? null
+      : null);
+  const lineRules = catalogProduct
+    ? productLineRules(catalogProduct, {
+        material: materialsField
+          ? String(fieldValues[materialsField.id] ?? "")
+          : null,
+      })
+    : null;
+  const productQuestions = catalogProduct
+    ? orderedProductQuestions(catalogProduct)
+    : null;
+  const cardFamily = productFamily({
+    product: currentProductName,
+    category: currentCategoryName,
+  });
+  // Product known to the catalog but not in it → old Workflow lists, labelled.
+  const productNotInCatalog =
+    catalogStatus === "ready" &&
+    Boolean(crmCatalog) &&
+    Boolean(currentProductName) &&
+    !lookupCatalogMap(crmCatalog?.materialsByProduct, currentProductName);
+
+  const savedOnlyFieldIds = new Set<string>();
   const visiblePrintFields = printFields
     .filter((f) => !cascadingFieldIds.has(f.id))
     .filter((f) => {
-      if (isRollDirectionField(f)) return true;
-      if (hideEmpty && isEmptyFieldValue(fieldValues[f.id])) return false;
+      const display = customFieldDisplay({
+        fieldName: f.name,
+        value: fieldValues[f.id],
+        rules: lineRules,
+        family: cardFamily,
+        hideEmpty,
+      });
+      if (display === "hide") return false;
+      if (display === "saved") {
+        savedOnlyFieldIds.add(f.id);
+        return true;
+      }
       if (!hideEmpty) return true;
       const name = f.name.trim().toLowerCase();
       if (name === "die cut") {
@@ -724,15 +868,44 @@ export function OrderFormBody({
       }
       return true;
     });
-  const sizePrintFields = visiblePrintFields
+  // CRM question order for the print fields this product asks.
+  const fieldQuestionRank = (f: CustomField) => {
+    if (!productQuestions) return 0;
+    const key = (
+      {
+        finishing: ["FINISHING", "LAMINATION"],
+        "special effects": ["SPECIAL_EFFECTS"],
+        "roll direction": ["ROLL_DIRECTION"],
+        "color mode": ["COLOR_MODE"],
+        sides: ["SIDES", "DOUBLE_SIDED"],
+        die: ["DIE", "CUTTING"],
+        "die cut": ["DIE", "CUTTING"],
+        perforation: ["PERFORATION"],
+      } as Record<string, string[]>
+    )[f.name.trim().toLowerCase()];
+    if (!key) return productQuestions.length;
+    const i = productQuestions.findIndex((q) =>
+      key.includes(q.key.toUpperCase())
+    );
+    return i === -1 ? productQuestions.length : i;
+  };
+  const savedOnlyPrintFields = visiblePrintFields.filter((f) =>
+    savedOnlyFieldIds.has(f.id)
+  );
+  const askedPrintFields = visiblePrintFields.filter(
+    (f) => !savedOnlyFieldIds.has(f.id)
+  );
+  const sizePrintFields = askedPrintFields
     .filter((f) => isOrderSizeDimensionField(f.name))
     .sort(
       (a, b) =>
         orderSizeDimensionRank(a.name) - orderSizeDimensionRank(b.name)
     );
-  const otherPrintFields = visiblePrintFields.filter(
-    (f) => !isOrderSizeDimensionField(f.name)
-  );
+  const otherPrintFields = askedPrintFields
+    .filter((f) => !isOrderSizeDimensionField(f.name))
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => fieldQuestionRank(a.f) - fieldQuestionRank(b.f) || a.i - b.i)
+    .map(({ f }) => f);
 
   function renderPrintField(field: CustomField) {
     // Finishing / Special effects follow the chosen product's CRM catalog list
@@ -744,11 +917,19 @@ export function OrderFormBody({
       field.field_type === "select"
         ? catalogOptionsForField(field.name, productForOptions, crmCatalog)
         : null;
+    const catalogDriven = ["finishing", "special effects"].includes(
+      field.name.trim().toLowerCase()
+    );
     const filteredOptions =
       catalogOptions ??
-      (field.field_type === "select"
-        ? getFilteredOptions(field, fieldValues, fieldLinks)
-        : uniqueOptions(field.options));
+      (field.field_type === "select" &&
+      catalogDriven &&
+      catalogStatus !== "ready" &&
+      !crmCatalog
+        ? [] // loading / failed: current value only, never the full list
+        : field.field_type === "select"
+          ? getFilteredOptions(field, fieldValues, fieldLinks)
+          : uniqueOptions(field.options));
     const current = fieldValues[field.id];
     let optionsWithCurrent = filteredOptions;
     if (field.field_type === "select" && current != null && current !== "") {
@@ -793,11 +974,11 @@ export function OrderFormBody({
     const fromCrm = crmCatalog
       ? lookupCatalogMap(crmCatalog.productsByCategory, category)
       : null;
-    if (crmCatalog) {
-      // Connected mode: never fall back to the old Workflow product list.
-      if (!category) return [];
-      return fromCrm ?? [];
-    }
+    // Catalog still loading / failed: never show the unfiltered product list.
+    if (!crmCatalog) return [];
+    if (!category) return [];
+    if (fromCrm) return fromCrm;
+    // Category genuinely not in the CRM catalog → old Workflow list (labelled).
     const linked = linkedTargetOptions(
       fieldLinks,
       categoryField.id,
@@ -817,10 +998,11 @@ export function OrderFormBody({
     const fromCrm = crmCatalog
       ? lookupCatalogMap(crmCatalog.materialsByProduct, product)
       : null;
-    if (crmCatalog) {
-      if (!product) return [];
-      return fromCrm ?? [];
-    }
+    // Catalog still loading / failed: never show every material.
+    if (!crmCatalog) return [];
+    if (!product) return [];
+    if (fromCrm) return fromCrm;
+    // Product genuinely not in the CRM catalog → old Workflow list (labelled).
     const linked = linkedTargetOptions(
       fieldLinks,
       productField.id,
@@ -828,15 +1010,15 @@ export function OrderFormBody({
       product
     );
     if (linked === null) return null;
-    if (!product) return [];
     return linked;
   })();
 
   // Live CRM per-product field set (pouch zipper/seal/gusset, combo label sizes,
   // apparel color/print, box 3D size…) — drives the editable specs section.
-  const currentProductName = productField
-    ? String(fieldValues[productField.id] ?? "").trim()
-    : "";
+  const categoryNotInCatalog =
+    Boolean(crmCatalog) &&
+    Boolean(currentCategoryName) &&
+    !lookupCatalogMap(crmCatalog?.productsByCategory, currentCategoryName);
   const productSpecFieldOptions: SpecFieldOptions | null = (() => {
     const map = crmCatalog?.fieldOptionsByProduct;
     if (!map || !currentProductName) return null;
@@ -1304,8 +1486,41 @@ export function OrderFormBody({
               productsByCategory={crmCatalog?.productsByCategory ?? null}
               readOnly={readOnly}
               hideEmpty={hideEmpty}
+              optionsLoading={!crmCatalog && catalogStatus === "loading"}
+              materialsLabel={
+                catalogProduct
+                  ? questionLabel(catalogProduct, "material")
+                  : null
+              }
             />
           </div>
+        ) : null}
+
+        {!hidePrintCustomFields && useCascadingProductMaterials ? (
+          !crmCatalog && catalogStatus === "loading" ? (
+            <p className="text-xs text-slate-500">Loading options…</p>
+          ) : !crmCatalog && catalogStatus === "error" ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+              <span>
+                Couldn&apos;t load this product&apos;s options from the CRM
+                {catalogError ? ` (${catalogError})` : ""}. Saved values are
+                kept.
+              </span>
+              <button
+                type="button"
+                onClick={retryCatalog}
+                className="rounded border border-red-300 bg-white px-2 py-0.5 font-medium hover:bg-red-100"
+              >
+                Retry
+              </button>
+            </div>
+          ) : productNotInCatalog || categoryNotInCatalog ? (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {productNotInCatalog
+                ? `“${currentProductName}” is not in the CRM catalog — showing the Workflow option lists. Pick the matching catalog product to get its questions.`
+                : `Category “${currentCategoryName}” is not in the CRM catalog — showing the Workflow product list.`}
+            </p>
+          ) : null
         ) : null}
 
         {hidePrintCustomFields ? printFieldsSlot : (
@@ -1317,6 +1532,7 @@ export function OrderFormBody({
           customFieldNames={customFields.map((f) => f.name)}
           hideKeysCoveredByCustomFields={!hidePrintCustomFields}
           hideEmpty={hideEmpty}
+          questions={productQuestions}
           sizeHint={{
             width: widthField ? fieldValues[widthField.id] : "",
             height: heightField ? fieldValues[heightField.id] : "",
@@ -1342,6 +1558,17 @@ export function OrderFormBody({
         {!hidePrintCustomFields && otherPrintFields.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {otherPrintFields.map((field) => renderPrintField(field))}
+          </div>
+        ) : null}
+
+        {!hidePrintCustomFields && savedOnlyPrintFields.length > 0 ? (
+          <div className="space-y-2 rounded-lg border border-dashed border-slate-300 p-3">
+            <p className="text-xs font-medium text-slate-500">
+              Saved values not used by this product (kept as-is)
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {savedOnlyPrintFields.map((field) => renderPrintField(field))}
+            </div>
           </div>
         ) : null}
 
