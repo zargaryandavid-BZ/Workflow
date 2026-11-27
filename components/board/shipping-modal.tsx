@@ -78,7 +78,7 @@ export function ShippingModal({
     locations: pickupLocations,
     selectedId: pickupLocationId,
     setSelectedId: setPickupLocationId,
-  } = useStaffPickupLocations();
+  } = useStaffPickupLocations(undefined, [orderId]);
 
   const boxesRequired = fulfillment === "choose";
   const boxTotal = totalBoxCount(boxes);

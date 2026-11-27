@@ -204,7 +204,8 @@ export async function POST(
             await resolvePickupNotifyFields(
               supabase,
               ctx.tenant.id,
-              body.pickup_location_id
+              body.pickup_location_id,
+              [orderId]
             );
           return sendPickupReadyNotifications({
             email: body.channel === "email" || body.channel === "both" ? email : null,
