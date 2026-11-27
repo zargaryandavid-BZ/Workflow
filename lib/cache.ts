@@ -233,3 +233,37 @@ export async function cacheSet<T>(key: string, value: T, ttlSeconds: number): Pr
     memSet(key, value, ttlSeconds);
   }
 }
+
+/**
+ * "Show the last answer now, refresh it quietly" (stale-while-revalidate).
+ * Hayk 2026-11-26: the first board open after a break took ~9s for cards and
+ * ~21s for pictures / Drive badges / PDF checks because short caches had
+ * expired. Entries are now kept for a day; a caller serves the saved answer at
+ * once and, when it is older than its "fresh" window, recomputes it in the
+ * background (next/server `after`) so the next open has the new answer.
+ */
+type SwrEntry<T> = { __swr: 1; v: T; at: number };
+
+/** Keep saved answers this long (they are refreshed in the background). */
+export const SWR_KEEP_SECONDS = 24 * 60 * 60;
+
+export async function swrGet<T>(
+  key: string
+): Promise<{ value: T; ageSeconds: number } | null> {
+  const raw = await cacheGet<SwrEntry<T>>(key);
+  if (!raw || typeof raw !== "object" || (raw as SwrEntry<T>).__swr !== 1) {
+    return null;
+  }
+  const at = Number((raw as SwrEntry<T>).at);
+  const ageSeconds = Number.isFinite(at) ? Math.max(0, (Date.now() - at) / 1000) : Infinity;
+  return { value: (raw as SwrEntry<T>).v, ageSeconds };
+}
+
+export async function swrSet<T>(
+  key: string,
+  value: T,
+  keepSeconds: number = SWR_KEEP_SECONDS
+): Promise<void> {
+  const entry: SwrEntry<T> = { __swr: 1, v: value, at: Date.now() };
+  await cacheSet(key, entry, keepSeconds);
+}
