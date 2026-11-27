@@ -171,7 +171,8 @@ export function ReadyToShipPopup({
     setSelectedId: setPickupLocationId,
     selected: selectedPickup,
   } = useStaffPickupLocations(
-    apiBase ? `${apiBase}/pickup-locations` : undefined
+    apiBase ? `${apiBase}/pickup-locations` : undefined,
+    [order.id]
   );
   const [boxCount, setBoxCount] = useState(1);
   const [boxes, setBoxes] = useState<BoxDraft[]>([emptyBox()]);
