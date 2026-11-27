@@ -70,8 +70,16 @@ export function brokerPlacedByContact(order: {
   webhook_source?: string | null;
   title?: string | null;
   specs?: Record<string, unknown> | null;
+  internal_note?: string | null;
 }): { name: string; email: string | null; phone: string | null } | null {
   const info = getBrokerOrderInfo(order);
-  if (!info.isBroker || !info.contactName) return null;
-  return { name: info.contactName, email: info.contactEmail, phone: info.contactPhone };
+  if (!info.isBroker) return null;
+  if (info.contactName) {
+    return { name: info.contactName, email: info.contactEmail, phone: info.contactPhone };
+  }
+  // Cards made before 2026-11-27 carry the rep only as a team note
+  // "Placed by: Tyler (tyler@…) · Account email: …" — read it, never rewrite it.
+  const m = (order.internal_note ?? "").match(/Placed by:\s*([^(·"\n]+?)\s*(?:\(([^)\s]+@[^)\s]+)\))?\s*(?:·|"|\n|$)/);
+  if (!m || !m[1]?.trim()) return null;
+  return { name: m[1].trim(), email: m[2]?.trim() || null, phone: null };
 }
