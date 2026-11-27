@@ -61,3 +61,17 @@ export function brokerBadgeTitle(info: BrokerOrderInfo): string {
   if (info.contactName) parts.push(info.contactName);
   return parts.join(" · ");
 }
+
+/**
+ * The broker rep who placed a portal order, for the card header ("Placed by …").
+ * Null for non-broker cards or when the portal sent no rep name.
+ */
+export function brokerPlacedByContact(order: {
+  webhook_source?: string | null;
+  title?: string | null;
+  specs?: Record<string, unknown> | null;
+}): { name: string; email: string | null; phone: string | null } | null {
+  const info = getBrokerOrderInfo(order);
+  if (!info.isBroker || !info.contactName) return null;
+  return { name: info.contactName, email: info.contactEmail, phone: info.contactPhone };
+}
