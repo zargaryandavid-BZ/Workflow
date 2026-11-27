@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { canEditOrderDetails } from "@/lib/permissions";
 import { preserveCardImage, type CardImageSource } from "@/lib/card-image";
 import { loadOrderFinalDriveContext } from "@/lib/order-gdrive";
-import { cacheGet, cacheInvalidate, cacheSet } from "@/lib/cache";
+import { cacheGet, cacheInvalidate, cacheSet, swrGet, swrSet } from "@/lib/cache";
+import { cardImageMissKey, cardImageRespKey } from "@/lib/board-cache-keys";
 
 // When a card has no buildable picture, every board load re-ran the full
 // "build picture from the Final PDF" attempt (~4s each, ~20 cards). Remember
@@ -12,8 +13,7 @@ import { cacheGet, cacheInvalidate, cacheSet } from "@/lib/cache";
 // so a new folder or a regenerated card picture skips the remembered miss.
 // A Drive refresh (gdrive-status?refresh=1) also clears it.
 const CARD_MISS_TTL_SECONDS = 10 * 60;
-const cardImageMissKey = (tenantId: string, orderId: string) =>
-  `wf:card-image-miss:v1:${tenantId}:${orderId}`;
+
 
 // Whole-answer cache: every board load asked each picture-less card again and
 // each answer took ~1s even when nothing changed (folder lookup + image lookup).
@@ -21,9 +21,13 @@ const cardImageMissKey = (tenantId: string, orderId: string) =>
 // regenerated picture (new rev) is picked up at once; choosing a picture
 // (POST below) or a Drive refresh clears it. Signed image links last 1 hour,
 // longer than this cache.
-const CARD_RESPONSE_TTL_SECONDS = 10 * 60;
-const cardResponseKey = (tenantId: string, orderId: string) =>
-  `wf:card-image-resp:v1:${tenantId}:${orderId}`;
+// Hayk 2026-11-26: kept a day, shown at once; after 10 min the next board open
+// rebuilds it in the background (stale-while-revalidate). A new card_pdf_rev
+// still forces a fresh answer right away.
+const CARD_RESPONSE_FRESH_SECONDS = 10 * 60;
+const cardResponseKey = cardImageRespKey;
+/** Signed picture links last 1 hour; re-sign saved ones older than 50 min. */
+const SIGNED_LINK_SAFE_SECONDS = 50 * 60;
 type CachedCardResponse = { rev: string; status: number; body: Record<string, unknown> };
 
 export const runtime = "nodejs";
@@ -48,20 +52,60 @@ export async function GET(
   const revSpecs = ((revRow?.specs ?? {}) as Record<string, unknown>);
   const rev = typeof revSpecs.card_pdf_rev === "string" ? revSpecs.card_pdf_rev : "";
   const respKey = cardResponseKey(ctx.tenant.id, orderId);
-  const cachedResp = revRow ? await cacheGet<CachedCardResponse>(respKey) : null;
-  if (cachedResp && cachedResp.rev === rev) {
-    return NextResponse.json(cachedResp.body, { status: cachedResp.status });
+  const saved = revRow ? await swrGet<CachedCardResponse>(respKey) : null;
+  if (saved && saved.value.rev === rev) {
+    if (saved.value.status === 200 && saved.ageSeconds > SIGNED_LINK_SAFE_SECONDS) {
+      // Picture links are signed for 1 hour: give an older saved picture a
+      // fresh link (one quick lookup) instead of a full rebuild from Drive.
+      const { loadProductionCardPreviewUrl } = await import(
+        "@/lib/approval-layer-previews"
+      );
+      const fresh = await loadProductionCardPreviewUrl(orderId).catch(() => null);
+      if (fresh) {
+        const body = { ...saved.value.body, ...fresh };
+        await swrSet<CachedCardResponse>(respKey, { rev, status: 200, body });
+        return NextResponse.json(body, { status: 200 });
+      }
+      // No stored picture any more → rebuild below.
+    } else {
+      if (saved.ageSeconds > CARD_RESPONSE_FRESH_SECONDS) {
+        const tenantId = ctx.tenant.id;
+        try {
+          after(() =>
+            buildAndSaveCardImage(supabase, tenantId, orderId, rev).catch(
+              () => undefined
+            )
+          );
+        } catch {
+          // after() unavailable outside a request — skip the refresh
+        }
+      }
+      return NextResponse.json(saved.value.body, { status: saved.value.status });
+    }
   }
 
-  const res = await buildCardImageResponse(supabase, ctx.tenant.id, orderId);
-  if (revRow && (res.status === 200 || res.status === 404)) {
-    await cacheSet<CachedCardResponse>(
-      respKey,
-      { rev, status: res.status, body: res.body },
-      CARD_RESPONSE_TTL_SECONDS
-    );
-  }
+  const res = revRow
+    ? await buildAndSaveCardImage(supabase, ctx.tenant.id, orderId, rev)
+    : await buildCardImageResponse(supabase, ctx.tenant.id, orderId);
   return NextResponse.json(res.body, { status: res.status });
+}
+
+/** Build the card-picture answer and save it (found / no picture only). */
+async function buildAndSaveCardImage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  orderId: string,
+  rev: string
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await buildCardImageResponse(supabase, tenantId, orderId);
+  if (res.status === 200 || res.status === 404) {
+    await swrSet<CachedCardResponse>(cardResponseKey(tenantId, orderId), {
+      rev,
+      status: res.status,
+      body: res.body,
+    });
+  }
+  return res;
 }
 
 async function buildCardImageResponse(
