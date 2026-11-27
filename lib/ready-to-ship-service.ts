@@ -19,7 +19,11 @@ import {
   loadPickupLocations,
   resolvePickupNotifyFields,
 } from "@/lib/shipping-settings";
-import { toStaffPickupLocation } from "@/lib/pickup-locations";
+import {
+  pickDefaultPickupLocation,
+  toStaffPickupLocation,
+} from "@/lib/pickup-locations";
+import { ordersScannedAtBoyd } from "@/lib/pickup-boyd";
 import {
   formatGroupPartLocations,
   formatReadyToShipGroupLabel,
@@ -197,7 +201,10 @@ export async function readyToShipCheck(
 }
 
 /** GET pickup addresses for the pickup option. */
-export async function readyToShipPickupLocations(ctx: ReadyToShipCtx) {
+export async function readyToShipPickupLocations(
+  ctx: ReadyToShipCtx,
+  orderIds: string[] = []
+) {
   const { supabase, tenantId } = ctx;
   try {
     const settings = await ensureShippingSettings(supabase, tenantId);
@@ -220,7 +227,9 @@ export async function readyToShipPickupLocations(ctx: ReadyToShipCtx) {
               position: 0,
             }),
           ];
-    return NextResponse.json({ locations });
+    const atBoyd = await ordersScannedAtBoyd(supabase, tenantId, orderIds);
+    const defaultId = pickDefaultPickupLocation(locations, atBoyd)?.id ?? null;
+    return NextResponse.json({ locations, defaultId, atBoyd });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to load pickup locations";
@@ -398,7 +407,8 @@ export async function readyToShipSend(
           const { pickupLocation, pickupHours } = await resolvePickupNotifyFields(
             supabase,
             tenantId,
-            body.pickup_location_id
+            body.pickup_location_id,
+            [orderId]
           );
           return sendPickupReadyNotifications({
             email: body.channel === "email" || body.channel === "both" ? email : null,
@@ -647,7 +657,12 @@ export async function handlePublicReadyToShip(
       return readyToShipCheck(ctx, params.get("orderId"), params.get("columnId"));
     }
     if (action === "pickup-locations") {
-      return readyToShipPickupLocations(ctx);
+      return readyToShipPickupLocations(
+        ctx,
+        (params.get("orderIds") ?? params.get("orderId") ?? "")
+          .split(",")
+          .filter(Boolean)
+      );
     }
   } else {
     const body = (await request.json().catch(() => ({}))) as Record<
