@@ -9,7 +9,13 @@ import {
   applyResolvedDriveFolderUrls,
   loadOrderFinalDriveContext,
 } from "@/lib/order-gdrive";
-import { cacheGet, cacheInvalidate, cacheSet } from "@/lib/cache";
+import { cacheInvalidate, swrGet, swrSet } from "@/lib/cache";
+import {
+  cardImageMissKey,
+  cardImageRespKey,
+  driveStatusKey,
+  pdfCheckRespKey,
+} from "@/lib/board-cache-keys";
 
 // ---------------------------------------------------------------------------
 // Server-side TTL cache for Drive status results.
@@ -44,16 +50,15 @@ function setCachedDriveStatus(key: string, data: Record<string, unknown>) {
 // Shared (Upstash) copy of the same 5-min result so every serverless instance
 // benefits — the per-instance Map above only helps the instance that computed it.
 // Best-effort: any Redis error behaves exactly like a miss.
-const DRIVE_STATUS_SHARED_TTL_SECONDS = 5 * 60;
-const sharedKey = (key: string) => `wf:gdrive-status:v1:${key}`;
+const DRIVE_STATUS_FRESH_SECONDS = 5 * 60;
 
 /** Call this when an order's Drive folder changes (save, column move). */
 export function invalidateDriveStatusCache(tenantId: string, orderId: string) {
   driveStatusCache.delete(`${tenantId}:${orderId}`);
   void cacheInvalidate([
-    sharedKey(`${tenantId}:${orderId}`),
-    `wf:card-image-resp:v1:${tenantId}:${orderId}`,
-    `wf:pdf-check-resp:v1:${tenantId}:${orderId}`,
+    driveStatusKey(tenantId, orderId),
+    cardImageRespKey(tenantId, orderId),
+    pdfCheckRespKey(tenantId, orderId),
   ]);
 }
 
@@ -81,48 +86,74 @@ export async function GET(
     driveStatusCache.delete(cacheKey);
     // A manual Drive refresh also lets the card retry building its picture.
     await cacheInvalidate([
-      sharedKey(cacheKey),
-      `wf:card-image-miss:v1:${cacheKey}`,
-      `wf:card-image-resp:v1:${cacheKey}`,
-      `wf:pdf-check-resp:v1:${cacheKey}`,
+      driveStatusKey(ctx.tenant.id, orderId),
+      cardImageMissKey(ctx.tenant.id, orderId),
+      cardImageRespKey(ctx.tenant.id, orderId),
+      pdfCheckRespKey(ctx.tenant.id, orderId),
     ]);
   }
   const cached = getCachedDriveStatus(cacheKey);
   if (cached) return NextResponse.json(cached);
   if (!bust) {
-    const shared = await cacheGet<Record<string, unknown>>(sharedKey(cacheKey));
+    // Saved answer → show it now; older than 5 min → re-check Drive in the
+    // background so the next open is current (Hayk 2026-11-26).
+    const shared = await swrGet<Record<string, unknown>>(
+      driveStatusKey(ctx.tenant.id, orderId)
+    );
     if (shared) {
-      setCachedDriveStatus(cacheKey, shared);
-      return NextResponse.json(shared);
+      setCachedDriveStatus(cacheKey, shared.value);
+      if (shared.ageSeconds > DRIVE_STATUS_FRESH_SECONDS) {
+        const tenantId = ctx.tenant.id;
+        const bg = await createClient();
+        try {
+          after(() =>
+            computeDriveStatus(bg, tenantId, orderId, cacheKey).catch(() => undefined)
+          );
+        } catch {
+          // after() unavailable outside a request — skip the refresh
+        }
+      }
+      return NextResponse.json(shared.value);
     }
   }
 
   const supabase = await createClient();
+  const res = await computeDriveStatus(supabase, ctx.tenant.id, orderId, cacheKey);
+  return NextResponse.json(res.body, { status: res.status });
+}
+
+/** Look the order's Drive folders up and save a successful answer. */
+async function computeDriveStatus(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  orderId: string,
+  cacheKey: string
+): Promise<{ status: number; body: Record<string, unknown> }> {
   // Resolve this line item's OWN Drive folder only. Pooling the order group's
   // folders made the card-picture refresh pull a sibling line item's newest
   // file onto this card (pouch art showing on the box/label cards).
   const loaded = await loadOrderFinalDriveContext(
     supabase,
-    ctx.tenant.id,
+    tenantId,
     orderId,
     { includeGroupSeeds: false }
   );
 
   if (loaded.kind === "not_found") {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return { status: 404, body: { error: "Order not found" } };
   }
   if (loaded.kind === "not_configured") {
-    return NextResponse.json({
+    return { status: 200, body: {
       hasFiles: false,
       hasDesignerFiles: false,
       fileCount: 0,
       hasPdf: false,
       hasFinalPdf: false,
       configured: false,
-    });
+    } };
   }
   if (loaded.kind === "error") {
-    return NextResponse.json({ error: loaded.message }, { status: 500 });
+    return { status: 500, body: { error: loaded.message } };
   }
 
   const { order, settings, artworkUrl, seedIds, resolved, resolveError } = loaded;
@@ -131,8 +162,9 @@ export async function GET(
     if (resolveError) {
       console.error("[gdrive-status]", resolveError);
     }
-    return NextResponse.json(
-      {
+    return {
+      status: 200,
+      body: {
         hasFiles: false,
         hasDesignerFiles: false,
         fileCount: 0,
@@ -142,8 +174,7 @@ export async function GET(
         folderId: seedIds[0] ?? null,
         ...(resolveError ? { error: resolveError } : {}),
       },
-      { status: 200 }
-    );
+    };
   }
 
   try {
@@ -169,7 +200,7 @@ export async function GET(
     if (needPersistFinal || needPersistDesigner) {
       await applyResolvedDriveFolderUrls(
         supabase,
-        ctx.tenant.id,
+        tenantId,
         orderId,
         {
           designerUrl: needPersistDesigner ? resolved.designerUrl : null,
@@ -217,7 +248,7 @@ export async function GET(
                 {
                   id: order.id,
                   title: String(order.title ?? ""),
-                  tenant_id: ctx.tenant.id,
+                  tenant_id: tenantId,
                   specs: (order.specs ?? {}) as never,
                 },
                 settings,
@@ -248,13 +279,14 @@ export async function GET(
       finalUrl: resolved.finalUrl,
     };
     setCachedDriveStatus(cacheKey, responseData);
-    await cacheSet(sharedKey(cacheKey), responseData, DRIVE_STATUS_SHARED_TTL_SECONDS);
-    return NextResponse.json(responseData);
+    await swrSet(driveStatusKey(tenantId, orderId), responseData);
+    return { status: 200, body: responseData };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[gdrive-status]", message);
-    return NextResponse.json(
-      {
+    return {
+      status: 200,
+      body: {
         hasFiles: false,
         hasDesignerFiles: false,
         fileCount: 0,
@@ -264,7 +296,6 @@ export async function GET(
         folderId: seedIds[0] ?? null,
         error: message,
       },
-      { status: 200 }
-    );
+    };
   }
 }
