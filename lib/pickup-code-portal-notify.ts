@@ -44,7 +44,7 @@ export async function sendPickupCodeAfterPortalChoice(
     const { code } = await assignPickupCode(admin, row.tenant_id, [row.order_id]);
     const [templates, pickup, portalUrl] = await Promise.all([
       getMessageTemplates(admin, row.tenant_id),
-      resolvePickupNotifyFields(admin, row.tenant_id, null),
+      resolvePickupNotifyFields(admin, row.tenant_id, null, [row.order_id]),
       shippingPortalPublicUrl(admin, row.tenant_id, token),
     ]);
 

@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { pdfCheckRespKey } from "@/lib/board-cache-keys";
 import { createClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/lib/auth";
 import { loadOrderFinalDriveContext } from "@/lib/order-gdrive";
@@ -6,7 +7,7 @@ import {
   checkFinalFolderPdfPrintSpec,
   PDF_CHECK_UNCHECKED,
 } from "@/lib/gdrive-pdf-print-check";
-import { cacheGet, cacheSet } from "@/lib/cache";
+import { swrGet, swrSet } from "@/lib/cache";
 
 // Each card with a Final PDF re-ran this check (~2-3s: Drive folder listing)
 // on every board load. Real results are remembered 10 minutes per order; a
@@ -15,7 +16,10 @@ import { cacheGet, cacheSet } from "@/lib/cache";
 // 10 min (was 2): with 2 min almost every board visit re-listed Drive for
 // every card (~1.5s each). Same window as the card-picture answer; a Drive
 // refresh still clears it at once.
-const PDF_CHECK_TTL_SECONDS = 10 * 60;
+// Hayk 2026-11-26: answers are kept a day and shown at once; after 10 min the
+// next board open re-checks Drive in the background (stale-while-revalidate).
+const PDF_CHECK_FRESH_SECONDS = 10 * 60;
+
 
 /**
  * GET — inspect the newest Final-folder PDF for Acrobat layers + Fast Web View.
@@ -31,27 +35,46 @@ export async function GET(
   }
 
   const { id: orderId } = await params;
-  const respKey = `wf:pdf-check-resp:v1:${ctx.tenant.id}:${orderId}`;
-  const cached = await cacheGet<Record<string, unknown>>(respKey);
-  if (cached) return NextResponse.json(cached);
+  const tenantId = ctx.tenant.id;
+  const respKey = pdfCheckRespKey(tenantId, orderId);
   const supabase = await createClient();
 
+  // Saved answer → show it now; if it's older than the fresh window, re-check
+  // Drive in the background so the next open is up to date.
+  const saved = await swrGet<Record<string, unknown>>(respKey);
+  if (saved) {
+    if (saved.ageSeconds > PDF_CHECK_FRESH_SECONDS) {
+      try {
+        after(() => computePdfCheck(supabase, tenantId, orderId).catch(() => undefined));
+      } catch {
+        // after() unavailable outside a request — skip the refresh
+      }
+    }
+    return NextResponse.json(saved.value);
+  }
+
+  const res = await computePdfCheck(supabase, tenantId, orderId);
+  return NextResponse.json(res.body, { status: res.status });
+}
+
+/** Run the Drive PDF check and save a real (checked) result. */
+async function computePdfCheck(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  orderId: string
+): Promise<{ status: number; body: Record<string, unknown> }> {
   try {
-    const loaded = await loadOrderFinalDriveContext(
-      supabase,
-      ctx.tenant.id,
-      orderId
-    );
+    const loaded = await loadOrderFinalDriveContext(supabase, tenantId, orderId);
 
     if (loaded.kind === "not_found") {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return { status: 404, body: { error: "Order not found" } };
     }
     if (loaded.kind === "not_configured") {
-      return NextResponse.json(PDF_CHECK_UNCHECKED);
+      return { status: 200, body: PDF_CHECK_UNCHECKED as Record<string, unknown> };
     }
     if (loaded.kind === "error") {
       console.error("[pdf-check]", loaded.message);
-      return NextResponse.json(PDF_CHECK_UNCHECKED);
+      return { status: 200, body: PDF_CHECK_UNCHECKED as Record<string, unknown> };
     }
 
     const finalIds = loaded.resolved?.finalIds ?? [];
@@ -62,10 +85,12 @@ export async function GET(
       fallbackDesigner ? [fallbackDesigner] : finalIds,
       fallbackDesigner ? { directOnly: true } : undefined
     );
-    if (result.checked) await cacheSet(respKey, result, PDF_CHECK_TTL_SECONDS);
-    return NextResponse.json(result);
+    if (result.checked) {
+      await swrSet(pdfCheckRespKey(tenantId, orderId), result);
+    }
+    return { status: 200, body: result as unknown as Record<string, unknown> };
   } catch (err) {
     console.error("[pdf-check]", err);
-    return NextResponse.json(PDF_CHECK_UNCHECKED);
+    return { status: 200, body: PDF_CHECK_UNCHECKED as Record<string, unknown> };
   }
 }
