@@ -205,6 +205,7 @@ export async function sendTagNotifications(params: {
 
   for (const to of unique(emails)) {
     const result = await sendTransactionalEmail({
+      orderId: order.id,
       to,
       subject,
       html: emailHtml,

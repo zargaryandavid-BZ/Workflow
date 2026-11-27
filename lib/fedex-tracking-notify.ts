@@ -111,6 +111,7 @@ export async function notifyFedexTrackingCreated(
       team_name: teamName,
     });
     const result = await sendTransactionalEmail({
+      orderId: args.orderId,
       // + the company Shipping emails saved in the CRM (item 17).
       to: await shippingEmailTo(email, phone),
       subject,

@@ -172,6 +172,7 @@ export async function runPickupReminders(
         if (!msg) continue;
         if (email) {
           const r = await sendTransactionalEmail({
+            orderId: order.id,
             to: email,
             subject: msg.subject,
             html: messageToEmailHtml(msg.text),

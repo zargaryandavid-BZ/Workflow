@@ -598,7 +598,7 @@ export async function fireNotificationRules(
       const html = buildNotificationRuleEmailHtml(rawText, templateContext.order_number);
 
       for (const to of emails) {
-        const result = await sendTransactionalEmail({ to, subject, html, text }).catch(
+        const result = await sendTransactionalEmail({ to, subject, html, text, orderId }).catch(
           (err: unknown) => ({ sent: false, error: err instanceof Error ? err.message : String(err) })
         );
         if (!result.sent) {
@@ -728,7 +728,7 @@ export async function fireNewJobNotificationRules(
       const html = buildNotificationRuleEmailHtml(rawText, templateContext.order_number);
 
       for (const to of emails) {
-        const result = await sendTransactionalEmail({ to, subject, html, text }).catch(
+        const result = await sendTransactionalEmail({ to, subject, html, text, orderId }).catch(
           (err: unknown) => ({ sent: false, error: err instanceof Error ? err.message : String(err) })
         );
         if (!result.sent) {

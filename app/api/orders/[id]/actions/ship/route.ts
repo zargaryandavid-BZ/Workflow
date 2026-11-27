@@ -160,6 +160,7 @@ export async function POST(
           [orderId, ...tagTargets.map((t) => t.id)]
         );
         return sendPickupReadyNotifications({
+          orderId: orderId,
           email,
           phone,
           customerName: exportData.customerName,
@@ -173,6 +174,7 @@ export async function POST(
         });
       })()
     : await sendShippingPortalNotifications({
+        orderId: orderId,
         email,
         phone,
         customerName: exportData.customerName,

@@ -79,7 +79,7 @@ export async function POST(
 
   const results = await Promise.all(
     recipients.map((to) =>
-      sendTransactionalEmail({ to, subject, html })
+      sendTransactionalEmail({ to, subject, html, orderId })
     )
   );
 

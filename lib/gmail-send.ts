@@ -1,5 +1,12 @@
 import { google } from "googleapis";
 
+import {
+  PIXELPRESS_NAME,
+  pixelPressFromEmail,
+  pixelPressReplyTo,
+  type EmailBrand,
+} from "@/lib/email-brand";
+
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const DEFAULT_FROM = "noreply@bazaarprinting.com";
 
@@ -8,6 +15,8 @@ export type GmailSendParams = {
   subject: string;
   html: string;
   text?: string;
+  /** "PIXELPRESS" → send as info@pixelpressprint.com (falls back to Bazaar sender). */
+  brand?: EmailBrand;
 };
 
 export type GmailSendResult = { sent: boolean; error?: string };
@@ -101,7 +110,7 @@ export function encodeGmailRawMessage(
   return Buffer.from(raw, "utf8").toString("base64url");
 }
 
-async function gmailClient() {
+async function gmailClient(sendAs: string = gmailFromAddress()) {
   const sa = parseServiceAccountJson();
   if (sa?.client_email && sa.private_key) {
     const key = sa.private_key.includes("\\n")
@@ -111,7 +120,7 @@ async function gmailClient() {
       email: sa.client_email.trim(),
       key,
       scopes: [GMAIL_SEND_SCOPE],
-      subject: gmailFromAddress(),
+      subject: sendAs,
     });
     return google.gmail({ version: "v1", auth });
   }
@@ -140,6 +149,32 @@ export async function sendViaGmailApi(
     };
   }
 
+  // Pixel Press orders: send as the Pixel Press mailbox first. If that mailbox
+  // is not authorized yet (domain-wide delegation in the pixelpressprint.com
+  // Workspace), fall back to the Bazaar sender so the customer still gets it.
+  if (params.brand === "PIXELPRESS") {
+    const ppFrom = pixelPressFromEmail();
+    try {
+      const gmail = await gmailClient(ppFrom);
+      const res = await gmail.users.messages.send({
+        userId: "me",
+        requestBody: {
+          raw: encodeGmailRawMessage({
+            ...params,
+            from: `${PIXELPRESS_NAME} <${ppFrom}>`,
+            replyTo: pixelPressReplyTo(),
+          }),
+        },
+      });
+      if (res.data.id) return { sent: true };
+    } catch (err) {
+      console.warn(
+        "[gmail] Pixel Press sender failed, falling back to Bazaar sender:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   try {
     const gmail = await gmailClient();
     const res = await gmail.users.messages.send({
@@ -148,7 +183,7 @@ export async function sendViaGmailApi(
         raw: encodeGmailRawMessage({
           ...params,
           from: gmailFromHeader(),
-          replyTo: customerReplyToAddress(),
+          replyTo: params.brand === "PIXELPRESS" ? pixelPressReplyTo() : customerReplyToAddress(),
         }),
       },
     });

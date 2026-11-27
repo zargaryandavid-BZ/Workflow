@@ -168,6 +168,7 @@ export async function notifyCustomerOrderPickedUp(
 
   if (email && use.email) {
     const result = await sendTransactionalEmail({
+      orderId: args.orderId,
       to: email,
       subject: orderPickedUpEmailSubject(orderNumber, templates, {
         customer_name: customerName,

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { emailBrandFromSpecs } from "@/lib/email-brand";
 import { ACTIVITY_LOG_LIMIT } from "@/lib/constants";
 import { isColumnMoveActivity } from "@/lib/activity";
 import {
@@ -135,6 +136,7 @@ export async function createApprovalForOrder(
       orderTitle: order.title,
       tenantName,
       approvalUrl,
+      brand: emailBrandFromSpecs(order.specs),
     });
   } else {
     console.info(`[approval-link] ${tenantName}: ${approvalUrl}`);
