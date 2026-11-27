@@ -139,6 +139,7 @@ import {
   type NoteFlagControls,
 } from "@/components/board/note-history-list";
 import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
+import { brokerPlacedByContact } from "@/lib/order-broker";
 
 /** "Acme Acme" / "Safe Care Packaging Safe Care Packaging" → one copy. */
 function collapseDuplicatedLabel(value: string): string {
@@ -1612,6 +1613,9 @@ export function CardDetailModal({
     ? customerContactFromOrder(data.order, fieldValues, modalCustomFields)
     : { email: null, phone: null };
   const orderTags = data ? orderTagsFromSpecs(data.order.specs) : [];
+  // Broker-portal orders: the rep who placed the order (Hayk 2026-11-27: "so we
+  // know who to call and ask"). Read-only from specs.request_owner_*.
+  const placedByRep = data ? brokerPlacedByContact(data.order) : null;
 
   function hasUnsavedTicketEdits(): boolean {
     if (!data) return false;
@@ -2124,6 +2128,28 @@ export function CardDetailModal({
                 </div>
               ) : null}
             </div>
+          </>
+        ) : null}
+        {/* Broker rep who placed the order */}
+        {placedByRep ? (
+          <>
+            <span className="text-slate-300">|</span>
+            <span
+              className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-900"
+              title="Broker rep who placed this order in the portal"
+            >
+              <span className="font-medium">Placed by {placedByRep.name}</span>
+              {placedByRep.phone ? (
+                <a href={`tel:${placedByRep.phone}`} className="underline-offset-2 hover:underline">
+                  {formatPhoneDisplay(placedByRep.phone)}
+                </a>
+              ) : null}
+              {placedByRep.email ? (
+                <a href={`mailto:${placedByRep.email}`} className="truncate underline-offset-2 hover:underline">
+                  {placedByRep.email}
+                </a>
+              ) : null}
+            </span>
           </>
         ) : null}
         {/* Priority */}

@@ -61,3 +61,25 @@ export function brokerBadgeTitle(info: BrokerOrderInfo): string {
   if (info.contactName) parts.push(info.contactName);
   return parts.join(" · ");
 }
+
+/**
+ * The broker rep who placed a portal order, for the card header ("Placed by …").
+ * Null for non-broker cards or when the portal sent no rep name.
+ */
+export function brokerPlacedByContact(order: {
+  webhook_source?: string | null;
+  title?: string | null;
+  specs?: Record<string, unknown> | null;
+  internal_note?: string | null;
+}): { name: string; email: string | null; phone: string | null } | null {
+  const info = getBrokerOrderInfo(order);
+  if (!info.isBroker) return null;
+  if (info.contactName) {
+    return { name: info.contactName, email: info.contactEmail, phone: info.contactPhone };
+  }
+  // Cards made before 2026-11-27 carry the rep only as a team note
+  // "Placed by: Tyler (tyler@…) · Account email: …" — read it, never rewrite it.
+  const m = (order.internal_note ?? "").match(/Placed by:\s*([^(·"\n]+?)\s*(?:\(([^)\s]+@[^)\s]+)\))?\s*(?:·|"|\n|$)/);
+  if (!m || !m[1]?.trim()) return null;
+  return { name: m[1].trim(), email: m[2]?.trim() || null, phone: null };
+}
