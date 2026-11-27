@@ -716,6 +716,13 @@ export interface NoteEntry {
   author: string;
   date: string;
   text: string;
+  /**
+   * Stable entry id. Optional: most stored entries have none and get a derived
+   * id from author+date+text (see `noteEntriesWithIds` in lib/note-history.ts).
+   * Stored only when the derived one would not be stable (legacy plain text,
+   * missing date) or when a CRM re-sync rewrites the entry's text.
+   */
+  id?: string;
 }
 
 export interface OrderNote {

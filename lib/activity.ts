@@ -503,6 +503,34 @@ export function describeActivity(log: ActivityLog): string {
       const auto = meta.auto === true ? " (automatic)" : "";
       return reason ? `${where}${auto}: ${reason}` : `${where}${auto}`;
     }
+    case "note_hidden":
+    case "note_unhidden":
+    case "note_marked_production":
+    case "note_unmarked_production": {
+      const threadLabel =
+        meta.thread === "production"
+          ? "production note"
+          : meta.thread === "designer"
+            ? "designer note"
+            : "internal note";
+      const verb =
+        log.action === "note_hidden"
+          ? `Hid ${threadLabel}`
+          : log.action === "note_unhidden"
+            ? `Unhid ${threadLabel}`
+            : log.action === "note_marked_production"
+              ? `Marked ${threadLabel} for production`
+              : `Unmarked ${threadLabel} for production`;
+      const text = typeof meta.text === "string" ? meta.text : "";
+      const clip = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+      return clip ? `${verb}: “${clip}”` : verb;
+    }
+    case "note_entries_removed": {
+      const entries = Array.isArray(meta.entries) ? meta.entries : [];
+      return entries.length === 1
+        ? "Admin removed/edited 1 note entry"
+        : `Admin removed/edited ${entries.length} note entries`;
+    }
     case "column_moved": {
       const trigger = (meta.trigger as string | undefined) ?? "";
       const label =

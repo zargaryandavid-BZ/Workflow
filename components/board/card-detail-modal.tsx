@@ -117,9 +117,27 @@ import type {
 } from "@/lib/types";
 import {
   appendNoteEntry,
+  noteEntriesWithIds,
   parseNoteHistory,
   serializeNoteHistory,
 } from "@/lib/note-history";
+import {
+  EMPTY_NOTE_FLAGS,
+  NOTE_THREAD_LABEL,
+  canManageNoteFlags,
+  hiddenNoteEntries,
+  isProductionNotesView,
+  noteFlagKey,
+  showCustomerNoteFor,
+  visibleNoteEntries,
+  type NoteFlagAction,
+  type NoteFlags,
+  type NoteThread,
+} from "@/lib/note-visibility";
+import {
+  HiddenNotesPanel,
+  type NoteFlagControls,
+} from "@/components/board/note-history-list";
 import { LinkedOrderNumbers } from "@/components/board/linked-order-numbers";
 
 /** "Acme Acme" / "Safe Care Packaging Safe Care Packaging" → one copy. */
@@ -381,6 +399,61 @@ export function CardDetailModal({
   );
   /** Draft text for a new designer note (append-only). */
   const [designerNote, setDesignerNote] = useState("");
+  /** Admin per-note flags (orders.note_flags) — loaded separately so the card
+   *  works unchanged before that column exists. */
+  const [noteFlags, setNoteFlags] = useState<NoteFlags>(EMPTY_NOTE_FLAGS);
+  const [noteFlagsAvailable, setNoteFlagsAvailable] = useState(false);
+  const [noteFlagBusyKey, setNoteFlagBusyKey] = useState<string | null>(null);
+  const [noteFlagError, setNoteFlagError] = useState<string | null>(null);
+  useEffect(() => {
+    setNoteFlags(EMPTY_NOTE_FLAGS);
+    setNoteFlagsAvailable(false);
+    setNoteFlagError(null);
+    if (!open || !orderId) return;
+    let cancelled = false;
+    fetch(`/api/orders/${orderId}/note-flags`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { flags?: NoteFlags; available?: boolean } | null) => {
+        if (cancelled || !json) return;
+        setNoteFlags(json.flags ?? EMPTY_NOTE_FLAGS);
+        setNoteFlagsAvailable(json.available === true);
+      })
+      .catch(() => {
+        /* flags are optional — card still shows all notes */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, orderId]);
+  const handleNoteFlagAction = useCallback(
+    async (thread: NoteThread, noteId: string, action: NoteFlagAction) => {
+      if (!orderId) return;
+      const key = noteFlagKey(thread, noteId);
+      setNoteFlagBusyKey(key);
+      setNoteFlagError(null);
+      try {
+        const res = await fetch(`/api/orders/${orderId}/note-flags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ thread, noteId, action }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          flags?: NoteFlags;
+          error?: string;
+        };
+        if (!res.ok || !json.flags) {
+          setNoteFlagError(json.error ?? "Could not update the note.");
+          return;
+        }
+        setNoteFlags(json.flags);
+      } catch {
+        setNoteFlagError("Could not update the note.");
+      } finally {
+        setNoteFlagBusyKey(null);
+      }
+    },
+    [orderId]
+  );
   const [priority, setPriority] = useState("normal");
   const [applicationDays, setApplicationDays] = useState(DEFAULT_APPLICATION_DAYS);
   const [ownerId, setOwnerId] = useState("");
@@ -1508,6 +1581,14 @@ export function CardDetailModal({
     ? columns.find((c) => c.id === data.order.column_id)
     : undefined;
   const isInExceptionColumn = orderColumn?.kind === "exception";
+  const noteViewer = { role, columnName: orderColumn?.name ?? null };
+  const noteFlagControls: NoteFlagControls = {
+    flags: noteFlags,
+    canManage: canManageNoteFlags(role) && noteFlagsAvailable && mode !== "view",
+    busyKey: noteFlagBusyKey,
+    onAction: (thread, noteId, action) =>
+      void handleNoteFlagAction(thread, noteId, action),
+  };
   const isOutsourceColumn =
     (orderColumn?.name ?? "").trim().toLowerCase() === "outsource";
   const hasMissingInfoNotes =
@@ -2854,7 +2935,19 @@ export function CardDetailModal({
                 markTicketTouched();
                 setDesignerNote(v);
               }}
-              showAudienceNotes={role !== "member"}
+              showAudienceNotes={
+                role !== "member" &&
+                (!isProductionNotesView(noteViewer) ||
+                  visibleNoteEntries(
+                    noteEntriesWithIds(designerNoteHistory),
+                    "designer",
+                    noteFlags,
+                    noteViewer
+                  ).length > 0)
+              }
+              showCustomerNote={showCustomerNoteFor(noteViewer)}
+              noteFlagControls={noteFlagControls}
+              noteViewer={noteViewer}
               customerName={customerName}
               onCustomerNameChange={(v) => {
                 markTicketTouched();
@@ -2958,6 +3051,32 @@ export function CardDetailModal({
                     }
               }
             />
+
+            {noteFlagControls.canManage ? (
+              <HiddenNotesPanel
+                controls={noteFlagControls}
+                groups={(
+                  [
+                    ["internal", noteHistory],
+                    ["production", productionNoteHistory],
+                    ["designer", designerNoteHistory],
+                  ] as const
+                ).map(([thread, entries]) => ({
+                  thread,
+                  label: NOTE_THREAD_LABEL[thread],
+                  entries: hiddenNoteEntries(
+                    noteEntriesWithIds(entries),
+                    thread,
+                    noteFlags
+                  ),
+                }))}
+              />
+            ) : null}
+            {noteFlagError ? (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+                {noteFlagError}
+              </p>
+            ) : null}
 
             {saveError ? (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
