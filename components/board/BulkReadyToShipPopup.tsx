@@ -123,7 +123,10 @@ export function BulkReadyToShipPopup({
     locations: pickupLocations,
     selectedId: pickupLocationId,
     setSelectedId: setPickupLocationId,
-  } = useStaffPickupLocations();
+  } = useStaffPickupLocations(
+    undefined,
+    orders.map((o) => o.id)
+  );
 
   const selectable = rows.filter((r) => r.email || r.phone);
   const selected = rows.filter((r) => picked.has(r.key));
