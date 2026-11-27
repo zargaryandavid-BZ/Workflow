@@ -31,7 +31,6 @@ import {
   isValidCustomerContact,
   orderFormFieldLabel,
   orderSizeDimensionRank,
-  formatFieldDisplayValue,
   resolveOrderFormFields,
   validateDueDate,
 } from "@/lib/order-form";
@@ -68,6 +67,7 @@ import {
   parseSpecDisplay,
   floorSpecDisplayRows,
 } from "@/lib/product-spec-options";
+import { cleanSpecRows } from "@/lib/spec-row-filter";
 import { isRollDirectionField } from "@/lib/roll-direction";
 import { formatPhoneDisplay } from "@/lib/sms-phone";
 import { RollDirectionSelect } from "./roll-direction-select";
@@ -299,7 +299,7 @@ function ProductSpecsSection({
   // Q13: when spec_display is present, floor = custom fields + filtered spec_display.
   const readonlyRows = hasSpecDisplay
     ? []
-    : Object.entries(sel).filter(([k, v]) => {
+    : cleanSpecRows(Object.entries(sel).filter(([k, v]) => {
         if (v == null || String(v).trim() === "") return false;
         if (isHiddenFloorSpecKey(k)) return false;
         if (hideRollKeys && isRollSpecKey(k)) return false;
@@ -311,7 +311,7 @@ function ProductSpecsSection({
           return false;
         }
         return true;
-      });
+      }).map(([key, value]) => ({ key, value })));
   if (
     visibleFoKeys.length === 0 &&
     toggleList.length === 0 &&
@@ -442,12 +442,12 @@ function ProductSpecsSection({
       ) : null}
       {readonlyRows.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {readonlyRows.map(([k, v]) => (
-            <div key={k}>
-              <Label>{sentenceCaseSpecLabel(k)}</Label>
+          {readonlyRows.map((row) => (
+            <div key={row.key}>
+              <Label>{row.label}</Label>
               <Input
                 readOnly
-                value={formatFieldDisplayValue(v)}
+                value={row.value}
                 className="bg-white text-slate-800"
               />
             </div>
