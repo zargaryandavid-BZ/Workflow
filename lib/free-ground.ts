@@ -25,6 +25,32 @@ export function specsHaveFreeGround(specs: unknown): boolean {
   return Boolean(specs && typeof specs === "object" && (specs as Record<string, unknown>).free_ground_shipping === true);
 }
 
+/** Website free-Ground threshold (same $500 as the website cart). */
+export const FREE_GROUND_MIN_TOTAL = 500;
+
+/**
+ * Hayk 2026-11-27 (W511, $1,148.67, Nov 3): website orders placed before the
+ * website started sending the free-Ground flag must get it too. A WEBSITE
+ * (non-broker) order whose order total on the card (billing deposit + balance)
+ * is $500+ qualifies, even without the flag.
+ */
+export function orderQualifiesForFreeGround(order: {
+  webhook_source?: string | null;
+  specs?: unknown;
+}): boolean {
+  if (specsHaveFreeGround(order.specs)) return true;
+  if (String(order.webhook_source ?? "").trim().toLowerCase() !== "website") return false;
+  const specs = (order.specs ?? {}) as Record<string, unknown>;
+  if (specs.bazaar_broker_id || specs.bazaar_broker_slug) return false;
+  const billing = (specs.billing ?? {}) as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" ? v : Number(v));
+  const deposit = num(billing.deposit);
+  const balance = num(billing.balance);
+  const total =
+    (Number.isFinite(deposit) ? deposit : 0) + (Number.isFinite(balance) ? balance : 0);
+  return total >= FREE_GROUND_MIN_TOTAL;
+}
+
 /** Ground rates become $0 + flagged; everything else is unchanged. */
 export function applyFreeGround(rates: FedExRateOption[], freeGround: boolean): FedExRateOption[] {
   if (!freeGround) return rates;
@@ -42,6 +68,10 @@ type AdminLike = {
 /** Reads the free-Ground flag from the order card behind a shipping request. */
 export async function orderHasFreeGround(admin: AdminLike, orderId: string | null | undefined): Promise<boolean> {
   if (!orderId) return false;
-  const { data } = await admin.from("orders").select("specs").eq("id", orderId).maybeSingle();
-  return specsHaveFreeGround(data?.specs);
+  const { data } = await admin
+    .from("orders")
+    .select("specs, webhook_source")
+    .eq("id", orderId)
+    .maybeSingle();
+  return data ? orderQualifiesForFreeGround(data) : false;
 }

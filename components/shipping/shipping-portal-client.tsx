@@ -173,6 +173,8 @@ function rateKey(rate: FedExRateOption) {
     rate.quoteId ?? "",
     rate.serviceType,
     rate.priority ?? "",
+    // Same service can appear for two delivery days — never select both.
+    rate.deliveryDate ?? "",
   ].join(":");
 }
 

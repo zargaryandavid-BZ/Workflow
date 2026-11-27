@@ -246,10 +246,31 @@ export function isFedExHomeDeliveryRequiredError(message: string): boolean {
 }
 
 /** So the customer cannot pick Ground for a home (FedEx will reject the label). */
+/**
+ * FedEx returns some services twice when shipping before a weekend: a
+ * Saturday-delivery version and the regular one (W511 2026-11-27: First
+ * Overnight Sat $247 + Mon $226). We can't book Saturday delivery on the
+ * label, so keep only the regular (non-Saturday) one per service.
+ */
+export function dropSaturdayDuplicates(rates: FedExRateOption[]): FedExRateOption[] {
+  const isSaturday = (d: string | null | undefined) => {
+    if (!d) return false;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+    if (!m) return /saturday|\bsat\b/i.test(d);
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay() === 6;
+  };
+  const count = new Map<string, number>();
+  for (const r of rates) count.set(r.serviceType, (count.get(r.serviceType) ?? 0) + 1);
+  return rates.filter(
+    (r) => !((count.get(r.serviceType) ?? 0) > 1 && isSaturday(r.deliveryDate))
+  );
+}
+
 export function normalizeFedExRatesForAddress(
   rates: FedExRateOption[],
   residential: boolean | null | undefined
 ): FedExRateOption[] {
+  rates = dropSaturdayDuplicates(rates);
   if (residential === false) {
     return rates.filter((r) => !r.serviceType.toUpperCase().includes("HOME_DELIVERY"));
   }

@@ -215,7 +215,8 @@ export async function fetchFedExRates(args: {
   const accountNumber = (
     config.rateAccountNumber?.trim() || config.accountNumber!.trim()
   );
-  const residential = args.deliveryAddress.residential !== false;
+  // Business unless the customer marked the address Residential (Hayk 2026-11-27).
+  const residential = args.deliveryAddress.residential === true;
   const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
   const today = new Date();
@@ -540,7 +541,8 @@ export async function requestFedExShipment(
     args.billingAddress?.countryCode?.trim().toUpperCase() || "US";
   const country =
     (args.deliveryAddress.country ?? "US").trim().toUpperCase() || "US";
-  const residential = args.deliveryAddress.residential !== false;
+  // Business unless the customer marked the address Residential (Hayk 2026-11-27).
+  const residential = args.deliveryAddress.residential === true;
   const usingOwnBox = args.deliveryAddress.usingOwnBox !== false;
 
   const shipUrl = `${fedexBaseUrl(config)}/ship/v1/shipments`;

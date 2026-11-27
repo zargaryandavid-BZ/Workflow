@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyFreeGround, isFreeGroundEligibleRate, specsHaveFreeGround } from "./free-ground.ts";
+import { applyFreeGround, isFreeGroundEligibleRate, orderQualifiesForFreeGround, specsHaveFreeGround } from "./free-ground.ts";
 import type { FedExRateOption } from "./types.ts";
 
 const rate = (serviceType: string, totalCharge: number, extra: Partial<FedExRateOption> = {}): FedExRateOption => ({
@@ -25,5 +25,26 @@ describe("free ground", () => {
     assert.equal(specsHaveFreeGround({ free_ground_shipping: true }), true);
     assert.equal(specsHaveFreeGround({ free_ground_shipping: "true" }), false);
     assert.equal(specsHaveFreeGround(null), false);
+  });
+});
+
+describe("orderQualifiesForFreeGround (Hayk 2026-11-27, W511)", () => {
+  it("older website order $500+ without the flag qualifies", () => {
+    assert.equal(
+      orderQualifiesForFreeGround({
+        webhook_source: "website",
+        specs: { billing: { deposit: 1148.67, balance: 0 } },
+      }),
+      true
+    );
+  });
+  it("under $500, broker, or non-website does not", () => {
+    assert.equal(orderQualifiesForFreeGround({ webhook_source: "website", specs: { billing: { deposit: 499, balance: 0 } } }), false);
+    assert.equal(orderQualifiesForFreeGround({ webhook_source: "website", specs: { bazaar_broker_id: "b1", billing: { deposit: 900 } } }), false);
+    assert.equal(orderQualifiesForFreeGround({ webhook_source: "portal", specs: { billing: { deposit: 900 } } }), false);
+    assert.equal(orderQualifiesForFreeGround({ webhook_source: "crm", specs: { billing: { deposit: 900 } } }), false);
+  });
+  it("flag still wins", () => {
+    assert.equal(orderQualifiesForFreeGround({ webhook_source: "portal", specs: { free_ground_shipping: true } }), true);
   });
 });
