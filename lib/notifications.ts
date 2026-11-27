@@ -322,6 +322,7 @@ async function deliverNotification(
       customerId: params.order.customer_id,
       email: params.toEmail,
       phone: params.toPhone,
+      orderId: params.order.id,
     });
   }
 
@@ -683,6 +684,7 @@ export async function saveNotificationRequest(
       tenantId: params.order.tenant_id,
       customerId: params.order.customer_id,
       email: params.toEmail,
+      orderId: params.order.id,
     });
   }
 
