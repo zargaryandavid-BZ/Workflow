@@ -20,7 +20,7 @@ import {
   type TimeChip,
   type TimeChipSystemKey,
 } from "@/lib/time-chips";
-import { dueDateBadgeClass, dueDateStatus } from "@/lib/board-due-date";
+import { dueDateBadgeClass, dueDateStatus, isLateExemptColumn } from "@/lib/board-due-date";
 import { formatTimeInColumn } from "@/lib/card-warning-rules";
 import { formatWorkingHours } from "@/lib/working-hours";
 import { isShippedCustomerColumn } from "@/lib/shipped-customer-column";
@@ -114,11 +114,8 @@ export function OrderCardTimeChips({
 }: RenderArgs) {
   // Finished / shipped-to-customer / done columns are terminal — the job is
   // complete, so don't flag it "Late" or stuck.
-  const columnNm = (columnName ?? "").toLowerCase();
-  const isTerminalColumn =
-    columnKind === "done" ||
-    columnNm.includes("finished") ||
-    columnNm.includes("shipped customer");
+  // Late shows until the job has left production (shipped to customer, ready to ship, pickup, to be shipped, finished).
+  const isTerminalColumn = isLateExemptColumn(columnName);
   const awaitingCustomerApproval = isApprovalClockColumn({
     kind: columnKind,
     name: columnName,
