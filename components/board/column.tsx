@@ -408,24 +408,29 @@ export function Column({
         )}
         style={column.color ? { borderTopColor: column.color } : undefined}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            {column.color ? (
-              <span
-                className="h-3 w-3 shrink-0 rounded-full"
-                style={{ background: column.color }}
-              />
-            ) : null}
+        {/* Row 1: the stage name on its own line, never cut off (Hayk). */}
+        <div className="flex items-start gap-2">
+          {column.color ? (
             <span
-              className="truncate text-sm font-semibold text-slate-700"
-              title={column.name}
-            >
-              {column.name}
-            </span>
-            <span className="rounded-full bg-white px-1.5 text-xs font-medium text-slate-500">
-              {displayCount}
-            </span>
-          </div>
+              className="mt-1 h-3 w-3 shrink-0 rounded-full"
+              style={{ background: column.color }}
+            />
+          ) : null}
+          <span
+            className="min-w-0 break-words text-sm font-semibold leading-snug text-slate-700"
+            title={column.name}
+          >
+            {column.name}
+          </span>
+        </div>
+        {/* Row 2: count + sort / filters / actions. */}
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <span
+            className="shrink-0 rounded-full bg-white px-1.5 text-xs font-medium text-slate-500"
+            title="Cards in this stage"
+          >
+            {displayCount}
+          </span>
           <div className="flex items-center gap-0.5">
             <label className="sr-only" htmlFor={`col-sort-${column.id}`}>
               Sort {column.name}
@@ -515,20 +520,21 @@ export function Column({
           />
         ) : null}
 
+        {/* Who may move cards in / out of this stage (info only, not buttons). */}
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] font-medium text-slate-500">
           <span
             className="inline-flex items-center gap-0.5"
-            title="Roles that can drop orders into this stage"
+            title="Who can move cards INTO this stage"
           >
             <ArrowDownToLine className="h-3 w-3" />
-            {dropLabel(column.drop_in_roles)}
+            In: {dropLabel(column.drop_in_roles)}
           </span>
           <span
             className="inline-flex items-center gap-0.5"
-            title="Roles that can take orders out of this stage"
+            title="Who can move cards OUT of this stage"
           >
             <ArrowUpFromLine className="h-3 w-3" />
-            {dropLabel(column.drop_out_roles)}
+            Out: {dropLabel(column.drop_out_roles)}
           </span>
         </div>
       </div>
