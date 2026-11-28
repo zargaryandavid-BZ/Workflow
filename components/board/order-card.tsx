@@ -72,7 +72,7 @@ import {
   localDateInputValue,
 } from "@/lib/utils";
 import { getComboStock, COMBO_STOCK_LABELS } from "@/lib/combo-stock";
-import { dueDateStatus } from "@/lib/board-due-date";
+import { dueDateStatus, isLateExemptColumn } from "@/lib/board-due-date";
 import { ORDER_TAG_STYLES, orderTagsFromSpecs } from "@/lib/order-tags";
 import { useGdriveFolderStatus } from "@/lib/use-gdrive-folder-has-files";
 import { useOrderPdfCheck } from "@/lib/use-order-pdf-check";
@@ -1187,7 +1187,7 @@ export function OrderCard({
   // hid the proof status the team relies on).
   const proofReady = awaitingCustomerApproval && proofBuilt;
   const dueStatus = dueDateStatus(order.due_date, {
-    inDoneColumn: columnKind === "done",
+    inDoneColumn: isLateExemptColumn(columnName),
     specs: order.specs,
     // Design stages before approval too — the clock hasn't started there.
     awaitingCustomerApproval: isApprovalClockColumn({

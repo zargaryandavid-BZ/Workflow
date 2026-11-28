@@ -146,3 +146,13 @@ export function dueDateBadgeClass(status: DueDateStatus): string {
       return "";
   }
 }
+
+/**
+ * Columns where a job no longer gets the "Late" tag (Hayk 2026-11-28): only once it has left production —
+ * shipped to the customer, ready to ship, pickup / to be picked up, to be shipped, or finished.
+ * Every other column (including Finishing / Converting) keeps showing Late.
+ */
+export function isLateExemptColumn(columnName: string | null | undefined): boolean {
+  const n = String(columnName ?? "").toLowerCase();
+  return /finished|shipped\s*(to\s*)?customer|ready\s*to\s*ship|pick\s*-?\s*up|to\s*be\s*shipped/.test(n);
+}
